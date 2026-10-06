@@ -6,6 +6,7 @@ frames:
   asian: assets/sprites/interface/icon_frames/icon_frame_asian.png
   boss: assets/sprites/interface/icon_frames/icon_frame_boss.png
 icons:
+  icon_item_translocator: basic
   icon_item_wolf_pelt: basic
   icon_item_spider_silk: basic
   icon_item_fairy_dust: basic
@@ -364,3 +365,59 @@ icons:
   icon_technique_purify: basic
   icon_technique_quickening: basic
   icon_technique_return_step: basic
+  icon_item_solstice_fire_ward: basic
+  icon_item_solstice_water_ward: basic
+  icon_item_solstice_earth_ward: basic
+  icon_item_solstice_air_ward: basic
+  icon_item_solstice_fire_field_ward: basic
+  icon_item_solstice_water_field_ward: basic
+  icon_item_solstice_earth_field_ward: basic
+  icon_item_solstice_air_field_ward: basic
+  icon_item_solstice_fire_advanced_ward: basic
+  icon_item_solstice_water_advanced_ward: basic
+  icon_item_solstice_earth_advanced_ward: basic
+  icon_item_solstice_air_advanced_ward: basic
+  icon_item_brewed_solstice_fire_ward: basic
+  icon_item_brewed_solstice_fire_field_ward: basic
+  icon_item_brewed_solstice_water_ward: basic
+  icon_item_brewed_solstice_water_field_ward: basic
+  icon_item_brewed_solstice_earth_ward: basic
+  icon_item_brewed_solstice_earth_field_ward: basic
+  icon_item_brewed_solstice_air_ward: basic
+  icon_item_brewed_solstice_air_field_ward: basic
+  icon_item_solstice_living_ember: basic
+  icon_item_solstice_heat_resistant_fang: basic
+  icon_item_solstice_furnace_ceramic: basic
+  icon_item_solstice_furnace_bloom: basic
+  icon_item_solstice_condensed_tideglass: basic
+  icon_item_solstice_coldwater_gland: basic
+  icon_item_solstice_circulation_membrane: basic
+  icon_item_solstice_moonwater_lotus: basic
+  icon_item_solstice_anchor_crystal: basic
+  icon_item_solstice_mineral_plate: basic
+  icon_item_solstice_petrified_conductor: basic
+  icon_item_solstice_deepvein_moss: basic
+  icon_item_solstice_bound_breath: basic
+  icon_item_solstice_charged_quill: basic
+  icon_item_solstice_resonance_coil: basic
+  icon_item_solstice_sky_reed: basic
+  icon_item_solstice_thermal_core: boss
+  icon_item_solstice_flow_core: boss
+  icon_item_solstice_anchor_core: boss
+  icon_item_solstice_vector_core: boss
+  icon_item_solstice_sun_resin: basic
+  icon_item_solstice_rain_pearl: basic
+  icon_item_solstice_calendar_jade: basic
+  icon_item_solstice_whisper_silk: basic
+  icon_weapon_solstice_thermal_lance: boss
+  icon_weapon_solstice_flowstaff: boss
+  icon_weapon_solstice_anchor_hammer: boss
+  icon_weapon_solstice_transfer_blade: boss
+  icon_item_solstice_heatshield_mantle: boss
+  icon_item_solstice_ember_regulator_ring: boss
+  icon_item_solstice_circulation_vestment: boss
+  icon_item_solstice_tideglass_signet: boss
+  icon_item_solstice_deepstone_aegis: boss
+  icon_item_solstice_loadbearer_girdle: boss
+  icon_item_solstice_vector_boots: boss
+  icon_item_solstice_resonance_diadem: boss

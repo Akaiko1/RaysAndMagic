@@ -2,9 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"strings"
+	"reflect"
 	"testing"
 	"ugataima/internal/boot"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/items"
@@ -19,7 +20,7 @@ func TestEditorCardsWired(t *testing.T) {
 	for _, cards := range [][]contentCard{buildItemsCards(), buildSpellCards()} {
 		for _, c := range cards {
 			t.Run(c.key, func(t *testing.T) {
-				var want string
+				var want character.CardRows
 				var it items.Item
 				switch c.kind {
 				case cardWeapon:
@@ -29,31 +30,45 @@ func TestEditorCardsWired(t *testing.T) {
 				case cardSpell:
 					if trap, ok := config.TrapItem(c.key); ok {
 						it = trap
+					} else if technique, ok := config.TechniqueItem(c.key); ok {
+						it = technique
 					} else {
 						var err error
 						it, err = spells.CreateSpellItem(spells.SpellID(c.key))
 						if err != nil {
 							t.Fatal(err)
 						}
-						want = game.GetSpellTooltip(spells.SpellID(c.key), nil, nil, true)
+						want = game.GetSpellTooltipRows(spells.SpellID(c.key), nil, nil, true)
 					}
 				}
-				if want == "" {
-					want = game.GetItemTooltip(it, nil, nil, true)
+				if len(want) == 0 {
+					want = game.GetItemTooltipRows(it, nil, nil, true)
 				}
-				if got := strings.Join(c.tooltipRows, "\n"); got != want {
-					t.Fatalf("catalog differs from shared base tooltip:\n%s\nwant:\n%s", got, want)
+				if got := c.tooltipRows; !reflect.DeepEqual(got, want) {
+					t.Fatalf("catalog differs from shared base tooltip:\n%s\nwant:\n%s", got.String(), want.String())
 				}
+				assertEditorTooltipRoles(t, &c)
 				before, _ := json.Marshal(it)
 				saved := cardForSavedItem(it)
-				if got := strings.Join(saved.tooltipRows, "\n"); got != game.GetItemTooltip(it, nil, nil, true) {
-					t.Fatalf("save item differs from shared base tooltip:\n%s", got)
+				if got := saved.tooltipRows; !reflect.DeepEqual(got, game.GetItemTooltipRows(it, nil, nil, true)) {
+					t.Fatalf("save item differs from shared base tooltip:\n%s", got.String())
 				}
+				assertEditorTooltipRoles(t, &saved)
 				after, _ := json.Marshal(it)
 				if string(before) != string(after) {
 					t.Fatal("save hover mutated the item")
 				}
 			})
+		}
+	}
+	// Every technique has a catalog card.
+	listed := map[string]bool{}
+	for _, c := range buildSpellCards() {
+		listed[c.key] = true
+	}
+	for _, d := range config.GlobalTechniques.Techniques {
+		if !listed[d.Key] {
+			t.Errorf("technique %s is missing from the catalog", d.Key)
 		}
 	}
 	// Starting equipment hovers resolve through these same catalogs.
@@ -74,5 +89,22 @@ func TestEditorCardsWired(t *testing.T) {
 				t.Errorf("%s: missing equipment/spell tooltip for %s", ch.portrait, row.text)
 			}
 		}
+	}
+}
+
+func assertEditorTooltipRoles(t *testing.T, card *contentCard) {
+	t.Helper()
+	rendered := cardTooltipLines(card)
+	index := 0
+	for _, row := range card.tooltipRows {
+		for _, fragment := range wrapTooltipLines(row.Text, 80) {
+			if index >= len(rendered) || rendered[index].kind != row.Kind || rendered[index].text != fragment {
+				t.Fatalf("editor lost %v role while wrapping %q", row.Kind, row.Text)
+			}
+			index++
+		}
+	}
+	if index != len(rendered) {
+		t.Fatal("editor added unauthored rows")
 	}
 }

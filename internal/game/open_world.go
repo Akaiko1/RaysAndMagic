@@ -65,29 +65,65 @@ func mapKeyOnCurrentWorld(mapKey string) bool {
 // mapKeyAtTile resolves a runtime tile to its logical map. On split maps this
 // is the current map; on the unified world the tile's region is authoritative.
 func (g *MMGame) mapKeyAtTile(tx, ty int) string {
-	if g.openWorldActive() {
-		if r := world.GlobalWorldManager.OpenWorldRegionAtTile(tx, ty); r != nil {
-			return r.MapKey
-		}
-	}
-	if wm := world.GlobalWorldManager; wm != nil && g.world != nil {
-		for key, w := range wm.LoadedMaps {
-			if w == g.world {
-				return key
-			}
+	return g.mapKeyAtWorldTile(g.world, tx, ty)
+}
+
+// mapKeyAtWorldTile is mapKeyAtTile for any loaded world.
+func (g *MMGame) mapKeyAtWorldTile(w *world.World3D, tx, ty int) string {
+	if wm := world.GlobalWorldManager; wm != nil {
+		if key := wm.MapKeyAt(w, tx, ty); key != "" {
+			return key
 		}
 	}
 	return currentMapKey()
 }
 
-// questKillMapKey attributes a kill to a map for quest scoping: the region
-// the monster died in on the unified world (a projectile fired across a seam
-// must credit the victim's region, not the party's), the current map key
-// otherwise.
+// monsterHomeMap is the map a monster of world w belongs to for target_map
+// quests: where it was created, wherever it has wandered since. A monster
+// with no recorded home belongs where it stands.
+func (g *MMGame) monsterHomeMap(w *world.World3D, m *monster.Monster3D) string {
+	if m.HomeMap != "" {
+		return m.HomeMap
+	}
+	ts := g.config.GetTileSize()
+	return g.mapKeyAtWorldTile(w, TileIndex(m.X, ts), TileIndex(m.Y, ts))
+}
+
+// monsterIsFrom reports whether a monster of world w counts for mapKey's
+// target_map quests: its home is mapKey, or, with no recorded home, it stands
+// on mapKey.
+func (g *MMGame) monsterIsFrom(w *world.World3D, m *monster.Monster3D, mapKey string) bool {
+	if m.HomeMap != "" {
+		return m.HomeMap == mapKey
+	}
+	wm := world.GlobalWorldManager
+	if wm == nil {
+		return true
+	}
+	if wm.WorldByKey(mapKey) != w {
+		return false
+	}
+	if r := wm.OpenWorldRegionByKey(mapKey); r != nil {
+		ts := g.config.GetTileSize()
+		return wm.OpenWorldRegionAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) == r
+	}
+	return true
+}
+
+// stampMonsterHome records a new monster's home from the tile it appears on,
+// unless its spawner already named one.
+func (g *MMGame) stampMonsterHome(w *world.World3D, m *monster.Monster3D) {
+	if m.HomeMap == "" {
+		m.HomeMap = g.monsterHomeMap(w, m)
+	}
+}
+
+// questKillMapKey attributes a kill to a map for quest scoping: the victim's
+// home, so a forest spider that chased the party into the desert still counts
+// for the forest lake.
 func (g *MMGame) questKillMapKey(m *monster.Monster3D) string {
 	if m != nil {
-		ts := g.config.GetTileSize()
-		return g.mapKeyAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts))
+		return g.monsterHomeMap(g.world, m)
 	}
 	return currentMapKey()
 }

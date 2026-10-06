@@ -487,7 +487,6 @@ func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*Per
 			damageTypeStr,
 		)
 		attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, z.ResistPierce, nil, zoneSourceName(spellID), false, true, false)
-		attack.IgnoreArmor = true
 		actual := cs.applyPartyMonsterAttack(m, attack).Total()
 		cs.reportIndirectHit(m, actual, zoneSourceName(spellID))
 		if damageTypeStr == damagecalc.Water.String() {
@@ -576,7 +575,7 @@ func (gl *GameLoop) advancePersistentDamageZones(elapsedFrames int) {
 			maxLeft[z.SpellID] = z.FramesLeft
 		}
 		// Ambient steam is now a per-tile procedural bubble field drawn each
-		// frame (Renderer.drawPersistentDamageZoneEffects) - no sparse particle spawns here.
+		// frame through the sorted sprite pass - no sparse particle spawns here.
 		zones[w] = *z
 		w++
 	}

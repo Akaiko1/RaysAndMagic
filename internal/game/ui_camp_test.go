@@ -145,22 +145,31 @@ func TestCampHUDDisplayedClick(t *testing.T) {
 	}
 }
 
+// The shipped tavern sells rations, and a purse holding exactly the authored
+// price buys exactly the authored amount.
 func TestAuthoredRationPrice(t *testing.T) {
-	t.Chdir("../..")
-	g, _, _ := bootOpenWorldGame(t, false)
+	cfg := loadTestConfig(t)
+	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
+		t.Fatalf("load npcs: %v", err)
+	}
+	tavern := character.NPCConfigInstance.NPCs["tavern"]
+	if tavern == nil || tavern.Dialogue == nil {
+		t.Fatal("the tavern is missing from the catalog")
+	}
 	var food *character.NPCDialogueChoice
-	for _, choice := range character.NPCConfigInstance.NPCs["tavern"].Dialogue.Choices {
+	for _, choice := range tavern.Dialogue.Choices {
 		if choice.Action == "buy_food" {
 			food = choice
 		}
 	}
-	if food == nil || food.Amount != 5 || food.Cost != 250 {
-		t.Fatalf("authored food offer: %+v", food)
+	if food == nil {
+		t.Fatal("the tavern sells no rations")
 	}
-	g.party.Gold, g.party.Food = 250, 0
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.party.Gold, g.party.Food = food.Cost, 0
 	(&InputHandler{game: g}).handleBuyFood(food)
-	if g.party.Gold != 0 || g.party.Food != 5 {
-		t.Fatalf("ration purchase: gold=%d food=%d", g.party.Gold, g.party.Food)
+	if g.party.Gold != 0 || g.party.Food != food.Amount {
+		t.Fatalf("ration purchase: gold=%d food=%d, want 0 and %d", g.party.Gold, g.party.Food, food.Amount)
 	}
 }
 

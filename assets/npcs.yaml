@@ -11,6 +11,577 @@
 # The key corresponds to an NPC definition in this file
 
 npcs:
+  solstice_fire_coolant_west:
+    name: "Coolant West"
+    type: "encounter"
+    sprite: "solstice_coolant_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The archive stair glows above the broken crossing. This wheel feeds its cooling pipes and the western side of the regulator hall."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Cool the archive vent, kiln channel and western arena strip.", "action": "adventure_control", "control": "coolant_west"}, {"text": "Leave.", "action": "leave"}]
+  solstice_fire_coolant_east:
+    name: "Coolant East"
+    type: "encounter"
+    sprite: "solstice_coolant_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "Two pipes leave this valve: one for the eastern floor strip, one for the lower firing row. Both are hot enough to discourage bare hands."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Bleed the eastern strip and lower firing row.", "action": "adventure_control", "control": "coolant_east"}, {"text": "Leave.", "action": "leave"}]
+  solstice_fire_exit:
+    name: "Receiving Threshold"
+    type: "encounter"
+    sprite: "solstice_exit_arch"
+    render_category: "wall_mounted"
+    transparent: true
+    size_class: "full_tile"
+    dialogue:
+      greeting: "A numbered bronze fitting marks the passage."
+      choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
+  solstice_fire_cache:
+    name: "Service Archive Cache"
+    type: "loot_crate"
+    sprite: "solstice_archive_cache"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+  solstice_water_intake_sluice:
+    name: "Intake Sluice"
+    type: "encounter"
+    sprite: "solstice_sluice_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "A blue supply pipe runs from this sluice toward Neressa's chamber. Closing it will starve her healing reservoir."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Close Neressa's healing intake.", "action": "adventure_control", "control": "intake_sluice"}, {"text": "Leave.", "action": "leave"}]
+  solstice_water_return_sluice:
+    name: "Return Sluice"
+    type: "encounter"
+    sprite: "solstice_sluice_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The return pipe bears the entrance seal. Unlock it, then step onto the marked water just beyond this console to return to the entrance."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Open the current to the chamber entrance.", "action": "adventure_control", "control": "return_sluice"}, {"text": "Leave.", "action": "leave"}]
+  solstice_water_exit:
+    name: "Receiving Threshold"
+    type: "encounter"
+    sprite: "solstice_exit_arch"
+    render_category: "wall_mounted"
+    transparent: true
+    size_class: "full_tile"
+    dialogue:
+      greeting: "A numbered bronze fitting marks the passage."
+      choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
+  solstice_water_cache:
+    name: "Service Archive Cache"
+    type: "loot_crate"
+    sprite: "solstice_archive_cache"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+  solstice_earth_security_bypass:
+    name: "Security Bypass"
+    type: "encounter"
+    sprite: "solstice_brace_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "Pressure plates span the gallery ahead. The circuit has no service handle; disarm it, leap across, or endure the impact."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_0"}, {"text": "Leave.", "action": "leave"}]
+  solstice_earth_brace_one:
+    name: "Brace One"
+    type: "encounter"
+    sprite: "solstice_brace_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "This brace bears Talura's armor load. Releasing it weakens her shell. A separate fuse controls the pressure plates in the southern gallery."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Release Talura's armor brace.", "action": "adventure_control", "control": "brace_one"}, {"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_1"}, {"text": "Leave.", "action": "leave"}]
+  solstice_earth_brace_two:
+    name: "Brace Two"
+    type: "encounter"
+    sprite: "solstice_brace_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The north brace feeds a pressure plate and the lower firing row. Locking it will silence both."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Lock the north plate and lower firing row.", "action": "adventure_control", "control": "brace_two"}, {"text": "Leave.", "action": "leave"}]
+  solstice_earth_brace_three:
+    name: "Brace Three"
+    type: "encounter"
+    sprite: "solstice_brace_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The south brace carries the regulator's final shock through the floor. Lock it before Talura grows desperate."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Lock the south plate and final ground shock.", "action": "adventure_control", "control": "brace_three"}, {"text": "Leave.", "action": "leave"}]
+  solstice_earth_exit:
+    name: "Receiving Threshold"
+    type: "encounter"
+    sprite: "solstice_exit_arch"
+    render_category: "wall_mounted"
+    transparent: true
+    size_class: "full_tile"
+    dialogue:
+      greeting: "A numbered bronze fitting marks the passage."
+      choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
+  solstice_earth_cache:
+    name: "Service Archive Cache"
+    type: "loot_crate"
+    sprite: "solstice_archive_cache"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+  solstice_air_gallery_vane:
+    name: "Gallery Vane"
+    type: "encounter"
+    sprite: "solstice_vane_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "A bronze vane points across the dark shaft. Its brake is still locked."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "gallery_vane"}, {"text": "Leave.", "action": "leave"}]
+  solstice_air_hub_vane:
+    name: "Hub Vane"
+    type: "encounter"
+    sprite: "solstice_vane_control"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The hub feeds the return crossing and two escape currents inside the arena. Release the brake; the green marks show where each current lands."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Open the return crossing and arena escape currents.", "action": "adventure_control", "control": "hub_vane"}, {"text": "Leave.", "action": "leave"}]
+  solstice_air_exit:
+    name: "Receiving Threshold"
+    type: "encounter"
+    sprite: "solstice_exit_arch"
+    render_category: "wall_mounted"
+    transparent: true
+    size_class: "full_tile"
+    dialogue:
+      greeting: "A numbered bronze fitting marks the passage."
+      choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
+  solstice_air_cache:
+    name: "Service Archive Cache"
+    type: "loot_crate"
+    sprite: "solstice_archive_cache"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+  solstice_survey_marker_1:
+    name: "Survey Marker 1"
+    type: "encounter"
+    sprite: "solstice_survey_marker"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Survey Marker 1.", "action": "prop", "quest_id": "solstice_survey", "prop": {"tag": "solstice_survey", "token": "marker_1", "not_yet": "Velna has not asked for this work yet.", "took": "Survey Marker 1 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_survey_marker_2:
+    name: "Survey Marker 2"
+    type: "encounter"
+    sprite: "solstice_survey_marker"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Survey Marker 2.", "action": "prop", "quest_id": "solstice_survey", "prop": {"tag": "solstice_survey", "token": "marker_2", "not_yet": "Velna has not asked for this work yet.", "took": "Survey Marker 2 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_survey_marker_3:
+    name: "Survey Marker 3"
+    type: "encounter"
+    sprite: "solstice_survey_marker"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Survey Marker 3.", "action": "prop", "quest_id": "solstice_survey", "prop": {"tag": "solstice_survey", "token": "marker_3", "not_yet": "Velna has not asked for this work yet.", "took": "Survey Marker 3 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_expedition_instrument:
+    name: "Instrument"
+    type: "encounter"
+    sprite: "solstice_survey_instrument"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Instrument.", "action": "prop", "quest_id": "solstice_expedition", "prop": {"tag": "solstice_expedition", "token": "instrument", "not_yet": "Velna has not asked for this work yet.", "took": "Instrument is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_expedition_page_1:
+    name: "Page 1"
+    type: "encounter"
+    sprite: "solstice_field_notes"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Page 1.", "action": "prop", "quest_id": "solstice_expedition", "prop": {"tag": "solstice_expedition", "token": "page_1", "not_yet": "Velna has not asked for this work yet.", "took": "Page 1 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_expedition_page_2:
+    name: "Page 2"
+    type: "encounter"
+    sprite: "solstice_field_notes"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Page 2.", "action": "prop", "quest_id": "solstice_expedition", "prop": {"tag": "solstice_expedition", "token": "page_2", "not_yet": "Velna has not asked for this work yet.", "took": "Page 2 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_expedition_page_3:
+    name: "Page 3"
+    type: "encounter"
+    sprite: "solstice_field_notes"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Page 3.", "action": "prop", "quest_id": "solstice_expedition", "prop": {"tag": "solstice_expedition", "token": "page_3", "not_yet": "Velna has not asked for this work yet.", "took": "Page 3 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_anchors_recover_fire:
+    name: "Fire Bearing"
+    type: "encounter"
+    sprite: "solstice_fire_socket"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Fire Bearing.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "recover_fire", "not_yet": "Velna has not asked for this work yet.", "took": "Fire Bearing is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_anchors_install_fire:
+    name: "Fire Socket"
+    type: "encounter"
+    sprite: "solstice_fire_socket"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Fire Socket.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "install_fire", "not_yet": "Velna has not asked for this work yet.", "took": "Fire Socket is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_anchors_recover_water:
+    name: "Water Bearing"
+    type: "encounter"
+    sprite: "solstice_water_socket"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Water Bearing.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "recover_water", "not_yet": "Velna has not asked for this work yet.", "took": "Water Bearing is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_anchors_install_water:
+    name: "Water Socket"
+    type: "encounter"
+    sprite: "solstice_water_socket"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Water Socket.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "install_water", "not_yet": "Velna has not asked for this work yet.", "took": "Water Socket is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_anchors_recover_earth:
+    name: "Earth Bearing"
+    type: "encounter"
+    sprite: "solstice_earth_socket"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Earth Bearing.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "recover_earth", "not_yet": "Velna has not asked for this work yet.", "took": "Earth Bearing is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_anchors_install_earth:
+    name: "Earth Socket"
+    type: "encounter"
+    sprite: "solstice_earth_socket"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Earth Socket.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "install_earth", "not_yet": "Velna has not asked for this work yet.", "took": "Earth Socket is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_anchors_recover_air:
+    name: "Air Bearing"
+    type: "encounter"
+    sprite: "solstice_air_socket"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Air Bearing.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "recover_air", "not_yet": "Velna has not asked for this work yet.", "took": "Air Bearing is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_anchors_install_air:
+    name: "Air Socket"
+    type: "encounter"
+    sprite: "solstice_air_socket"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Air Socket.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "install_air", "not_yet": "Velna has not asked for this work yet.", "took": "Air Socket is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_schedule_day_reading:
+    name: "Day Reading"
+    type: "encounter"
+    sprite: "solstice_console"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Day Reading.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "day_reading", "not_yet": "Velna has not asked for this work yet.", "took": "Day Reading is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_schedule_night_reading:
+    name: "Night Reading"
+    type: "encounter"
+    sprite: "solstice_console"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Night Reading.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "night_reading", "not_yet": "Velna has not asked for this work yet.", "took": "Night Reading is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_schedule_alignment:
+    name: "Schedule Disc"
+    type: "encounter"
+    sprite: "solstice_console"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Set position 1.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "1"}}, {"text": "Set position 2.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "2"}}, {"text": "Set position 3.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "3"}}, {"text": "Set position 4.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "4"}}, {"text": "Set position 5.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "5"}}, {"text": "Set position 6.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "6"}}, {"text": "Set position 7.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "7"}}, {"text": "Leave.", "action": "leave"}]
+  solstice_connection_receiver:
+    name: "Receiving Anchor"
+    type: "encounter"
+    sprite: "solstice_receiver"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The service plate bears a precise numbered mark."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Receiving Anchor.", "action": "prop", "quest_id": "solstice_connection", "prop": {"tag": "solstice_connection", "token": "receiver", "not_yet": "Velna has not asked for this work yet.", "took": "Receiving Anchor is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_records_fire_record:
+    name: "Record 1"
+    type: "encounter"
+    sprite: "solstice_sera"
+    render_category: "npc"
+    transparent: true
+    size_class: "person"
+    dialogue:
+      greeting: "Sera's recording: The empty test chamber reached its second coordinate. Heat rose with every transfer. Cooling review requested."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Record 1.", "action": "prop", "quest_id": "solstice_records", "prop": {"tag": "solstice_records", "token": "fire_record", "not_yet": "Velna has not asked for this work yet.", "took": "Record 1 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_records_water_record:
+    name: "Record 2"
+    type: "encounter"
+    sprite: "solstice_sera"
+    render_category: "npc"
+    transparent: true
+    size_class: "person"
+    dialogue:
+      greeting: "Sera's recording: The receiving water clock loses time against the entrance clock. The discrepancy follows a repeating phase. Begin timed re-entry tests."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Record 2.", "action": "prop", "quest_id": "solstice_records", "prop": {"tag": "solstice_records", "token": "water_record", "not_yet": "Velna has not asked for this work yet.", "took": "Record 2 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_records_earth_record:
+    name: "Record 3"
+    type: "encounter"
+    sprite: "solstice_sera"
+    render_category: "npc"
+    transparent: true
+    size_class: "person"
+    dialogue:
+      greeting: "Sera's recording: The anchors hold the walls. The passage floor is no longer continuous. Work from both sides; do not trust the surveyed distance."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Record 3.", "action": "prop", "quest_id": "solstice_records", "prop": {"tag": "solstice_records", "token": "earth_record", "not_yet": "Velna has not asked for this work yet.", "took": "Record 3 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_records_air_record:
+    name: "Record 4"
+    type: "encounter"
+    sprite: "solstice_sera"
+    render_category: "npc"
+    transparent: true
+    size_class: "person"
+    dialogue:
+      greeting: "Sera's recording: The return signal arrived before departure. Seal the entrance on the seven-day schedule. Final diagnosis pending."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Record Record 4.", "action": "prop", "quest_id": "solstice_records", "prop": {"tag": "solstice_records", "token": "air_record", "not_yet": "Velna has not asked for this work yet.", "took": "Record 4 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
+  solstice_velna:
+    name: "Velna"
+    type: "quest_giver"
+    sprite: "solstice_velna"
+    render_category: "npc"
+    size_class: "person"
+    dialogue:
+      greeting: "My markers are still where I left them. The distance between them has changed. Measure all three before I accuse the compass."
+      active_message: "Bring back what the instrument actually says."
+      completed_message: "The numbers agree with the evidence. Here is your pay."
+      visited_message: "The final diagnosis is still missing. The instruments have given us enough to keep looking."
+      quest_messages:
+        solstice_survey:
+          offer: "My markers have moved without moving. Read all three; I need a second pair of eyes."
+          active: "Read three distinct survey markers on the approach, then report to Velna."
+          completed: "The numbers disagree in the same places. A mistake usually has less discipline."
+        solstice_expedition:
+          offer: "Tovan's expedition left two camps behind. Find the measuring wheel and three journal pages. Leave the moldy provisions where they lie."
+          active: "Recover the measuring instrument and three separate journal pages from the abandoned camps."
+          completed: "Same doorway, different rooms. That explains the journal. Tovan will open his supply chest."
+        solstice_anchors:
+          offer: "Four bearings are missing from the entrance sockets. One lies at each maintenance site. Recover them and match the engraved fittings."
+          active: "Recover four calibration bearings and install each in its matching entrance socket."
+          completed: "The rings are moving. The installation has accepted our repairs."
+        solstice_schedule:
+          offer: "The door answers to a clock. Read its disc by day and by night. The journal gives the alignment order: one through seven."
+          active: "Read the calibration disc by day and night, then align its seven positions in timetable order."
+          completed: "Seven positions, two phases. We can predict the destination now."
+        solstice_connection:
+          offer: "The far platform is sound. Its connecting step is absent. Cross from the west with Jump or Fold Step, then activate the Receiving Anchor on the far platform."
+          active: "Cross the broken connection and activate the Receiving Anchor. Bring me its reply."
+          completed: "The receiver holds. The chambers are accessible on their appointed schedule."
+        solstice_records:
+          offer: "Each regulator holds the result of its last experiment. Defeat all four and read their records. We need their observations before we repeat their mistake."
+          active: "Defeat all four regulators and read each surviving experiment record. Return to Velna."
+          completed: "A transfer, a drifting clock, a broken connection, and a return signal arriving first. We have the sequence, but not their final diagnosis."
+      choices: [{"text": "We will investigate: The Surveyor's Contradiction.", "action": "give_quest", "quest_id": "solstice_survey"}, {"text": "Report: The Surveyor's Contradiction.", "action": "turn_in_quest", "quest_id": "solstice_survey"}, {"text": "We will investigate: The Missing Expedition.", "action": "give_quest", "quest_id": "solstice_expedition", "requires_quest": "solstice_survey"}, {"text": "Report: The Missing Expedition.", "action": "turn_in_quest", "quest_id": "solstice_expedition", "requires_quest": "solstice_survey"}, {"text": "We will investigate: Four Anchor Points.", "action": "give_quest", "quest_id": "solstice_anchors", "requires_quest": "solstice_expedition"}, {"text": "Report: Four Anchor Points.", "action": "turn_in_quest", "quest_id": "solstice_anchors", "requires_quest": "solstice_expedition"}, {"text": "We will investigate: The Engineers' Schedule.", "action": "give_quest", "quest_id": "solstice_schedule", "requires_quest": "solstice_anchors"}, {"text": "Report: The Engineers' Schedule.", "action": "turn_in_quest", "quest_id": "solstice_schedule", "requires_quest": "solstice_anchors"}, {"text": "We will investigate: The Broken Connection.", "action": "give_quest", "quest_id": "solstice_connection", "requires_quest": "solstice_schedule"}, {"text": "Report: The Broken Connection.", "action": "turn_in_quest", "quest_id": "solstice_connection", "requires_quest": "solstice_schedule"}, {"text": "We will investigate: The Four Experiment Records.", "action": "give_quest", "quest_id": "solstice_records", "requires_quest": "solstice_connection"}, {"text": "Report: The Four Experiment Records.", "action": "turn_in_quest", "quest_id": "solstice_records", "requires_quest": "solstice_connection"}, {"text": "Leave.", "action": "leave"}]
+  solstice_tovan:
+    name: "Tovan"
+    type: "merchant"
+    sprite: "solstice_tovan"
+    render_category: "npc"
+    size_class: "person"
+    sell_available: true
+    shop_dialogue: true
+    requires_quest: "solstice_expedition"
+    stock_refresh_weeks: 0
+    inventory: [{"type": "item", "name": "Translocator", "cost": 25000, "quantity": 1}, {"type": "item", "name": "Heat Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Flow Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Anchor Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Vector Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Mana Potion", "cost": 70, "quantity": 2}]
+    dialogue:
+      quest_greeting: "Recover the expedition instrument and pages for Velna first. Until then these supplies belong to the missing surveyors."
+      greeting: "I counted the supplies twice. The expedition is still missing. If you go after them, bring back the measuring wheel; it cost more than their tents."
+      visited_message: "The stock is dry, labelled, and paid for. That makes it a considerable improvement on the ruins."
+      choices: [{"text": "Teach Jump to the selected hero (1000 gold).", "action": "teach_spell", "spell": "jump", "cost": 1000, "requires_quest": "solstice_schedule"}, {"text": "Accept Fire supply commission.", "action": "give_quest", "quest_id": "solstice_fire_commission", "requires_quest": "solstice_records"}, {"text": "Deliver three Heat Resistant Fang.", "action": "prop", "quest_id": "solstice_fire_commission", "prop": {"tag": "solstice_fire_commission", "token": "delivery", "not_yet": "Take the commission first.", "took": "Tovan checks the consignment.", "completed": "The supplies are in order. Claim your payment."}}, {"text": "Claim Fire commission payment.", "action": "turn_in_quest", "quest_id": "solstice_fire_commission"}, {"text": "Exchange 1 Thermal Core and 2 Furnace Ceramic for an Advanced Heat Draught.", "action": "exchange", "requires_quest": "solstice_records", "exchange": {"output": "solstice_fire_advanced_ward", "costs": {"solstice_thermal_core": 1, "solstice_furnace_ceramic": 2}}}, {"text": "Accept Water supply commission.", "action": "give_quest", "quest_id": "solstice_water_commission", "requires_quest": "solstice_records"}, {"text": "Deliver three Coldwater Gland.", "action": "prop", "quest_id": "solstice_water_commission", "prop": {"tag": "solstice_water_commission", "token": "delivery", "not_yet": "Take the commission first.", "took": "Tovan checks the consignment.", "completed": "The supplies are in order. Claim your payment."}}, {"text": "Claim Water commission payment.", "action": "turn_in_quest", "quest_id": "solstice_water_commission"}, {"text": "Exchange 1 Flow Core and 2 Circulation Membrane for an Advanced Flow Draught.", "action": "exchange", "requires_quest": "solstice_records", "exchange": {"output": "solstice_water_advanced_ward", "costs": {"solstice_flow_core": 1, "solstice_circulation_membrane": 2}}}, {"text": "Accept Earth supply commission.", "action": "give_quest", "quest_id": "solstice_earth_commission", "requires_quest": "solstice_records"}, {"text": "Deliver three Mineral Plate.", "action": "prop", "quest_id": "solstice_earth_commission", "prop": {"tag": "solstice_earth_commission", "token": "delivery", "not_yet": "Take the commission first.", "took": "Tovan checks the consignment.", "completed": "The supplies are in order. Claim your payment."}}, {"text": "Claim Earth commission payment.", "action": "turn_in_quest", "quest_id": "solstice_earth_commission"}, {"text": "Exchange 1 Anchor Core and 2 Petrified Conductor for an Advanced Anchor Draught.", "action": "exchange", "requires_quest": "solstice_records", "exchange": {"output": "solstice_earth_advanced_ward", "costs": {"solstice_anchor_core": 1, "solstice_petrified_conductor": 2}}}, {"text": "Accept Air supply commission.", "action": "give_quest", "quest_id": "solstice_air_commission", "requires_quest": "solstice_records"}, {"text": "Deliver three Charged Quill.", "action": "prop", "quest_id": "solstice_air_commission", "prop": {"tag": "solstice_air_commission", "token": "delivery", "not_yet": "Take the commission first.", "took": "Tovan checks the consignment.", "completed": "The supplies are in order. Claim your payment."}}, {"text": "Claim Air commission payment.", "action": "turn_in_quest", "quest_id": "solstice_air_commission"}, {"text": "Exchange 1 Vector Core and 2 Resonance Coil for an Advanced Vector Draught.", "action": "exchange", "requires_quest": "solstice_records", "exchange": {"output": "solstice_air_advanced_ward", "costs": {"solstice_vector_core": 1, "solstice_resonance_coil": 2}}}, {"text": "Exchange 1 Grave Orchid for 900 gold.", "action": "exchange", "exchange": {"gold": 900, "costs": {"grave_orchid": 1}}}, {"text": "Exchange 2 Bitterroots for 1 Dawnleaf.", "action": "exchange", "exchange": {"output": "dawnleaf", "costs": {"bitterroot": 2}}}, {"text": "Leave.", "action": "leave"}]
+  solstice_camp:
+    name: "Survey Camp"
+    type: "encounter"
+    sprite: "solstice_camp_supplies"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "Dry canvas shelters a small fire and a reliable clock."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Wait until dusk (250 gold).", "action": "wait_until_night", "cost": 250}, {"text": "Wait until dawn (250 gold).", "action": "wait_until_dawn", "cost": 250}, {"text": "Take the restored service lift to the threshold.", "action": "enter_map", "map": "solstice_vestibule", "arrival_tile": [12, 7], "requires_quest": "solstice_records"}, {"text": "Leave.", "action": "leave"}]
+  solstice_jungle_entrance:
+    name: "Solstice Approach"
+    type: "encounter"
+    sprite: "solstice_ruins_facade"
+    render_category: "wide_landmark"
+    grid_span_tiles: 4
+    grid_span_dir: "s"
+    wall_backed: true
+    crystal_shimmer:
+      interval_seconds: 5
+      duration_seconds: 1.4
+      crystals:
+        - {center: [0.3574, 0.5445], radius: [0.014, 0.028], color: [255, 65, 30]}
+        - {center: [0.3574, 0.6945], radius: [0.014, 0.028], color: [55, 170, 255]}
+        - {center: [0.6424, 0.5445], radius: [0.014, 0.028], color: [40, 255, 145]}
+        - {center: [0.6424, 0.6945], radius: [0.014, 0.028], color: [255, 190, 30]}
+    prompt_verb: enter
+    transparent: true
+    size_class: "structure"
+    dialogue:
+      greeting: "A numbered bronze fitting marks the passage."
+      choices: [{"text": "Enter Solstice Approach.", "action": "enter_map", "map": "solstice_approach"}, {"text": "Stay here.", "action": "leave"}]
+  solstice_approach_exit:
+    name: "Deep Jungle"
+    type: "encounter"
+    sprite: "solstice_exit_arch"
+    render_category: "landmark"
+    transparent: true
+    size_class: "structure"
+    dialogue:
+      greeting: "A numbered bronze fitting marks the passage."
+      choices: [{"text": "Enter Deep Jungle.", "action": "enter_map", "map": "deep_jungle"}, {"text": "Stay here.", "action": "leave"}]
+  solstice_vestibule_entrance:
+    name: "Calibration Vestibule"
+    type: "encounter"
+    sprite: "solstice_ruins_facade"
+    render_category: "wide_landmark"
+    grid_span_tiles: 4
+    grid_span_dir: "e"
+    wall_backed: true
+    crystal_shimmer:
+      interval_seconds: 5
+      duration_seconds: 1.4
+      crystals:
+        - {center: [0.3574, 0.5445], radius: [0.014, 0.028], color: [255, 65, 30]}
+        - {center: [0.3574, 0.6945], radius: [0.014, 0.028], color: [55, 170, 255]}
+        - {center: [0.6424, 0.5445], radius: [0.014, 0.028], color: [40, 255, 145]}
+        - {center: [0.6424, 0.6945], radius: [0.014, 0.028], color: [255, 190, 30]}
+    prompt_verb: enter
+    transparent: true
+    size_class: "structure"
+    dialogue:
+      greeting: "A numbered bronze fitting marks the passage."
+      choices: [{"text": "Enter Calibration Vestibule.", "action": "enter_map", "map": "solstice_vestibule", "requires_quest": "solstice_anchors"}, {"text": "Stay here.", "action": "leave"}]
+  solstice_vestibule_exit:
+    name: "Survey Camp"
+    type: "encounter"
+    sprite: "solstice_exit_arch"
+    render_category: "wall_mounted"
+    transparent: true
+    size_class: "full_tile"
+    dialogue:
+      greeting: "A numbered bronze fitting marks the passage."
+      choices: [{"text": "Enter Survey Camp.", "action": "enter_map", "map": "solstice_approach"}, {"text": "Stay here.", "action": "leave"}]
+  solstice_threshold:
+    name: "Scheduled Threshold"
+    type: "encounter"
+    sprite: "solstice_console"
+    render_category: "scenery"
+    transparent: true
+    size_class: "small_prop"
+    dialogue:
+      greeting: "The four receiving apertures answer to the seven-day disc."
+      visited_message: "The work is recorded."
+      choices: [{"text": "Enter the scheduled chamber.", "action": "enter_schedule", "map": "solstice_vestibule", "requires_quest": "solstice_connection"}, {"text": "Leave.", "action": "leave"}]
+
   # Spell Traders - NPCs who teach spells for gold
   spell_trader_mage:
     name: "Priestess Liora"

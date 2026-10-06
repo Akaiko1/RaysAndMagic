@@ -1,0 +1,89 @@
+//include standee_sampling.kageinc
+// The crossed-standee volume shader composites the exact shell stack in one
+// fragment invocation. It receives all per-slab data through vertices so
+// successive trees with the same texture remain batchable:
+//
+//	custom.xy  far/near reciprocal perpendicular depth
+//	custom.zw  far/near source U divided by depth
+//	srcPos.xy  height/bottom projection invariants
+//	color      brightness, wall depth, wall top, shell count
+//
+// Geometry covers the projected union of both outer faces. Every virtual
+// layer reconstructs the same perspective height, source coordinate, wall
+// clipping, shade, and front-to-back alpha blend as the physical shell path.
+func sourcePosition(dstY float, depth float, u float, heightScale float, bottomScale float) (vec2, bool) {
+	if depth <= 0.0 || u < 0.0 || u > 1.0 {
+		return vec2(0), false
+	}
+	height := heightScale / depth
+	bottom := imageDstSize().y/2.0 + bottomScale/depth
+	v := (dstY - (bottom - height)) / height
+	if v < 0.0 || v > 1.0 {
+		return vec2(0), false
+	}
+	return standeeSourcePosition(u, v), true
+}
+
+func tinted(c vec4, brightness float, shade float) vec4 {
+	return vec4(c.rgb*brightness*shade, c.a)
+}
+
+func addFront(acc vec4, c vec4) vec4 {
+	return acc + c*(1.0-acc.a)
+}
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+	farDepth := 1.0/custom.x
+	nearDepth := 1.0/custom.y
+	farU := custom.z*farDepth
+	nearU := custom.w*nearDepth
+	projection := srcPos - imageSrc0Origin()
+	dstY := dstPos.y - imageDstOrigin().y
+	wallDepth := color.g
+	wallTop := color.b
+	packed := color.a
+	shellCount := floor(packed)
+	filterData := fract(packed)
+	filtered := filterData >= 0.125
+	mipBlend := clamp((filterData-0.25)/0.5, 0.0, 1.0)
+	acc := vec4(0)
+	// Evaluate the derivative before any coverage-dependent branch.
+	footprint := vec2(abs(dfdx(nearU))*imageSrc0Size().x, 0)
+	vertical := nearDepth / projection.x * imageSrc0Size().y
+	if vertical > footprint.x {
+		footprint = vec2(0, vertical)
+	}
+
+	if nearDepth < wallDepth || dstY < wallTop {
+		if p, ok := sourcePosition(dstY, nearDepth, nearU, projection.x, projection.y); ok {
+			acc = addFront(acc, tinted(nearStickerAt(p, filtered, mipBlend, footprint), color.r, 1.0))
+		}
+	}
+	if acc.a >= 0.999 {
+		return acc
+	}
+
+	for i := 0; i < 16; i++ {
+		if float(i) < shellCount && acc.a < 0.999 {
+			f := (shellCount - float(i)) / (shellCount + 1.0)
+			depth := mix(farDepth, nearDepth, f)
+			u := mix(farU, nearU, f)
+			if depth < wallDepth || dstY < wallTop {
+				if p, ok := sourcePosition(dstY, depth, u, projection.x, projection.y); ok {
+					shade := 0.75 + (0.92-0.75)*f
+					acc = addFront(acc, tinted(sampleLinear3(p), color.r, shade))
+				}
+			}
+		}
+	}
+	if acc.a >= 0.999 {
+		return acc
+	}
+
+	if farDepth < wallDepth || dstY < wallTop {
+		if p, ok := sourcePosition(dstY, farDepth, farU, projection.x, projection.y); ok {
+			acc = addFront(acc, tinted(stickerAt(p, mipBlend), color.r, 0.75))
+		}
+	}
+	return acc
+}

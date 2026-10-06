@@ -97,6 +97,7 @@ func (g *MMGame) ecologyCollision(w *world.World3D) *collision.CollisionSystem {
 }
 func (g *MMGame) addEcologyActor(w *world.World3D, m *monster.Monster3D) {
 	m.QuestProgressIgnored = true
+	g.stampMonsterHome(w, m)
 	if w == g.world {
 		g.registerSpawnedMonster(m)
 	} else {

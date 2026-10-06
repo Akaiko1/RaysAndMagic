@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -132,8 +133,9 @@ func TestCaptivesTrainAndFree(t *testing.T) {
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	cs.game.party = character.NewParty(cs.game.config)
 
-	if len(cs.game.party.Captive) != 2 {
-		t.Fatalf("expected 2 captive heroes at start, got %d", len(cs.game.party.Captive))
+	captives := len(cs.game.config.Characters.Captives)
+	if captives == 0 || len(cs.game.party.Captive) != captives {
+		t.Fatalf("expected the %d authored captives at start, got %d", captives, len(cs.game.party.Captive))
 	}
 	cap0 := cs.game.party.Captive[0]
 	startXP := cap0.Experience
@@ -146,10 +148,10 @@ func TestCaptivesTrainAndFree(t *testing.T) {
 	}
 
 	freed := cs.game.party.FreeCaptives()
-	wantReserve := len(cs.game.config.Characters.TavernRecruits) + 2
-	if len(freed) != 2 || len(cs.game.party.Captive) != 0 || len(cs.game.party.Reserve) != wantReserve {
-		t.Errorf("after FreeCaptives: freed=%d captive=%d reserve=%d, want 2/0/%d",
-			len(freed), len(cs.game.party.Captive), len(cs.game.party.Reserve), wantReserve)
+	wantReserve := len(cs.game.config.Characters.TavernRecruits) + captives
+	if len(freed) != captives || len(cs.game.party.Captive) != 0 || len(cs.game.party.Reserve) != wantReserve {
+		t.Errorf("after FreeCaptives: freed=%d captive=%d reserve=%d, want %d/0/%d",
+			len(freed), len(cs.game.party.Captive), len(cs.game.party.Reserve), captives, wantReserve)
 	}
 }
 
@@ -210,11 +212,41 @@ func TestSaveLoad_PersistsReserveAndCaptive(t *testing.T) {
 	}
 }
 
-// TestPaladinCanWieldAxe confirms the Paladin's new SkillAxe lets them equip axes.
-func TestPaladinCanWieldAxe(t *testing.T) {
+// A class equips exactly the weapon categories its authored skill list trains.
+// Firearms and personality-gated weapons follow their own equip rules.
+func TestClassSkillListGatesWeaponEquip(t *testing.T) {
 	cfg := loadTestConfig(t)
-	pal := character.CreateCharacter("Auberon", character.ClassPaladin, cfg)
-	if !pal.CanEquipWeaponByName("Steel Axe") {
-		t.Error("Paladin should be able to equip a Steel Axe")
+	allowed, refused := 0, 0
+	for _, classKey := range sortedMapKeys(cfg.Characters.Classes) {
+		class, ok := character.ClassFromKey(classKey)
+		if !ok {
+			t.Fatalf("class %q has no CharacterClass", classKey)
+		}
+		trained := map[character.SkillType]bool{}
+		for _, key := range cfg.Characters.Classes[classKey].Skills {
+			if skill, ok := character.SkillTypeFromKey(key); ok {
+				trained[skill] = true
+			}
+		}
+		member := character.CreateCharacter("Kit", class, cfg)
+		for _, weaponKey := range sortedMapKeys(config.GlobalWeapons.Weapons) {
+			def := config.GlobalWeapons.Weapons[weaponKey]
+			skill, ok := character.WeaponSkillForCategory(def.Category)
+			if !ok || def.EquipPersonalityMin > 0 || character.WeaponCategorySkillOptional(def.Category) {
+				continue
+			}
+			want := trained[skill]
+			if got := member.CanEquipWeaponByName(def.Name); got != want {
+				t.Errorf("%s equips %s (%s) = %v, want %v", classKey, weaponKey, def.Category, got, want)
+			}
+			if want {
+				allowed++
+			} else {
+				refused++
+			}
+		}
+	}
+	if allowed == 0 || refused == 0 {
+		t.Fatalf("fixture checked %d allowed and %d refused pairs, want both", allowed, refused)
 	}
 }

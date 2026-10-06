@@ -438,10 +438,8 @@ func engageBandMemberOnScatter(m *monster.Monster3D, wasHit, sawParty bool) {
 	}
 	if wasHit {
 		m.WasAttacked = true
-		m.BeginPlayerEngagement()
-		return
 	}
-	if sawParty {
+	if (wasHit || sawParty) && m.CurrentAIBehavior().Caps().AnswersBand {
 		m.BeginPlayerEngagement()
 	}
 }

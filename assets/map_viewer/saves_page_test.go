@@ -16,8 +16,8 @@ import (
 
 func TestBuildSaveListEntries(t *testing.T) {
 	rows := make([]game.SaveSummary, game.SaveRowsTotal())
-	rows[1] = game.SaveSummary{Exists: true, Name: "Hero Run"}
-	rows[2] = game.SaveSummary{Exists: true, MapKey: "forest"}
+	rows[2] = game.SaveSummary{Exists: true, Name: "Hero Run"}
+	rows[3] = game.SaveSummary{Exists: true, MapKey: "forest"}
 	archived := []game.ArchivedSave{
 		{Path: "/saves/archive/Hero_Run_20260707-120000.json", Summary: game.SaveSummary{Exists: true, Name: "Hero Run", MapKey: "city"}},
 		{Path: "/saves/archive/broken.json"},
@@ -50,7 +50,7 @@ func TestBuildSaveListEntries(t *testing.T) {
 		}
 		return nil
 	}
-	if e := byLabel("Hero Run"); e == nil || e.row != 1 || e.dim {
+	if e := byLabel("Hero Run"); e == nil || e.row != 2 || e.dim {
 		t.Errorf("named slot entry wrong: %+v", e)
 	}
 	if e := byLabel("Slot 2"); e == nil || !strings.Contains(e.label, "forest") {
@@ -61,6 +61,9 @@ func TestBuildSaveListEntries(t *testing.T) {
 	}
 	if e := byLabel("Autosave"); e == nil || e.row != 0 {
 		t.Errorf("autosave row missing: %+v", e)
+	}
+	if e := byLabel("Quicksave"); e == nil || e.row != 1 {
+		t.Errorf("quicksave row missing: %+v", e)
 	}
 }
 
@@ -113,7 +116,7 @@ func TestSaveTooltipBrowseKeepsFileAndNormalizesItems(t *testing.T) {
 					cards++
 				}
 				card := cardForSavedItem(*row.item)
-				text := strings.Join(card.tooltipRows, "\n")
+				text := card.tooltipRows.String()
 				if text == "" || strings.Contains(text, "9999") {
 					t.Fatalf("stale or empty tooltip: %s", text)
 				}

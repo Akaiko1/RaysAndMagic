@@ -70,12 +70,18 @@ image creation/publication stays with the owner. One region owns in-flight GPU
 allocations. The existing 32 MiB preparation reservation is unchanged; it is a
 queue reservation, not a limit on all process RAM. Cancellation and generation
 checks prevent a previous world's jobs from publishing into a new one.
+Sprite decoding uses up to two workers, with byte reservations and result
+delivery kept in request order so smaller distant images cannot overtake nearby
+ones. Queued results stay bounded and cancellation releases their reservations.
 
 The owner advances resource preparation in 256 KiB pixel chunks. Background
 loading performs one scheduling pass per Update. While awaiting a complete
 frame, it performs up to 32 passes or approximately 4 ms of work. A pass cannot
 interrupt an individual operation, so this is a cooperative time budget. Floor,
 demand and region preparation all participate; workers are never waited on.
+Background work does not repeat passes just because pixel writes were cheap on
+the CPU: their GPU cost may be deferred until Draw. Publishing a region defers
+the next region's planning until the following Update, including during a pause.
 
 Demand uploads and region prewarm uploads use the same policy: up to 32 images
 and 8 MiB per queue per Draw. A first oversized image is admitted alone to
@@ -213,18 +219,10 @@ RAM_SHADER_GPU_TESTS=1 go test ./internal/shadercache \
   -run '^TestShaderNativeValidationAndFallback$' -count=1 -v
 ```
 
-For actual gameplay captures:
-
-```sh
-RAM_DEBUG_SIM=1 RAM_RIVER_PREVIEW=/absolute/output/directory \
-  go test -tags debug ./internal/game -run '^TestRiverGameplay$' -count=1 -v
-```
-
-This uses production config, size classes, open-world stitching, Layout,
-Update/Draw and the full loading barrier. It writes native PNGs without resizing.
-Isolated shader tests are additional parity checks, not gameplay screenshots.
-CPU Draw duration and submitted vertices are not GPU frame-time measurements.
-Do not compare FPS while concurrent builds/tests or system swapping distort it.
+Scripted gameplay captures were retired with the debug simulations. Measure
+in the running game with the `/` FPS counter. CPU Draw duration and submitted
+vertices are not GPU frame-time measurements; do not compare FPS while
+concurrent builds/tests or system swapping distort it.
 
 Ebitengine 2.10 also provides the experimental `exp/vmhost` workflow and its
 `skills/run-ebitengine-app-headless/SKILL.md` in the downloaded engine module.
@@ -233,46 +231,3 @@ only for test builds. Interleave Update ticks and Draw frames so loading/input
 presentation barriers can advance. Use a private config/save root and record
 actual image bounds; the host still needs a graphics context. VM execution is
 for application verification, not representative gameplay FPS benchmarking.
-
-For moving-scene CPU submission diagnostics:
-
-```sh
-RAM_DEBUG_SIM=1 RAM_RIVER_CPU=/tmp/river.cpu \
-  go test -tags debug ./internal/game -run '^TestRiverMotion$' -count=1 -v
-```
-
-The motion diagnostic reports Update/Draw and frame-interval p50/p95/p99/max,
-allocations, GC cycles, loading frames and readbacks. It uses production movement
-collision and rendering, but its outer loop is a test harness, not the shipped
-120 TPS display clock. Camera timing is covered separately with early and
-catch-up ticks. Neither diagnostic alone proves smooth displayed gameplay.
-
-For the native-window route using a private copy of a bundle save:
-
-```sh
-RAM_DEBUG_SIM=1 RAM_NATIVE_RIVER=1 \
-  RAM_RIVER_SAVE='/absolute/path/to/saves/save8.json' RAM_RIVER_OVERLAY=1 \
-  go test -tags debug ./internal/game -run '^TestRiverNativeRoute$' -count=1 -v
-```
-
-This presents through the actual engine clock and display, first renders the
-main menu, then loads the copied save with sound enabled. It uses the shipped
-fullscreen/VSync settings and logs the logical viewport and display scale.
-`RAM_RIVER_WINDOWED=1`, `RAM_RIVER_LAND=1`, and `RAM_RIVER_TURN=1` select the
-windowed, nearby clearing and turning controls. `RAM_RIVER_CPU` and
-`RAM_RIVER_TRACE` accept output file paths and start after the initial load.
-The reported frame intervals are still engine-side measurements; use native
-Metal presentation instrumentation to investigate dropped display frames.
-
-For a reproducible river start without depending on the contents of a save, use
-`RAM_RIVER_START=1` with `RAM_NATIVE_RIVER=1` and `RAM_DEBUG_SIM=1`. It positions
-the party at forest tile (30,36) after the menu. `RAM_RIVER_SAVE` is optional in
-this mode; if supplied, its party is loaded before positioning. All save reads
-still use a private copy. `RAM_RIVER_LAND=1` selects the clearing instead.
-
-`TestRiverVisualFrames` with `RAM_DEBUG_SIM=1` and
-`RAM_RIVER_VIDEO_FRAMES=/absolute/output/directory` writes 240 native 1920x1080
-PNG frames for an eight-second, 30 FPS visual comparison. Its scripted camera
-travels along the river and turns; this is an image-quality diagnostic, not a
-real-time performance recording. `TestCompassFrameCache` can additionally save
-uncached/cached compass crops through `RAM_COMPASS_PREVIEW=/absolute/directory`.

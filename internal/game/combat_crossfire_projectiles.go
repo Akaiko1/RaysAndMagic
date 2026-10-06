@@ -1,9 +1,6 @@
 package game
 
 import (
-	"fmt"
-	"math/rand"
-
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -74,22 +71,20 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 		cs.game.playMonsterSound(soundMonsterHit, target)
 		target.HitTintFrames = MonsterHitFlashFrames
 	}
+	cs.game.logCombat(logToneGood, "The reflected bolt hits %s for %s!", logMonsterName(target), logDamage(dealt, damageTypeStr))
 	if !target.IsAlive() {
-		xpAwarded := cs.finishMonsterKill(target)
-		cs.game.AddCombatMessage(fmt.Sprintf("The reflected bolt slays %s! (+%d XP)", target.Name, xpAwarded))
-		return
+		cs.finishMonsterKill(target)
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("The reflected bolt hits %s for %d!", target.Name, dealt))
 }
 
 // resolveMonsterProjectileVsMonster applies a monster-fired projectile's hit to
 // another monster (bound undead <-> enemy crossfire). Damage is the projectile's
-// own; the party is rewarded ONLY when an enemy falls (never for a bound ally).
+// own; a kill is finalized like any other, so a fallen enemy or bound ally
+// rewards the party and a pure party summon gives nothing.
 func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}, pType string, target *monsterPkg.Monster3D, entityID string) {
 	var parts damagecalc.Parts
 	var dmgTypeStr, spellFx, sourceName string
-	var disintegrateChance, aoeRadiusTiles, stunChance float64
-	var stunSeconds, stunTurns int
+	var disintegrateChance, aoeRadiusTiles float64
 	var ignoresDodge bool
 	var weaponDef *config.WeaponDefinitionConfig
 	var srcMonster *monsterPkg.Monster3D
@@ -110,8 +105,6 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
 		dmgTypeStr = normalizeDamageTypeStr(spellDef.School)
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
-		rider := srcMonster.ProjectileStun(mp.SpellType)
-		stunChance, stunSeconds, stunTurns = rider.Chance, rider.Seconds, rider.Turns
 	case "arrow":
 		ar := projectile.(*Arrow)
 		if !ar.Active || ar.LifeTime <= 0 {
@@ -157,7 +150,6 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	// kill finalizes a slain crossfire target through the same kill choke point as
 	// a party hit, so a bound summon can earn champion rewards for the party too.
 	kill := func() {
-		cs.game.addActorCombatMessage(srcMonster, target, "%s is destroyed!", target.Name)
 		cs.finishActorKill(srcMonster, target)
 	}
 
@@ -168,7 +160,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	// Crossfire uses the target's real Perfect Dodge too. Typed true damage still
 	// lands through a dodge; the avoided projectile cannot trigger riders or AoE,
 	// matching a party projectile that misses its primary target.
-	if monsterPerfectDodges(target, ignoresDodge) {
+	if cs.monsterPerfectDodges(target, ignoresDodge) {
 		actual := cs.applyMonsterDamagePacket(
 			target,
 			packet.trueOnly(),
@@ -177,12 +169,12 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
 			target.HitTintFrames = MonsterHitFlashFrames
-			cs.game.addActorCombatMessage(srcMonster, target, "%s dodges, but %s lands %d true damage!", target.Name, sourceName, actual)
+			cs.game.addActorCombatMessage(srcMonster, target, "%s dodges, but %s lands %s true damage!", logMonsterName(target), logMonsterAs(srcMonster, sourceName), logTrueDamage(actual))
 			if !target.IsAlive() {
 				kill()
 			}
 		} else {
-			cs.game.addActorCombatMessage(srcMonster, target, "%s dodges %s's bolt!", target.Name, sourceName)
+			cs.game.addActorCombatMessage(srcMonster, target, "%s dodges %s's bolt!", logMonsterName(target), logMonsterAs(srcMonster, sourceName))
 		}
 		return
 	}
@@ -191,7 +183,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	if rollMonsterDisintegrate(target, disintegrateChance) {
 		target.HitPoints = 0
 		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt disintegrates %s!", sourceName, target.Name)
+		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt disintegrates %s!", logMonsterAs(srcMonster, sourceName), logMonsterName(target))
 		kill()
 		return
 	}
@@ -206,11 +198,11 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 			cs.game.playMonsterSound(soundMonsterHit, target)
 		}
 		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt hits %s for %d!", sourceName, target.Name, actual)
+		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt hits %s for %s!", logMonsterAs(srcMonster, sourceName), logMonsterName(target), logDamage(actual, packet.primarySchool()))
 	}
-	// Stun rider (Psychic Shock etc.) carries over too.
-	if target.IsAlive() && stunChance > 0 && rand.Float64() < stunChance {
-		cs.applyStun(target, stunSeconds, stunTurns, !quietActorCombat(srcMonster, target))
+	// The bolt's on-hit statuses land on a monster like on a hero.
+	if target.IsAlive() {
+		cs.applyMonsterHitRiders(srcMonster, spellFx, monsterHitTarget{cs, srcMonster, target})
 	}
 	if !target.IsAlive() {
 		kill()
@@ -222,9 +214,9 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		cs.applyCrossfireAoeSplash(target, srcMonster, owner, packet, weaponDef, ignoreArmor, aoeRadiusTiles)
 		// A CHAMPION's AoE bolt that reaches the party strikes it too (the extra
 		// action - the summon-splash's party twin). Plain mob crossfire never hits
-		// the party, so this is gated to champions.
-		if srcMonster != nil && srcMonster.IsChampion() &&
-			Distance(target.X, target.Y, cs.game.camera.X, cs.game.camera.Y) <= aoeRadiusTiles*float64(cs.game.config.GetTileSize()) {
+		// the party, so this is gated to champions. Walls shield the party like
+		// any other blast victim.
+		if srcMonster != nil && srcMonster.IsChampion() && cs.reachesParty(cs.pointBlast(target.X, target.Y, aoeRadiusTiles)) {
 			hit := monsterCharacterHit{
 				SpellID:        spellFx,
 				Parts:          parts, // already weakened once at packet build
@@ -256,22 +248,13 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(
 	if center == nil || source == nil || radiusTiles <= 0 {
 		return
 	}
-	radius := radiusTiles * float64(cs.game.config.GetTileSize())
-	for _, candidate := range cs.game.world.Monsters {
-		if candidate == nil || candidate == center || candidate == source || !candidate.IsAlive() {
-			continue
-		}
-		if owner == ProjectileOwnerBoundUndead {
-			if !cs.boundAllyCanDamageMonster(candidate) {
-				continue
-			}
-		} else if !source.CanAttackActor(candidate) {
-			continue
-		}
-		if Distance(center.X, center.Y, candidate.X, candidate.Y) <= radius {
-			// An explosion cannot be Perfect-Dodged, but still uses the victim's
-			// armor, resistance and one shared soak.
-			cs.strikeMonsterPacketFor(source, candidate, packet, weaponDef, true, ignoreArmor, false, false)
-		}
+	hurts := source.CanAttackActor
+	if owner == ProjectileOwnerBoundUndead {
+		hurts = cs.boundAllyCanDamageMonster
 	}
+	// An explosion cannot be Perfect-Dodged, but still uses the victim's armor,
+	// resistance and one shared soak.
+	cs.forEachAreaVictim(cs.pointBlast(center.X, center.Y, radiusTiles), hurts, func(candidate *monsterPkg.Monster3D) {
+		cs.strikeMonsterPacketFor(source, candidate, packet, weaponDef, true, ignoreArmor, false, false)
+	}, center, source)
 }

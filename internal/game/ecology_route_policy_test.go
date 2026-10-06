@@ -24,15 +24,20 @@ func TestCaravanForestTransitAndLegacyCheckpoints(t *testing.T) {
 	wm.CurrentMapKey = "forest"
 	for _, route := range config.GlobalEcology.Caravan.Routes {
 		active := []config.RoutePoint{}
+		var forest []config.RoutePoint
 		for _, p := range route.Points {
 			if p.Skip && p.Map != "forest" {
 				t.Fatal("detour removed outside Forest")
 			}
-			if p.Map == "forest" && !p.Skip {
-				active = append(active, p)
+			if p.Map == "forest" {
+				forest = append(forest, p)
+				if !p.Skip {
+					active = append(active, p)
+				}
 			}
 		}
-		if len(active) != 2 || active[0].X != 48 || active[0].Y != 15 || active[1].X != 46 || active[1].Y != 7 {
+		// Only the paired entrance anchors (first and last Forest point) stay.
+		if len(active) != 2 || active[0] != forest[0] || active[1] != forest[len(forest)-1] {
 			t.Fatalf("%s does not go directly between Forest entrances: %+v", route.ID, active)
 		}
 		for _, returning := range []bool{false, true} {

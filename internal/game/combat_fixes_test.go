@@ -53,8 +53,12 @@ func TestDamageSchoolNormalizationUsesOneCanonicalKey(t *testing.T) {
 	if got := normalizeDamageTypeStr(" FIRE "); got != "fire" {
 		t.Fatalf("normalized school = %q, want fire", got)
 	}
-	if got := cs.game.schoolResistPct(member, " FIRE "); got != 100 {
-		t.Fatalf("card fire resistance through spaced/mixed-case key = %d, want 100", got)
+	want := cs.game.schoolResistPct(member, "fire")
+	if want <= 0 {
+		t.Fatal("golden_thief_bug_card grants no fire resistance; fixture cannot tell keys apart")
+	}
+	if got := cs.game.schoolResistPct(member, " FIRE "); got != want {
+		t.Fatalf("card fire resistance through spaced/mixed-case key = %d, want canonical %d", got, want)
 	}
 	loaded := monsterPkg.MonsterConfig
 	monsterPkg.MonsterConfig = nil
@@ -78,30 +82,5 @@ func TestShieldContributesAC(t *testing.T) {
 	got := cs.CalculateTotalArmorClass(char)
 	if got <= base {
 		t.Errorf("shield added no AC: %d -> %d", base, got)
-	}
-}
-
-// Heroism/Hour of Power flat outgoing bonus applies to MELEE, not only projectiles.
-func TestCombatBuffOutBonus_BoostsMelee(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	g := cs.game
-	g.selectedChar = 0
-	mon := monsterPkg.NewMonster3DFromConfig(200, 0, "goblin", g.config)
-	mon.PerfectDodge = 0
-	mon.ArmorClass = 0 // isolate the buff: % armor would scale the bonus down too
-	g.world.Monsters = append(g.world.Monsters, mon)
-	hpBefore := mon.HitPoints
-	cs.ApplyDamageToMonster(mon, 10, "Iron Sword", false)
-	plainDmg := hpBefore - mon.HitPoints
-
-	g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 600, OutBonus: 7})
-	hpBefore = mon.HitPoints
-	cs.ApplyDamageToMonster(mon, 10, "Iron Sword", false)
-	buffedDmg := hpBefore - mon.HitPoints
-
-	// With no armor on the target, the full +7 outgoing bonus comes through.
-	if buffedDmg-plainDmg != 7 {
-		t.Errorf("melee under Heroism dealt +%d, want +7 (plain %d, buffed %d)", buffedDmg-plainDmg, plainDmg, buffedDmg)
 	}
 }

@@ -18,7 +18,7 @@ func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDef
 		return
 	}
 	if weaponDef.ProjectileSchool != "" {
-		g.CreateSpellHitEffect(x, y, normalizeDamageTypeStr(weaponDef.ProjectileSchool), count, size)
+		g.createSpellHitEffectStyled(x, y, normalizeDamageTypeStr(weaponDef.ProjectileSchool), count, size, false, weaponImpactColor(weaponDef))
 		return
 	}
 	// Explosive arrows (AoE bows, e.g. Bow of Hellfire) burst in their damage element.
@@ -27,9 +27,27 @@ func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDef
 		if element == monsterPkg.DamagePhysical {
 			element = monsterPkg.DamageFire
 		}
-		g.CreateSpellHitEffect(x, y, element.String(), count, size)
+		g.createSpellHitEffectStyled(x, y, element.String(), count, size, false, weaponImpactColor(weaponDef))
 	}
 	// Plain arrow: no impact effect - it just disappears.
+}
+
+func weaponImpactColor(def *config.WeaponDefinitionConfig) [3]int {
+	if def != nil && def.Graphics != nil {
+		if def.Graphics.Color != [3]int{} {
+			return def.Graphics.Color
+		}
+		if def.Graphics.SlashColor != [3]int{} {
+			return def.Graphics.SlashColor
+		}
+	}
+	if def != nil && def.ProjectileSchool != "" {
+		if c, ok := ElementColors[normalizeDamageTypeStr(def.ProjectileSchool)]; ok {
+			return c
+		}
+		return ElementColors["arcane"]
+	}
+	return [3]int{200, 200, 200}
 }
 
 const (
@@ -80,12 +98,16 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 		particleSize = 2
 	}
 
-	// impact_stars spells scatter twinkling stars instead of square pixels.
+	// impact_stars spells scatter twinkling stars instead of mirror fragments.
 	stars := false
 	if cfgDef, ok := config.GetSpellDefinition(spellID); ok && cfgDef != nil && cfgDef.Graphics != nil {
 		stars = cfgDef.Graphics.ImpactStars
 	}
-	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, stars)
+	rgb := ElementColors[normalizeDamageTypeStr(element)]
+	if cfgDef, ok := config.GetSpellDefinition(spellID); ok && cfgDef.Graphics != nil {
+		rgb = cfgDef.Graphics.Color
+	}
+	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, stars, rgb)
 
 	// Heavy spells rattle the view: shake amplitude follows the same damage +
 	// blast levers as the particles, so a bolt barely taps and a fireball kicks.
@@ -153,8 +175,8 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 }
 
 // createSpellHitEffectStyled is CreateSpellHitEffect with the star-shape flag
-// (impact_stars): star bursts render as twinkling 4-point stars, not squares.
-func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, particleCount, particleSize int, stars bool) {
+// (impact_stars): star bursts twinkle; other impacts shed eroding mirror shards.
+func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, particleCount, particleSize int, stars bool, authored ...[3]int) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
@@ -162,6 +184,10 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 	baseColor, ok := ElementColors[element]
 	if !ok {
 		baseColor = ElementColors[monsterPkg.DamagePhysical.String()]
+	}
+
+	if len(authored) > 0 && authored[0] != [3]int{} {
+		baseColor = authored[0]
 	}
 
 	if particleCount <= 0 {
@@ -192,7 +218,7 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 
 	for i := 0; i < particleCount; i++ {
 		// Burst in ALL screen directions (a real 2D star, not a ground line):
-		// VelX/VelY are screen-space, integrated into OffsetX/OffsetY each frame.
+		// VelX/VelY use impact-plane units, projected at the anchor depth.
 		angle := (float64(i)/float64(particleCount))*2*math.Pi + (rand.Float64()-0.5)*0.6
 		speed := SpellParticleSpeed * (0.6 + rand.Float64()*0.8) * spread
 		vx := math.Cos(angle) * speed
@@ -251,10 +277,17 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 			tint = mixColor(baseColor, [3]int{220, 255, 220}, rand.Float64()*0.5)
 		}
 
-		particleColor := [3]int{
-			clampColor(tint[0] + rand.Intn(30) - 15),
-			clampColor(tint[1] + rand.Intn(30) - 15),
-			clampColor(tint[2] + rand.Intn(30) - 15),
+		// Reflective faces retain the source hue; brightness varies as they turn.
+		if len(authored) > 0 && authored[0] != [3]int{} {
+			tint = baseColor
+		}
+		brightness := .85 + rand.Float64()*.15
+		particleColor := [3]int{int(float64(tint[0]) * brightness), int(float64(tint[1]) * brightness), int(float64(tint[2]) * brightness)}
+
+		// Mirror fragments need a visible tumble and erosion tail. Keep authored
+		// star flashes brief; this lifetime is presentation-only.
+		if !stars {
+			life += max(1, int(math.Round(float64(g.config.GetTPS())*.55)))
 		}
 
 		particles[i] = SpellHitParticle{
@@ -275,6 +308,12 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 	effect := SpellHitEffect{
 		Particles: particles,
 		Active:    true,
+	}
+	if !stars {
+		effect.BurstLife = max(1, int(math.Round(float64(g.config.GetTPS())*.32)))
+		effect.BurstRadius = float64(particleSize)*4 + 6
+		effect.BurstColor = baseColor
+		effect.BurstDust = style != "ember" && style != "flash"
 	}
 
 	g.spellHitEffects = append(g.spellHitEffects, effect)
@@ -316,14 +355,15 @@ func (cs *CombatSystem) spawnHitSparks(m *monsterPkg.Monster3D) {
 
 // spawnWeaponHitImpactFX adds the damage-scaled view kick to the sparks. Only a
 // blow the party lands kicks the camera - a field ticking every second must not.
-func (cs *CombatSystem) spawnWeaponHitImpactFX(m *monsterPkg.Monster3D, damage int) {
-	cs.spawnHitSparks(m)
+func (cs *CombatSystem) spawnWeaponHitImpactFX(m *monsterPkg.Monster3D, damage int, weapon *config.WeaponDefinitionConfig) {
+	x, y := cs.monsterVisualPos(m)
+	cs.game.spawnImpactSparks(x, y, weaponImpactColor(weapon))
 	cs.game.addScreenShake(0.05*float64(damage), 2.2)
 }
 
 // spawnImpactSparks throws a quick radial burst of bright white->gold sparks at
 // a world point - the weapon-hit feedback when the party strikes a monster.
-func (g *MMGame) spawnImpactSparks(x, y float64) {
+func (g *MMGame) spawnImpactSparks(x, y float64, authored ...[3]int) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
@@ -335,6 +375,10 @@ func (g *MMGame) spawnImpactSparks(x, y float64) {
 		Intensity: 0.5,
 		Life:      impactLightFrames * 2 / 3, MaxLife: impactLightFrames * 2 / 3,
 	})
+	base := [3]int{255, 210, 110}
+	if len(authored) > 0 {
+		base = authored[0]
+	}
 	const n = 14
 	parts := make([]SpellHitParticle, n)
 	for i := 0; i < n; i++ {
@@ -346,7 +390,7 @@ func (g *MMGame) spawnImpactSparks(x, y float64) {
 			VelX:     math.Cos(ang) * sp,
 			VelY:     math.Sin(ang)*sp - 0.8, // slight upward bias
 			Gravity:  0.11,
-			Color:    mixColor([3]int{255, 255, 210}, [3]int{255, 200, 80}, rand.Float64()),
+			Color:    mixColor(base, [3]int{}, rand.Float64()*.2),
 			LifeTime: life, MaxLife: life, Size: 5, Active: true,
 		}
 	}
@@ -598,6 +642,8 @@ func (g *MMGame) UpdateHitEffects() {
 			continue
 		}
 
+		effect.BurstAge++
+
 		// Update particles
 		activeParticles := 0
 		for j := range effect.Particles {
@@ -606,7 +652,7 @@ func (g *MMGame) UpdateHitEffects() {
 				continue
 			}
 
-			// Integrate screen-space offsets; gravity pulls embers up / shards down.
+			// Integrate impact-plane offsets; projection applies the anchor depth.
 			particle.OffsetX += particle.VelX
 			particle.OffsetY += particle.VelY
 			particle.VelX *= 0.94

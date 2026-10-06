@@ -18,7 +18,7 @@ const menuPanelFrameSlice = 16
 //
 // CLICKS RESOLVE TOP-DOWN, DRAWING RUNS BOTTOM-UP. The map overlay opens from a
 // quest item inside the character hub, so it floats ABOVE a hub that stays open:
-// its close button lands on top of the hub's inventory grid. Handling its input
+// its close button lands on top of the hub's bag filter tabs. Handling its input
 // first is what keeps that button clickable - the hub's own handlers would
 // otherwise consume the click while drawing underneath.
 func (ui *UISystem) drawOverlayInterfaces(screen *ebiten.Image) {
@@ -68,7 +68,8 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	switch ui.game.mainMenuMode {
 	case MenuMain:
 		// Title
-		drawCenteredUIText(screen, "Main Menu", px+32, py+16, panelW-64, 20)
+		title := mainMenuTitleRect(panel)
+		drawCenteredUIText(screen, mainMenuTitle, title.x, title.y, title.w, title.h)
 		// Options
 		for i, option := range mainMenuOptions {
 			box, _, _ := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
@@ -76,14 +77,14 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		}
 	case MenuControlTips:
 		drawScaledMetalCenteredText(screen, uitext.Text("ui.control_tips"), w/2, py+28, 2, rarityGold)
-		for i, tip := range mainMenuControlTips {
-			drawUIText(screen, tip, px+24, py+mainMenuTipsTopY()+i*24)
-		}
-		ui.drawBackButton(screen, px+24, py+panelH-46, func() { ui.game.mainMenuMode = MenuMain })
+		ui.drawControlTips(screen, panel)
+		back := controlTipsBackRect(panel)
+		ui.drawBackButton(screen, back.x, back.y, func() { ui.game.mainMenuMode = MenuMain })
 
 	case MenuSaveSelect:
-		drawUIText(screen, "Save Game - Select Slot", px+16, py+14)
-		drawUIText(screen, "Enter: Save  R: Rename  Left/Right: Page", px+16, py+32)
+		for _, line := range saveMenuHeaderLines(MenuSaveSelect, px, py) {
+			drawUIText(screen, line.text, line.x, line.y)
+		}
 		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{80, 180, 80, 200})
 		if ui.game.saveRenameOpen {
 			ui.drawSaveRenameDialog(screen)
@@ -91,8 +92,9 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 		}
 	case MenuLoadSelect:
-		drawUIText(screen, "Load Game - Select Slot", px+16, py+14)
-		drawUIText(screen, "Enter: Load  Left/Right: Page", px+16, py+32)
+		for _, line := range saveMenuHeaderLines(MenuLoadSelect, px, py) {
+			drawUIText(screen, line.text, line.x, line.y)
+		}
 		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{180, 120, 60, 200})
 		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 	case MenuSettings:
@@ -103,6 +105,28 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			ui.game.closeAudioSettings()
 		})
 	}
+}
+
+const mainMenuTitle = "Main Menu"
+
+// mainMenuTitleRect is the box the pause menu's title is centred in.
+func mainMenuTitleRect(panel layoutRect) layoutRect {
+	return layoutRect{panel.x + 32, panel.y + 16, panel.w - 64, 20}
+}
+
+// menuTextLine is one left-aligned label and its drawUIText origin.
+type menuTextLine struct {
+	text string
+	x, y int
+}
+
+// saveMenuHeaderLines are the save/load menus' title and key-help lines.
+func saveMenuHeaderLines(mode MainMenuMode, px, py int) [2]menuTextLine {
+	title, help := "Save Game - Select Slot", "Enter: Save  R: Rename  Left/Right: Page"
+	if mode == MenuLoadSelect {
+		title, help = "Load Game - Select Slot", "Enter: Load  Left/Right: Page"
+	}
+	return [2]menuTextLine{{title, px + 16, py + 14}, {help, px + 16, py + 32}}
 }
 
 // pagerRect is a button hitbox shared between the save-menu draw and input code.
@@ -120,7 +144,7 @@ func savePagerButtonRects(px, py, panelW, panelH int) (prev, next pagerRect) {
 }
 
 // drawSaveRowList renders the saveRowsPerPage rows of the current page (row 0 of
-// page 0 is the load-only Autosave) plus a Prev/Next pager strip below the panel.
+// page 0 are the load-only Autosave and Quicksave) plus a Prev/Next pager strip below the panel.
 // highlight tints the selected row.
 func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH int, highlight color.RGBA) {
 	g := ui.game
@@ -129,7 +153,7 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 		box, tx, ty := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
 		sum := GetSaveRowSummary(row)
 		label := saveRowLabel(row)
-		if sum.Name != "" && !saveRowIsAutosave(row) {
+		if sum.Name != "" && !saveRowIsLoadOnly(row) {
 			label = fmt.Sprintf("%s: %s", label, truncateSaveName(sum.Name, 18))
 		}
 		if sum.Exists {
@@ -142,7 +166,7 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 				t = t[:19]
 			}
 			label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
-		} else if saveRowIsAutosave(row) {
+		} else if saveRowIsLoadOnly(row) {
 			label = fmt.Sprintf("%s  (empty)", label)
 		}
 		if i == g.slotSelection {
@@ -309,7 +333,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 	drawCenteredUIText(screen, "Slot or remove cards at the Card Collector in the desert.", layout.subtitle.x, layout.subtitle.y, layout.subtitle.w, layout.subtitle.h)
 
 	mouseX, mouseY := uiCursorPosition()
-	var hover []string
+	var hover character.CardRows
 
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		card := layout.cards[slot]
@@ -324,7 +348,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 			drawCenteredUIText(screen, clipUIText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
 
 			if hovered {
-				hover = ui.appendCardArtHint(cardCollectionTooltipLines(def), key)
+				hover = ui.appendCardArtHintRows(cardItemTooltipRows(key), key)
 			}
 		}
 	}
@@ -332,7 +356,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 	ui.drawCardEffectsList(screen, layout.summary)
 
 	if hover != nil {
-		ui.queueTooltip(hover, mouseX+16, mouseY+8)
+		ui.queueCardTooltip(hover, nil, nil, nil, "", mouseX+16, mouseY+8)
 	}
 }
 
@@ -344,9 +368,6 @@ func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab Menu
 	}
 
 	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
-		if !ui.game.canOpenClassBook(tab) {
-			return
-		}
 		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
 			// Entering the spellbook fresh: no spell highlighted until user picks one.
 			ui.game.selectedSpell = -1

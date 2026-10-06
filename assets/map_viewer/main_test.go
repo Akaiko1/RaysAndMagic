@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image/color"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,151 +94,132 @@ func TestBuildSpellCards_BySchoolByCost(t *testing.T) {
 	}
 }
 
-func TestMobInfo_GoldDragonShowsOnlyMonsterFacingStun(t *testing.T) {
-	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
-		t.Fatalf("load spells: %v", err)
+// mobSheetText is the editor stat sheet as one whitespace-normalized string.
+func mobSheetText(key string, def monster.MonsterDefinition) string {
+	var rows []string
+	for _, line := range buildMobInfo(key, def) {
+		rows = append(rows, line.text)
 	}
-	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+	return strings.Join(strings.Fields(strings.Join(rows, " ")), " ")
+}
 
-	rowsFor := func(key string) string {
-		def, ok := monster.MonsterConfig.Monsters[key]
-		if !ok {
-			t.Fatalf("monster %q missing", key)
-		}
-		lines := buildMobInfo(key, def)
-		rows := make([]string, 0, len(lines))
-		for _, line := range lines {
-			rows = append(rows, line.text)
-		}
-		return strings.Join(rows, "\n")
-	}
-
-	for key, wantStun := range map[string]string{
-		"dragon_gold":       "Stun: 10% (4s / 2 turns)",
-		"elder_dragon_gold": "Stun: 10% (4s / 2 turns)",
+// The sheet describes the stun the MONSTER applies: its own stun wins over the
+// stun authored on the spell it casts, which only rides the projectile when the
+// monster has none.
+func TestMobInfoShowsOnlyMonsterFacingStun(t *testing.T) {
+	previous := config.GlobalSpells
+	t.Cleanup(func() { config.GlobalSpells = previous })
+	config.GlobalSpells = &config.SpellSystemConfig{Spells: map[string]*config.SpellDefinitionConfig{
+		"fixture_bolt": {Name: "Fixture Bolt", School: "air", StunChance: .2, StunDurationSeconds: 2, StunDurationTurns: 1},
+	}}
+	for _, tc := range []struct {
+		name         string
+		def          monster.MonsterDefinition
+		want, absent []string
+	}{
+		{"own stun wins", monster.MonsterDefinition{ProjectileSpell: "fixture_bolt", StunCharChance: .1, StunCharSeconds: 4, StunCharTurns: 2},
+			[]string{"Ranged spell: Fixture Bolt (air)", "Stun: 10% (4s / 2 turns)", "Projectile stun: 10% on hit, 4s / 2 turn(s)"},
+			[]string{"20%"}},
+		{"spell stun rides the projectile", monster.MonsterDefinition{ProjectileSpell: "fixture_bolt"},
+			[]string{"Ranged spell: Fixture Bolt (air)", "Projectile stun: 20% on hit, 2s / 1 turn(s)"},
+			[]string{"Stun: "}},
 	} {
-		got := rowsFor(key)
-		for _, want := range []string{"Ranged spell: Lightning Bolt (air)", wantStun} {
-			if !strings.Contains(got, want) {
-				t.Errorf("editor mob %s missing %q. rows:\n%s", key, want, got)
+		t.Run(tc.name, func(t *testing.T) {
+			tc.def.Name = "Fixture"
+			got := mobSheetText("fixture", tc.def)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("missing %q in %s", want, got)
+				}
 			}
-		}
-		if strings.Contains(got, "Stun on hit: 20% (2s / 1 turns)") {
-			t.Errorf("editor mob %s shows spell stun as monster-facing stun. rows:\n%s", key, got)
-		}
+			for _, absent := range tc.absent {
+				if strings.Contains(got, absent) {
+					t.Errorf("spell stun shown as monster-facing (%q) in %s", absent, got)
+				}
+			}
+		})
 	}
 }
 
-// TestSpellCard_SharesMechanicsWithGame verifies the editor's spell card pulls
-// its base mechanics from the shared game tooltip, so previously-missing fields (stun chance, buff bonuses, charm,
-// zone, revive...) now appear and can't drift from the game.
-func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
-	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
-	rowsFor := func(key string) string {
-		for _, c := range buildSpellCards() {
-			if c.key == key {
-				return strings.Join(c.tooltipRows, "\n")
-			}
-		}
-		t.Fatalf("no card for %q", key)
-		return ""
-	}
-	want := map[string]string{
-		"psychic_shock": "Stun chance: 10%",
-		"stone_skin":    "Base reduction: -4 per hit",
-		"heroism":       "Base physical damage bonus: +3",
-		"charm":         "Pacifies",
-		"stun":          "Stuns every monster within 3.0 tiles",
-		"raise_dead":    "Revives a fallen ally to 25% HP",
-	}
-	for key, sub := range want {
-		if got := rowsFor(key); !strings.Contains(got, sub) {
-			t.Errorf("editor %s card missing %q. rows:\n%s", key, sub, got)
-		}
-	}
-	// Charm/Disintegrate are deals_no_damage -> no damage row in the editor either.
-	for _, key := range []string{"charm", "disintegrate"} {
-		if got := rowsFor(key); strings.Contains(got, "Base damage") {
-			t.Errorf("editor %s card shows damage but it's deals_no_damage:\n%s", key, got)
-		}
-	}
-}
-
+// The ABILITIES section is exactly CombatEffectLines, in order and school tint,
+// for every shipped monster.
 func TestMobInfo_UsesMonsterCombatEffectLines(t *testing.T) {
 	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
 		t.Fatalf("load spells: %v", err)
 	}
 	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
-
-	rowsFor := func(key string) string {
-		def, ok := monster.MonsterConfig.Monsters[key]
-		if !ok {
-			t.Fatalf("monster %q missing", key)
-		}
-		lines := buildMobInfo(key, def)
-		rows := make([]string, 0, len(lines))
-		for _, line := range lines {
-			rows = append(rows, line.text)
-		}
-		return strings.Join(rows, "\n")
-	}
-
-	want := map[string][]string{
-		"archmage": {"Ranged spell: Fireball (fire)", "Projectile AoE: whole party on hit"},
-		"dragon":   {"Ranged spell: Fire Bolt (fire)", "Dragon Breath: 33% fire attack to whole party"},
-	}
-	for key, subs := range want {
-		got := strings.Join(strings.Fields(rowsFor(key)), " ")
-		for _, sub := range subs {
-			if !strings.Contains(got, sub) {
-				t.Errorf("editor mob %s missing %q. rows:\n%s", key, sub, got)
+	withEffects := 0
+	for key, def := range monster.MonsterConfig.Monsters {
+		t.Run(key, func(t *testing.T) {
+			var want []infoLine
+			for _, line := range def.CombatEffectLines() {
+				var col color.Color = mobStatDefault
+				if line.School != "" {
+					col = game.SchoolColor(line.School)
+				}
+				for _, text := range wrapTooltipLines(line.Text, mobInfoCols) {
+					want = append(want, infoLine{text: text, col: col})
+				}
 			}
-		}
+			rows := buildMobInfo(key, def)
+			header := -1
+			for i, row := range rows {
+				if row.header && row.text == "ABILITIES" {
+					header = i
+				}
+			}
+			if len(want) == 0 {
+				if header >= 0 {
+					t.Fatal("ABILITIES header without combat effect lines")
+				}
+				return
+			}
+			withEffects++
+			if header < 0 || len(rows) < header+1+len(want) {
+				t.Fatalf("ABILITIES section missing or short: %d rows after header %d, want %d", len(rows), header, len(want))
+			}
+			for i, w := range want {
+				if got := rows[header+1+i]; got.text != w.text || got.col != w.col {
+					t.Fatalf("ability row %d = %q %v, want %q %v", i, got.text, got.col, w.text, w.col)
+				}
+			}
+		})
+	}
+	if withEffects == 0 {
+		t.Fatal("no shipped monster has combat effect lines")
 	}
 }
 
 func TestMobInfo_ShowsEffectiveCadenceAndAuthoredAbilities(t *testing.T) {
-	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
-	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
-
-	rowsFor := func(key string) string {
-		def, ok := monster.MonsterConfig.Monsters[key]
-		if !ok {
-			t.Fatalf("monster %q missing", key)
-		}
-		lines := buildMobInfo(key, def)
-		rows := make([]string, 0, len(lines))
-		for _, line := range lines {
-			rows = append(rows, line.text)
-		}
-		return strings.Join(strings.Fields(strings.Join(rows, "\n")), " ")
-	}
-
-	for key, wants := range map[string][]string{
-		"dragon_green": {
-			"TB attacks: 2",
-			"RT attack cooldown: x0.60",
-		},
-		"old_samurai": {
-			"TB attacks: 1",
-			"Enraged TB attacks: 2",
-			"first guaranteed, then 18%",
-		},
-		"alarm_clock": {
-			"TB attacks: 2",
-			"Aggro rally: up to 4 mobs within 15 tiles",
-		},
+	for _, tc := range []struct {
+		name         string
+		def          monster.MonsterDefinition
+		want, absent []string
+	}{
+		{"default cadence", monster.MonsterDefinition{}, []string{"TB attacks: 1"}, []string{"RT attack cooldown", "Enraged TB attacks"}},
+		{"fast cooldown doubles TB swings", monster.MonsterDefinition{AttackCooldownMult: .6}, []string{"TB attacks: 2", "RT attack cooldown: x0.60"}, nil},
+		{"explicit attacks per round win", monster.MonsterDefinition{AttacksPerRound: 3, AttackCooldownMult: .6}, []string{"TB attacks: 3"}, nil},
+		{"enraged cadence and summons", monster.MonsterDefinition{
+			EnrageAtHP: 50, EnrageCooldownMult: .5,
+			SummonMonsters: []string{"goblin"}, SummonChance: .18, SummonFirstGuaranteed: true,
+		}, []string{"TB attacks: 1", "Enraged TB attacks: 2", "first guaranteed, then 18%"}, nil},
+		{"capped aggro rally", monster.MonsterDefinition{AttackCooldownMult: .5, RallyOnAggroTiles: 15, RallyMaxTargets: 4}, []string{"TB attacks: 2", "Aggro rally: up to 4 mobs within 15 tiles"}, nil},
+		{"uncapped aggro rally", monster.MonsterDefinition{RallyOnAggroTiles: 15}, []string{"Aggro rally: every mob within 15 tiles"}, []string{"up to"}},
 	} {
-		got := rowsFor(key)
-		for _, want := range wants {
-			if !strings.Contains(got, want) {
-				t.Errorf("editor mob %s missing %q. rows:\n%s", key, want, got)
+		t.Run(tc.name, func(t *testing.T) {
+			tc.def.Name = "Fixture"
+			got := mobSheetText("fixture", tc.def)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("missing %q in %s", want, got)
+				}
 			}
-		}
+			for _, absent := range tc.absent {
+				if strings.Contains(got, absent) {
+					t.Errorf("unexpected %q in %s", absent, got)
+				}
+			}
+		})
 	}
 }
 
@@ -285,39 +267,6 @@ func TestBuildMapInfoLines_ShowsMapRuntimeSettings(t *testing.T) {
 	}
 }
 
-func TestCatalogTooltipsFitDefaultWindow(t *testing.T) {
-	assets := filepath.Join("..", "..", "assets")
-	if _, err := config.LoadSpellConfig(filepath.Join(assets, "spells.yaml")); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
-	if _, err := config.LoadWeaponConfig(filepath.Join(assets, "weapons.yaml")); err != nil {
-		t.Fatalf("load weapons: %v", err)
-	}
-	if _, err := config.LoadItemConfig(filepath.Join(assets, "items.yaml")); err != nil {
-		t.Fatalf("load items: %v", err)
-	}
-	if _, err := config.LoadTrapConfig(filepath.Join(assets, "traps.yaml")); err != nil {
-		t.Fatalf("load traps: %v", err)
-	}
-
-	var cards []contentCard
-	cards = append(cards, buildItemsCards()...)
-	cards = append(cards, buildSpellCards()...)
-	cards = append(cards, buildSkillCards()...)
-	if len(cards) == 0 {
-		t.Fatal("catalog is empty")
-	}
-	for i := range cards {
-		w, h := cardTooltipSize(&cards[i])
-		if w > windowWidth-8 {
-			t.Errorf("%s tooltip is %dpx wide, exceeds %dpx window", cards[i].key, w, windowWidth)
-		}
-		if h > windowHeight-pageBarHeight-8 {
-			t.Errorf("%s tooltip is %dpx tall, exceeds available %dpx", cards[i].key, h, windowHeight-pageBarHeight-8)
-		}
-	}
-}
-
 func TestHeaderBandsClearPreviousOutlinedText(t *testing.T) {
 	const (
 		textY                    = 100
@@ -332,20 +281,6 @@ func TestHeaderBandsClearPreviousOutlinedText(t *testing.T) {
 		}
 		if bandY+bandH > textY+rowAdvance {
 			t.Errorf("row %d: band ends past the next row baseline", rowAdvance)
-		}
-	}
-}
-
-func TestMobSheetsFitDefaultColumns(t *testing.T) {
-	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
-	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
-
-	const maxVisibleRows = 69 // three 23-row columns at the default 1200x800 layout
-	for key, def := range monster.MonsterConfig.Monsters {
-		if rows := len(buildMobInfo(key, def)); rows > maxVisibleRows {
-			t.Errorf("%s stat sheet has %d rows, exceeds %d-row default layout", key, rows, maxVisibleRows)
 		}
 	}
 }

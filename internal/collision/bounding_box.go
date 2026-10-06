@@ -71,11 +71,33 @@ const (
 
 // Entity represents any game object that can have collisions
 type Entity struct {
-	BoundingBox   *BoundingBox
-	CollisionType CollisionType
-	ID            string
-	Solid         bool // Whether this entity blocks movement
-	blocksSight   bool // Set only by NewSightBlockingEntity before registration
+	movementBounds MovementBounds
+	BoundingBox    *BoundingBox
+	CollisionType  CollisionType
+	ID             string
+	Solid          bool // Whether this entity blocks movement
+	blocksSight    bool // Set only by NewSightBlockingEntity before registration
+}
+
+// MovementBounds constrains the entire actor box. Zero bounds leave movement
+// unrestricted. Values are frozen with the collision snapshot for AI workers.
+type MovementBounds struct {
+	Enabled                bool
+	MinX, MinY, MaxX, MaxY float64
+}
+
+func (b MovementBounds) Allows(box *BoundingBox) bool {
+	if !b.Enabled {
+		return true
+	}
+	x0, y0, x1, y1 := box.GetBounds()
+	return x0 >= b.MinX && y0 >= b.MinY && x1 <= b.MaxX && y1 <= b.MaxY
+}
+
+// WithMovementBounds configures a new entity before it is registered.
+func (e *Entity) WithMovementBounds(bounds MovementBounds) *Entity {
+	e.movementBounds = bounds
+	return e
 }
 
 // NewEntity creates a new collision entity

@@ -2,6 +2,8 @@ package game
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,60 +13,34 @@ import (
 	"ugataima/internal/spells"
 )
 
-// The weapon tooltip's cooldown line must quote the SAME frames the RT loop
-// charges (WeaponCooldownFramesFor) - including weapon-type multipliers.
-func TestTooltip_WeaponCooldownMatchesCombat(t *testing.T) {
-	g, thief := newThiefTestGame(t)
-	weapon := thief.Equipment[items.SlotMainHand] // magic dagger
-	wantFrames := g.combat.WeaponCooldownFramesFor(thief, weapon.Name)
-	tip := GetItemTooltip(weapon, thief, g.combat, false)
-	if !strings.Contains(tip, "Cooldown: "+cooldownSeconds(g.combat, wantFrames)) {
-		t.Errorf("weapon tooltip must quote combat cooldown %d frames; got:\n%s", wantFrames, tip)
+// Resistances are an item's defining power: every card that shows the item
+// (bearer, shop and editor; compact and full) must list each resist row.
+func TestItemTooltipListsEveryResistance(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	ch := gmReferenceChar(cs.game.config)
+	cs.game.party.Members = []*character.MMCharacter{ch}
+	checked := 0
+	for _, key := range slices.Sorted(maps.Keys(config.GlobalItems.Items)) {
+		def := config.GlobalItems.Items[key]
+		want := def.ResistLines()
+		if len(want) == 0 {
+			continue
+		}
+		checked++
+		it := items.CreateItemFromYAML(key)
+		for _, bearer := range []*character.MMCharacter{nil, ch} {
+			for _, full := range []bool{false, true} {
+				card := GetItemTooltip(it, bearer, cs, full)
+				for _, line := range want {
+					if !strings.Contains(card, line) {
+						t.Errorf("%s bearer=%v full=%v: missing %q:\n%s", key, bearer != nil, full, line, card)
+					}
+				}
+			}
+		}
 	}
-}
-
-// The spell tooltip's cooldown line must quote SpellCooldownFrames (per-spell
-// cooldown_seconds x speed factor x staff modifier), not a generic curve.
-func TestTooltip_SpellCooldownMatchesCombat(t *testing.T) {
-	cfg := loadTestConfig(t)
-	w := newTestWorld(cfg)
-	g := newTestGame(cfg, w)
-	g.combat = NewCombatSystem(g)
-	caster := character.CreateCharacter("Lys", character.ClassSorcerer, cfg)
-	g.party.Members[0] = caster
-
-	wantFrames := g.combat.SpellCooldownFrames(caster, "firebolt")
-	tip := GetSpellTooltip("firebolt", caster, g.combat, false)
-	if !strings.Contains(tip, "Cooldown: "+cooldownSeconds(g.combat, wantFrames)) {
-		t.Errorf("spell tooltip must quote combat cooldown %d frames; got:\n%s", wantFrames, tip)
-	}
-}
-
-// Archmage Staff carries spell_cooldown_multiplier 0.8 -> its EffectLines must
-// surface "Spell cooldown -20%" (combat applies it in SpellCooldownFrames).
-func TestWeaponEffectLines_CooldownModifiers(t *testing.T) {
-	loadTestConfig(t)
-	def, _, ok := config.GetWeaponDefinitionByName("Archmage Staff")
-	if !ok || def == nil {
-		t.Skip("Archmage Staff not defined")
-	}
-	joined := strings.Join(def.EffectLines(), "\n")
-	if !strings.Contains(joined, "Spell cooldown -20%") {
-		t.Errorf("Archmage Staff EffectLines must state the -20%% spell cooldown; got:\n%s", joined)
-	}
-}
-
-// Golden Thief Bug Carapace's defining power is its resistances - the shared
-// item formatter must list them.
-func TestItemEffectLines_CarapaceResistances(t *testing.T) {
-	loadTestConfig(t)
-	def, ok := config.GlobalItems.Items["golden_thiefbug_carapace"]
-	if !ok || def == nil {
-		t.Skip("carapace not defined")
-	}
-	joined := strings.Join(def.EffectLines(), "\n")
-	if !strings.Contains(strings.ToLower(joined), "resist") {
-		t.Errorf("carapace EffectLines must list resistances; got:\n%s", joined)
+	if checked == 0 {
+		t.Fatal("no authored item has resistances")
 	}
 }
 

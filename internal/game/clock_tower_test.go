@@ -1,6 +1,7 @@
 package game
 
 import (
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
@@ -237,87 +238,108 @@ func TestRespawnAuthoredMonstersPreservesPartyCharms(t *testing.T) {
 	}
 }
 
-// The tower monsters exist with attack sheets on disk (the generic
-// AttackAnimFrames path plays <sprite>_attacking_r for ANY monster that has
-// one), and every Clockmaker stock entry resolves to a real item.
+// clockmaker loads the shipped NPC catalog (restored afterwards) and returns
+// the Clockmaker's authored data and her live merchant.
+func clockmaker(t *testing.T) (*character.NPCData, *character.NPC) {
+	t.Helper()
+	restoreNPCCatalog(t)
+	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
+		t.Fatalf("npcs: %v", err)
+	}
+	data, ok := character.NPCConfigInstance.GetNPCData("clockmaker")
+	if !ok {
+		t.Fatal("clockmaker NPC missing")
+	}
+	npc, err := character.CreateNPCFromConfig("clockmaker", 0, 0)
+	if err != nil {
+		t.Fatalf("clockmaker: %v", err)
+	}
+	return data, npc
+}
+
+// Every monster that drops the Clockmaker's currency is one of the tower's
+// constructs, and every weapon she sells is no_loot (her stock and the regal
+// chest only). Her other stock is checked by ValidateNPCCommerce at boot.
 func TestClockTowerContentIntegrity(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
-	if monsterPkg.MonsterConfig == nil {
-		monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	previousMonsters := monsterPkg.MonsterConfig
+	t.Cleanup(func() { monsterPkg.MonsterConfig = previousMonsters })
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("loots: %v", err)
 	}
-	for _, key := range []string{"dust_slime", "possessed_tome", "alarm_clock", "grandfather_clock"} {
-		def, ok := monsterPkg.MonsterConfig.Monsters[key]
-		if !ok {
-			t.Errorf("monster %s missing", key)
+	data, _ := clockmaker(t)
+	currency, ok := character.CurrencyItemKey(data.Currency)
+	if !ok {
+		t.Fatalf("clockmaker currency %q is not an item", data.Currency)
+	}
+	droppers := 0
+	for key, def := range monsterPkg.MonsterConfig.Monsters {
+		drops := false
+		for _, e := range config.GetLootTable(key, def.Boss) {
+			drops = drops || e.Key == currency
+		}
+		if !drops {
 			continue
 		}
+		droppers++
 		if def.Type != "construct" {
-			t.Errorf("%s type = %q, want construct", key, def.Type)
+			t.Errorf("%s drops %s but is type %q, want construct", key, currency, def.Type)
 		}
 	}
-	for _, k := range []string{"clock_hand", "clock_oil",
-		"cogleather_helm", "cogleather_jacket", "cogleather_pauldrons", "cogleather_gloves", "cogleather_boots",
-		"chainwork_helm", "chainwork_hauberk", "chainwork_pauldrons", "chainwork_gauntlets", "chainwork_greaves",
-		"clockplate_helm", "clockplate_cuirass", "clockplate_pauldrons", "clockplate_gauntlets", "clockplate_greaves", "chrono_cape"} {
-		if _, err := items.TryCreateItemFromYAML(k); err != nil {
-			t.Errorf("item %s: %v", k, err)
-		}
+	if droppers == 0 {
+		t.Fatalf("no monster drops the %s currency", currency)
 	}
-	for _, k := range []string{"cogfang_blade", "chime_maul", "minute_hand", "mainspring_pike",
-		"escapement_mace", "clockwork_pistol"} {
-		def, ok := config.GetWeaponDefinition(k)
-		if !ok || def == nil {
-			t.Errorf("weapon %s missing", k)
+	weapons := 0
+	for _, entry := range data.Inventory {
+		if entry == nil || entry.Type != "weapon" {
+			continue
+		}
+		weapons++
+		def, _, ok := config.GetWeaponDefinitionByName(entry.Name)
+		if !ok {
+			t.Errorf("stock weapon %q missing", entry.Name)
 			continue
 		}
 		if !def.NoLoot {
-			t.Errorf("weapon %s must be no_loot (Clockmaker-only stock)", k)
+			t.Errorf("weapon %q must be no_loot (Clockmaker stock and the regal chest only)", entry.Name)
 		}
+	}
+	if weapons == 0 {
+		t.Fatal("the Clockmaker sells no weapons (positive control)")
 	}
 }
 
-// Each tower set must be wearable as a complete five-piece kit: a duplicate
-// slot, wrong armor category, or wrong set key would otherwise make the
-// Clockmaker's advertised set impossible to use in play.
+// Each set the Clockmaker sells must be wearable as a complete kit: a
+// duplicate slot, mixed armor category, or wrong set key would otherwise make
+// the advertised set impossible to use in play. Completing it grants exactly
+// the set's authored bonuses on top of the pieces' own.
 func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
-	cases := []struct {
-		name, set, category string
-		skill               character.SkillType
-		pieces              []string
-		might               int
-		endurance           int
-		accuracy            int
-		speed               int
-		luck                int
-		stunDurationPct     int
-		baseAC              int
-	}{
-		{
-			name: "cogleather", set: "cogleather", category: "leather", skill: character.SkillLeather,
-			pieces:   []string{"cogleather_helm", "cogleather_jacket", "cogleather_pauldrons", "cogleather_gloves", "cogleather_boots"},
-			accuracy: 3, speed: 17, luck: 7, baseAC: 18,
-		},
-		{
-			name: "chainwork", set: "chainwork", category: "chain", skill: character.SkillChain,
-			pieces: []string{"chainwork_helm", "chainwork_hauberk", "chainwork_pauldrons", "chainwork_gauntlets", "chainwork_greaves"},
-			might:  2, endurance: 10, accuracy: 13, baseAC: 24,
-		},
-		{
-			name: "clockplate", set: "clockplate", category: "plate", skill: character.SkillPlate,
-			pieces: []string{"clockplate_helm", "clockplate_cuirass", "clockplate_pauldrons", "clockplate_gauntlets", "clockplate_greaves"},
-			might:  17, endurance: 3, stunDurationPct: -50, baseAC: 30,
-		},
+	_, odile := clockmaker(t)
+	kits := map[string][]items.Item{}
+	for _, m := range odile.MerchantStock {
+		if m != nil && m.Item.Type == items.ItemArmor && m.Item.Set != "" {
+			kits[m.Item.Set] = append(kits[m.Item.Set], m.Item)
+		}
+	}
+	if len(kits) == 0 {
+		t.Fatal("the Clockmaker sells no armor set (positive control)")
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			set := config.GetItemSet(tc.set)
+	for setKey, pieces := range kits {
+		t.Run(setKey, func(t *testing.T) {
+			set := config.GetItemSet(setKey)
 			if set == nil {
-				t.Fatalf("set %q is missing", tc.set)
+				t.Fatalf("set %q is missing", setKey)
 			}
-			if got := set.PiecesRequired; got != len(tc.pieces) {
-				t.Fatalf("set %q pieces_required = %d, want %d", tc.set, got, len(tc.pieces))
+			if got := set.RequiredPieceCount(); got != len(pieces) {
+				t.Fatalf("set %q needs %d pieces, the shop sells %d", setKey, got, len(pieces))
+			}
+			category := pieces[0].ArmorCategory
+			skill, ok := character.SkillTypeFromKey(category)
+			if !ok {
+				t.Fatalf("armor category %q has no skill", category)
 			}
 
 			ch := &character.MMCharacter{
@@ -328,92 +350,58 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 				Speed:     20,
 				Luck:      20,
 				Skills: map[character.SkillType]*character.Skill{
-					tc.skill: {},
+					skill: {},
 				},
 				Equipment: make(map[items.EquipSlot]items.Item),
 			}
 			baseMight, _, _, baseEndurance, baseAccuracy, baseSpeed, baseLuck := ch.GetEffectiveStats()
 
-			for _, key := range tc.pieces {
-				piece, err := items.TryCreateItemFromYAML(key)
-				if err != nil {
-					t.Fatalf("create %s: %v", key, err)
-				}
-				if piece.Type != items.ItemArmor || piece.ArmorCategory != tc.category || piece.Set != tc.set {
-					t.Fatalf("%s = type %v, category %q, set %q; want armor, %q, %q", key, piece.Type, piece.ArmorCategory, piece.Set, tc.category, tc.set)
+			// The set's bonus on top of every piece's own flat bonus.
+			want := struct{ might, endurance, accuracy, speed, luck int }{
+				set.BonusMight, set.BonusEndurance, set.BonusAccuracy, set.BonusSpeed, set.BonusLuck,
+			}
+			for _, piece := range pieces {
+				if piece.ArmorCategory != category {
+					t.Fatalf("%s category %q, want the set's %q", piece.Name, piece.ArmorCategory, category)
 				}
 				if _, hadPrevious, ok := ch.EquipItem(piece); !ok || hadPrevious {
-					t.Fatalf("%s should occupy an unused set slot, ok=%v hadPrevious=%v", key, ok, hadPrevious)
+					t.Fatalf("%s should occupy an unused set slot, ok=%v hadPrevious=%v", piece.Name, ok, hadPrevious)
 				}
+				def, _, _ := config.GetItemDefinitionByName(piece.Name)
+				want.might += def.BonusMight
+				want.endurance += def.BonusEndurance
+				want.accuracy += def.BonusAccuracy
+				want.speed += def.BonusSpeed
+				want.luck += def.BonusLuck
 			}
 
-			if got := len(ch.Equipment); got != len(tc.pieces) {
-				t.Fatalf("equipped slots = %d, want %d; tower set has colliding slots", got, len(tc.pieces))
+			if got := len(ch.Equipment); got != len(pieces) {
+				t.Fatalf("equipped slots = %d, want %d; tower set has colliding slots", got, len(pieces))
 			}
-			baseAC, wantAC := 0, 0
+			wantAC := 0
 			for _, piece := range ch.Equipment {
-				baseAC += piece.Attributes["armor_class_base"]
 				wantAC += cs.CalculateArmorClassContribution(piece, ch)
 			}
-			if baseAC != tc.baseAC {
-				t.Fatalf("base AC = %d, want %d", baseAC, tc.baseAC)
-			}
 			if got := cs.CalculateTotalArmorClass(ch); got != wantAC {
-				t.Fatalf("total AC = %d, want %d from all five equipped pieces", got, wantAC)
+				t.Fatalf("total AC = %d, want %d from all equipped pieces", got, wantAC)
 			}
 			might, _, _, endurance, accuracy, speed, luck := ch.GetEffectiveStats()
-			if got := might - baseMight; got != tc.might {
-				t.Errorf("Might bonus = %d, want %d", got, tc.might)
+			for _, row := range []struct {
+				stat      string
+				got, want int
+			}{
+				{"Might", might - baseMight, want.might},
+				{"Endurance", endurance - baseEndurance, want.endurance},
+				{"Accuracy", accuracy - baseAccuracy, want.accuracy},
+				{"Speed", speed - baseSpeed, want.speed},
+				{"Luck", luck - baseLuck, want.luck},
+			} {
+				if row.got != row.want {
+					t.Errorf("%s bonus = %d, want %d", row.stat, row.got, row.want)
+				}
 			}
-			if got := endurance - baseEndurance; got != tc.endurance {
-				t.Errorf("Endurance bonus = %d, want %d", got, tc.endurance)
-			}
-			if got := accuracy - baseAccuracy; got != tc.accuracy {
-				t.Errorf("Accuracy bonus = %d, want %d", got, tc.accuracy)
-			}
-			if got := speed - baseSpeed; got != tc.speed {
-				t.Errorf("Speed bonus = %d, want %d", got, tc.speed)
-			}
-			if got := luck - baseLuck; got != tc.luck {
-				t.Errorf("Luck bonus = %d, want %d", got, tc.luck)
-			}
-			if got := ch.SetStunDurationPct(); got != tc.stunDurationPct {
-				t.Errorf("stun duration bonus = %d, want %d", got, tc.stunDurationPct)
-			}
-		})
-	}
-}
-
-// The Clockmaker stock is deliberately competitive without eclipsing its
-// arena counterparts. Keep its intended damage, cadence, and signature riders
-// together so a future content edit cannot quietly restore the old outliers.
-func TestClockTowerWeaponsBalanceProfile(t *testing.T) {
-	newTestCombatSystemWithConfig(t)
-	cases := []struct {
-		key                                  string
-		damage, armorPierce, armorShred      int
-		cooldown, stunChance, bonusVsStunned float64
-	}{
-		{key: "cogfang_blade", damage: 20, armorPierce: 20},
-		{key: "chime_maul", damage: 23, cooldown: 1.40, stunChance: 0.15},
-		{key: "minute_hand", damage: 16, cooldown: 0.65},
-		{key: "mainspring_pike", damage: 23, bonusVsStunned: 1.5},
-		{key: "escapement_mace", damage: 19, armorShred: 20},
-		{key: "clockwork_pistol", damage: 20, cooldown: 1.30},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.key, func(t *testing.T) {
-			def, ok := config.GetWeaponDefinition(tc.key)
-			if !ok || def == nil {
-				t.Fatalf("weapon %q missing", tc.key)
-			}
-			if def.Damage != tc.damage || def.CooldownMultiplier != tc.cooldown ||
-				def.ArmorPiercePct != tc.armorPierce || def.StunChance != tc.stunChance ||
-				def.BonusVsStunned != tc.bonusVsStunned || def.ArmorShredPct != tc.armorShred {
-				t.Errorf("balance = damage %d, cooldown %.2f, pierce %d, stun %.2f, bonus vs stunned %.2f, shred %d; want damage %d, cooldown %.2f, pierce %d, stun %.2f, bonus vs stunned %.2f, shred %d",
-					def.Damage, def.CooldownMultiplier, def.ArmorPiercePct, def.StunChance, def.BonusVsStunned, def.ArmorShredPct,
-					tc.damage, tc.cooldown, tc.armorPierce, tc.stunChance, tc.bonusVsStunned, tc.armorShred)
+			if got := ch.SetStunDurationPct(); got != set.StunDurationPct {
+				t.Errorf("stun duration bonus = %d, want %d", got, set.StunDurationPct)
 			}
 		})
 	}
@@ -425,6 +413,10 @@ func TestChronoCapeContributesFlatCloakAC(t *testing.T) {
 	ch.Equipment = make(map[items.EquipSlot]items.Item)
 	before := cs.CalculateTotalArmorClass(ch)
 
+	def, ok := config.GetItemDefinition("chrono_cape")
+	if !ok || def.ArmorClassBase <= 0 {
+		t.Fatalf("chrono_cape must author armor_class_base: %+v", def)
+	}
 	cape, err := items.TryCreateItemFromYAML("chrono_cape")
 	if err != nil {
 		t.Fatalf("create Chrono Cape: %v", err)
@@ -432,8 +424,8 @@ func TestChronoCapeContributesFlatCloakAC(t *testing.T) {
 	if _, _, ok := ch.EquipItem(cape); !ok {
 		t.Fatal("Chrono Cape should equip")
 	}
-	if got := cs.CalculateTotalArmorClass(ch) - before; got != 4 {
-		t.Errorf("Chrono Cape AC contribution = %d, want 4", got)
+	if got := cs.CalculateTotalArmorClass(ch) - before; got != def.ArmorClassBase {
+		t.Errorf("Chrono Cape AC contribution = %d, want its flat armor_class_base %d", got, def.ArmorClassBase)
 	}
 }
 
@@ -443,32 +435,29 @@ func TestChronoCapeContributesFlatCloakAC(t *testing.T) {
 func TestMerchantShopTabs(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	if character.NPCConfigInstance == nil {
-		if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
-			t.Fatalf("npcs: %v", err)
-		}
-	}
-	odile, err := character.CreateNPCFromConfig("clockmaker", 0, 0)
-	if err != nil {
-		t.Fatalf("clockmaker: %v", err)
-	}
+	data, odile := clockmaker(t)
 	g.dialogNPC = odile
 
-	tabs := g.merchantShopTabs()
-	want := []string{"Leather", "Chainmail", "Plate", "Arms&Stuff"}
-	if len(tabs) != len(want) {
-		t.Fatalf("tabs = %v, want %v", tabs, want)
-	}
-	for i := range want {
-		if tabs[i] != want[i] {
-			t.Fatalf("tabs = %v, want %v", tabs, want)
+	var want []string
+	perTab := map[string]int{}
+	for _, entry := range data.Inventory {
+		if perTab[entry.Tab] == 0 {
+			want = append(want, entry.Tab)
 		}
+		perTab[entry.Tab]++
+	}
+	if len(want) < 2 {
+		t.Fatalf("the Clockmaker authors %d tabs, the test needs a tabbed shop", len(want))
+	}
+	tabs := g.merchantShopTabs()
+	if !slices.Equal(tabs, want) {
+		t.Fatalf("tabs = %v, want authored order %v", tabs, want)
 	}
 	for ti, label := range want {
 		g.dialogTab = ti
 		vis := g.merchantVisibleStock()
-		if len(vis) == 0 {
-			t.Fatalf("tab %s: empty stock", label)
+		if len(vis) != perTab[label] {
+			t.Fatalf("tab %s: %d entries, want the %d authored", label, len(vis), perTab[label])
 		}
 		for _, m := range vis {
 			if m.Tab != label {
@@ -476,13 +465,9 @@ func TestMerchantShopTabs(t *testing.T) {
 			}
 		}
 	}
-	g.dialogTab = 3
-	if len(g.merchantVisibleStock()) != 8 { // 6 weapons + cape + oil
-		t.Fatalf("Arms tab = %d entries, want 8", len(g.merchantVisibleStock()))
-	}
 
 	// Untabbed merchants keep the whole stock and no tabs.
-	g.dialogTab = 2
+	g.dialogTab = len(want) - 1
 	plain := &character.NPC{MerchantStock: []*character.MerchantStockItem{{Cost: 1}, {Cost: 2}}}
 	g.dialogNPC = plain
 	if got := g.merchantShopTabs(); len(got) != 0 {

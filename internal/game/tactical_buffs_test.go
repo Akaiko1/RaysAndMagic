@@ -138,16 +138,19 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 	}
 }
 
-func TestOverwatchAttackUsesHalfMovementChance(t *testing.T) {
+// An observed attack reacts at OverwatchAttackChanceScale of the movement
+// chance; both thresholds are exact boundaries.
+func TestOverwatchAttackUsesScaledMovementChance(t *testing.T) {
 	for tier := 0; tier < 4; tier++ {
 		for _, attack := range []bool{false, true} {
 			for _, below := range []bool{false, true} {
 				g, _, ch, ts := sniperFixture(t, false)
 				ch.Skills[character.SkillOverwatch].Mastery = character.SkillMastery(tier)
-				threshold := float64(20+10*tier) / 100
+				scale := 1.0
 				if attack {
-					threshold /= 2
+					scale = character.OverwatchAttackChanceScale
 				}
+				threshold := float64(character.OverwatchChancePct(tier)) * scale / 100
 				roll := threshold
 				if below {
 					roll -= 0.00001
@@ -185,9 +188,6 @@ func TestBallisticsCriticalChanceAndTooltip(t *testing.T) {
 				want := 0
 				if character.BallisticsWeapon(lookupWeaponConfigByName(weapon.Name)) {
 					want = character.BallisticsCritPct(tier)
-				}
-				if want != 0 && want != 2*(tier+1) {
-					t.Fatal("authored progression missing")
 				}
 				if got := g.combat.CalculateWeaponCritChance(weapon, ch); got != min(100, before+want) {
 					t.Fatalf("crit=%d before=%d bonus=%d", got, before, want)

@@ -2,21 +2,12 @@ package world
 
 import (
 	"math"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestRegisterTeleportersFromMapData_UsesProperties(t *testing.T) {
-	tm := NewTileManager(testTileSizeClasses())
-	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
-		t.Fatalf("load tiles: %v", err)
-	}
-	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
-		t.Fatalf("load special tiles: %v", err)
-	}
-	GlobalTileManager = tm
-	defer func() { GlobalTileManager = nil }()
+	tm := installTestTileManager(t)
 
 	vType, ok := tm.GetTileTypeFromKey("vteleporter")
 	if !ok {

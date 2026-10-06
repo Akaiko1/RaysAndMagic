@@ -68,6 +68,10 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 		g.springCrateTrap(npc, crate)
 	}
 	g.applyCrateEffects(npc, crate)
+	if loot, ok := g.adventureLoot(currentMapKey(), "crate:"+npc.Key); ok {
+		g.grantCrateLoot(npc, loot.Items, loot.Gold, loot.ArenaPoints)
+		return
+	}
 	if crate.LootTable != "" {
 		loot, gold := rollWeightedLootTable(crate.LootTable)
 		g.grantCrateLoot(npc, loot, gold, 0)
@@ -141,46 +145,30 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 	})
 }
 
-// rollCratePool rolls the crate's non-authored loot: the "map" pool draws from
-// the drop tables of monster kinds present when the current map was created
-// (weighted by their drop chance, filtered by min_rarity); the "rare" pool
-// draws catalog rares with a legendary_pct upgrade chance. If roll_sources is
-// authored, each roll first picks one weighted source from that list.
+// rollCratePool rolls the crate's non-authored loot: each of `rolls` slots
+// picks one roll_sources entry by weight and draws from it (see
+// config.CrateRollSource for the pools). A map source with nothing in its
+// rarity span on this map sits the chest out, so its share falls to the rest.
 func (g *MMGame) rollCratePool(crate *config.CrateConfig) ([]items.Item, int, int) {
-	rolls := make([]crateRoll, crate.Rolls)
+	sources := make([]config.CrateRollSource, 0, len(crate.RollSources))
+	for _, src := range crate.RollSources {
+		if src.Pool == "map" && len(g.mapLootPool(src.RarityTiers())) == 0 {
+			continue
+		}
+		sources = append(sources, src)
+	}
+	var out []items.Item
+	gold, arenaPoints := 0, 0
 	for i := 0; i < crate.Rolls; i++ {
-		rolls[i] = g.rollCrateItem(crate)
-	}
-
-	// A special source is a per-CHEST chance and replaces one normal slot. This
-	// keeps rare/legendary odds readable in YAML instead of encoding fractional
-	// per-slot probabilities as opaque large weights.
-	available := make([]int, crate.Rolls)
-	for i := range available {
-		available[i] = i
-	}
-	for _, src := range crate.SpecialRolls {
-		if len(available) == 0 || rand.Intn(100) >= src.ChancePct {
+		src, ok := pickCrateRollSource(sources)
+		if !ok {
 			continue
 		}
 		roll := g.rollCrateSource(src)
 		if !roll.ok {
-			continue // A map without this rarity keeps its normal slot.
-		}
-		choice := rand.Intn(len(available))
-		rolls[available[choice]] = roll
-		available = append(available[:choice], available[choice+1:]...)
-	}
-
-	var out []items.Item
-	gold, arenaPoints := 0, 0
-	for _, roll := range rolls {
-		if !roll.ok {
 			continue
 		}
-		if roll.item.Name != "" {
-			out = append(out, roll.item)
-		}
+		out = append(out, roll.items...)
 		gold += roll.gold
 		arenaPoints += roll.arenaPoints
 	}
@@ -188,21 +176,10 @@ func (g *MMGame) rollCratePool(crate *config.CrateConfig) ([]items.Item, int, in
 }
 
 type crateRoll struct {
-	item        items.Item
+	items       []items.Item
 	gold        int
 	arenaPoints int
 	ok          bool
-}
-
-func (g *MMGame) rollCrateItem(crate *config.CrateConfig) crateRoll {
-	// roll_sources is the sole per-roll model (load validation guarantees a
-	// non-empty list for any non-loot_table crate); a no-mix crate is a
-	// one-element list.
-	src, ok := pickCrateRollSource(crate.RollSources)
-	if !ok {
-		return crateRoll{}
-	}
-	return g.rollCrateSource(src)
 }
 
 // weightedPick returns the index of one of n entries chosen in proportion to
@@ -232,7 +209,7 @@ func weightedPick(n int, weight func(i int) int) int {
 }
 
 func pickCrateRollSource(sources []config.CrateRollSource) (config.CrateRollSource, bool) {
-	if i := weightedPick(len(sources), func(i int) int { return sources[i].Weight }); i >= 0 {
+	if i := weightedPick(len(sources), func(i int) int { return sources[i].PerMille() }); i >= 0 {
 		return sources[i], true
 	}
 	return config.CrateRollSource{}, false
@@ -243,18 +220,12 @@ func (g *MMGame) rollCrateSource(src config.CrateRollSource) crateRoll {
 	case "nothing":
 		return crateRoll{} // weighted empty slot - the crate held nothing this roll
 	case "map":
-		it, ok := g.rollMapLootEntry(src.Rarity, src.MinRarity, src.MaxRarity)
-		return crateRoll{item: it, ok: ok}
-	case "rare":
-		rarity := "rare"
-		if src.LegendaryPct > 0 && rand.Intn(100) < src.LegendaryPct {
-			rarity = "legendary"
-		}
-		it, ok := rollCatalogItemByRarity(rarity)
-		return crateRoll{item: it, ok: ok}
+		return crateItemRoll(g.rollMapLootEntry(src.RarityTiers()))
 	case "catalog":
-		it, ok := rollCatalogItem(src.ItemType, src.Rarity, src.MinRarity, src.MaxRarity)
-		return crateRoll{item: it, ok: ok}
+		return crateItemRoll(rollCatalogItem(src.ItemType, src.RarityTiers()))
+	case "loot_table":
+		loot, gold := rollWeightedLootTable(src.LootTable)
+		return crateRoll{items: loot, gold: gold, ok: len(loot) > 0 || gold > 0}
 	case "gold":
 		return crateRoll{gold: src.Amount, ok: src.Amount > 0}
 	case "arena_points":
@@ -263,22 +234,27 @@ func (g *MMGame) rollCrateSource(src config.CrateRollSource) crateRoll {
 	return crateRoll{}
 }
 
-// rollMapLootEntry picks one entry from the union of the per-monster loot
-// tables of every fixed monster KIND present when the current map was created,
-// weighted by each entry's drop chance. This keeps a chest's loot valid after
-// the party clears the map; summons do not alter its pool. exactRarity,
-// minRarity and maxRarity provide the tier gates used by crate roll sources.
-func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (items.Item, bool) {
+func crateItemRoll(it items.Item, ok bool) crateRoll {
+	if !ok {
+		return crateRoll{}
+	}
+	return crateRoll{items: []items.Item{it}, ok: true}
+}
+
+type mapLootEntry struct {
+	entry  config.LootEntry
+	weight int
+}
+
+// mapLootPool is the union of the per-monster loot tables of every fixed
+// monster KIND present when the current map was created, each entry weighted
+// by its drop chance and gated by tiers. Built from the initial kinds, a
+// chest's pool stays valid after the party clears the map; summons do not
+// alter it.
+func (g *MMGame) mapLootPool(tiers config.RarityRange) []mapLootEntry {
 	if g.world == nil {
-		return items.Item{}, false
+		return nil
 	}
-	type poolEntry struct {
-		entry  config.LootEntry
-		weight int
-	}
-	var pool []poolEntry
-	minTier := rarityTier(minRarity)
-	maxTier := rarityTier(maxRarity)
 	var keys map[string]struct{}
 	if g.openWorldActive() {
 		// Unified world: the chest rolls its REGION's authored kinds - a forest
@@ -303,6 +279,7 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 		keyList = append(keyList, key)
 	}
 	sort.Strings(keyList)
+	var pool []mapLootEntry
 	for _, key := range keyList {
 		isBoss := false
 		if monsterPkg.MonsterConfig != nil {
@@ -314,24 +291,20 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 			if e.Type != "weapon" && config.ValidateOrdinaryItemGrant(e.Key) != nil {
 				continue
 			}
-			rarity := lootEntryRarity(e)
-			tier := rarityTier(rarity)
-			if exactRarity != "" && rarity != exactRarity {
+			if !tiers.Contains(rarityTier(lootEntryRarity(e))) {
 				continue
 			}
-			if minTier > 0 && tier < minTier {
-				continue
+			if w := int(e.Chance*1000) * e.RollCount(); w > 0 {
+				pool = append(pool, mapLootEntry{e, w})
 			}
-			if maxRarity != "" && tier > maxTier {
-				continue
-			}
-			w := int(e.Chance*1000) * e.RollCount()
-			if w <= 0 {
-				continue
-			}
-			pool = append(pool, poolEntry{e, w})
 		}
 	}
+	return pool
+}
+
+// rollMapLootEntry picks one mapLootPool entry by weight.
+func (g *MMGame) rollMapLootEntry(tiers config.RarityRange) (items.Item, bool) {
+	pool := g.mapLootPool(tiers)
 	i := weightedPick(len(pool), func(i int) int { return pool[i].weight })
 	if i < 0 {
 		return items.Item{}, false
@@ -354,10 +327,10 @@ func lootEntryRarity(e config.LootEntry) string {
 	return "common"
 }
 
-// rollCatalogItemByRarity picks a uniform random weapon or item of the given
-// rarity from the whole catalog. Cards are normal collectible loot; quest
-// items and arena uniques never drop from chests.
-func rollCatalogItemByRarity(rarity string) (items.Item, bool) {
+// rollCatalogItem picks a uniform random entry of a catalog source: items of
+// itemType ("weapon" draws weapons, "any" both) inside the rarity gate. Cards
+// are ordinary collectible loot; quest items and arena uniques never roll.
+func rollCatalogItem(itemType string, tiers config.RarityRange) (items.Item, bool) {
 	type candidate struct {
 		key    string
 		weapon bool
@@ -365,14 +338,17 @@ func rollCatalogItemByRarity(rarity string) (items.Item, bool) {
 	var pool []candidate
 	if config.GlobalItems != nil {
 		for key := range config.GlobalItems.Items {
-			if !config.CatalogItemMatchesFilter(key, "", rarity, "", "") {
-				continue
+			if config.CatalogItemMatchesFilter(key, itemType, tiers) {
+				pool = append(pool, candidate{key, false})
 			}
-			pool = append(pool, candidate{key, false})
 		}
 	}
-	for _, key := range config.WeaponKeysByRarity(rarity) {
-		pool = append(pool, candidate{key, true})
+	if config.GlobalWeapons != nil {
+		for key := range config.GlobalWeapons.Weapons {
+			if config.CatalogWeaponMatchesFilter(key, itemType, tiers) {
+				pool = append(pool, candidate{key, true})
+			}
+		}
 	}
 	if len(pool) == 0 {
 		return items.Item{}, false
@@ -390,30 +366,6 @@ func rollCatalogItemByRarity(rarity string) (items.Item, bool) {
 		it, err := items.TryCreateWeaponFromYAML(pick.key)
 		return it, err == nil
 	}
-	it, err := items.TryCreateItemFromYAML(pick.key)
-	return it, err == nil
-}
-
-// rollCatalogItem picks a uniform random non-weapon item from the whole catalog
-// by item type and optional rarity gates. This is for crate category rolls such
-// as "any consumable", "common armor", or "uncommon accessory".
-func rollCatalogItem(itemType, rarity, minRarity, maxRarity string) (items.Item, bool) {
-	type candidate struct {
-		key string
-	}
-	var pool []candidate
-	if config.GlobalItems != nil {
-		for key := range config.GlobalItems.Items {
-			if config.CatalogItemMatchesFilter(key, itemType, rarity, minRarity, maxRarity) {
-				pool = append(pool, candidate{key: key})
-			}
-		}
-	}
-	if len(pool) == 0 {
-		return items.Item{}, false
-	}
-	sort.Slice(pool, func(i, j int) bool { return pool[i].key < pool[j].key })
-	pick := pool[rand.Intn(len(pool))]
 	it, err := items.TryCreateItemFromYAML(pick.key)
 	return it, err == nil
 }

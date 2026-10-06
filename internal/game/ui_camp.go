@@ -86,8 +86,8 @@ func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
 	}
 	drawCenteredTextWithShadow(screen, text, badge.x, badge.y, badge.w, badge.h, ink)
 	if hover {
-		ui.queueTooltipIcon([]string{uitext.Text("ui.camp"), uitext.Text("ui.camp_food", g.party.Food),
-			uitext.Text("ui.camp_use", CampFoodCost), uitext.Text("ui.camp_effect")}, campHUDSprite, mouseX+12, mouseY+8)
+		lines, colors := g.campStatusCardRows()
+		ui.queueCardTooltip(lines, colors, woodPlateColor, nil, campHUDSprite, mouseX+12, mouseY+8)
 	}
 	ui.onDisplayedInput(uiCommandClick, r, func() {
 		if !ui.hudClicksBlocked() && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {

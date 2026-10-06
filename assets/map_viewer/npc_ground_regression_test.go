@@ -10,7 +10,7 @@ import (
 
 func TestNPCGroundMoveCopyEraseRoundTrip(t *testing.T) {
 	v, _ := dragTestViewer(t)
-	for _, ground := range []string{"", "deep_water"} {
+	for _, ground := range []string{"", "water", "deep_water"} {
 		for _, action := range []string{"move", "copy", "erase", "overwrite"} {
 			t.Run(ground+"/"+action, func(t *testing.T) {
 				md := &world.MapData{Width: 5, Height: 3, StartX: -1, StartY: -1,

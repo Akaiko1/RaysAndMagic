@@ -1,0 +1,122 @@
+// A short quadratic stroke is sufficient for the guard's rigid gold scrollwork.
+func curvedFitting(p, a, b, c vec2, width float) float {
+	d := 100.0
+	previous := a
+	for i := 1; i <= 8; i++ {
+		u := float(i) / 8.0
+		point := (1-u)*(1-u)*a + 2*(1-u)*u*b + u*u*c
+		d = min(d, capsule(p, previous, point, width))
+		previous = point
+	}
+	return d
+}
+
+// Serpent-Fang: swept ivory blade, green inlay, hooked gold guard and a
+// snake-headed pommel enclosing a dark scaled grip. The point tapers to zero.
+func serpentFangBody(p vec2, aa float) vec4 {
+	p.y += .62 // Register the curved point at the strike origin.
+	gold := vec3(.80, .56, .20)
+	ivory := vec3(.85, .84, .61)
+	green := vec3(.065, .23, .16)
+	u := clamp((p.x+2.15)/2.15, 0, 1)
+	bend := .74*u*u - .12*u
+	q := p - vec2(0, bend)
+	width := (.24 - .10*u) * pow(max(0.0, 1-u), .68)
+	d := max(abs(q.y)-width, max(-2.15-p.x, p.x))
+	out := coat(vec4(0), d, metal(q, ivory), p, aa)
+	edge := max(d, abs(q.y-width*.72)-.019)
+	out = coat(out, edge, gold*1.25, p, aa)
+	spine := max(d, abs(q.y+width*.76)-.018)
+	out = coat(out, spine, gold, p, aa)
+	inlay := max(d+.065, abs(q.y+.025)-.044*(1-u))
+	out = coat(out, inlay, green, p, aa)
+	out = coat(out, max(d+.045, abs(q.y-.016)-.009), gold*.9, p, aa)
+	// Swept, asymmetric hooked quillons frame a green lozenge at the root.
+	out = coat(out, curvedFitting(p, vec2(-2.24, 0), vec2(-1.89, -.26), vec2(-2.18, -.49), .043), gold, p, aa)
+	out = coat(out, curvedFitting(p, vec2(-2.27, 0), vec2(-2.43, .39), vec2(-1.89, .43), .046), gold, p, aa)
+	out = coat(out, triangle(p, vec2(-2.18, -.16), vec2(-1.76, -.28), vec2(-1.98, .01)), gold, p, aa)
+	out = coat(out, triangle(p, vec2(-2.25, .16), vec2(-1.87, .40), vec2(-2.06, .04)), gold, p, aa)
+	out = coat(out, abs(p.x+2.22)*.8+abs(p.y)-.22, gold*1.12, p, aa)
+	out = coat(out, abs(p.x+2.22)*.8+abs(p.y)-.13, green*1.7, p, aa)
+	// Scaled grip and the curved gold serpent around it.
+	out = haft(out, p, -3.17, -2.38, .102, green, aa)
+	braid := max(box(p-vec2(-2.77, 0), vec2(.38, .096)), abs(sin(p.x*33+p.y*18))-.20)
+	out = coat(out, braid, gold*.8, p, aa)
+	out = coat(out, curvedFitting(p, vec2(-3.17, .05), vec2(-2.86, .65), vec2(-2.35, .23), .041), gold, p, aa)
+	out = coat(out, curvedFitting(p, vec2(-3.15, .10), vec2(-3.59, -.28), vec2(-3.20, -.40), .066), gold, p, aa)
+	out = coat(out, triangle(p, vec2(-3.28, -.47), vec2(-2.96, -.30), vec2(-3.29, -.27)), gold*1.22, p, aa)
+	out = coat(out, length(p-vec2(-3.16, -.35))-.026, vec3(.035, .10, .015), p, aa)
+	// Fine pendant chain and one green jewel, safely inside the drawing bounds.
+	for i := 0; i < 4; i++ {
+		f := float(i)
+		out = ring(out, p, vec2(-3.30+f*.015, .22+f*.085), .035, .012, gold, aa)
+	}
+	pendant := abs(p.x+3.24)*1.8 + abs(p.y-.64) - .13
+	out = coat(out, pendant, gold, p, aa)
+	out = coat(out, pendant+.035, vec3(.12, .54, .25), p, aa)
+	return out
+}
+
+func widowBody(p vec2, aa float) vec4 {
+	gold, steel := vec3(.83, .57, .19), vec3(.65, .70, .72)
+	out := haft(vec4(0), p, -2.1, -.46, .043, vec3(.10, .13, .15), aa)
+	tip := max(abs(p.y)-.044*clamp(-p.x/.46, 0, 1), max(-.46-p.x, p.x))
+	out = coat(out, tip, steel, p, aa)
+	out = coat(out, box(p-vec2(-.65, 0), vec2(.04, .058)), gold, p, aa)
+	center := vec2(-2.18, 0)
+	for k := 0; k < 4; k++ {
+		f := float(k)
+		for j := 0; j < 2; j++ {
+			sg := float(j)*2 - 1
+			start := center + vec2((f-1.5)*.065, sg*.07)
+			bend := center + vec2((f-1.5)*.27, sg*.43)
+			end := center + vec2((f-1.5)*.35+.12, sg*(.40-.04*f))
+			out = coat(out, curvedFitting(p, start, bend, end, .025), gold, p, aa)
+		}
+	}
+	out = coat(out, length((p-center)*vec2(.75, 1))-.13, gold, p, aa)
+	out = coat(out, length(p-(center+vec2(.2, 0)))-.076, gold, p, aa)
+	out = coat(out, length(p-center)-.065, vec3(.17, .13, .045), p, aa)
+	for i := 0; i < 4; i++ {
+		f := float(i)
+		out = ring(out, p, center+vec2(-.20, .23+f*.075), .032, .011, gold, aa)
+	}
+	jewel := center + vec2(-.20, .66)
+	out = coat(out, length((p-jewel)*vec2(1.1, .85))-.135, gold, p, aa)
+	out = coat(out, length((p-jewel)*vec2(1.1, .85))-.092, vec3(.05, .49, .24), p, aa)
+	return out
+}
+
+func dragonBladeBody(p vec2, id, aa float) vec4 {
+	l := 1.9
+	if id == 15.0 {
+		l = 3.4
+	}
+	p.y += .35
+	gold, ivory := vec3(.78, .55, .23), vec3(.84, .78, .58)
+	u := clamp((p.x+l)/l, 0, 1)
+	curve := .35 * u * u
+	q := p - vec2(0, curve)
+	width := (.23 + .055*sin(u*3.14)) * pow(max(0, 1-u), .65)
+	teeth := .085 * pow(.5+.5*sin(p.x*18), 3) * (1 - u) * step(q.y, 0)
+	d := max(abs(q.y)-width-teeth, max(-l-p.x, p.x))
+	out := coat(vec4(0), d, ivory, p, aa)
+	core := vec3(.13, .40, .065)
+	if id == 15.0 {
+		core = vec3(.38, .035, .045)
+	}
+	out = coat(out, d+.045, core, p, aa)
+	out = coat(out, max(d, abs(abs(q.y)-width*.75)-.016), gold, p, aa)
+	grid := fract(q*vec2(9, 12)) - .5
+	out = coat(out, max(d+.08, (abs(grid.x)+abs(grid.y)*.7-.3)*.10), core*.4, p, aa)
+	out = haft(out, p, -l-.78, -l-.08, .10, vec3(.27, .095, .045), aa)
+	for k := 0; k < 2; k++ {
+		sg := float(k)*2 - 1
+		out = coat(out, curvedFitting(p, vec2(-l-.06, 0), vec2(-l+.26, sg*.43), vec2(-l+.35, sg*.29), .048), gold, p, aa)
+	}
+	out = coat(out, length(p-vec2(-l, 0))-.14, gold, p, aa)
+	// The hooked claw pommel remains part of the weapon, not a creature effect.
+	out = coat(out, curvedFitting(p, vec2(-l-.78, 0), vec2(-l-.95, -.40), vec2(-l-.54, -.34), .054), gold, p, aa)
+	out = coat(out, triangle(p, vec2(-l-.70, -.40), vec2(-l-.43, -.18), vec2(-l-.74, -.26)), ivory, p, aa)
+	return out
+}

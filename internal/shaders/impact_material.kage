@@ -1,0 +1,56 @@
+//kage:unit pixels
+package main
+
+//include weapon_noise.kageinc
+
+// Clouds and shards share one program so consecutive source-over draws batch
+// without moving clouds ahead of other impacts' fragments. Negative custom.w
+// selects cloud material; shards retain their positive reflectivity.
+func Fragment(dst vec4, uv vec2, color vec4, custom vec4) vec4 {
+    // Derivatives must be evaluated before the per-primitive material branch.
+    bary := vec3(uv, 1.0-uv.x-uv.y)
+    d := min(bary.x, bary.y, bary.z)
+    aa := min(0.06, max(0.006, fwidth(d)*0.5))
+    if custom.w < 0.0 {
+        return impactCloud(uv, color, custom)
+    }
+    return impactShard(uv, color, custom, d, aa)
+}
+
+// A spreading mass of rolling dust/heat. Geometry supplies projected scale;
+// the shader only shapes the material within it. No circular outline or blur.
+func impactCloud(p vec2, color vec4, custom vec4) vec4 {
+	age, seed, kind := custom.x, custom.y, custom.z
+	q := p/(0.16+0.84*sqrt(age))
+	n := fxNoise(q*3.0+vec2(seed, -age*2.8))*0.67+fxNoise(q*7.1+seed+age)*0.33
+	r := length(q)
+	body := 1.0-smoothstep(0.48, 0.96, r+(n-0.5)*0.55)
+	// Erosion opens holes through the tail instead of shrinking a perfect rim.
+	body *= 1.0-smoothstep(0.9-age*0.6, 1.08-age*0.6, n)
+	fade := 1.0-smoothstep(0.24, 1.0, age)
+	front := smoothstep(0.25, 0.7, r)*(1.0-smoothstep(0.55, 0.95, r))
+	heat := max(0.0, 1.0-age*2.2)*(1.0-r*0.5)
+	tint := color.rgb*(0.35+n*0.7)
+	if kind < 0.5 {
+		tint = mix(color.rgb*0.18, color.rgb*1.15, heat)
+		tint = mix(tint, vec3(1.0, 0.92, 0.66), heat*heat)
+	} else {
+		tint += color.rgb*front*0.24
+	}
+	a := color.a*body*fade*(0.6+0.4*front)
+	return vec4(tint*a, a)
+}
+
+// A real triangular face: UV contains two barycentric coordinates. Custom
+// carries age, stable seed, tumble angle and reflectivity. No scene copy.
+func impactShard(uv vec2, color vec4, custom vec4, d, aa float) vec4 {
+	edge := 1.0 - smoothstep(aa, aa*2.5+0.025, d)
+	noise := fxNoise(uv*9.0 + custom.y)
+	erode := smoothstep(0.32, 1.0, custom.x)
+	mask := smoothstep(erode-0.07, erode+0.07, noise*0.75+0.2)
+	face := 0.62 + 0.35*abs(cos(custom.z))
+	reflection := 1.0 - smoothstep(0.035, 0.16, abs(uv.x*0.8+uv.y*0.6-0.5-sin(custom.z)*0.55))
+	tint := color.rgb*face + mix(color.rgb, vec3(1), 0.12)*(edge*0.18+reflection*custom.w*0.25)
+	a := min(1.0, color.a) * smoothstep(0.0, aa, d) * mask * (1.0 - smoothstep(0.82, 1.0, custom.x))
+	return vec4(tint*a, a)
+}

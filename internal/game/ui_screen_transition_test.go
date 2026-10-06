@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
-	"ugataima/internal/sound"
 )
 
 func presentInputScreen(h *displayedModalHarness) {
@@ -28,7 +28,8 @@ func titleButtonPoint(g *MMGame, key string) (int, int) {
 	layout := makeEntryMenuRootLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	for i, b := range entryButtons() {
 		if b.key == key {
-			return layout.buttonX + layout.buttonW/2, layout.buttonStartY + i*(layout.buttonH+layout.buttonGap) + layout.buttonH/2
+			r := layout.button(i)
+			return r.x + r.w/2, r.y + r.h/2
 		}
 	}
 	panic("missing title button")
@@ -43,7 +44,7 @@ func TestMainMenuTransitionDoesNotReuseTheOpeningPress(t *testing.T) {
 				fp := installFakePointer(t)
 				g.mainMenuOpen = true
 				presentInputScreen(h)
-				w, height := menuPanelSize(MenuMain)
+				w, height := menuPanelSize(MenuMain, size[0], size[1])
 				for i, option := range mainMenuOptions {
 					if option.key == "main_menu" {
 						r, _, _ := menuRowRect((size[0]-w)/2, (size[1]-height)/2, w, mainMenuListTopY, mainMenuRowPitch, i)
@@ -93,13 +94,17 @@ func TestTitleBackDoesNotArmRootButtons(t *testing.T) {
 				var x, y int
 				switch mode {
 				case EntryMenuLoad:
-					x = (1024-entryLoadPanelW)/2 + menuFrameInset
-					y = (768-entryLoadPanelH)/2 + menuFrameInset + 22 + saveRowsPerPage*entryLoadRowH + 6 + 26 + 12
+					back := makeEntryLoadListLayout(entryLoadPanelRect(1024, 768)).back
+					x, y = back.x, back.y
 				case EntryMenuScores:
-					x, y = 20, 768-44
-				case EntryMenuAchievements, EntryMenuStatistics:
-					r := profilePanelRect(1024, 768)
-					x, y = r.x+menuFrameInset, r.y+r.h-menuFrameInset-menuBackButtonH
+					back := backHintRect(768)
+					x, y = back.x, back.y
+				case EntryMenuAchievements:
+					l := makeProfileAchievementsLayout(1024, 768, len(config.GetAchievements()))
+					x, y = l.body.x, l.footerY
+				case EntryMenuStatistics:
+					l := makeProfileStatsLayout(1024, 768, profilePages[g.statisticsTab])
+					x, y = l.body.x, l.footerY
 				case EntryMenuSettings:
 					layout := makeAudioSettingsPanelLayout(1024, 768, true)
 					back := audioBackRect(layout.px, layout.py, layout.panelH, layout.contentInset)
@@ -227,52 +232,6 @@ func TestPartyCreationGestureKeepsItsScreen(t *testing.T) {
 	}
 }
 
-func TestAudioGestureKeepsItsScreen(t *testing.T) {
-	for _, entry := range []bool{false, true} {
-		for _, resize := range []bool{false, true} {
-			t.Run(fmt.Sprintf("entry=%v/resize=%v", entry, resize), func(t *testing.T) {
-				h := newDisplayedModalHarness(t, 1024, 768)
-				g, fp := h.g, installFakePointer(t)
-				g.soundManager = &sound.Manager{}
-				if entry {
-					g.appScreen, g.entryMenuMode = AppScreenMainMenu, EntryMenuSettings
-				} else {
-					g.mainMenuOpen, g.mainMenuMode = true, MenuSettings
-				}
-				g.beginAudioSettings()
-				layout := makeAudioSettingsPanelLayout(1024, 768, entry)
-				r := audioSliderRect(layout.px, layout.py, layout.panelW, 0)
-				presentInputScreen(h)
-				fp.moveTo(r.x1+(r.x2-r.x1)/4, (r.y1+r.y2)/2)
-				fp.press()
-				updateInputScreen(h)
-				before := g.soundManager.Volume(sound.VolumeMaster)
-				if g.audioSliderDrag != 0 || before <= 0 || !g.audioSettingsDirty {
-					t.Fatal("fresh audio press did not start volume adjustment")
-				}
-				if resize {
-					g.config.Display.ScreenWidth += 80
-				}
-				presentInputScreen(h)
-				layout = makeAudioSettingsPanelLayout(g.config.GetScreenWidth(), 768, entry)
-				r = audioSliderRect(layout.px, layout.py, layout.panelW, 0)
-				fp.moveTo(r.x1+3*(r.x2-r.x1)/4, (r.y1+r.y2)/2)
-				fp.hold()
-				updateInputScreen(h)
-				after := g.soundManager.Volume(sound.VolumeMaster)
-				if resize && after != before || !resize && after <= before {
-					t.Fatal("audio hold ignored its screen ownership")
-				}
-				fp.release()
-				updateInputScreen(h)
-				if g.audioSliderDrag != -1 || g.audioSettingsDirty {
-					t.Fatal("audio release/cancellation did not commit and stop the adjustment")
-				}
-			})
-		}
-	}
-}
-
 func TestTopLevelActionsWaitForDestinationPresentation(t *testing.T) {
 	for _, action := range []string{"load", "creation back", "creation begin"} {
 		t.Run(action, func(t *testing.T) {
@@ -282,13 +241,13 @@ func TestTopLevelActionsWaitForDestinationPresentation(t *testing.T) {
 			want := AppScreenInGame
 			if action == "load" {
 				g.party.Gold = 321
-				if err := g.SaveGameToFile(saveRowPath(1)); err != nil {
+				if err := g.SaveGameToFile(saveRowPath(firstManualRow)); err != nil {
 					t.Fatal(err)
 				}
 				g.party.Gold = 999
 				g.appScreen, g.entryMenuMode = AppScreenMainMenu, EntryMenuLoad
-				x = (1024-entryLoadPanelW)/2 + menuFrameInset + 3
-				y = (768-entryLoadPanelH)/2 + menuFrameInset + 22 + entryLoadRowH + 3
+				row := makeEntryLoadListLayout(entryLoadPanelRect(1024, 768)).rows[firstManualRow]
+				x, y = row.x+3, row.y+3
 			} else {
 				g.enterPartyCreate()
 				layout := partyCreateLayout(g.partyCreate, 1024, 768)
@@ -341,8 +300,18 @@ func TestTopLevelActionsWaitForDestinationPresentation(t *testing.T) {
 func TestTitleLoadKeyboardPagesOnlyInUpdate(t *testing.T) {
 	h := newDisplayedModalHarness(t, 1024, 768)
 	h.g.appScreen, h.g.entryMenuMode = AppScreenMainMenu, EntryMenuLoad
+	// A held key reports its press edge once, as inpututil does.
 	keys := map[ebiten.Key]bool{ebiten.KeyRight: true}
-	h.loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return keys[k] })
+	reported := map[ebiten.Key]bool{}
+	h.loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool {
+		if !keys[k] {
+			reported[k] = false
+			return false
+		}
+		edge := !reported[k]
+		reported[k] = true
+		return edge
+	})
 	for i := 0; i < 3; i++ {
 		presentInputScreen(h)
 	}

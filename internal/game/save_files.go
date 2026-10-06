@@ -20,19 +20,22 @@ import (
 const DefaultSavePath = "savegame.json"
 
 // saveRowFileName maps a global save-row index to its bare file name: the ONE
-// place the autosave.json / save%d.json naming lives, so anything enumerating
+// place the autosave.json / quicksave.json / save%d.json naming lives, so anything enumerating
 // slot files can tell a save apart from a sibling runtime artifact in the same
 // directory like arena_leaderboard.json. Name only, NO directory resolution -
 // AppSaveDir picks between the bundle data root, the exe folder and the cwd, and
 // creates the directory as a side effect.
 func saveRowFileName(row int) string {
-	if row == 0 {
+	switch row {
+	case autosaveRow:
 		return autosaveFile
+	case quicksaveRow:
+		return quicksaveFile
 	}
-	return fmt.Sprintf("save%d.json", row)
+	return fmt.Sprintf("save%d.json", row-firstManualRow+1)
 }
 
-// saveRowPath maps a global save-row index to its file. Row 0 is the autosave.
+// saveRowPath maps a global save-row index to its file.
 func saveRowPath(row int) string {
 	return storage.AppSavePath(saveRowFileName(row))
 }
@@ -69,7 +72,30 @@ func (g *MMGame) autosaveErr() error {
 	if g.appScreen != AppScreenInGame || world.GlobalWorldManager == nil || g.party == nil {
 		return nil
 	}
-	return g.SaveGameToFile(saveRowPath(0))
+	return g.SaveGameToFile(saveRowPath(autosaveRow))
+}
+
+// quicksave writes the Quicksave slot (F5).
+func (g *MMGame) quicksave() {
+	if err := g.SaveGameToFile(saveRowPath(quicksaveRow)); err != nil {
+		g.AddCombatMessage("Quicksave failed")
+		return
+	}
+	g.AddCombatMessage("Quicksaved (Shift+F4 to load)")
+}
+
+// quickload loads the Quicksave slot (Shift+F4).
+func (g *MMGame) quickload() {
+	if !GetSaveRowSummary(quicksaveRow).Exists {
+		g.AddCombatMessage("No quicksave yet - press F5 to make one")
+		return
+	}
+	if err := g.LoadGameFromFile(saveRowPath(quicksaveRow)); err != nil {
+		g.AddCombatMessage("Quickload failed")
+		return
+	}
+	g.menuOpen = false
+	g.AddCombatMessage("Quickloaded")
 }
 
 // SaveSummary is lightweight info used for menu display
@@ -184,7 +210,7 @@ func (g *MMGame) SaveGameToFile(path string) error {
 }
 
 // RenameSaveSlot updates the stored save name for an existing slot, identified
-// by its global save-row index (rows 1..; the autosave row is never renamed).
+// by its global save-row index (manual rows only; see saveRowIsLoadOnly).
 func RenameSaveSlot(row int, name string) error {
 	path := saveRowPath(row)
 	f, err := os.Open(path)

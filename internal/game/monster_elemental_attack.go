@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"math/rand"
 
 	"ugataima/internal/config"
@@ -28,7 +27,7 @@ func (g *MMGame) monsterEffectContext(m *monster.Monster3D) monster.CombatEffect
 // normalMonsterMeleeHit is the sole proc boundary for ordinary melee delivery
 // against either faction. Specials and champion weapon packets bypass it.
 func (cs *CombatSystem) normalMonsterMeleeHit(m *monster.Monster3D, damage int) monsterCharacterHit {
-	hit := hitFromMonster(m, damage, monster.DamagePhysical.String(), m.IgnoresArmor, 0, true, false)
+	hit := cs.hitFromMonster(m, damage, monster.DamagePhysical.String(), m.IgnoresArmor, 0, true, false)
 	ctx := cs.game.monsterEffectContext(m)
 	profile := m.MeleeProfile(ctx.ElementalAttack, ctx.ElementalSchool)
 	roll := cs.elementalAttackRoll
@@ -41,7 +40,7 @@ func (cs *CombatSystem) normalMonsterMeleeHit(m *monster.Monster3D, damage int) 
 	}
 	hit.ElementalAttack = elemental
 	if elemental {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s uses Elemental Attack (%s)!", m.Name, school))
+		cs.game.logCombat(logToneBad, "%s uses %s (%s)!", logMonsterName(m), logAbility("Elemental Attack"), logSchoolWord(school, school))
 		cs.game.addMonsterElementalAttackFX(m, school)
 	}
 	return hit

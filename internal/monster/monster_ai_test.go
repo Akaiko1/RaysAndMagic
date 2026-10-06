@@ -26,10 +26,6 @@ func tileToWorldCenter(tileX, tileY int) (float64, float64) {
 	return float64(tileX)*defaultTileSize + defaultTileSize/2, float64(tileY)*defaultTileSize + defaultTileSize/2
 }
 
-func worldToTileCenter(x, y float64) (float64, float64) {
-	return tileToWorldCenter(worldToTile(x), worldToTile(y))
-}
-
 func NewMockCollisionChecker(tileSize float64) *MockCollisionChecker {
 	return &MockCollisionChecker{
 		blockedTiles: make(map[[2]int]bool),
@@ -182,67 +178,6 @@ func TestNextPathStepTile_RelentlessWidensWindow(t *testing.T) {
 	}
 }
 
-// TestMonsterPathMovementBasic tests that a monster can move in open terrain using pathfinding
-func TestMonsterPathMovementBasic(t *testing.T) {
-	// Create a monster at tile center (32, 32) - center of tile (0, 0)
-	m := &Monster3D{
-		X:     32.0,
-		Y:     32.0,
-		Speed: 1.5,
-	}
-
-	checker := NewMockCollisionChecker(64.0)
-
-	// Target is at tile (2, 0) center = (160, 32)
-	targetX, targetY := 160.0, 32.0
-
-	initialX, initialY := m.X, m.Y
-
-	// Run one update cycle
-	targetTileX := worldToTile(targetX)
-	targetTileY := worldToTile(targetY)
-	m.followPathToTile(checker, targetTileX, targetTileY)
-
-	// Monster should have moved East (positive X)
-	if m.X <= initialX {
-		t.Errorf("Monster didn't move East. Initial X: %f, Final X: %f", initialX, m.X)
-	}
-	if m.Y != initialY {
-		t.Errorf("Monster moved in Y unexpectedly. Initial Y: %f, Final Y: %f", initialY, m.Y)
-	}
-
-	t.Logf("Monster moved from (%f, %f) to (%f, %f)", initialX, initialY, m.X, m.Y)
-	t.Logf("Collision checks made: %d", checker.checkCount)
-}
-
-// TestMonsterAtTileCenter tests monster at exact tile center can move using pathfinding
-func TestMonsterAtTileCenter(t *testing.T) {
-	// Monster exactly at tile center of tile (1, 1) = (96, 96)
-	m := &Monster3D{
-		X:     96.0,
-		Y:     96.0,
-		Speed: 1.5,
-	}
-
-	checker := NewMockCollisionChecker(64.0)
-
-	// Target is at tile (3, 1) center = (224, 96)
-	targetX, targetY := 224.0, 96.0
-
-	initialX := m.X
-
-	// Run one update cycle
-	targetTileX := worldToTile(targetX)
-	targetTileY := worldToTile(targetY)
-	m.followPathToTile(checker, targetTileX, targetTileY)
-
-	if m.X <= initialX {
-		t.Errorf("Monster at tile center didn't move. Initial X: %f, Final X: %f", initialX, m.X)
-	}
-
-	t.Logf("Monster moved from %f to %f (delta: %f)", initialX, m.X, m.X-initialX)
-}
-
 // TestMonsterBlockedByTile tests that monster can't move when blocked
 func TestMonsterBlockedByTile(t *testing.T) {
 	// Monster at tile (1, 1) center = (96, 96)
@@ -264,15 +199,13 @@ func TestMonsterBlockedByTile(t *testing.T) {
 
 	initialX, initialY := m.X, m.Y
 
-	// Run fewer update cycles - monster should not move in first few attempts
+	// A walled-in monster has no route, so repeated updates must not move it.
 	for i := 0; i < 5; i++ {
 		targetTileX := worldToTile(targetX)
 		targetTileY := worldToTile(targetY)
 		m.followPathToTile(checker, targetTileX, targetTileY)
 	}
 
-	// After 5 attempts with all directions blocked, monster should still be in same position
-	// (stuck counter will be 5, but unstuck mechanism only triggers at 10)
 	if m.X != initialX || m.Y != initialY {
 		t.Errorf("Monster moved when blocked. Initial: (%f, %f), Final: (%f, %f)",
 			initialX, initialY, m.X, m.Y)
@@ -281,87 +214,9 @@ func TestMonsterBlockedByTile(t *testing.T) {
 	}
 }
 
-// TestTileCenterCalculation verifies tile center calculation
-func TestTileCenterCalculation(t *testing.T) {
-	testCases := []struct {
-		name                             string
-		posX, posY                       float64
-		expectedCenterX, expectedCenterY float64
-	}{
-		{"At center (0,0)", 32.0, 32.0, 32.0, 32.0},
-		{"At center (1,1)", 96.0, 96.0, 96.0, 96.0},
-		{"Near edge (0,0)", 10.0, 10.0, 32.0, 32.0},
-		{"Near edge (0,0) other side", 50.0, 50.0, 32.0, 32.0},
-		{"At corner boundary", 64.0, 64.0, 96.0, 96.0}, // 64.0 should be tile (1,1)
-		{"At spawned position", 32.0, 32.0, 32.0, 32.0},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			currentTileX, currentTileY := worldToTileCenter(tc.posX, tc.posY)
-
-			if currentTileX != tc.expectedCenterX || currentTileY != tc.expectedCenterY {
-				t.Errorf("Position (%f, %f) -> Center (%f, %f), expected (%f, %f)",
-					tc.posX, tc.posY, currentTileX, currentTileY,
-					tc.expectedCenterX, tc.expectedCenterY)
-			}
-		})
-	}
-}
-
-// TestMonsterShakingScenario simulates the actual shaking bug using pathfinding
-func TestMonsterShakingScenario(t *testing.T) {
-	// Monster spawned at tile center
-	m := &Monster3D{
-		X:     32.0,
-		Y:     32.0,
-		Speed: 1.8, // Bear speed
-	}
-
-	checker := NewMockCollisionChecker(64.0)
-
-	// Player is somewhere to the East
-	playerX, playerY := 320.0, 32.0
-
-	// Run multiple update cycles to see if monster makes progress
-	positions := make([][2]float64, 0)
-	positions = append(positions, [2]float64{m.X, m.Y})
-
-	targetTileX := worldToTile(playerX)
-	targetTileY := worldToTile(playerY)
-	for i := 0; i < 100; i++ {
-		m.followPathToTile(checker, targetTileX, targetTileY)
-		positions = append(positions, [2]float64{m.X, m.Y})
-	}
-
-	// Check if monster made progress
-	finalX := positions[len(positions)-1][0]
-	initialX := positions[0][0]
-
-	if finalX <= initialX {
-		t.Errorf("Monster didn't make progress after 100 updates. Initial X: %f, Final X: %f",
-			initialX, finalX)
-	}
-
-	// Check for oscillation (going back and forth)
-	oscillations := 0
-	for i := 2; i < len(positions); i++ {
-		dx1 := positions[i][0] - positions[i-1][0]
-		dx2 := positions[i-1][0] - positions[i-2][0]
-		if dx1*dx2 < 0 { // Direction changed
-			oscillations++
-		}
-	}
-
-	if oscillations > 10 {
-		t.Errorf("Monster is oscillating! %d direction changes in 100 updates", oscillations)
-	}
-
-	t.Logf("Final position: (%f, %f), Progress: %f tiles",
-		finalX, positions[len(positions)-1][1], (finalX-initialX)/64.0)
-}
-
-// TestMonsterMovementNoShake tests that monsters don't shake during various movement scenarios (pathfinding)
+// TestMonsterMovementNoShake drives followPathToTile on an open grid: every row
+// must make forward progress without excessive axis changes or X reversals, and
+// a straight row never drifts off its line.
 func TestMonsterMovementNoShake(t *testing.T) {
 	testCases := []struct {
 		name         string
@@ -370,25 +225,38 @@ func TestMonsterMovementNoShake(t *testing.T) {
 		targetX      float64
 		targetY      float64
 		speed        float64
-		maxOscillate int // Max allowed direction changes
+		steps        int  // updates to run (default 100)
+		straight     bool // the off-axis coordinate must never change
+		maxOscillate int  // max axis changes
+		maxReversals int  // max X direction reversals
 	}{
 		{
-			name:         "Straight East Movement",
-			startX:       32.0,
-			startY:       32.0,
-			targetX:      320.0,
-			targetY:      32.0,
-			speed:        1.8,
-			maxOscillate: 0, // Should never change direction
+			name:     "One step East",
+			startX:   32.0,
+			startY:   32.0,
+			targetX:  160.0,
+			targetY:  32.0,
+			speed:    1.5,
+			steps:    1,
+			straight: true,
 		},
 		{
-			name:         "Straight South Movement",
-			startX:       32.0,
-			startY:       32.0,
-			targetX:      32.0,
-			targetY:      320.0,
-			speed:        1.8,
-			maxOscillate: 0, // Should never change direction
+			name:     "Straight East Movement",
+			startX:   32.0,
+			startY:   32.0,
+			targetX:  320.0,
+			targetY:  32.0,
+			speed:    1.8,
+			straight: true,
+		},
+		{
+			name:     "Straight South Movement",
+			startX:   32.0,
+			startY:   32.0,
+			targetX:  32.0,
+			targetY:  320.0,
+			speed:    1.8,
+			straight: true,
 		},
 		{
 			name:         "Diagonal Movement (NE)",
@@ -430,7 +298,6 @@ func TestMonsterMovementNoShake(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create monster at starting position
 			m := &Monster3D{
 				X:     tc.startX,
 				Y:     tc.startY,
@@ -439,19 +306,20 @@ func TestMonsterMovementNoShake(t *testing.T) {
 
 			checker := NewMockCollisionChecker(64.0)
 
-			// Track positions and directions
 			positions := make([][2]float64, 0)
 			positions = append(positions, [2]float64{m.X, m.Y})
 
 			targetTileX := worldToTile(tc.targetX)
 			targetTileY := worldToTile(tc.targetY)
 
-			// Run 100 movement updates
-			for i := 0; i < 100; i++ {
+			steps := tc.steps
+			if steps == 0 {
+				steps = 100
+			}
+			for i := 0; i < steps; i++ {
 				m.followPathToTile(checker, targetTileX, targetTileY)
 				positions = append(positions, [2]float64{m.X, m.Y})
 
-				// Stop if reached target
 				dx := tc.targetX - m.X
 				dy := tc.targetY - m.Y
 				if math.Sqrt(dx*dx+dy*dy) < m.Speed {
@@ -459,14 +327,15 @@ func TestMonsterMovementNoShake(t *testing.T) {
 				}
 			}
 
-			// Count oscillations (direction changes)
-			oscillations := 0
+			oscillations, reversals := 0, 0
 			for i := 2; i < len(positions); i++ {
-				// Check if movement direction changed
 				dx1 := positions[i][0] - positions[i-1][0]
 				dy1 := positions[i][1] - positions[i-1][1]
 				dx2 := positions[i-1][0] - positions[i-2][0]
 				dy2 := positions[i-1][1] - positions[i-2][1]
+				if dx1*dx2 < 0 {
+					reversals++
+				}
 
 				// Determine primary axis for each step
 				axis1 := "none"
@@ -488,15 +357,21 @@ func TestMonsterMovementNoShake(t *testing.T) {
 				}
 			}
 
-			// Check if oscillations are within acceptable range
-			if oscillations > tc.maxOscillate {
-				t.Errorf("Excessive oscillation detected! %d direction changes (max allowed: %d)",
-					oscillations, tc.maxOscillate)
+			if oscillations > tc.maxOscillate || reversals > tc.maxReversals {
+				t.Errorf("Excessive oscillation detected! %d axis changes (max %d), %d X reversals (max %d)",
+					oscillations, tc.maxOscillate, reversals, tc.maxReversals)
 
-				// Log movement pattern for debugging
 				t.Logf("Movement pattern (first 20 steps):")
 				for i := 0; i < len(positions) && i < 20; i++ {
 					t.Logf("  Step %d: (%.1f, %.1f)", i, positions[i][0], positions[i][1])
+				}
+			}
+
+			if tc.straight {
+				for i, p := range positions {
+					if (tc.targetY == tc.startY && p[1] != tc.startY) || (tc.targetX == tc.startX && p[0] != tc.startX) {
+						t.Fatalf("straight move drifted off its line at step %d: (%.1f, %.1f)", i, p[0], p[1])
+					}
 				}
 			}
 
@@ -518,8 +393,8 @@ func TestMonsterMovementNoShake(t *testing.T) {
 					initialDist, finalDist, progress, minProgress)
 			}
 
-			t.Logf("OK Oscillations: %d/%d, Progress: %.1f/%.1f pixels",
-				oscillations, tc.maxOscillate, progress, initialDist)
+			t.Logf("OK axis changes: %d/%d, X reversals: %d/%d, Progress: %.1f/%.1f pixels",
+				oscillations, tc.maxOscillate, reversals, tc.maxReversals, progress, initialDist)
 		})
 	}
 }
@@ -807,59 +682,52 @@ func TestDormantBossHoldsPosition(t *testing.T) {
 	}
 }
 
-// TestMonsterStaysEngagedAfterBeingHit tests that monster doesn't disengage after being hit
-func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
-	m := createTestMonster(100.0, 100.0)
-	checker := NewMockCollisionChecker(64.0)
-
-	// Player at very long range (15 tiles away = 960 pixels)
-	playerX, playerY := 1060.0, 100.0
-
-	// Hit the monster from long range
-	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
-
-	// Verify initial engagement
-	if !m.IsEngagingPlayer {
-		t.Fatalf("Monster should engage after being hit")
-	}
-
-	// Run several AI update cycles - monster should stay engaged
-	for i := 0; i < 60; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
-	}
-
-	// Monster should still be engaging because WasAttacked is true
-	if !m.IsEngagingPlayer {
-		t.Errorf("Monster should stay engaged after being hit (WasAttacked = %v)", m.WasAttacked)
-	}
-	if m.State == StateIdle {
-		t.Errorf("Monster should not return to Idle after being hit, got %v", m.State)
-	}
-}
-
-// TestMonsterDisengagesNormallyWithoutBeingHit tests normal disengagement when not attacked
-func TestMonsterDisengagesNormallyWithoutBeingHit(t *testing.T) {
-	m := createTestMonster(100.0, 100.0)
-	checker := NewMockCollisionChecker(64.0)
-
-	// Manually set engaged state (simulating player walked close then walked away)
-	m.IsEngagingPlayer = true
-	m.State = StateAlert
-	m.WasAttacked = false // Not hit, just detected player
-
-	// Player at very long range (beyond 2x detection radius)
-	// AlertRadius is 128, so 2x = 256. Player at 400 pixels away should trigger disengage.
-	playerX, playerY := 500.0, 100.0
-
-	// Run AI update - monster should disengage since WasAttacked is false
-	m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
-
-	// Monster should disengage when player is far and WasAttacked is false
-	if m.IsEngagingPlayer {
-		t.Errorf("Monster should disengage when player is far and wasn't hit")
-	}
-	if m.State != StateIdle {
-		t.Errorf("Expected state Idle after disengaging, got %v", m.State)
+// TestEngagementLeashAfterHits: a hit makes the fight sticky (any number of
+// hits, party at any range); a sight-only engagement drops once the party is
+// beyond the leash (AlertRadius 128 x disengage 2 = 256 px).
+func TestEngagementLeashAfterHits(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		playerX         float64
+		hitRounds       int // 0 = engaged by sight only
+		updatesPerRound int
+		wantEngaged     bool
+	}{
+		{"one hit, party 15 tiles away", 1060, 1, 60, true},
+		{"two hits, party far away", 800, 2, 30, true},
+		{"never hit, party beyond leash", 500, 0, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := createTestMonster(100.0, 100.0)
+			checker := NewMockCollisionChecker(64.0)
+			playerX, playerY := tc.playerX, 100.0
+			rounds := tc.hitRounds
+			if rounds == 0 {
+				m.IsEngagingPlayer = true
+				m.State = StateAlert
+				rounds = 1
+			}
+			for round := 0; round < rounds; round++ {
+				if tc.hitRounds > 0 {
+					m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
+					if !m.IsEngagingPlayer {
+						t.Fatalf("round %d: monster should engage after being hit", round)
+					}
+				}
+				for i := 0; i < tc.updatesPerRound; i++ {
+					m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
+				}
+			}
+			if m.IsEngagingPlayer != tc.wantEngaged || m.WasAttacked != tc.wantEngaged {
+				t.Fatalf("engaging=%v wasAttacked=%v, want %v", m.IsEngagingPlayer, m.WasAttacked, tc.wantEngaged)
+			}
+			if tc.wantEngaged && m.State == StateIdle {
+				t.Errorf("hit monster returned to Idle")
+			}
+			if !tc.wantEngaged && m.State != StateIdle {
+				t.Errorf("expected state Idle after disengaging, got %v", m.State)
+			}
+		})
 	}
 }
 
@@ -903,39 +771,6 @@ func TestMonsterDoesNotReengageWhenAlreadyEngaged(t *testing.T) {
 	}
 	if m.StateTimer != 50 {
 		t.Errorf("StateTimer should not reset when already engaged, got %d", m.StateTimer)
-	}
-}
-
-// TestMultipleHitsKeepMonsterEngaged tests that multiple hits maintain engagement
-func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
-	m := createTestMonster(100.0, 100.0)
-	checker := NewMockCollisionChecker(64.0)
-
-	// Player at long range
-	playerX, playerY := 800.0, 100.0
-
-	// First hit
-	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
-
-	// Run some AI updates
-	for i := 0; i < 30; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
-	}
-
-	// Second hit
-	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
-
-	// Run more AI updates
-	for i := 0; i < 30; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
-	}
-
-	// Should still be engaged
-	if !m.IsEngagingPlayer {
-		t.Errorf("Monster should remain engaged after multiple hits")
-	}
-	if !m.WasAttacked {
-		t.Errorf("WasAttacked should remain true")
 	}
 }
 

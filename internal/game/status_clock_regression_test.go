@@ -173,6 +173,7 @@ func TestStatusClockProvidenceCalendar(t *testing.T) {
 					g, gl, wm := clockSaveFixture(t)
 					g.turnBasedMode = tb
 					g.party.Members[0].Race = "celestial"
+					g.party.Members[0].EnsureRacialTraits(nil)
 					old := celestialProvidenceBuffPool
 					celestialProvidenceBuffPool = []spells.SpellID{id}
 					t.Cleanup(func() { celestialProvidenceBuffPool = old })
@@ -206,17 +207,20 @@ func TestStatusClockProvidenceCalendar(t *testing.T) {
 					if g.dayNightIsNight || !g.phaseOwnsBuff(string(id)) {
 						t.Fatal("Providence expired early")
 					}
-					tooltip := strings.Join(g.buffStatusTooltip(&UtilitySpellStatus{SpellID: id, Duration: 1}), " ")
+					card, _ := g.buffStatusCard(&UtilitySpellStatus{SpellID: id, Duration: 1})
+					tooltip := strings.Join(card, " ")
 					if !strings.Contains(tooltip, "Until dusk") || strings.Contains(tooltip, "dispel") || strings.Contains(tooltip, "turn") {
 						t.Fatalf("wrong Providence clock tooltip: %s", tooltip)
 					}
 					// Remove the only Celestial to make the next boundary's expiry unambiguous.
 					g.party.Members[0].Race = "human"
+					delete(g.party.Members[0].Skills, character.SkillCelestialProvidence)
 					g.updateDayNight()
 					if !g.dayNightIsNight || g.phaseOwnsBuff(string(id)) {
 						t.Fatal("dusk failed to remove old Providence")
 					}
 					g.party.Members[0].Race = "celestial"
+					g.party.Members[0].EnsureRacialTraits(nil)
 					g.refreshCelestialProvidence()
 					// A normal cast takes ownership; neither natural nor paid phase cleanup
 					// may remove it, and it must return to the ordinary combat clock.

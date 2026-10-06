@@ -796,28 +796,18 @@ func (g *MMGame) hasCardWalkOnWater() bool {
 	return false
 }
 
-// cardEffectText derives the human-readable collection effect from a card's
-// attributes (ASCII only - the bitmap font has no glyph for unicode dashes).
-func cardEffectText(def *config.ItemDefinitionConfig) string {
-	if def == nil {
-		return ""
-	}
-	parts := def.CardEffectLines() // single source (config/item_lines.go)
-	if len(parts) == 0 {
-		return "Currently not implemented"
-	}
-	return strings.Join(parts, ", ")
+// cardItemTooltipLines is the shared card for a monster card, plus the view's
+// own action hint (the collector's double-click).
+func cardItemTooltipLines(key string, usage ...string) []string {
+	return cardItemTooltipRows(key, usage...).Lines()
 }
 
-func cardCollectionTooltipLines(def *config.ItemDefinitionConfig) []string {
-	if def == nil {
+func cardItemTooltipRows(key string, usage ...string) character.CardRows {
+	it, err := items.TryCreateItemFromYAML(key)
+	if err != nil {
 		return nil
 	}
-	effects := def.CardEffectLines()
-	if len(effects) == 0 {
-		effects = []string{cardEffectText(def)}
-	}
-	return append([]string{def.Name, "", "EFFECTS"}, effects...)
+	return itemTooltipWithUsageRows(it, nil, nil, false, usage...)
 }
 
 // firstFreeCardSlot returns the first empty collection slot, or -1 if full.

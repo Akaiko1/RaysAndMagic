@@ -19,9 +19,9 @@ func TestSaveReplacementEntryPoints(t *testing.T) {
 		for _, fail := range []bool{false, true} {
 			t.Run(entry+map[bool]string{false: "/success", true: "/failure"}[fail], func(t *testing.T) {
 				g, _, _ := travelFixture(t)
-				row := 1
+				row := firstManualRow
 				if entry == "autosave" || entry == "stash_transfer" {
-					row = 0
+					row = autosaveRow
 				}
 				path := saveRowPath(row)
 				g.stash = &stash.Stash{}

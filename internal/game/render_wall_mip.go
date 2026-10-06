@@ -78,6 +78,23 @@ type mapRenderWallRipmapBuilder struct {
 	published    bool
 }
 
+func (r *Renderer) wallRipmapAllocation(sprite *ebiten.Image) (int64, bool) {
+	if r == nil || sprite == nil {
+		return 0, false
+	}
+	bounds := sprite.Bounds()
+	bytes := wallRipmapByteSize(bounds.Dx(), bounds.Dy())
+	return bytes, bytes > 0 && bytes <= wallRipmapPerTextureBudgetBytes && bytes <= wallRipmapBudgetBytes-r.wallRipmapBytes
+}
+
+func (r *Renderer) wallRipmapNeedsPixels(sprite *ebiten.Image) bool {
+	if r.wallRipmaps[sprite] != nil {
+		return false
+	}
+	_, allowed := r.wallRipmapAllocation(sprite)
+	return allowed
+}
+
 func newMapRenderWallRipmapBuilder(r *Renderer, sprite *ebiten.Image, prepared *image.RGBA) *mapRenderWallRipmapBuilder {
 	b := &mapRenderWallRipmapBuilder{renderer: r, sprite: sprite}
 	if r == nil || sprite == nil {
@@ -92,10 +109,9 @@ func newMapRenderWallRipmapBuilder(r *Renderer, sprite *ebiten.Image, prepared *
 	}
 	bounds := sprite.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
-	b.estimated = wallRipmapByteSize(width, height)
-	if width <= 0 || height <= 0 || b.estimated <= 0 ||
-		b.estimated > wallRipmapPerTextureBudgetBytes ||
-		b.estimated > wallRipmapBudgetBytes-r.wallRipmapBytes {
+	var allowed bool
+	b.estimated, allowed = r.wallRipmapAllocation(sprite)
+	if !allowed {
 		if r.wallRipmaps == nil {
 			r.wallRipmaps = make(map[*ebiten.Image]*wallRipmap)
 		}
@@ -260,7 +276,7 @@ func wallTextureUsesMipmappedSlice(textureWidth, textureHeight, screenWidth int,
 	if screenWidth <= 0 {
 		screenWidth = 1
 	}
-	return math.Abs(rightU-leftU)*float64(textureWidth) > float64(screenWidth) || wallHeight < float64(textureHeight)*0.5
+	return math.Abs(rightU-leftU)*float64(textureWidth) > float64(screenWidth) || math.Abs(wallHeight) < float64(textureHeight)*0.5
 }
 
 // wallSliceFootprint is how many source texels one screen pixel of this slice
@@ -275,10 +291,10 @@ func wallSliceFootprint(leftU, rightU, textureWidth float64, screenWidth int) fl
 // wallSliceVerticalFootprint is the same rate along Y: the full texture height
 // is always mapped onto the slice's drawn wallHeight pixels.
 func wallSliceVerticalFootprint(textureHeight, wallHeight float64) float64 {
-	if wallHeight <= 0 {
+	if wallHeight == 0 {
 		return 1
 	}
-	return textureHeight / wallHeight
+	return textureHeight / math.Abs(wallHeight)
 }
 
 // wallRipmapSizes lists the level grid for one tile: sizes[iy][ix] halves the
@@ -340,9 +356,8 @@ func (r *Renderer) wallRipmapForCPU(sprite *ebiten.Image, prepared *image.RGBA) 
 	if width <= 0 || height <= 0 {
 		return nil
 	}
-	estimatedBytes := wallRipmapByteSize(width, height)
-	if estimatedBytes <= 0 || estimatedBytes > wallRipmapPerTextureBudgetBytes ||
-		estimatedBytes > wallRipmapBudgetBytes-r.wallRipmapBytes {
+	estimatedBytes, allowed := r.wallRipmapAllocation(sprite)
+	if !allowed {
 		if r.wallRipmaps == nil {
 			r.wallRipmaps = make(map[*ebiten.Image]*wallRipmap)
 		}

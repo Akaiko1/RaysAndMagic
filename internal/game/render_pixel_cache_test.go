@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,49 +15,6 @@ import (
 	"ugataima/internal/graphics"
 	"ugataima/internal/storage"
 )
-
-func TestStandeePreparationWorkerDiskCache(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		w, h int
-		tint float64
-	}{
-		{"small", 17, 9, 0}, {"transparent", 64, 64, 0.65}, {"bounded_source", 1100, 600, 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cpu := image.NewRGBA(image.Rect(3, 5, 3+tc.w, 5+tc.h))
-			for i := 0; i < len(cpu.Pix); i += 4 {
-				a := byte((i / 4) % 256)
-				cpu.Pix[i], cpu.Pix[i+1], cpu.Pix[i+2], cpu.Pix[i+3] = a/3, a/2, a, a
-			}
-			want := prepareStandeePixels(cpu, tc.tint, true)
-			cache := graphics.PixelCache{Dir: t.TempDir()}
-			for _, phase := range []string{"cold", "restart", "corrupt"} {
-				if phase == "corrupt" {
-					files, _ := filepath.Glob(filepath.Join(cache.Dir, "*.rgba"))
-					for _, f := range files {
-						os.WriteFile(f, []byte("bad"), 0600)
-					}
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				results := prepareMapRenderStandees(ctx, []mapRenderStandeeJob{{cpu: cpu}}, tc.tint, cache, graphics.NewPreparationBudget(32<<20))
-				select {
-				case result := <-results:
-					if !reflect.DeepEqual(result.prepared, want) {
-						t.Fatalf("%s pixels differ", phase)
-					}
-					result.lease.Release()
-				case <-ctx.Done():
-					t.Fatal(ctx.Err())
-				}
-				cancel()
-			}
-			if same := prepareCachedStandeePixels(context.Background(), cache, cpu, tc.tint+0.1); !reflect.DeepEqual(same, prepareStandeePixels(cpu, tc.tint+0.1, true)) {
-				t.Fatal("tint reused")
-			}
-		})
-	}
-}
 
 func TestFloorAtlasDiskCache(t *testing.T) {
 	for _, dims := range []image.Point{{X: 8, Y: 8}, {X: 7, Y: 5}, {X: 16, Y: 8}} {
@@ -119,97 +75,79 @@ func TestDemandUploadsUseSharedBoundedBatch(t *testing.T) {
 	}
 }
 
-func TestPreparationTasksPrunePixelCache(t *testing.T) {
-	for _, kind := range []string{"standee", "floor"} {
-		for _, cancelled := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/cancel=%v", kind, cancelled), func(t *testing.T) {
-				t.Chdir(t.TempDir())
-				cache := graphics.PixelCache{Dir: storage.RenderCacheDir()}
-				orphan := filepath.Join(cache.Dir, ".pixels-abandoned")
-				if err := os.WriteFile(orphan, []byte("abandoned"), 0600); err != nil {
-					t.Fatal(err)
+func TestFloorPreparationPrunesPixelCache(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel=%v", cancelled), func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			cache := graphics.PixelCache{Dir: storage.RenderCacheDir()}
+			pixels := image.NewRGBA(image.Rect(0, 0, 4, 4))
+			floorKey := graphics.PixelCacheKey("floor", pixels)
+			standeeKey := graphics.PixelCacheKey("standee", pixels)
+			cache.Store(context.Background(), floorKey, []*image.RGBA{pixels})
+			cache.Store(context.Background(), standeeKey, []*image.RGBA{pixels, pixels})
+			unrelated := filepath.Join(cache.Dir, "keep.rgba")
+			if err := os.WriteFile(unrelated, []byte("unrelated"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			orphan := filepath.Join(cache.Dir, ".pixels-abandoned")
+			if err := os.WriteFile(orphan, []byte("abandoned"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			old := time.Now().Add(-48 * time.Hour)
+			if err := os.Chtimes(orphan, old, old); err != nil {
+				t.Fatal(err)
+			}
+			r := &Renderer{}
+			r.startFloorPreparation("prune", nil)
+			result := r.floorPreparation.result
+			if cancelled {
+				r.cancelFloorPreparation()
+			}
+			for range result {
+			}
+			if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+				t.Fatal("completed preparation task did not prune orphan cache data")
+			}
+			// Cancellation may precede migration. A later load must retry it.
+			if cancelled {
+				r.startFloorPreparation("retry", nil)
+				for range r.floorPreparation.result {
 				}
-				old := time.Now().Add(-48 * time.Hour)
-				if err := os.Chtimes(orphan, old, old); err != nil {
-					t.Fatal(err)
-				}
-				if kind == "standee" {
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel()
-					if cancelled {
-						cancel()
-					}
-					jobs := []mapRenderStandeeJob{{cpu: image.NewRGBA(image.Rect(0, 0, 8, 8))}, {cpu: image.NewRGBA(image.Rect(0, 0, 16, 16))}}
-					for result := range prepareMapRenderStandees(ctx, jobs, .5, cache) {
-						result.lease.Release()
-					}
-				} else {
-					r := &Renderer{}
-					r.startFloorPreparation("prune", nil)
-					result := r.floorPreparation.result
-					if cancelled {
-						r.cancelFloorPreparation()
-					}
-					for range result {
-					}
-				}
-				if _, err := os.Stat(orphan); !os.IsNotExist(err) {
-					t.Fatal("completed preparation task did not prune orphan cache data")
-				}
-			})
-		}
+			}
+			if _, ok := cache.Load(context.Background(), floorKey, []image.Point{{X: 4, Y: 4}}); !ok {
+				t.Fatal("migration deleted the current floor atlas")
+			}
+			if _, ok := cache.Load(context.Background(), standeeKey, []image.Point{{X: 4, Y: 4}, {X: 4, Y: 4}}); ok {
+				t.Fatal("migration retained the retired standee cache")
+			}
+			if _, err := os.Stat(unrelated); err != nil {
+				t.Fatal("migration deleted an unrelated file")
+			}
+			marker := filepath.Join(cache.Dir, ".single-image-v1")
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatal("migration did not record completion")
+			}
+		})
 	}
 }
 
-func TestStandeeCacheInvalidatesWoodTone(t *testing.T) {
-	original := standeeWoodTone
-	t.Cleanup(func() { standeeWoodTone = original })
+func TestFloorAtlasCacheUsesSettings(t *testing.T) {
+	cache := graphics.PixelCache{Dir: t.TempDir()}
 	cpu := image.NewRGBA(image.Rect(0, 0, 16, 16))
 	for i := range cpu.Pix {
 		cpu.Pix[i] = 255
 	}
-	cache := graphics.PixelCache{Dir: t.TempDir()}
-	before := prepareCachedStandeePixels(context.Background(), cache, cpu, 0)
-	standeeWoodTone = [3]float64{.1, .2, .3}
-	after := prepareCachedStandeePixels(context.Background(), cache, cpu, 0)
-	want := prepareStandeePixels(cpu, 0, true)
-	if bytes.Equal(before.core.Pix, after.core.Pix) || !reflect.DeepEqual(after, want) {
-		t.Fatal("wood tone change reused stale derived pixels")
+	ctx := context.Background()
+	textures := []floorTexture{{width: 16, height: 16, pixels: cpu.Pix}}
+	expected, _, _, _ := prepareFloorAtlas(textures)
+	settings := fmt.Sprintf("%s:mips=%d", floorPixelCacheVersion, maxFloorMipLevels)
+	cache.Store(ctx, graphics.PixelCacheKey(settings, cpu), []*image.RGBA{expected})
+	got, _, _, _ := prepareCachedFloorAtlas(ctx, cache, textures)
+	if !reflect.DeepEqual(got, expected) {
+		t.Fatal("settings cache hit changed floor pixels")
 	}
-}
-
-// Seed a valid entry using the settings contract, then drive the production
-// preparation path. Recomputing under another key would create a second file.
-func TestPreparedPixelCacheUsesAllSettings(t *testing.T) {
-	for _, surface := range []string{"standee", "floor"} {
-		t.Run(surface, func(t *testing.T) {
-			cache := graphics.PixelCache{Dir: t.TempDir()}
-			cpu := image.NewRGBA(image.Rect(0, 0, 16, 16))
-			for i := range cpu.Pix {
-				cpu.Pix[i] = 255
-			}
-			ctx := context.Background()
-			if surface == "standee" {
-				expected := prepareStandeePixels(cpu, .5, true)
-				settings := fmt.Sprintf("%s:tint=%016x:max_pixels=%d:mips=%d:wood=%016x,%016x,%016x", standeePixelCacheVersion, math.Float64bits(.5), standeeRenderSourceMaxPixels, maxMipLevel, math.Float64bits(standeeWoodTone[0]), math.Float64bits(standeeWoodTone[1]), math.Float64bits(standeeWoodTone[2]))
-				cache.Store(ctx, graphics.PixelCacheKey(settings, cpu), append(append([]*image.RGBA(nil), expected.stickerMips...), expected.coreMips...))
-				if got := prepareCachedStandeePixels(ctx, cache, cpu, .5); !reflect.DeepEqual(got, expected) {
-					t.Fatal("settings cache hit changed standee pixels")
-				}
-			} else {
-				textures := []floorTexture{{width: 16, height: 16, pixels: cpu.Pix}}
-				expected, _, _, _ := prepareFloorAtlas(textures)
-				settings := fmt.Sprintf("%s:mips=%d", floorPixelCacheVersion, maxFloorMipLevels)
-				cache.Store(ctx, graphics.PixelCacheKey(settings, cpu), []*image.RGBA{expected})
-				got, _, _, _ := prepareCachedFloorAtlas(ctx, cache, textures)
-				if !reflect.DeepEqual(got, expected) {
-					t.Fatal("settings cache hit changed floor pixels")
-				}
-			}
-			files, err := filepath.Glob(filepath.Join(cache.Dir, "*.rgba"))
-			if err != nil || len(files) != 1 {
-				t.Fatalf("preparation missed the full settings key: %d entries, %v", len(files), err)
-			}
-		})
+	files, err := filepath.Glob(filepath.Join(cache.Dir, "*.rgba"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("preparation missed the full settings key: %d entries, %v", len(files), err)
 	}
 }

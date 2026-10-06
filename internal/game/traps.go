@@ -62,27 +62,32 @@ func (g *MMGame) ownerTrapCount(owner *character.MMCharacter) int {
 // flat base + (Intellect+Accuracy)/divisor + Trapper mastery. The SAME
 // function feeds the trap-book tooltip, so combat and UI can't drift.
 func trapDamage(def *config.TrapDefinitionConfig, owner *character.MMCharacter) int {
-	dmg := def.DamageBase
-	if dmg <= 0 {
+	if def.DamageBase <= 0 || owner == nil {
+		return trapDamageAtTier(def, 0)
+	}
+	stat := (owner.GetEffectiveIntellect() + owner.GetEffectiveAccuracy()) / character.TrapStatScalingDivisor
+	return trapDamageAtTier(def, owner.SkillTier(character.SkillTrapper)) + stat
+}
+
+// trapDamageAtTier is a trap's damage for a statless owner at a Trapper tier.
+func trapDamageAtTier(def *config.TrapDefinitionConfig, tier int) int {
+	if def.DamageBase <= 0 {
 		return 0
 	}
-	if owner != nil {
-		dmg += (owner.GetEffectiveIntellect() + owner.GetEffectiveAccuracy()) / character.TrapStatScalingDivisor
-		dmg += owner.SkillTier(character.SkillTrapper) * character.TrapperDamagePerTier
-	}
-	return dmg
+	return def.DamageBase + tier*character.TrapperDamagePerTier
 }
 
 // trapControlDuration returns the mastery-extended control duration of a trap
 // in TB turns and RT seconds (whichever pair the trap carries - stun or root).
 func trapControlDuration(baseTurns, baseSeconds int, owner *character.MMCharacter) (turns, seconds int) {
-	turns, seconds = baseTurns, baseSeconds
-	if owner != nil {
-		tier := owner.SkillTier(character.SkillTrapper)
-		turns += character.TrapperTurnBonus(tier)
-		seconds += tier * character.TrapperSecondsPerTier
+	if owner == nil {
+		return baseTurns, baseSeconds
 	}
-	return turns, seconds
+	return trapControlDurationAtTier(baseTurns, baseSeconds, owner.SkillTier(character.SkillTrapper))
+}
+
+func trapControlDurationAtTier(baseTurns, baseSeconds, tier int) (turns, seconds int) {
+	return baseTurns + character.TrapperTurnBonus(tier), baseSeconds + tier*character.TrapperSecondsPerTier
 }
 
 // equipTrap puts a trap into the character's quick slot. Refuses unknown keys
@@ -202,7 +207,7 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 		TileX: tileX, TileY: tileY, X: cx, Y: cy, Owner: caster,
 		FramesLeft: def.LifetimeSeconds * cs.game.config.GetTPS(),
 	})
-	cs.game.AddCombatMessage(fmt.Sprintf("%s arms a %s!", caster.Name, def.Name))
+	cs.game.logCombat(logToneGood, "%s arms a %s!", logHeroName(caster), logAbility(def.Name))
 	cs.game.spawnTrapSwirl(cx, cy, def.Element)
 	// A trap thrown under a monster's feet fires immediately (TB has no
 	// per-frame sweep; in RT the next frame's sweep would catch it anyway).
@@ -319,26 +324,20 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	if !ok {
 		return
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s springs under %s!", def.Name, victim.Name))
+	cs.game.logCombat(logToneGood, "%s springs under %s!", logAbility(def.Name), logMonsterName(victim))
 	cs.game.CreateSpellHitEffect(t.X, t.Y, def.Element, 0, 0)
 
 	boundVictim := false
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
 		if def.AoeRadiusTiles > 0 {
-			radius := def.AoeRadiusTiles * float64(cs.game.config.GetTileSize())
-			for _, m := range cs.game.world.Monsters {
-				if m == nil || !m.IsAlive() || isPurePartySummon(m) ||
-					Distance(t.X, t.Y, m.X, m.Y) > radius {
-					continue
-				}
+			hurts := func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) }
+			cs.forEachAreaVictim(cs.pointBlast(t.X, t.Y, def.AoeRadiusTiles), hurts, func(m *monsterPkg.Monster3D) {
 				if cs.tryDarkElfBindInstead(t.Owner, m) {
-					if m == victim {
-						boundVictim = true
-					}
-					continue
+					boundVictim = boundVictim || m == victim
+					return
 				}
 				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
-			}
+			})
 		} else {
 			if cs.tryDarkElfBindInstead(t.Owner, victim) {
 				boundVictim = true
@@ -381,6 +380,7 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	// hit and soak is paid once. Weapon/attack-only target modifiers do not apply;
 	// this preserves the pre-refactor trap formula. Trap control stays undodgeable.
 	packet := cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true)
+	packet = cs.elementalBuffPacket(packet)
 	actual := cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}).Total()
 	cs.reportIndirectHit(m, actual, sourceName)
 	cs.finishIndirectKill(m)
@@ -392,8 +392,8 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt int, sourceName string) {
 	cs.markMonsterHit(m)
 	cs.spawnHitSparks(m)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s! (HP: %d/%d)",
-		m.Name, dealt, sourceName, m.HitPoints, m.MaxHitPoints))
+	cs.game.logCombat(logToneGood, "%s takes %s damage from %s! %s",
+		logMonsterName(m), logDamage(dealt, ""), logAbility(sourceName), logHP(m.HitPoints, m.MaxHitPoints))
 }
 
 // finishIndirectKill handles a monster death from an autonomous source (trap,

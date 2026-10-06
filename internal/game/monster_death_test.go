@@ -279,33 +279,6 @@ func TestMonsterDeathFlight(t *testing.T) {
 	}
 }
 
-func TestMonsterDeathAssetsAndPrewarm(t *testing.T) {
-	g := deathTestGame(t)
-	for _, name := range []string{"walking_r", "attacking_r", "dying_r"} {
-		a := g.sprites.GetAnimation("bandit", name)
-		if a == nil || len(a.Frames) != 4 {
-			t.Fatalf("bandit %s missing frames", name)
-		}
-		for _, frame := range a.Frames {
-			if frame.Bounds().Dx() != 512 || frame.Bounds().Dy() != 512 {
-				t.Fatal("animation scale drift")
-			}
-		}
-	}
-	requests := mapRenderSourceRequests(mapRenderPrewarmPlan{monsterSprites: []mapMonsterPrewarmResource{{key: "bandit", spriteName: "bandit"}}})
-	for _, name := range []string{"dying_r", "dying_l"} {
-		found := false
-		for _, req := range requests {
-			if req.Name == "bandit" && req.AnimationType == name {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("death resource %s missing from streaming plan", name)
-		}
-	}
-}
-
 // Every configured definition, including aliases, must resolve its authored
 // animations through the runtime sprite manager and source prewarm plan.
 func TestMonsterAnimationAssets(t *testing.T) {
@@ -317,8 +290,8 @@ func TestMonsterAnimationAssets(t *testing.T) {
 			m := monster.NewMonster3DFromConfig(224, 224, key, g.config)
 			name := m.GetSpriteType()
 			kinds := []string{"walking", "attacking", "dying"}
-			// Passive wildlife, transport and the support idol have no attack.
-			passive := m.Arboreal != nil || name == "desert_rabbit" || name == "desert_caravan" || name == "deep_jungle_idol"
+			// No melee damage and no ranged attack: no attack to animate.
+			passive := m.DamageMax <= 0 && !m.HasRangedAttack()
 			if passive {
 				kinds = []string{"walking", "dying"}
 			}
@@ -343,12 +316,15 @@ func TestMonsterAnimationAssets(t *testing.T) {
 						t.Fatalf("%s/%s: changed logical frame size", key, resolved)
 					}
 				}
-				found := false
-				for _, req := range requests {
-					found = found || (req.Name == name && req.AnimationType == resolved)
-				}
-				if !found {
-					t.Fatalf("%s missing from source prewarm", resolved)
+				// Both facings stream, whichever one the sheet authors.
+				for _, side := range []string{kind + "_r", kind + "_l"} {
+					found := false
+					for _, req := range requests {
+						found = found || (req.Name == name && req.AnimationType == side)
+					}
+					if !found {
+						t.Fatalf("%s missing from source prewarm", side)
+					}
 				}
 			}
 			if !passive && !fish {

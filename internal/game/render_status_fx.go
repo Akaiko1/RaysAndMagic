@@ -67,7 +67,8 @@ var statusVisualCatalog = []statusVisualEntry{
 			r := &g.partyRoot
 			status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, statusStageFrames, statusStageTurns)
 		}},
-	{visualSlow, "slow", "slowed", func(m *monster.Monster3D) { m.ApplySlow(50, statusStageFrames, statusStageTurns) }, nil},
+	{visualSlow, "slow", "slowed", func(m *monster.Monster3D) { m.ApplySlow(50, statusStageFrames, statusStageTurns) },
+		func(g *MMGame, _ *character.MMCharacter) { g.partyHinder.Slow = 1 }},
 	{visualWeaken, "weaken", "weakened", func(m *monster.Monster3D) { m.ApplyWeaken(50, statusStageFrames, statusStageTurns) }, nil},
 	{visualShred, "shred", "armor shredded", func(m *monster.Monster3D) { m.ApplyArmorShred(50, statusStageFrames, statusStageTurns) }, nil},
 	{visualCharm, "charm", "charmed", func(m *monster.Monster3D) { m.Pacified, m.PacifiedFramesRemaining = true, statusStageFrames }, nil},
@@ -127,6 +128,9 @@ func (g *MMGame) partyStatusVisuals(m *character.MMCharacter) statusVisuals {
 		return 0
 	}
 	var v statusVisuals
+	if g.partyHinder.Slow > 0 {
+		v |= visualSlow
+	}
 	if g.partyRooted() {
 		v |= visualRoot
 	}
@@ -163,6 +167,9 @@ func (g *MMGame) partyConditionLabel(m *character.MMCharacter) string {
 	}
 	if g.partyRooted() && !m.HasCondition(character.ConditionDead) && !m.HasCondition(character.ConditionEradicated) {
 		parts = append([]string{"Rooted"}, parts...)
+	}
+	if g.partyHinder.Slow > 0 && !m.HasCondition(character.ConditionDead) && !m.HasCondition(character.ConditionEradicated) {
+		parts = append([]string{"Slowed"}, parts...)
 	}
 	if len(parts) == 0 {
 		return "OK"

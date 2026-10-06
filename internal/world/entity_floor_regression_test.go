@@ -2,6 +2,7 @@ package world
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"ugataima/internal/config"
@@ -36,40 +37,37 @@ func TestAuthoredEntityGroundSurvivesRebuild(t *testing.T) {
 	}
 }
 
+// Every shipped NPC without an authored ground stands on walkable automatic
+// floor, split and stitched; a removed travel device takes its ground tile
+// with it and leaves walkable floor behind.
 func TestShippedEntitiesKeepSafeGroundAndRemovedPortalsLeaveNoTile(t *testing.T) {
 	wm, ow := bootOpenWorldTest(t)
 	tm := GlobalTileManager
-	for _, tc := range []struct{ mapKey, npcKey string }{
-		{"desert", "campfire"}, {"desert", "chest_wooden"},
-		{"forest", "spell_trader_mage"}, {"forest", "barrel_blue"},
-		{"deep_jungle", "chest_iron"}, {"japanese_castle", "japanese_castle_exit"},
-	} {
-		t.Run(tc.mapKey+"/"+tc.npcKey, func(t *testing.T) {
-			mc := wm.MapConfigs[tc.mapKey]
-			md, err := NewMapLoaderWithBiome(wm.config, mc.Biome).LoadMap("assets/" + mc.File)
-			if err != nil {
-				t.Fatal(err)
+	checked := 0
+	for key, mc := range wm.MapConfigs {
+		md, err := NewMapLoaderWithBiome(wm.config, mc.Biome).LoadMap("assets/" + mc.File)
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		removed := ow.Removals[key].NPCs
+		for _, spawn := range md.NPCSpawns {
+			if spawn.groundTileKey() != "" {
+				continue
 			}
-			found := false
-			for _, spawn := range md.NPCSpawns {
-				if spawn.NPCKey != tc.npcKey || spawn.groundTileKey() != "" {
-					continue
-				}
-				found = true
-				if !tm.IsWalkable(md.Tiles[spawn.Y][spawn.X]) {
-					t.Fatal("split map inherited blocked entity ground")
-				}
-				if wm.IsOpenWorldRegion(tc.mapKey) {
-					x, y := wm.ProjectTile(tc.mapKey, spawn.X, spawn.Y)
-					if !tm.IsWalkable(wm.OpenWorld.Tiles[y][x]) {
-						t.Fatal("stitched map inherited blocked entity ground")
-					}
+			checked++
+			if !tm.IsWalkable(md.Tiles[spawn.Y][spawn.X]) {
+				t.Errorf("%s/%s: split map inherited blocked entity ground", key, spawn.NPCKey)
+			}
+			if wm.IsOpenWorldRegion(key) && !slices.Contains(removed, spawn.NPCKey) {
+				x, y := wm.ProjectTile(key, spawn.X, spawn.Y)
+				if !tm.IsWalkable(wm.OpenWorld.Tiles[y][x]) {
+					t.Errorf("%s/%s: stitched map inherited blocked entity ground", key, spawn.NPCKey)
 				}
 			}
-			if !found {
-				t.Fatal("fixture NPC missing")
-			}
-		})
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no shipped NPC relies on automatic ground (positive control)")
 	}
 	for key, removal := range ow.Removals {
 		mc := wm.MapConfigs[key]
@@ -78,20 +76,14 @@ func TestShippedEntitiesKeepSafeGroundAndRemovedPortalsLeaveNoTile(t *testing.T)
 			t.Fatal(err)
 		}
 		for _, spawn := range md.NPCSpawns {
-			for _, removed := range removal.NPCs {
-				if removed != spawn.NPCKey || spawn.groundTileKey() == "" {
-					continue
-				}
-				x, y := wm.ProjectTile(key, spawn.X, spawn.Y)
-				ground, _ := tm.GetTileTypeFromKey(spawn.groundTileKey())
-				if wm.OpenWorld.Tiles[y][x] == ground {
-					t.Errorf("removed %s/%s left its ground tile", key, removed)
-				}
-				if key == "forest" && removed == "portal_gate_highlands" {
-					if got := tm.GetTileKey(wm.OpenWorld.Tiles[y][x]); got != "forest_stream" {
-						t.Errorf("removed forest portal ground = %q, want forest_stream", got)
-					}
-				}
+			if !slices.Contains(removal.NPCs, spawn.NPCKey) || spawn.groundTileKey() == "" {
+				continue
+			}
+			x, y := wm.ProjectTile(key, spawn.X, spawn.Y)
+			ground, _ := tm.GetTileTypeFromKey(spawn.groundTileKey())
+			if got := wm.OpenWorld.Tiles[y][x]; got == ground || !tm.IsWalkable(got) {
+				t.Errorf("removed %s/%s left ground %q, want walkable floor without its ground tile",
+					key, spawn.NPCKey, tm.GetTileKey(got))
 			}
 		}
 	}

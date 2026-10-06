@@ -5,17 +5,41 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 )
 
 // The 2026-07-14 roadside props: a campfire (one-time free rest + gold cache),
-// stat barrels (50% chance of a permanent green bonus for the SELECTED
+// stat barrels (a chance of a permanent green bonus for the SELECTED
 // character, sprite swaps closed -> open when spent), and a box pile that
 // stays standing after looting.
+
+// campfireGold is what one campfire pays: its single always-winning gold
+// source in each of its rolls.
+func campfireGold(t *testing.T) int {
+	t.Helper()
+	crate := config.GetCrateConfig("campfire")
+	if crate == nil || len(crate.RollSources) != 1 || crate.RollSources[0].Pool != "gold" || crate.RollSources[0].Weight != 100 {
+		t.Fatalf("fixture: campfire must pay one certain gold source: %+v", crate)
+	}
+	return crate.Rolls * crate.RollSources[0].Amount
+}
+
+// barrelBonus returns a stat barrel's authored bonus; the statistical tests
+// need a partial chance so both outcomes can occur.
+func barrelBonus(t *testing.T, key string) int {
+	t.Helper()
+	crate := config.GetCrateConfig(key)
+	if crate == nil || crate.BonusAmount <= 0 || crate.BonusChancePct <= 0 || crate.BonusChancePct >= 100 {
+		t.Fatalf("fixture: %s must grant a bonus by partial chance: %+v", key, crate)
+	}
+	return crate.BonusAmount
+}
 
 func TestCampfireFreeRestAndGoldOnce(t *testing.T) {
 	g := crateTestGame(t)
 	fire := spawnCrate(t, g, "campfire", g.camera.X+64, g.camera.Y)
+	gold := campfireGold(t)
 
 	hurt := g.party.Members[0]
 	hurt.HitPoints = 1
@@ -28,8 +52,8 @@ func TestCampfireFreeRestAndGoldOnce(t *testing.T) {
 		t.Fatalf("campfire must fully rest the party (HP %d/%d SP %d/%d)",
 			hurt.HitPoints, hurt.MaxHitPoints, hurt.SpellPoints, hurt.MaxSpellPoints)
 	}
-	if g.party.Gold != gold0+500 {
-		t.Fatalf("campfire gold = %d, want +500", g.party.Gold-gold0)
+	if g.party.Gold != gold0+gold {
+		t.Fatalf("campfire gold = %d, want +%d", g.party.Gold-gold0, gold)
 	}
 	if !fire.Visited {
 		t.Fatal("campfire must be consumed")
@@ -38,18 +62,20 @@ func TestCampfireFreeRestAndGoldOnce(t *testing.T) {
 	// ONE time: a second use neither rests nor pays.
 	hurt.HitPoints = 1
 	g.useLootCrate(fire)
-	if hurt.HitPoints != 1 || g.party.Gold != gold0+500 {
+	if hurt.HitPoints != 1 || g.party.Gold != gold0+gold {
 		t.Fatal("a spent campfire must do nothing")
 	}
 }
 
-// Statistical run over the authored 50% barrel: both outcomes must occur, an
-// empty barrel changes nothing, and every bonus is a PERMANENT effective-stat
-// gain for the SELECTED character only (green delta - base stat untouched).
+// Statistical run over the authored partial-chance barrel: both outcomes must
+// occur, an empty barrel changes nothing, and every bonus is a PERMANENT
+// effective-stat gain for the SELECTED character only (green delta - base stat
+// untouched).
 func TestStatBarrelPermanentBonusAndEmptyChance(t *testing.T) {
 	bonuses, empties := 0, 0
 	for i := 0; i < 200 && (bonuses == 0 || empties == 0); i++ {
 		g := crateTestGame(t)
+		bonus := barrelBonus(t, "barrel_red")
 		barrel := spawnCrate(t, g, "barrel_red", g.camera.X+64, g.camera.Y)
 		m := g.party.Members[0]
 		base := m.Might
@@ -61,13 +87,13 @@ func TestStatBarrelPermanentBonusAndEmptyChance(t *testing.T) {
 			t.Fatal("a stat barrel must never write the BASE stat")
 		}
 		switch m.GetEffectiveMight() {
-		case effBefore + 1:
+		case effBefore + bonus:
 			bonuses++
 			// Only the SELECTED character drinks - the rest get nothing.
 			for i, mem := range g.party.Members {
 				want := 0
 				if i == g.selectedChar {
-					want = 1
+					want = bonus
 				}
 				if mem.PermanentBonuses.Might != want {
 					t.Fatalf("member %d (%s) bonus = %d, want %d (selected=%d)", i, mem.Name, mem.PermanentBonuses.Might, want, g.selectedChar)
@@ -99,7 +125,7 @@ func TestStatBarrelPermanentBonusAndEmptyChance(t *testing.T) {
 		}
 	}
 	if bonuses == 0 || empties == 0 {
-		t.Fatalf("50%% barrel never produced both outcomes in 200 runs (bonus=%d empty=%d)", bonuses, empties)
+		t.Fatalf("partial-chance barrel never produced both outcomes in 200 runs (bonus=%d empty=%d)", bonuses, empties)
 	}
 }
 
@@ -108,12 +134,13 @@ func TestStatBarrelPermanentBonusAndEmptyChance(t *testing.T) {
 func TestIntellectBarrelGrowsSpellPool(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		g := crateTestGame(t)
+		bonus := barrelBonus(t, "barrel_blue")
 		barrel := spawnCrate(t, g, "barrel_blue", g.camera.X+64, g.camera.Y)
 		caster := g.party.Members[0]
 		maxSP0 := caster.MaxSpellPoints
 		sp0 := caster.SpellPoints
 		g.useLootCrate(barrel)
-		if caster.PermanentBonuses.Intellect == 1 {
+		if caster.PermanentBonuses.Intellect == bonus {
 			if caster.MaxSpellPoints <= maxSP0 {
 				t.Fatalf("intellect barrel must re-derive MaxSP (%d -> %d)", maxSP0, caster.MaxSpellPoints)
 			}
@@ -170,7 +197,7 @@ func TestBoxPileStaysVisibleButInert(t *testing.T) {
 		}
 	}
 	if !sawLoot || !sawNothing {
-		t.Fatalf("50/50 box pile never produced both outcomes in 200 runs (loot=%v nothing=%v)", sawLoot, sawNothing)
+		t.Fatalf("box pile never produced both outcomes in 200 runs (loot=%v nothing=%v)", sawLoot, sawNothing)
 	}
 }
 
@@ -196,6 +223,7 @@ func TestPermanentBonusesSurviveSaveLoad(t *testing.T) {
 func TestCrateBlockedDuringCombatWithoutWasting(t *testing.T) {
 	g := crateTestGame(t)
 	fire := spawnCrate(t, g, "campfire", g.camera.X+64, g.camera.Y)
+	gold := campfireGold(t)
 	foe := monster.NewMonster3DFromConfig(g.camera.X+128, g.camera.Y, "goblin", g.config)
 	foe.IsEngagingPlayer = true
 	g.world.Monsters = []*monster.Monster3D{foe}
@@ -218,7 +246,7 @@ func TestCrateBlockedDuringCombatWithoutWasting(t *testing.T) {
 	// Fight over -> the campfire still works in full.
 	foe.HitPoints = 0
 	g.useLootCrate(fire)
-	if !fire.Visited || g.party.Gold != gold0+500 || hurt.HitPoints != hurt.MaxHitPoints {
+	if !fire.Visited || g.party.Gold != gold0+gold || hurt.HitPoints != hurt.MaxHitPoints {
 		t.Fatal("after combat the untouched campfire must work normally")
 	}
 }

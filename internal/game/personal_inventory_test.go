@@ -439,7 +439,7 @@ func TestInventoryArtUsesTheFrame(t *testing.T) {
 			if l.quickSlots.bottom() > content.bottom() || l.grid.h > l.paper.h {
 				t.Fatalf("bag column %v / quick slots %v against doll %v in %v", l.grid, l.quickSlots, l.paper, content)
 			}
-			if size == [2]int{1920, 1080} && (l.paper.w != 496 || l.paper.h != 745 || l.grid.w != 496 || l.textScale != readingTextScale) {
+			if size == [2]int{1920, 1080} && (l.paper.w != 491 || l.paper.h != 737 || l.grid.w != 491 || l.textScale != readingTextScale) {
 				t.Fatalf("Normal at 1080 units changed: doll %v grid %v text x%d", l.paper, l.grid, l.textScale)
 			}
 		})

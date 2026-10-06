@@ -1,9 +1,11 @@
 package game
 
 import (
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
@@ -11,26 +13,112 @@ import (
 	"ugataima/internal/world"
 )
 
-func TestNewClassSkillsComeFromCurrentClassKits(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	cases := []struct {
-		class  character.CharacterClass
-		skills []character.SkillType
-	}{
-		{character.ClassKnight, []character.SkillType{character.SkillImpenetrableDefense}},
-		{character.ClassSorcerer, []character.SkillType{character.SkillElementalMastery}},
-		{character.ClassCleric, []character.SkillType{character.SkillNaturalHealer}},
-		{character.ClassArcher, []character.SkillType{character.SkillBlaster}},
-		{character.ClassPaladin, []character.SkillType{character.SkillSacrifice}},
-		{character.ClassDruid, []character.SkillType{character.SkillAnimalBonding}},
-		{character.ClassThief, []character.SkillType{character.SkillBlaster, character.SkillLockpicking}},
+// Every authored class kit reaches a new hero exactly: each listed skill at its
+// authored start mastery and nothing else, each school with exactly its listed
+// spells, the main-hand weapon, every starting item in the slot its equip_slot
+// names, and the quick slot. The class is registered end to end and offered by
+// a roster hero, since party creation pools roster entries only.
+func TestClassKitsMatchAuthoredClassYAML(t *testing.T) {
+	cfg := loadTestConfig(t)
+	active, captives, recruits := character.StartingRoster(cfg)
+	rostered := map[string]bool{}
+	for _, e := range slices.Concat(active, captives, recruits) {
+		rostered[e.Class] = true
 	}
-	for _, tc := range cases {
-		t.Run(tc.class.String(), func(t *testing.T) {
-			member := character.CreateCharacter("Kit", tc.class, cs.game.config)
-			for _, skill := range tc.skills {
-				if !member.HasSkill(skill) {
-					t.Errorf("%s kit missing %s", tc.class, skill)
+	if len(cfg.Characters.Classes) != len(character.PlayableClasses) {
+		t.Fatalf("config authors %d classes, PlayableClasses lists %d", len(cfg.Characters.Classes), len(character.PlayableClasses))
+	}
+	for key, stats := range cfg.Characters.Classes {
+		t.Run(key, func(t *testing.T) {
+			class, ok := character.ClassFromKey(key)
+			if !ok || class.Key() != key || !slices.Contains(character.PlayableClasses, class) {
+				t.Fatalf("class key %q is not registered as a playable class", key)
+			}
+			if class.String() == "" || len(stats.Description) == 0 {
+				t.Errorf("class %q lacks a display name or pitch", key)
+			}
+			if !rostered[key] {
+				t.Errorf("no roster hero offers class %q", key)
+			}
+
+			ch := character.CreateCharacter("Kit", class, cfg)
+			if len(ch.Skills) != len(stats.Skills) {
+				t.Errorf("hero has %d skills, kit lists %d", len(ch.Skills), len(stats.Skills))
+			}
+			for _, sk := range stats.Skills {
+				st, ok := character.SkillTypeFromKey(sk)
+				if !ok {
+					t.Fatalf("kit lists unknown skill %q", sk)
+				}
+				want := character.MasteryNovice
+				if tier, ok := stats.SkillStartMastery[sk]; ok {
+					want, _ = character.MasteryFromKey(tier)
+				}
+				if s := ch.Skills[st]; s == nil || s.Mastery != want {
+					t.Errorf("skill %s = %+v, want mastery %v", sk, s, want)
+				}
+			}
+
+			if len(ch.MagicSchools) != len(stats.Magic) {
+				t.Errorf("hero has %d schools, kit lists %d", len(ch.MagicSchools), len(stats.Magic))
+			}
+			for _, entry := range stats.Magic {
+				ms := ch.MagicSchools[character.MagicSchoolID(entry.School)]
+				if ms == nil || ms.Mastery != character.MasteryNovice {
+					t.Errorf("school %s = %+v, want an open Novice school", entry.School, ms)
+					continue
+				}
+				known := make([]string, len(ms.KnownSpells))
+				for i, id := range ms.KnownSpells {
+					known[i] = string(id)
+				}
+				if !slices.Equal(known, entry.Spells) {
+					t.Errorf("school %s knows %v, kit lists %v", entry.School, known, entry.Spells)
+				}
+			}
+
+			want := map[items.EquipSlot]string{}
+			if stats.MainHand != "" {
+				def, ok := config.GetWeaponDefinition(stats.MainHand)
+				if !ok {
+					t.Fatalf("main_hand %q is not in weapons.yaml", stats.MainHand)
+				}
+				want[items.SlotMainHand] = def.Name
+			}
+			for _, itemKey := range stats.Equipment {
+				def, ok := config.GetItemDefinition(itemKey)
+				if !ok {
+					t.Fatalf("equipment %q is not in items.yaml", itemKey)
+				}
+				slot := items.SlotArmor // an item without equip_slot wears as body armor
+				if def.EquipSlot != "" {
+					slot, _ = items.EquipSlotFromName(def.EquipSlot)
+				}
+				if _, taken := want[items.SlotRing1]; slot == items.SlotRing1 && taken {
+					slot = items.SlotRing2
+				}
+				want[slot] = def.Name
+			}
+			if stats.QuickTrap != "" {
+				def, ok := config.GetTrapDefinition(stats.QuickTrap)
+				if !ok {
+					t.Fatalf("quick_trap %q is not in traps.yaml", stats.QuickTrap)
+				}
+				want[items.SlotSpell] = def.Name
+			}
+			if stats.QuickSpell != "" {
+				def, err := spells.GetSpellDefinitionByID(spells.SpellID(stats.QuickSpell))
+				if err != nil {
+					t.Fatalf("quick_spell %q: %v", stats.QuickSpell, err)
+				}
+				want[items.SlotSpell] = def.Name
+			}
+			if len(ch.Equipment) != len(want) {
+				t.Errorf("hero wears %d items, kit authors %d", len(ch.Equipment), len(want))
+			}
+			for slot, name := range want {
+				if got, ok := ch.Equipment[slot]; !ok || got.Name != name {
+					t.Errorf("slot %s = %q, want %q", slot.DisplayName(), got.Name, name)
 				}
 			}
 		})
@@ -138,16 +226,22 @@ func TestElementalSpellTrueDamageReachesPrimaryAndAoeTargets(t *testing.T) {
 	}
 }
 
-func TestInfernoScales45To90AndStaysNormalDamage(t *testing.T) {
+// Inferno is a nova: its authored cost sets the base and each mastery tier adds
+// its authored step, all of it normal damage.
+func TestInfernoScalesByMasteryAndStaysNormalDamage(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	def, err := spells.GetSpellDefinitionByID("inferno")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if def.MasteryDamagePerTier <= 0 {
+		t.Fatalf("inferno authors mastery_damage_per_tier %d, want a positive step", def.MasteryDamagePerTier)
+	}
 	caster := character.CreateCharacter("Sorcerer", character.ClassSorcerer, cs.game.config)
-	for tier, want := range []int{45, 60, 75, 90} {
-		caster.MagicSchools[character.MagicSchoolFire].Mastery = character.SkillMastery(tier)
-		got := cs.CalculateInfernoDamage(def, caster)
+	for tier := character.MasteryNovice; tier <= character.MasteryGrandMaster; tier++ {
+		caster.MagicSchools[character.MagicSchoolFire].Mastery = tier
+		want := def.SpellPointsCost*spells.SpellDamagePerSP + int(tier)*def.MasteryDamagePerTier
+		got := cs.CalculatePartyNovaDamage(def, caster)
 		if got != want {
 			t.Errorf("Inferno tier %d = %d, want %d", tier, got, want)
 		}
@@ -308,22 +402,44 @@ func TestAnimalBondingCapsLivingBearsPerDruid(t *testing.T) {
 	}
 }
 
+// An old hero holding one earned kit skill gains every other current kit skill
+// at its start mastery; earned mastery is never overwritten, and a second pass
+// has nothing to add.
 func TestExistingCharacterAddsOnlyMissingCurrentKitSkills(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	thief := &character.MMCharacter{
-		Class: character.ClassThief,
-		Skills: map[character.SkillType]*character.Skill{
-			character.SkillDagger: {Mastery: character.MasteryMaster},
-		},
-	}
-	if !thief.EnsureClassKitSkills(cs.game.config) {
-		t.Fatal("old Thief was not migrated")
-	}
-	if !thief.HasSkill(character.SkillBlaster) || !thief.HasSkill(character.SkillLockpicking) {
-		t.Fatalf("migrated Thief skills = %+v", thief.Skills)
-	}
-	if thief.Skills[character.SkillDagger].Mastery != character.MasteryMaster {
-		t.Fatal("class-kit migration overwrote earned mastery")
+	cfg := newTestCombatSystemWithConfig(t).game.config
+	for key, stats := range cfg.Characters.Classes {
+		t.Run(key, func(t *testing.T) {
+			class, _ := character.ClassFromKey(key)
+			if len(stats.Skills) < 2 {
+				t.Fatalf("kit lists %d skills; the case needs one kept and one missing", len(stats.Skills))
+			}
+			kept, _ := character.SkillTypeFromKey(stats.Skills[0])
+			old := &character.MMCharacter{
+				Class:  class,
+				Skills: map[character.SkillType]*character.Skill{kept: {Mastery: character.MasteryMaster}},
+			}
+			if !old.EnsureClassKitSkills(cfg) {
+				t.Fatal("old hero was not migrated")
+			}
+			fresh := character.CreateCharacter("Kit", class, cfg)
+			if len(old.Skills) != len(fresh.Skills) {
+				t.Errorf("migrated hero has %d skills, a new hero %d", len(old.Skills), len(fresh.Skills))
+			}
+			for st, s := range fresh.Skills {
+				if st == kept {
+					continue
+				}
+				if got := old.Skills[st]; got == nil || got.Mastery != s.Mastery {
+					t.Errorf("migrated %s = %+v, want mastery %v", st, got, s.Mastery)
+				}
+			}
+			if old.Skills[kept].Mastery != character.MasteryMaster {
+				t.Error("class-kit migration overwrote earned mastery")
+			}
+			if old.EnsureClassKitSkills(cfg) {
+				t.Error("a second migration pass reported added skills")
+			}
+		})
 	}
 }
 
@@ -336,19 +452,31 @@ func TestApplySaveMigratesNewClassSkillsInEveryRoster(t *testing.T) {
 		wm.LoadedMaps = map[string]*world.World3D{mapKey: w}
 		return wm
 	}
+	kitSkills := func(c *character.MMCharacter) []character.SkillType {
+		var out []character.SkillType
+		for _, sk := range cfg.Characters.Classes[c.Class.Key()].Skills {
+			st, _ := character.SkillTypeFromKey(sk)
+			out = append(out, st)
+		}
+		return out
+	}
+	// An old save: each hero kept only the first skill of its current kit.
+	oldHero := func(name string, class character.CharacterClass) *character.MMCharacter {
+		c := character.CreateCharacter(name, class, cfg)
+		if len(kitSkills(c)) < 2 {
+			t.Fatalf("%s kit lists fewer than two skills; nothing would be missing", class.Key())
+		}
+		for _, st := range kitSkills(c)[1:] {
+			delete(c.Skills, st)
+		}
+		return c
+	}
 
 	saveWorld := newTestWorldSized(cfg, 8, 8)
 	saveGame := newTestGame(cfg, saveWorld)
-	archer := character.CreateCharacter("Old Archer", character.ClassArcher, cfg)
-	thief := character.CreateCharacter("Old Thief", character.ClassThief, cfg)
-	cleric := character.CreateCharacter("Old Cleric", character.ClassCleric, cfg)
-	delete(archer.Skills, character.SkillBlaster)
-	delete(thief.Skills, character.SkillBlaster)
-	delete(thief.Skills, character.SkillLockpicking)
-	delete(cleric.Skills, character.SkillNaturalHealer)
-	saveGame.party.Members = []*character.MMCharacter{archer}
-	saveGame.party.Reserve = []*character.MMCharacter{thief}
-	saveGame.party.Captive = []*character.MMCharacter{cleric}
+	saveGame.party.Members = []*character.MMCharacter{oldHero("Old Archer", character.ClassArcher)}
+	saveGame.party.Reserve = []*character.MMCharacter{oldHero("Old Thief", character.ClassThief)}
+	saveGame.party.Captive = []*character.MMCharacter{oldHero("Old Cleric", character.ClassCleric)}
 	save := saveGame.buildSave(makeWorldManager(saveWorld))
 
 	loadWorld := newTestWorldSized(cfg, 8, 8)
@@ -356,15 +484,24 @@ func TestApplySaveMigratesNewClassSkillsInEveryRoster(t *testing.T) {
 	if err := loaded.applySave(makeWorldManager(loadWorld), &save); err != nil {
 		t.Fatal(err)
 	}
-	if !loaded.party.Members[0].HasSkill(character.SkillBlaster) {
-		t.Fatal("active Archer did not gain Blaster on old-save load")
-	}
-	if !loaded.party.Reserve[0].HasSkill(character.SkillBlaster) ||
-		!loaded.party.Reserve[0].HasSkill(character.SkillLockpicking) {
-		t.Fatal("reserve Thief did not gain both current class-kit skills")
-	}
-	if !loaded.party.Captive[0].HasSkill(character.SkillNaturalHealer) {
-		t.Fatal("captive Cleric did not gain Natural Healer")
+	// Load may append newly available recruits after the saved reserve.
+	for _, tc := range []struct {
+		roster  string
+		members []*character.MMCharacter
+		want    string
+	}{
+		{"active", loaded.party.Members, "Old Archer"},
+		{"reserve", loaded.party.Reserve, "Old Thief"},
+		{"captive", loaded.party.Captive, "Old Cleric"},
+	} {
+		if len(tc.members) == 0 || tc.members[0].Name != tc.want {
+			t.Fatalf("%s roster lost %s on load", tc.roster, tc.want)
+		}
+		for _, st := range kitSkills(tc.members[0]) {
+			if !tc.members[0].HasSkill(st) {
+				t.Errorf("%s %s did not regain kit skill %s on old-save load", tc.roster, tc.want, st)
+			}
+		}
 	}
 	if !loaded.loadNeedsResave {
 		t.Fatal("class-kit migration did not request a repaired save")

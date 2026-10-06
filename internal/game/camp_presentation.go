@@ -203,33 +203,6 @@ func (p campDissolvePattern) coverageRadius(w, h int) float32 {
 	return float32(farthest + math.Hypot(aspect, 1)/(2*steps))
 }
 
-// Pixels change only at the advancing/receding cluster boundary. Stable local
-// noise roughens that boundary without scattering unrelated pixels everywhere.
-//
-//ebitengine:shadersource
-const campDissolveShaderSrc = `//kage:unit pixels
-package main
-var Progress float
-var PixelSize float
-var Centers [6]vec2
-var Radius float
-var NoiseSeed float
-func Fragment(dst vec4, src vec2, color vec4) vec4 {
-    size := imageSrc0Size()
-    cell := floor((src - imageSrc0Origin()) / PixelSize)
-    point := (cell + vec2(0.5)) * PixelSize / size.y
-    nearest := 100.0
-    for i := 0; i < 6; i++ {
-        center := Centers[i] * size / size.y
-        nearest = min(nearest, distance(point, center))
-    }
-    noise := fract(sin(dot(cell, vec2(12.9898, 78.233)) + NoiseSeed) * 43758.5453)
-    threshold := clamp(nearest / Radius * 0.9 + (noise - 0.5) * 0.035, 0.0, 0.95)
-    alpha := smoothstep(threshold, threshold + 0.05, Progress)
-    return imageSrc0At(src) * alpha
-}
-`
-
 // Crop the foreground before the headroom. The authored scenes share a safe
 // upper margin; YAML limits its removal independently of the viewport aspect.
 func campSceneCoverGeometry(w, h, iw, ih int, maxTopCrop float64) (x, y, dw, dh float64) {

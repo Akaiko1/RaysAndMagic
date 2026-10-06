@@ -11,8 +11,8 @@ import (
 	"ugataima/internal/world"
 )
 
-// loadRealQuestTileData loads the real tiles.yaml + quests.yaml so the test
-// validates the shipped data, and wires a small fake forest world.
+// loadRealQuestTileData loads the real tiles.yaml + quests.yaml and wires a
+// small fake forest world for the forest quests.
 func loadRealQuestTileData(t *testing.T) (*MMGame, *world.World3D) {
 	t.Helper()
 	cfg := loadTestConfig(t)
@@ -49,11 +49,7 @@ func loadRealQuestTileData(t *testing.T) (*MMGame, *world.World3D) {
 		w.Tiles[y] = make([]world.TileType3D, w.Width)
 	}
 	wm := world.NewWorldManager(cfg)
-	// The same stand-in doubles for every map the shipped quest data targets -
-	// validation only needs the key to resolve.
-	wm.LoadedMaps = map[string]*world.World3D{
-		"forest": w, "dragon_cliffs": w, "pyramid_3": w, "water": w, "clock_tower_2": w,
-	}
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
 	wm.CurrentMapKey = "forest"
 	world.GlobalWorldManager = wm
 
@@ -74,119 +70,123 @@ func TestQuestTileChanges_ShippedDataValid(t *testing.T) {
 	}
 }
 
-func TestQuestWorldReferencesRejectUnknownSummonQuest(t *testing.T) {
+// One case table for the cross-catalog quest links the boot validator owns:
+// each broken row names its own fault; the giver's own chain stays valid.
+func TestQuestWorldReferencesRejectBrokenQuestLinks(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
 	previous := character.NPCConfigInstance
-	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
-		"test_statue": {
-			Summons: []*character.NPCSummon{{
-				Statuette: "Black Dragon Statuette",
-				Monster:   "elder_dragon",
-				QuestID:   "missing_quest",
-			}},
-		},
-	}}
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
 
-	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{}})
-	err := g.validateQuestWorldReferences(qm)
-	if err == nil || !strings.Contains(err.Error(), `unknown quest "missing_quest"`) {
-		t.Fatalf("validator error = %v, want unknown summon quest", err)
+	giver := func(d *character.NPCDialogue) *character.NPCConfig {
+		return &character.NPCConfig{NPCs: map[string]*character.NPCData{"test_giver": {Dialogue: d}}}
 	}
-}
+	nested := func(c *character.NPCDialogueChoice) *character.NPCConfig {
+		return giver(&character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{
+			Action: "info", Choices: []*character.NPCDialogueChoice{c},
+		}}})
+	}
+	known := func() map[string]*quests.QuestDefinition {
+		return map[string]*quests.QuestDefinition{"known_quest": {Name: "Known"}}
+	}
+	chain := func() map[string]*quests.QuestDefinition {
+		return map[string]*quests.QuestDefinition{"own_quest": {Name: "Own"}, "foreign_quest": {Name: "Foreign"}}
+	}
+	ownChain := func(extra ...*character.NPCDialogueChoice) []*character.NPCDialogueChoice {
+		return append(extra, &character.NPCDialogueChoice{Text: "Take it", Action: "give_quest", QuestID: "own_quest"})
+	}
 
-func TestQuestWorldReferencesRejectInvalidDialogueQuestLinks(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	previous := character.NPCConfigInstance
-	t.Cleanup(func() { character.NPCConfigInstance = previous })
-
-	tests := []struct {
+	for _, tc := range []struct {
 		name   string
-		choice *character.NPCDialogueChoice
-		want   string
+		npcs   *character.NPCConfig
+		quests map[string]*quests.QuestDefinition
+		want   []string // every fragment must appear; empty = the chain rule accepts
 	}{
 		{
+			name: "unknown summon quest",
+			npcs: &character.NPCConfig{NPCs: map[string]*character.NPCData{"test_statue": {
+				Summons: []*character.NPCSummon{{Statuette: "Black Dragon Statuette", Monster: "elder_dragon", QuestID: "missing_quest"}},
+			}}},
+			quests: map[string]*quests.QuestDefinition{},
+			want:   []string{`unknown quest "missing_quest"`},
+		},
+		{
 			name:   "empty give quest ID",
-			choice: &character.NPCDialogueChoice{Action: "give_quest"},
-			want:   `action "give_quest" has empty quest_id`,
+			npcs:   nested(&character.NPCDialogueChoice{Action: "give_quest"}),
+			quests: known(),
+			want:   []string{`action "give_quest" has empty quest_id`},
 		},
 		{
 			name:   "unknown nested requirement",
-			choice: &character.NPCDialogueChoice{Action: "info", RequiresQuest: "missing_quest"},
-			want:   `unknown requires_quest "missing_quest"`,
+			npcs:   nested(&character.NPCDialogueChoice{Action: "info", RequiresQuest: "missing_quest"}),
+			quests: known(),
+			want:   []string{`unknown requires_quest "missing_quest"`},
 		},
 		{
 			name:   "unknown quest step",
-			choice: &character.NPCDialogueChoice{Action: "info", QuestStep: "missing_quest"},
-			want:   `unknown quest_step "missing_quest"`,
+			npcs:   nested(&character.NPCDialogueChoice{Action: "info", QuestStep: "missing_quest"}),
+			quests: known(),
+			want:   []string{`unknown quest_step "missing_quest"`},
 		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
-				"test_giver": {
-					Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{
-						Action: "info",
-						Choices: []*character.NPCDialogueChoice{
-							tt.choice,
-						},
-					}}},
-				},
-			}}
-			qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
-				"known_quest": {Name: "Known"},
-			}})
-			err := g.validateQuestWorldReferences(qm)
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("validator error = %v, want %q", err, tt.want)
+		{
+			name:   "unknown quest_messages quest",
+			npcs:   giver(&character.NPCDialogue{QuestMessages: map[string]character.NPCQuestMessages{"missing_quest": {Offer: "Missing"}}}),
+			quests: map[string]*quests.QuestDefinition{},
+			want:   []string{`quest_messages references unknown quest "missing_quest"`},
+		},
+		{
+			name: "invalid reward pool item",
+			quests: map[string]*quests.QuestDefinition{"bad_reward": {
+				Name: "Bad Reward", Rewards: quests.QuestRewards{ItemPool: []string{"missing_item"}},
+			}},
+			want: []string{`rewards.item_pool[0]`, `missing_item`},
+		},
+		{
+			// Per-step copy and choices are selected by activeChainQuestID, which
+			// only returns a quest THIS giver hands out or takes in.
+			name: "quest_messages for another giver's quest",
+			npcs: giver(&character.NPCDialogue{
+				Choices:       ownChain(),
+				QuestMessages: map[string]character.NPCQuestMessages{"foreign_quest": {Offer: "Hi"}},
+			}),
+			quests: chain(),
+			want:   []string{`quest_messages references quest "foreign_quest" that this NPC never gives or takes in`},
+		},
+		{
+			name:   "quest_step pinned to another giver's quest",
+			npcs:   giver(&character.NPCDialogue{Choices: ownChain(&character.NPCDialogueChoice{Text: "Ask", Action: "info", QuestStep: "foreign_quest"})}),
+			quests: chain(),
+			want:   []string{`pins quest_step "foreign_quest" that this NPC never gives or takes in`},
+		},
+		{
+			name: "own chain links on both fields",
+			npcs: giver(&character.NPCDialogue{
+				Choices:       ownChain(&character.NPCDialogueChoice{Text: "Ask", Action: "info", QuestStep: "own_quest"}),
+				QuestMessages: map[string]character.NPCQuestMessages{"own_quest": {Offer: "Hi"}},
+			}),
+			quests: chain(),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			character.NPCConfigInstance = tc.npcs
+			err := g.validateQuestWorldReferences(quests.NewQuestManager(&quests.QuestConfig{Quests: tc.quests}))
+			if len(tc.want) == 0 {
+				// Only the chain rule: the validator also walks the GLOBAL monster
+				// catalog, whose own quest links are unrelated to this scene.
+				if err != nil && strings.Contains(err.Error(), "never gives or takes in") {
+					t.Fatalf("own-chain links rejected: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validator accepted the fixture, want %q", tc.want)
+			}
+			for _, fragment := range tc.want {
+				if !strings.Contains(err.Error(), fragment) {
+					t.Fatalf("validator error = %v, want %q", err, fragment)
+				}
 			}
 		})
-	}
-}
-
-func TestQuestWorldReferencesRejectUnknownDialogueQuestMessages(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	previous := character.NPCConfigInstance
-	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
-		"test_giver": {
-			Dialogue: &character.NPCDialogue{
-				QuestMessages: map[string]character.NPCQuestMessages{
-					"missing_quest": {Offer: "Missing"},
-				},
-			},
-		},
-	}}
-	t.Cleanup(func() { character.NPCConfigInstance = previous })
-
-	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{}})
-	err := g.validateQuestWorldReferences(qm)
-	if err == nil || !strings.Contains(err.Error(), `quest_messages references unknown quest "missing_quest"`) {
-		t.Fatalf("validator error = %v, want unknown quest_messages link", err)
-	}
-}
-
-func TestQuestWorldReferencesRejectInvalidRewardPoolItem(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	previous := character.NPCConfigInstance
-	character.NPCConfigInstance = nil
-	t.Cleanup(func() { character.NPCConfigInstance = previous })
-
-	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
-		"bad_reward": {
-			Name: "Bad Reward",
-			Rewards: quests.QuestRewards{
-				ItemPool: []string{"missing_item"},
-			},
-		},
-	}})
-	err := g.validateQuestWorldReferences(qm)
-	if err == nil || !strings.Contains(err.Error(), `rewards.item_pool[0]`) ||
-		!strings.Contains(err.Error(), `missing_item`) {
-		t.Fatalf("validator error = %v, want invalid reward pool item", err)
 	}
 }
 
@@ -338,9 +338,22 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 	if len(tileChanges) == 0 {
 		t.Fatal("forest_wolf_cull has no on_complete_tiles")
 	}
-	bridgeType, ok := world.GlobalTileManager.GetTileTypeFromKey(tileChanges[0].Tile)
-	if !ok {
-		t.Fatalf("quest bridge tile key %q missing", tileChanges[0].Tile)
+	bridgeTypes := make([]world.TileType3D, len(tileChanges))
+	for i, tc := range tileChanges {
+		tile, ok := world.GlobalTileManager.GetTileTypeFromKey(tc.Tile)
+		if !ok {
+			t.Fatalf("quest bridge tile key %q missing", tc.Tile)
+		}
+		bridgeTypes[i] = tile
+	}
+	bridgeLaid := func() int {
+		laid := 0
+		for i, tc := range tileChanges {
+			if g.worldByKey(tc.Map).Tiles[tc.Y][tc.X] == bridgeTypes[i] {
+				laid++
+			}
+		}
+		return laid
 	}
 
 	// Wolf alive -> no completion, no bridge.
@@ -349,8 +362,8 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 	if g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest completed while a wolf lives")
 	}
-	if w.Tiles[24][22] == bridgeType {
-		t.Fatal("bridge laid while a wolf lives")
+	if laid := bridgeLaid(); laid != 0 {
+		t.Fatalf("%d bridge tiles laid while a wolf lives", laid)
 	}
 
 	// Last wolf dies -> quest completes and the bridge appears.
@@ -360,80 +373,53 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 	if !g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest should complete once the map is cleared")
 	}
-	if w.Tiles[24][22] != bridgeType || w.Tiles[24][23] != bridgeType {
-		t.Errorf("bridge tiles not laid: (22,24)=%v (23,24)=%v want %v",
-			w.Tiles[24][22], w.Tiles[24][23], bridgeType)
+	if laid := bridgeLaid(); laid != len(tileChanges) {
+		t.Errorf("bridge tiles laid = %d, want all %d", laid, len(tileChanges))
 	}
 }
 
-// A globally valid quest id is not enough: per-step copy and per-step choices
-// are selected by activeChainQuestID, which only ever returns a quest THIS
-// giver hands out or takes in. A foreign id would load fine and then never
-// appear in game, so the validator must reject it at boot.
-func TestQuestWorldReferencesRejectOffChainStepLinks(t *testing.T) {
+// Kill progress matches a monster by its normalized display name, so every
+// kill target must name at least one monster that way: a renamed monster or a
+// typo fails the boot instead of silently freezing the quest.
+func TestKillQuestTargetsMatchMonsterNames(t *testing.T) {
 	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	previous := character.NPCConfigInstance
-	t.Cleanup(func() { character.NPCConfigInstance = previous })
-
-	definitions := map[string]*quests.QuestDefinition{
-		"own_quest":     {Name: "Own"},
-		"foreign_quest": {Name: "Foreign"},
+	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	prevWM := world.GlobalWorldManager
+	world.GlobalWorldManager = nil // map references are another validator's job
+	t.Cleanup(func() { world.GlobalWorldManager = prevWM })
+	g := &MMGame{config: cfg}
+	shipped, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatal(err)
 	}
-	ownChain := []*character.NPCDialogueChoice{
-		{Text: "Take it", Action: "give_quest", QuestID: "own_quest"},
+	if err := g.validateQuestWorldReferences(quests.NewQuestManager(shipped)); err != nil {
+		t.Fatalf("shipped quests: %v", err)
 	}
-
-	cases := []struct {
-		name     string
-		dialogue *character.NPCDialogue
-		wantErr  string
+	for _, tc := range []struct {
+		name    string
+		def     quests.QuestDefinition
+		wantErr bool
 	}{
-		{
-			name: "quest_messages for another giver's quest",
-			dialogue: &character.NPCDialogue{
-				Choices:       ownChain,
-				QuestMessages: map[string]character.NPCQuestMessages{"foreign_quest": {Offer: "Hi"}},
-			},
-			wantErr: `quest_messages references quest "foreign_quest" that this NPC never gives or takes in`,
-		},
-		{
-			name: "quest_step pinned to another giver's quest",
-			dialogue: &character.NPCDialogue{
-				Choices: append([]*character.NPCDialogueChoice{
-					{Text: "Ask", Action: "info", QuestStep: "foreign_quest"},
-				}, ownChain...),
-			},
-			wantErr: `pins quest_step "foreign_quest" that this NPC never gives or takes in`,
-		},
-	}
-	for _, tc := range cases {
+		{"display name", quests.QuestDefinition{TargetMonster: "forest spider"}, false},
+		{"name shared by a group", quests.QuestDefinition{TargetMonster: "elder_dragon"}, false},
+		{"monster key that is not its name", quests.QuestDefinition{TargetMonster: "rat"}, true},
+		{"typo", quests.QuestDefinition{TargetMonster: "forest_spidr"}, true},
+		{"one bad entry in a list", quests.QuestDefinition{TargetMonsters: []string{"wolf", "wolff"}}, true},
+		{"interact tags are not monsters", quests.QuestDefinition{Type: quests.QuestTypeInteract, TargetMonster: "valve"}, false},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
-				"test_giver": {Dialogue: tc.dialogue},
-			}}
-			qm := quests.NewQuestManager(&quests.QuestConfig{Quests: definitions})
-			err := g.validateQuestWorldReferences(qm)
-			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("validator error = %v, want %q", err, tc.wantErr)
+			def := tc.def
+			if def.Type == "" {
+				def.Type = quests.QuestTypeKill
+			}
+			qc := &quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{"probe": &def}}
+			for id, q := range shipped.Quests {
+				qc.Quests[id] = q
+			}
+			err := g.validateQuestWorldReferences(quests.NewQuestManager(qc))
+			if got := err != nil && strings.Contains(err.Error(), "matches no monster name"); got != tc.wantErr || (!tc.wantErr && err != nil) {
+				t.Fatalf("validation error = %v, want the target error %v", err, tc.wantErr)
 			}
 		})
-	}
-
-	// The giver's OWN chain quest stays valid on both fields.
-	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{
-		"test_giver": {Dialogue: &character.NPCDialogue{
-			Choices: append([]*character.NPCDialogueChoice{
-				{Text: "Ask", Action: "info", QuestStep: "own_quest"},
-			}, ownChain...),
-			QuestMessages: map[string]character.NPCQuestMessages{"own_quest": {Offer: "Hi"}},
-		}},
-	}}
-	qm := quests.NewQuestManager(&quests.QuestConfig{Quests: definitions})
-	// Assert on the chain rule alone: the validator also walks the GLOBAL monster
-	// catalog, whose own quest links are unrelated to this scene.
-	if err := g.validateQuestWorldReferences(qm); err != nil &&
-		strings.Contains(err.Error(), "never gives or takes in") {
-		t.Fatalf("own-chain links rejected: %v", err)
 	}
 }

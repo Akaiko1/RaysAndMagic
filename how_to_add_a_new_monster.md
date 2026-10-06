@@ -1,6 +1,7 @@
 # How to Add a New Monster
 
 Monsters use `assets/monsters.yaml`. Read [shared authoring rules](docs/content-authoring.md) first.
+Take level, HP, damage and experience from [Monster design](docs/monster-design.md).
 
 ## Overview
 - Monsters live in `assets/monsters.yaml`.
@@ -19,11 +20,11 @@ monsters:
   ice_troll:
     name: "Ice Troll"
     level: 7
-    max_hit_points: 95
+    max_hit_points: 160
     armor_class: 11
-    experience: 350
-    damage_min: 4
-    damage_max: 20
+    experience: 190
+    damage_min: 17
+    damage_max: 25
     alert_radius: 3        # tiles
     attack_radius: 1       # tiles
     speed: 1.1
@@ -203,6 +204,7 @@ Do not register the same intended population in more than one mechanism.
 - Static sprite and required animation sheets exist.
 - Monster spawns and behaves correctly.
 - Loot drops into a bag when killed.
+- The [balance sweep](docs/monster-design.md#checking-a-monster) shows no new holes at its levels.
 
 ### Brief leaping fish encounters
 
@@ -221,5 +223,4 @@ fish. A bank landing uses its ordinary loot table without awarding kill credit;
 a player kill uses normal combat and loot resolution. Fish themselves are
 transient across saves, while their cooldown and dropped loot persist. Define
 the scale item in `assets/items.yaml`, its icon, and the one-scale entry in
-`assets/loots.yaml` together. See `internal/game/fish_test.go` and the opt-in
-`TestDebugSim_FishGallery` renderer capture for integration coverage.
+`assets/loots.yaml` together. See `internal/game/fish_test.go` for integration coverage.

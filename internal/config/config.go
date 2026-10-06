@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"os"
@@ -17,18 +18,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// EffectLines returns user-facing description lines for the non-base
-// special effects of a weapon (damage type override, stun, disintegrate,
-// AoE splash, max airborne projectiles, per-monster bonus multipliers).
-// Single source of truth - both the in-game tooltip and the map-viewer
-// card pull from here so any new effect surfaces everywhere automatically.
-//
-// Base attributes (Damage, Range, BonusStat, CritChance) are shown
-// separately by each consumer because their formatting differs - e.g.
-// the in-game tooltip renders crit as "Critical Chance: total% (Base: X,
-// Luck: +N)" using character context, while the map-viewer card shows
-// the raw "Crit Chance: X%". Listing crit here too would render it
-// twice in every in-game tooltip.
 // cooldownMultLine renders a cooldown multiplier as a +/-% line ("Spell cooldown
 // -20%"); 0 (unset) and exactly 1.0 produce nothing.
 func cooldownMultLine(label string, mult float64) string {
@@ -54,10 +43,6 @@ func weaponStatusDurationLabel(seconds int) string {
 	return uitext.Text("weapon.status_duration", seconds, WeaponStatusTurns(seconds))
 }
 
-func (w *WeaponDefinitionConfig) EffectLines() []string {
-	return append(w.effectLines(true), w.SetLines()...)
-}
-
 // SpecialEffectLines excludes set membership, compared as a separate rule.
 func (w *WeaponDefinitionConfig) SpecialEffectLines() []string {
 	return w.effectLines(true)
@@ -73,6 +58,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		return nil
 	}
 	var lines []string
+	lines = append(lines, w.ElementalAbility.Lines()...)
 	if damageType, err := damagecalc.ParseType(w.DamageType); includeStructured && err == nil && damageType != damagecalc.Physical {
 		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
 	}
@@ -527,13 +513,16 @@ type RosterEntry struct {
 
 // RaceStats are ADDITIVE stat modifiers a race applies over class base stats.
 type RaceStats struct {
-	Might       int `yaml:"might,omitempty"`
-	Intellect   int `yaml:"intellect,omitempty"`
-	Personality int `yaml:"personality,omitempty"`
-	Endurance   int `yaml:"endurance,omitempty"`
-	Accuracy    int `yaml:"accuracy,omitempty"`
-	Speed       int `yaml:"speed,omitempty"`
-	Luck        int `yaml:"luck,omitempty"`
+	Name string `yaml:"name"`
+	// Description points follow the race's stat shifts in a hero's pitch.
+	Description []DescriptionPoint `yaml:"description,omitempty"`
+	Might       int                `yaml:"might,omitempty"`
+	Intellect   int                `yaml:"intellect,omitempty"`
+	Personality int                `yaml:"personality,omitempty"`
+	Endurance   int                `yaml:"endurance,omitempty"`
+	Accuracy    int                `yaml:"accuracy,omitempty"`
+	Speed       int                `yaml:"speed,omitempty"`
+	Luck        int                `yaml:"luck,omitempty"`
 }
 
 type HitPointsConfig struct {
@@ -552,16 +541,19 @@ type ClassMagicEntry struct {
 }
 
 type ClassStats struct {
-	AutoStats   AutoStatsConfig   `yaml:"auto_stats,omitempty"`
-	Items       []ClassItemConfig `yaml:"items,omitempty"`
-	CardRarity  string            `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
-	Might       int               `yaml:"might"`
-	Intellect   int               `yaml:"intellect"`
-	Personality int               `yaml:"personality"`
-	Endurance   int               `yaml:"endurance"`
-	Accuracy    int               `yaml:"accuracy"`
-	Speed       int               `yaml:"speed"`
-	Luck        int               `yaml:"luck"`
+	AutoStats  AutoStatsConfig   `yaml:"auto_stats,omitempty"`
+	Items      []ClassItemConfig `yaml:"items,omitempty"`
+	CardRarity string            `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
+	// Description is the party-creation pitch: what the class does and why
+	// to pick it, with {kind:text} keyword markup (keyword_markup.go).
+	Description []DescriptionPoint `yaml:"description"`
+	Might       int                `yaml:"might"`
+	Intellect   int                `yaml:"intellect"`
+	Personality int                `yaml:"personality"`
+	Endurance   int                `yaml:"endurance"`
+	Accuracy    int                `yaml:"accuracy"`
+	Speed       int                `yaml:"speed"`
+	Luck        int                `yaml:"luck"`
 	// Starting kit (skills/magic/equipment), data-driven - used to live as
 	// per-class Go setup functions.
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
@@ -757,8 +749,11 @@ type SpellDefinitionConfig struct {
 	// (lowercase keys: might/intellect/personality/endurance/accuracy/speed/
 	// luck). Authored absolute - mastery does not scale it. Mutually exclusive
 	// with stat_bonus; validated at load.
-	StatBonuses       map[string]int `yaml:"stat_bonuses,omitempty"`
-	VisionRadiusTiles float64        `yaml:"vision_radius_tiles,omitempty"`
+	StatBonuses map[string]int `yaml:"stat_bonuses,omitempty"`
+	// Vision spells: a light around the party (lights dark places only) or a
+	// compass radar of monsters through walls.
+	LightRadiusTiles float64 `yaml:"light_radius_tiles,omitempty"`
+	RadarRadiusTiles float64 `yaml:"radar_radius_tiles,omitempty"`
 
 	// Effect configuration
 	TargetSelf     bool   `yaml:"target_self,omitempty"`
@@ -921,15 +916,14 @@ type ColorKeyConfig struct {
 	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 -> default
 }
 
-// ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
-// ground edges of impassable billboard tiles (rocks/cliffs) so the player can
-// tell which tiles block movement. Zero/absent numeric fields fall back to
-// in-code defaults; Enabled defaults off unless set in config.yaml.
+// ImpassableAuraConfig tunes the aurora curtains along authored impassable
+// tile boundaries, shared by telegraphs and other ground markers. Zero/absent
+// numeric fields use in-code defaults; Enabled defaults off unless configured.
 type ImpassableAuraConfig struct {
-	Enabled        bool    `yaml:"enabled"`
-	RadiusTiles    int     `yaml:"radius_tiles"`     // scan radius around the camera, in tiles
-	BubblesPerEdge int     `yaml:"bubbles_per_edge"` // particle columns per walkable-facing edge
-	Alpha          float64 `yaml:"alpha"`            // base glow alpha (0..1)
+	Enabled     bool    `yaml:"enabled"`
+	RadiusTiles int     `yaml:"radius_tiles"` // scan radius around the camera, in tiles
+	FoldDensity float64 `yaml:"fold_density"` // broad animated folds per tile edge (2..8)
+	Alpha       float64 `yaml:"alpha"`        // base glow alpha (0..1)
 }
 
 type ColorsConfig struct {
@@ -1057,8 +1051,11 @@ type TileData struct {
 	// WallHeightMultiplier affects vertical textured-wall rendering only.
 	// HeightMultiplier remains only to reject legacy billboard authoring.
 	WallHeightMultiplier float64 `yaml:"wall_height_multiplier,omitempty"`
-	HeightMultiplier     float64 `yaml:"height_multiplier,omitempty"`
-	SizeClass            string  `yaml:"size_class,omitempty"`
+	// WallUpperMirrorY draws a two-tile wall as an unchanged lower tile and
+	// the same texture flipped vertically above it, sharing their top edge.
+	WallUpperMirrorY bool    `yaml:"wall_upper_mirror_y,omitempty"`
+	HeightMultiplier float64 `yaml:"height_multiplier,omitempty"`
+	SizeClass        string  `yaml:"size_class,omitempty"`
 	// RemovedSizeTiles catches the retired raw YAML key so a stale or mistyped
 	// content entry fails loudly instead of silently falling back to 1 tile.
 	RemovedSizeTiles *float64 `yaml:"size_tiles,omitempty"`
@@ -1203,9 +1200,10 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name  string `yaml:"name"`
-	File  string `yaml:"file"`
-	Biome string `yaml:"biome"`
+	Adventure *AdventureConfig `yaml:"adventure,omitempty"`
+	Name      string           `yaml:"name"`
+	File      string           `yaml:"file"`
+	Biome     string           `yaml:"biome"`
 	// TownPortalDestination makes this map a Town Portal destination after the
 	// party has visited it, even when it has no tavern. Arrival uses the map's
 	// '+' start tile; tavern maps still arrive beside their tavern.
@@ -1344,6 +1342,7 @@ func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
 type WeaponDefinitionConfig struct {
+	ElementalAbility *ElementalWeaponAbility `yaml:"elemental_ability,omitempty"`
 	// Basic weapon properties
 	Name               string  `yaml:"name"`
 	Description        string  `yaml:"description"`
@@ -1628,6 +1627,14 @@ func LoadConfig(filename string) (*Config, error) {
 			}
 		}
 	}
+	for key, race := range config.Characters.Races {
+		if strings.TrimSpace(race.Name) == "" {
+			return nil, fmt.Errorf("characters.races.%s.name is required", key)
+		}
+		if err := validateDescription("characters.races."+key, race.Description, false); err != nil {
+			return nil, err
+		}
+	}
 	for key, class := range config.Characters.Classes {
 		if err := validateClassProgression(key, class); err != nil {
 			return nil, err
@@ -1636,6 +1643,9 @@ func LoadConfig(filename string) (*Config, error) {
 		case "", "common", "uncommon", "rare", "legendary":
 		default:
 			return nil, fmt.Errorf("characters.classes.%s.card_rarity: unknown rarity %q", key, class.CardRarity)
+		}
+		if err := validateDescription("characters.classes."+key, class.Description, true); err != nil {
+			return nil, err
 		}
 	}
 	if config.World.TileSize <= 0 {
@@ -1815,6 +1825,9 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		if (def.SummonMax > 0 || len(def.SummonHPByMastery) > 0 || len(def.SummonDamageByMastery) > 0) && def.SummonMonster == "" {
 			return fmt.Errorf("spell '%s': summon_max/summon ladders require summon_monster", id)
 		}
+		if def.ZoneRadiusTiles > 0 && def.ZoneTickSeconds <= 0 {
+			return fmt.Errorf("spell '%s': zone_radius_tiles requires a positive zone_tick_seconds", id)
+		}
 		if (def.ZoneAheadTiles > 0 || def.ZoneWidthTiles > 0) && def.ZoneRadiusTiles <= 0 {
 			return fmt.Errorf("spell '%s': zone_ahead_tiles/zone_width_tiles require zone_radius_tiles", id)
 		}
@@ -1973,6 +1986,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			}
 			def.ProjectileSchool = school
 		}
+		if err := def.ElementalAbility.validate(def); err != nil {
+			return fmt.Errorf("weapon %q: %w", key, err)
+		}
 		if IsMagicRangedWeapon(def) {
 			school, err := canonicalMagicSchool(def.ProjectileSchool)
 			if err != nil {
@@ -2021,7 +2037,10 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def.TBActionsPerRound < 0 {
 			return fmt.Errorf("weapon '%s': tb_actions_per_round must not be negative", key)
 		}
-		if isProjectileWeapon(def) {
+		if projectileCategory(def) && !def.IsRanged() {
+			return fmt.Errorf("weapon '%s' (category %q) has range %d; a projectile weapon needs range >= %d", key, def.Category, def.Range, RangedWeaponMinRangeTiles)
+		}
+		if def.IsRanged() {
 			if def.Physics == nil {
 				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
 			}
@@ -2072,18 +2091,27 @@ func validatePercentDuration(weaponKey, effect string, pct, seconds int) error {
 	return nil
 }
 
-func isProjectileWeapon(def *WeaponDefinitionConfig) bool {
+// RangedWeaponMinRangeTiles is the reach from which a weapon shoots
+// projectiles; anything shorter swings in melee. The one "is it ranged" rule
+// for combat, tooltips and validation.
+const RangedWeaponMinRangeTiles = 4
+
+// IsRanged reports whether the weapon attacks with projectiles.
+func (d *WeaponDefinitionConfig) IsRanged() bool {
+	return d != nil && d.Range >= RangedWeaponMinRangeTiles
+}
+
+// projectileCategory names categories that only make sense as ranged weapons;
+// one authored with melee reach would swing and do nothing.
+func projectileCategory(def *WeaponDefinitionConfig) bool {
 	category := strings.ToLower(strings.TrimSpace(def.Category))
-	return def.Range > 3 ||
-		strings.Contains(category, "bow") ||
-		strings.Contains(category, "throwing") ||
-		strings.Contains(category, "blaster")
+	return strings.Contains(category, "bow") || strings.Contains(category, "throwing") || strings.Contains(category, "blaster")
 }
 
 // IsMagicRangedWeapon is the shared staff/book rule for validation, rendering,
 // and runtime audio. Range remains data-driven rather than inferred by category.
 func IsMagicRangedWeapon(def *WeaponDefinitionConfig) bool {
-	if def == nil || !isProjectileWeapon(def) {
+	if def == nil || !def.IsRanged() {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(def.Category)) {
@@ -2102,7 +2130,7 @@ func RangedWeaponSoundCategories() []string {
 	}
 	categories := make(map[string]struct{})
 	for _, def := range GlobalWeapons.Weapons {
-		if def == nil || !isProjectileWeapon(def) || IsMagicRangedWeapon(def) {
+		if def == nil || !def.IsRanged() || IsMagicRangedWeapon(def) {
 			continue
 		}
 		category := strings.ToLower(strings.TrimSpace(def.Category))
@@ -2183,17 +2211,22 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
-	BrewColor      [3]int           `yaml:"brew_color,omitempty"`
-	BrewedFrom     string           `yaml:"brewed_from,omitempty"`
-	CraftedOnly    bool             `yaml:"crafted_only,omitempty"`
-	HarvestSprite  string           `yaml:"harvest_sprite,omitempty"`
-	Flask          *FlaskDefinition `yaml:"flask,omitempty"`
-	AllowedClasses []string         `yaml:"allowed_classes,omitempty"`
-	Name           string           `yaml:"name"`
-	Type           string           `yaml:"type"` // armor|accessory|consumable|quest
-	ArmorType      string           `yaml:"armor_category,omitempty"`
-	Description    string           `yaml:"description"`      // Gameplay-neutral summary (optional)
-	Flavor         string           `yaml:"flavor,omitempty"` // Short artistic line for tooltip
+	UseAction          string           `yaml:"use_action,omitempty"`
+	UseSpell           string           `yaml:"use_spell,omitempty"`
+	UseJumpExtraTiles  int              `yaml:"use_jump_extra_tiles,omitempty"`
+	UseCooldownSeconds int              `yaml:"use_cooldown_seconds,omitempty"`
+	NoLoot             bool             `yaml:"no_loot,omitempty"`
+	BrewColor          [3]int           `yaml:"brew_color,omitempty"`
+	BrewedFrom         string           `yaml:"brewed_from,omitempty"`
+	CraftedOnly        bool             `yaml:"crafted_only,omitempty"`
+	HarvestSprite      string           `yaml:"harvest_sprite,omitempty"`
+	Flask              *FlaskDefinition `yaml:"flask,omitempty"`
+	AllowedClasses     []string         `yaml:"allowed_classes,omitempty"`
+	Name               string           `yaml:"name"`
+	Type               string           `yaml:"type"` // armor|accessory|consumable|quest|trinket|card|device
+	ArmorType          string           `yaml:"armor_category,omitempty"`
+	Description        string           `yaml:"description"`      // Gameplay-neutral summary (optional)
+	Flavor             string           `yaml:"flavor,omitempty"` // Short artistic line for tooltip
 	// TooltipEffects and TooltipUsage are authored player-facing mechanics.
 	// Keeping their text in YAML lets the game tooltip and map-editor card share
 	// the same wording without item-key-specific presentation code.
@@ -2303,6 +2336,10 @@ type ItemDefinitionConfig struct {
 	DeprecatedResistBuffPct int    `yaml:"resist_buff_pct,omitempty"`
 	ResistBuffSchoolPct     int    `yaml:"resist_buff_school_pct,omitempty"`
 	BuffDodgePct            int    `yaml:"buff_dodge_pct,omitempty"`
+	DamageBuffSchool        string `yaml:"damage_buff_school,omitempty"`
+	DamageBuffPct           int    `yaml:"damage_buff_pct,omitempty"`
+	BuffHPRegenPct          int    `yaml:"buff_hp_regen_pct,omitempty"`
+	BuffManaRegenPct        int    `yaml:"buff_mana_regen_pct,omitempty"`
 	BuffArmorClass          int    `yaml:"buff_armor_class,omitempty"`
 	BuffDurationSeconds     int    `yaml:"buff_duration_seconds,omitempty"`
 	StatusIcon              string `yaml:"status_icon,omitempty"`
@@ -2319,7 +2356,7 @@ const MinHostileStatusDurationPct = -90
 func (d *ItemDefinitionConfig) HasTimedBuff() bool {
 	return d != nil &&
 		d.BuffDurationSeconds > 0 &&
-		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0)
+		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0 || d.DamageBuffPct > 0 || d.BuffHPRegenPct > 0 || d.BuffManaRegenPct > 0)
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -2390,6 +2427,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
 		if def == nil {
 			return fmt.Errorf("item '%s' has empty definition", key)
+		}
+		if err := validateDeviceDefinition(key, def); err != nil {
+			return err
 		}
 		if err := validateCraftedItem(key, def); err != nil {
 			return err
@@ -2463,11 +2503,24 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if def.BuffDodgePct < 0 || def.BuffDodgePct > 100 {
 			return fmt.Errorf("item %q: buff_dodge_pct must be in [0,100]", key)
 		}
+		if def.DamageBuffPct < 0 || def.DamageBuffPct > 100 || (def.DamageBuffSchool == "") != (def.DamageBuffPct == 0) {
+			return fmt.Errorf("item %q: damage_buff_school and damage_buff_pct (1..100) must be set together", key)
+		}
+		if def.BuffHPRegenPct < 0 || def.BuffHPRegenPct > 100 || def.BuffManaRegenPct < 0 || def.BuffManaRegenPct > 100 {
+			return fmt.Errorf("item %q: buff_hp_regen_pct and buff_mana_regen_pct must be in [0,100]", key)
+		}
+		if def.DamageBuffSchool != "" {
+			school, err := canonicalMagicSchool(def.DamageBuffSchool)
+			if err != nil {
+				return fmt.Errorf("item %q: invalid damage buff school: %w", key, err)
+			}
+			def.DamageBuffSchool = school
+		}
 		if def.BuffArmorClass < 0 || def.BuffDurationSeconds < 0 {
 			return fmt.Errorf("item '%s': buff armor and duration must not be negative", key)
 		}
 		def.StatusIcon = strings.TrimSpace(def.StatusIcon)
-		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0 || def.BuffDodgePct > 0
+		hasBuffEffect := def.ResistBuffSchoolPct > 0 || def.BuffArmorClass > 0 || def.BuffDodgePct > 0 || def.DamageBuffPct > 0 || def.BuffHPRegenPct > 0 || def.BuffManaRegenPct > 0
 		hasBuffMetadata := def.BuffDurationSeconds > 0 || def.StatusIcon != ""
 		if hasBuffEffect && def.Type != "consumable" {
 			return fmt.Errorf("item '%s': timed buff fields require type consumable", key)
@@ -2476,7 +2529,7 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			return fmt.Errorf("consumable '%s': timed buff requires buff_duration_seconds and status_icon", key)
 		}
 		if hasBuffMetadata && !hasBuffEffect {
-			return fmt.Errorf("item '%s': buff metadata has no resist, armor, or dodge effect", key)
+			return fmt.Errorf("item '%s': buff metadata has no resist, armor, dodge, damage, or regeneration effect", key)
 		}
 		switch def.Type {
 		case "consumable":
@@ -2602,11 +2655,9 @@ type LootTablesConfig struct {
 // CrateConfig is one chest's loot + trap behavior. Tier semantics are data:
 //   - loot_table: roll that weighted pool (authored treasure) - overrides
 //     roll_sources.
-//   - roll_sources: the SINGLE per-roll source model. Each of `rolls` rolls
-//     picks one weighted CrateRollSource, then draws from it. A no-mix crate is
+//   - roll_sources: the one roll model. Each of `rolls` slots picks one source
+//     by weight (percent, total 100), then draws from it. A no-mix crate is
 //     just a one-element list. See CrateRollSource for the pool kinds.
-//   - special_rolls: per-CHEST chance sources that REPLACE one normal roll (a
-//     rare/legendary/gold/arena-points jackpot), never add a fourth item.
 //
 // trap_damage blasts the party flat on opening. trap_damage_types chooses one
 // of its listed damage types at random (empty means physical). trap_ignite
@@ -2617,7 +2668,6 @@ type CrateConfig struct {
 	Rolls            int               `yaml:"rolls"`
 	LootTable        string            `yaml:"loot_table,omitempty"`
 	RollSources      []CrateRollSource `yaml:"roll_sources,omitempty"`
-	SpecialRolls     []CrateRollSource `yaml:"special_rolls,omitempty"`
 	InteractionSound string            `yaml:"interaction_sound,omitempty"`
 	// FreeRest: opening the crate also rests the party for free (a campfire) -
 	// full HP/SP, no food cost. One-time like any crate.
@@ -2641,16 +2691,72 @@ type CrateConfig struct {
 // field, not as a literal in the trap code.
 const DefaultTrapIgniteSeconds = 10
 
+// CrateRollSource is one entry of a crate's roll table:
+//   - map: one entry from the drop tables of the monster kinds the current map
+//     (or open-world region) was created with, weighted by drop chance;
+//   - catalog: a uniform pick from the whole catalog of item_type;
+//   - loot_table: one roll of that named weighted pool, as authored;
+//   - gold / arena_points: a fixed amount; nothing: an empty slot.
+//
+// Rarity gates map and catalog in one field: "" any, "rare" exactly,
+// "common-uncommon" a span, "uncommon+" that tier and up.
 type CrateRollSource struct {
-	Pool         string `yaml:"pool"` // "map" | "rare" | "catalog" | "gold" | "arena_points"
-	Weight       int    `yaml:"weight"`
-	ItemType     string `yaml:"item_type,omitempty"`  // catalog: armor|accessory|consumable|trinket
-	Rarity       string `yaml:"rarity,omitempty"`     // map/catalog: exact rarity
-	MinRarity    string `yaml:"min_rarity,omitempty"` // map/catalog: drop entries below this rarity
-	MaxRarity    string `yaml:"max_rarity,omitempty"` // map/catalog: drop entries above this rarity
-	LegendaryPct int    `yaml:"legendary_pct,omitempty"`
-	Amount       int    `yaml:"amount,omitempty"`     // gold/arena_points: currency awarded instead of an item
-	ChancePct    int    `yaml:"chance_pct,omitempty"` // special_rolls: per-chest replacement chance
+	Pool      string  `yaml:"pool"`                 // "map" | "catalog" | "loot_table" | "gold" | "arena_points" | "nothing"
+	Weight    float64 `yaml:"weight"`               // percent of every slot, in 0.1 steps; a crate's weights total 100
+	ItemType  string  `yaml:"item_type,omitempty"`  // catalog: armor|accessory|consumable|trinket|weapon|any
+	Rarity    string  `yaml:"rarity,omitempty"`     // map/catalog rarity gate (see above)
+	Amount    int     `yaml:"amount,omitempty"`     // gold/arena_points: currency awarded instead of an item
+	LootTable string  `yaml:"loot_table,omitempty"` // loot_table: key in loot_tables
+}
+
+// PerMille is the source's weight on the integer scale slots roll on.
+func (s CrateRollSource) PerMille() int { return int(math.Round(s.Weight * 10)) }
+
+// RarityTiers is the source's rarity gate (validated at load).
+func (s CrateRollSource) RarityTiers() RarityRange {
+	r, _ := ParseRarityRange(s.Rarity)
+	return r
+}
+
+// RarityRange is a rarity gate as inclusive RarityTier bounds.
+type RarityRange struct{ Min, Max int }
+
+// Contains reports whether a tier passes the gate.
+func (r RarityRange) Contains(tier int) bool { return tier >= r.Min && tier <= r.Max }
+
+// ParseRarityRange reads a rarity gate: "" any, "rare" exactly,
+// "common-uncommon" a span, "uncommon+" that tier and up.
+func ParseRarityRange(s string) (RarityRange, error) {
+	all := RarityRange{0, RarityTier("unique")}
+	s = strings.ToLower(strings.TrimSpace(s))
+	tier := func(name string) (int, error) {
+		switch name {
+		case "common", "uncommon", "rare", "legendary", "unique":
+			return RarityTier(name), nil
+		}
+		return 0, fmt.Errorf("unknown rarity %q", name)
+	}
+	switch {
+	case s == "":
+		return all, nil
+	case strings.HasSuffix(s, "+"):
+		lo, err := tier(strings.TrimSuffix(s, "+"))
+		return RarityRange{lo, all.Max}, err
+	case strings.Contains(s, "-"):
+		a, b, _ := strings.Cut(s, "-")
+		lo, err := tier(a)
+		if err != nil {
+			return all, err
+		}
+		hi, err := tier(b)
+		if err == nil && lo > hi {
+			err = fmt.Errorf("rarity span %q runs backwards", s)
+		}
+		return RarityRange{lo, hi}, err
+	default:
+		t, err := tier(s)
+		return RarityRange{t, t}, err
+	}
 }
 
 // GetCrateConfig returns the crate behavior for a loot_crate NPC key.
@@ -2696,6 +2802,7 @@ func (e LootEntry) RollCount() int {
 }
 
 type WeightedLootTable struct {
+	Items   []string            `yaml:"items,omitempty"` // Fixed supplies, in addition to the weighted equipment rolls.
 	Rolls   int                 `yaml:"rolls"`
 	GoldMin int                 `yaml:"gold_min,omitempty"`
 	GoldMax int                 `yaml:"gold_max,omitempty"`
@@ -2713,8 +2820,11 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Strict: a field this file no longer reads fails the load, never drops silently.
 	var loots LootTablesConfig
-	if err := yaml.Unmarshal(data, &loots); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&loots); err != nil {
 		return nil, err
 	}
 	if err := expandMonsterLootGroups(&loots); err != nil {
@@ -2815,6 +2925,11 @@ func validateWeightedLootTables(lt *LootTablesConfig) error {
 		if len(t.Entries) == 0 {
 			return fmt.Errorf("loot_table %q: no entries", name)
 		}
+		for _, key := range t.Items {
+			if err := validateLootCatalogReference(fmt.Sprintf("loot_table %q fixed item", name), "item", key); err != nil {
+				return err
+			}
+		}
 		for _, e := range t.Entries {
 			if e.Weight <= 0 {
 				return fmt.Errorf("loot_table %q: entry %q weight must be > 0", name, e.Key)
@@ -2869,101 +2984,117 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c.Rolls > 0 && len(c.RollSources) == 0 {
 			return fmt.Errorf("crate %q: needs roll_sources (or set loot_table)", key)
 		}
-		totalWeight := 0
+		total := 0
 		for i, src := range c.RollSources {
-			if err := validateCrateRollSource(key, "roll_sources", i, src, true); err != nil {
+			if err := validateCrateRollSource(lt.WeightedLootTables, key, i, src); err != nil {
 				return err
 			}
-			totalWeight += src.Weight
+			total += src.PerMille()
 		}
-		if len(c.RollSources) > 0 && totalWeight != 100 {
-			return fmt.Errorf("crate %q: roll_sources weights must total 100, got %d", key, totalWeight)
-		}
-		for i, src := range c.SpecialRolls {
-			if err := validateCrateRollSource(key, "special_rolls", i, src, false); err != nil {
-				return err
-			}
-			if src.ChancePct < 1 || src.ChancePct > 100 {
-				return fmt.Errorf("crate %q special_rolls[%d]: chance_pct must be 1..100", key, i)
-			}
+		if len(c.RollSources) > 0 && total != 1000 {
+			return fmt.Errorf("crate %q: roll_sources weights must total 100, got %.1f", key, float64(total)/10)
 		}
 	}
 	return nil
 }
 
-func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSource, requireWeight bool) error {
-	if requireWeight {
-		if src.Weight < 1 || src.Weight > 100 {
-			return fmt.Errorf("crate %q %s[%d]: weight must be 1..100", crate, sourceName, idx)
-		}
-		if src.ChancePct != 0 {
-			return fmt.Errorf("crate %q %s[%d]: chance_pct is only valid in special_rolls", crate, sourceName, idx)
-		}
-	} else if src.Weight != 0 {
-		return fmt.Errorf("crate %q %s[%d]: weight is only valid in roll_sources", crate, sourceName, idx)
+// catalogItemTypes is the closed set a catalog source draws from: an item
+// type, "weapon" for weapons only, or "any" for every item type and weapons.
+var catalogItemTypes = map[string]bool{"armor": true, "accessory": true, "consumable": true, "trinket": true, "device": true, "weapon": true, "any": true}
+
+func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string, idx int, src CrateRollSource) error {
+	where := fmt.Sprintf("crate %q roll_sources[%d]", crate, idx)
+	if (src.LootTable != "") != (src.Pool == "loot_table") {
+		return fmt.Errorf("%s: loot_table names the pool of a loot_table source, and only of one", where)
 	}
-	if src.LegendaryPct < 0 || src.LegendaryPct > 100 {
-		return fmt.Errorf("crate %q %s[%d]: legendary_pct must be 0..100", crate, sourceName, idx)
+	if tenths := src.Weight * 10; src.Weight < 0.1 || src.Weight > 100 || math.Abs(tenths-math.Round(tenths)) > 1e-6 {
+		return fmt.Errorf("%s: weight must be a percent from 0.1 to 100 in 0.1 steps", where)
 	}
-	if src.Pool != "rare" && src.LegendaryPct != 0 {
-		return fmt.Errorf("crate %q %s[%d]: legendary_pct is only valid for pool rare", crate, sourceName, idx)
+	tiers, err := ParseRarityRange(src.Rarity)
+	if err != nil {
+		return fmt.Errorf("%s: %v", where, err)
 	}
 	switch src.Pool {
-	case "nothing":
-		return nil // a weighted empty slot ("50% the crate holds nothing")
-	case "map", "rare":
-		if !validRarityFilter(src.Rarity) || !validRarityFilter(src.MinRarity) || !validRarityFilter(src.MaxRarity) {
-			return fmt.Errorf("crate %q %s[%d]: invalid rarity filter", crate, sourceName, idx)
+	case "nothing", "map":
+		if src.ItemType != "" || src.Amount != 0 || src.Pool == "nothing" && src.Rarity != "" {
+			return fmt.Errorf("%s: pool %s takes no item_type or amount", where, src.Pool)
 		}
 		return nil
 	case "catalog":
-		if src.ItemType == "" {
-			return fmt.Errorf("crate %q %s[%d]: catalog source needs item_type", crate, sourceName, idx)
+		if !catalogItemTypes[src.ItemType] {
+			return fmt.Errorf("%s: catalog item_type must be armor, accessory, consumable, trinket, device, weapon or any, got %q", where, src.ItemType)
 		}
-		if !validRarityFilter(src.Rarity) || !validRarityFilter(src.MinRarity) || !validRarityFilter(src.MaxRarity) {
-			return fmt.Errorf("crate %q %s[%d]: invalid rarity filter", crate, sourceName, idx)
+		if src.Amount != 0 {
+			return fmt.Errorf("%s: catalog takes no amount", where)
 		}
-		if !catalogItemFilterHasCandidates(src.ItemType, src.Rarity, src.MinRarity, src.MaxRarity) {
-			return fmt.Errorf("crate %q %s[%d]: no catalog items match item_type=%q rarity=%q min_rarity=%q max_rarity=%q", crate, sourceName, idx, src.ItemType, src.Rarity, src.MinRarity, src.MaxRarity)
+		if !catalogFilterHasCandidates(src.ItemType, tiers) {
+			return fmt.Errorf("%s: no catalog items match item_type=%q rarity=%q", where, src.ItemType, src.Rarity)
+		}
+		return nil
+	case "loot_table":
+		if _, ok := tables[src.LootTable]; !ok {
+			return fmt.Errorf("%s: unknown loot_table %q", where, src.LootTable)
+		}
+		if src.ItemType != "" || src.Rarity != "" || src.Amount != 0 {
+			return fmt.Errorf("%s: loot_table takes no item_type, rarity or amount", where)
 		}
 		return nil
 	case "gold", "arena_points":
-		if src.Amount <= 0 {
-			return fmt.Errorf("crate %q %s[%d]: %s source needs a positive amount", crate, sourceName, idx, src.Pool)
+		if src.Amount <= 0 || src.ItemType != "" || src.Rarity != "" {
+			return fmt.Errorf("%s: %s needs a positive amount and no item_type or rarity", where, src.Pool)
 		}
 		return nil
 	default:
-		return fmt.Errorf("crate %q %s[%d]: pool must be \"nothing\", \"map\", \"rare\", \"catalog\", \"gold\", or \"arena_points\"", crate, sourceName, idx)
+		return fmt.Errorf("%s: pool must be \"nothing\", \"map\", \"catalog\", \"loot_table\", \"gold\", or \"arena_points\"", where)
 	}
 }
 
-func validRarityFilter(rarity string) bool {
-	switch rarity {
-	case "", "common", "uncommon", "rare", "legendary", "unique":
-		return true
-	default:
+// CatalogItemMatchesFilter is shared by crate validation and runtime rolls:
+// one non-weapon item key against a catalog source's item_type and gate.
+// Quest, crafted-only and harvest items never roll; arena uniques neither.
+func CatalogItemMatchesFilter(key, itemType string, tiers RarityRange) bool {
+	if itemType == "weapon" {
 		return false
 	}
-}
-
-// CatalogItemMatchesFilter is shared by crate validation and runtime rolls.
-// A non-empty catalog must mean at least one item the chest can actually grant.
-func CatalogItemMatchesFilter(key, itemType, rarity, minRarity, maxRarity string) bool {
 	def, ok := GetItemDefinition(key)
-	if !ok || def == nil || def.Type == "quest" || ValidateOrdinaryItemGrant(key) != nil {
+	if !ok || def == nil || def.Type == "quest" || def.NoLoot || ValidateOrdinaryItemGrant(key) != nil {
 		return false
 	}
-	if itemType != "" && def.Type != itemType || rarity != "" && def.Rarity != rarity {
+	if itemType != "any" && def.Type != itemType {
 		return false
 	}
-	tier := RarityTier(def.Rarity)
-	return tier >= RarityTier(minRarity) && (maxRarity == "" || tier <= RarityTier(maxRarity))
+	return catalogRarityAllowed(def.Rarity, tiers)
 }
 
-func catalogItemFilterHasCandidates(itemType, rarity, minRarity, maxRarity string) bool {
+// CatalogWeaponMatchesFilter is the weapon half of a "weapon" or "any"
+// catalog source; no_loot kit weapons and arena uniques never roll.
+func CatalogWeaponMatchesFilter(key, itemType string, tiers RarityRange) bool {
+	if itemType != "weapon" && itemType != "any" {
+		return false
+	}
+	def, ok := GetWeaponDefinition(key)
+	if !ok || def == nil || def.NoLoot {
+		return false
+	}
+	return catalogRarityAllowed(def.Rarity, tiers)
+}
+
+func catalogRarityAllowed(rarity string, tiers RarityRange) bool {
+	tier := RarityTier(rarity)
+	return tier != RarityTier("unique") && tiers.Contains(tier)
+}
+
+func catalogFilterHasCandidates(itemType string, tiers RarityRange) bool {
 	if GlobalItems != nil {
 		for key := range GlobalItems.Items {
-			if CatalogItemMatchesFilter(key, itemType, rarity, minRarity, maxRarity) {
+			if CatalogItemMatchesFilter(key, itemType, tiers) {
+				return true
+			}
+		}
+	}
+	if GlobalWeapons != nil {
+		for key := range GlobalWeapons.Weapons {
+			if CatalogWeaponMatchesFilter(key, itemType, tiers) {
 				return true
 			}
 		}

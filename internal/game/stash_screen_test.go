@@ -1,7 +1,8 @@
 package game
 
 import (
-	"os"
+	"fmt"
+	"reflect"
 	"testing"
 
 	"ugataima/internal/character"
@@ -12,14 +13,8 @@ import (
 
 func stashTestGame(t *testing.T) *MMGame {
 	t.Helper()
-	old, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(t.TempDir()); err != nil { // isolate stash.json writes
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(old) })
+	storage.SetDataRootForTesting(t.TempDir()) // a fresh stash.json per test
+	t.Cleanup(func() { storage.SetDataRootForTesting("") })
 	return &MMGame{party: &character.Party{}, stash: &stash.Stash{}, stashDragFrom: -1}
 }
 
@@ -51,63 +46,46 @@ func TestStashTransfer_DepositWithdraw(t *testing.T) {
 	}
 }
 
-func TestStashTransfer_PartialStackKeepsTransferredLineage(t *testing.T) {
-	g := stashTestGame(t)
-	g.party.Inventory = []items.Item{{
-		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 5, InstanceID: 100,
-	}}
-	g.stashDragFrom = stashDragInvBase
-	g.stashDragSplitQuantity = 2
-	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 2, InstanceID: 100}
-	g.resolveStashDrop(stashAddr{stashKindChest, 0})
-
-	if got := g.stash.Slots[0]; got.Count() != 2 || got.InstanceID != 100 {
-		t.Fatalf("stash fragment = %+v, want two units with ID 100", got)
+// A partial-stack deposit moves the dragged units under their own lineage and
+// rekeys the bag remainder, whatever the target cell already holds.
+func TestStashTransferPartialStackLineage(t *testing.T) {
+	potion := func(quantity int, id uint64) items.Item {
+		return items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: quantity, InstanceID: id}
 	}
-	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 3 || g.party.Inventory[0].InstanceID == 100 {
-		t.Fatalf("bag remainder = %+v, want three rekeyed units", g.party.Inventory)
-	}
-}
+	for _, tc := range []struct {
+		name         string
+		bag, split   int
+		cell         items.Item // the chest cell before the drop
+		wantCount    int
+		wantID       uint64
+		wantLineage  []items.StackLineage // nil = not checked
+		wantBagCount int
+	}{
+		{name: "empty cell", bag: 5, split: 2, wantCount: 2, wantID: 100, wantBagCount: 3},
+		{name: "different lineage", bag: 3, split: 1, cell: potion(1, 200), wantCount: 2, wantID: 200,
+			wantLineage: []items.StackLineage{{ID: 200, Quantity: 1}, {ID: 100, Quantity: 1}}, wantBagCount: 2},
+		{name: "same lineage", bag: 4, split: 2, cell: potion(1, 100), wantCount: 3, wantID: 100, wantBagCount: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := stashTestGame(t)
+			g.party.Inventory = []items.Item{potion(tc.bag, 100)}
+			g.stash.Slots[0] = tc.cell
+			g.stashDragFrom = stashDragInvBase
+			g.stashDragSplitQuantity = tc.split
+			g.stashDragItem = potion(tc.split, 100)
+			g.resolveStashDrop(stashAddr{stashKindChest, 0})
 
-func TestStashTransfer_PartialStackMergesDifferentLineages(t *testing.T) {
-	g := stashTestGame(t)
-	g.party.Inventory = []items.Item{{
-		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 3, InstanceID: 100,
-	}}
-	g.stash.Slots[0] = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 200}
-	g.stashDragFrom = stashDragInvBase
-	g.stashDragSplitQuantity = 1
-	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 100}
-	g.resolveStashDrop(stashAddr{stashKindChest, 0})
-
-	if got := g.stash.Slots[0]; got.Count() != 2 || got.InstanceID != 200 {
-		t.Fatalf("occupied stash stack = %+v, want two potions", got)
-	} else if gotParts := got.StackLineageParts(); len(gotParts) != 2 ||
-		gotParts[0] != (items.StackLineage{ID: 200, Quantity: 1}) ||
-		gotParts[1] != (items.StackLineage{ID: 100, Quantity: 1}) {
-		t.Fatalf("merged stash provenance = %+v, want #200 + #100", gotParts)
-	}
-	if got := g.party.Inventory[0]; got.Count() != 2 || got.InstanceID == 100 {
-		t.Fatalf("bag remainder = %+v, want two rekeyed potions", got)
-	}
-}
-
-func TestStashTransfer_PartialStackMergesSameLineage(t *testing.T) {
-	g := stashTestGame(t)
-	g.party.Inventory = []items.Item{{
-		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 4, InstanceID: 100,
-	}}
-	g.stash.Slots[0] = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 100}
-	g.stashDragFrom = stashDragInvBase
-	g.stashDragSplitQuantity = 2
-	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 2, InstanceID: 100}
-	g.resolveStashDrop(stashAddr{stashKindChest, 0})
-
-	if got := g.stash.Slots[0]; got.Count() != 3 || got.InstanceID != 100 {
-		t.Fatalf("same-lineage stash stack = %+v, want three units with ID 100", got)
-	}
-	if got := g.party.Inventory[0]; got.Count() != 2 || got.InstanceID == 100 {
-		t.Fatalf("bag remainder = %+v, want two rekeyed units", got)
+			got := g.stash.Slots[0]
+			if got.Count() != tc.wantCount || got.InstanceID != tc.wantID {
+				t.Fatalf("stash stack = %+v, want %d units with ID %d", got, tc.wantCount, tc.wantID)
+			}
+			if tc.wantLineage != nil && !reflect.DeepEqual(got.StackLineageParts(), tc.wantLineage) {
+				t.Fatalf("merged stash provenance = %+v, want %+v", got.StackLineageParts(), tc.wantLineage)
+			}
+			if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != tc.wantBagCount || g.party.Inventory[0].InstanceID == 100 {
+				t.Fatalf("bag remainder = %+v, want %d rekeyed units", g.party.Inventory, tc.wantBagCount)
+			}
+		})
 	}
 }
 
@@ -175,36 +153,51 @@ func TestStashCardSlot_OnlyCards(t *testing.T) {
 	}
 }
 
-// TestSaveRowModel verifies the slot layout: row 0 is the load-only Autosave, the
-// rest are manual slots mapped to backward-compatible files, across 3 pages.
+// TestSaveRowModel pins the save-row table: the Autosave and Quicksave rows
+// are written by the game and load-only in the menus; manual rows keep their
+// old saveN.json files and slot numbers.
 func TestSaveRowModel(t *testing.T) {
-	if !saveRowIsAutosave(0) {
-		t.Error("row 0 must be the autosave slot")
+	for _, tc := range []struct {
+		row      int
+		label    string
+		file     string
+		loadOnly bool
+	}{
+		{0, "Autosave", "autosave.json", true},
+		{1, "Quicksave", "quicksave.json", true},
+		{2, "Slot 1", "save1.json", false},
+		{3, "Slot 2", "save2.json", false},
+		{21, "Slot 20", "save20.json", false},
+		{saveRowCount - 1, fmt.Sprintf("Slot %d", saveRowCount-2), fmt.Sprintf("save%d.json", saveRowCount-2), false},
+	} {
+		if got := saveRowLabel(tc.row); got != tc.label {
+			t.Errorf("row %d label = %q, want %q", tc.row, got, tc.label)
+		}
+		if got, want := saveRowPath(tc.row), storage.AppSavePath(tc.file); got != want {
+			t.Errorf("row %d path = %q, want %q", tc.row, got, want)
+		}
+		if got := saveRowIsLoadOnly(tc.row); got != tc.loadOnly {
+			t.Errorf("row %d load-only = %v, want %v", tc.row, got, tc.loadOnly)
+		}
+		if !saveRowIsSlot(tc.row) {
+			t.Errorf("row %d is not a menu row", tc.row)
+		}
 	}
-	if saveRowIsAutosave(1) {
-		t.Error("row 1 must be a manual slot")
+	// Every existing save1..save21 file stays reachable from a menu row.
+	for n := 1; n <= 21; n++ {
+		found := false
+		for row := 0; row < saveRowCount; row++ {
+			found = found || saveRowFileName(row) == fmt.Sprintf("save%d.json", n)
+		}
+		if !found {
+			t.Errorf("save%d.json has no menu row", n)
+		}
 	}
-	if got := saveRowLabel(0); got != "Autosave" {
-		t.Errorf("row 0 label = %q, want Autosave", got)
+	if saveRowIsSlot(saveRowCount) || saveRowIsSlot(-1) {
+		t.Error("rows outside the menus count as slots")
 	}
-	if got := saveRowLabel(3); got != "Slot 3" {
-		t.Errorf("row 3 label = %q, want Slot 3", got)
-	}
-	// Row N (N>=1) keeps the old saveN.json filename so existing saves stay reachable.
-	if got, want := saveRowPath(1), storage.AppSavePath("save1.json"); got != want {
-		t.Errorf("manual row 1 path = %q, want %q (old slot 0)", got, want)
-	}
-	// 3 pages x rows-per-page total rows; selected row offsets by page.
-	g := &MMGame{
-		menuState: menuState{
-			savePage:      2,
-			slotSelection: 1,
-		},
-	}
+	g := &MMGame{menuState: menuState{savePage: 2, slotSelection: 1}}
 	if got, want := g.selectedSaveRow(), 2*saveRowsPerPage+1; got != want {
 		t.Errorf("selectedSaveRow = %d, want %d", got, want)
-	}
-	if saveRowCount != saveRowsPerPage*savePageCount {
-		t.Errorf("saveRowCount = %d, want %d", saveRowCount, saveRowsPerPage*savePageCount)
 	}
 }

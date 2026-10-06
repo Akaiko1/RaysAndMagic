@@ -316,6 +316,35 @@ func (wm *WorldManager) OpenWorldRegionAtTile(tx, ty int) *OpenWorldRegion {
 	return &wm.OpenWorldRegions[idx]
 }
 
+// MapKeyAt names the map a tile of w belongs to: its region on the unified
+// world (void snaps to the nearest region), the split map's own key
+// otherwise (the current one when several keys share w). "" when w is not a
+// loaded world.
+func (wm *WorldManager) MapKeyAt(w *World3D, tx, ty int) string {
+	if w == nil {
+		return ""
+	}
+	if w == wm.OpenWorld {
+		r := wm.OpenWorldRegionAtTile(tx, ty)
+		if r == nil {
+			r = wm.nearestOpenWorldRegion(tx, ty)
+		}
+		if r != nil {
+			return r.MapKey
+		}
+		return ""
+	}
+	if wm.LoadedMaps[wm.CurrentMapKey] == w {
+		return wm.CurrentMapKey
+	}
+	for key, lw := range wm.LoadedMaps {
+		if lw == w {
+			return key
+		}
+	}
+	return ""
+}
+
 // WorldByKey resolves a map key to its world: a loaded split map, or the
 // unified world for merged region keys.
 func (wm *WorldManager) WorldByKey(mapKey string) *World3D {
@@ -331,10 +360,14 @@ func (wm *WorldManager) WorldByKey(mapKey string) *World3D {
 // EachWorld visits every DISTINCT loaded world exactly once (split maps plus
 // the unified world). Use for world-wide sweeps like merchant restocks.
 func (wm *WorldManager) EachWorld(fn func(key string, w *World3D)) {
+	seen := make(map[*World3D]bool, len(wm.LoadedMaps)+1)
 	for key, w := range wm.LoadedMaps {
-		fn(key, w)
+		if w != nil && !seen[w] {
+			seen[w] = true
+			fn(key, w)
+		}
 	}
-	if wm.OpenWorld != nil {
+	if wm.OpenWorld != nil && !seen[wm.OpenWorld] {
 		fn(OpenWorldKey, wm.OpenWorld)
 	}
 }
@@ -661,7 +694,7 @@ func (wm *WorldManager) buildOpenWorld() error {
 		staging := NewWorld3D(wm.config)
 		staging.Width, staging.Height = p.data.Width, p.data.Height
 		staging.Tiles = p.data.Tiles
-		staging.loadMonstersFromMapData(p.data.MonsterSpawns)
+		staging.loadMonstersFromMapData(p.data.MonsterSpawns, p.key)
 		wm.attachMapClearEncounter(staging, p.key, p.mc)
 		for _, m := range staging.Monsters {
 			m.X, m.Y = owXformWorld(p.off.Orient, localW, localH, m.X, m.Y)
@@ -677,7 +710,7 @@ func (wm *WorldManager) buildOpenWorld() error {
 		for _, spawn := range p.data.MonsterSpawns {
 			sx, sy := owXformTile(p.off.Orient, p.data.Width, p.data.Height, spawn.X, spawn.Y)
 			merged.MonsterSpawns = append(merged.MonsterSpawns, MonsterSpawn{
-				X: sx + p.off.X, Y: sy + p.off.Y, MonsterKey: spawn.MonsterKey,
+				X: sx + p.off.X, Y: sy + p.off.Y, MonsterKey: spawn.MonsterKey, GroundTile: spawn.GroundTile,
 			})
 		}
 

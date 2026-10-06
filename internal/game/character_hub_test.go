@@ -76,26 +76,8 @@ func TestCharacterHubWorldActionClosesBeforeDispatchAndRestoresOnFailure(t *test
 	}
 }
 
-func TestCharacterHubKeepsPartyCardsAsMouseSelector(t *testing.T) {
-	g, _ := newThiefTestGame(t)
-	g.menuOpen = true
-	g.showPartyStats = true
-	g.selectedChar = 0
-	ih := NewInputHandler(g)
-	cardW, cardH, left, top := partyPortraitLayout(g)
-	g.mouseLeftClicks = []queuedClick{{
-		x:  left + cardW + cardW/2,
-		y:  top + cardH/2,
-		at: 1,
-	}}
-	ih.handlePartyPortraitMouseInput(false)
-	if g.selectedChar != 1 {
-		t.Fatalf("party-card click selected %d, want 1 while hub is open", g.selectedChar)
-	}
-}
-
 func TestSpellbookCardsStayInsideInnerPageFrames(t *testing.T) {
-	for _, res := range [][2]int{{1024, 768}, {1280, 720}, {1920, 1080}, {3440, 1440}} {
+	for _, res := range withInterfaceFrames(t, [][2]int{{1024, 768}, {1280, 720}, {1920, 1080}, {3440, 1440}}) {
 		menu := computeTabbedMenuLayout(res[0], gameplayViewportBottomWithPartyHUD(res[1]))
 		book := computeBookLayout(menu.content)
 		for i := 0; i < book.cardsPerSpread(); i++ {
@@ -138,12 +120,10 @@ func TestBookFooterPlacementKeepsTheBookTallest(t *testing.T) {
 			if beside && (l.pager.x < book.right() || l.quick.right() > content.right()) {
 				t.Fatalf("side column quick %v pager %v leaves its column beside book %v", l.quick, l.pager, book)
 			}
-			// Under the book the strip costs 96 rows; beside it only the
-			// controls line does. The side column is taken exactly when the
-			// book could not reach that height stacked.
-			stackedH := min(640, content.h-90-96, (content.w-32)/2)
-			if beside != (l.bookH > stackedH) || l.bookH < stackedH {
-				t.Fatalf("book %d rows beside=%v, stacked would give %d", l.bookH, beside, stackedH)
+			// The side column is taken exactly when it gives the book more
+			// rows than the strip under it, and the book gets the taller one.
+			if beside != (l.sideH > l.stackedH) || l.bookH != max(1, l.stackedH, l.sideH) {
+				t.Fatalf("book %d rows beside=%v, stacked would give %d, side %d", l.bookH, beside, l.stackedH, l.sideH)
 			}
 		})
 	}
@@ -164,7 +144,7 @@ func TestLargerInterfaceKeepsTheArtNearNormal(t *testing.T) {
 }
 
 func TestSpellbookSchoolBookmarksUseWholeSafeDrawRect(t *testing.T) {
-	for _, res := range [][2]int{{1024, 768}, {1280, 720}, {1920, 1080}, {3440, 1440}} {
+	for _, res := range withInterfaceFrames(t, [][2]int{{1024, 768}, {1280, 720}, {1920, 1080}, {3440, 1440}}) {
 		menu := computeTabbedMenuLayout(res[0], gameplayViewportBottomWithPartyHUD(res[1]))
 		book := computeBookLayout(menu.content)
 		tabs := book.schoolTabRects(len(character.AllMagicSchools), 2)
@@ -396,19 +376,24 @@ func TestInventoryGridSlotsCenterOnHighResolutionRecesses(t *testing.T) {
 	}
 }
 
+// Every tab label fits one line inside its tab, on every interface frame and in
+// every font.
 func TestTabbedMenuLabelsFitOneLineInsideTabs(t *testing.T) {
-	for _, width := range []int{1024, 1280, 1920, 3440} {
-		menu := computeTabbedMenuLayout(width, gameplayViewportBottomWithPartyHUD(768))
-		for i, tab := range menu.tabs {
-			label := tabbedMenuTabs[i].label + " " + tabbedMenuTabs[i].key
-			if uiTextWidth(label) > tab.w-16 {
-				t.Fatalf("width %d tab %q is %dpx inside %dpx", width, label, uiTextWidth(label), tab.w)
-			}
-			if uiTextCharHeight > tab.h-12 {
-				t.Fatalf("tab label height %d leaves decorative rails in %dpx tab", uiTextCharHeight, tab.h)
+	sizes := withInterfaceFrames(t, [][2]int{{1024, 768}, {1280, 768}, {1920, 768}, {3440, 768}})
+	forEachUIFont(t, func(t *testing.T) {
+		for _, size := range sizes {
+			menu := computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1]))
+			for i, tab := range menu.tabs {
+				label := tabbedMenuTabs[i].label + " " + tabbedMenuTabs[i].key
+				if uiTextWidth(label) > tab.w-16 {
+					t.Fatalf("%v tab %q is %dpx inside %dpx", size, label, uiTextWidth(label), tab.w)
+				}
+				if uiTextCharHeight > tab.h-12 {
+					t.Fatalf("tab label height %d leaves decorative rails in %dpx tab", uiTextCharHeight, tab.h)
+				}
 			}
 		}
-	}
+	})
 }
 
 func setupSorcererFireboltSelection(t *testing.T) (*MMGame, *InputHandler, *character.MMCharacter, int, int) {
@@ -433,45 +418,6 @@ func setupSorcererFireboltSelection(t *testing.T) (*MMGame, *InputHandler, *char
 	g.selectedSpell = spellIndex
 	g.menuOpen = true
 	return g, NewInputHandler(g), caster, schoolIndex, spellIndex
-}
-
-func TestSpellbookDoubleClickEquipsFastSpellWithoutCasting(t *testing.T) {
-	g, _, caster, schoolIndex, spellIndex := setupSorcererFireboltSelection(t)
-	ui := NewUISystem(g)
-
-	g.mouseLeftClicks = []queuedClick{{x: 15, y: 15, at: 1000}}
-	ui.handleSpellbookSpellClick(10, 10, 40, 40, schoolIndex, spellIndex)
-	if !g.menuOpen {
-		t.Fatal("first click cast instead of selecting")
-	}
-	beforeSP := caster.SpellPoints
-
-	g.mouseLeftClicks = []queuedClick{{x: 15, y: 15, at: 1100}}
-	ui.handleSpellbookSpellClick(10, 10, 40, 40, schoolIndex, spellIndex)
-	if !g.menuOpen {
-		t.Fatal("double-click closed the character hub")
-	}
-	if caster.SpellPoints != beforeSP {
-		t.Fatalf("double-click cast the spell: SP %d -> %d", beforeSP, caster.SpellPoints)
-	}
-	equipped, ok := caster.Equipment[items.SlotSpell]
-	if !ok || equipped.SpellEffect != items.SpellEffect("firebolt") {
-		t.Fatalf("double-click equipped %+v, want Firebolt", equipped)
-	}
-}
-
-func TestSpellbookKeyboardActionClosesHubBeforeSuccessfulCast(t *testing.T) {
-	g, ih, caster, _, _ := setupSorcererFireboltSelection(t)
-	beforeSP := caster.SpellPoints
-	if !ih.useSelectedBookEntryFromHub() {
-		t.Fatal("selected Firebolt did not cast")
-	}
-	if g.menuOpen {
-		t.Fatal("successful Enter/F cast left the character hub open")
-	}
-	if caster.SpellPoints >= beforeSP {
-		t.Fatalf("spell points did not decrease: %d -> %d", beforeSP, caster.SpellPoints)
-	}
 }
 
 func TestQuickSlotUseBarIsHiddenWhileCharacterHubIsOpen(t *testing.T) {

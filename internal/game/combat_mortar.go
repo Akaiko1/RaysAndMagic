@@ -3,9 +3,11 @@ package game
 import (
 	"fmt"
 	"math"
+	"math/rand"
 
 	"ugataima/internal/character"
 	damagecalc "ugataima/internal/damage"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
 
@@ -22,6 +24,7 @@ type pendingMortar struct {
 	Crit        bool
 	Caster      *character.MMCharacter
 	RadiusTiles float64
+	StunChance  float64
 	StunSeconds int
 	StunTurns   int
 	School      string
@@ -63,6 +66,7 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		Crit:        isCrit,
 		Caster:      caster,
 		RadiusTiles: spellDef.AoeRadiusTiles,
+		StunChance:  spellDef.StunChance,
 		StunSeconds: spellDef.StunDurationSeconds,
 		StunTurns:   spellDef.StunDurationTurns,
 		School:      spellDef.School,
@@ -130,31 +134,30 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		damagecalc.Parts{Normal: m.Damage, True: m.TrueDamage},
 		damageTypeStr,
 	)
-	radius := m.RadiusTiles * float64(cs.game.config.GetTileSize())
 	resistPierce := cs.spellResistPierce(m.Caster, m.SpellID)
 	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, resistPierce, nil, name, false, true, false)
 
 	cs.game.spawnStarburstFx(m.X, m.Y, m.RadiusTiles)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s blooms!", name))
-	for _, target := range cs.game.world.Monsters {
-		if target == nil || !target.IsAlive() || isPurePartySummon(target) || target.IsDamageInvulnerable() {
-			continue
-		}
-		if Distance(m.X, m.Y, target.X, target.Y) > radius {
-			continue
-		}
+	hurts := func(t *monsterPkg.Monster3D) bool { return !isPurePartySummon(t) && !t.IsDamageInvulnerable() }
+	// Stone Blossom is artillery lobbed in a high arc, not a point blast: the
+	// bloom falls on everything around the landing point, walls or not.
+	bloom := cs.pointBlast(m.X, m.Y, m.RadiusTiles)
+	bloom.throughWalls = true
+	cs.forEachAreaVictim(bloom, hurts, func(target *monsterPkg.Monster3D) {
 		if cs.tryDarkElfBindInstead(m.Caster, target) {
-			continue
+			return
 		}
 		actual := cs.applyPartyMonsterAttack(target, attack).Total()
 		cs.markMonsterHit(target)
 		cs.spawnMonsterHitBurst(target, damageTypeStr)
+		cs.game.logCombat(logToneGood, "%s crushes %s for %s damage.", logSchoolWord(damageTypeStr, name), logMonsterName(target), logDamage(actual, damageTypeStr))
 		if !target.IsAlive() {
-			xpAwarded := cs.finishMonsterKill(target)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s crushes %s! (+%d XP)", name, target.Name, xpAwarded))
-			continue
+			cs.finishMonsterKill(target)
+			return
 		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s crushes %s for %d damage.", name, target.Name, actual))
-		cs.applyStun(target, m.StunSeconds, m.StunTurns, true)
-	}
+		if m.StunChance >= 1 || rand.Float64() < m.StunChance {
+			cs.applyStun(target, m.StunSeconds, m.StunTurns, true)
+		}
+	})
 }

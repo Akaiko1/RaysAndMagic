@@ -38,6 +38,7 @@ func TestRareInputCastCycles(t *testing.T) {
 					}
 					g, c := rareClassGame(t, class, tb)
 					ih := NewInputHandler(g)
+					veilCost := g.techniqueSPCost(c, config.Technique("phase_veil"))
 					if tb {
 						c.ActionsRemaining = 1
 					}
@@ -76,7 +77,7 @@ func TestRareInputCastCycles(t *testing.T) {
 						if kind == "flask" && g.flaskStock(g.party.Members[0], "harm_flask") != 2 {
 							t.Fatal("ready flask did not consume one bottle")
 						}
-						if kind == "veil" && c.SpellPoints != 92 {
+						if kind == "veil" && c.SpellPoints != 100-veilCost {
 							t.Fatal("ready technique did not spend SP")
 						}
 						if !tb && g.selectedChar != 1 {
@@ -114,6 +115,9 @@ func TestRareSpatialCommandsAreManualAndFaceForward(t *testing.T) {
 				m.X += ts
 				m.Y += 3 * ts
 				x, y, angle := g.camera.X, g.camera.Y, g.camera.Angle
+				fold := config.Technique("fold_step")
+				reach := float64(config.TierValue(fold.Range, c.SkillTier(character.SkillTranslocation))) * ts
+				cost := g.techniqueSPCost(c, fold)
 				undo := g.combat.beginPartyTargetAim(m)
 				defer undo()
 				if entry == "F" {
@@ -136,7 +140,7 @@ func TestRareSpatialCommandsAreManualAndFaceForward(t *testing.T) {
 					ih.performPendingRepeat()
 				}
 				if entry == "F" {
-					if math.Abs(g.camera.X-x-3*ts) > .001 || math.Abs(g.camera.Y-y) > .001 || c.SpellPoints != 92 || c.ActionsRemaining != 0 || c.RTCooldown != 999 {
+					if math.Abs(g.camera.X-x-reach) > .001 || math.Abs(g.camera.Y-y) > .001 || c.SpellPoints != 100-cost || c.ActionsRemaining != 0 || c.RTCooldown != 999 {
 						t.Fatal("manual step did not preserve facing-axis position/AP/recovery")
 					}
 					if tb && (math.Mod(g.camera.X, ts) != ts/2 || math.Mod(g.camera.Y, ts) != ts/2) {
@@ -202,9 +206,9 @@ func TestRareChestCatalogAndEncounterGuards(t *testing.T) {
 					config.GlobalWeapons = nil
 					var ok bool
 					if source == "rarity" {
-						_, ok = rollCatalogItemByRarity(d.Rarity)
+						_, ok = rollCatalogItem("any", exactRarity(d.Rarity))
 					} else {
-						_, ok = rollCatalogItem("consumable", "", "", "")
+						_, ok = rollCatalogItem("consumable", config.RarityRange{Min: 0, Max: config.RarityTier("unique")})
 					}
 					if ok == d.CraftedOnly {
 						t.Fatalf("catalog eligibility=%v crafted=%v", ok, d.CraftedOnly)
@@ -244,11 +248,12 @@ func TestRareBuffRecoveryAndUnconsciousAnchor(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, false)
 			g.party.Members[1].AddCondition(character.ConditionPoisoned)
+			want := g.techniqueCooldown(c, config.Technique(key))
 			if !g.useTechnique(0, key, false, false) {
 				t.Fatal("cast refused")
 			}
-			if (c.RTCooldown == 0) != (key != "purify") {
-				t.Fatalf("recovery=%d", c.RTCooldown)
+			if c.RTCooldown != want {
+				t.Fatalf("recovery=%d want the authored %d", c.RTCooldown, want)
 			}
 		})
 	}
@@ -313,7 +318,7 @@ func TestRareHarvestBoundedAndEventDriven(t *testing.T) {
 	}
 }
 
-func TestRareBookSafetyAndMaximumBatches(t *testing.T) {
+func TestRareBookOpensButBrewIsSafetyGated(t *testing.T) {
 	for _, safe := range []bool{false, true} {
 		for _, route := range []string{"open", "switch"} {
 			t.Run(fmt.Sprintf("safe=%v/%s", safe, route), func(t *testing.T) {
@@ -329,36 +334,17 @@ func TestRareBookSafetyAndMaximumBatches(t *testing.T) {
 					g.currentTab = TabInventory
 					ih.toggleTabbedMenu(TabSpellbook)
 				}
-				if (g.menuOpen && g.currentTab == TabSpellbook) != safe {
-					t.Fatal("unsafe book entry")
+				// The book opens on every route; only the brew transaction is gated.
+				if !g.menuOpen || g.currentTab != TabSpellbook {
+					t.Fatal("book entry refused")
+				}
+				g.selectedRare = 0
+				stockAlchemyRecipe(g, &config.GlobalAlchemy.Recipes[0], 1)
+				if g.brewSelectedRecipe() != safe {
+					t.Fatalf("brew in safe=%v field: %q", safe, g.rareBookMessage)
 				}
 			})
 		}
-	}
-	g, c := rareClassGame(t, character.ClassAlchemist, false)
-	g.party.Inventory = nil
-	recipe := config.AlchemyRecipeByKey("health_potion")
-	if recipe == nil {
-		recipe = &config.GlobalAlchemy.Recipes[0]
-	}
-	for _, group := range recipe.Ingredients {
-		alt := group.Alternatives[0]
-		it, _ := items.TryCreateItemFromYAML(alt.Items[0])
-		it.Quantity = alt.Count * 7
-		g.party.AddItem(it)
-	}
-	before := append([]items.Item(nil), g.party.Inventory...)
-	if got := g.party.MaxAlchemyBatches(recipe, nil); got != 7 {
-		t.Fatalf("max=%d want 7", got)
-	}
-	if !reflect.DeepEqual(before, g.party.Inventory) {
-		t.Fatal("maximum preview consumed ingredients")
-	}
-	if _, _, err := g.party.Brew(c, recipe, nil, 7); err != nil {
-		t.Fatal(err)
-	}
-	if got := g.party.MaxAlchemyBatches(recipe, nil); got != 0 {
-		t.Fatalf("max after brew=%d", got)
 	}
 }
 
@@ -380,13 +366,8 @@ func TestRareDisplayedWorkbenchMaxAndSafety(t *testing.T) {
 			}
 			m := zoneVictim(t, g)
 			h.clicks(false, tab.x+10, tab.y+10, 1)
-			if g.currentTab == TabSpellbook {
-				t.Fatal("unsafe displayed tab opened")
-			}
-			m.HitPoints = 0
-			h.clicks(false, tab.x+10, tab.y+10, 1)
 			if g.currentTab != TabSpellbook {
-				t.Fatal("safe displayed tab refused")
+				t.Fatal("displayed tab refused the book")
 			}
 			g.selectedRare = 0
 			r := &config.GlobalAlchemy.Recipes[0]
@@ -405,7 +386,12 @@ func TestRareDisplayedWorkbenchMaxAndSafety(t *testing.T) {
 				t.Fatalf("Max selected %d batches", g.alchemyBatches)
 			}
 			h.clicks(false, a.brew.x+40, a.brew.y+15, 1)
-			if got := g.party.MaxAlchemyBatches(r, nil); got != 0 {
+			if got := h.ui.alchemyPlan(r, g.alchemySelection(r), 1).max; got != 7 {
+				t.Fatalf("unsafe displayed Brew consumed materials: %d batches left", got)
+			}
+			m.HitPoints = 0
+			h.clicks(false, a.brew.x+40, a.brew.y+15, 1)
+			if got := h.ui.alchemyPlan(r, g.alchemySelection(r), 1).max; got != 0 {
 				t.Fatalf("displayed Brew left %d batches", got)
 			}
 		})
@@ -459,39 +445,6 @@ func TestRareHarvestPlacementAndYield(t *testing.T) {
 			g.party.Inventory = nil
 			if !g.gatherAlchemyReagent(n) || g.party.CountItemsByName("Dawnleaf") != want {
 				t.Fatal("gather yield mismatch")
-			}
-		})
-	}
-}
-
-func TestRareRegionalReagentWeights(t *testing.T) {
-	rareClassGame(t, character.ClassAlchemist, false)
-	prev := config.GlobalAlchemySpawns
-	t.Cleanup(func() { config.GlobalAlchemySpawns = prev })
-	cfg, err := config.LoadAlchemySpawns("../../assets/alchemy_spawns.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	favored := map[string][]string{
-		"forest": {"dawnleaf", "bitterroot"}, "highlands": {"mooncap", "bitterroot"},
-		"dragon_cliffs": {"embercap", "mooncap"}, "desert": {"embercap", "bitterroot"},
-		"sakura_garden": {"dawnleaf", "mooncap"}, "deep_jungle": {"dawnleaf", "mooncap"},
-	}
-	for _, p := range cfg.Populations {
-		if p.Key != "ordinary" {
-			continue
-		}
-		t.Run(p.Map, func(t *testing.T) {
-			for _, key := range []string{"dawnleaf", "mooncap", "bitterroot", "embercap"} {
-				want := 1
-				for _, favorite := range favored[p.Map] {
-					if favorite == key {
-						want = 3
-					}
-				}
-				if p.Weights[key] != want {
-					t.Fatalf("%s weight=%d want %d", key, p.Weights[key], want)
-				}
 			}
 		})
 	}

@@ -1,7 +1,7 @@
 # Champion mobs: real characters that ride the monster AI. Each build here is
 # constructed via character.BuildChampion at every DIFFICULTY TIER and drives
 # the mob that names it with a `champion:` field in monsters.yaml. Champions
-# always get 4 turn-based attacks; everything else follows the character combat
+# always get 2 turn-based attacks; everything else follows the character combat
 # pipeline live.
 #
 # tiers: shared difficulty ladder. Per tier: character level, the mastery EVERY

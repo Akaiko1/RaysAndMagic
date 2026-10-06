@@ -174,11 +174,15 @@ func TestMonsterSpellPublicTooltipsDescribeMonsterCasting(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					for _, text := range []string{GetSpellTooltip(spells.SpellID(key), ch, cs, full), GetItemTooltip(it, ch, cs, full)} {
+					texts := []string{GetSpellTooltip(spells.SpellID(key), ch, cs, full), GetItemTooltip(it, ch, cs, full)}
+					if !live {
+						texts = append(texts, GetSpellTooltip(spells.SpellID(key), nil, nil, full)) // the editor card's call
+					}
+					for _, text := range texts {
 						if !strings.Contains(text, "Cast by monsters only") {
 							t.Fatal(text)
 						}
-						for _, bad := range []string{"Hitbox:", "Cost:", "Intellect /", "Mastery -", "Base ("} {
+						for _, bad := range []string{"Hitbox:", "Cost:", "Intellect /", "Mastery -", "Mastery:", "Base ("} {
 							if strings.Contains(text, bad) {
 								t.Fatalf("monster spell contains player/internal rule %q: %s", bad, text)
 							}

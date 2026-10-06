@@ -72,6 +72,517 @@ item_sets:
     bonus_endurance: 20
 
 items:
+  translocator:
+    name: "Translocator"
+    type: "device"
+    rarity: "rare"
+    value: 8000
+    no_loot: true
+    description: "An expedition instrument for folding a short stretch of space."
+    use_action: jump
+    use_spell: jump
+    use_jump_extra_tiles: 1
+    use_cooldown_seconds: 10
+    tooltip_effects:
+      - "No spell points required"
+    tooltip_usage:
+      - "Double-click in inventory or use from a quick slot"
+      - "Reusable; not consumed on use"
+      - "Requires a clear landing; ends the party turn in turn-based combat"
+  solstice_living_ember:
+    name: "Living Ember"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 240
+    no_loot: true
+  solstice_heat_resistant_fang:
+    name: "Heat Resistant Fang"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 180
+    no_loot: true
+  solstice_furnace_ceramic:
+    name: "Furnace Ceramic"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 360
+    no_loot: true
+  solstice_furnace_bloom:
+    name: "Furnace Bloom"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 75
+    no_loot: true
+    harvest_sprite: "solstice_furnace_bloom"
+  solstice_thermal_core:
+    name: "Thermal Core"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 2500
+    no_loot: true
+  solstice_sun_resin:
+    name: "Sun Resin"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 25
+    no_loot: true
+    harvest_sprite: "solstice_sun_resin"
+  solstice_fire_ward:
+    name: "Heat Draught"
+    type: "consumable"
+    description: "Adds 30% fire damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
+    damage_buff_school: "fire"
+    damage_buff_pct: 30
+    buff_hp_regen_pct: 3
+    buff_duration_seconds: 60
+    status_icon: "solstice_fire_ward"
+    rarity: "uncommon"
+    value: 150
+    no_loot: true
+  brewed_solstice_fire_ward:
+    name: "Brewed Heat Draught"
+    type: "consumable"
+    description: "An Alchemist's carefully measured preparation."
+    brewed_from: "solstice_fire_ward"
+    brew_color: [210, 105, 45]
+    rarity: "uncommon"
+    value: 1
+    no_loot: true
+  solstice_fire_field_ward:
+    name: "Field Heat Draught"
+    type: "consumable"
+    description: "Adds 15% fire damage for 60 combat seconds."
+    damage_buff_school: "fire"
+    damage_buff_pct: 15
+    buff_duration_seconds: 60
+    status_icon: "solstice_fire_field_ward"
+    rarity: "uncommon"
+    value: 90
+    no_loot: true
+  brewed_solstice_fire_field_ward:
+    name: "Brewed Field Heat Draught"
+    type: "consumable"
+    description: "An Alchemist's carefully measured preparation."
+    brewed_from: "solstice_fire_field_ward"
+    brew_color: [210, 105, 45]
+    rarity: "uncommon"
+    value: 1
+    no_loot: true
+  solstice_fire_advanced_ward:
+    name: "Advanced Heat Draught"
+    type: "consumable"
+    description: "Adds 40% fire damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
+    damage_buff_school: "fire"
+    damage_buff_pct: 40
+    buff_hp_regen_pct: 5
+    buff_mana_regen_pct: 5
+    buff_duration_seconds: 60
+    status_icon: "solstice_fire_advanced_ward"
+    rarity: "uncommon"
+    value: 240
+    no_loot: true
+  solstice_condensed_tideglass:
+    name: "Condensed Tideglass"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 240
+    no_loot: true
+  solstice_coldwater_gland:
+    name: "Coldwater Gland"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 180
+    no_loot: true
+  solstice_circulation_membrane:
+    name: "Circulation Membrane"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 360
+    no_loot: true
+  solstice_moonwater_lotus:
+    name: "Moonwater Lotus"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 75
+    no_loot: true
+    harvest_sprite: "solstice_moonwater_lotus"
+  solstice_flow_core:
+    name: "Flow Core"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 2500
+    no_loot: true
+  solstice_rain_pearl:
+    name: "Rain Pearl"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 25
+    no_loot: true
+    harvest_sprite: "solstice_rain_pearl"
+  solstice_water_ward:
+    name: "Flow Draught"
+    type: "consumable"
+    description: "Adds 30% water damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
+    damage_buff_school: "water"
+    damage_buff_pct: 30
+    buff_hp_regen_pct: 3
+    buff_duration_seconds: 60
+    status_icon: "solstice_water_ward"
+    rarity: "uncommon"
+    value: 150
+    no_loot: true
+  brewed_solstice_water_ward:
+    name: "Brewed Flow Draught"
+    type: "consumable"
+    description: "An Alchemist's carefully measured preparation."
+    brewed_from: "solstice_water_ward"
+    brew_color: [65, 155, 170]
+    rarity: "uncommon"
+    value: 1
+    no_loot: true
+  solstice_water_field_ward:
+    name: "Field Flow Draught"
+    type: "consumable"
+    description: "Adds 15% water damage for 60 combat seconds."
+    damage_buff_school: "water"
+    damage_buff_pct: 15
+    buff_duration_seconds: 60
+    status_icon: "solstice_water_field_ward"
+    rarity: "uncommon"
+    value: 90
+    no_loot: true
+  brewed_solstice_water_field_ward:
+    name: "Brewed Field Flow Draught"
+    type: "consumable"
+    description: "An Alchemist's carefully measured preparation."
+    brewed_from: "solstice_water_field_ward"
+    brew_color: [65, 155, 170]
+    rarity: "uncommon"
+    value: 1
+    no_loot: true
+  solstice_water_advanced_ward:
+    name: "Advanced Flow Draught"
+    type: "consumable"
+    description: "Adds 40% water damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
+    damage_buff_school: "water"
+    damage_buff_pct: 40
+    buff_hp_regen_pct: 5
+    buff_mana_regen_pct: 5
+    buff_duration_seconds: 60
+    status_icon: "solstice_water_advanced_ward"
+    rarity: "uncommon"
+    value: 240
+    no_loot: true
+  solstice_anchor_crystal:
+    name: "Anchor Crystal"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 240
+    no_loot: true
+  solstice_mineral_plate:
+    name: "Mineral Plate"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 180
+    no_loot: true
+  solstice_petrified_conductor:
+    name: "Petrified Conductor"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 360
+    no_loot: true
+  solstice_deepvein_moss:
+    name: "Deepvein Moss"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 75
+    no_loot: true
+    harvest_sprite: "solstice_deepvein_moss"
+  solstice_anchor_core:
+    name: "Anchor Core"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 2500
+    no_loot: true
+  solstice_calendar_jade:
+    name: "Calendar Jade"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 25
+    no_loot: true
+    harvest_sprite: "solstice_calendar_jade"
+  solstice_earth_ward:
+    name: "Anchor Draught"
+    type: "consumable"
+    description: "Adds 30% earth damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
+    damage_buff_school: "earth"
+    damage_buff_pct: 30
+    buff_hp_regen_pct: 3
+    buff_duration_seconds: 60
+    status_icon: "solstice_earth_ward"
+    rarity: "uncommon"
+    value: 150
+    no_loot: true
+  brewed_solstice_earth_ward:
+    name: "Brewed Anchor Draught"
+    type: "consumable"
+    description: "An Alchemist's carefully measured preparation."
+    brewed_from: "solstice_earth_ward"
+    brew_color: [140, 155, 80]
+    rarity: "uncommon"
+    value: 1
+    no_loot: true
+  solstice_earth_field_ward:
+    name: "Field Anchor Draught"
+    type: "consumable"
+    description: "Adds 15% earth damage for 60 combat seconds."
+    damage_buff_school: "earth"
+    damage_buff_pct: 15
+    buff_duration_seconds: 60
+    status_icon: "solstice_earth_field_ward"
+    rarity: "uncommon"
+    value: 90
+    no_loot: true
+  brewed_solstice_earth_field_ward:
+    name: "Brewed Field Anchor Draught"
+    type: "consumable"
+    description: "An Alchemist's carefully measured preparation."
+    brewed_from: "solstice_earth_field_ward"
+    brew_color: [140, 155, 80]
+    rarity: "uncommon"
+    value: 1
+    no_loot: true
+  solstice_earth_advanced_ward:
+    name: "Advanced Anchor Draught"
+    type: "consumable"
+    description: "Adds 40% earth damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
+    damage_buff_school: "earth"
+    damage_buff_pct: 40
+    buff_hp_regen_pct: 5
+    buff_mana_regen_pct: 5
+    buff_duration_seconds: 60
+    status_icon: "solstice_earth_advanced_ward"
+    rarity: "uncommon"
+    value: 240
+    no_loot: true
+  solstice_bound_breath:
+    name: "Bound Breath"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 240
+    no_loot: true
+  solstice_charged_quill:
+    name: "Charged Quill"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 180
+    no_loot: true
+  solstice_resonance_coil:
+    name: "Resonance Coil"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 360
+    no_loot: true
+  solstice_sky_reed:
+    name: "Sky Reed"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 75
+    no_loot: true
+    harvest_sprite: "solstice_sky_reed"
+  solstice_vector_core:
+    name: "Vector Core"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 2500
+    no_loot: true
+  solstice_whisper_silk:
+    name: "Whisper Silk"
+    type: "trinket"
+    description: "A material recovered from the Solstice installation."
+    rarity: "common"
+    value: 25
+    no_loot: true
+    harvest_sprite: "solstice_whisper_silk"
+  solstice_air_ward:
+    name: "Vector Draught"
+    type: "consumable"
+    description: "Adds 30% air damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
+    damage_buff_school: "air"
+    damage_buff_pct: 30
+    buff_hp_regen_pct: 3
+    buff_duration_seconds: 60
+    status_icon: "solstice_air_ward"
+    rarity: "uncommon"
+    value: 150
+    no_loot: true
+  brewed_solstice_air_ward:
+    name: "Brewed Vector Draught"
+    type: "consumable"
+    description: "An Alchemist's carefully measured preparation."
+    brewed_from: "solstice_air_ward"
+    brew_color: [155, 195, 215]
+    rarity: "uncommon"
+    value: 1
+    no_loot: true
+  solstice_air_field_ward:
+    name: "Field Vector Draught"
+    type: "consumable"
+    description: "Adds 15% air damage for 60 combat seconds."
+    damage_buff_school: "air"
+    damage_buff_pct: 15
+    buff_duration_seconds: 60
+    status_icon: "solstice_air_field_ward"
+    rarity: "uncommon"
+    value: 90
+    no_loot: true
+  brewed_solstice_air_field_ward:
+    name: "Brewed Field Vector Draught"
+    type: "consumable"
+    description: "An Alchemist's carefully measured preparation."
+    brewed_from: "solstice_air_field_ward"
+    brew_color: [155, 195, 215]
+    rarity: "uncommon"
+    value: 1
+    no_loot: true
+  solstice_air_advanced_ward:
+    name: "Advanced Vector Draught"
+    type: "consumable"
+    description: "Adds 40% air damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
+    damage_buff_school: "air"
+    damage_buff_pct: 40
+    buff_hp_regen_pct: 5
+    buff_mana_regen_pct: 5
+    buff_duration_seconds: 60
+    status_icon: "solstice_air_advanced_ward"
+    rarity: "uncommon"
+    value: 240
+    no_loot: true
+  solstice_heatshield_mantle:
+    name: "Heatshield Mantle"
+    type: "armor"
+    description: "Protective equipment from an elemental regulator."
+    equip_slot: "cloak"
+    armor_class_base: 0
+    rarity: "rare"
+    value: 2200
+    no_loot: true
+    bonus_endurance: 6
+    resistances:
+      fire: 25
+    armor_category: "cloth"
+  solstice_ember_regulator_ring:
+    name: "Ember Regulator Ring"
+    type: "accessory"
+    description: "Protective equipment from an elemental regulator."
+    equip_slot: "ring"
+    armor_class_base: 0
+    rarity: "rare"
+    value: 2200
+    no_loot: true
+    bonus_intellect: 7
+    resistances:
+      fire: 15
+  solstice_circulation_vestment:
+    name: "Circulation Vestment"
+    type: "armor"
+    description: "Protective equipment from an elemental regulator."
+    equip_slot: "armor"
+    armor_class_base: 7
+    rarity: "rare"
+    value: 2200
+    no_loot: true
+    bonus_personality: 6
+    resistances:
+      water: 25
+    armor_category: "cloth"
+  solstice_tideglass_signet:
+    name: "Tideglass Signet"
+    type: "accessory"
+    description: "Protective equipment from an elemental regulator."
+    equip_slot: "ring"
+    armor_class_base: 0
+    rarity: "rare"
+    value: 2200
+    no_loot: true
+    bonus_endurance: 6
+    resistances:
+      water: 15
+  solstice_deepstone_aegis:
+    name: "Deepstone Aegis"
+    type: "armor"
+    description: "Protective equipment from an elemental regulator."
+    equip_slot: "offhand"
+    armor_class_base: 12
+    rarity: "rare"
+    value: 2200
+    no_loot: true
+    resistances:
+      earth: 25
+    armor_category: "shield"
+  solstice_loadbearer_girdle:
+    name: "Loadbearer Girdle"
+    type: "accessory"
+    description: "Protective equipment from an elemental regulator."
+    equip_slot: "belt"
+    armor_class_base: 0
+    rarity: "rare"
+    value: 2200
+    no_loot: true
+    bonus_might: 6
+    bonus_endurance: 7
+  solstice_vector_boots:
+    endurance_scaling_divisor: 10
+    name: "Vector Boots"
+    type: "armor"
+    description: "Protective equipment from an elemental regulator."
+    equip_slot: "boots"
+    armor_class_base: 4
+    rarity: "rare"
+    value: 2200
+    no_loot: true
+    bonus_speed: 6
+    resistances:
+      air: 20
+    armor_category: "leather"
+  solstice_resonance_diadem:
+    name: "Resonance Diadem"
+    type: "armor"
+    description: "Protective equipment from an elemental regulator."
+    equip_slot: "helmet"
+    armor_class_base: 0
+    rarity: "rare"
+    value: 2200
+    no_loot: true
+    bonus_intellect: 6
+    bonus_accuracy: 5
+    resistances:
+      air: 15
+    armor_category: "cloth"
+
   # Armor Endurance AC scaling is category-wide by design:
   # leather = END/10, chain = END/7, plate = END/5.
   # Cloth, shields, and future non-listed armor categories stay flat AC.
@@ -305,7 +816,7 @@ items:
     heal_base: 25
     heal_endurance_divisor: 4
     rarity: "common"
-    value: 50
+    value: 15
 
   mana_potion:
     name: "Mana Potion"
@@ -315,7 +826,7 @@ items:
     mana_base: 25
     mana_personality_divisor: 4
     rarity: "common"
-    value: 60
+    value: 20
 
   revival_potion:
     name: "Revival Potion"
@@ -325,7 +836,7 @@ items:
     revive: true
     full_heal: true
     rarity: "rare"
-    value: 500
+    value: 150
 
   magic_ring:
     name: "Magic Ring"
@@ -1354,7 +1865,7 @@ items:
     heal_base: 10
     heal_endurance_divisor: 6
     rarity: "common"
-    value: 45
+    value: 15
 
 # Monster-trophy cards added 2026-07-03 (mob roster expansion). Collection
 # effects not implemented yet -- cardEffectText falls back to "Currently not

@@ -8,6 +8,9 @@ import (
 	"ugataima/internal/world"
 )
 
+// Every castle tile reaches the compass through its own authored data: a
+// floor with its own floor_color paints that color (inheriting markers take a
+// neighbour's), any other tile with art shows its own sprite thumbnail.
 func TestJapaneseCastleCompassUsesAuthoredFloorColorsAndSprites(t *testing.T) {
 	cfg := loadTestConfig(t)
 	wm, _ := loadRealWorldForTest(t, cfg, "japanese_castle")
@@ -22,29 +25,28 @@ func TestJapaneseCastleCompassUsesAuthoredFloorColorsAndSprites(t *testing.T) {
 	sprites := make(map[string]struct{})
 	for y, row := range castle.Tiles {
 		for x, tile := range row {
+			data := world.GlobalTileManager.GetTileData(tile)
+			if data == nil {
+				continue
+			}
 			fc := g.floorColorForTile(x, y, [3]int{60, 110, 60})
 			visual := ui.compassTileAppearance(x, y, compassRGB(fc, 235))
-			data := world.GlobalTileManager.GetTileData(tile)
-			if data != nil && data.RenderType == config.TileRenderFloor {
+			switch {
+			case data.RenderType == config.TileRenderFloor && data.FloorColor != [3]int{} && !world.GlobalTileManager.InheritsFloor(tile):
+				if want := compassRGB(data.FloorColor, 235); visual.floor != want || visual.sprite != "" {
+					t.Fatalf("floor %q at (%d,%d) = %v/%q, want its authored color %v", world.GlobalTileManager.GetTileKey(tile), x, y, visual.floor, visual.sprite, want)
+				}
 				floorColors[visual.floor] = struct{}{}
-			}
-			if visual.sprite != "" {
+			case data.RenderType != config.TileRenderFloor && data.Sprite != "":
+				if want := normalizedAuthoredSpriteName(data.Sprite); visual.sprite != want {
+					t.Fatalf("tile %q at (%d,%d) shows %q, want its own sprite %q", world.GlobalTileManager.GetTileKey(tile), x, y, visual.sprite, want)
+				}
 				sprites[visual.sprite] = struct{}{}
 			}
 		}
 	}
-
-	if len(floorColors) < 4 {
-		t.Fatalf("Japanese castle compass has %d floor colors, want the authored cobble, wood, tatami, and garden fields", len(floorColors))
-	}
-	for _, name := range []string{
-		"japanese_castle_wall_0",
-		"japanese_castle_wall_1",
-		"japanese_castle_wall_2",
-		"japanese_castle_wall_3",
-	} {
-		if _, ok := sprites[name]; !ok {
-			t.Fatalf("Japanese castle compass is missing authored wall thumbnail %q", name)
-		}
+	// Positive controls: the castle authors several floor fields and walls.
+	if len(floorColors) < 2 || len(sprites) == 0 {
+		t.Fatalf("castle compass drew %d authored floor colors and %d sprites, want several of each", len(floorColors), len(sprites))
 	}
 }

@@ -1,7 +1,9 @@
 package game
 
 import (
+	"slices"
 	"testing"
+
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 )
@@ -16,65 +18,37 @@ func revivalTestGame(t *testing.T) *MMGame {
 	return g
 }
 
-func TestRevivablePartyIndices_EmptyWhenAllAlive(t *testing.T) {
-	g := selectionTestGame(t)
-	if got := g.RevivablePartyIndices(); len(got) != 0 {
-		t.Errorf("expected 0 revivable members, got %v", got)
+// Unconscious, Dead and HP 0 each qualify; Eradicated never does (it is
+// permanent). Indices come back in party order.
+func TestRevivablePartyIndices(t *testing.T) {
+	tests := []struct {
+		name string
+		down func(m []*character.MMCharacter)
+		want []int
+	}{
+		{"all alive", func([]*character.MMCharacter) {}, nil},
+		{"unconscious", func(m []*character.MMCharacter) { m[1].AddCondition(character.ConditionUnconscious) }, []int{1}},
+		{"dead", func(m []*character.MMCharacter) { m[2].AddCondition(character.ConditionDead) }, []int{2}},
+		{"zero HP alone", func(m []*character.MMCharacter) { m[3].HitPoints = 0 }, []int{3}},
+		{"dead and eradicated", func(m []*character.MMCharacter) {
+			m[0].HitPoints = 0
+			m[0].AddCondition(character.ConditionDead)
+			m[0].AddCondition(character.ConditionEradicated)
+		}, nil},
+		{"several in party order", func(m []*character.MMCharacter) {
+			m[0].AddCondition(character.ConditionUnconscious)
+			m[2].AddCondition(character.ConditionDead)
+			m[3].HitPoints = 0
+		}, []int{0, 2, 3}},
 	}
-}
-
-func TestRevivablePartyIndices_IncludesUnconscious(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[1].AddCondition(character.ConditionUnconscious)
-	got := g.RevivablePartyIndices()
-	if len(got) != 1 || got[0] != 1 {
-		t.Errorf("expected [1], got %v", got)
-	}
-}
-
-func TestRevivablePartyIndices_IncludesDead(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[2].AddCondition(character.ConditionDead)
-	got := g.RevivablePartyIndices()
-	if len(got) != 1 || got[0] != 2 {
-		t.Errorf("expected [2], got %v", got)
-	}
-}
-
-func TestRevivablePartyIndices_IncludesZeroHP(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[3].HitPoints = 0
-	got := g.RevivablePartyIndices()
-	if len(got) != 1 || got[0] != 3 {
-		t.Errorf("expected [3] (HP=0 alone qualifies), got %v", got)
-	}
-}
-
-func TestRevivablePartyIndices_ExcludesEradicated(t *testing.T) {
-	g := selectionTestGame(t)
-	// Dead AND Eradicated -> not revivable (eradication is permanent).
-	g.party.Members[0].HitPoints = 0
-	g.party.Members[0].AddCondition(character.ConditionDead)
-	g.party.Members[0].AddCondition(character.ConditionEradicated)
-	if got := g.RevivablePartyIndices(); len(got) != 0 {
-		t.Errorf("eradicated should be excluded, got %v", got)
-	}
-}
-
-func TestRevivablePartyIndices_MultipleInOrder(t *testing.T) {
-	g := selectionTestGame(t)
-	g.party.Members[0].AddCondition(character.ConditionUnconscious)
-	g.party.Members[2].AddCondition(character.ConditionDead)
-	g.party.Members[3].HitPoints = 0
-	got := g.RevivablePartyIndices()
-	want := []int{0, 2, 3}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("index %d: got %d, want %d", i, got[i], want[i])
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := selectionTestGame(t)
+			tt.down(g.party.Members)
+			if got := g.RevivablePartyIndices(); !slices.Equal(got, tt.want) {
+				t.Errorf("revivable = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -136,59 +110,61 @@ func TestApplyReviveTo_RejectsStaleNonReviveItem(t *testing.T) {
 	}
 }
 
-func TestUseConsumable_RevivePath_ZeroTargets(t *testing.T) {
-	g := revivalTestGame(t)
-	// Everyone is fully alive; using the potion should NOT consume it.
-	startLen := len(g.party.Inventory)
-	if g.UseConsumableFromInventory(0, 0) {
-		t.Errorf("UseConsumableFromInventory should return false when no targets")
+// Using a revive potion branches on the number of revivable members: none
+// keeps the potion, one is revived at once, several open the picker and wait
+// for its confirm before anything is spent.
+func TestUseConsumableRevivePathByTargetCount(t *testing.T) {
+	tests := []struct {
+		name         string
+		down         func(m []*character.MMCharacter)
+		wantUsed     bool
+		wantPicker   bool
+		wantConsumed bool
+		check        func(t *testing.T, g *MMGame)
+	}{
+		{"no target keeps the potion", func([]*character.MMCharacter) {}, false, false, false, nil},
+		{"one target revives at once", func(m []*character.MMCharacter) {
+			m[2].HitPoints = 0
+			m[2].AddCondition(character.ConditionDead)
+		}, true, false, true, func(t *testing.T, g *MMGame) {
+			if g.party.Members[2].HasCondition(character.ConditionDead) {
+				t.Error("target 2 still has Dead condition after revive")
+			}
+		}},
+		{"several targets open the picker", func(m []*character.MMCharacter) {
+			m[1].AddCondition(character.ConditionUnconscious)
+			m[2].AddCondition(character.ConditionDead)
+		}, false, true, false, func(t *testing.T, g *MMGame) {
+			if g.revivalPickerItemIdx != 0 {
+				t.Errorf("picker item index=%d, want 0", g.revivalPickerItemIdx)
+			}
+			if !g.party.Members[1].HasCondition(character.ConditionUnconscious) {
+				t.Error("member 1 revived without picker confirm")
+			}
+		}},
 	}
-	if len(g.party.Inventory) != startLen {
-		t.Errorf("potion consumed when no one was dead")
-	}
-	if g.revivalPickerOpen {
-		t.Errorf("picker shouldn't open with 0 revivable")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := revivalTestGame(t)
+			tt.down(g.party.Members)
+			startLen := len(g.party.Inventory)
 
-func TestUseConsumable_RevivePath_OneTarget_RevivesImmediately(t *testing.T) {
-	g := revivalTestGame(t)
-	g.party.Members[2].HitPoints = 0
-	g.party.Members[2].AddCondition(character.ConditionDead)
-	startLen := len(g.party.Inventory)
-
-	if !g.UseConsumableFromInventory(0, 0) {
-		t.Errorf("UseConsumableFromInventory should return true on 1-target revive")
-	}
-	if g.revivalPickerOpen {
-		t.Errorf("picker shouldn't open for 1-target case")
-	}
-	if g.party.Members[2].HasCondition(character.ConditionDead) {
-		t.Errorf("target 2 still has Dead condition after revive")
-	}
-	if len(g.party.Inventory) != startLen-1 {
-		t.Errorf("potion not consumed on 1-target revive")
-	}
-}
-
-func TestUseConsumable_RevivePath_MultipleTargets_OpensPicker(t *testing.T) {
-	g := revivalTestGame(t)
-	g.party.Members[1].AddCondition(character.ConditionUnconscious)
-	g.party.Members[2].AddCondition(character.ConditionDead)
-	startLen := len(g.party.Inventory)
-
-	g.UseConsumableFromInventory(0, 0) // selectedChar irrelevant when picker opens
-	if !g.revivalPickerOpen {
-		t.Errorf("picker should open with 2+ revivable")
-	}
-	if g.revivalPickerItemIdx != 0 {
-		t.Errorf("picker item index=%d, want 0", g.revivalPickerItemIdx)
-	}
-	if len(g.party.Inventory) != startLen {
-		t.Errorf("potion consumed prematurely; should wait for picker confirm")
-	}
-	// Members still down - picker hasn't applied yet.
-	if !g.party.Members[1].HasCondition(character.ConditionUnconscious) {
-		t.Errorf("member 1 revived without picker confirm")
+			if used := g.UseConsumableFromInventory(0, 0); used != tt.wantUsed {
+				t.Errorf("UseConsumableFromInventory = %v, want %v", used, tt.wantUsed)
+			}
+			if g.revivalPickerOpen != tt.wantPicker {
+				t.Errorf("picker open = %v, want %v", g.revivalPickerOpen, tt.wantPicker)
+			}
+			wantLen := startLen
+			if tt.wantConsumed {
+				wantLen--
+			}
+			if len(g.party.Inventory) != wantLen {
+				t.Errorf("inventory size %d, want %d (consumed=%v)", len(g.party.Inventory), wantLen, tt.wantConsumed)
+			}
+			if tt.check != nil {
+				tt.check(t, g)
+			}
+		})
 	}
 }

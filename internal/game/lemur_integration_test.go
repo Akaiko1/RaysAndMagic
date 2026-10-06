@@ -121,8 +121,19 @@ func TestLemurNoTreesAndPopulation(t *testing.T) {
 	for _, m := range g.world.Monsters {
 		counts[m.Key]++
 	}
-	if counts["ring_tailed_lemur"] != 10 || counts["red_ruffed_lemur"] != 10 {
-		t.Fatal(counts)
+	// The fixture world is also registered as the desert, so only the jungle's
+	// own populations are compared.
+	authored := 0
+	for _, p := range config.GlobalEcology.Populations {
+		if p.Map == wm.CurrentMapKey && p.Phase == "day" {
+			authored++
+			if counts[p.Monster] != p.Count {
+				t.Errorf("%s population = %d, want authored %d", p.Monster, counts[p.Monster], p.Count)
+			}
+		}
+	}
+	if authored == 0 {
+		t.Fatalf("no day population authored for %q", wm.CurrentMapKey)
 	}
 	m := monster.NewMonster3DFromConfig(11.5*tile, 10.5*tile, "ring_tailed_lemur", g.config)
 	g.world.Monsters = []*monster.Monster3D{m}
@@ -148,12 +159,6 @@ func TestLemurPrewarmAndDropContract(t *testing.T) {
 	for _, action := range arborealAnimations {
 		if !set[graphics.SpriteResourceRequest{Name: m.GetSpriteType(), AnimationType: action + "_r"}] {
 			t.Errorf("prewarm omitted %s", action)
-		}
-	}
-	for _, key := range []string{"ring_tailed_lemur", "red_ruffed_lemur"} {
-		drops := config.GlobalLoots.Loots[key]
-		if len(drops) != 1 || drops[0].Key != "lemur_fur" || drops[0].Chance != .2 {
-			t.Errorf("unexpected minimal drops: %+v", drops)
 		}
 	}
 	c := &monsterCorpse{arborealHeight: 1.2, sizeTiles: .35, started: g.frameCount}

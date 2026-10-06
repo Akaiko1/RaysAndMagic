@@ -33,7 +33,7 @@ func TestNovaSpellLogsSurvivorDamage(t *testing.T) {
 				t.Fatalf("%s not in spell registry: %v", spellID, err)
 			}
 			caster := game.party.Members[0]
-			if !game.combat.tryCastInferno(def, caster) {
+			if !game.combat.tryCastPartyNova(def, caster) {
 				t.Fatalf("%s cast was not handled by the nova path", spellID)
 			}
 

@@ -26,6 +26,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.profileKilled = nil
 	g.discardFish()
 	wm.RandomizeEnvironmentSprites()
+	g.adventure = cloneAdventureState(save.Adventure)
 	g.restoreSavedTimeline(wm, save, targetWorld)
 	g.restoreSavedParty(save)
 	g.updatePartyLevelUnlocks()
@@ -53,6 +54,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	if sx, sy := g.safePartyDestination(g.camera.X, g.camera.Y); sx != g.camera.X || sy != g.camera.Y {
 		g.setPartyPosition(sx, sy)
 	}
+	g.arenaBarrierMessageAfter = 0
+	g.syncAdventureArenaBounds()
 	g.ecology = cloneEcologyState(save.Ecology)
 	g.ecologyViews = nil
 	g.caravanAttackAlertUntil = time.Time{}

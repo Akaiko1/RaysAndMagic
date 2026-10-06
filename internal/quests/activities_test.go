@@ -2,9 +2,11 @@ package quests
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -21,43 +23,69 @@ func activityFixture(t *testing.T, id string) *QuestManager {
 	return qm
 }
 func TestActivitySequenceTransitions(t *testing.T) {
-	for _, tc := range []struct {
-		name         string
-		tokens       []string
-		index, count int
-		done         bool
-	}{
-		{"wrong first", []string{"monastery"}, 0, 0, false},
-		{"partial", []string{"spring", "travelers"}, 2, 0, false},
-		{"repeat resets", []string{"spring", "spring"}, 0, 0, false},
-		{"wrong final resets", []string{"spring", "travelers", "spring"}, 0, 0, false},
-		{"complete once", []string{"spring", "travelers", "monastery", "monastery"}, 3, 1, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			qm := activityFixture(t, "unbroken_desert")
-			qm.OnInteract("pilgrim_sluice")
-			qm.AdvanceInteractQuest("unbroken_desert", "pilgrim_sluice")
-			for _, token := range tc.tokens {
-				qm.InteractActivity("unbroken_desert", "pilgrim_sluice", token, false)
+	cfg, err := LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, id := range slices.Sorted(maps.Keys(cfg.Quests)) {
+		def := cfg.Quests[id]
+		if def.Activity == nil || len(def.Activity.Sequence) < 2 {
+			continue
+		}
+		checked++
+		seq := def.Activity.Sequence
+		n := len(seq)
+		tokens := func(parts ...[]string) []string {
+			var out []string
+			for _, p := range parts {
+				out = append(out, p...)
 			}
-			q := qm.GetQuest("unbroken_desert")
-			if q.Activity.SequenceIndex != tc.index || q.CurrentCount != tc.count || q.Completed != tc.done {
-				t.Fatalf("state %+v", q)
-			}
-		})
+			return out
+		}
+		for _, tc := range []struct {
+			name         string
+			tokens       []string
+			index, count int
+			done         bool
+		}{
+			{"wrong first", []string{seq[n-1]}, 0, 0, false},
+			{"partial", seq[:n-1], n - 1, 0, false},
+			{"repeat resets", []string{seq[0], seq[0]}, 0, 0, false},
+			{"wrong final resets", tokens(seq[:n-1], seq[:1]), 0, 0, false},
+			{"complete once", tokens(seq, seq[n-1:]), n, def.TargetCount, true},
+		} {
+			t.Run(id+"/"+tc.name, func(t *testing.T) {
+				qm := activityFixture(t, id)
+				// A plain interact never advances an activity quest.
+				qm.OnInteract(def.TargetMonster)
+				qm.AdvanceInteractQuest(id, def.TargetMonster)
+				for _, token := range tc.tokens {
+					qm.InteractActivity(id, def.TargetMonster, token, false)
+				}
+				q := qm.GetQuest(id)
+				if q.Activity.SequenceIndex != tc.index || q.CurrentCount != tc.count || q.Completed != tc.done {
+					t.Fatalf("state %+v", q)
+				}
+			})
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no shipped sequence activity")
 	}
 }
 func TestActivityForagePersistenceAndPhase(t *testing.T) {
 	qm := activityFixture(t, "unbroken_jungle")
 	q := qm.GetQuest("unbroken_jungle")
 	selected := append([]string(nil), q.Activity.Selected...)
+	tag := q.Definition.TargetMonster
 	for _, token := range selected {
 		night := q.Definition.Activity.TokenPhase(token) == "night"
 		for _, tc := range []struct {
 			tag, token    string
 			night, credit bool
 		}{
-			{"wrong", token, night, false}, {"pilgrim_flower", "missing", night, false}, {"pilgrim_flower", token, !night, false}, {"pilgrim_flower", token, night, true}, {"pilgrim_flower", token, night, false},
+			{"wrong", token, night, false}, {tag, "missing", night, false}, {tag, token, !night, false}, {tag, token, night, true}, {tag, token, night, false},
 		} {
 			got, _, _ := qm.InteractActivity(q.ID, tc.tag, tc.token, tc.night)
 			if got != tc.credit {
@@ -71,8 +99,8 @@ func TestActivityForagePersistenceAndPhase(t *testing.T) {
 			t.Fatal("activity JSON lost state")
 		}
 	}
-	if !q.Completed || q.CurrentCount != 5 {
-		t.Fatal("quota not completed")
+	if !q.Completed || q.CurrentCount != q.Definition.TargetCount {
+		t.Fatalf("quota not completed: %d/%d", q.CurrentCount, q.Definition.TargetCount)
 	}
 	if !reflect.DeepEqual(q.Activity.Selected, selected) {
 		t.Fatal("selection changed")

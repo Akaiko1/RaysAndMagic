@@ -708,6 +708,7 @@ func (gl *GameLoop) updatePerformanceMetrics() {
 
 // updateSpecialEffects updates all special effects and input cooldowns
 func (gl *GameLoop) updateSpecialEffects() {
+	gl.game.tickDeviceCooldowns(gl.game.combatFrameElapsed())
 	gl.updateWorldPresentation()
 
 	// Gameplay input stagger advances with the simulation. The character hub
@@ -775,7 +776,6 @@ type timedBuffActivation uint8
 
 const (
 	timedBuffNotHandled timedBuffActivation = iota
-	timedBuffUnchanged
 	timedBuffApplied
 )
 
@@ -797,10 +797,10 @@ func (g *MMGame) timedBuffs() []timedBuff {
 // entry here - it then ticks, shows its HUD icon, and is restored on load
 // automatically, with no other code changes.
 func (g *MMGame) buildTimedBuffs() []timedBuff {
-	activateVisionRadius := func(id spells.SpellID, radius *float64) func() {
+	activateVisionRadius := func(id spells.SpellID, radius *float64, field func(spells.SpellDefinition) float64) func() {
 		return func() {
 			if def, err := spells.GetSpellDefinitionByID(id); err == nil {
-				*radius = def.VisionRadiusTiles
+				*radius = field(def)
 			}
 		}
 	}
@@ -809,13 +809,13 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			id:         "torch_light",
 			active:     &g.torchLightActive,
 			duration:   &g.torchLightDuration,
-			onActivate: activateVisionRadius("torch_light", &g.torchLightRadius),
+			onActivate: activateVisionRadius("torch_light", &g.torchLightRadius, func(d spells.SpellDefinition) float64 { return d.LightRadiusTiles }),
 		},
 		{
 			id:         "wizard_eye",
 			active:     &g.wizardEyeActive,
 			duration:   &g.wizardEyeDuration,
-			onActivate: activateVisionRadius("wizard_eye", &g.wizardEyeRadiusTiles),
+			onActivate: activateVisionRadius("wizard_eye", &g.wizardEyeRadiusTiles, func(d spells.SpellDefinition) float64 { return d.RadarRadiusTiles }),
 		},
 		{
 			id:       "walk_on_water",
@@ -833,16 +833,11 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			duration: &g.flyDuration,
 		},
 		{
+			// The dive itself records where to surface (mapArrivalUnderwater), so a
+			// recast in the depths keeps that point.
 			id:       "water_breathing",
 			active:   &g.waterBreathingActive,
 			duration: &g.waterBreathingDuration,
-			onActivate: func() {
-				g.underwaterReturnX = g.camera.X
-				g.underwaterReturnY = g.camera.Y
-				if world.GlobalWorldManager != nil {
-					g.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
-				}
-			},
 			onExpire: func() {
 				// If still underwater when it lapses, surface the party.
 				if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
@@ -880,8 +875,9 @@ func (g *MMGame) serviceBuffAlreadyCovered(id spells.SpellID) bool {
 }
 
 // activateTimedBuffFrames is the single activation path for flag-based timed
-// buffs. Exact refresh is used by spells; preserveLonger is used by paid
-// services so buying a shorter span never cuts an existing longer one.
+// buffs. Spells refresh the HUD status exactly; paid services (preserveLonger)
+// keep the longest span it has shown. Services refuse while the buff runs, so a
+// purchase never cuts a longer span.
 func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserveLonger bool) timedBuffActivation {
 	if frames <= 0 {
 		return timedBuffNotHandled
@@ -889,9 +885,6 @@ func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserve
 	buff, ok := g.timedBuffByID(id)
 	if !ok {
 		return timedBuffNotHandled
-	}
-	if preserveLonger && *buff.active && frames <= *buff.duration {
-		return timedBuffUnchanged
 	}
 	*buff.active = true
 	*buff.duration = frames
@@ -909,8 +902,8 @@ func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserve
 // grantTimedBuffSeconds activates a registry buff for a FIXED span - the path
 // for effects granted by something other than a cast (a paid NPC service), so
 // the duration is the authored one rather than the caster's mastery curve.
-// Refreshing never shortens a longer span already running. The result separates
-// an unknown id from a recognized no-op so callers never charge for no benefit.
+// The result separates an unknown id from an applied buff so callers never
+// charge for no benefit.
 func (g *MMGame) grantTimedBuffSeconds(id string, seconds int) timedBuffActivation {
 	if seconds <= 0 {
 		return timedBuffNotHandled

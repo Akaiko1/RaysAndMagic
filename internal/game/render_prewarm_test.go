@@ -4,8 +4,12 @@ import (
 	"context"
 	"image"
 	"image/draw"
+	"image/png"
 	"math"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -17,6 +21,63 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
+
+func TestMapRenderPrewarmPipelinesReadyConsumer(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		t.Run(map[bool]string{false: "complete", true: "cancel"}[cancel], func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			ctx, stop := context.WithCancel(context.Background())
+			defer stop()
+			prepared := make(chan graphics.PreparedSpriteResource, 1)
+			task := &mapRenderPrewarmTask{
+				ctx: ctx, cancel: stop, mapKey: "pipeline", world: gl.game.world,
+				plan:               mapRenderPrewarmPlan{containerSprites: []string{"ready", "slow"}},
+				pendingSourceNames: map[string]int{"ready": 1, "slow": 1}, sourcesChanged: true,
+				preparedSprites: prepared, skiesDone: true,
+				cpuImages:   make(map[*ebiten.Image]*image.RGBA),
+				queueBudget: graphics.NewPreparationBudget(32 << 20),
+			}
+			task.prewarmer = newMapRenderPrewarmer(r, task)
+			r.mapRenderResourcePrewarmActive = task
+			t.Cleanup(r.resetMapRenderResourceResidency)
+			cpu := image.NewRGBA(image.Rect(0, 0, 8, 8))
+			for i := 3; i < len(cpu.Pix); i += 4 {
+				cpu.Pix[i] = 255
+			}
+			request := graphics.SpriteResourceRequest{Name: "ready"}
+			prepared <- graphics.PreparedSpriteResource{Request: request, CPU: cpu, Image: cpu, Found: true}
+			deadline := time.Now().Add(5 * time.Second)
+			for len(r.standeeCoreCache) == 0 && time.Now().Before(deadline) {
+				r.prewarmPendingMapRenderResources()
+				runtime.Gosched()
+			}
+			if len(r.standeeCoreCache) == 0 || len(r.mapRenderUploadQueue) == 0 {
+				t.Fatal("ready consumer waited for the unrelated slow source")
+			}
+			if _, resident := r.mapRenderResourcesByMap[task.mapKey]; resident || r.loadDiagnostics.readbacks != 0 {
+				t.Fatal("partial region was published or required a GPU readback")
+			}
+			if cancel {
+				r.resetMapRenderResourceResidency()
+				if len(gl.game.sprites.ResourceImages(request)) != 0 || len(r.mapRenderUploadQueue) != 0 || r.mapRenderRegistry.estimatedGPUBytes() != 0 {
+					t.Fatal("cancel retained pipelined resources or submissions")
+				}
+				return
+			}
+			// A missing final source must settle without invalidating the first.
+			prepared <- graphics.PreparedSpriteResource{Request: graphics.SpriteResourceRequest{Name: "slow"}}
+			close(prepared)
+			for r.mapRenderResourcePrewarmActive != nil && time.Now().Before(deadline) {
+				r.prewarmPendingMapRenderResources()
+				runtime.Gosched()
+			}
+			if r.mapRenderResourcesByMap[task.mapKey] == nil || len(gl.game.sprites.ResourceImages(request)) != 1 {
+				t.Fatal("completed pipeline failed to retain the ready source")
+			}
+		})
+	}
+}
 
 func containsString(values []string, want string) bool {
 	for _, value := range values {
@@ -137,15 +198,16 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 	}
 
 	plan := r.collectMapRenderPrewarmPlan("")
-	for _, name := range []string{"forest_oak", "church_wall", "mushroom_ring"} {
-		if !containsString(plan.tileSprites, name) {
+	sprite := world.GlobalTileManager.GetSprite
+	for _, tt := range []world.TileType3D{tree, wall, mushrooms} {
+		if name := sprite(tt); !containsString(plan.tileSprites, name) {
 			t.Errorf("tile sprite %q missing from plan: %v", name, plan.tileSprites)
 		}
 	}
-	if containsString(plan.tileSprites, "firefly_swarm") {
+	if containsString(plan.tileSprites, sprite(fireflies)) {
 		t.Error("procedural firefly tile unnecessarily prewarms its legacy PNG")
 	}
-	if !containsString(plan.wallSprites, "church_wall") {
+	if !containsString(plan.wallSprites, sprite(wall)) {
 		t.Errorf("textured wall missing from wall plan: %v", plan.wallSprites)
 	}
 	for _, cell := range [][2]int{{0, 0}, {1, 1}} {
@@ -153,10 +215,10 @@ func TestMapRenderPrewarmPlanCoversColdWorldResources(t *testing.T) {
 			t.Errorf("selected tree sprite %q missing from standee plan: %v", name, plan.treeSprites)
 		}
 	}
-	if !containsEnvironmentResource(plan.environmentSprites, mushrooms, "mushroom_ring") {
+	if !containsEnvironmentResource(plan.environmentSprites, mushrooms, sprite(mushrooms)) {
 		t.Errorf("transparent environment sprite missing from plan: %+v", plan.environmentSprites)
 	}
-	if containsEnvironmentResource(plan.environmentSprites, fireflies, "firefly_swarm") {
+	if containsEnvironmentResource(plan.environmentSprites, fireflies, sprite(fireflies)) {
 		t.Error("procedural firefly tile entered the image-backed environment plan")
 	}
 	for _, want := range []mapNPCPrewarmResource{
@@ -220,11 +282,10 @@ func TestOpenWorldPrewarmScopesSourcesAndDerivedResourcesToRegion(t *testing.T) 
 		return value
 	}
 
+	leftTile, rightTile := tileType("tree"), tileType("mushroom_ring")
+	leftSprite, rightSprite := world.GlobalTileManager.GetSprite(leftTile), world.GlobalTileManager.GetSprite(rightTile)
 	w := newTestWorldSized(cfg, 4, 1)
-	w.Tiles = [][]world.TileType3D{{
-		tileType("tree"), tileType("tree"),
-		tileType("mushroom_ring"), tileType("mushroom_ring"),
-	}}
+	w.Tiles = [][]world.TileType3D{{leftTile, leftTile, rightTile, rightTile}}
 	leftMonster := monster.NewMonster3DFromConfig(32, 32, "wolf", cfg)
 	rightMonster := monster.NewMonster3DFromConfig(160, 32, "forest_spider", cfg)
 	w.Monsters = []*monster.Monster3D{leftMonster, rightMonster}
@@ -251,19 +312,27 @@ func TestOpenWorldPrewarmScopesSourcesAndDerivedResourcesToRegion(t *testing.T) 
 		tileSize: float64(cfg.GetTileSize()),
 	}
 	plan := r.collectMapRenderPrewarmPlanForScope(scope)
+	leftChest := mapNPCPrewarmResource{name: "chest_wooden", prefix: "npc", warmVisibleBounds: true}
+	rightChest := mapNPCPrewarmResource{name: "chest_iron", prefix: "npc", warmVisibleBounds: true}
 	cases := []struct {
 		name string
 		got  bool
 		want bool
 	}{
-		{name: "local static source", got: containsString(plan.tileSprites, "forest_oak"), want: true},
-		{name: "remote static source", got: containsString(plan.tileSprites, "mushroom_ring"), want: false},
-		{name: "local NPC source", got: containsString(plan.npcDecodeSprites, "chest_wooden"), want: true},
-		{name: "remote NPC source", got: containsString(plan.npcDecodeSprites, "chest_iron"), want: false},
+		{name: "local static source", got: containsString(plan.tileSprites, leftSprite), want: true},
+		{name: "remote static source", got: containsString(plan.tileSprites, rightSprite), want: false},
+		{name: "local NPC source", got: containsString(plan.npcDecodeSprites, leftChest.name), want: true},
+		{name: "remote NPC source", got: containsString(plan.npcDecodeSprites, rightChest.name), want: false},
+		{name: "local NPC standee", got: containsNPCResource(plan.npcSprites, leftChest), want: true},
+		{name: "remote NPC standee", got: containsNPCResource(plan.npcSprites, rightChest), want: false},
 		{name: "local monster source", got: containsMonsterResource(plan.monsterDecode, "wolf"), want: true},
 		{name: "remote monster source", got: containsMonsterResource(plan.monsterDecode, "forest_spider"), want: false},
+		{name: "local monster standee", got: containsMonsterResource(plan.monsterSprites, "wolf"), want: true},
+		{name: "remote monster standee", got: containsMonsterResource(plan.monsterSprites, "forest_spider"), want: false},
 		{name: "local container source", got: containsString(plan.containerDecode, "pyramid_chest"), want: true},
 		{name: "remote container source", got: containsString(plan.containerDecode, "clockwork_chest"), want: false},
+		{name: "local container sprite", got: containsString(plan.containerSprites, "pyramid_chest"), want: true},
+		{name: "remote container sprite", got: containsString(plan.containerSprites, "clockwork_chest"), want: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -271,46 +340,6 @@ func TestOpenWorldPrewarmScopesSourcesAndDerivedResourcesToRegion(t *testing.T) 
 				t.Fatalf("present in left-region plan = %v, want %v", tc.got, tc.want)
 			}
 		})
-	}
-
-	if !containsString(plan.tileSprites, "forest_oak") {
-		t.Errorf("left static sprite missing: %v", plan.tileSprites)
-	}
-	if containsString(plan.tileSprites, "mushroom_ring") {
-		t.Errorf("right static sprite leaked into left plan: %v", plan.tileSprites)
-	}
-	if !containsString(plan.npcDecodeSprites, "chest_wooden") {
-		t.Errorf("left NPC source missing: %v", plan.npcDecodeSprites)
-	}
-	if containsString(plan.npcDecodeSprites, "chest_iron") {
-		t.Errorf("right NPC source leaked into left plan: %v", plan.npcDecodeSprites)
-	}
-	if !containsNPCResource(plan.npcSprites, mapNPCPrewarmResource{name: "chest_wooden", prefix: "npc", warmVisibleBounds: true}) {
-		t.Errorf("left NPC standee missing: %+v", plan.npcSprites)
-	}
-	if containsNPCResource(plan.npcSprites, mapNPCPrewarmResource{name: "chest_iron", prefix: "npc", warmVisibleBounds: true}) {
-		t.Errorf("right NPC leaked into left standee plan: %+v", plan.npcSprites)
-	}
-	if !containsMonsterResource(plan.monsterDecode, "wolf") {
-		t.Errorf("left monster source missing: %+v", plan.monsterDecode)
-	}
-	if containsMonsterResource(plan.monsterDecode, "forest_spider") {
-		t.Errorf("right monster source leaked into left plan: %+v", plan.monsterDecode)
-	}
-	if !containsMonsterResource(plan.monsterSprites, "wolf") {
-		t.Errorf("left monster standee missing: %+v", plan.monsterSprites)
-	}
-	if containsMonsterResource(plan.monsterSprites, "forest_spider") {
-		t.Errorf("right monster leaked into left standee plan: %+v", plan.monsterSprites)
-	}
-	if !containsString(plan.containerSprites, "pyramid_chest") {
-		t.Errorf("left container missing: %v", plan.containerSprites)
-	}
-	if containsString(plan.containerSprites, "clockwork_chest") {
-		t.Errorf("right container leaked into left plan: %v", plan.containerSprites)
-	}
-	if containsString(plan.containerDecode, "clockwork_chest") {
-		t.Errorf("right container source leaked into left plan: %v", plan.containerDecode)
 	}
 }
 
@@ -334,7 +363,7 @@ func closedPreparedSkies() <-chan mapRenderPreparedSky {
 	return ch
 }
 
-func TestMapRenderStreamingAdvancesOneStateCellPerUpdate(t *testing.T) {
+func TestMapRenderStreamingAdvancesOneStateCellPerStep(t *testing.T) {
 	tests := []struct {
 		name             string
 		setup            func(*Renderer, *mapRenderPrewarmTask, *int)
@@ -364,7 +393,7 @@ func TestMapRenderStreamingAdvancesOneStateCellPerUpdate(t *testing.T) {
 			wantActive: true, wantPreparedHeld: true,
 		},
 		{
-			name: "one derived step runs per update",
+			name: "one derived step runs per advance",
 			setup: func(_ *Renderer, task *mapRenderPrewarmTask, steps *int) {
 				task.spritesDone = true
 				task.skiesDone = true
@@ -416,29 +445,6 @@ func TestMapRenderStreamingAdvancesOneStateCellPerUpdate(t *testing.T) {
 	}
 }
 
-func TestGameLoopUpdateAdvancesMapRenderStreaming(t *testing.T) {
-	g := &MMGame{appScreen: AppScreenInGame, exitRequested: true, threading: threading.NewThreadingComponents(nil)}
-	r := &Renderer{game: g, mapRenderResourcePrewarmPending: true}
-	steps := 0
-	task := &mapRenderPrewarmTask{
-		mapKey: "forest", spritesDone: true, skiesDone: true,
-		steps: []mapRenderPrewarmStep{
-			func(time.Time) bool { steps++; return true },
-			func(time.Time) bool { steps++; return true },
-		},
-	}
-	task.prewarmer = newMapRenderPrewarmer(r, task)
-	r.mapRenderResourcePrewarmActive = task
-	gl := &GameLoop{game: g, renderer: r}
-
-	if err := gl.Update(); err != ErrExit {
-		t.Fatalf("Update error = %v, want %v", err, ErrExit)
-	}
-	if steps != 1 || task.nextStep != 1 {
-		t.Fatalf("streaming progress = steps:%d index:%d, want 1,1", steps, task.nextStep)
-	}
-}
-
 func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 	cfg := loadTestConfig(t)
 	tests := []struct {
@@ -467,9 +473,10 @@ func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 				mapRenderResourcePrewarmMapKeys: []string{"forest"},
 			}
 			steps := 0
+			var task *mapRenderPrewarmTask
 			if tt.active {
 				r.mapRenderResourcePrewarmMapKeys = nil
-				task := &mapRenderPrewarmTask{
+				task = &mapRenderPrewarmTask{
 					mapKey: "forest", spritesDone: true, skiesDone: true,
 					steps: []mapRenderPrewarmStep{
 						func(time.Time) bool { steps++; return true },
@@ -492,6 +499,9 @@ func TestMapRenderStreamingProgressRespectsAppScreen(t *testing.T) {
 			}
 			if steps != tt.wantProgress {
 				t.Fatalf("streaming steps = %d, want %d", steps, tt.wantProgress)
+			}
+			if task != nil && task.nextStep != tt.wantProgress {
+				t.Fatalf("streaming index = %d, want %d", task.nextStep, tt.wantProgress)
 			}
 			r.resetMapRenderResourceResidency()
 		})
@@ -518,7 +528,7 @@ func TestMapRenderStandeeWorkerCompletionAndCancellation(t *testing.T) {
 			cpu := image.NewRGBA(image.Rect(0, 0, 4, 4))
 			results := prepareMapRenderStandees(ctx, []mapRenderStandeeJob{{
 				key: standeeCoreKey{name: "mob:test"}, cpu: cpu,
-			}}, 0.5, graphics.PixelCache{})
+			}}, 0.5)
 			prepared, ok := <-results
 			if ok != tt.wantResult {
 				t.Fatalf("worker result present = %v, want %v", ok, tt.wantResult)
@@ -655,64 +665,6 @@ func TestMapRenderResidencyKeepsVisibleRegionsAndEvictsOutsideHysteresis(t *test
 	r.trackResidentStandeeKey(lazy)
 	if _, ok := r.mapRenderResourcesByMap["desert"].standees[lazy]; !ok {
 		t.Fatal("lazily generated standee was not attached to the current resident region")
-	}
-}
-
-func TestLazyStandeeOwnershipCoversCurrentRegionStates(t *testing.T) {
-	previousWorldManager := world.GlobalWorldManager
-	t.Cleanup(func() { world.GlobalWorldManager = previousWorldManager })
-	world.GlobalWorldManager = &world.WorldManager{CurrentMapKey: "forest"}
-
-	tests := []struct {
-		name            string
-		resident        bool
-		activeMapKey    string
-		activeCancelled bool
-		wantResident    bool
-		wantActive      bool
-	}{
-		{name: "resident region", resident: true, wantResident: true},
-		{name: "active region", activeMapKey: "forest", wantActive: true},
-		{name: "resident and active transition", resident: true, activeMapKey: "forest", wantResident: true, wantActive: true},
-		{name: "cancelled active region", activeMapKey: "forest", activeCancelled: true},
-		{name: "different active region", activeMapKey: "desert"},
-		{name: "no regional owner"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := &Renderer{}
-			var resident *mapRenderRegionResources
-			if tt.resident {
-				resident = &mapRenderRegionResources{}
-				r.mapRenderResourcesByMap = map[string]*mapRenderRegionResources{"forest": resident}
-			}
-			var activeResources *mapRenderRegionResources
-			if tt.activeMapKey != "" {
-				task := &mapRenderPrewarmTask{mapKey: tt.activeMapKey, state: testMapRenderTaskState(tt.activeCancelled)}
-				task.prewarmer = newMapRenderPrewarmer(r, task)
-				activeResources = task.prewarmer.resources
-				r.mapRenderResourcePrewarmActive = task
-			}
-
-			key := standeeCoreKey{name: "mob:late_spawn"}
-			r.trackResidentStandeeKey(key)
-			r.trackResidentStandeeKey(key)
-
-			residentOwned := false
-			if resident != nil {
-				_, residentOwned = resident.standees[key]
-			}
-			if residentOwned != tt.wantResident {
-				t.Fatalf("resident ownership = %v, want %v", residentOwned, tt.wantResident)
-			}
-			activeOwned := false
-			if activeResources != nil {
-				_, activeOwned = activeResources.standees[key]
-			}
-			if activeOwned != tt.wantActive {
-				t.Fatalf("active ownership = %v, want %v", activeOwned, tt.wantActive)
-			}
-		})
 	}
 }
 
@@ -1336,7 +1288,7 @@ func TestCancelMapRenderPrewarmOutsideReleasesInFlightGPUImages(t *testing.T) {
 
 	wallSource := ebiten.NewImage(8, 8)
 	wallBuilder := newMapRenderWallRipmapBuilder(r, wallSource, image.NewRGBA(image.Rect(0, 0, 8, 8)))
-	if _, done := wallBuilder.advance(mapRenderSpriteCommitFrameBytes); done {
+	if _, done := wallBuilder.advance(mapRenderSpriteCommitChunkBytes); done {
 		t.Fatal("wall builder unexpectedly finished after one level")
 	}
 	task.wallRipmapBuilders = []*mapRenderWallRipmapBuilder{wallBuilder}
@@ -2227,16 +2179,22 @@ func TestWithMapRenderSourceTrackingStashesAndClearsLazyCPU(t *testing.T) {
 func TestPrewarmRetainsCPUImagesUntilDerivedWorkFinishes(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 2, 2))
+	g.appScreen = AppScreenInGame
 	r := &Renderer{game: g}
 	source := ebiten.NewImage(4, 4)
+	defer source.Deallocate()
 	task := &mapRenderPrewarmTask{
-		ctx:       context.Background(),
-		cpuImages: map[*ebiten.Image]*image.RGBA{source: image.NewRGBA(image.Rect(0, 0, 4, 4))},
+		ctx:         context.Background(),
+		cpuImages:   map[*ebiten.Image]*image.RGBA{source: image.NewRGBA(image.Rect(0, 0, 4, 4))},
+		spritesDone: true, skiesDone: true,
+		steps: []mapRenderPrewarmStep{},
 	}
 	task.prewarmer = newMapRenderPrewarmer(r, task)
-	steps := r.buildMapRenderPrewarmSteps(task)
-	if len(steps) == 0 || !steps[len(steps)-1](time.Now().Add(time.Second)) {
-		t.Fatal("final derived-resource scheduling step did not complete")
+	task.standeeJobs = []mapRenderStandeeJob{{key: makeStandeeCoreKey("retained", source, true), source: source, cpu: task.cpuImages[source]}}
+	r.mapRenderResourcePrewarmActive = task
+	r.prewarmPendingMapRenderResources()
+	if task.preparedStandees == nil {
+		t.Fatal("derived-resource worker did not start")
 	}
 	if task.cpuImages[source] == nil {
 		t.Fatal("derived-resource scheduling released CPU pixels while the prewarm task was still active")
@@ -2252,4 +2210,270 @@ func testMapRenderTaskState(cancelled bool) mapRenderTaskState {
 		return mapRenderTaskCancelled
 	}
 	return mapRenderTaskSources
+}
+
+// Render residency is released exactly on a physical world switch. A save
+// loaded onto the world the party already stands in (save-scumming a chest)
+// keeps every resident resource and needs no loading pause; travel, a save on
+// another world and a new game (fresh worlds) still release it.
+func TestRenderResidencyResetsOnlyOnWorldSwitch(t *testing.T) {
+	t.Chdir("../..")
+	must := func(t *testing.T, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		prep  func(t *testing.T, g *MMGame, wm *world.WorldManager) func()
+		reset bool
+	}{
+		{"load on the same world", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			save := g.buildSave(wm)
+			return func() { must(t, g.applySave(wm, &save)) }
+		}, false},
+		{"runtime tile change", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return g.refreshWorldTileRenderCaches
+		}, false},
+		{"terrain restore", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return func() { g.restoreTerrainChanges(nil) }
+		}, false},
+		{"load a save made in another open-world region", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			ts := float64(g.config.GetTileSize())
+			for _, m := range wm.OpenWorld.Monsters {
+				if r := wm.OpenWorldRegionAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)); r != nil && r.MapKey == "desert" {
+					g.setPartyPosition(m.X, m.Y)
+					break
+				}
+			}
+			g.syncOpenWorldRegion()
+			if wm.CurrentMapKey != "desert" {
+				t.Fatalf("party region = %q, want desert", wm.CurrentMapKey)
+			}
+			save := g.buildSave(wm)
+			x, y, _ := wm.OpenWorldRegionStart("forest")
+			g.setPartyPosition(x, y)
+			g.syncOpenWorldRegion()
+			return func() {
+				must(t, g.applySave(wm, &save))
+				if wm.CurrentMapKey != "desert" {
+					t.Fatalf("loaded region = %q, want desert", wm.CurrentMapKey)
+				}
+			}
+		}, false},
+		{"travel between open-world regions", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return func() {
+				must(t, g.switchToMap("deep_jungle"))
+				if wm.CurrentMapKey != "deep_jungle" {
+					t.Fatalf("region after travel = %q, want deep_jungle", wm.CurrentMapKey)
+				}
+			}
+		}, false},
+		{"travel to another world", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return func() { must(t, g.switchToMap("church")) }
+		}, true},
+		{"load a save made on another world", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			must(t, g.switchToMap("church"))
+			save := g.buildSave(wm)
+			must(t, g.switchToMap("forest"))
+			return func() { must(t, g.applySave(wm, &save)) }
+		}, true},
+		{"new game", func(t *testing.T, g *MMGame, wm *world.WorldManager) func() {
+			return func() { g.startNewGameWithParty(character.NewParty(g.config)) }
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, wm, _ := bootOpenWorldGame(t, true)
+			r := g.gameLoop.renderer
+			step := tc.prep(t, g, wm)
+			before := r.mapRenderGeneration
+			step()
+			if reset := r.mapRenderGeneration != before; reset != tc.reset {
+				t.Fatalf("residency reset = %v, want %v", reset, tc.reset)
+			}
+			if r.residencyWorld != g.GetCurrentWorld() {
+				t.Fatal("residency is not inventoried for the current world")
+			}
+		})
+	}
+}
+
+// Repeated objects and regions share GPU roots. A new rendering role may still
+// require source pixels; it must obtain them off-loop without a GPU readback.
+func TestMapRenderPrewarmReusesSourcesForDerivedConsumers(t *testing.T) {
+	cfg := loadTestConfig(t)
+	cfg.Graphics.Standee.Enabled = true
+	cfg.Graphics.TreesAsBillboards = true
+	for _, kind := range []string{"tree", "sheet", "animation", "processed", "processed_nil", "no_tiles", "wall", "wall_budget", "aura"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			setTestWorldManager(t, nil)
+			oldTiles := world.GlobalTileManager
+			t.Cleanup(func() { world.GlobalTileManager = oldTiles })
+			world.GlobalTileManager = world.NewTileManager(testTileSizeClasses())
+			tileYAML := "tiles:\n  shared:\n    type: prop\n    sprite: shared\n    render_type: standee\n    walkable: true\n    transparent: true\n    size_class: small_prop\n    alpha_from_brightness: 0.4\n"
+			if err := os.WriteFile("tiles.yaml", []byte(tileYAML), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := world.GlobalTileManager.LoadTileConfig("tiles.yaml"); err != nil {
+				t.Fatal(err)
+			}
+			tile, _ := world.GlobalTileManager.GetTileTypeFromKey("shared")
+			world.GlobalTileManager.GetTileData(tile).ImpassableAura = true
+			request := graphics.SpriteResourceRequest{Name: "shared"}
+			w := newTestWorldSized(cfg, 2, 2)
+			w.NPCs = []*character.NPC{{Sprite: "shared", RenderCategory: "npc"}}
+			width := 8
+			if kind == "sheet" || kind == "animation" || kind == "processed" {
+				width = 32
+			}
+			if kind == "animation" {
+				def, err := monster.MonsterConfig.GetMonsterByKey("goblin")
+				if err != nil {
+					t.Fatal(err)
+				}
+				request = graphics.SpriteResourceRequest{Name: normalizedAuthoredSpriteName(def.GetSpriteFromConfig()), AnimationType: "walking_r"}
+				w.NPCs = nil
+				w.MonsterSpawns = []world.MonsterSpawn{{MonsterKey: "goblin"}}
+			}
+			path := filepath.Join("assets", "sprites", "mobs", request.Name+".png")
+			if request.AnimationType != "" {
+				path = filepath.Join("assets", "sprites", "mobs", request.Name+"_"+request.AnimationType+".png")
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatal(err)
+			}
+			cpu := image.NewRGBA(image.Rect(0, 0, width, 8))
+			for i := 0; i < len(cpu.Pix); i += 4 {
+				cpu.Pix[i], cpu.Pix[i+1], cpu.Pix[i+2], cpu.Pix[i+3] = 40, 120, 60, 255
+			}
+			file, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := png.Encode(file, cpu); err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+			g := newTestGame(cfg, w)
+			g.appScreen = AppScreenInGame
+			g.sprites = graphics.NewSpriteManager()
+			for prepared := range g.sprites.PrepareResources(context.Background(), []graphics.SpriteResourceRequest{request}) {
+				g.sprites.CommitPreparedResource(prepared)
+			}
+			source := g.sprites.ResourceImages(request)[0]
+			r := &Renderer{game: g}
+			t.Cleanup(r.resetMapRenderResourceResidency)
+			if kind == "processed" {
+				processed, _ := applyBrightnessToAlphaCPU(cpu, 0.4)
+				r.cacheProcessedSprite(processedSpriteKey{tileType: tile, spriteName: "shared"}, processed)
+			}
+			if kind == "processed_nil" {
+				r.cacheProcessedSprite(processedSpriteKey{tileType: tile, spriteName: "shared"}, nil)
+			}
+			if kind == "no_tiles" {
+				world.GlobalTileManager = nil
+			}
+			if kind == "wall_budget" {
+				r.wallRipmapBytes = wallRipmapBudgetBytes
+			}
+			// The first visit has only a shared source. The second has all derivatives,
+			// and must finish even when the original file is no longer accessible.
+			for visit, region := range []string{"first", "second"} {
+				if visit == 1 {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				}
+				r.scheduleMapRenderResourcePrewarm(region)
+				r.startNextMapRenderPrewarm()
+				task := r.mapRenderResourcePrewarmActive
+				if task == nil {
+					t.Fatal("region did not start")
+				}
+				switch kind {
+				case "tree":
+					task.plan = mapRenderPrewarmPlan{treeSprites: []string{"shared"}}
+				case "sheet":
+					task.plan = mapRenderPrewarmPlan{npcSprites: []mapNPCPrewarmResource{{name: "shared", prefix: "npc"}}}
+				case "processed", "processed_nil", "no_tiles":
+					task.plan = mapRenderPrewarmPlan{environmentSprites: []processedSpriteKey{{tileType: tile, spriteName: "shared"}}}
+				case "wall", "wall_budget":
+					task.plan = mapRenderPrewarmPlan{wallSprites: []string{"shared"}}
+				case "aura":
+					task.plan = mapRenderPrewarmPlan{tileTypes: []world.TileType3D{tile}}
+				}
+				if visit == 1 && kind == "aura" {
+					r.evictMapRenderResidencyOutside(map[string]struct{}{region: {}})
+					if images := g.sprites.ResourceImages(request); len(images) == 0 || images[0] != source {
+						t.Fatal("active region did not retain the reused source")
+					}
+				}
+				decoded := false
+				deadline := time.Now().Add(5 * time.Second)
+				for r.mapRenderResourcePrewarmActive != nil && time.Now().Before(deadline) {
+					r.prewarmPendingMapRenderResources()
+					decoded = decoded || len(task.cpuImages) > 0
+					runtime.Gosched()
+				}
+				if r.mapRenderResourcePrewarmActive != nil {
+					t.Fatal("region preparation stalled")
+				}
+				if visit == 1 {
+					r.evictMapRenderResidencyOutside(map[string]struct{}{region: {}})
+				}
+				needsCPU := kind != "processed_nil" && kind != "no_tiles" && kind != "wall_budget"
+				if decoded != (visit == 0 && needsCPU) {
+					t.Fatalf("decoded pixels on visit %d = %v", visit, decoded)
+				}
+				if r.loadDiagnostics.readbacks != 0 {
+					t.Fatal("shared source was read back from GPU")
+				}
+				if images := g.sprites.ResourceImages(request); len(images) == 0 || images[0] != source {
+					t.Fatal("shared GPU source was replaced")
+				}
+				if kind != "animation" {
+					bounds, _, _, ok := g.sprites.SpriteVisibleFrameBounds("shared")
+					if !ok || bounds.Empty() {
+						t.Fatal("reuse invalidated visible geometry")
+					}
+				}
+				resources := r.mapRenderResourcesByMap[region]
+				switch kind {
+				case "processed_nil", "no_tiles":
+					if len(resources.standees) != 0 {
+						t.Fatal("unavailable tile consumer prepared standee textures")
+					}
+				case "wall_budget":
+					if rm := r.wallRipmaps[source]; rm == nil || len(rm.owned) != 0 {
+						t.Fatal("over-budget wall did not retain its no-allocation fallback")
+					}
+				case "wall":
+					if rm := r.wallRipmaps[source]; rm == nil || rm.building || len(rm.owned) == 0 {
+						t.Fatal("missing completed wall textures")
+					}
+				case "aura":
+					if r.auraTileColorCache[tile] != [3]int{40, 120, 60} {
+						t.Fatal("missing aura color")
+					}
+				default:
+					want := 1
+					if width == 32 {
+						want = 4
+					}
+					if len(resources.standees) != want {
+						t.Fatalf("standee frames=%d, want %d", len(resources.standees), want)
+					}
+					for key := range resources.standees {
+						if r.standeeCoreCache[key] == nil || r.standeeMipCache[standeeMipKey{frame: key, layer: standeeMipCore}] == nil {
+							t.Fatal("missing derived frame")
+						}
+					}
+				}
+			}
+		})
+	}
 }

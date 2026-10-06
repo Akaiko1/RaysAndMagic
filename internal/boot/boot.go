@@ -32,6 +32,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	config.MustLoadSpellConfig("assets/spells.yaml")
 	config.MustLoadWeaponConfig("assets/weapons.yaml")
 	config.MustLoadItemConfig("assets/items.yaml")
+	if err := config.ValidateDeviceSpellReferences(config.GlobalItems, config.GlobalSpells); err != nil {
+		log.Fatalf("Device actions: %v", err)
+	}
 	if err := config.ValidateClassItems(cfg); err != nil {
 		log.Fatalf("Class supplies: %v", err)
 	}
@@ -76,7 +79,15 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	if err := character.ValidateAlchemyTradeMaterials(config.GlobalAlchemy, character.NPCConfigInstance); err != nil {
 		log.Fatalf("Alchemy materials: %v", err)
 	}
+	if err := character.ValidateHeroPitches(cfg); err != nil {
+		log.Fatalf("Hero pitches: %v", err)
+	}
 	config.MustLoadChampionConfig("assets/champions.yaml")
+	var mechanicsErr error
+	config.GlobalBossMechanics, mechanicsErr = config.ReadBossMechanics(config.BossMechanicsPath)
+	if mechanicsErr != nil {
+		log.Fatalf("Boss mechanics: %v", mechanicsErr)
+	}
 
 	// Build every champion once so a bad class/skill/equipment key fails loud at
 	// startup instead of mid-combat (needs the class, weapon and item catalogs

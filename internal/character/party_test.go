@@ -86,7 +86,10 @@ func TestPartyCreation(t *testing.T) {
 	})
 }
 
-func TestPartyUpdate(t *testing.T) {
+// Party.UpdateWithMode is the game's per-frame party clock: RT frames pay each
+// member's regen cadence and report it; TB frames never do (TB regen is paid
+// per round by the game); an empty party is a no-op.
+func TestPartyUpdateWithMode(t *testing.T) {
 	cfg := &config.Config{
 		Characters: config.CharacterConfig{
 			StartingGold: 1000,
@@ -104,77 +107,43 @@ func TestPartyUpdate(t *testing.T) {
 		},
 	}
 
-	party := NewParty(cfg)
-
-	// Reduce spell points for all members
-	originalSP := make([]int, len(party.Members))
-	for i, member := range party.Members {
-		originalSP[i] = member.SpellPoints
-		member.SpellPoints -= 5
+	for _, tt := range []struct {
+		name        string
+		turnBased   bool
+		wantRegen   int // SP gained per member over two intervals
+		wantReports int // frames reporting a completed cadence
+	}{
+		{"real-time frames pay the cadence", false, 4, 2}, // Personality >= 10 => 2 SP per payout
+		{"turn-based frames pay nothing", true, 0, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			party := NewParty(cfg)
+			start := make([]int, len(party.Members))
+			for i, member := range party.Members {
+				member.SpellPoints -= 5
+				start[i] = member.SpellPoints
+			}
+			reports := 0
+			for i := 0; i < 2*ManaRegenIntervalFrames; i++ {
+				if party.UpdateWithMode(tt.turnBased) {
+					reports++
+				}
+			}
+			if reports != tt.wantReports {
+				t.Errorf("frames reporting a cadence = %d, want %d", reports, tt.wantReports)
+			}
+			for i, member := range party.Members {
+				if want := start[i] + tt.wantRegen; member.SpellPoints != want {
+					t.Errorf("member %d: SP %d, want %d", i, member.SpellPoints, want)
+				}
+			}
+		})
 	}
 
-	// Simulate enough ticks for spell regeneration (1200 ticks = 2 regens at 600 ticks each at 120 TPS)
-	for i := 0; i < 1200; i++ {
-		party.Update()
-	}
-
-	// Check that all members were updated (spell points should regenerate)
-	for i, member := range party.Members {
-		expectedSP := originalSP[i] - 1 // Personality >= 10 => 2 SP per regen tick (total +4)
-		if member.SpellPoints != expectedSP {
-			t.Errorf("Member %d: expected SP %d, got %d", i, expectedSP, member.SpellPoints)
-		}
-	}
-}
-
-func TestPartyValidation(t *testing.T) {
-	cfg := &config.Config{
-		Characters: config.CharacterConfig{
-			StartingGold: 1000,
-			StartingFood: 50,
-			Classes: map[string]config.ClassStats{
-				"knight": {Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11},
-			},
-			HitPoints:   config.HitPointsConfig{EnduranceMultiplier: 3, LevelMultiplier: 2},
-			SpellPoints: config.SpellPointsConfig{LevelMultiplier: 2},
-		},
-	}
-
-	t.Run("Empty Party", func(t *testing.T) {
-		party := &Party{
-			Members: make([]*MMCharacter, 0, 4),
-			Gold:    0,
-			Food:    0,
-		}
-
-		// Party should handle empty member list gracefully
-		party.Update() // Should not panic
-	})
-
-	t.Run("Party Capacity", func(t *testing.T) {
-		party := &Party{
-			Members: make([]*MMCharacter, 0, 4),
-			Gold:    100,
-			Food:    10,
-		}
-
-		// Fill party to capacity
-		for i := 0; i < 4; i++ {
-			knight := CreateCharacter("Knight"+string(rune('A'+i)), ClassKnight, cfg)
-			party.AddMember(knight)
-		}
-
-		if len(party.Members) != 4 {
-			t.Errorf("Expected party size 4, got %d", len(party.Members))
-		}
-
-		// Verify party is at capacity
-		extraMember := CreateCharacter("ExtraKnight", ClassKnight, cfg)
-		initialSize := len(party.Members)
-		party.AddMember(extraMember)
-
-		if len(party.Members) != initialSize {
-			t.Error("Party should not accept members beyond capacity of 4")
+	t.Run("empty party", func(t *testing.T) {
+		party := &Party{Members: make([]*MMCharacter, 0, 4)}
+		if party.UpdateWithMode(false) {
+			t.Error("an empty party reported a completed cadence")
 		}
 	})
 }

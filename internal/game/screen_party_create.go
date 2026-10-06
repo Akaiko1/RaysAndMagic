@@ -158,6 +158,15 @@ func (pc *partyCreateState) filledSlots() int {
 	return n
 }
 
+// partyPoolCardGap separates the recruit cards in the pool, in both axes.
+const partyPoolCardGap = 12
+
+// heroDetailTextInset is the detail panel's text margin on each side.
+const heroDetailTextInset = 16
+
+// heroDetailTextWidth is the width the detail panel wraps its text to.
+func heroDetailTextWidth(panel rect) int { return panel.w - 2*heroDetailTextInset }
+
 // partyCreateLayout computes all hit/draw rectangles for the given screen size.
 func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	const margin = 20
@@ -180,7 +189,7 @@ func partyCreateLayout(pc *partyCreateState, w, h int) pcLayout {
 	poolX := detailX + detailW + 20
 	poolY := detailY
 	poolW := w - margin - poolX
-	const cardGap = 12
+	const cardGap = partyPoolCardGap
 	poolH := slotsY - poolY - 16
 	// Keep cards readable; overflow uses complete rows instead of shrinking art.
 	cols := max(1, (poolW+cardGap)/(144+cardGap))
@@ -399,6 +408,7 @@ func (g *MMGame) beginAdventure(pc *partyCreateState) {
 
 func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	g := ui.game
+	ui.clearQueuedTooltips()
 	ui.onDisplayedInput(uiCommandPointer, layoutRect{}, g.updatePartyCreatePointer)
 	pc := g.partyCreate
 	if pc == nil {
@@ -459,6 +469,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	if pc.drag != nil {
 		ui.drawHeroCard(screen, pc.drag, rect{mouseX - 60, mouseY - 90, 120, 180}, true)
 	}
+	ui.drawQueuedTooltips(screen)
 }
 
 // bigPortraitName resolves the largest available portrait: the "_full" art when
@@ -574,12 +585,12 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 		pc.detailScrollHero = hero
 		pc.detailScroll = 0
 	}
-	tx := panel.x + 16
+	tx := panel.x + heroDetailTextInset
 	textTop := panel.y + portH + 30
 	contentBottom := panel.y + panel.h - 24
 	ty := textTop - pc.detailScroll
 	line := func(s string, col color.Color) {
-		for _, text := range wrapUIText(s, panel.w-32) {
+		for _, text := range wrapUIText(s, heroDetailTextWidth(panel)) {
 			if ty >= textTop && ty+uiTextCharHeight <= contentBottom {
 				drawUITextColored(screen, text, tx, ty, col)
 			}
@@ -588,30 +599,68 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	}
 	// Text right edge mirrors the left inset. wrapTokens packs
 	// tokens so the DRAWN string (prefix + content) fits, measuring the prefix the
-	// caller adds - otherwise lists run past the frame's right border.
-	maxLineW := panel.w - 32
-	wrapTokens := func(prefix, cont string, tokens []string, col color.Color) {
+	// caller adds - otherwise lists run past the frame's right border. A token
+	// with a tooltip opens it once the pointer rests on it.
+	maxLineW := heroDetailTextWidth(panel)
+	mouseX, mouseY := uiCursorPosition()
+	hoverable := pc.drag == nil && pc.pending == nil
+	wrapTokens := func(prefix, cont string, tokens []heroDetailToken, col color.Color) {
 		budget := maxLineW - uiTextWidth(cont)
 		if pb := maxLineW - uiTextWidth(prefix); pb < budget {
 			budget = pb
 		}
-		for i, ln := range wrapToWidth(tokens, budget) {
-			if i == 0 {
-				line(prefix+ln, col)
-			} else {
-				line(cont+ln, col)
+		texts := make([]string, len(tokens))
+		for i, t := range tokens {
+			texts[i] = t.text
+		}
+		for row, group := range packTokens(texts, budget) {
+			lead := cont
+			if row == 0 {
+				lead = prefix
 			}
+			drawn := lead
+			for n, i := range group {
+				if n > 0 {
+					drawn += ", "
+				}
+				x := tx + uiTextWidth(drawn)
+				drawn += texts[i]
+				visible := ty >= textTop && ty+uiTextCharHeight <= contentBottom
+				if hoverable && visible && tokens[i].tooltip != nil &&
+					isMouseHoveringBox(mouseX, mouseY, x, ty, x+uiTextWidth(texts[i]), ty+16) &&
+					ui.dwelled(tokens[i].key) {
+					tokens[i].tooltip(mouseX+16, mouseY+8)
+				}
+			}
+			line(drawn, col)
 		}
 	}
-	white := color.RGBA{220, 220, 230, 255}
+	// keywordText draws authored prose with its highlighted keywords.
+	keywordText := func(prose string, plain color.Color) {
+		spans, err := config.ParseKeywordMarkup(prose)
+		if err != nil {
+			spans = []config.KeywordSpan{{Text: prose}}
+		}
+		for _, row := range wrapKeywordText(spans, maxLineW) {
+			if ty >= textTop && ty+uiTextCharHeight <= contentBottom {
+				drawKeywordLine(screen, row, tx, ty, plain)
+			}
+			ty += 16
+		}
+	}
+	white := keywordPlainText
 	gold := color.RGBA{220, 200, 140, 255}
 	grey := color.RGBA{160, 160, 175, 255}
 
-	race := "Human"
-	if hero.entry.Race != "" {
-		race = humanizeKey(hero.entry.Race)
+	race := ui.game.config.Characters.Races["human"].Name
+	if r, ok := ui.game.config.Characters.Races[c.Race]; ok {
+		race = r.Name
 	}
 	line(fmt.Sprintf("%s - %s %s", c.Name, race, c.Class.String()), gold)
+	for _, paragraph := range character.HeroPitch(c, ui.game.config) {
+		keywordText(paragraph, white)
+		ty += 4
+	}
 	line(fmt.Sprintf("Level %d   HP %d/%d   SP %d/%d", c.Level, c.HitPoints, c.MaxHitPoints, c.SpellPoints, c.MaxSpellPoints), white)
 	ty += 4
 
@@ -630,13 +679,20 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	ty += 4
 
 	if len(c.Skills) > 0 {
-		var names []string
+		var skills []heroDetailToken
 		for st, sk := range c.Skills {
-			names = append(names, fmt.Sprintf("%s (%s)", st.String(), sk.Mastery.String()))
+			text := masteryTooltipRowsForSkill(st)
+			skills = append(skills, heroDetailToken{
+				text: st.MasteryLabel(sk.Mastery),
+				key:  "party_create_skill:" + st.String(),
+				tooltip: func(x, y int) {
+					ui.queueCardTooltip(text, nil, nil, nil, "", x, y)
+				},
+			})
 		}
-		sort.Strings(names)
+		sort.Slice(skills, func(i, j int) bool { return skills[i].text < skills[j].text })
 		line("Skills:", gold)
-		wrapTokens("  ", "  ", names, grey)
+		wrapTokens("  ", "  ", skills, grey)
 	}
 
 	hasMagic := false
@@ -658,15 +714,21 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 				line("  "+label, grey)
 				continue
 			}
-			var spellNames []string
+			var known []heroDetailToken
 			for _, sid := range ms.KnownSpells {
+				token := heroDetailToken{text: humanizeKey(string(sid)), key: "party_create_spell:" + string(sid)}
 				if def, err := spells.GetSpellDefinitionByID(sid); err == nil && def.Name != "" {
-					spellNames = append(spellNames, def.Name)
-				} else {
-					spellNames = append(spellNames, humanizeKey(string(sid)))
+					token.text = def.Name
 				}
+				if item, err := spells.CreateSpellItem(sid); err == nil {
+					token.tooltip = func(x, y int) {
+						lines := GetItemTooltipRows(item, c, ui.game.combat, tooltipDetailHeld())
+						ui.queueItemTooltip(lines, item, c, x, y)
+					}
+				}
+				known = append(known, token)
 			}
-			wrapTokens("  "+label+": ", "      ", spellNames, grey)
+			wrapTokens("  "+label+": ", "      ", known, grey)
 		}
 	}
 	pc.detailMaxScroll = max(0, ty+pc.detailScroll-contentBottom)
@@ -677,24 +739,33 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 
 }
 
-// wrapToWidth packs comma-joined tokens into lines that fit maxPx in the debug
-// font, returning each line's text.
-func wrapToWidth(tokens []string, maxPx int) []string {
-	var lines []string
-	cur := ""
-	for _, t := range tokens {
+// heroDetailToken is one entry of a comma-joined detail list; key names it
+// for the hover dwell and tooltip, when set, queues its card.
+type heroDetailToken struct {
+	text    string
+	key     string
+	tooltip func(x, y int)
+}
+
+// packTokens packs comma-joined tokens into lines that fit maxPx, returning
+// each line's token indices.
+func packTokens(tokens []string, maxPx int) [][]int {
+	var lines [][]int
+	var cur []int
+	curText := ""
+	for i, t := range tokens {
 		cand := t
-		if cur != "" {
-			cand = cur + ", " + t
+		if curText != "" {
+			cand = curText + ", " + t
 		}
-		if uiTextWidth(cand) > maxPx && cur != "" {
+		if uiTextWidth(cand) > maxPx && curText != "" {
 			lines = append(lines, cur)
-			cur = t
+			cur, curText = []int{i}, t
 		} else {
-			cur = cand
+			cur, curText = append(cur, i), cand
 		}
 	}
-	if cur != "" {
+	if len(cur) > 0 {
 		lines = append(lines, cur)
 	}
 	return lines

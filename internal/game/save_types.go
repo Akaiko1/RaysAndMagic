@@ -11,12 +11,14 @@ import (
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
-	Alchemy             AlchemyState    `json:"alchemy,omitempty"`
-	SpatialReuseFrames  int             `json:"spatial_reuse_frames,omitempty"`
-	SpatialStepThisTurn bool            `json:"spatial_step_this_turn,omitempty"`
-	PartyRoot           PartyRootState  `json:"party_root,omitempty"`
-	TerrainChanges      []TerrainChange `json:"terrain_changes,omitempty"`
-	Ecology             EcologyState    `json:"ecology,omitempty"`
+	PartyHinder         PartyHinderState `json:"party_hinder,omitempty"`
+	Adventure           AdventureState   `json:"adventure,omitempty"`
+	Alchemy             AlchemyState     `json:"alchemy,omitempty"`
+	SpatialReuseFrames  int              `json:"spatial_reuse_frames,omitempty"`
+	SpatialStepThisTurn bool             `json:"spatial_step_this_turn,omitempty"`
+	PartyRoot           PartyRootState   `json:"party_root,omitempty"`
+	TerrainChanges      []TerrainChange  `json:"terrain_changes,omitempty"`
+	Ecology             EcologyState     `json:"ecology,omitempty"`
 
 	MapKey             string                   `json:"map_key"`
 	PlayerX            float64                  `json:"player_x"`
@@ -134,29 +136,30 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
-	Inventory          []items.Item             `json:"inventory,omitempty"`
-	RareClass          character.RareClassState `json:"rare_class,omitempty"`
-	AutoDrinkCooldown  int                      `json:"auto_drink_cooldown,omitempty"`
-	DesignatedTargetID string                   `json:"designated_target_id,omitempty"`
-	DesignationFrames  int                      `json:"designation_frames,omitempty"`
-	Name               string                   `json:"name"`
-	Class              int                      `json:"class"`
-	Race               string                   `json:"race,omitempty"`
-	Promotion          int                      `json:"promotion,omitempty"`
-	Level              int                      `json:"level"`
-	Experience         int                      `json:"experience"`
-	HitPoints          int                      `json:"hit_points"`
-	MaxHitPoints       int                      `json:"max_hit_points"`
-	SpellPoints        int                      `json:"spell_points"`
-	MaxSpellPoints     int                      `json:"max_spell_points"`
-	Might              int                      `json:"might"`
-	Intellect          int                      `json:"intellect"`
-	Personality        int                      `json:"personality"`
-	Endurance          int                      `json:"endurance"`
-	Accuracy           int                      `json:"accuracy"`
-	Speed              int                      `json:"speed"`
-	Luck               int                      `json:"luck"`
-	FreeStatPoints     int                      `json:"free_stat_points"`
+	AdventureXP        map[string]character.AdventureExperience `json:"adventure_xp,omitempty"`
+	Inventory          []items.Item                             `json:"inventory,omitempty"`
+	RareClass          character.RareClassState                 `json:"rare_class,omitempty"`
+	AutoDrinkCooldown  int                                      `json:"auto_drink_cooldown,omitempty"`
+	DesignatedTargetID string                                   `json:"designated_target_id,omitempty"`
+	DesignationFrames  int                                      `json:"designation_frames,omitempty"`
+	Name               string                                   `json:"name"`
+	Class              int                                      `json:"class"`
+	Race               string                                   `json:"race,omitempty"`
+	Promotion          int                                      `json:"promotion,omitempty"`
+	Level              int                                      `json:"level"`
+	Experience         int                                      `json:"experience"`
+	HitPoints          int                                      `json:"hit_points"`
+	MaxHitPoints       int                                      `json:"max_hit_points"`
+	SpellPoints        int                                      `json:"spell_points"`
+	MaxSpellPoints     int                                      `json:"max_spell_points"`
+	Might              int                                      `json:"might"`
+	Intellect          int                                      `json:"intellect"`
+	Personality        int                                      `json:"personality"`
+	Endurance          int                                      `json:"endurance"`
+	Accuracy           int                                      `json:"accuracy"`
+	Speed              int                                      `json:"speed"`
+	Luck               int                                      `json:"luck"`
+	FreeStatPoints     int                                      `json:"free_stat_points"`
 	// PermanentBonuses are one-time permanent stat gains (stat barrels) -
 	// effective-stat layer, kept apart from the base stats above.
 	PermanentBonuses      map[string]int     `json:"permanent_bonuses,omitempty"`
@@ -265,11 +268,12 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
-	BandInstance      string                `json:"band_instance,omitempty"`
-	AmbientThreat     monster.AmbientThreat `json:"ambient_threat,omitzero"`
-	Arbor             monster.ArborealState `json:"arboreal,omitzero"`
-	Population        string                `json:"population,omitempty"`
-	AmbientMoveCredit float64               `json:"ambient_move_credit,omitempty"`
+	Telegraph         monster.TelegraphState `json:"telegraph,omitzero"`
+	BandInstance      string                 `json:"band_instance,omitempty"`
+	AmbientThreat     monster.AmbientThreat  `json:"ambient_threat,omitzero"`
+	Arbor             monster.ArborealState  `json:"arboreal,omitzero"`
+	Population        string                 `json:"population,omitempty"`
+	AmbientMoveCredit float64                `json:"ambient_move_credit,omitempty"`
 
 	ID        string  `json:"id,omitempty"`
 	Key       string  `json:"key"`
@@ -279,6 +283,8 @@ type MonsterSave struct {
 	HitPoints int     `json:"hit_points"`
 	// Optional for legacy saves; coordinates use the same map space as X/Y.
 	SpawnPosition *[2]float64 `json:"spawn_position,omitempty"`
+	// Nil migrates legacy saves; explicit zero preserves an unscaled actor.
+	AdventureScaleLevel *int `json:"adventure_scale_level,omitempty"`
 	// Pure party summons can replace their YAML stats at runtime from the
 	// summoner's mastery. Keep the snapshot optional so ordinary monsters still
 	// pick up current balance values from monsters.yaml after a load.
@@ -305,6 +311,7 @@ type MonsterSave struct {
 	Relentless           bool   `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
 	PackKey              string `json:"pack_key,omitempty"`   // ambient day/night pack tag
 	QuestProgressIgnored bool   `json:"quest_progress_ignored,omitempty"`
+	HomeMap              string `json:"home_map,omitempty"` // map key the monster was created in (target_map quests)
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cooldowns.
 	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`
@@ -314,53 +321,55 @@ type MonsterSave struct {
 	PoisonTickTimer         int `json:"poison_tick_timer,omitempty"`
 	// Stun diminishing-returns chain - persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
-	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`
-	StunDRMemoryTurns   int                  `json:"stun_dr_memory_turns,omitempty"`
-	StunDRMemoryFrames  int                  `json:"stun_dr_memory_frames,omitempty"`
-	RootFramesRemaining int                  `json:"root_frames_remaining,omitempty"`
-	RootTurnsRemaining  int                  `json:"root_turns_remaining,omitempty"`
-	RootRate            int                  `json:"root_rate,omitempty"`
-	ArmorShredPct       int                  `json:"armor_shred_pct,omitempty"`
-	ArmorShredFrames    int                  `json:"armor_shred_frames,omitempty"`
-	ArmorShredTurns     int                  `json:"armor_shred_turns,omitempty"`
-	ArmorShredRate      int                  `json:"armor_shred_rate,omitempty"`
-	BurnFramesRemaining int                  `json:"burn_frames_remaining,omitempty"`
-	BurnTickTimer       int                  `json:"burn_tick_timer,omitempty"`
-	TrapVolleyCD        int                  `json:"trap_volley_cd,omitempty"`
-	TrapVolleyTurnCD    int                  `json:"trap_volley_turn_cd,omitempty"`
-	TrapVolleyCDRate    int                  `json:"trap_volley_cd_rate,omitempty"`
-	SlowPct             int                  `json:"slow_pct,omitempty"`
-	SlowFrames          int                  `json:"slow_frames,omitempty"`
-	SlowTurns           int                  `json:"slow_turns,omitempty"`
-	SlowRate            int                  `json:"slow_rate,omitempty"`
-	SlowTurnCount       int                  `json:"slow_turn_count,omitempty"`
-	RootHeldThisTurn    bool                 `json:"root_held_this_turn,omitempty"`
-	SlowPctThisTurn     int                  `json:"slow_pct_this_turn,omitempty"`
-	WeakenPct           int                  `json:"weaken_pct,omitempty"`
-	WeakenFrames        int                  `json:"weaken_frames,omitempty"`
-	WeakenTurns         int                  `json:"weaken_turns,omitempty"`
-	WeakenRate          int                  `json:"weaken_rate,omitempty"`
-	WeakenPctThisTurn   int                  `json:"weaken_pct_this_turn,omitempty"`
-	Pilfered            bool                 `json:"pilfered,omitempty"`
-	PounceCDFrames      int                  `json:"pounce_cd_frames,omitempty"`
-	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
-	PounceCDRate        int                  `json:"pounce_cd_rate,omitempty"`
-	BossCD              int                  `json:"boss_cd,omitempty"`
-	InfernoCD           int                  `json:"inferno_cd,omitempty"`
-	BossHurtPending     bool                 `json:"boss_hurt_pending,omitempty"`
-	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
-	SummonFirstDone     bool                 `json:"summon_first_done,omitempty"`
-	SummonedBy          string               `json:"summoned_by,omitempty"`
-	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
-	ChampionTier        string               `json:"champion_tier,omitempty"`
-	OpeningSpellDone    bool                 `json:"opening_spell_done,omitempty"`
-	EnrageAnnounced     bool                 `json:"enrage_announced,omitempty"`
-	SoakDamage          int                  `json:"soak_damage,omitempty"`
-	SoakFrames          int                  `json:"soak_frames,omitempty"`
-	SoakTurns           int                  `json:"soak_turns,omitempty"`
-	SoakRate            int                  `json:"soak_rate,omitempty"`
-	EncounterID         int                  `json:"encounter_id,omitempty"`
-	EncounterRewards    *EncounterRewardSave `json:"encounter_rewards,omitempty"`
+	StunDRStacks        int                                    `json:"stun_dr_stacks,omitempty"`
+	StunDRMemoryTurns   int                                    `json:"stun_dr_memory_turns,omitempty"`
+	StunDRMemoryFrames  int                                    `json:"stun_dr_memory_frames,omitempty"`
+	RootFramesRemaining int                                    `json:"root_frames_remaining,omitempty"`
+	RootTurnsRemaining  int                                    `json:"root_turns_remaining,omitempty"`
+	RootRate            int                                    `json:"root_rate,omitempty"`
+	ArmorShredPct       int                                    `json:"armor_shred_pct,omitempty"`
+	ElementalMarks      map[string]monster.ElementalWeaponMark `json:"elemental_marks,omitempty"`
+	ArmorShredFrames    int                                    `json:"armor_shred_frames,omitempty"`
+	ArmorShredTurns     int                                    `json:"armor_shred_turns,omitempty"`
+	ArmorShredRate      int                                    `json:"armor_shred_rate,omitempty"`
+	BurnFramesRemaining int                                    `json:"burn_frames_remaining,omitempty"`
+	BurnTickTimer       int                                    `json:"burn_tick_timer,omitempty"`
+	TrapVolleyCD        int                                    `json:"trap_volley_cd,omitempty"`
+	TrapVolleyTurnCD    int                                    `json:"trap_volley_turn_cd,omitempty"`
+	TrapVolleyCDRate    int                                    `json:"trap_volley_cd_rate,omitempty"`
+	SlowPct             int                                    `json:"slow_pct,omitempty"`
+	SlowFrames          int                                    `json:"slow_frames,omitempty"`
+	SlowTurns           int                                    `json:"slow_turns,omitempty"`
+	SlowRate            int                                    `json:"slow_rate,omitempty"`
+	SlowTurnCount       int                                    `json:"slow_turn_count,omitempty"`
+	RootHeldThisTurn    bool                                   `json:"root_held_this_turn,omitempty"`
+	SlowPctThisTurn     int                                    `json:"slow_pct_this_turn,omitempty"`
+	WeakenPct           int                                    `json:"weaken_pct,omitempty"`
+	WeakenFrames        int                                    `json:"weaken_frames,omitempty"`
+	WeakenTurns         int                                    `json:"weaken_turns,omitempty"`
+	WeakenRate          int                                    `json:"weaken_rate,omitempty"`
+	WeakenPctThisTurn   int                                    `json:"weaken_pct_this_turn,omitempty"`
+	Pilfered            bool                                   `json:"pilfered,omitempty"`
+	PounceCDFrames      int                                    `json:"pounce_cd_frames,omitempty"`
+	PounceCDTurns       int                                    `json:"pounce_cd_turns,omitempty"`
+	PounceCDRate        int                                    `json:"pounce_cd_rate,omitempty"`
+	BossCD              int                                    `json:"boss_cd,omitempty"`
+	InfernoCD           int                                    `json:"inferno_cd,omitempty"`
+	BossHurtPending     bool                                   `json:"boss_hurt_pending,omitempty"`
+	BossLastHP          int                                    `json:"boss_last_hp,omitempty"`
+	SummonFirstDone     bool                                   `json:"summon_first_done,omitempty"`
+	SummonedBy          string                                 `json:"summoned_by,omitempty"`
+	SummonerName        string                                 `json:"summoner_name,omitempty"`
+	IsEncounterMonster  bool                                   `json:"is_encounter_monster,omitempty"`
+	ChampionTier        string                                 `json:"champion_tier,omitempty"`
+	OpeningSpellDone    bool                                   `json:"opening_spell_done,omitempty"`
+	EnrageAnnounced     bool                                   `json:"enrage_announced,omitempty"`
+	SoakDamage          int                                    `json:"soak_damage,omitempty"`
+	SoakFrames          int                                    `json:"soak_frames,omitempty"`
+	SoakTurns           int                                    `json:"soak_turns,omitempty"`
+	SoakRate            int                                    `json:"soak_rate,omitempty"`
+	EncounterID         int                                    `json:"encounter_id,omitempty"`
+	EncounterRewards    *EncounterRewardSave                   `json:"encounter_rewards,omitempty"`
 }
 
 type MonsterRuntimeStatsSave struct {

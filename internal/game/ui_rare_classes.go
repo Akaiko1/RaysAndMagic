@@ -3,9 +3,11 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"strconv"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -20,9 +22,22 @@ func hasRareBook(c *character.MMCharacter) bool {
 // Keep one source scale; the title and the entire quick-slot unit stay inside it.
 type rareBookLayout struct {
 	frame, inner, header, list, detail, quick, hint layoutRect
-	rows, rowHeight                                 int
-	pager, actions, message                         layoutRect
+	rows, rowHeight, rowGap                         int
+	rowsTop                                         int  // y of the first row
+	listTitle                                       bool // the list heading fits above the rows
+	pager                                           layoutRect
 }
+
+// Row text: a name line over a second line (subtitle or autocast toggle).
+// A row of rareBookRowRoomyH keeps the authored offsets; a shorter one centres
+// the two lines as a block down to rareBookRowMinH.
+const (
+	rareBookLineH     = uiTextCharHeight
+	rareBookToggleH   = 20
+	rareBookRowRoomyH = 28 + rareBookToggleH
+	rareBookRowMinH   = rareBookLineH + 2 + rareBookToggleH + 2
+	rareBookListTitle = 24
+)
 
 func computeRareBookLayout(content layoutRect, alchemist bool) rareBookLayout {
 	frameH := min(720, content.h, content.w*2/3)
@@ -40,30 +55,161 @@ func computeRareBookLayout(content layoutRect, alchemist bool) rareBookLayout {
 	left := body.w * 36 / 100
 	l := rareBookLayout{frame: frame, inner: inner, header: header, hint: hint, quick: quick,
 		list: layoutRect{body.x, body.y, left, body.h}, detail: layoutRect{body.x + left + 12, body.y, body.w - left - 12, body.h}}
+	l.listTitle, l.rowsTop, l.rowGap = true, l.list.y+rareBookListTitle, 6
 	l.rowHeight = 54
 	l.rows = max(1, (l.list.h-52)/l.rowHeight)
+	if alchemist {
+		l.rowsTop += 48
+		l.rows = max(1, (l.list.bottom()-32-l.rowsTop)/l.rowHeight)
+	}
 	if !alchemist {
-		l.rows = 5
-		l.rowHeight = min(64, (l.list.h-24)/5)
+		// Every technique is on one page. A page too short for the authored
+		// rows tightens the gaps, then drops the list heading.
+		l.rows = 1
+		if config.GlobalTechniques != nil {
+			l.rows = max(1, len(config.GlobalTechniques.Techniques))
+		}
+		l.rowHeight = min(64, (l.list.bottom()-l.rowsTop)/l.rows)
+		if l.rowHeight-l.rowGap < rareBookRowRoomyH {
+			l.rowGap = 4
+			l.rowHeight = min(64, (l.list.bottom()-4-l.rowsTop)/l.rows)
+		}
+		if l.rowHeight-l.rowGap < rareBookRowMinH {
+			l.listTitle, l.rowsTop = false, l.list.y+6
+			l.rowHeight = min(64, (l.list.bottom()-4-l.rowsTop)/l.rows)
+		}
 	}
 	l.pager = layoutRect{l.list.x + 8, l.list.bottom() - 30, l.list.w - 16, 24}
-	l.actions = layoutRect{l.detail.x + 12, l.detail.bottom() - 70, l.detail.w - 24, 30}
-	l.message = layoutRect{l.actions.x, l.actions.bottom() + 8, l.actions.w, 28}
 	return l
 }
 func (l rareBookLayout) row(i int) layoutRect {
-	return layoutRect{l.list.x + 8, l.list.y + 24 + i*l.rowHeight, l.list.w - 16, l.rowHeight - 6}
+	return layoutRect{l.list.x + 8, l.rowsTop + i*l.rowHeight, l.list.w - 16, l.rowHeight - l.rowGap}
 }
 func (l rareBookLayout) auto(i int) layoutRect {
-	r := l.row(i)
-	return layoutRect{r.x + 54, r.y + 28, r.w - 60, 20}
+	return rareBookRowParts(l.row(i)).second
+}
+
+type rareBookRowPart struct{ icon, name, subtitle, second layoutRect }
+
+// rareBookRowParts splits a list row into its icon, the name line, and the
+// second line (the toggle box, with the subtitle's text line inside it).
+func rareBookRowParts(r layoutRect) rareBookRowPart {
+	size := min(46, r.h-4)
+	var p rareBookRowPart
+	p.icon = layoutRect{r.x + 3, r.y + (r.h-size)/2, size, size}
+	x := r.x + 54 // clear of the largest icon, whatever this row's size
+	w := r.right() - 6 - x
+	if r.h >= rareBookRowRoomyH {
+		p.name = layoutRect{x, r.y + 5, w, rareBookLineH}
+		p.subtitle = layoutRect{x, r.y + 26, w, rareBookLineH}
+		p.second = layoutRect{x, r.y + 28, w, rareBookToggleH}
+		return p
+	}
+	gap := max(2, min(4, r.h-rareBookRowMinH+2))
+	p.name = layoutRect{x, r.y + (r.h-rareBookLineH-gap-rareBookToggleH)/2, w, rareBookLineH}
+	p.second = layoutRect{x, p.name.bottom() + gap, w, rareBookToggleH}
+	p.subtitle = layoutRect{x, p.second.y + (rareBookToggleH-rareBookLineH)/2, w, rareBookLineH}
+	return p
+}
+
+// pilgrimDetailLayout stacks one technique top-down: the head (icon beside
+// the name, cost and unlock lines), the magnitude, then the description; the
+// autocast condition sits whole above the buttons.
+type pilgrimDetailLayout struct {
+	icon, name, cost, unlock, magnitude, desc, auto, trigger, actions, message layoutRect
+	autoHeadY, descLines                                                       int
+	roomy                                                                      bool
+}
+
+// pilgrimDetailSpacing is one scheme of the technique details: offsets and
+// gaps, top to bottom. messageH 0 wraps the note under the buttons and keeps
+// it only while the description still fits whole.
+type pilgrimDetailSpacing struct {
+	top, icon, headH, nameY, costY, unlockY    int
+	headGap, textGap                           int
+	descAuto, autoActions, descActions         int
+	autoHeadY, autoTextY, autoMinText, autoPad int
+	actionsH, messageGap, messageH, bottom     int
+}
+
+// The authored look; kept wherever the whole description fits it.
+var pilgrimRoomySpacing = pilgrimDetailSpacing{top: 12, icon: 64, headH: 64, nameY: 4, costY: 32, unlockY: 50,
+	headGap: 12, textGap: 8, descAuto: 4, autoActions: 14, descActions: 12,
+	autoHeadY: 6, autoTextY: 26, autoMinText: 40, autoPad: 4,
+	actionsH: 30, messageGap: 8, messageH: 28, bottom: 4}
+
+// The short-page scheme: a smaller head spread over its icon, tight gaps.
+func pilgrimCompactSpacing(detail layoutRect) pilgrimDetailSpacing {
+	icon := max(48, min(64, detail.h/6))
+	headH := max(icon, 3*rareBookLineH+4)
+	pitch := (headH - rareBookLineH) / 2
+	return pilgrimDetailSpacing{top: 8, icon: icon, headH: headH, costY: pitch, unlockY: 2 * pitch,
+		headGap: 4, textGap: 4, descAuto: 6, autoActions: 6, descActions: 6,
+		autoHeadY: 4, autoTextY: 22, autoPad: 4, actionsH: 26, messageGap: 6, bottom: 8}
+}
+
+// makePilgrimDetailLayout keeps the roomy scheme while the whole description
+// fits it. On a shorter page the compact scheme takes over, and only the
+// description gives way there (it clips and hover shows the rest).
+func makePilgrimDetailLayout(detail layoutRect, magnitude, description, trigger, message string) pilgrimDetailLayout {
+	p := layoutPilgrimDetail(detail, pilgrimRoomySpacing, magnitude, description, trigger, message)
+	if p.desc.h >= p.descLines*rareBookLineH {
+		p.roomy = true
+		return p
+	}
+	return layoutPilgrimDetail(detail, pilgrimCompactSpacing(detail), magnitude, description, trigger, message)
+}
+
+func layoutPilgrimDetail(detail layoutRect, s pilgrimDetailSpacing, magnitude, description, trigger, message string) pilgrimDetailLayout {
+	lines := func(text string, w int) int { return len(wrapUIText(text, w)) * rareBookLineH }
+	x, w := detail.x+12, detail.w-24
+	var p pilgrimDetailLayout
+	p.icon = layoutRect{x, detail.y + s.top, s.icon, s.icon}
+	tx := p.icon.right() + 12
+	p.name = layoutRect{tx, p.icon.y + s.nameY, x + w - tx, rareBookLineH}
+	p.cost = layoutRect{tx, p.icon.y + s.costY, p.name.w, rareBookLineH}
+	p.unlock = layoutRect{tx, p.icon.y + s.unlockY, p.name.w, rareBookLineH}
+	y := p.icon.y + s.headH + s.headGap
+	if magnitude != "" {
+		p.magnitude = layoutRect{x, y, w, lines(magnitude, w)}
+		y = p.magnitude.bottom() + s.textGap
+	}
+	bottom := detail.bottom() - s.bottom
+	if s.messageH > 0 && message != "" {
+		p.message = layoutRect{x, bottom - s.messageH, w, s.messageH}
+		bottom = p.message.y - s.messageGap
+	}
+	p.actions = layoutRect{x, bottom - s.actionsH, w, s.actionsH}
+	above := p.actions.y - s.descActions
+	if trigger != "" {
+		th := max(lines(trigger, w-16), s.autoMinText)
+		h := s.autoTextY + th + s.autoPad
+		p.auto = layoutRect{x, p.actions.y - s.autoActions - h, w, h}
+		p.trigger = layoutRect{x + 8, p.auto.y + s.autoTextY, w - 16, th}
+		p.autoHeadY = p.auto.y + s.autoHeadY
+		above = p.auto.y - s.descAuto
+	}
+	p.descLines = len(wrapUIText(description, w))
+	if mh := lines(message, w); s.messageH == 0 && message != "" && above-mh-s.messageGap-y >= p.descLines*rareBookLineH {
+		p.message = layoutRect{x, detail.bottom() - s.bottom - mh, w, mh}
+		shift := mh + s.messageGap
+		p.actions.y -= shift
+		if trigger != "" {
+			p.auto.y -= shift
+			p.trigger.y -= shift
+			p.autoHeadY -= shift
+		}
+		above -= shift
+	}
+	p.desc = layoutRect{x, y, w, max(0, above-y)}
+	return p
 }
 
 func (ui *UISystem) rareBookButton(screen *ebiten.Image, r layoutRect, label string, enabled bool, action func()) {
 	mx, my := uiCursorPosition()
 	hover := isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom())
 	ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && hover)
-	drawCenteredUIText(screen, truncateName(label, max(1, (r.w-12)/6)), r.x+3, r.y, r.w-6, r.h)
+	drawCenteredUIText(screen, label, r.x+3, r.y, r.w-6, r.h)
 	if !enabled {
 		drawFilledRect(screen, r.x+2, r.y+2, r.w-4, r.h-4, color.RGBA{0, 0, 0, 105})
 	}
@@ -89,7 +235,7 @@ func (ui *UISystem) rareBookItem(screen *ebiten.Image, it items.Item, r layoutRe
 	ui.drawInventoryItemIcon(screen, it, r.x, r.y, r.w, r.h, 2, true)
 	mx, my := uiCursorPosition()
 	if isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom()) {
-		ui.queueItemTooltip(strings.Split(GetItemTooltip(it, c, ui.game.combat, tooltipDetailHeld()), "\n"), it, c, mx+16, my+8)
+		ui.queueItemTooltip(GetItemTooltipRows(it, c, ui.game.combat, tooltipDetailHeld()), it, c, mx+16, my+8)
 	}
 }
 func (ui *UISystem) rareBookRow(screen *ebiten.Image, r layoutRect, it items.Item, subtitle string, selected bool, action func()) {
@@ -102,11 +248,11 @@ func (ui *UISystem) rareBookRow(screen *ebiten.Image, r layoutRect, it items.Ite
 		drawRectBorder(screen, r.x, r.y, r.w, r.h, 1, color.RGBA{205, 173, 95, 255})
 	}
 	c := ui.game.party.Members[ui.game.selectedChar]
-	size := min(46, r.h-4)
-	ui.rareBookItem(screen, it, layoutRect{r.x + 3, r.y + (r.h-size)/2, size, size}, c)
-	ui.rareBookText(screen, strings.TrimPrefix(it.Name, "Brewed "), layoutRect{r.x + 54, r.y + 5, r.w - 60, 16})
+	parts := rareBookRowParts(r)
+	ui.rareBookItem(screen, it, parts.icon, c)
+	ui.rareBookText(screen, strings.TrimPrefix(it.Name, "Brewed "), parts.name)
 	if subtitle != "" {
-		ui.rareBookText(screen, subtitle, layoutRect{r.x + 54, r.y + 26, r.w - 60, 16})
+		ui.rareBookText(screen, subtitle, parts.subtitle)
 	}
 	if action != nil {
 		ui.rareBookClick(r, true, action)
@@ -149,20 +295,50 @@ func (ui *UISystem) drawAlchemyWorkbench(screen *ebiten.Image, c *character.MMCh
 		return
 	}
 	rs := config.GlobalAlchemy.Recipes
-	g.selectedRare = max(0, min(len(rs)-1, g.selectedRare))
-	page := g.selectedRare / l.rows
-	pages := pageCount(len(rs), l.rows)
-	drawUIText(screen, "RECIPES", l.list.x+12, l.list.y+6)
-	for i := page * l.rows; i < min(len(rs), (page+1)*l.rows); i++ {
-		it, _ := items.TryCreateItemFromYAML(rs[i].Output)
-		idx := i
-		ui.rareBookRow(screen, l.row(i-page*l.rows), it, fmt.Sprintf("%d per batch", character.AlchemyYield(c.SkillTier(character.SkillAlchemy), rs[i].Family)), i == g.selectedRare, func() { g.selectedRare = idx; g.rareBookMessage = "" })
+	visible := g.visibleAlchemyRecipes()
+	pos := g.selectVisibleAlchemyRecipe(visible, 0)
+	page := max(0, pos) / l.rows
+	pages := pageCount(len(visible), l.rows)
+	drawUIText(screen, fmt.Sprintf("RECIPES (%d)", len(visible)), l.list.x+12, l.list.y+6)
+	category := g.alchemyRecipeFilter
+	if category == "" {
+		category = "All"
 	}
-	ui.rareBookButton(screen, layoutRect{l.pager.x, l.pager.y, 32, l.pager.h}, "<", page > 0, func() { g.selectedRare = (page - 1) * l.rows; g.rareBookMessage = "" })
+	element := g.alchemyElementFilter
+	if element == "" {
+		element = "All"
+	}
+	row := layoutRect{l.list.x + 8, l.list.y + 24, l.list.w - 16, 20}
+	ui.rareBookButton(screen, row, "Type: "+category, true, func() {
+		g.alchemyRecipeFilter = nextAlchemyFilter(g.alchemyRecipeFilter, alchemyRecipeFilters)
+		g.rareBookMessage = ""
+	})
+	row.y += 24
+	row.w = (row.w - 4) / 2
+	ui.rareBookButton(screen, row, element, true, func() {
+		g.alchemyElementFilter = nextAlchemyFilter(g.alchemyElementFilter, alchemyElementFilters)
+		g.rareBookMessage = ""
+	})
+	row.x += row.w + 4
+	ready := "Stock: All"
+	if g.alchemyBrewableOnly {
+		ready = "Brewable"
+	}
+	ui.rareBookButton(screen, row, ready, true, func() { g.alchemyBrewableOnly = !g.alchemyBrewableOnly; g.rareBookMessage = "" })
+	for i := page * l.rows; i < min(len(visible), (page+1)*l.rows); i++ {
+		idx := visible[i]
+		it, _ := items.TryCreateItemFromYAML(rs[idx].Output)
+		ui.rareBookRow(screen, l.row(i-page*l.rows), it, fmt.Sprintf("%d per batch", character.AlchemyYield(c.SkillTier(character.SkillAlchemy), rs[idx].Family)), idx == g.selectedRare, func() { g.selectedRare = idx; g.rareBookMessage = "" })
+	}
+	ui.rareBookButton(screen, layoutRect{l.pager.x, l.pager.y, 32, l.pager.h}, "<", page > 0, func() { g.selectedRare = visible[(page-1)*l.rows]; g.rareBookMessage = "" })
 	drawCenteredUIText(screen, fmt.Sprintf("%d / %d", page+1, pages), l.pager.x+36, l.pager.y, l.pager.w-72, l.pager.h)
-	ui.rareBookButton(screen, layoutRect{l.pager.right() - 32, l.pager.y, 32, l.pager.h}, ">", page+1 < pages, func() { g.selectedRare = (page + 1) * l.rows; g.rareBookMessage = "" })
+	ui.rareBookButton(screen, layoutRect{l.pager.right() - 32, l.pager.y, 32, l.pager.h}, ">", page+1 < pages, func() { g.selectedRare = visible[(page+1)*l.rows]; g.rareBookMessage = "" })
 	if g.brewAnimation != nil {
 		ui.drawAlchemyBrewAnimation(screen, l.detail)
+		return
+	}
+	if len(visible) == 0 {
+		ui.rareBookText(screen, "No matching recipes. Change the filters or gather the selected ingredients.", l.detail)
 		return
 	}
 	ui.drawAlchemyMaterials(screen, c, l, &rs[g.selectedRare])
@@ -174,15 +350,19 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 	}
 	ds := config.GlobalTechniques.Techniques
 	g.selectedRare = max(0, min(len(ds)-1, g.selectedRare))
-	drawUIText(screen, "TECHNIQUES", l.list.x+12, l.list.y+6)
+	if l.listTitle {
+		drawUIText(screen, "TECHNIQUES", l.list.x+12, l.list.y+6)
+	}
 	for i := range ds {
 		d := &ds[i]
 		idx := i
 		it, _ := config.TechniqueItem(d.Key)
 		r := l.row(i)
-		subtitle := "Manual | No action cost"
+		parts := rareBookRowParts(r)
+		icon, second := parts.icon, parts.second
+		subtitle := fittingUIForm(parts.subtitle.w, "Manual | No action cost", "No action cost")
 		if c.Level < d.Level {
-			subtitle = fmt.Sprintf("Unlocks at level %d", d.Level)
+			subtitle = fittingUIForm(parts.subtitle.w, fmt.Sprintf("Unlocks at level %d", d.Level), fmt.Sprintf("Level %d", d.Level))
 		}
 		if d.Automatic {
 			subtitle = ""
@@ -190,15 +370,14 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 		// Only the name and icon select/drag. Autocast owns the lower text row.
 		selectRect := r
 		if d.Automatic {
-			selectRect.h = 28
+			selectRect.h = second.y - r.y
 		}
 		ui.rareBookRow(screen, r, it, subtitle, i == g.selectedRare, nil)
 		ui.rareBookClick(selectRect, true, func() { g.selectedRare = idx })
 		if c.Level >= d.Level {
 			ui.quickRareActionDragSource(it, selectRect)
-			iconRect := layoutRect{r.x + 3, r.y + 6, 46, 46}
-			ui.rareBookClick(iconRect, true, func() { g.selectedRare = idx })
-			ui.quickRareActionDragSource(it, iconRect)
+			ui.rareBookClick(icon, true, func() { g.selectedRare = idx })
+			ui.quickRareActionDragSource(it, icon)
 		}
 		if d.Automatic {
 			mark := "[ ] Autocast"
@@ -206,10 +385,10 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 				mark = "[x] Autocast"
 			}
 			if c.Level < d.Level {
-				mark = fmt.Sprintf("Autocast at level %d", d.Level)
+				mark = fittingUIForm(second.w-6, fmt.Sprintf("Autocast at level %d", d.Level), fmt.Sprintf("At level %d", d.Level))
 			}
 			key := d.Key
-			ui.rareBookButton(screen, l.auto(i), mark, c.Level >= d.Level, func() {
+			ui.rareBookButton(screen, second, mark, c.Level >= d.Level, func() {
 				if c.RareClass.Automatic == nil {
 					c.RareClass.Automatic = map[string]bool{}
 				}
@@ -219,30 +398,6 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 	}
 	d := &ds[g.selectedRare]
 	it, _ := config.TechniqueItem(d.Key)
-	x, y, w := l.detail.x+12, l.detail.y+12, l.detail.w-24
-	ui.rareBookItem(screen, it, layoutRect{x, y, 64, 64}, c)
-	ui.rareBookText(screen, d.Name, layoutRect{x + 76, y + 4, w - 76, 32})
-	action := "1 action"
-	if d.FreeStep {
-		action = "No action cost"
-	}
-	drawUIText(screen, fmt.Sprintf("%d SP | %s", g.techniqueSPCost(c, d), action), x+76, y+32)
-	drawUIText(screen, fmt.Sprintf("Unlock: level %d", d.Level), x+76, y+50)
-	ui.rareBookText(screen, techniqueMagnitude(c, d, g.config.GetTPS()), layoutRect{x, y + 76, w, 32})
-	descBottom := l.actions.y - 12
-	if d.Automatic {
-		descBottom -= 76
-	}
-	ui.rareBookText(screen, d.Description, layoutRect{x, y + 100, w, descBottom - (y + 100)})
-	if d.Automatic {
-		r := layoutRect{x, l.actions.y - 84, w, 70}
-		drawFilledRect(screen, r.x, r.y, r.w, r.h, color.RGBA{30, 45, 45, 255})
-		drawUIText(screen, "AUTOCAST CONDITION", r.x+8, r.y+6)
-		ui.rareBookText(screen, d.Trigger, layoutRect{r.x + 8, r.y + 26, r.w - 16, 40})
-	}
-	half := (l.actions.w - 8) / 2
-	ui.rareBookButton(screen, layoutRect{l.actions.x, l.actions.y, half, 30}, "Equip quick action", c.Level >= d.Level, func() { c.Equipment[items.SlotSpell] = it })
-	ui.rareBookButton(screen, layoutRect{l.actions.x + half + 8, l.actions.y, l.actions.w - half - 8, 30}, "Use technique", c.Level >= d.Level, func() { g.useTechniqueFromBook(d.Key) })
 	message := "Select a technique. Hover its icon for details."
 	if d.Automatic {
 		message = "Autocast is independent of your quick action."
@@ -250,23 +405,111 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 	if c.Level < d.Level {
 		message = fmt.Sprintf("Learned automatically at level %d.", d.Level)
 	}
-	ui.rareBookText(screen, message, l.message)
+	trigger := ""
+	if d.Automatic {
+		trigger = d.Trigger
+	}
+	p := makePilgrimDetailLayout(l.detail, techniqueMagnitude(c, d, g.config.GetTPS()), d.Description, trigger, message)
+	ui.rareBookItem(screen, it, p.icon, c)
+	ui.rareBookText(screen, d.Name, p.name)
+	action := "1 action"
+	if d.FreeStep {
+		action = "No action cost"
+	}
+	ui.rareBookText(screen, fmt.Sprintf("%d SP | %s", g.techniqueSPCost(c, d), action), p.cost)
+	ui.rareBookText(screen, fmt.Sprintf("Unlock: level %d", d.Level), p.unlock)
+	ui.rareBookText(screen, techniqueMagnitude(c, d, g.config.GetTPS()), p.magnitude)
+	ui.rareBookText(screen, d.Description, p.desc)
+	if d.Automatic {
+		drawFilledRect(screen, p.auto.x, p.auto.y, p.auto.w, p.auto.h, color.RGBA{30, 45, 45, 255})
+		drawUIText(screen, "AUTOCAST CONDITION", p.auto.x+8, p.autoHeadY)
+		ui.rareBookText(screen, d.Trigger, p.trigger)
+	}
+	half := (p.actions.w - 8) / 2
+	ui.rareBookButton(screen, layoutRect{p.actions.x, p.actions.y, half, p.actions.h}, fittingUIForm(half-6, "Equip quick action", "Equip"), c.Level >= d.Level, func() { c.Equipment[items.SlotSpell] = it })
+	ui.rareBookButton(screen, layoutRect{p.actions.x + half + 8, p.actions.y, p.actions.w - half - 8, p.actions.h}, fittingUIForm(p.actions.w-half-14, "Use technique", "Use"), c.Level >= d.Level, func() { g.useTechniqueFromBook(d.Key) })
+	if p.message.h > 0 {
+		ui.rareBookText(screen, message, p.message)
+	}
 }
+
+// techniqueMagnitude states what a technique does: the hero's own tier, or
+// with no hero (catalog cards) every tier as "Novice/Expert/Master/GM".
 func techniqueMagnitude(c *character.MMCharacter, d *config.TechniqueDefinition, tps int) string {
-	tier := c.SkillTier(character.SkillTranslocation)
+	v := func(values [4]int) string {
+		tier := 0
+		if c != nil {
+			tier = c.SkillTier(character.SkillTranslocation)
+		}
+		return tierValueText(c != nil, tier, values)
+	}
 	switch d.Key {
 	case "fold_step":
-		return fmt.Sprintf("Range %d-%d tiles | Anchor %ds", d.MinRange, config.TierValue(d.Range, tier), config.TierValue(d.Duration, tier))
+		return fmt.Sprintf("Range %d-%s tiles | Anchor %ss", d.MinRange, v(d.Range), v(d.Duration))
 	case "phase_veil":
-		return fmt.Sprintf("Dodge +%d%% | %ds", config.TierValue(d.Power, tier), config.TierValue(d.Duration, tier))
+		return fmt.Sprintf("%s | %ss", uitext.Text("buff.dodge", v(d.Power)), v(d.Duration))
 	case "quickening":
-		return fmt.Sprintf("RT recovery -%d%% | TB pool +%d | %ds", config.TierValue(d.Power, tier), config.TierValue(d.TBPower, tier), config.TierValue(d.Duration, tier))
+		return fmt.Sprintf("%s | %s | %ss", uitext.Text("buff.rt_recovery", v(d.Power)), uitext.Text("buff.tb_pool", v(d.TBPower)), v(d.Duration))
 	case "purify":
 		return "All curable afflictions | No healing or revival"
 	case "return_step":
+		if c == nil {
+			return "Any distance, same map"
+		}
 		return fmt.Sprintf("Any distance, same map | Anchor %ds", c.RareClass.Anchor.Frames/max(1, tps))
 	}
 	return ""
+}
+
+// tierLadder prints a per-mastery value set, or one value when all agree.
+func tierLadder(values [4]int) string {
+	if tierFlat(values) {
+		return strconv.Itoa(values[0])
+	}
+	return fmt.Sprintf("%d/%d/%d/%d", values[0], values[1], values[2], values[3])
+}
+
+// tierCountText is a counted ladder: "1 round" when flat, else "1/1/2/2 rounds".
+func tierCountText(values [4]int, singular, plural string) string {
+	if tierFlat(values) {
+		return pluralizeCount(values[0], singular, plural)
+	}
+	return tierLadder(values) + " " + plural
+}
+
+func tierFlat(values [4]int) bool {
+	return values[0] == values[1] && values[1] == values[2] && values[2] == values[3]
+}
+
+// tierValues evaluates one mastery-scaled value at every tier through the
+// same function the effect itself uses.
+func tierValues(at func(tier int) int) [4]int {
+	var out [4]int
+	for t := range out {
+		out[t] = at(t)
+	}
+	return out
+}
+
+// tierValueText is the hero's own tier, or with no hero (catalog cards,
+// editor) every tier.
+func tierValueText(hero bool, tier int, values [4]int) string {
+	if hero {
+		return strconv.Itoa(config.TierValue(values, tier))
+	}
+	return tierLadder(values)
+}
+
+// tierLabel names a value line: the hero's "Current" value, a catalog
+// "Base" value when every tier agrees, else the bare label over the ladder.
+func tierLabel(hero bool, label string, values [4]int) string {
+	switch {
+	case hero:
+		return "Current " + label
+	case tierFlat(values):
+		return "Base " + label
+	}
+	return strings.ToUpper(label[:1]) + label[1:]
 }
 
 func (ih *InputHandler) handleRareBookInput() bool {
@@ -277,7 +520,18 @@ func (ih *InputHandler) handleRareBookInput() bool {
 	}
 	n := 0
 	if c.Class == character.ClassAlchemist && config.GlobalAlchemy != nil {
-		n = len(config.GlobalAlchemy.Recipes)
+		visible := g.visibleAlchemyRecipes()
+		g.selectVisibleAlchemyRecipe(visible, 0)
+		if ih.keys.Consume(ebiten.KeyUp) {
+			g.selectVisibleAlchemyRecipe(visible, -1)
+		}
+		if ih.keys.Consume(ebiten.KeyDown) {
+			g.selectVisibleAlchemyRecipe(visible, 1)
+		}
+		if ih.keys.Consume(ebiten.KeyEnter) && len(visible) > 0 {
+			g.brewSelectedRecipe()
+		}
+		return true
 	} else if config.GlobalTechniques != nil {
 		n = len(config.GlobalTechniques.Techniques)
 	}

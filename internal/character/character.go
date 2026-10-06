@@ -12,7 +12,7 @@ import (
 )
 
 // Mana regeneration tunables. SP regenerates by (1 + Personality/divisor +
-// Meditation tier) every ManaRegenIntervalFrames ticks. Kept in this package
+// the Meditation bonus) every ManaRegenIntervalFrames ticks. Kept in this package
 // because game's balance.go can't be imported from internal/character (circular).
 const (
 	ManaRegenIntervalFrames     = config.RegenerationIntervalFrames // ~5s at 120 TPS
@@ -68,13 +68,20 @@ func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 // quick-bar frame art).
 const QuickSlotCount = 5
 
+// AdventureExperience follows the hero through roster swaps and saves.
+type AdventureExperience struct {
+	Generation int `json:"generation"`
+	Amount     int `json:"amount"`
+}
+
 type MMCharacter struct {
-	Inventory []items.Item // Personal bag; travels with this hero through roster changes.
-	RareClass RareClassState
-	Name      string
-	Class     CharacterClass
-	Promotion Promotion // elite status (Archmage/Lich); PromotionNone by default
-	Race      string    // config.yaml race key; persisted because racial traits are gameplay state
+	AdventureXP map[string]AdventureExperience
+	Inventory   []items.Item // Personal bag; travels with this hero through roster changes.
+	RareClass   RareClassState
+	Name        string
+	Class       CharacterClass
+	Promotion   Promotion // elite status (Archmage/Lich); PromotionNone by default
+	Race        string    // config.yaml race key; persisted because racial traits are gameplay state
 
 	// Core stats
 	Level          int
@@ -158,6 +165,9 @@ type MMCharacter struct {
 	// pushed by the game (Troll Cards) the same way as BonusMaxHP. Runtime-only.
 	BonusRegenPct int
 	hpRegenTimer  int
+	// Timed party draught bonuses are derived from active buffs, never saved here.
+	BuffHPRegenPct   int
+	BuffManaRegenPct int
 
 	// Free stat points to distribute on level-up
 	FreeStatPoints int
@@ -661,10 +671,6 @@ func (c *MMCharacter) RecalculateMaxStatsGrantingGain(cfg *config.Config) {
 	}
 }
 
-func (c *MMCharacter) Update() {
-	c.updateRegenAndPoison()
-}
-
 // UpdateWithMode updates the character with knowledge of the current game mode
 // and reports whether an RT regeneration cadence completed this frame.
 func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) bool {
@@ -787,8 +793,8 @@ func (c *MMCharacter) updateRegenAndPoison() bool {
 		c.spellRegenTimer = 0 // Reset timer
 		regenCadenceCompleted = true
 	}
-	// Troll Card(s): regenerate a % of max HP on the same cadence.
-	if c.BonusRegenPct > 0 {
+	// Cards and timed draughts share one HP regeneration cadence.
+	if c.BonusRegenPct+c.BuffHPRegenPct > 0 {
 		c.hpRegenTimer++
 		if c.hpRegenTimer >= ManaRegenIntervalFrames {
 			c.hpRegenTimer = 0
@@ -845,21 +851,25 @@ func (c *MMCharacter) RegenerateSpellPoints() {
 	if c.SpellPoints >= c.MaxSpellPoints {
 		return
 	}
-	c.SpellPoints += c.CalculateManaRegenAmount()
+	c.SpellPoints += c.CalculateManaRegenAmount() + c.MaxSpellPoints*c.BuffManaRegenPct/100
 	if c.SpellPoints > c.MaxSpellPoints {
 		c.SpellPoints = c.MaxSpellPoints
 	}
 }
 
-// ApplyCardRegenTick heals BonusRegenPct% of max HP (Troll Card(s)), capped at
+// ApplyCardRegenTick heals card and timed-draught percentages of max HP, capped at
 // max. Called on its own frame-timer cadence in RT (updateRegenAndPoison) and
 // on the TB round counter (endPartyTurn), matching RegenerateSpellPoints' two
 // cadences for the two modes.
 func (c *MMCharacter) ApplyCardRegenTick() {
-	if !c.CanAct() || c.BonusRegenPct <= 0 || c.HitPoints >= c.MaxHitPoints {
+	if !c.CanAct() {
 		return
 	}
-	c.HitPoints += c.MaxHitPoints * c.BonusRegenPct / 100
+	percent := c.BonusRegenPct + c.BuffHPRegenPct
+	if percent <= 0 || c.HitPoints >= c.MaxHitPoints {
+		return
+	}
+	c.HitPoints += c.MaxHitPoints * percent / 100
 	if c.HitPoints > c.MaxHitPoints {
 		c.HitPoints = c.MaxHitPoints
 	}
@@ -1224,7 +1234,7 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 	}
 	// Firearms need no training to point and shoot: anyone with real weapon
 	// training can fire a blaster untrained (the Blaster skill only makes it
-	// better - mastery true damage, crit, cooldown). See
+	// better - mastery true damage and the Grandmaster crit). See
 	// weaponCategorySkillOptional.
 	if WeaponCategorySkillOptional(weaponDef.Category) && c.HasAnyWeaponSkill() {
 		return true

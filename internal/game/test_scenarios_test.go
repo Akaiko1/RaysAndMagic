@@ -29,6 +29,10 @@ func TestScenarioCatalogFailsOnTypos(t *testing.T) {
 		"scenarios: {test: {party: [{name: Monk, class: monk, skills: {iron_boddy: expert}}]}}",
 		"scenarios: {test: {party: [{name: Monk, class: monk, skills: {iron_body: legendary}}]}}",
 		"scenarios: {test: {level: 15}}\n---\nscenarios: {}",
+		"scenarios: {test: {bench_party: rogues}}",
+		"scenarios: {test: {bench_party: rogues, level: 20, party: [{name: Monk, class: monk}]}}",
+		"scenarios: {test: {bench_party: rogues, level: 20, speed_target: 20}}",
+		"scenarios: {test: {bench_party: rogues, level: 20, learn_school_spells: true}}",
 	} {
 		path := filepath.Join(t.TempDir(), "test.yaml")
 		os.WriteFile(path, []byte(body), 0600)

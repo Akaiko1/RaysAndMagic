@@ -13,7 +13,6 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
-	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -79,6 +78,8 @@ type mapRenderPrewarmTask struct {
 	queueBudget        *graphics.PreparationBudget
 	mapKey             string
 	plan               mapRenderPrewarmPlan
+	pendingSourceNames map[string]int
+	sourcesChanged     bool
 	priorities         mapRenderPrewarmPriorities
 	prewarmer          *mapRenderPrewarmer
 	preparedSprites    <-chan graphics.PreparedSpriteResource
@@ -90,6 +91,7 @@ type mapRenderPrewarmTask struct {
 	spritesDone        bool
 	skiesDone          bool
 	steps              []mapRenderPrewarmStep
+	waitingSteps       []mapRenderPrewarmStep
 	nextStep           int
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -101,7 +103,6 @@ type mapRenderPrewarmTask struct {
 	wallRipmapBuilders []*mapRenderWallRipmapBuilder
 	preparedStandees   <-chan mapRenderPreparedStandee
 	standeeCommit      *mapRenderStandeeCommit
-	standeesDone       bool
 }
 
 type mapRenderPrewarmStep func(deadline time.Time) bool
@@ -126,8 +127,8 @@ type mapRenderImageWrite struct {
 }
 
 // mapRenderStandeeCommit keeps all GPU images private until every mip level is
-// populated. It makes a multi-megabyte standee chain obey the same per-Update
-// pixel budget as decoded sprites and gives cancellation an explicit owner for
+// populated. It makes a multi-megabyte standee chain use the same bounded
+// pixel writes as decoded sprites and gives cancellation an explicit owner for
 // every in-flight image.
 type mapRenderStandeeCommit struct {
 	key           standeeCoreKey
@@ -280,7 +281,7 @@ func (c *mapRenderStandeeCommit) cancel() {
 }
 
 const (
-	mapRenderSpriteCommitFrameBytes = 256 << 10
+	mapRenderSpriteCommitChunkBytes = 256 << 10
 	mapRenderDerivedFrameBudget     = 1500 * time.Microsecond
 	mapRenderLoadMarginInTiles      = 4
 	mapRenderLoadFOVMargin          = 20 * math.Pi / 180
@@ -885,6 +886,9 @@ type mapRenderPrewarmer struct {
 	uploads           map[*ebiten.Image]struct{}
 	resources         *mapRenderRegionResources
 	animations        map[[2]string]struct{}
+	cpuRequested      map[graphics.SpriteResourceRequest]bool
+	cpuRequests       []graphics.SpriteResourceRequest
+	waitingForCPU     bool
 	shaderStickerMips *mipChain
 	shaderCoreMips    *mipChain
 	stats             mapRenderPrewarmStats
@@ -920,6 +924,10 @@ func (p *mapRenderPrewarmer) addUpload(img *ebiten.Image) {
 		return
 	}
 	p.uploads[img] = struct{}{}
+	// Submit each complete resource while later sources are still decoding.
+	// The task owns it until publication or cancellation, and Draw retains its
+	// existing byte/count budget. Never queue a partially populated image.
+	p.renderer.queueMapRenderUpload(img, p.task)
 }
 
 func (p *mapRenderPrewarmer) sprite(name string) *ebiten.Image {
@@ -965,15 +973,18 @@ func (p *mapRenderPrewarmer) processedSprite(resource processedSpriteKey) *ebite
 	return processed
 }
 
-func (p *mapRenderPrewarmer) auraTileColor(tileType world.TileType3D) {
+func (p *mapRenderPrewarmer) auraTileColor(tileType world.TileType3D) bool {
 	if _, cached := p.renderer.auraTileColorCache[tileType]; cached || world.GlobalTileManager == nil {
-		return
+		return true
 	}
 	sprite := p.sprite(world.GlobalTileManager.GetSprite(tileType))
+	if !p.ensureCPUImage(sprite) {
+		return false
+	}
 	cpu := p.cpuImage(sprite)
 	if cpu == nil {
 		p.renderer.auraTileColor(tileType)
-		return
+		return true
 	}
 	if p.renderer.auraTileColorCache == nil {
 		p.renderer.auraTileColorCache = make(map[world.TileType3D][3]int)
@@ -983,6 +994,7 @@ func (p *mapRenderPrewarmer) auraTileColor(tileType world.TileType3D) {
 	} else {
 		p.renderer.auraTileColorCache[tileType] = [3]int{-1, -1, -1}
 	}
+	return true
 }
 
 func (p *mapRenderPrewarmer) animationFrames(name, animationType string) []*ebiten.Image {
@@ -1011,6 +1023,62 @@ func (p *mapRenderPrewarmer) cpuImage(img *ebiten.Image) *image.RGBA {
 		return nil
 	}
 	return p.task.cpuImages[img]
+}
+
+// Materialize CPU-only derivatives explicitly, once their source is available.
+// Merely checking cpuImage never creates frames, processes pixels or loads art.
+func (p *mapRenderPrewarmer) prepareCPUImage(img *ebiten.Image) {
+	if img == nil || p.cpuImage(img) != nil {
+		return
+	}
+	if sheet := p.renderer.animFrameOrigins[img]; sheet != nil {
+		p.prepareCPUImage(sheet)
+		if p.cpuImage(sheet) != nil {
+			p.rememberCPUFrames(sheet, p.renderer.animFrameCache[sheet])
+		}
+	} else if key, ok := p.renderer.processedSpriteOrigins[img]; ok && world.GlobalTileManager != nil {
+		if data := world.GlobalTileManager.GetTileData(key.tileType); data != nil {
+			if cpu := p.cpuImage(p.imagesByName[key.spriteName]); cpu != nil {
+				p.task.cpuImages[img] = brightnessToAlphaPixels(cpu, data.AlphaFromBrightness)
+			}
+		}
+	}
+}
+
+// Reused GPU sources need no decode unless a new consumer needs CPU pixels.
+// Suspend the derived step and use the same bounded worker/commit path as a
+// cold source. Do not read the GPU back or retain decoded pixels across regions.
+func (p *mapRenderPrewarmer) ensureCPUImage(img *ebiten.Image) bool {
+	if img == nil || p.task == nil {
+		return true
+	}
+	p.prepareCPUImage(img)
+	if p.cpuImage(img) != nil {
+		return true
+	}
+	root := img
+	if sheet := p.renderer.animFrameOrigins[root]; sheet != nil {
+		root = sheet
+	}
+	origin, ok := p.renderer.resourceOrigin(root)
+	if !ok {
+		return true // Non-file sources keep the existing fallback.
+	}
+	request := graphics.SpriteResourceRequest{Name: origin.source.name, AnimationType: origin.source.animationType}
+	if origin.kind == renderResourceProcessed {
+		request = graphics.SpriteResourceRequest{Name: origin.processed.spriteName}
+	}
+	if complete, requested := p.cpuRequested[request]; requested {
+		p.waitingForCPU = !complete
+		return complete // Failed decodes must not stall forever.
+	}
+	if p.cpuRequested == nil {
+		p.cpuRequested = make(map[graphics.SpriteResourceRequest]bool)
+	}
+	p.cpuRequested[request] = false
+	p.cpuRequests = append(p.cpuRequests, request)
+	p.waitingForCPU = true
+	return false
 }
 
 // rememberCPUFrames mirrors Renderer.animationFrames without reading any
@@ -1045,24 +1113,28 @@ func (p *mapRenderPrewarmer) rememberCPUFrames(sprite *ebiten.Image, frames []*e
 	}
 }
 
-func (p *mapRenderPrewarmer) standee(prefix, name string, img *ebiten.Image, stableImage bool) {
+func (p *mapRenderPrewarmer) standee(prefix, name string, img *ebiten.Image, stableImage bool) bool {
 	if img == nil {
-		return
+		return true
 	}
 	key := makeStandeeCoreKey(p.renderer.prefixedStandeeKeyName(prefix, name), img, stableImage)
 	p.lastResource = key.name
 	if _, seen := p.resources.standees[key]; seen {
-		return
+		return true
+	}
+	if p.renderer.standeeCoreCache[key] != nil {
+		p.resources.standees[key] = struct{}{}
+		return true
+	}
+	if !p.ensureCPUImage(img) {
+		return false
 	}
 	p.resources.standees[key] = struct{}{}
-	if p.renderer.standeeCoreCache[key] != nil {
-		return
-	}
 	cpu := p.cpuImage(img)
 	if cpu != nil && p.task != nil {
 		p.task.standeeJobs = append(p.task.standeeJobs, mapRenderStandeeJob{key: key, source: img, cpu: cpu})
 		p.stats.standeeFrames++
-		return
+		return true
 	}
 	img = p.renderer.boundedStandeeRenderSource(key, img)
 	p.addUpload(img)
@@ -1070,6 +1142,7 @@ func (p *mapRenderPrewarmer) standee(prefix, name string, img *ebiten.Image, sta
 	p.addUpload(core)
 	p.stats.standeeFrames++
 	p.recordStandeeUploads(key)
+	return true
 }
 
 func (p *mapRenderPrewarmer) recordStandeeUploads(key standeeCoreKey) {
@@ -1090,14 +1163,15 @@ func (p *mapRenderPrewarmer) recordStandeeUploads(key standeeCoreKey) {
 	}
 }
 
-func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, tint float64, cache graphics.PixelCache, budgets ...*graphics.PreparationBudget) <-chan mapRenderPreparedStandee {
+// Computing these pixels is cheaper than compressing or reading their disk
+// cache. Keep only the shared GPU result and the bounded in-flight CPU work.
+func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, tint float64, budgets ...*graphics.PreparationBudget) <-chan mapRenderPreparedStandee {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	results := make(chan mapRenderPreparedStandee, 1)
 	go func() {
 		defer close(results)
-		defer cache.Prune()
 		for i := range jobs {
 			job := jobs[i]
 			select {
@@ -1117,7 +1191,7 @@ func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, t
 				lease:    lease,
 				key:      job.key,
 				source:   job.source,
-				prepared: prepareCachedStandeePixels(ctx, cache, job.cpu, tint),
+				prepared: prepareStandeePixels(job.cpu, tint, true),
 			}
 			lease.ReleaseOnCancel(ctx)
 			jobs[i] = mapRenderStandeeJob{}
@@ -1160,6 +1234,7 @@ func (r *Renderer) resetMapRenderResourceResidency() {
 	r.processedSpriteCache = nil
 	r.processedSpriteOrigins = nil
 	r.animFrameOrigins = nil
+	clear(r.lazySpriteCPUPixels)
 	r.wallRipmaps = nil
 	r.wallRipmapBytes = 0
 	r.mapRenderResourcePrewarmPending = false
@@ -1201,6 +1276,7 @@ func (r *Renderer) cancelMapRenderPrewarmTask(task *mapRenderPrewarmTask) {
 	task.preparedSkies = nil
 	task.preparedStandees = nil
 	task.standeeJobs = nil
+	task.steps, task.waitingSteps = nil, nil
 }
 
 func (r *Renderer) scheduleMapRenderResourcePrewarm(mapKey string) {
@@ -1870,10 +1946,34 @@ func (r *Renderer) startNextMapRenderPrewarm() {
 		task.queueBudget = graphics.NewPreparationBudget(32 << 20)
 		task.cpuImages = make(map[*ebiten.Image]*image.RGBA)
 		task.plan, task.priorities = r.collectMapRenderPrewarmPlanAndPriorities(r.mapRenderPrewarmScope(mapKey))
+		task.pendingSourceNames = make(map[string]int)
+		task.sourcesChanged = true
 		task.prewarmer = newMapRenderPrewarmer(r, task)
-		task.preparedSprites = r.game.sprites.PrepareResources(ctx,
-			orderedMapRenderSourceRequests(task.plan, task.priorities), task.queueBudget)
-		task.preparedSkies = prepareMapRenderSkies(ctx, skyTextureNamesForMap(mapKey), task.queueBudget)
+		requests := orderedMapRenderSourceRequests(task.plan, task.priorities)
+		missing := requests[:0]
+		for _, request := range requests {
+			if len(r.game.sprites.ResourceImages(request)) == 0 {
+				missing = append(missing, request)
+				task.pendingSourceNames[request.Name]++
+				continue
+			}
+			// Pin reused sources before another residency update can evict
+			// their previous region while this task still needs them.
+			task.prewarmer.resources.sources[mapRenderSourceKey{
+				name: request.Name, animationType: request.AnimationType,
+			}] = struct{}{}
+		}
+		task.preparedSprites = r.game.sprites.PrepareResources(ctx, missing, task.queueBudget)
+		var missingSkies []string
+		for _, name := range skyTextureNamesForMap(mapKey) {
+			if sky := r.game.skyPanoramaCache[name]; sky != nil {
+				task.prewarmer.resources.skies[name] = struct{}{}
+				task.prewarmer.addUpload(sky)
+			} else {
+				missingSkies = append(missingSkies, name)
+			}
+		}
+		task.preparedSkies = prepareMapRenderSkies(ctx, missingSkies, task.queueBudget)
 		r.mapRenderResourcePrewarmActive = task
 		break
 	}
@@ -1887,7 +1987,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 	}
 	if task.standeeCommit != nil {
 		task.prewarmer.lastResource = "standee-write:" + task.standeeCommit.key.name
-		sticker, core, done := task.standeeCommit.advance(r, mapRenderSpriteCommitFrameBytes)
+		sticker, core, done := task.standeeCommit.advance(r, mapRenderSpriteCommitChunkBytes)
 		if done {
 			task.prewarmer.addUpload(sticker)
 			task.prewarmer.addUpload(core)
@@ -1901,7 +2001,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 		if task.spriteCommitReq.AnimationType != "" {
 			task.prewarmer.lastResource += ":" + task.spriteCommitReq.AnimationType
 		}
-		images, done := task.spriteCommit.Advance(mapRenderSpriteCommitFrameBytes)
+		images, done := task.spriteCommit.Advance(mapRenderSpriteCommitChunkBytes)
 		if done {
 			for img, cpu := range images {
 				task.cpuImages[img] = cpu
@@ -1911,13 +2011,20 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 					name: task.spriteCommitReq.Name, animationType: task.spriteCommitReq.AnimationType,
 				}] = struct{}{}
 			}
+			if task.pendingSourceNames[task.spriteCommitReq.Name] > 0 {
+				task.pendingSourceNames[task.spriteCommitReq.Name]--
+			}
+			if _, requested := task.prewarmer.cpuRequested[task.spriteCommitReq]; requested {
+				task.prewarmer.cpuRequested[task.spriteCommitReq] = true
+			}
+			task.sourcesChanged = true
 			task.spriteCommit = nil
 		}
 		return true
 	}
 	if task.skyCommit != nil {
 		task.prewarmer.lastResource = "sky:" + task.skyCommit.name
-		if task.skyCommit.advance(mapRenderSpriteCommitFrameBytes) {
+		if task.skyCommit.advance(mapRenderSpriteCommitChunkBytes) {
 			commit := task.skyCommit
 			if r.game.skyPanoramaCache == nil {
 				r.game.skyPanoramaCache = make(map[string]*ebiten.Image)
@@ -1939,6 +2046,7 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 		case prepared, ok := <-task.preparedSprites:
 			if !ok {
 				task.spritesDone = true
+				task.sourcesChanged = true
 			} else {
 				task.prewarmer.lastResource = "begin:" + prepared.Request.Name
 				if prepared.Request.AnimationType != "" {
@@ -1974,11 +2082,11 @@ func (r *Renderer) drainPreparedMapRenderResource(task *mapRenderPrewarmTask) bo
 		default:
 		}
 	}
-	if task.preparedStandees != nil && !task.standeesDone {
+	if task.preparedStandees != nil {
 		select {
 		case prepared, ok := <-task.preparedStandees:
 			if !ok {
-				task.standeesDone = true
+				task.preparedStandees = nil
 			} else {
 				task.prewarmer.lastResource = "standee:" + prepared.key.name
 				task.standeeCommit = newMapRenderStandeeCommit(prepared)
@@ -2042,8 +2150,46 @@ func (p *mapRenderPrewarmer) monsterVisualFrames(resource mapMonsterPrewarmResou
 	return visualFrames
 }
 
-func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapRenderPrewarmStep {
-	plan := task.plan
+// Take consumers only after all requested source variants for their name have
+// been published. This prevents the synchronous getters used by derived work
+// from decoding ahead of the worker or caching a temporary missing resource.
+func takeReadyRenderConsumers[T any](remaining *[]T, pending map[string]int, name func(T) string) []T {
+	var ready []T
+	kept := (*remaining)[:0]
+	for _, item := range *remaining {
+		if pending[name(item)] == 0 {
+			ready = append(ready, item)
+		} else {
+			kept = append(kept, item)
+		}
+	}
+	clear((*remaining)[len(kept):])
+	*remaining = kept
+	return ready
+}
+
+func (task *mapRenderPrewarmTask) takeReadyPlan() mapRenderPrewarmPlan {
+	remaining, pending := &task.plan, task.pendingSourceNames
+	name := func(s string) string { return s }
+	plan := mapRenderPrewarmPlan{
+		tileSprites:        takeReadyRenderConsumers(&remaining.tileSprites, pending, name),
+		wallSprites:        takeReadyRenderConsumers(&remaining.wallSprites, pending, name),
+		treeSprites:        takeReadyRenderConsumers(&remaining.treeSprites, pending, name),
+		crossedPropSprites: takeReadyRenderConsumers(&remaining.crossedPropSprites, pending, name),
+		containerSprites:   takeReadyRenderConsumers(&remaining.containerSprites, pending, name),
+		environmentSprites: takeReadyRenderConsumers(&remaining.environmentSprites, pending, func(s processedSpriteKey) string { return s.spriteName }),
+		npcSprites:         takeReadyRenderConsumers(&remaining.npcSprites, pending, func(s mapNPCPrewarmResource) string { return s.name }),
+		monsterSprites:     takeReadyRenderConsumers(&remaining.monsterSprites, pending, func(s mapMonsterPrewarmResource) string { return s.spriteName }),
+	}
+	// Aura color sampling can depend on several variants of a tile's sprite.
+	// Keep that small shared tail behind the complete source inventory.
+	if task.spritesDone {
+		plan.tileTypes, remaining.tileTypes = remaining.tileTypes, nil
+	}
+	return plan
+}
+
+func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask, plan mapRenderPrewarmPlan) []mapRenderPrewarmStep {
 	p := task.prewarmer
 	steps := make([]mapRenderPrewarmStep, 0, len(mapRenderSourceRequests(plan))+len(plan.monsterSprites)*4)
 	appendStep := func(step func()) {
@@ -2082,11 +2228,16 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 					return true
 				}
 				p.resources.walls[sprite] = struct{}{}
+			}
+			if builder == nil {
+				if r.wallRipmapNeedsPixels(sprite) && !p.ensureCPUImage(sprite) {
+					return false
+				}
 				builder = newMapRenderWallRipmapBuilder(r, sprite, p.cpuImage(sprite))
 				task.wallRipmapBuilders = append(task.wallRipmapBuilders, builder)
 			}
 			if builder != nil && !builder.done {
-				if _, done := builder.advance(mapRenderSpriteCommitFrameBytes); !done {
+				if _, done := builder.advance(mapRenderSpriteCommitChunkBytes); !done {
 					return false
 				}
 			}
@@ -2110,28 +2261,37 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 	if r.game.config.Graphics.TreesAsBillboards {
 		for _, name := range orderedNamesByStreamPriority(plan.treeSprites, task.priorities) {
 			name := name
-			appendStep(func() { p.standee("tree", name, p.sprite(name), true) })
+			appendTimedStep(func(time.Time) bool { return p.standee("tree", name, p.sprite(name), true) })
 		}
 	}
 	for _, name := range orderedNamesByStreamPriority(plan.crossedPropSprites, task.priorities) {
 		name := name
-		appendStep(func() {
+		appendTimedStep(func(time.Time) bool {
 			warmVisibleBounds(name)
-			p.standee("tree", name, p.sprite(name), true)
+			return p.standee("tree", name, p.sprite(name), true)
 		})
 	}
 	for _, resource := range orderedByStreamPriority(plan.environmentSprites, task.priorities,
 		func(resource processedSpriteKey) string { return resource.spriteName }) {
 		resource := resource
-		appendStep(func() {
+		appendTimedStep(func(time.Time) bool {
 			warmVisibleBounds(resource.spriteName)
+			tm := world.GlobalTileManager
+			if tm != nil {
+				_, processed := r.processedSpriteCache[resource]
+				if data := tm.GetTileData(resource.tileType); data != nil &&
+					data.AlphaFromBrightness > 0 && !processed &&
+					!p.ensureCPUImage(p.sprite(resource.spriteName)) {
+					return false
+				}
+			}
 			sprite := p.processedSprite(resource)
 			if _, ok := r.processedSpriteCache[resource]; ok {
 				p.resources.processed[resource] = struct{}{}
 			}
 			p.addUpload(sprite)
-			if sprite == nil || !r.game.config.Graphics.Standee.Enabled {
-				return
+			if sprite == nil || tm == nil || !r.game.config.Graphics.Standee.Enabled {
+				return true
 			}
 			renderType := world.GlobalTileManager.GetRenderType(resource.tileType)
 			frames := r.animationFrames(sprite)
@@ -2139,21 +2299,27 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 			for _, frame := range frames {
 				switch {
 				case renderType == config.TileRenderLandmarkStandee:
-					p.standee("landmark", resource.spriteName, frame, true)
+					if !p.standee("landmark", resource.spriteName, frame, true) {
+						return false
+					}
 				case world.GlobalTileManager.IsWallMounted(resource.tileType):
-					p.standee("wallprop", resource.spriteName, frame, false)
-					p.standee("tile", resource.spriteName, frame, false)
+					if !p.standee("wallprop", resource.spriteName, frame, false) || !p.standee("tile", resource.spriteName, frame, false) {
+						return false
+					}
 				default:
-					p.standee("tile", resource.spriteName, frame, false)
+					if !p.standee("tile", resource.spriteName, frame, false) {
+						return false
+					}
 				}
 			}
+			return true
 		})
 	}
 	if tm := world.GlobalTileManager; tm != nil {
 		for _, tileType := range plan.tileTypes {
 			tileType := tileType
 			if tileShowsImpassableAura(tm.GetTileData(tileType)) {
-				appendStep(func() { p.auraTileColor(tileType) })
+				appendTimedStep(func(time.Time) bool { return p.auraTileColor(tileType) })
 			}
 		}
 	}
@@ -2171,7 +2337,7 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 		p.rememberCPUFrames(sprite, frames)
 		for _, frame := range frames {
 			frame := frame
-			appendStep(func() { p.standee(resource.prefix, resource.name, frame, resource.stableImage) })
+			appendTimedStep(func(time.Time) bool { return p.standee(resource.prefix, resource.name, frame, resource.stableImage) })
 		}
 	}
 	for _, resource := range orderedByStreamPriority(plan.monsterSprites, task.priorities,
@@ -2187,28 +2353,24 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask) []mapR
 			}
 			seen[frame] = struct{}{}
 			frame := frame
-			appendStep(func() {
+			appendTimedStep(func(time.Time) bool {
 				if r.game.config.Graphics.Standee.Enabled {
-					p.standee("mob", resource.key, frame, true)
+					return p.standee("mob", resource.key, frame, true)
 				}
+				return true
 			})
 		}
 	}
 	for _, name := range orderedNamesByStreamPriority(plan.containerSprites, task.priorities) {
 		name := name
-		appendStep(func() {
+		appendTimedStep(func(time.Time) bool {
 			sprite := p.sprite(name)
 			if r.game.config.Graphics.Standee.Enabled {
-				p.standee("container", name, sprite, false)
+				return p.standee("container", name, sprite, false)
 			}
+			return true
 		})
 	}
-	appendStep(func() {
-		tint := r.game.config.Graphics.Standee.CoreTint
-		jobs := task.standeeJobs
-		task.standeeJobs = nil
-		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, tint, graphics.PixelCache{Dir: storage.RenderCacheDir()}, task.queueBudget)
-	})
 	return steps
 }
 
@@ -2228,30 +2390,34 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 		r.reserveStandeeBuffers()
 	}
 	_, _ = r.ensureFloorShader()
+	_, _ = r.ensureAuraCurtainShader()
+	_ = r.ensureWeaponMaterialShaders()
 	_, _ = r.game.ensureSkyShader()
 	p.stats.uploadImages = len(p.uploads)
-	for img := range p.uploads {
-		r.queueMapRenderUpload(img, task)
-	}
-	if p.shaderStickerMips != nil && p.shaderCoreMips != nil {
+	if !r.auraCurtainWarmed || !r.weaponMaterialWarmed || p.shaderStickerMips != nil && p.shaderCoreMips != nil {
 		r.mapRenderShaderWarmTasks = append(r.mapRenderShaderWarmTasks, task)
 	}
 }
 
 // prewarmPendingMapRenderResources advances at most one CPU commit or one
-// derived-resource step. A region can take many ticks, but no Update consumes
-// the whole cold region and only one region owns in-flight GPU allocations.
-func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
+// derived-resource step for callers outside the gameplay scheduler.
+func (r *Renderer) prewarmPendingMapRenderResources() bool {
+	return r.advanceMapRenderPrewarm(time.Now().Add(mapRenderDerivedFrameBudget))
+}
+
+// advanceMapRenderPrewarm shares the scheduler deadline and reports whether
+// another immediate step could be useful. It never waits for a CPU worker.
+func (r *Renderer) advanceMapRenderPrewarm(deadline time.Time) bool {
 	if r == nil || r.game == nil {
-		return mapRenderPrewarmStats{}
+		return false
 	}
 	if r.game.appScreen != AppScreenInGame {
-		return mapRenderPrewarmStats{}
+		return false
 	}
 	r.startNextMapRenderPrewarm()
 	task := r.mapRenderResourcePrewarmActive
 	if task == nil {
-		return mapRenderPrewarmStats{}
+		return false
 	}
 	defer r.recordRenderLoadStep(time.Now(), task)
 	if !r.mapRenderTaskCurrent(task) {
@@ -2260,30 +2426,62 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 		if task.prewarmer != nil {
 			r.deallocateMapRenderRegion(task.prewarmer.resources, r.retainedMapRenderResources())
 		}
-		return mapRenderPrewarmStats{}
+		return false
 	}
 	if r.drainPreparedMapRenderResource(task) {
-		return mapRenderPrewarmStats{}
+		return true
 	}
-	if !task.spritesDone || !task.skiesDone {
-		return mapRenderPrewarmStats{}
-	}
-	if task.steps == nil {
+	if task.sourcesChanged || task.steps == nil && task.spritesDone {
+		task.sourcesChanged = false
 		task.state = mapRenderTaskDerived
-		task.steps = r.buildMapRenderPrewarmSteps(task)
-		return mapRenderPrewarmStats{}
-	}
-	if task.nextStep < len(task.steps) {
-		deadline := time.Now().Add(mapRenderDerivedFrameBudget)
-		if task.steps[task.nextStep](deadline) {
-			task.nextStep++
+		plan := task.takeReadyPlan()
+		steps := r.buildMapRenderPrewarmSteps(task, plan)
+		if task.steps == nil {
+			task.steps = steps
+		} else {
+			task.steps = append(task.steps, steps...)
+		}
+		if len(steps) > 0 {
+			return true
 		}
 	}
-	if task.nextStep < len(task.steps) {
-		return mapRenderPrewarmStats{}
+	// Start ready standees before the rest of the region is decoded or derived.
+	// A single worker shares the source queue's budget and drains one batch at
+	// a time; decoded pixels stay owned by this task until final publication.
+	if len(task.standeeJobs) > 0 && task.preparedStandees == nil && task.standeeCommit == nil {
+		jobs := task.standeeJobs
+		task.standeeJobs = nil
+		task.preparedStandees = prepareMapRenderStandees(task.ctx, jobs, r.game.config.Graphics.Standee.CoreTint, task.queueBudget)
+		return true
 	}
-	if task.standeeCommit != nil || task.preparedStandees != nil && !task.standeesDone {
-		return mapRenderPrewarmStats{}
+	if task.nextStep < len(task.steps) {
+		task.prewarmer.waitingForCPU = false
+		if task.steps[task.nextStep](deadline) {
+			task.nextStep++
+		} else if task.prewarmer.waitingForCPU {
+			// Batch shared-source CPU re-decodes after the initial source stream
+			// completes. Other ready consumers continue in the meantime.
+			task.waitingSteps = append(task.waitingSteps, task.steps[task.nextStep])
+			task.nextStep++
+		}
+		if task.nextStep < len(task.steps) || len(task.standeeJobs) > 0 {
+			return true
+		}
+	}
+	if !task.spritesDone || !task.skiesDone {
+		return false
+	}
+	if len(task.waitingSteps) > 0 {
+		p := task.prewarmer
+		task.steps, task.waitingSteps = task.waitingSteps, nil
+		task.nextStep = 0
+		task.spritesDone = false
+		task.preparedSprites = r.game.sprites.PrepareResources(task.ctx, p.cpuRequests, task.queueBudget)
+		p.cpuRequests = nil
+		return true
+	}
+	if task.standeeCommit != nil || task.preparedStandees != nil {
+		return false
 	}
 	task.cpuImages = nil
 	r.finalizeMapRenderPrewarm(task)
@@ -2292,10 +2490,9 @@ func (r *Renderer) prewarmPendingMapRenderResources() mapRenderPrewarmStats {
 		task.cancel()
 	}
 	r.commitMapRenderResidency(task.mapKey, task.prewarmer.resources)
-	stats := task.prewarmer.stats
 	r.mapRenderResourcePrewarmActive = nil
 	r.mapRenderResourcePrewarmPending = len(r.mapRenderResourcePrewarmMapKeys) > 0
-	return stats
+	return true
 }
 
 const (
@@ -2407,6 +2604,8 @@ func (r *Renderer) drawMapRenderShaderWarm(screen *ebiten.Image) {
 		if !r.mapRenderTaskCurrent(task) {
 			continue
 		}
+		r.drawAuraCurtainShaderWarm(screen)
+		r.drawWeaponMaterialWarm(screen)
 		r.drawMapRenderStandeeShaderWarm(screen, task)
 		return
 	}
@@ -2448,7 +2647,7 @@ func (r *Renderer) drawMapRenderStandeeShaderWarm(target *ebiten.Image, task *ma
 		for i := range vertices {
 			vertices[i].SrcX = srcX + 1
 			vertices[i].ColorG = 100
-			vertices[i].ColorA = standeeVolumeMinShells
+			vertices[i].ColorA = standeeVolumeMinShells + 0.0625
 			vertices[i].Custom0 = 0.5
 			vertices[i].Custom1 = 1
 			vertices[i].Custom2 = 0.25

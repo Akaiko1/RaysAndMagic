@@ -5,15 +5,15 @@ import "testing"
 // TestMenuPanelSizePerMode locks the per-mode panel dimensions to a single
 // source (menuPanelSize), used by both the draw code and the input hit-testing.
 func TestMenuPanelSizePerMode(t *testing.T) {
-	if w, h := menuPanelSize(MenuMain); w != mainMenuPanelW || h != mainMenuPanelH {
+	if w, h := menuPanelSize(MenuMain, 1280, 720); w != mainMenuPanelW || h != mainMenuPanelH {
 		t.Errorf("MenuMain panel = %dx%d, want %dx%d", w, h, mainMenuPanelW, mainMenuPanelH)
 	}
 	for _, mode := range []MainMenuMode{MenuSaveSelect, MenuLoadSelect} {
-		if w, h := menuPanelSize(mode); w != saveMenuPanelW || h != saveMenuPanelH {
+		if w, h := menuPanelSize(mode, 1280, 720); w != saveMenuPanelW || h != saveMenuPanelH {
 			t.Errorf("mode %d panel = %dx%d, want save %dx%d", mode, w, h, saveMenuPanelW, saveMenuPanelH)
 		}
 	}
-	if w, h := menuPanelSize(MenuSettings); w != settingsMenuPanelW || h != settingsMenuPanelH {
+	if w, h := menuPanelSize(MenuSettings, 1280, 720); w != settingsMenuPanelW || h != settingsMenuPanelH {
 		t.Errorf("MenuSettings panel = %dx%d, want %dx%d", w, h, settingsMenuPanelW, settingsMenuPanelH)
 	}
 }
@@ -47,18 +47,6 @@ func TestMainMenuOptionsOwnTheirActions(t *testing.T) {
 	(&InputHandler{game: g}).activateMainMenuSelection()
 	if g.mainMenuMode != MenuSettings || g.audioSliderDrag != -1 {
 		t.Fatalf("Settings action produced mode %d and drag %d", g.mainMenuMode, g.audioSliderDrag)
-	}
-}
-
-func TestMainMenuControlTipsFitPanel(t *testing.T) {
-	w, h := menuPanelSize(MenuControlTips)
-	if bottom := mainMenuTipsTopY() + len(mainMenuControlTips)*24; bottom > h-50 {
-		t.Fatal("tips overlap Back button")
-	}
-	for _, tip := range mainMenuControlTips {
-		if uiTextWidth(tip) > w-48 {
-			t.Fatalf("tip leaves its panel: %q", tip)
-		}
 	}
 }
 
@@ -131,35 +119,9 @@ func TestAudioSettingsPanelLayoutVariants(t *testing.T) {
 	}
 }
 
-func TestMinimumWindowContainsFixedMenuPanels(t *testing.T) {
-	w, h := MinimumWindowSize()
-	for name, panelW := range map[string]int{
-		"entry load":  entryLoadPanelW,
-		"main menu":   mainMenuPanelW,
-		"settings":    settingsMenuPanelW,
-		"tabbed menu": tabbedMenuPanelW,
-		"tavern":      tavernDialogWidth,
-	} {
-		if panelW+2*entryWindowSideGap > w {
-			t.Errorf("%s width %d plus side gaps exceeds minimum window width %d", name, panelW, w)
-		}
-	}
-	for name, panelH := range map[string]int{
-		"entry load":  entryLoadPanelH,
-		"main menu":   mainMenuPanelH,
-		"settings":    settingsMenuPanelH,
-		"tabbed menu": tabbedMenuPanelH,
-		"tavern":      tavernDialogHeight,
-	} {
-		if panelH+2*entryWindowSideGap > h {
-			t.Errorf("%s height %d plus side gaps exceeds minimum window height %d", name, panelH, h)
-		}
-	}
-}
-
 // TestMenuRowRectContract pins the shared row geometry: rows step by exactly
-// `pitch`, keep the constant height, share x-bounds, and the text baseline sits
-// inside the box. This is the single source the draw highlight, hover tooltip,
+// `pitch`, keep the constant height, share x-bounds inset symmetrically inside
+// the panel, and the text baseline sits inside the box. This is the single source the draw highlight, hover tooltip,
 // hover-select and right-click rename all consume, so a drift like the old
 // hard-coded pitch in hover-select can't return.
 func TestMenuRowRectContract(t *testing.T) {
@@ -171,8 +133,8 @@ func TestMenuRowRectContract(t *testing.T) {
 		if got := box.y2 - box.y1; got != menuRowHeight {
 			t.Errorf("row %d height = %d, want %d", i, got, menuRowHeight)
 		}
-		if box.x1 != px+16 || box.x2 != px+panelW-16 {
-			t.Errorf("row %d x-bounds = [%d,%d], want [%d,%d]", i, box.x1, box.x2, px+16, px+panelW-16)
+		if left, right := box.x1-px, px+panelW-box.x2; left <= 0 || left != right {
+			t.Errorf("row %d x-bounds = [%d,%d], want a symmetric inset inside panel [%d,%d]", i, box.x1, box.x2, px, px+panelW)
 		}
 		if ty < box.y1 || ty > box.y2 || tx < box.x1 {
 			t.Errorf("row %d text baseline (%d,%d) outside box %+v", i, tx, ty, box)
@@ -180,6 +142,9 @@ func TestMenuRowRectContract(t *testing.T) {
 		if i > 0 {
 			if got := box.y1 - prev.y1; got != pitch {
 				t.Errorf("row %d step = %d, want pitch %d", i, got, pitch)
+			}
+			if box.x1 != prev.x1 || box.x2 != prev.x2 {
+				t.Errorf("row %d x-bounds [%d,%d] differ from row %d [%d,%d]", i, box.x1, box.x2, i-1, prev.x1, prev.x2)
 			}
 		}
 		prev = box

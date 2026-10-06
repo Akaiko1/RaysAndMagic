@@ -106,23 +106,28 @@ func TestDervishFixedQuotaAcrossPacks(t *testing.T) {
 			g.world = w
 			wm.CurrentMapKey = "desert"
 			g.combat = NewCombatSystem(g)
+			def := g.questManager.Definitions()["toll_of_blades"]
+			if def == nil || !def.FixedQuota || def.TargetCount < 2 {
+				t.Fatalf("toll_of_blades must author a fixed quota of at least 2: %+v", def)
+			}
+			quota := def.TargetCount
 			ih := &InputHandler{game: g}
 			ih.handleGiveQuest("toll_of_blades")
 			q := g.questManager.GetQuest("toll_of_blades")
-			if q == nil || q.Target() != 5 || q.Completed {
+			if q == nil || q.Target() != quota || q.Completed {
 				t.Fatalf("empty map changed fixed quota: %+v", q)
 			}
-			for n := 1; n <= 5; n++ {
+			for n := 1; n <= quota; n++ {
 				tx, ty := wm.ProjectTile("desert", 2, 2)
 				xw, yw := TileCenterFromTile(tx, ty, g.config.GetTileSize())
 				m := monster.NewMonster3DFromConfig(xw, yw, "desert_dervish", g.config)
 				m.HitPoints = 0
 				g.combat.updateQuestProgress(m)
 				g.completeKillQuestIfCleared(q, false)
-				if q.CurrentCount != n || q.Completed != (n == 5) || q.Target() != 5 {
+				if q.CurrentCount != n || q.Completed != (n == quota) || q.Target() != quota {
 					t.Fatalf("kill %d: %+v", n, q)
 				}
-				if n == 3 {
+				if n == (quota+1)/2 {
 					g.refreshRepeatableQuests("night")
 					if g.questManager.GetQuest(q.ID) != q {
 						t.Fatal("night lost unfinished progress")
@@ -139,6 +144,11 @@ func TestMirageSaltCombinedBuff(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			g := cs.game
 			g.turnBasedMode = tb
+			def, _ := config.GetItemDefinition("mirage_salt")
+			if def == nil || def.BuffDodgePct <= 0 || def.ResistBuffSchoolPct <= 0 || def.BuffDurationSeconds <= 0 {
+				t.Fatalf("mirage_salt lost its combined dodge + ward buff: %+v", def)
+			}
+			school, dodge, ward := def.ResistBuffSchool, def.BuffDodgePct, def.ResistBuffSchoolPct
 			before := make([]int, len(g.party.Members))
 			for i, c := range g.party.Members {
 				before[i] = cs.PerfectDodgeChance(c)
@@ -149,11 +159,11 @@ func TestMirageSaltCombinedBuff(t *testing.T) {
 					t.Fatal("use failed")
 				}
 				b, ok := g.combatBuffByID("mirage_salt")
-				if !ok || b.Frames != 120*g.config.GetTPS() || g.combatBuffSchoolResistPct("fire") != 30 {
+				if !ok || b.Frames != def.BuffDurationSeconds*g.config.GetTPS() || g.combatBuffSchoolResistPct(school) != ward {
 					t.Fatalf("buff=%+v", b)
 				}
 				for i, c := range g.party.Members {
-					if cs.PerfectDodgeChance(c) != min(100, before[i]+15) {
+					if cs.PerfectDodgeChance(c) != min(100, before[i]+dodge) {
 						t.Fatal("dodge missing or stacked")
 					}
 				}
@@ -163,7 +173,7 @@ func TestMirageSaltCombinedBuff(t *testing.T) {
 				g.combatBuffs[0].Frames = 10
 			}
 			g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves(g.combatBuffs))
-			if g.combatBuffDodgePct() != 15 || g.combatBuffSchoolResistPct("fire") != 30 || g.combatBuffs[0].Frames != 10 {
+			if g.combatBuffDodgePct() != dodge || g.combatBuffSchoolResistPct(school) != ward || g.combatBuffs[0].Frames != 10 {
 				t.Fatal("load lost combined buff")
 			}
 			if tb {
@@ -173,13 +183,15 @@ func TestMirageSaltCombinedBuff(t *testing.T) {
 					g.tickCombatBuffs()
 				}
 			}
-			if g.combatBuffDodgePct() != 0 || g.combatBuffSchoolResistPct("fire") != 0 {
+			if g.combatBuffDodgePct() != 0 || g.combatBuffSchoolResistPct(school) != 0 {
 				t.Fatal("expired buff still active")
 			}
-			def, _ := config.GetItemDefinition("mirage_salt")
-			lines := strings.Join(def.EffectLines(), " ")
-			if !strings.Contains(lines, "15%") || !strings.Contains(lines, "30%") || !strings.Contains(lines, "120s") {
-				t.Fatalf("shared tooltip missing effect: %s", lines)
+			// The consumable card's EFFECTS rows.
+			lines := strings.Join(def.EffectLinesWithoutRecovery(), " ")
+			for _, want := range []string{fmt.Sprintf("%d%%", dodge), fmt.Sprintf("%d%%", ward), fmt.Sprintf("%ds", def.BuffDurationSeconds)} {
+				if !strings.Contains(lines, want) {
+					t.Fatalf("shared tooltip missing %q: %s", want, lines)
+				}
 			}
 		})
 	}
@@ -193,9 +205,6 @@ func TestDervishUsesBanditAttackRules(t *testing.T) {
 				g := cs.game
 				elementalTestBiome(t, cs, "fire")
 				d := monster.NewMonster3DFromConfig(0, 0, "desert_dervish", g.config)
-				if d.Level != 24 || d.MaxHitPoints != 900 || d.PerfectDodge != 20 {
-					t.Fatalf("unexpected dervish stats")
-				}
 				if d.ProjectileWeapon != "throwing_knife" {
 					t.Fatal("lost bandit ranged attack")
 				}

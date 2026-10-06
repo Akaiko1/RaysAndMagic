@@ -1,6 +1,7 @@
 package game
 
 import (
+	"maps"
 	"sort"
 	"time"
 
@@ -201,6 +202,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				SoakRate:                mon.SoakRate,
 				PackKey:                 mon.PackKey,
 				QuestProgressIgnored:    mon.QuestProgressIgnored,
+				HomeMap:                 mon.HomeMap,
 				StunFramesRemaining:     mon.StunFramesRemaining,
 				StunTurnsRemaining:      mon.StunTurnsRemaining,
 				StunRate:                mon.StunRate,
@@ -213,6 +215,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				RootTurnsRemaining:      mon.RootTurnsRemaining,
 				RootRate:                mon.RootRate,
 				ArmorShredPct:           mon.ArmorShredPct,
+				ElementalMarks:          maps.Clone(mon.ElementalMarks),
 				ArmorShredFrames:        mon.ArmorShredFramesRemaining,
 				ArmorShredTurns:         mon.ArmorShredTurnsRemaining,
 				ArmorShredRate:          mon.ArmorShredRate,
@@ -221,6 +224,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				TrapVolleyCD:            mon.TrapVolleyCDFrames,
 				TrapVolleyTurnCD:        mon.TrapVolleyTurnCD,
 				TrapVolleyCDRate:        mon.TrapVolleyCDRate,
+				Telegraph:               mon.Telegraph.Clone(),
 				SlowPct:                 mon.SlowPct,
 				SlowFrames:              mon.SlowFramesRemaining,
 				SlowTurns:               mon.SlowTurnsRemaining,
@@ -243,7 +247,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				BossLastHP:              mon.BossLastHP,
 				SummonFirstDone:         mon.SummonFirstDone,
 				SummonedBy:              mon.SummonedBy,
+				SummonerName:            mon.SummonerName,
 			}
+			scaleLevel := mon.AdventureScaleLevel
+			saveEntry.AdventureScaleLevel = &scaleLevel
 			saveEntry.SpawnPosition = &[2]float64{mon.SpawnX, mon.SpawnY}
 			if isPurePartySummon(mon) {
 				saveEntry.RuntimeStats = &MonsterRuntimeStatsSave{
@@ -477,6 +484,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	}
 
 	return GameSave{
+		Adventure:        cloneAdventureState(g.adventure),
 		TerrainChanges:   append([]TerrainChange(nil), g.terrainChanges...),
 		MapKey:           saveMapKey,
 		PlayerX:          savePX,
@@ -515,6 +523,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		TurnBasedTurnSuspended:     g.turnBasedTurnSuspended,
 		CurrentTurn:                g.currentTurn,
 		PartyRoot:                  g.partyRoot,
+		PartyHinder:                g.partyHinder,
 		PartyActionsUsed:           g.partyActionsUsed,
 		PartyTechniqueActionsUsed:  g.partyTechniqueActionsUsed,
 		TurnBasedMoveCooldown:      g.turnBasedMoveCooldown,

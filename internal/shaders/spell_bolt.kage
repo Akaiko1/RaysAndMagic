@@ -1,0 +1,30 @@
+//kage:unit pixels
+package main
+
+var Time float
+
+// Projected crystal faces carry camera-space normals. Lighting and scrolling
+// interior seams are procedural; there is no sprite or broadside billboard.
+func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
+	n := normalize(c.xyz)
+	kind := floor(c.w)
+	light := max(0.0, dot(n, normalize(vec3(-.4, -.7, -.6))))
+	fresnel := pow(1.0-abs(n.z), 3.0)
+	vein := pow(.5+.5*sin(p.x*13+p.y*5-Time*3), 10)
+	tint := color.rgb*(.28+.65*light) + vec3(.40, .65, .8)*fresnel*.3
+	if kind == 2.0 {
+		tint = color.rgb*(.30+.70*light) + vec3(.68, 1.0, .48)*fresnel*.22
+		tint += color.rgb * vein * .055
+	} else if kind == 10.0 {
+		tint = mix(tint, vec3(.85, .98, 1), light*light*.5)
+		tint += vec3(.23, .42, .48) * vein * .3
+	} else if kind == 14.0 {
+		tint = mix(vec3(.035, .016, .075), color.rgb, light*.6) + vec3(.35, .20, .7)*vein*.65
+	} else if kind == 13.0 {
+		tint = mix(vec3(.023, .005, .04), color.rgb, light*.4) + vec3(.39, .08, .63)*(vein*.55+fresnel*.35)
+	} else {
+		heat := .45 + .35*light + .20*sin(p.x*5+p.y*4-Time*13)
+		tint = mix(vec3(1, .13, .005), vec3(1, .93, .38), heat)
+	}
+	return vec4(tint*color.a, color.a)
+}

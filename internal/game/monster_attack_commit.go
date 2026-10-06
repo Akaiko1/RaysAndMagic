@@ -38,10 +38,7 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 	if cs == nil || cs.game == nil || m == nil || !m.IsAlive() {
 		return false
 	}
-	behavior := m.CurrentAIBehavior()
-	switch behavior {
-	case monster.AIBehaviorInert, monster.AIBehaviorPacified, monster.AIBehaviorEvasive,
-		monster.AIBehaviorFleeing, monster.AIBehaviorPassive, monster.AIBehaviorAmbient:
+	if !m.CurrentAIBehavior().Caps().MayAttack {
 		return false
 	}
 	if cadence == monsterAttackTurn {

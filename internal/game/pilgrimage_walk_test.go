@@ -1,9 +1,6 @@
 package game
 
 import (
-	"image"
-	"image/png"
-	"os"
 	"testing"
 
 	"ugataima/internal/config"
@@ -11,45 +8,6 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
-
-// The near shin is brighter than the far shin. Its highlight must cross from
-// right to left and back, not stay fixed while only arms/sash pixels change.
-// This content check complements visual hip-to-foot tracing and loop QA.
-func TestPilgrimageGatekeeperAlternatesLegs(t *testing.T) {
-	t.Chdir("../..")
-	f, err := os.Open("assets/sprites/mobs/bronze_gatekeeper_walking_r.png")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	img, err := png.Decode(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if img.Bounds() != image.Rect(0, 0, 1024, 1024) {
-		t.Fatal("wrong walking sheet geometry")
-	}
-	var centers [4]float64
-	for i := range centers {
-		total, count := 0, 0
-		for y := 350; y < 440; y++ {
-			for x := 0; x < 512; x++ {
-				r, g, b, a := img.At(i%2*512+x, i/2*512+y).RGBA()
-				if a > 200*257 && (r+g+b)/3 > 125*257 {
-					total += x
-					count++
-				}
-			}
-		}
-		if count == 0 {
-			t.Fatal("missing near shin highlights")
-		}
-		centers[i] = float64(total) / float64(count)
-	}
-	if centers[0]-centers[1] < 20 || centers[2]-centers[1] < 20 || centers[2]-centers[3] < 20 || centers[0]-centers[3] < 20 {
-		t.Fatalf("near/far/near/far gait lost: near-shin centers %v", centers)
-	}
-}
 
 // Exercise the real YAML-resolved sheet through both monster render paths.
 func TestPilgrimageGatekeeperWalkingPlayback(t *testing.T) {

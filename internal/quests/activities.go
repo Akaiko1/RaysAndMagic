@@ -10,10 +10,11 @@ import (
 // Activities are authored interactions. Tokens identify physical props, never
 // slice positions, so saved selections survive content reordering.
 type ActivityDefinition struct {
-	Sequence       []string      `yaml:"sequence,omitempty"`
-	Forage         []ForageGroup `yaml:"forage,omitempty"`
-	WrongMessage   string        `yaml:"wrong_message,omitempty"`
-	DormantMessage string        `yaml:"dormant_message,omitempty"`
+	Objectives     []ActivityObjective `yaml:"objectives,omitempty"`
+	Sequence       []string            `yaml:"sequence,omitempty"`
+	Forage         []ForageGroup       `yaml:"forage,omitempty"`
+	WrongMessage   string              `yaml:"wrong_message,omitempty"`
+	DormantMessage string              `yaml:"dormant_message,omitempty"`
 }
 type ForageGroup struct {
 	Phase        string   `yaml:"phase"`
@@ -53,12 +54,20 @@ func (d *QuestDefinition) PropsForLayout(id string) []QuestProp {
 }
 
 type ActivityState struct {
-	SequenceIndex int      `json:"sequence_index,omitempty"`
-	Selected      []string `json:"selected,omitempty"`
-	Collected     []string `json:"collected,omitempty"`
+	Attempts      map[string]int `json:"attempts,omitempty"`
+	SequenceIndex int            `json:"sequence_index,omitempty"`
+	Selected      []string       `json:"selected,omitempty"`
+	Collected     []string       `json:"collected,omitempty"`
 }
 
 func (s ActivityState) Clone() ActivityState {
+	if s.Attempts != nil {
+		copy := make(map[string]int, len(s.Attempts))
+		for key, value := range s.Attempts {
+			copy[key] = value
+		}
+		s.Attempts = copy
+	}
 	s.Selected = slices.Clone(s.Selected)
 	s.Collected = slices.Clone(s.Collected)
 	return s
@@ -112,6 +121,9 @@ func newActivityState(d *ActivityDefinition) (s ActivityState) {
 	return
 }
 func (d *ActivityDefinition) TokenPhase(token string) string {
+	if o := d.Objective(token); o != nil {
+		return o.Phase
+	}
 	if d != nil {
 		for _, group := range d.Forage {
 			if slices.Contains(group.Tokens, token) {
@@ -187,6 +199,9 @@ func validateActivity(id string, d *QuestDefinition, cfg *QuestConfig) error {
 	}
 	if a == nil {
 		return nil
+	}
+	if len(a.Objectives) > 0 {
+		return validateObjectives(id, d)
 	}
 	if d.Type != QuestTypeInteract || d.Repeatable != "" || d.IsStartingQuest {
 		return fmt.Errorf("quest %q: activity needs a nonrepeatable offered interact quest", id)

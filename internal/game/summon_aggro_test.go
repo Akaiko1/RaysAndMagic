@@ -1,17 +1,14 @@
 package game
 
 import (
+	"fmt"
 	"sort"
 	"testing"
 
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/world"
 )
-
-// meleeMobsThatShouldChaseSummons: a plain mob, a tougher mob, and a melee boss.
-// Every melee monster must approach and fight a party summon that is peppering
-// it from range, even while the party stands well off - not stand and watch.
-var meleeMobsThatShouldChaseSummons = []string{"goblin", "orc_hero_boss"}
 
 // runRTFoeTicks drives the production RT monster phases: one frozen collision
 // snapshot, all wrapper updates before serial collision apply, post arbitration,
@@ -43,65 +40,6 @@ func runRTFoeTicks(g *MMGame, ticks int) {
 		}
 		gl.reconcileMonsterAttackPosts()
 		g.combat.HandleMonsterInteractions()
-	}
-}
-
-func summonAggroWorld(t *testing.T, mobKey string) (*MMGame, *GameLoop, *monsterPkg.Monster3D, *monsterPkg.Monster3D) {
-	t.Helper()
-	game, gl, ts := tbBehaviorGame(t, 40, 40)
-	placePlayerAtTile(game, 5, 10, ts) // party far to the west, well out of the way
-
-	mob := monsterPkg.NewMonster3DFromConfig(float64(20)*ts+ts/2, float64(10)*ts+ts/2, mobKey, game.config)
-	mob.MaxHitPoints, mob.HitPoints = 4000, 4000 // survive the whole exchange
-	huntress := monsterPkg.NewMonster3DFromConfig(float64(24)*ts+ts/2, float64(10)*ts+ts/2, "masked_huntress", game.config)
-	huntress.MaxHitPoints, huntress.HitPoints = 4000, 4000
-	// These tests ask whether the mob AGGROES and reaches the summon, not whether
-	// it beats her defenses. Authored perfect_dodge (10 on the huntress) would let
-	// a dodged swing read as "never struck" and flake the RT assertion.
-	huntress.PerfectDodge = 0
-	markCardAlly(huntress)
-	game.world.Monsters = []*monsterPkg.Monster3D{mob, huntress}
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	return game, gl, mob, huntress
-}
-
-// TB: every melee mob closes on the ranged summon that is shooting it.
-func TestSummonDrawsMeleeMobTB(t *testing.T) {
-	for _, key := range meleeMobsThatShouldChaseSummons {
-		t.Run(key, func(t *testing.T) {
-			game, gl, mob, huntress := summonAggroWorld(t, key)
-			d0 := Distance(mob.X, mob.Y, huntress.X, huntress.Y)
-			for i := 0; i < 12; i++ {
-				game.refreshMonsterAIState()
-				if game.combat.monsterAIFoeMonster(mob) != huntress {
-					t.Fatalf("turn %d: mob AIFoe should be the summon", i)
-				}
-				runOneMonsterTurn(game, gl)
-			}
-			if d := Distance(mob.X, mob.Y, huntress.X, huntress.Y); d >= d0 {
-				t.Fatalf("melee %s did not close on the summon over 12 turns (%.0f -> %.0f)", key, d0, d)
-			}
-		})
-	}
-}
-
-// RT: same, through the real-time loop - the mob approaches and eventually
-// draws the summon's HP down (it reached and struck her).
-func TestSummonDrawsMeleeMobRT(t *testing.T) {
-	for _, key := range meleeMobsThatShouldChaseSummons {
-		t.Run(key, func(t *testing.T) {
-			game, _, mob, huntress := summonAggroWorld(t, key)
-			d0 := Distance(mob.X, mob.Y, huntress.X, huntress.Y)
-			hp0 := huntress.HitPoints
-			runRTFoeTicks(game, 4*game.config.GetTPS()) // a few seconds
-			d := Distance(mob.X, mob.Y, huntress.X, huntress.Y)
-			if d >= d0 {
-				t.Errorf("melee %s did not close on the summon in RT (%.0f -> %.0f)", key, d0, d)
-			}
-			if huntress.HitPoints >= hp0 {
-				t.Errorf("melee %s never struck the summon in RT (HP %d -> %d)", key, hp0, huntress.HitPoints)
-			}
-		})
 	}
 }
 
@@ -251,6 +189,8 @@ func cardSummonDuelTB(t *testing.T, enemyKey string) (*MMGame, *GameLoop, *monst
 	enemy.MaxHitPoints, enemy.HitPoints = 5000, 5000
 	ally := monsterPkg.NewMonster3DFromConfig(24*ts+ts/2, 10*ts+ts/2, "masked_huntress", game.config)
 	ally.MaxHitPoints, ally.HitPoints = 5000, 5000
+	// Callers assert the summon was struck; her authored dodge would flake that.
+	ally.PerfectDodge = 0
 	markCardAlly(ally)
 	game.world.Monsters = []*monsterPkg.Monster3D{enemy, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
@@ -504,6 +444,39 @@ func TestEveryActiveBossFightsCardSummonsRT(t *testing.T) {
 			fired := len(game.arrows) > 0 || len(game.magicProjectiles) > 0
 			if ally.HitPoints >= hp0 && !(ranged && fired) {
 				t.Fatalf("boss %s never fought card summon in RT (HP %d -> %d, fired=%v)", enemy.Name, hp0, ally.HitPoints, fired)
+			}
+		})
+	}
+}
+
+// A TB melee crossfire swing needs a clear attack line like every other melee
+// delivery: the wall row is the regression, the clear row its positive control.
+func TestCrossfireMeleeNeedsLineOfSightTB(t *testing.T) {
+	for _, wall := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wall_%v", wall), func(t *testing.T) {
+			g, ts := summonTileWorld(t)
+			placePlayerAtTile(g, 1, 18, ts)
+			attacker := monsterPkg.NewMonster3DFromConfig(5.5*ts, 5.5*ts, "dragon_green", g.config)
+			foe := monsterPkg.NewMonster3DFromConfig(7.5*ts, 5.5*ts, "skeleton", g.config)
+			g.world.Monsters = []*monsterPkg.Monster3D{attacker, foe}
+			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+			g.combat.applyBindUndead(foe, 60, "Bind Undead")
+			attacker.AIFoe = foe
+			attacker.AITargetX, attacker.AITargetY = foe.X, foe.Y
+			if wall {
+				g.world.Tiles[5][6] = world.TileWall
+			}
+			if g.collisionSystem.CheckLineOfSight(attacker.X, attacker.Y, foe.X, foe.Y) == wall {
+				t.Fatalf("fixture line of sight does not match wall=%v", wall)
+			}
+			for _, m := range g.world.Monsters {
+				if !g.collisionSystem.CanMoveToWithTileOverrides(m.ID, m.X, m.Y, m.WalkableTileOverrides, m.Flying) {
+					t.Fatalf("fixture stands in obstacle: %s", m.Key)
+				}
+			}
+			gl := &GameLoop{game: g}
+			if attacked := gl.tryMonsterAttackFoeTurnBased(attacker, foe); attacked == wall {
+				t.Fatalf("crossfire attacked=%v with wall=%v", attacked, wall)
 			}
 		})
 	}

@@ -14,7 +14,7 @@ import (
 // Every party buff family crosses RT, TB idle/initial/resolved turns, mode
 // switching and a serialized remainder. Legacy CombatClock=false is deliberate.
 func TestPartyBuffModeClockAndSave(t *testing.T) {
-	for _, kind := range []string{"heroism", "flame_ward_draught", "bless", "torch_light", "wizard_eye", "walk_on_water", "fly", "water_breathing"} {
+	for _, kind := range []string{"heroism", "flame_ward_draught", "solstice_fire_advanced_ward", "bless", "torch_light", "wizard_eye", "walk_on_water", "fly", "water_breathing"} {
 		t.Run(kind, func(t *testing.T) {
 			cfg := loadTestConfig(t)
 			g := newTestGame(cfg, newTestWorldSized(cfg, 12, 12))
@@ -27,7 +27,7 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			switch kind {
 			case "heroism":
 				g.addCombatBuff(TimedCombatBuff{SpellID: kind, Frames: duration, OutBonus: 10})
-			case "flame_ward_draught":
+			case "flame_ward_draught", "solstice_fire_advanced_ward":
 				def, _ := config.GetItemDefinition(kind)
 				b, ok := timedCombatBuffFromItem(kind, def, duration)
 				if !ok {
@@ -122,7 +122,7 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			if _, ok := g.utilitySpellStatuses[spells.SpellID(kind)]; ok {
 				t.Fatal("expired HUD remains")
 			}
-			if kind != "heroism" && kind != "flame_ward_draught" && kind != "bless" && expired != 1 {
+			if kind != "heroism" && kind != "flame_ward_draught" && kind != "solstice_fire_advanced_ward" && kind != "bless" && expired != 1 {
 				t.Fatalf("expiry callbacks=%d", expired)
 			}
 		})

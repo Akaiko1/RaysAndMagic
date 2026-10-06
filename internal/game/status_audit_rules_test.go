@@ -153,9 +153,20 @@ func TestSlowRealtimeCadence(t *testing.T) {
 // always starts counting from zero.
 func TestSlowTurnBasedSkipCadence(t *testing.T) {
 	trident := tarnTrident(t)
-	every := config.SlowSkipEveryTurns()
-	if every != 3 {
-		t.Fatalf("rows below are written for a skip every 3rd turn, config says %d", every)
+	const every = 3 // fixture cadence, set on the loaded config below
+	slowTurns := config.WeaponStatusTurns(trident.SlowSeconds)
+	turns := max(2*every, slowTurns+every)
+	// cadence is the expected run: x acted, - skipped (every k-th turn while slowed).
+	cadence := func(slowedTurns int) string {
+		var b strings.Builder
+		for k := 1; k <= turns; k++ {
+			if k <= slowedTurns && k%every == 0 {
+				b.WriteByte('-')
+			} else {
+				b.WriteByte('x')
+			}
+		}
+		return b.String()
 	}
 	moved := func(_ *MMGame, m *monster.Monster3D, x, y float64) bool { return m.X != x || m.Y != y }
 	actors := []struct {
@@ -170,10 +181,8 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 			m.State = monster.StateFleeing
 			m.StateTimer = 0
 		}, moved},
-		{"ranged", "dragon_brood_mother", 13.5, func(_ *MMGame, m *monster.Monster3D) {
-			m.SummonChance, m.InfernoChance, m.TrapVolleyCount, m.DragonBreathChance = 0, 0, 0, 0
-			m.SummonFirstGuaranteed = false
-		}, func(g *MMGame, _ *monster.Monster3D, _, _ float64) bool { return len(g.magicProjectiles) > 0 }},
+		{"ranged", "dragon_brood_mother", 13.5, func(_ *MMGame, m *monster.Monster3D) { disableRandomSpecials(m) },
+			func(g *MMGame, _ *monster.Monster3D, _, _ float64) bool { return len(g.magicProjectiles) > 0 }},
 	}
 	type env struct {
 		t  *testing.T
@@ -181,37 +190,42 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 		wm *world.WorldManager
 	}
 	hit := func(e env, m *monster.Monster3D) { e.g.combat.tryApplyWeaponHitRiders(m, trident) }
+	// A slow one turn shorter than the cadence, reapplied as it lapses.
+	shortTurns := every - 1
 	shortSlow := func(m *monster.Monster3D) {
-		m.ApplySlow(trident.SlowPct, 2*TurnBasedPeriodicEffectSeconds*config.GetTargetTPS(), 2)
+		m.ApplySlow(trident.SlowPct, shortTurns*TurnBasedPeriodicEffectSeconds*config.GetTargetTPS(), shortTurns)
 	}
 	scenarios := []struct {
 		name   string
 		before func(e env, m *monster.Monster3D, turn int)
-		want   string // one rune per turn: x acted, - skipped
+		want   string
 	}{
-		{"unslowed", func(env, *monster.Monster3D, int) {}, "xxxxxx"},
-		{"hit_every_turn", func(e env, m *monster.Monster3D, _ int) { hit(e, m) }, "xx-xx-"},
+		{"unslowed", func(env, *monster.Monster3D, int) {}, cadence(0)},
+		{"hit_every_turn", func(e env, m *monster.Monster3D, _ int) { hit(e, m) }, cadence(turns)},
 		{"hit_once_expires", func(e env, m *monster.Monster3D, turn int) {
 			if turn == 1 {
 				hit(e, m)
 			}
-		}, "xx-xxx"},
+		}, cadence(slowTurns)},
 		{"save_before_skip", func(e env, m *monster.Monster3D, turn int) {
 			hit(e, m)
-			if turn == 3 {
+			if turn == every {
 				reloadStatusFixture(e.t, e.g, e.wm)
 			}
-		}, "xx-xx-"},
+		}, cadence(turns)},
 		{"short_slows_reapplied", func(_ env, m *monster.Monster3D, turn int) {
-			if turn%2 == 1 {
+			if (turn-1)%shortTurns == 0 {
 				shortSlow(m)
 			}
-		}, "xxxxxx"},
+		}, cadence(0)},
 	}
 	for _, a := range actors {
 		for _, sc := range scenarios {
 			t.Run(a.name+"/"+sc.name, func(t *testing.T) {
 				g, gl, wm := clockSaveFixture(t)
+				prevEvery := config.GlobalConfig.StatusEffects.SlowSkipEveryTurns
+				config.GlobalConfig.StatusEffects.SlowSkipEveryTurns = every
+				t.Cleanup(func() { config.GlobalConfig.StatusEffects.SlowSkipEveryTurns = prevEvery })
 				g.turnBasedMode = true
 				ts := float64(g.config.GetTileSize())
 				for _, c := range g.party.Members {
@@ -223,7 +237,7 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 				g.world.Monsters = []*monster.Monster3D{m}
 				g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 				got := ""
-				for turn := 1; turn <= len(sc.want); turn++ {
+				for turn := 1; turn <= turns; turn++ {
 					sc.before(env{t, g, wm}, m, turn)
 					m = g.world.Monsters[0]
 					m.X, m.Y = a.tileX*ts, 10.5*ts
@@ -588,7 +602,7 @@ func TestHeroStunDiminishingReturns(t *testing.T) {
 					}
 				}
 				stun := func() int {
-					g.combat.tryApplyMonsterStun(mob, c, "")
+					g.combat.applyMonsterHitRiders(mob, "", heroHitTarget{g.combat, c})
 					got := c.StunFramesRemaining
 					if tb {
 						got = c.StunTurnsRemaining

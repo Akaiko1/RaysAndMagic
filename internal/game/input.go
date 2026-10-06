@@ -111,6 +111,11 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	// F5 quicksaves and Shift+F4 quickloads wherever the ESC menu can open.
+	if ih.handleQuickSaveKeys() {
+		return
+	}
+
 	// With no modal open, ESC opens the in-game main menu.
 	if ih.keys.Consume(ebiten.KeyEscape) {
 		if ih.game.menuOpen {
@@ -333,7 +338,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.profileKilled = nil
 	// Town Portal knows only THIS run's taverns.
 	g.visitedTavernMaps = nil
-	g.townPortalPickerOpen = false
+	g.cancelTownPortalPicker()
 	g.cancelSkyFade()
 
 	// Clear combat/projectile state (shared cleaner: also unregisters
@@ -409,6 +414,9 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 
 	// Drop the previous run's per-map return positions so a fresh party enters
 	// each map at its '+' start, not where the old party last stood.
+	g.adventure = AdventureState{}
+	g.arenaBarrierMessageAfter = 0
+	g.syncAdventureArenaBounds()
 	g.mapReturnPoses = make(map[string]MapPose)
 
 	// Reset maps to a fresh state with monsters and NPCs.
@@ -580,9 +588,9 @@ func (ih *InputHandler) handleMainMenuInput() {
 	// Mouse position for hover/click
 	mouseX, mouseY := uiCursorPosition()
 	// Panel size per mode (shared with the draw code via menuPanelSize).
-	panelW, panelH := menuPanelSize(ih.game.mainMenuMode)
 	w := ih.game.config.GetScreenWidth()
 	h := ih.game.config.GetScreenHeight()
+	panelW, panelH := menuPanelSize(ih.game.mainMenuMode, w, h)
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
@@ -634,11 +642,24 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 	}
 }
 
+// handleQuickSaveKeys runs F5 (quicksave) and Shift+F4 (quickload).
+func (ih *InputHandler) handleQuickSaveKeys() bool {
+	if ih.keys.Consume(ebiten.KeyF5) {
+		ih.game.quicksave()
+		return true
+	}
+	if (ih.keyHeld(ebiten.KeyShiftLeft) || ih.keyHeld(ebiten.KeyShiftRight)) && ih.keys.Consume(ebiten.KeyF4) {
+		ih.game.quickload()
+		return true
+	}
+	return false
+}
+
 // openSaveRename opens the rename dialog for a manual save row, rejecting the
-// Autosave slot and empty slots with a message.
+// load-only slots and empty slots with a message.
 func (ih *InputHandler) openSaveRename(row int) {
-	if saveRowIsAutosave(row) {
-		ih.game.AddCombatMessage("The Autosave slot cannot be renamed")
+	if saveRowIsLoadOnly(row) {
+		ih.game.AddCombatMessage("The " + saveRowLabel(row) + " slot cannot be renamed")
 		return
 	}
 	sum := GetSaveRowSummary(row)
@@ -686,13 +707,13 @@ func (ih *InputHandler) navigateSavePage() {
 	}
 }
 
-// doSaveToSelectedRow writes the manual slot under the cursor. The Autosave slot
-// is load-only and refuses a manual write.
+// doSaveToSelectedRow writes the manual slot under the cursor. The load-only
+// slots refuse a manual write.
 func (ih *InputHandler) doSaveToSelectedRow() {
 	g := ih.game
 	row := g.selectedSaveRow()
-	if saveRowIsAutosave(row) {
-		g.AddCombatMessage("Autosave is written automatically - pick another slot")
+	if saveRowIsLoadOnly(row) {
+		g.AddCombatMessage(saveRowLabel(row) + " is written automatically - pick another slot")
 		return
 	}
 	if err := g.SaveGameToFile(saveRowPath(row)); err != nil {
@@ -703,7 +724,7 @@ func (ih *InputHandler) doSaveToSelectedRow() {
 	}
 }
 
-// doLoadFromSelectedRow loads the slot under the cursor (Autosave included).
+// doLoadFromSelectedRow loads the slot under the cursor (Autosave and Quicksave included).
 func (ih *InputHandler) doLoadFromSelectedRow() {
 	g := ih.game
 	row := g.selectedSaveRow()
@@ -1230,18 +1251,19 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 	cs := ih.game.collisionSystem
 	moved := false
 	switch {
-	case cs.CanMoveTo("player", cam.X+dx, cam.Y+dy):
+	case ih.game.canMovePartyTo(cam.X+dx, cam.Y+dy):
 		cam.X += dx
 		cam.Y += dy
 		moved = true
-	case dx != 0 && cs.CanMoveTo("player", cam.X+dx, cam.Y):
+	case dx != 0 && ih.game.canMovePartyTo(cam.X+dx, cam.Y):
 		cam.X += dx
 		moved = true
-	case dy != 0 && cs.CanMoveTo("player", cam.X, cam.Y+dy):
+	case dy != 0 && ih.game.canMovePartyTo(cam.X, cam.Y+dy):
 		cam.Y += dy
 		moved = true
 	}
 	if !moved {
+		ih.game.announceBlockedPartyMove(oldX+dx, oldY+dy)
 		return
 	}
 	cs.UpdateEntity("player", cam.X, cam.Y)
@@ -1252,10 +1274,13 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 }
 
 // applyLandingTileEffects runs whatever the tile under the party does on arrival:
-// an auto-teleporter fires, deep water drops them to the underwater map. Every
-// arrival (a step, a TB move, a Jump) must go through it, or the party can stand
-// on a live teleporter doing nothing.
+// loot bags on and next to it are picked up, an auto-teleporter fires, deep
+// water drops them to the underwater map. Every arrival (a step, a TB move, a
+// Jump) must go through it, or the party can stand on a live teleporter doing
+// nothing.
 func (ih *InputHandler) applyLandingTileEffects() {
+	ih.game.autoPickupLootBags()
+	ih.game.applyEnvironmentArrival()
 	ih.checkTeleporter()
 	ih.checkDeepWater()
 }
@@ -1294,6 +1319,9 @@ func (ih *InputHandler) movementScale() float64 {
 // not rotation.
 func (ih *InputHandler) moveSpeed() float64 {
 	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	if ih.game.partyHinder.Slow > 0 {
+		speed *= .75
+	}
 	if ih.isRunning() {
 		speed *= ih.game.config.GetRunMultiplier()
 	}
@@ -1317,7 +1345,7 @@ func (ih *InputHandler) isRunning() bool {
 
 // checkTeleporter checks if player is on a teleporter and handles teleportation
 func (ih *InputHandler) checkTeleporter() {
-	targetMapKey, newX, newY, teleported := ih.tryTeleportation()
+	targetMapKey, newX, newY, group, teleported := ih.tryTeleportation()
 	if !teleported {
 		return // No teleportation occurred
 	}
@@ -1328,36 +1356,45 @@ func (ih *InputHandler) checkTeleporter() {
 	if targetMapKey != "" && world.GlobalWorldManager != nil && !world.GlobalWorldManager.SameWorldKey(targetMapKey, world.GlobalWorldManager.CurrentMapKey) {
 		if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, pose: MapPose{X: newX, Y: newY, Angle: AngleNorth}}); err != nil {
 			ih.game.AddCombatMessage("Teleport failed: " + err.Error())
+			return
 		}
-		return
+	} else {
+		// Same-map teleport uses the same landing constraint as Jump and Fold Step.
+		if !ih.game.canMovePartyTo(newX, newY) {
+			ih.game.announceBlockedPartyMove(newX, newY)
+			return
+		}
+		ih.game.setPartyPosition(newX, newY)
+		if ih.game.turnBasedMode {
+			ih.game.snapToCardinalDirection()
+		}
 	}
-
-	// Same-map teleport: keep the party's heading, no map-change autosave.
-	ih.game.setPartyPosition(newX, newY)
-	if ih.game.turnBasedMode {
-		ih.game.snapToCardinalDirection()
+	reg := world.GlobalWorldManager.GlobalTeleporterRegistry
+	if reg.LastUsedByGroup == nil {
+		reg.LastUsedByGroup = make(map[string]time.Time)
 	}
+	reg.LastUsedByGroup[group] = time.Now()
 }
 
-// tryTeleportation checks if the player is on a teleporter and attempts teleportation using the global registry
-func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
+// tryTeleportation selects a destination without moving or consuming cooldown.
+func (ih *InputHandler) tryTeleportation() (string, float64, float64, string, bool) {
 	x, y := ih.game.camera.X, ih.game.camera.Y
 	worldInst := ih.game.GetCurrentWorld()
 	if worldInst == nil || world.GlobalWorldManager == nil {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
 	tileSize := float64(ih.game.config.GetTileSize())
 	tx, ty := TileIndex(x, tileSize), TileIndex(y, tileSize)
 	if tx < 0 || tx >= worldInst.Width || ty < 0 || ty >= worldInst.Height {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
 	tile := worldInst.Tiles[ty][tx]
 	if world.GlobalTileManager == nil {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
 	tileData := world.GlobalTileManager.GetTileData(tile)
 	if tileData == nil || strings.ToLower(tileData.Type) != "teleporter" {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
 	reg := world.GlobalWorldManager.GlobalTeleporterRegistry
 	// Unified world: teleporters register under their REGION key at unified
@@ -1371,27 +1408,23 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 	}
 	source, ok := reg.FindTeleporter(lookupKey, tx, ty)
 	if !ok || !source.AutoActivate {
-		return "", x, y, false
-	}
-	if reg.LastUsedByGroup == nil {
-		reg.LastUsedByGroup = make(map[string]time.Time)
+		return "", x, y, "", false
 	}
 	cooldown := time.Duration(source.CooldownSeconds * float64(time.Second))
 	if cooldown > 0 {
 		if last, exists := reg.LastUsedByGroup[source.Group]; exists {
 			if time.Since(last) < cooldown {
-				return "", x, y, false
+				return "", x, y, "", false
 			}
 		}
 	}
 
 	dest, ok := reg.GetRandomDestinationTeleporter(source)
 	if !ok {
-		return "", x, y, false
+		return "", x, y, "", false
 	}
-	reg.LastUsedByGroup[source.Group] = time.Now()
 	nx, ny := TileCenterFromTile(dest.X, dest.Y, tileSize)
-	return dest.MapKey, nx, ny, true
+	return dest.MapKey, nx, ny, source.Group, true
 }
 
 // checkDeepWater checks if player stepped on deep water and handles Water Breathing teleportation
@@ -1647,9 +1680,6 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 		g.spellInputCooldown = g.config.UI.SpellInputCooldown
 		return
 	}
-	if !g.canOpenClassBook(tab) {
-		return
-	}
 	g.currentTab = tab
 	if tab == TabSpellbook {
 		g.selectedSpell = -1 // clear highlight until the user picks one
@@ -1658,9 +1688,6 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 
 // openTabbedMenu opens the tabbed menu with the specified tab
 func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
-	if !ih.game.canOpenClassBook(tab) {
-		return
-	}
 	ih.game.menuOpen = true
 	ih.game.currentTab = tab
 	if tab == TabSpellbook {
@@ -2504,6 +2531,8 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 
 	// First, check if the target tile itself is passable (not blocked by terrain)
 	if !ih.canMoveToTile(targetTileX, targetTileY) {
+		x, y := TileCenterFromTile(targetTileX, targetTileY, tileSize)
+		ih.game.announceBlockedPartyMove(x, y)
 		return false // Target tile is impassable (tree, wall, etc.)
 	}
 
@@ -2529,7 +2558,7 @@ func (ih *InputHandler) canMoveToTile(tileX, tileY int) bool {
 	worldX, worldY := TileCenterFromTile(tileX, tileY, tileSize)
 
 	// Use collision system which handles bounds checking and centralized tile logic
-	return ih.game.collisionSystem.CanMoveTo("player", worldX, worldY)
+	return ih.game.canMovePartyTo(worldX, worldY)
 }
 
 // rotateTurnBased rotates the camera in 90-degree increments
@@ -3047,13 +3076,8 @@ func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 		g.AddCombatMessage(uitext.Text("dialog.that_casting_costs_gold_your_purse_is", choice.Cost))
 		return
 	}
-	switch g.grantTimedBuffSeconds(choice.Buff, choice.DurationSeconds) {
-	case timedBuffNotHandled:
+	if g.grantTimedBuffSeconds(choice.Buff, choice.DurationSeconds) == timedBuffNotHandled {
 		g.AddCombatMessage(uitext.Text("dialog.nothing_happens")) // unknown buff: validated at load
-		return
-	case timedBuffUnchanged:
-		g.AddCombatMessage(uitext.Text("dialog.already_lasts_at_least_no_gold_was",
-			buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds)))
 		return
 	}
 	casterName := uitext.Text("dialog.the_caster")
@@ -3135,8 +3159,11 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 }
 
 func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
+	ih.enterEncounterMapAt(targetMapKey, nil)
+}
+func (ih *InputHandler) enterEncounterMapAt(targetMapKey string, tile *[2]int) {
 	ih.game.closeConversation()
-	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance}); err != nil {
+	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance, arrivalTile: tile}); err != nil {
 		ih.game.AddCombatMessage("You cannot enter from here.")
 	}
 }

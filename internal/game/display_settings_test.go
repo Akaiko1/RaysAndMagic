@@ -29,6 +29,7 @@ func TestLogicalScreenSizeInterfaceScale(t *testing.T) {
 		{"768p capped", size{1366, 768}, [3]size{{1366, 768}, {1209, 680}, {1209, 680}}},
 		{"720p capped", size{1280, 720}, [3]size{{1280, 720}, {1209, 680}, {1209, 680}}},
 		{"small window", size{640, 480}, [3]size{{907, 680}, {907, 680}, {907, 680}}},
+		{"tiny 3:2", size{300, 200}, [3]size{{1020, 680}, {1020, 680}, {1020, 680}}},
 		{"portrait", size{1080, 1920}, [3]size{{800, 1422}, {800, 1422}, {800, 1422}}},
 	}
 	minW, minH := MinimumWindowSize()

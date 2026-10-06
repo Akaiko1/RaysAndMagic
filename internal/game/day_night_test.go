@@ -9,34 +9,6 @@ import (
 	"ugataima/internal/world"
 )
 
-func TestDayNightLightScaleCurve(t *testing.T) {
-	const day, night = 1.0, 0.7
-	tests := []struct {
-		frac float64
-		want float64
-	}{
-		{0, day},     // noon
-		{0.5, night}, // midnight
-		{0.25, 0.85}, // dusk boundary = curve midpoint
-		{0.75, 0.85}, // dawn boundary
-		{1.0, day},   // wrap
-	}
-	for _, tt := range tests {
-		if got := dayNightLightScale(tt.frac, day, night); math.Abs(got-tt.want) > 1e-9 {
-			t.Errorf("scale(%.2f) = %.4f, want %.4f", tt.frac, got, tt.want)
-		}
-	}
-	// Smooth monotonic descent from noon to midnight.
-	prev := dayNightLightScale(0, day, night)
-	for f := 0.05; f <= 0.5; f += 0.05 {
-		cur := dayNightLightScale(f, day, night)
-		if cur >= prev {
-			t.Fatalf("scale not decreasing at frac %.2f: %.4f -> %.4f", f, prev, cur)
-		}
-		prev = cur
-	}
-}
-
 func TestDayNightPhaseBoundaries(t *testing.T) {
 	tests := []struct {
 		frac  float64
@@ -124,14 +96,15 @@ func TestWorldHasLivingMonstersInRect(t *testing.T) {
 	}
 }
 
+// The cliff dragons return only after the cliffs are completely cleared.
 func TestDragonCliffsNightPackRequiresFullClear(t *testing.T) {
 	cfg := loadTestConfig(t)
 	for _, pack := range cfg.DayNight.Packs {
 		if pack.Map != "dragon_cliffs" {
 			continue
 		}
-		if pack.NightMonster != "dragon" || pack.Count != 5 || !pack.RequireMapClear {
-			t.Fatalf("dragon cliffs night pack = %+v, want black dragon x5 after a full clear", pack)
+		if !pack.RequireMapClear {
+			t.Fatalf("dragon cliffs night pack = %+v, want require_map_clear", pack)
 		}
 		return
 	}

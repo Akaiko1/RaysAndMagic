@@ -40,17 +40,39 @@ func TestRumorsYAML_LoadsAndRotates(t *testing.T) {
 	if first == "" {
 		t.Fatal("empty rumor")
 	}
-	// Completing a goal quest retires its rumor from the pool.
-	if err := g.questManager.ActivateQuest("culverts_valves"); err != nil {
-		t.Fatalf("activate: %v", err)
+	// Completing a goal quest retires its rumor from the pool; before that the
+	// rotation shows it.
+	shown := func(text string) bool {
+		for day := 0; day < len(globalRumors)*2; day++ {
+			g.dayNightDay = day
+			if g.currentRumorText(testTavernSeed) == text {
+				return true
+			}
+		}
+		return false
 	}
-	g.questManager.MarkCompleted("culverts_valves")
-	for day := 0; day < len(globalRumors)*2; day++ {
-		g.dayNightDay = day
-		if got := g.currentRumorText(testTavernSeed); got == globalRumors[0].Text && globalRumors[0].Quest == "culverts_valves" {
-			t.Fatalf("retired rumor still shown on day %d", day)
+	retiring := 0
+	for _, r := range globalRumors {
+		if r.Quest == "" || r.After != "" {
+			continue
+		}
+		retiring++
+		g.questManager = quests.NewQuestManager(questCfg)
+		if !shown(r.Text) {
+			t.Errorf("rumor for %s never shown before its quest completes", r.Quest)
+		}
+		if err := g.questManager.ActivateQuest(r.Quest); err != nil {
+			t.Fatalf("activate: %v", err)
+		}
+		g.questManager.MarkCompleted(r.Quest)
+		if shown(r.Text) {
+			t.Errorf("rumor for %s still shown after the quest completed", r.Quest)
 		}
 	}
+	if retiring == 0 {
+		t.Fatal("no shipped rumor retires on a quest")
+	}
+	g.questManager = questManager
 	// An after-gated rumor surfaces once its prerequisite completes.
 	if err := g.questManager.ActivateQuest("water_purge"); err != nil {
 		t.Fatalf("activate: %v", err)
@@ -83,17 +105,17 @@ func TestRumors_TavernsDrawIndependently(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
 
-	// The shipped taverns, one per map, all from the same npcs.yaml key - so the
-	// seed must come from where the taproom stands, not from its key.
+	// Synthetic taverns sharing one npcs.yaml key: the seed must come from the
+	// map and the pixel position the taproom stands at, never from its key.
 	taverns := []struct {
 		mapKey string
 		x, y   float64
 	}{
-		{"forest", 18, 57},
-		{"desert", 29, 54},
-		{"highlands", 22, 61},
-		{"dragon_cliffs", 4, 82},
-		{"deep_jungle", 3, 89},
+		{"map_a", 96, 96},
+		{"map_a", 1248, 96},
+		{"map_b", 96, 96},
+		{"map_b", 96, 1248},
+		{"map_c", 672, 672},
 	}
 	seeds := make([]uint64, 0, len(taverns))
 	for _, tv := range taverns {
@@ -161,10 +183,20 @@ func TestRumors_ShippedStoryStepsHaveExactRetirementConditions(t *testing.T) {
 		t.Fatalf("load rumors: %v", err)
 	}
 
-	wantSpawnedBosses := map[string]string{
-		"dragon_slayer#reaper_dais":             "ancient_god_of_death",
-		"broodmother_nests#brood_mother_crater": "brood_mother",
-		"water_purge#enforcer_depths":           "alien_enforcer",
+	// Every completion spawn has a follow-up rumor retiring on that boss.
+	loadTestConfig(t)
+	wantSpawnedBosses := map[string]string{}
+	for id, def := range questCfg.Quests {
+		for _, sp := range def.OnCompleteSpawns {
+			md, err := monsterPkg.MonsterConfig.GetMonsterByKey(sp.Monster)
+			if err != nil {
+				t.Fatalf("%s#%s spawns unknown monster %q", id, sp.ID, sp.Monster)
+			}
+			wantSpawnedBosses[id+"#"+sp.ID] = quests.NormalizeTarget(md.Name)
+		}
+	}
+	if len(wantSpawnedBosses) == 0 {
+		t.Fatal("no quest spawns a boss on completion")
 	}
 	found := make(map[string]string)
 	for i, rumor := range globalRumors {
@@ -179,7 +211,7 @@ func TestRumors_ShippedStoryStepsHaveExactRetirementConditions(t *testing.T) {
 			t.Errorf("non-specific triad rumor remains: %q", rumor.Text)
 		}
 		if rumor.Spawn != "" {
-			found[rumor.Spawn] = rumor.UntilMonster
+			found[rumor.Spawn] = quests.NormalizeTarget(rumor.UntilMonster)
 		}
 	}
 	for spawn, monster := range wantSpawnedBosses {

@@ -1,9 +1,11 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/monster"
 )
 
@@ -15,7 +17,8 @@ func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
 			g.combat = NewCombatSystem(g)
 			g.reconcileKillQuests()
 			final := g.questManager.GetQuest("endgame_triad")
-			if final.Completed || final.Target() != 3 {
+			bosses := final.Definition.TargetCount
+			if final.Completed || final.Target() != bosses {
 				t.Fatalf("unspawned final bosses changed target: %+v", final)
 			}
 			// A killed boss must not remove the two bosses still behind unlocks.
@@ -28,7 +31,7 @@ func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
 			boss := monster.NewMonster3DFromConfig((float64(tx)+.5)*ts, (float64(ty)+.5)*ts, sp.Monster, g.config)
 			boss.HitPoints = 0
 			g.combat.updateQuestProgress(boss)
-			if final.Completed || final.Target() != 3 || final.CurrentCount != 1 {
+			if final.Completed || final.Target() != bosses || final.CurrentCount != 1 {
 				t.Fatalf("first boss prematurely resolved finale: %+v", final)
 			}
 			// The spawn queue counts until its actor joins the world roster.
@@ -36,35 +39,44 @@ func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
 			g.pendingQuestSpawns = []pendingQuestSpawn{{world: w, monster: boss}}
 			final.CurrentCount = 0
 			g.reconcileKillQuests()
-			if final.Target() != 3 {
+			if final.Target() != bosses {
 				t.Fatal("queued boss vanished from census")
 			}
 			g.flushPendingQuestSpawns()
-			if count, ok := g.availableKillQuestTargets(final, false); !ok || count != 3 {
+			if count, ok := g.availableKillQuestTargets(final, false); !ok || count != bosses {
 				t.Fatalf("flushed boss census=%d valid=%v", count, ok)
 			}
 
 			ih := &InputHandler{game: g}
 			ih.handleGiveQuest("dragon_slayer")
 			hunt := g.questManager.GetQuest("dragon_slayer")
-			if hunt.Completed || hunt.Target() != 4 {
-				t.Fatalf("unspent seals lost: %+v", hunt)
-			}
-			// One spent seal without a living dragon represents an old cleared source.
+			var seals []*character.NPC
 			for _, npc := range g.allLoadedNPCs() {
 				if len(npc.Summons) > 0 && npc.Summons[0].QuestID == hunt.ID {
-					npc.Visited = true
-					break
+					seals = append(seals, npc)
 				}
 			}
+			if len(seals) < 2 {
+				t.Fatalf("%s has %d placed seals, want several", hunt.ID, len(seals))
+			}
+			if hunt.Completed || hunt.Target() != len(seals) {
+				t.Fatalf("unspent seals lost: target %d, want %d seals", hunt.Target(), len(seals))
+			}
+			// One spent seal without a living dragon represents an old cleared source.
+			seals[0].Visited = true
 			g.reconcileKillQuests()
-			if hunt.Completed || hunt.Target() != 3 || !strings.Contains(hunt.Description(), "slay 3 Elder Dragons") {
+			remaining := len(seals) - 1
+			if !strings.Contains(hunt.Definition.Description, "{target_count}") {
+				t.Fatalf("%s description does not show its quota", hunt.ID)
+			}
+			wantCopy := strings.ReplaceAll(hunt.Definition.Description, "{target_count}", fmt.Sprint(remaining))
+			if hunt.Completed || hunt.Target() != remaining || hunt.Description() != wantCopy {
 				t.Fatalf("remaining seal quota/copy: %+v", hunt)
 			}
 			save := g.buildSave(wm)
 			g.restoreSavedQuests(&save)
 			hunt = g.questManager.GetQuest(hunt.ID)
-			if hunt.Target() != 3 {
+			if hunt.Target() != remaining {
 				t.Fatal("restored seal quota changed")
 			}
 			// Ordinary same-name dragons never count toward a source-bound hunt.
@@ -93,23 +105,27 @@ func TestRepeatableKillQuotaStartsFresh(t *testing.T) {
 	ih := &InputHandler{game: g}
 	ih.handleGiveQuest("lake_spiders")
 	q := g.questManager.GetQuest("lake_spiders")
+	quota := q.Definition.TargetCount
+	if quota < 2 {
+		t.Fatalf("lake_spiders quota %d leaves no smaller pack to test", quota)
+	}
 	if g.creditQuestIfCleared(q.ID) || q.Completed {
 		t.Fatal("absent seasonal pack granted free quest rewards")
 	}
-	add(2)
+	add(quota - 1)
 	g.reconcileKillQuests()
-	if q.Target() != 5 {
-		t.Fatalf("first night target=%d", q.Target())
+	if q.Target() != quota {
+		t.Fatalf("first night target=%d, want the fixed quota %d", q.Target(), quota)
 	}
 	g.questManager.MarkCompleted(q.ID)
 	if _, err := g.questManager.ClaimRewards(q.ID); err != nil {
 		t.Fatal(err)
 	}
 	g.refreshRepeatableQuests("night")
-	add(8)
+	add(quota + 3)
 	ih.handleGiveQuest(q.ID)
 	q = g.questManager.GetQuest(q.ID)
-	if q.Target() != 5 || q.CurrentCount != 0 || q.Completed {
+	if q.Target() != quota || q.CurrentCount != 0 || q.Completed {
 		t.Fatalf("new night retained reduced quota: %+v", q)
 	}
 }

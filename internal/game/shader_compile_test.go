@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"testing"
+	"ugataima/internal/shaders"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -13,15 +14,8 @@ import (
 // Kage sources compile at runtime, so a Go build can't catch shader syntax
 // errors - compile them here so a broken shader fails the suite, not the game.
 func TestKageShadersCompile(t *testing.T) {
-	for name, src := range map[string]string{
-		"floor":            floorShaderSrc,
-		"campDissolve":     campDissolveShaderSrc,
-		"sky":              skyShaderSrc,
-		"standeeTrilinear": standeeTrilinearShaderSrc,
-		"standeeVolume":    standeeVolumeShaderSrc,
-		"turnBlur":         turnBlurShaderSrc,
-	} {
-		if _, err := ebiten.NewShader([]byte(src)); err != nil {
+	for _, name := range shaders.Names() {
+		if _, err := ebiten.NewShader([]byte(shaders.Source(name))); err != nil {
 			t.Errorf("%s shader failed to compile: %v", name, err)
 		}
 	}
@@ -155,7 +149,7 @@ func TestStandeeTrilinearShaderFillsOriginalQuad(t *testing.T) {
 		}
 	}
 
-	// The far sticker uses the same selected sticker mip with a single tap.
+	// The far sticker blends the same adjacent mip levels as the near sticker.
 	// Its level-space mapping must also cover the complete destination.
 	for i := range vertices {
 		vertices[i].Custom1 = 2
@@ -165,8 +159,8 @@ func TestStandeeTrilinearShaderFillsOriginalQuad(t *testing.T) {
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {
 			got := color.RGBAModel.Convert(dst.At(x, y)).(color.RGBA)
-			if got != (color.RGBA{R: 0xff, A: 0xff}) {
-				t.Fatalf("far-sticker pixel (%d,%d) = %#v; selected mip must fill the opaque 8x8 quad", x, y, got)
+			if got.A != 0xff || got.G != 0 || got.R < 125 || got.R > 130 || got.B < 125 || got.B > 130 {
+				t.Fatalf("far-sticker pixel (%d,%d) = %#v; adjacent mip blend must fill the opaque 8x8 quad", x, y, got)
 			}
 		}
 	}

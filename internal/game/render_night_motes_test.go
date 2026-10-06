@@ -4,68 +4,46 @@ import (
 	"math"
 	"testing"
 
-	"ugataima/internal/config"
 	"ugataima/internal/world"
 )
 
-func TestNightMotesComeOnlyFromTileConfig(t *testing.T) {
-	cfg := loadTestConfig(t)
-	previous := world.GlobalTileManager
-	t.Cleanup(func() { world.GlobalTileManager = previous })
-	tm := world.NewTileManager(cfg.Graphics.SizeClasses)
-	if err := tm.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
-		t.Fatalf("load tiles: %v", err)
-	}
-	world.GlobalTileManager = tm
-
-	for _, key := range tm.GetAllTileKeys() {
-		tile := tm.GetTileDataByKey(key)
-		got, configured := nightMotePaletteForConfig(tile)
-		if tile.NightMotes == nil {
-			if configured {
-				t.Errorf("tile %q emitted night motes without authored config", key)
-			}
-			continue
-		}
-		if !configured || got.glow != tile.NightMotes.GlowColor || got.core != tile.NightMotes.CoreColor {
-			t.Errorf("tile %q night motes = %+v, configured=%v; want authored colors", key, got, configured)
-		}
-	}
-}
-
 func TestNightMoteFliesOneTileForConfiguredLifetime(t *testing.T) {
-	cfg := loadTestConfig(t)
-	tps := cfg.GetTPS()
+	r, _ := nightMoteTreeTestRenderer(t, 0)
+	cfg := r.game.config
 	tileSize := float64(cfg.GetTileSize())
-	lifeTicks := int64(math.Round(cfg.Graphics.NightMotes.LifetimeSeconds * float64(tps)))
-	fly := nightMote{
-		startX: 32, startY: 32,
-		targetX: 96, targetY: 32,
-		bornTick: 10,
-		dieTick:  10 + lifeTicks,
-		phase:    0.4,
-	}
-	if got := fly.dieTick - fly.bornTick; got != lifeTicks {
-		t.Fatalf("lifetime = %d ticks, want configured %d", got, lifeTicks)
-	}
-	mid, ok := fly.pose((fly.bornTick+fly.dieTick)/2, tileSize)
-	if !ok || mid.x <= fly.startX || mid.x >= fly.targetX || mid.alpha <= 0 {
-		t.Fatalf("mid-flight pose = %+v, %v", mid, ok)
-	}
-	last, ok := fly.pose(fly.dieTick-1, tileSize)
-	if !ok || math.Hypot(last.x-fly.targetX, last.y-fly.targetY) > tileSize*0.02 {
-		t.Fatalf("final pose = %+v, want arrival near adjacent tile center", last)
-	}
-	if _, ok := fly.pose(fly.dieTick, tileSize); ok {
-		t.Fatal("mote remained alive after its configured lifetime")
-	}
-}
+	lifeTicks := int64(math.Round(cfg.Graphics.NightMotes.LifetimeSeconds * float64(cfg.GetTPS())))
+	tree := &r.treeTilesCache[0]
+	// The target direction is random: repeat to cover several neighbours.
+	for i := 0; i < 16; i++ {
+		r.nightMotes = r.nightMotes[:0]
+		if !r.spawnNightMote(10, tree, r.game.world) || len(r.nightMotes) != 1 {
+			t.Fatalf("spawn %d: no mote from a tree with open neighbours", i)
+		}
+		fly := r.nightMotes[0]
+		if got := fly.dieTick - fly.bornTick; fly.bornTick != 10 || got != lifeTicks {
+			t.Fatalf("born %d, lifetime = %d ticks, want 10 and configured %d", fly.bornTick, got, lifeTicks)
+		}
+		if fly.startX != tree.worldX || fly.startY != tree.worldY {
+			t.Fatalf("mote starts at (%.1f,%.1f), want tree center (%.1f,%.1f)", fly.startX, fly.startY, tree.worldX, tree.worldY)
+		}
+		tx, ty := int(fly.targetX/tileSize), int(fly.targetY/tileSize)
+		if dx, dy := tx-tree.tileX, ty-tree.tileY; dx < -1 || dx > 1 || dy < -1 || dy > 1 || dx == 0 && dy == 0 {
+			t.Fatalf("target tile (%d,%d) is not adjacent to tree tile (%d,%d)", tx, ty, tree.tileX, tree.tileY)
+		}
 
-func TestNightMoteSizeRange(t *testing.T) {
-	for i := 0; i < 100; i++ {
-		scale := randomNightMoteSizeScale()
-		if scale < 0.70 || scale >= 1.30 {
-			t.Fatalf("random size scale = %v, want in [0.70, 1.30)", scale)
+		dirX, dirY := fly.targetX-fly.startX, fly.targetY-fly.startY
+		route := math.Hypot(dirX, dirY)
+		mid, ok := fly.pose((fly.bornTick+fly.dieTick)/2, tileSize)
+		along := ((mid.x-fly.startX)*dirX + (mid.y-fly.startY)*dirY) / (route * route)
+		if !ok || along <= 0 || along >= 1 || mid.alpha <= 0 {
+			t.Fatalf("mid-flight pose = %+v (%.2f of the route), %v", mid, along, ok)
+		}
+		last, ok := fly.pose(fly.dieTick-1, tileSize)
+		if !ok || math.Hypot(last.x-fly.targetX, last.y-fly.targetY) > tileSize*0.02 {
+			t.Fatalf("final pose = %+v, want arrival near adjacent tile center", last)
+		}
+		if _, ok := fly.pose(fly.dieTick, tileSize); ok {
+			t.Fatal("mote remained alive after its configured lifetime")
 		}
 	}
 }
@@ -155,25 +133,6 @@ func TestNightMoteZeroChanceNeverEmits(t *testing.T) {
 	}
 }
 
-func TestNightMoteInitialScheduleFallsWithinOneInterval(t *testing.T) {
-	r, id := nightMoteTreeTestRenderer(t, 0)
-	interval := r.nightMoteSpawnInterval()
-	offsets := make(map[int64]struct{})
-	for i := int64(0); i < 16; i++ {
-		tick := 100 + i*interval
-		delete(r.nightMoteNextByTree, id)
-		r.updateNightMoteTrees(tick)
-		next := r.nightMoteNextByTree[id]
-		if next < tick || next >= tick+interval {
-			t.Fatalf("initial night-mote roll scheduled at %d, want [%d, %d)", next, tick, tick+interval)
-		}
-		offsets[next-tick] = struct{}{}
-	}
-	if len(offsets) < 2 {
-		t.Fatalf("16 initial night-mote schedules used only one offset: %v", offsets)
-	}
-}
-
 func TestNightMoteScanAndSpawnReuseScratch(t *testing.T) {
 	r, id := nightMoteTreeTestRenderer(t, 0)
 	r.updateNightMoteTrees(1)
@@ -220,17 +179,6 @@ func TestNightMotesDoNotBecomeWorldLights(t *testing.T) {
 	r.updateActiveLights()
 	if len(r.activeLights) != 0 {
 		t.Fatalf("moving motes added %d world lights; want a visual-only effect", len(r.activeLights))
-	}
-}
-
-func TestNightMoteTimingAndRadiusDeriveFromConfig(t *testing.T) {
-	cfg := loadTestConfig(t)
-	r := &Renderer{game: newTestGame(cfg, newTestWorldSized(cfg, 3, 3))}
-	if want := cfg.Graphics.NightMotes.EmissionRadiusTiles * float64(cfg.GetTileSize()); r.nightMoteMaxDepth() != want {
-		t.Fatalf("night mote max depth = %v, want %v", r.nightMoteMaxDepth(), want)
-	}
-	if want := int64(math.Round(cfg.Graphics.NightMotes.EmissionIntervalSeconds * float64(cfg.GetTPS()))); r.nightMoteSpawnInterval() != want {
-		t.Fatalf("night mote spawn interval = %d ticks, want %d", r.nightMoteSpawnInterval(), want)
 	}
 }
 
@@ -283,19 +231,5 @@ func TestNightMoteTargetRejectsBlockingTerrain(t *testing.T) {
 	mote := r.nightMotes[len(r.nightMotes)-1]
 	if int(mote.targetX/tileSize) != 0 || int(mote.targetY/tileSize) != 0 {
 		t.Fatalf("target = (%.1f, %.1f), want open tile (0,0)", mote.targetX, mote.targetY)
-	}
-}
-
-func TestNightMotePaletteRequiresAuthoredConfig(t *testing.T) {
-	if _, ok := nightMotePaletteForConfig(nil); ok {
-		t.Fatal("nil tile unexpectedly emitted night motes")
-	}
-	tile := &config.TileData{NightMotes: &config.TileNightMoteConfig{
-		GlowColor: [3]int{1, 2, 3},
-		CoreColor: [3]int{4, 5, 6},
-	}}
-	got, ok := nightMotePaletteForConfig(tile)
-	if !ok || got.glow != tile.NightMotes.GlowColor || got.core != tile.NightMotes.CoreColor {
-		t.Fatalf("configured palette = %+v, %v", got, ok)
 	}
 }

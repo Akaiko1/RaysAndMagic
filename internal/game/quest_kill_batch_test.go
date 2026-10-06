@@ -13,16 +13,22 @@ import (
 // entry points. Partial batches keep their goal; a full batch completes once.
 // Both modes' autonomous damage shares finalizeIndirectKills after HP updates.
 func TestKillQuestBatchCredit(t *testing.T) {
+	t.Chdir("../..")
 	for _, merged := range []bool{false, true} {
+		// One boot per world mode. Each cell installs its own quest manager,
+		// combat system and monsters, and starts from an empty log and queue.
+		g, wm, cfg := bootOpenWorldGame(t, merged)
+		goblinHunt := *g.questManager.Definitions()["goblin_hunt"]
 		for _, exterminate := range []bool{false, true} {
 			for _, sourceOnly := range []bool{false, true} {
 				for _, entry := range []string{"direct", "indirect", "mixed"} {
 					for _, killed := range []int{3, 5} {
 						t.Run(fmt.Sprintf("merged=%v/all=%v/source=%v/%s/kills=%d", merged, exterminate, sourceOnly, entry, killed), func(t *testing.T) {
-							t.Chdir("../..")
-							g, wm, cfg := bootOpenWorldGame(t, merged)
+							g.combatLogHistory, g.deadMonsterIDs = nil, nil
 							const id = "batch_hunt"
-							def := *g.questManager.Definitions()["goblin_hunt"]
+							// The cells below spawn forest goblins and count to 5.
+							def := goblinHunt
+							def.TargetMonster, def.TargetCount, def.TargetMap = "goblin", 5, "forest"
 							def.Exterminate, def.EncounterOnly = exterminate, sourceOnly
 							g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{id: &def}})
 							previous := quests.GlobalQuestManager

@@ -41,28 +41,41 @@ func TestItemUsageGameEditorCatalog(t *testing.T) {
 	}
 }
 
+// Each item kind picks its default usage wording; an authored tooltip_usage
+// replaces the defaults. Authored currency hints: TestItemCurrencyUsageFollowsMerchantStock.
 func TestItemUsageKindsAndAuthoredOverrides(t *testing.T) {
+	newTestCombatSystemWithConfig(t)
+	u := config.GlobalItems.TooltipUsageDefaults
+	authored := func(d *config.ItemDefinitionConfig) bool { return len(d.TooltipUsage) > 0 }
 	for _, tc := range []struct {
 		key          string
+		fixture      func(*config.ItemDefinitionConfig) bool
 		want, absent []string
 	}{
-		{"medusa_card", []string{"Card Collector", "active collection"}, []string{"Double-click", "sell to merchants"}},
-		{"health_potion", []string{"Double-click in inventory to use", "Consumed on use"}, nil},
-		{"world_map", []string{"Double-click in inventory to use", "Cannot be dropped"}, []string{"Consumed on use"}},
-		{"lich_phylactery", []string{"Consumed after promotion"}, []string{"Cannot be dropped"}},
-		{"black_dragon_statuette", []string{"Cannot be dropped"}, []string{"Double-click"}},
-		{"ordinary_key", []string{"Choose at a locked door", "Consumed when it opens a door"}, []string{"sell to merchants"}},
-		{"skeleton_key", []string{"Choose at a locked door", "Never consumed"}, []string{"Consumed on use"}},
-		{"clock_hand", []string{"Exchange with the Clockmaker"}, []string{"sell to merchants"}},
-		{"black_dragon_scale", []string{"Exchange with the Scalewright", "gold is also required"}, []string{"sell to merchants"}},
-		{"red_dragon_scale", []string{"Exchange with the Scalewright", "gold is also required"}, []string{"sell to merchants"}},
-		{"green_dragon_scale", []string{"Exchange with the Scalewright", "gold is also required"}, []string{"sell to merchants"}},
-		{"gold_dragon_scale", []string{"Exchange with the Scalewright", "gold is also required"}, []string{"sell to merchants"}},
+		{"medusa_card", func(d *config.ItemDefinitionConfig) bool { return d.Type == "card" && !authored(d) },
+			u.Card, []string{u.ActivateInventory, u.Trinket}},
+		{"health_potion", func(d *config.ItemDefinitionConfig) bool { return d.Type == "consumable" && !authored(d) },
+			[]string{u.ActivateInventory, u.ConsumedOnUse}, nil},
+		{"world_map", func(d *config.ItemDefinitionConfig) bool { return d.Type == "quest" && d.OpensMap && !d.Discardable },
+			[]string{u.ActivateInventory, u.CannotDrop}, []string{u.ConsumedOnUse}},
+		{"lich_phylactery", func(d *config.ItemDefinitionConfig) bool { return d.Type == "quest" && d.PromotesLich && d.Discardable },
+			[]string{u.ConsumedAfterPromotion}, []string{u.CannotDrop}},
+		{"black_dragon_statuette", func(d *config.ItemDefinitionConfig) bool {
+			return d.Type == "quest" && !d.OpensMap && !d.PromotesLich && !d.Discardable
+		}, []string{u.CannotDrop}, []string{u.ActivateInventory}},
+		{"ordinary_key", func(d *config.ItemDefinitionConfig) bool { return d.Type == "trinket" && authored(d) },
+			nil, []string{u.Trinket}},
+		{"skeleton_key", func(d *config.ItemDefinitionConfig) bool { return d.Type == "trinket" && authored(d) },
+			nil, []string{u.Trinket, u.ConsumedOnUse}},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
+			def, ok := config.GetItemDefinition(tc.key)
+			if !ok || !tc.fixture(def) {
+				t.Fatalf("fixture %s no longer exercises its usage branch", tc.key)
+			}
 			text := GetItemTooltip(items.CreateItemFromYAML(tc.key), cs.game.party.Members[0], cs, false)
-			for _, s := range tc.want {
+			for _, s := range append(slices.Clone(tc.want), def.TooltipUsage...) {
 				if !strings.Contains(text, s) {
 					t.Errorf("missing %q: %s", s, text)
 				}

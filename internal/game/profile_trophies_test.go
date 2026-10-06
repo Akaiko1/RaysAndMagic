@@ -55,19 +55,23 @@ func TestProfileTrophyLootBoundaries(t *testing.T) {
 					{Name: "Common Card", Attributes: map[string]int{"value": 50}, Type: items.ItemCard, Rarity: "common", Quantity: 2},
 					{Name: "Rare Weapon", Attributes: map[string]int{"value": 700}, Type: items.ItemWeapon, Rarity: "rare"},
 				})
-				for metric, units := range map[string]int64{"loot": 11, "legendary_loot": 4, "cards_found": 6} {
+				// entries: one ranking row per stack, never per unit.
+				for metric, want := range map[string]struct{ units, entries int64 }{
+					"loot": {11, 5}, "legendary_loot": {4, 2}, "cards_found": {6, 2},
+				} {
 					if !tc.recorded {
-						units = 0
+						want.units, want.entries = 0, 0
 					}
-					if got := g.playerProfile.Data.Counters[metric]; got != units {
-						t.Fatalf("%s=%d want %d", metric, got, units)
+					if got := g.playerProfile.Data.Counters[metric]; got != want.units {
+						t.Fatalf("%s=%d want %d", metric, got, want.units)
 					}
+					top := g.playerProfile.Data.Top(metric)
 					var total int64
-					for _, e := range g.playerProfile.Data.Top(metric) {
+					for _, e := range top {
 						total += e.Count
 					}
-					if total != units {
-						t.Fatalf("%s ranking=%d want %d", metric, total, units)
+					if total != want.units || int64(len(top)) != want.entries {
+						t.Fatalf("%s ranking=%d in %d rows, want %d in %d", metric, total, len(top), want.units, want.entries)
 					}
 				}
 				spec := profilePages[2].rankings[2]

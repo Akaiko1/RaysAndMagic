@@ -140,17 +140,21 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 	if _, ok := save.MapMonsters[world.OpenWorldKey]; ok {
 		t.Fatal("save must never contain the merged-world key")
 	}
-	for _, regionKey := range []string{"forest", "desert", "highlands", "dragon_cliffs", "deep_jungle"} {
-		bucket, ok := save.MapMonsters[regionKey]
-		if !ok || len(bucket) == 0 {
-			t.Fatalf("region %q missing from MapMonsters", regionKey)
+	bucketed := 0
+	for _, r := range wm.OpenWorldRegions {
+		bucket, ok := save.MapMonsters[r.MapKey]
+		if !ok {
+			t.Fatalf("region %q missing from MapMonsters", r.MapKey)
 		}
-		r := wm.OpenWorldRegionByKey(regionKey)
 		for _, ms := range bucket {
 			if ms.X < 0 || ms.Y < 0 || ms.X > float64(r.LocalWidth)*ts || ms.Y > float64(r.LocalHeight)*ts {
-				t.Fatalf("region %q monster %q at (%.0f,%.0f) is outside local bounds", regionKey, ms.Key, ms.X, ms.Y)
+				t.Fatalf("region %q monster %q at (%.0f,%.0f) is outside local bounds", r.MapKey, ms.Key, ms.X, ms.Y)
 			}
 		}
+		bucketed += len(bucket)
+	}
+	if bucketed == 0 {
+		t.Fatal("no region bucket holds a monster to check")
 	}
 	unifiedTotal := len(wm.OpenWorld.Monsters)
 
@@ -212,17 +216,35 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 func TestOpenWorldTavernRegionScoping(t *testing.T) {
 	t.Chdir("../..")
 
-	g, wm, _ := bootOpenWorldGame(t, true)
-	for _, key := range []string{"forest", "desert", "highlands", "dragon_cliffs", "deep_jungle"} {
+	g, wm, cfg := bootOpenWorldGame(t, true)
+	// Expected: the taverns each source map authors.
+	authored := 0
+	for _, r := range wm.OpenWorldRegions {
+		mc := wm.MapConfigs[r.MapKey]
+		md, err := world.NewMapLoaderWithBiome(cfg, mc.Biome).LoadMap("assets/" + mc.File)
+		if err != nil {
+			t.Fatalf("load %s: %v", r.MapKey, err)
+		}
+		want := 0
+		for _, spawn := range md.NPCSpawns {
+			npc, err := character.CreateNPCFromConfig(spawn.NPCKey, 0, 0)
+			if err == nil && tavernChoice(npc, "tavern_rest") != nil {
+				want++
+			}
+		}
+		authored += want
 		count := 0
 		for _, npc := range wm.OpenWorld.NPCs {
-			if tavernChoice(npc, "tavern_rest") != nil && g.npcOnMapRegion(npc, key) {
+			if tavernChoice(npc, "tavern_rest") != nil && g.npcOnMapRegion(npc, r.MapKey) {
 				count++
 			}
 		}
-		if count != 1 {
-			t.Errorf("region %q resolves %d taverns, want exactly its own 1", key, count)
+		if count != want {
+			t.Errorf("region %q resolves %d taverns, want exactly its own %d", r.MapKey, count, want)
 		}
+	}
+	if authored == 0 {
+		t.Fatal("no merged map authors a tavern")
 	}
 
 	// A rotated region's multi-tile facade must rotate its span direction too
@@ -390,14 +412,19 @@ func TestOpenWorldInfernoRegionScoped(t *testing.T) {
 	}
 	near := monster.NewMonster3DFromConfig(fx+128, fy, "goblin", cfg)
 	far := monster.NewMonster3DFromConfig(hx, hy, "goblin", cfg)
-	if near == nil || far == nil {
+	// The nova scopes by where a monster stands, not where it was born.
+	strayIn := monster.NewMonster3DFromConfig(fx-128, fy, "goblin", cfg)
+	strayOut := monster.NewMonster3DFromConfig(hx+128, hy, "goblin", cfg)
+	if near == nil || far == nil || strayIn == nil || strayOut == nil {
 		t.Fatal("failed to spawn test monsters")
 	}
-	wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, near, far)
+	strayIn.HomeMap, strayOut.HomeMap = "highlands", "forest"
+	wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, near, far, strayIn, strayOut)
 	nearBefore, farBefore := near.HitPoints, far.HitPoints
+	strayInBefore, strayOutBefore := strayIn.HitPoints, strayOut.HitPoints
 
 	def := spells.SpellDefinition{Name: "Test Nova", School: "fire", SpellPointsCost: 20, MapWide: true}
-	if !g.combat.tryCastInferno(def, g.party.Members[g.selectedChar]) {
+	if !g.combat.tryCastPartyNova(def, g.party.Members[g.selectedChar]) {
 		t.Fatal("MapWide nova was not handled")
 	}
 	if near.HitPoints >= nearBefore {
@@ -405,6 +432,12 @@ func TestOpenWorldInfernoRegionScoped(t *testing.T) {
 	}
 	if far.HitPoints != farBefore {
 		t.Errorf("cross-region monster burned by MapWide nova (HP %d -> %d)", farBefore, far.HitPoints)
+	}
+	if strayIn.HitPoints >= strayInBefore {
+		t.Errorf("highlands-born monster in the forest untouched (HP %d -> %d)", strayInBefore, strayIn.HitPoints)
+	}
+	if strayOut.HitPoints != strayOutBefore {
+		t.Errorf("forest-born monster in the highlands burned (HP %d -> %d)", strayOutBefore, strayOut.HitPoints)
 	}
 }
 
@@ -435,5 +468,41 @@ func TestOpenWorldBiomeIsResolvedPerTile(t *testing.T) {
 	}
 	if forestBiome == highlandsBiome {
 		t.Fatalf("both regions resolved to %q - the party's region was used for a foreign tile", forestBiome)
+	}
+}
+
+// A save naming a monster that monsters.yaml no longer has (removed or
+// renamed since) still loads: that one record is dropped, every other monster
+// comes back.
+func TestLoadDropsMonstersMissingFromTheCatalog(t *testing.T) {
+	t.Chdir("../..")
+	g, wm, _ := bootOpenWorldGame(t, true)
+	save := g.buildSave(wm)
+	total, region := 0, ""
+	for key, bucket := range save.MapMonsters {
+		total += len(bucket)
+		if region == "" && len(bucket) > 0 && wm.IsOpenWorldRegion(key) {
+			region = key
+		}
+	}
+	if region == "" {
+		t.Fatal("save holds no open-world monsters")
+	}
+	save.MapMonsters[region][0].Key = "monster_removed_since"
+	save.MapMonsters[region][0].Name = "Removed Monster"
+	if err := g.applySave(wm, &save); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	restored := len(wm.OpenWorld.Monsters)
+	for _, w := range wm.LoadedMaps {
+		restored += len(w.Monsters)
+	}
+	if restored != total-1 {
+		t.Fatalf("restored %d monsters, want %d (all but the unknown one)", restored, total-1)
+	}
+	for _, m := range wm.OpenWorld.Monsters {
+		if m.Key == "monster_removed_since" {
+			t.Fatal("the unknown monster came back")
+		}
 	}
 }

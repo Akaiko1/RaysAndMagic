@@ -72,13 +72,13 @@ func (g *MMGame) separateStackedMonstersTB() {
 		sortMonstersByID(cluster)
 		owner := 0
 		for i, m := range cluster {
-			if m.Arbor.Phase != "" || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
+			if !g.monsterCanBeDisplaced(m) {
 				owner = i
 				break
 			}
 		}
 		for i, m := range cluster {
-			if i == owner || m.Arbor.Phase != "" || m.IsInertSetPiece() || g.monsterMovementHeld(m) {
+			if i == owner || !g.monsterCanBeDisplaced(m) {
 				continue
 			}
 			g.scatterMonsterToFreeTile(m, k[0], k[1], tile, used)
@@ -123,38 +123,39 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 	tileSize := float64(gl.game.config.GetTileSize())
 
-	// Cache player position for the loop
-	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
-
 	if gl.game.turnBasedMonsterPassesLeft <= 0 {
 		// Persistent damage zones (Hot Steam) sear once per monster turn in TB.
 		gl.tickPersistentDamageZonesTB()
-
 		gl.game.monsterTurnState.startPasses()
 	}
 	ready, tickTurnStatuses := gl.game.monsterTurnState.beginPass()
 	if !ready {
 		return
 	}
+	if tickTurnStatuses {
+		// Resolve status damage and latch disabled turns for every actor before
+		// releasing cross-actor specials. Extra passes reuse these results.
+		for _, m := range gl.game.world.Monsters {
+			if m.IsAlive() && gl.game.tickMonsterTurnStatuses(m, true) {
+				gl.game.turnBasedMonsterStunned[m] = true
+			}
+		}
+		gl.game.tickMonsterTelegraphs(3, true)
+		gl.game.tickEnvironment(3, true)
+	}
+	// Specials and transfer tiles can move the party before this action pass.
+	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
 	gl.game.updateAuthoredBandAggro()
 
 	gl.game.simulateRemoteEcology(true, tickTurnStatuses)
 
-	// Process each monster's turn (only those in vision range).
+	// Process each monster's turn.
 	for _, m := range gl.game.world.Monsters {
 		if !m.IsAlive() {
 			continue
 		}
 		if gl.game.turnBasedMonsterStunned[m] {
 			gl.game.refreshMonsterCollisionState(m)
-			continue
-		}
-		if gl.game.tickMonsterTurnStatuses(m, tickTurnStatuses) {
-			gl.game.turnBasedMonsterStunned[m] = true
-			gl.game.refreshMonsterCollisionState(m)
-			continue
-		}
-		if !m.IsAlive() {
 			continue
 		}
 
@@ -213,7 +214,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.refreshMonsterCollisionState(m)
 			continue
 		case monster.AIBehaviorPassive:
-			// Passive monsters mirror RT behavior: no move or attack until hit.
+			// Passive monsters neither move nor attack until hit. Like every idle
+			// monster in TB, they hold their tile: TB never patrols.
 			m.StandDownFromCombat()
 			gl.game.refreshMonsterCollisionState(m)
 			continue
@@ -232,7 +234,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// modes. Ordinary fights intentionally remain sticky in TB, but this
 		// objective-specific encounter returns to its prop when the party leaves.
 		if m.LootGuardAlerted && m.IsEngagingPlayer && !m.WasAttacked {
-			if m.ShouldDisengageFromPlayer(gl.game.collisionSystem, playerX, playerY) {
+			if m.ShouldDisengageFromPlayer(playerX, playerY) {
 				m.EndPlayerEngagement()
 				gl.game.refreshMonsterCollisionState(m)
 				continue
@@ -265,6 +267,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// off-center spawns (e.g. encounter pirates) that would otherwise
 		// stand/attack between tiles.
 		gl.centerMonsterOnTile(m, tileSize)
+
+		if gl.game.combat.runTelegraphedAction(m, true) {
+			gl.game.refreshMonsterCollisionState(m)
+			continue
+		}
 
 		// Boss specials; each TB turn is one action tick. BEFORE the bound-undead
 		// check (matching RT order): a boss lured at a summon still sows traps,
@@ -742,8 +749,9 @@ func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses 
 		m.TickBurnTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS()))   // Drakefang ignite; stacks with poison
 		m.TickArmorShredTurn()                                             // Pit Labrys shred decays regardless of stun
 		m.TickSlowTurn()                                                   // Tarn Trident silt decays regardless of stun
-		m.TickWeakenTurn()                                                 // Scalebreaker roar decays regardless of stun
-		m.TickSoakTurn()                                                   // Champion Stone Skin rated dual clock
+		m.TickElementalMarks(true)
+		m.TickWeakenTurn() // Scalebreaker roar decays regardless of stun
+		m.TickSoakTurn()   // Champion Stone Skin rated dual clock
 		if !m.IsAlive() {
 			// Matches RT: HandleMonsterInteractions skips a monster the parallel
 			// Update's TickPoison just killed. finalizeIndirectKills (end of

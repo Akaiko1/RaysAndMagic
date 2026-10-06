@@ -48,32 +48,21 @@ func TestKeyItemsCarryDoorAttributes(t *testing.T) {
 	}
 }
 
+// Key mechanics are authored text: the game tooltip and the editor card both
+// show every tooltip_effects and usage line, never the generic trinket usage.
 func TestKeyTooltipsShareYAMLMechanicsWithEditor(t *testing.T) {
 	g := crateTestGame(t)
-	cases := []struct {
-		key     string
-		effects []string
-		usage   []string
-	}{
-		{"ordinary_key", []string{"Opens wooden doors"}, []string{"Choose at a locked door", "Consumed when it opens a door"}},
-		{"inlaid_key", []string{"Opens reinforced and steel doors"}, []string{"Choose at a locked door", "Consumed when it opens a door"}},
-		{"skeleton_key", []string{"Opens any locked door"}, []string{"Choose at a locked door", "Never consumed"}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.key, func(t *testing.T) {
-			def, ok := config.GetItemDefinition(tc.key)
+	trinketUsage := config.GlobalItems.TooltipUsageDefaults.Trinket
+	for _, key := range []string{"ordinary_key", "inlaid_key", "skeleton_key"} {
+		t.Run(key, func(t *testing.T) {
+			def, ok := config.GetItemDefinition(key)
 			if !ok || def == nil {
-				t.Fatalf("missing item definition for %q", tc.key)
+				t.Fatalf("missing item definition for %q", key)
 			}
-			if got, want := strings.Join(def.TooltipEffects, "\n"), strings.Join(tc.effects, "\n"); got != want {
-				t.Errorf("tooltip_effects = %q, want %q", got, want)
+			if len(def.TooltipEffects) == 0 || len(def.TooltipUsage) == 0 {
+				t.Fatalf("%s must author its door mechanics and usage", key)
 			}
-			if got, want := strings.Join(def.TooltipUsage, "\n"), strings.Join(tc.usage, "\n"); got != want {
-				t.Errorf("tooltip_usage = %q, want %q", got, want)
-			}
-
-			tooltip := GetItemTooltip(items.CreateItemFromYAML(tc.key), nil, g.combat, false)
+			tooltip := GetItemTooltip(items.CreateItemFromYAML(key), nil, g.combat, false)
 			editorCard := GetItemTooltip(baseTestItem(t, def.Name), nil, nil, true)
 			for _, line := range append(append([]string{}, def.TooltipEffects...), def.TooltipUsageLines()...) {
 				if !strings.Contains(tooltip, line) {
@@ -83,7 +72,7 @@ func TestKeyTooltipsShareYAMLMechanicsWithEditor(t *testing.T) {
 					t.Errorf("editor card missing YAML line %q:\n%s", line, editorCard)
 				}
 			}
-			if strings.Contains(tooltip, "Collectible; sell to merchants") {
+			if strings.Contains(tooltip, trinketUsage) {
 				t.Errorf("key tooltip must not use generic trinket usage:\n%s", tooltip)
 			}
 		})
@@ -326,34 +315,30 @@ func TestSaveLoad_PreservesJammedDoorState(t *testing.T) {
 	}
 }
 
+// Ordinary and inlaid keys drop only from normal monsters (and some do); the
+// Skeleton Key comes only from the shared boss table, which every boss rolls.
 func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 	g := crateTestGame(t)
 	cs := g.combat
 
-	wantOwners := map[string]map[string]bool{
-		"ordinary_key": {"bandit": true, "desert_dervish": true, "forest_orc": true, "thief_bug": true},
-		"inlaid_key": {
-			"ashigaru_firelock": true, "ronin_marksman": true, "possessed_tome": true, "alarm_clock": true, "grandfather_clock": true,
-			"elf_archer": true, "elf_swordsman": true, "archmage": true, "lich": true, "lich_king": true,
-		},
+	owners := map[string]int{"ordinary_key": 0, "inlaid_key": 0}
+	bossSkeleton := false
+	for _, entry := range config.GetBossLoot() {
+		bossSkeleton = bossSkeleton || (entry.Type == "item" && entry.Key == "skeleton_key" && entry.Chance > 0)
 	}
-	actualOwners := map[string]map[string]bool{"ordinary_key": {}, "inlaid_key": {}}
-	bossLoot := config.GetBossLoot()
-	if len(bossLoot) != 1 || bossLoot[0].Type != "item" || bossLoot[0].Key != "skeleton_key" || bossLoot[0].Chance != 0.05 {
-		t.Fatalf("boss_loot = %+v, want one 5%% Skeleton Key entry", bossLoot)
+	if !bossSkeleton {
+		t.Fatalf("boss_loot = %+v, want a Skeleton Key entry", config.GetBossLoot())
 	}
 	for _, monsterKey := range monsterPkg.MonsterConfig.GetAllMonsterKeys() {
 		monster := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, g.config)
+		hasSkeletonKey := false
 		for _, entry := range cs.monsterLootEntries(monster) {
-			if owners, tracked := actualOwners[entry.Key]; tracked {
+			if _, tracked := owners[entry.Key]; tracked {
 				if monster.IsBoss() {
 					t.Errorf("boss %s authors %s; ordinary and inlaid keys belong only to normal mobs", monsterKey, entry.Key)
 				}
-				owners[monsterKey] = true
+				owners[entry.Key]++
 			}
-		}
-		hasSkeletonKey := false
-		for _, entry := range cs.monsterLootEntries(monster) {
 			if entry.Key == "skeleton_key" {
 				hasSkeletonKey = true
 			}
@@ -362,15 +347,9 @@ func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 			t.Errorf("normal loot for %s includes Skeleton Key = %v, want %v", monsterKey, hasSkeletonKey, monster.IsBoss())
 		}
 	}
-	for key, want := range wantOwners {
-		if got := actualOwners[key]; len(got) != len(want) {
-			t.Errorf("%s owners = %v, want %v", key, got, want)
-			continue
-		}
-		for monsterKey := range want {
-			if !actualOwners[key][monsterKey] {
-				t.Errorf("%s missing from normal monster %s", key, monsterKey)
-			}
+	for key, n := range owners {
+		if n == 0 {
+			t.Errorf("no normal monster drops %s; its doors would be key-less", key)
 		}
 	}
 }

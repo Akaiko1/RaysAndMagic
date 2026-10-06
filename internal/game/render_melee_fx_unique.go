@@ -11,7 +11,7 @@ import (
 
 // Bespoke swing flourishes for legendary melee weapons, selected by
 // graphics.slash_fx in weapons.yaml (SlashEffect.Style). Each stroke is a
-// solid pixel-ribbon that dissolves in draw order (drawDissolveStroke) plus
+// shaded ribbon that dissolves in draw order (drawDissolveStroke) plus
 // deterministic particles in the weapon's own element and silhouette; weapons
 // without a style keep the category swing in drawMeleeParticles.
 
@@ -22,6 +22,11 @@ const meleeFxStyledLingerFrames = 44 // ~0.37s at 120 TPS
 // meleeFxStyleDraw maps graphics.slash_fx to its bespoke renderer
 // (legendaries here, rares + naginata in render_melee_fx_rare.go).
 var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, float64, float64, float64){
+	"war_fan":           (*Renderer).drawMeleeFxWarFan,
+	"katana":            (*Renderer).drawMeleeFxKatana,
+	"solstice_thermal":  (*Renderer).drawMeleeFxSolsticeThermal,
+	"solstice_anchor":   (*Renderer).drawMeleeFxSolsticeAnchor,
+	"solstice_transfer": (*Renderer).drawMeleeFxSolsticeTransfer,
 	"muramasa":          (*Renderer).drawMeleeFxMuramasa,
 	"tonbogiri":         (*Renderer).drawMeleeFxTonbogiri,
 	"kage_kunai":        (*Renderer).drawMeleeFxKageKunai,
@@ -79,18 +84,10 @@ func validateWeaponFxStyles() {
 	}
 }
 
-// Dissolve-stroke tuning: a stroke section painted at path parameter t was
-// born at t-meleeSweepFrac and flakes away at a birth-ordered, per-section-
-// jittered die time - the start of the stroke dissolves first, the leading
-// edge last.
-const (
-	dissolveStepPx   = 3.5  // cross-section spacing = dissolve bite size
-	dissolveDieStart = 0.42 // progress when the first-painted sections start dying
-	dissolveDieEnd   = 0.98 // progress when the last-painted sections finish
-	dissolveJitter   = 0.14 // per-section die-time spread (ragged, uneven fade)
-)
+// Cross-sections approximate authored curves; erosion is evaluated per fragment.
+const dissolveStepPx = 5.0
 
-// dissolveStroke describes one solid ribbon: a path with per-parameter
+// dissolveStroke describes one material ribbon: a path with per-parameter
 // width/color/alpha, revealed up to `lead` and dissolved by `progress`.
 type dissolveStroke struct {
 	path   func(t float64) (float64, float64)
@@ -103,27 +100,24 @@ type dissolveStroke struct {
 	blend  ebiten.Blend
 }
 
-// drawDissolveStroke renders the stroke as ONE smooth triangle-strip ribbon
-// textured with the soft-glow cross-section (the same falloff drawGlowSprite
-// uses), so the line reads as a continuous streak rather than stacked shapes.
-// Dissolve runs per cross-section: a dying section fades out and pinches
-// thin, eating the line in ragged bites from the oldest end.
+// drawDissolveStroke keeps authored geometry on the CPU and evaluates flowing
+// light, edge detail and birth-ordered erosion in the shared ribbon shader.
 func (r *Renderer) drawDissolveStroke(screen *ebiten.Image, st dissolveStroke, lead, progress float64) {
-	if lead <= 0 {
+	if lead <= 0 || progress >= 1 || r.ensureWeaponMaterialShaders() != nil {
 		return
 	}
-	n := int(st.length / dissolveStepPx)
-	if n < 12 {
-		n = 12
-	} else if n > 260 {
-		n = 260
+	lead = math.Min(1, lead)
+	n := max(12, min(260, int(st.length/dissolveStepPx)))
+	step := .5 / float64(n)
+	if progress >= 0 && !r.weaponMaterialState.pose.ready {
+		x, y := st.path(lead)
+		r.weaponMaterialState.pose = weaponStrokePose{x, y, tangentAt(st.path, lead), true}
 	}
-
-	src := r.ensureSoftGlow()
-	srcMid := float32(softGlowSize) / 2
-	step := 0.5 / float64(n)
+	profile := r.weaponMaterialState.trail
+	// Continuous machinery and projectile wakes retain their closed geometry.
+	taper := progress >= 0 && profile.widthScale > 0
 	verts := r.standeeVerts[:0]
-	appendSection := func(i int, t float64) {
+	appendSection := func(t float64) {
 		x, y := st.path(t)
 		tb := math.Min(t, 1-step)
 		x1, y1 := st.path(tb)
@@ -134,61 +128,46 @@ func (r *Renderer) drawDissolveStroke(screen *ebiten.Image, st dissolveStroke, l
 			d = 1
 		}
 		nx, ny := -dy/d, dx/d
-
-		baseA := st.alpha(t)
-		die := dissolveDieStart + (dissolveDieEnd-dissolveDieStart)*t +
-			(auraHash(st.seed, i, st.salt, 0)-0.5)*dissolveJitter
-		if die > 0.985 {
-			die = 0.985 // always fully dissolved before the effect expires
+		w := st.width(t) * 1.1
+		col, a := st.color(t), st.alpha(t)
+		if taper {
+			w = math.Min(w*profile.widthScale, profile.widthLimit)
+			tail := math.Min(1, t/math.Min(profile.tail, lead*.45))
+			tip := math.Min(1, (lead-t)/math.Min(profile.tip, lead*.45))
+			if profile.angular {
+				// An axe cut widens into a wedge and ends in a sharp cutting edge.
+				w *= (.35 + .65*t/lead) * tail * tip
+			} else {
+				w *= tail * tail * (3 - 2*tail) * tip * tip * (3 - 2*tip)
+			}
+			a *= math.Sqrt(tail * tip)
 		}
-		a := baseA
-		if progress >= die {
-			a = 0
-		} else if die-progress < 0.08 {
-			a *= (die - progress) / 0.08
+		for _, side := range []float64{-1, 1} {
+			v := weaponMaterialVertex(x+nx*w*side, y+ny*w*side, t*st.length/36, side, col, a)
+			v.Custom0, v.Custom1 = float32(progress), float32(t)
+			v.Custom2 = float32(uint(st.seed+st.salt)%997) * .013
+			v.Custom3 = float32(r.weaponMaterialState.material) + .25
+			verts = append(verts, v)
 		}
-		pinch := 0.0
-		if baseA > 0 {
-			pinch = a / baseA
-		}
-		// half-width; x1.8 offsets the soft cross-section falloff
-		w := st.width(t) * 1.8 * (0.35 + 0.65*pinch) / 2
-		col := st.color(t)
-		cr, cg, cb, ca := float32(col[0])/255, float32(col[1])/255, float32(col[2])/255, float32(a)
-		verts = append(verts,
-			ebiten.Vertex{DstX: float32(x + nx*w), DstY: float32(y + ny*w), SrcX: 0, SrcY: srcMid, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: ca},
-			ebiten.Vertex{DstX: float32(x - nx*w), DstY: float32(y - ny*w), SrcX: float32(softGlowSize), SrcY: srcMid, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: ca},
-		)
 	}
-
-	// Grid sections are stable across frames (stable per-section jitter); one
-	// extra section pins the strip's end exactly to the blade edge.
-	section := 0
 	for i := 0; i <= n; i++ {
 		t := float64(i) / float64(n)
 		if t >= lead {
 			break
 		}
-		appendSection(section, t)
-		section++
+		appendSection(t)
 	}
-	appendSection(section, lead)
-	if len(verts) < 4 {
-		r.standeeVerts = verts[:0]
-		return
-	}
-
-	sectionCount := len(verts) / 2
+	appendSection(lead)
 	idx := r.standeeIdx[:0]
-	for i := 1; i < sectionCount; i++ {
-		a0 := uint16(2*i - 2)
-		idx = append(idx, a0, a0+1, a0+2, a0+1, a0+3, a0+2)
+	for i := 1; i < len(verts)/2; i++ {
+		b := uint16(i*2 - 2)
+		idx = append(idx, b, b+1, b+2, b+1, b+3, b+2)
 	}
-	r.meleeTriOpts.Blend = st.blend
-	r.meleeTriOpts.Filter = ebiten.FilterLinear
-	screen.DrawTriangles(verts, idx, src, &r.meleeTriOpts)
-	r.standeeVerts = verts[:0]
-	r.standeeIdx = idx[:0]
+	if len(idx) > 0 {
+		r.weaponMaterialOpts.Blend = weaponShaderBlend(st.blend)
+		screen.DrawTrianglesShader(verts, idx, r.weaponRibbonShader, &r.weaponMaterialOpts)
+	}
+	r.standeeVerts, r.standeeIdx = verts[:0], idx[:0]
 }
 
 // drawSparkStar draws a 4-point twinkle: a bright core with four tapering
@@ -247,10 +226,10 @@ func (r *Renderer) drawMeleeFxMuramasa(screen *ebiten.Image, s SlashEffect, cx, 
 	r.drawDissolveStroke(screen, dissolveStroke{
 		path:   func(t float64) (float64, float64) { return arcAt(t, R) },
 		width:  func(t float64) float64 { return (4 + 9*math.Sin(math.Pi*t)) * widthScale },
-		color:  func(t float64) [3]int { return mixColor(blood, steel, 0.25+0.75*t) },
+		color:  func(t float64) [3]int { return mixColor(blood, steel, 0.08+0.18*t) },
 		alpha:  func(t float64) float64 { return 0.55 + 0.45*t },
 		length: R * (thetaEnd - thetaStart),
-		seed:   seed, salt: 1, blend: additiveGlowBlend,
+		seed:   seed, salt: 1, blend: ebiten.BlendSourceOver,
 	}, lead, progress)
 	// cursed echo: a thinner crimson line trailing just inside the razor cut
 	r.drawDissolveStroke(screen, dissolveStroke{
@@ -259,11 +238,11 @@ func (r *Renderer) drawMeleeFxMuramasa(screen *ebiten.Image, s SlashEffect, cx, 
 		color:  func(t float64) [3]int { return blood },
 		alpha:  func(t float64) float64 { return 0.4 * t },
 		length: R * (thetaEnd - thetaStart),
-		seed:   seed, salt: 2, blend: additiveGlowBlend,
+		seed:   seed, salt: 2, blend: ebiten.BlendSourceOver,
 	}, lead, progress)
 	if sweepT < 1 {
 		tx, ty := arcAt(lead, R)
-		r.drawGlowSprite(screen, tx, ty, thick*2.2, steel, fade, additiveGlowBlend)
+		r.drawGlowSprite(screen, tx, ty, thick*2.2, steel, fade, ebiten.BlendSourceOver)
 	}
 
 	// The thirsting edge: blood beads form where the blade passed and fall as
@@ -293,7 +272,7 @@ func (r *Renderer) drawMeleeFxMuramasa(screen *ebiten.Image, s SlashEffect, cx, 
 			}
 			bx, by := dropPos(k, ug)
 			f := 1 - 0.32*float64(g)
-			r.drawGlowSprite(screen, bx, by, math.Max(2, thick*(0.5-0.25*u)*f), c, fade*(1-u)*0.95*f*f, additiveGlowBlend)
+			r.drawGlowSprite(screen, bx, by, math.Max(2, thick*(0.5-0.25*u)*f), c, fade*(1-u)*0.95*f*f, ebiten.BlendSourceOver)
 		}
 	}
 	const mist = 9
@@ -307,7 +286,7 @@ func (r *Renderer) drawMeleeFxMuramasa(screen *ebiten.Image, s SlashEffect, cx, 
 		mx, my := arcAt(tb, R)
 		mx += (auraHash(seed, k, 25, 0) - 0.5) * thick * 4
 		my -= u * h * 0.05
-		r.drawGlowSprite(screen, mx, my, thick*(1.2+1.8*u), [3]int{120, 10, 22}, fade*(1-u)*0.3, additiveGlowBlend)
+		r.drawGlowSprite(screen, mx, my, thick*(1.2+1.8*u), [3]int{120, 10, 22}, fade*(1-u)*0.3, ebiten.BlendSourceOver)
 	}
 }
 
@@ -384,108 +363,9 @@ func (r *Renderer) drawMeleeFxTonbogiri(screen *ebiten.Image, s SlashEffect, cx,
 	}
 }
 
-// Kage-kunai, the Twin Shadows - mirrored twin stabs, the right blade a
-// heartbeat behind the left: a solid darkening shadow line under a violet
-// edge (both dissolving in strike order), with wisps curling up between them.
+// Kage Kunai alternate two narrow stabs, each carrying its own blade model.
 func (r *Renderer) drawMeleeFxKageKunai(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	progress, fade, _, _ := meleeFxTiming(s)
-	if fade <= 0 {
-		return
-	}
-	seed := seedFromID(s.ID)
-	h := screenH * meleeSizeScale
-	violet := [3]int{150, 80, 215}
-	shadow := [3]int{16, 6, 26}
-	wisps := 22
-	widthScale := 1.0
-	if s.Crit {
-		h *= 1.25
-		widthScale = 1.3
-		wisps = 32
-	}
-
-	reach := h * 0.2
-	thick := h * 0.04
-	for i, side := range [2]float64{-1, 1} {
-		// The lagged blade shares the dissolve model via a shifted local clock:
-		// it strikes AND flakes away one heartbeat after its twin.
-		lag := float64(i) * meleeSweepFrac * 0.45
-		lp := progress - lag
-		if lp <= 0 {
-			continue
-		}
-		st := lp / meleeSweepFrac
-		if st > 1 {
-			st = 1
-		}
-		ld := 1 - (1-st)*(1-st)
-		baseX := cx + side*h*0.055
-		baseY := cy + reach*0.5
-		tipX, tipY := baseX+side*reach*ld*0.18, baseY-reach*ld
-
-		// Compressed dissolve clock so the late blade still finishes flaking
-		// away before the effect expires.
-		lpDissolve := lp / (1 - lag)
-		bladePath := func(t float64) (float64, float64) {
-			return baseX + side*reach*0.18*t, baseY - reach*t
-		}
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   bladePath,
-			width:  func(t float64) float64 { return (5 + 7*(1-t)) * widthScale },
-			color:  func(t float64) [3]int { return shadow },
-			alpha:  func(t float64) float64 { return 0.55 + 0.3*t },
-			length: reach,
-			seed:   seed, salt: 5 + i, blend: ebiten.BlendSourceOver,
-		}, ld, lpDissolve)
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   bladePath,
-			width:  func(t float64) float64 { return (3 + 3*(1-t)) * widthScale },
-			color:  func(t float64) [3]int { return violet },
-			alpha:  func(t float64) float64 { return 0.35 + 0.55*t },
-			length: reach,
-			seed:   seed, salt: 7 + i, blend: additiveGlowBlend,
-		}, ld, lpDissolve)
-		if st < 1 {
-			r.drawGlowSprite(screen, tipX, tipY, thick*1.6, [3]int{220, 190, 255}, fade*0.9, additiveGlowBlend)
-			// pale violet embers flick radially off the tip while it extends
-			for k := 0; k < 6; k++ {
-				ea := auraHash(seed, k, 45+i, 0) * 2 * math.Pi
-				er := st * thick * (1.5 + 2*auraHash(seed, k, 47+i, 0))
-				r.drawGlowSprite(screen, tipX+math.Cos(ea)*er, tipY+math.Sin(ea)*er,
-					math.Max(2, thick*0.3), [3]int{200, 150, 255}, fade*(1-st)*0.9, additiveGlowBlend)
-			}
-		}
-	}
-
-	// Shadow wisps (dense): dark motes with violet hearts curling up between
-	// the blades, each dragging a smoky ghost trail along its own curl.
-	wispPos := func(k int, u float64) (float64, float64) {
-		side := 1.0
-		if k%2 == 0 {
-			side = -1
-		}
-		x := cx + side*h*(0.02+auraHash(seed, k, 42, 0)*0.09) + math.Sin(u*7+auraHash(seed, k, 43, 0)*2*math.Pi)*thick*2
-		y := cy - u*h*0.16 + thick
-		return x, y
-	}
-	for k := 0; k < wisps; k++ {
-		born := auraHash(seed, k, 41, 0) * 0.6
-		if progress <= born {
-			continue
-		}
-		u := (progress - born) / (1 - born)
-		for g := 0; g < 4; g++ {
-			ug := u - float64(g)*0.06
-			if ug < 0 {
-				break
-			}
-			x, y := wispPos(k, ug)
-			f := 1 - 0.22*float64(g)
-			sz := math.Max(2, thick*(0.8-0.5*ug)) * f
-			r.drawGlowSprite(screen, x, y, sz*1.5, shadow, fade*(1-ug)*0.5*f, ebiten.BlendSourceOver)
-			r.drawGlowSprite(screen, x, y, sz*0.8, violet, fade*(1-ug)*0.6*f*f, additiveGlowBlend)
-		}
-	}
+	r.drawIdentityStrike(screen, s, cx, cy, screenH, "kage_kunai", "stab")
 }
 
 // Idol-Breaker, the Warlord's Maul - a ponderous overhead smash drawn as a
@@ -528,6 +408,11 @@ func (r *Renderer) drawMeleeFxIdolBreaker(screen *ebiten.Image, s SlashEffect, c
 		seed:   seed, salt: 9, blend: additiveGlowBlend,
 	}, lead, progress)
 
+	if progress < .65 {
+		tipAngle := thetaStart + (thetaEnd-thetaStart)*lead
+		r.drawHammerHead(screen, pivotX+math.Cos(tipAngle)*R, pivotY+math.Sin(tipAngle)*R, h*.075, tipAngle+math.Pi, stone, fade)
+	}
+
 	if sweepT < 1 {
 		return // impact fireworks only once the head lands
 	}
@@ -540,25 +425,15 @@ func (r *Renderer) drawMeleeFxIdolBreaker(screen *ebiten.Image, s SlashEffect, c
 		r.drawGlowSprite(screen, impX, impY, thick*(1+3*flash), [3]int{255, 240, 200}, fade*flash, additiveGlowBlend)
 	}
 
-	// Ground shockwave: a flattened ring racing outward from the impact.
-	ringR := (0.15 + 0.85*u) * h * 0.3
-	const ringN = 18
-	for k := 0; k < ringN; k++ {
-		ang := float64(k) / ringN * 2 * math.Pi
-		r.drawGlowSprite(screen, impX+math.Cos(ang)*ringR, impY+math.Sin(ang)*ringR*0.35,
-			math.Max(2, thick*0.32*(1-u)), amber, fade*(1-u)*0.8, additiveGlowBlend)
-	}
-	r.drawGlowSprite(screen, impX, impY, h*0.1+u*h*0.16, stone, fade*(1-u)*0.28, additiveGlowBlend)
+	// The landing pushes out a dense, broken front of powdered stone.
+	r.drawImpactCloud(screen, impX, impY, h*.30, h*.12, u, mixColor(stone, amber, .3), fade*.9, seed, true)
 
-	// Stone shards: a ballistic fountain with tumbling debris trails, every
-	// third one a golden idol-glint; twinkling gold star-embers float up from
-	// the shattered idol.
 	shardPos := func(k int, uu float64) (float64, float64) {
-		ang := (auraHash(seed, k, 51, 0) - 0.5) * 2.4 // fan, mostly upward
-		spd := 0.5 + auraHash(seed, k, 52, 0)
-		return impX + math.Sin(ang)*spd*h*0.22*uu,
-			impY - math.Cos(ang)*spd*h*0.3*uu + uu*uu*h*0.36
+		ang := (auraHash(seed, k, 51, 0) - .5) * 2.4
+		spd := .5 + auraHash(seed, k, 52, 0)
+		return impX + math.Sin(ang)*spd*h*.22*uu, impY - math.Cos(ang)*spd*h*.3*uu + uu*uu*h*.36
 	}
+
 	for k := 0; k < shards; k++ {
 		c := stone
 		sz := thick * 0.3 * (1 - 0.4*u)
@@ -573,7 +448,7 @@ func (r *Renderer) drawMeleeFxIdolBreaker(screen *ebiten.Image, s SlashEffect, c
 			}
 			sx, sy := shardPos(k, ug)
 			f := 1 - 0.3*float64(g)
-			r.drawGlowRect(screen, sx, sy, math.Max(2, sz*f), c, fade*(1-u*u)*0.9*f*f, additiveGlowBlend)
+			r.drawWeaponShard(screen, sx, sy, math.Max(2, sz*f), c, fade*(1-u*u)*0.9*f*f, ug, seed+k*37, false)
 		}
 	}
 	fc := int(r.game.frameCount)

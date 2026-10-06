@@ -1,0 +1,33 @@
+//kage:unit pixels
+package main
+
+// A sphere impostor: curved reflections and Fresnel, with a clear interior.
+// Each particle supplies its own age and seed; no scene copy is required.
+func Fragment(dst vec4, p vec2, color vec4, custom vec4) vec4 {
+	t, seed, age := custom.x, custom.y, custom.z
+	a := atan2(p.y, p.x)
+	wobble := 1.0 + 0.025*sin(a*3.0+t*2.2+seed) + 0.018*cos(a*2.0-t*1.7+seed)
+	q := p / wobble
+	pop := smoothstep(0.84, 1.0, age)
+	q /= 1.0 + pop*0.12
+	rr := dot(q, q)
+	if rr > 1.02 {
+		return vec4(0)
+	}
+	z := sqrt(max(0.0, 1.0-rr))
+	normal := vec3(q, z)
+	rim := pow(1.0-z, 2.7)
+	coverage := 1.0 - smoothstep(0.97, 1.015, rr)
+	// Two broad environment reflections curve with the sphere's surface.
+	upper := pow(max(0.0, dot(normal, normalize(vec3(-0.45, -0.62, 0.65)))), 28.0)
+	lower := pow(max(0.0, dot(normal, normalize(vec3(0.40, 0.64, 0.35)))), 42.0)
+	crescent := exp(-pow((z-0.43)*12.0, 2.0)) * smoothstep(-0.08, 0.55, -q.x-q.y) * 0.55
+	film := 0.5 + 0.5*sin(a*2.3+z*8.0+t*0.8+seed)
+	tint := mix(color.rgb, vec3(0.73, 0.83, 1.0), film*0.35)
+	opacity := 0.025 + rim*0.48 + crescent + upper*0.95 + lower*0.65
+	highlights := upper + lower + crescent
+	tint = mix(tint, vec3(1.0), clamp(highlights, 0.0, 1.0))
+	breakup := smoothstep(pop*1.4-0.5, pop*1.4-0.25, sin(a*5.0+seed)*0.5+0.5)
+	opacity *= coverage * breakup * (1.0 - pop) * color.a
+	return vec4(tint*opacity, opacity)
+}

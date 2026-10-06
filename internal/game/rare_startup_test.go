@@ -3,6 +3,8 @@ package game
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
@@ -13,9 +15,20 @@ import (
 )
 
 // Generated herbs must satisfy the same renderer contract as authored NPCs.
-// Cases: every reagent, fresh/restored/dawn population, visible/hidden roster.
+// Cases: every harvest_sprite reagent, fresh/restored/dawn population,
+// visible/hidden roster.
 // Saved node identity is authoritative; renderer categories are always derived.
 func TestRareHarvestRuntimeRenderContract(t *testing.T) {
+	rareClassGame(t, character.ClassAlchemist, false)
+	var reagents []string
+	for _, key := range slices.Sorted(maps.Keys(config.GlobalItems.Items)) {
+		if config.GlobalItems.Items[key].HarvestSprite != "" {
+			reagents = append(reagents, key)
+		}
+	}
+	if len(reagents) == 0 {
+		t.Fatal("no harvest_sprite reagents in the catalog")
+	}
 	for _, lifecycle := range []string{"fresh", "restored", "dawn", "hidden"} {
 		t.Run(lifecycle, func(t *testing.T) {
 			g, _ := rareClassGame(t, character.ClassAlchemist, false)
@@ -27,7 +40,7 @@ func TestRareHarvestRuntimeRenderContract(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg.Populations = nil
-			for _, key := range []string{"dawnleaf", "mooncap", "bitterroot", "embercap", "grave_orchid"} {
+			for _, key := range reagents {
 				cfg.Populations = append(cfg.Populations, config.HarvestPopulation{Map: "forest", Key: key, Count: 1, Yield: 1, Weights: map[string]int{key: 1}})
 			}
 			wm := world.NewWorldManager(g.config)
@@ -59,7 +72,7 @@ func TestRareHarvestRuntimeRenderContract(t *testing.T) {
 			}
 			t.Chdir("../..")
 			g.sprites = graphics.NewSpriteManager()
-			assertRareHerbsRender(t, g, 5, lifecycle == "hidden")
+			assertRareHerbsRender(t, g, len(reagents), lifecycle == "hidden")
 		})
 	}
 }
@@ -131,7 +144,10 @@ func TestRarePartyBeginAdventure(t *testing.T) {
 					finishRareHarvest(t, g)
 					want := 0
 					if g.hasHarvestAlchemist() {
-						want = 9
+						region, _, _ := g.canonicalPosition(g.camera.X, g.camera.Y)
+						if want = harvestPopulationTotal(region); want == 0 {
+							t.Fatalf("start region %q has no reagent population to render", region)
+						}
 					}
 					assertRareHerbsRender(t, g, want, false)
 				})

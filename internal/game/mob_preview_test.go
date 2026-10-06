@@ -81,8 +81,12 @@ func TestMobPreviewStageClearance(t *testing.T) {
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
 			p.Select(key)
+			def, err := monster.MonsterConfig.GetMonsterByKey(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := previewStageDistanceTiles(def) * float64(cfg.GetTileSize())
 			for _, m := range p.Monsters() {
-				want := (1.1 + 0.35*m.GetSizeGameMultiplier()) * float64(cfg.GetTileSize())
 				if math.Abs(m.X-p.g.camera.X-want) > 1e-6 {
 					t.Fatal("original close framing changed")
 				}
@@ -264,6 +268,9 @@ func TestMobPreview_SpawnAndStep(t *testing.T) {
 	}
 }
 
+// Every champion mob shows its mirrored build on the first frame: the default
+// tier's HP, two TB swings, and a ranged champion's main-hand weapon as its
+// projectile.
 func TestMobPreview_ChampionMirroredBeforeFirstFrame(t *testing.T) {
 	cfg := setupPreviewSandboxTest(t)
 	if _, err := config.LoadChampionConfig("../../assets/champions.yaml"); err != nil {
@@ -278,21 +285,54 @@ func TestMobPreview_ChampionMirroredBeforeFirstFrame(t *testing.T) {
 		t.Fatalf("NewMobPreview: %v", err)
 	}
 	t.Cleanup(p.g.Shutdown)
-	p.Select("hobbit_archer")
-	if len(p.Monsters()) != 1 {
-		t.Fatalf("champion preview staged %d monsters, want 1", len(p.Monsters()))
+	tier := config.GetChampionTier(config.ChampionDefaultTier)
+	if tier == nil {
+		t.Fatalf("default champion tier %q missing", config.ChampionDefaultTier)
 	}
-	m := p.Monsters()[0]
-	if !m.ChampionMirrored {
-		t.Fatal("champion still exposes monsters.yaml placeholders immediately after Select")
+	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	slices.Sort(keys)
+	checked := 0
+	for _, key := range keys {
+		def, err := monster.MonsterConfig.GetMonsterByKey(key)
+		if err != nil || def.Champion == "" {
+			continue
+		}
+		checked++
+		t.Run(key, func(t *testing.T) {
+			build := config.GetChampionDefinition(def.Champion)
+			if build == nil {
+				t.Fatalf("champion %q missing from champions.yaml", def.Champion)
+			}
+			p.Select(key)
+			if len(p.Monsters()) != 1 {
+				t.Fatalf("champion preview staged %d monsters, want 1", len(p.Monsters()))
+			}
+			m := p.Monsters()[0]
+			if !m.ChampionMirrored {
+				t.Fatal("champion still exposes monsters.yaml placeholders immediately after Select")
+			}
+			if got := m.GetTurnBasedAttackCount(); got != 2 {
+				t.Errorf("champion TB attacks = %d, want 2", got)
+			}
+			if m.MaxHitPoints != tier.HP {
+				t.Errorf("champion HP = %d, want the %s tier's %d", m.MaxHitPoints, config.ChampionDefaultTier, tier.HP)
+			}
+			if !build.Ranged {
+				return
+			}
+			mainHand := ""
+			for _, item := range build.Equipment[config.ChampionDefaultTier] {
+				if _, ok := config.GetWeaponDefinition(item); ok {
+					mainHand = item
+					break
+				}
+			}
+			if mainHand == "" || m.ProjectileWeapon != mainHand {
+				t.Errorf("champion projectile weapon = %q, want its %s main hand %q", m.ProjectileWeapon, config.ChampionDefaultTier, mainHand)
+			}
+		})
 	}
-	if got := m.GetTurnBasedAttackCount(); got != 2 {
-		t.Errorf("champion TB attacks = %d, want 2", got)
-	}
-	if m.ProjectileWeapon != "blowgun" {
-		t.Errorf("champion projectile weapon = %q, want impossible-tier blowgun", m.ProjectileWeapon)
-	}
-	if m.MaxHitPoints != config.GetChampionTier(config.ChampionDefaultTier).HP {
-		t.Errorf("champion HP = %d, want impossible-tier HP", m.MaxHitPoints)
+	if checked == 0 {
+		t.Fatal("no monster rides a champion build")
 	}
 }

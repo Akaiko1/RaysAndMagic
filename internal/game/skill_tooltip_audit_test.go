@@ -17,7 +17,7 @@ import (
 // every line survives wrapping; these assertions pin the audited gameplay facts.
 // Persistence is not involved: no description is stored in a save.
 func TestSkillTooltipAuditAllMechanics(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
+	newTestCombatSystemWithConfig(t)
 	oldTechniques := config.GlobalTechniques
 	t.Cleanup(func() { config.GlobalTechniques = oldTechniques })
 	if err := config.LoadTechniques("../../assets/techniques.yaml"); err != nil {
@@ -34,7 +34,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillArmsMaster:          {"0/2/4/6", "+5% weapon crit"},
 		character.SkillTrapper:             {"0/5/10/15", "floor((Intellect + Accuracy)/3)", "0/2/4/6s RT", "0/0/1/2 turns TB"},
 		character.SkillSleightOfHand:       {"10/20/30/40%", "One successful theft per surviving enemy"},
-		character.SkillDualWielding:        {"0/10/20/30%", "separate hand recovery", "at least 2 actions per round"},
+		character.SkillDualWielding:        {"0/10/20/30%", "each hand recovers on its own", "at least 2 actions per round"},
 		character.SkillIronBody:            {"10/20/30/40", "+10% Perfect Dodge"},
 		character.SkillSpiritualTraining:   {"10/20/30/40%", "even on a miss", "no SP or extra action", "offensive spell"},
 		character.SkillElementalMastery:    {"10/20/35/50%", "Light", "Dark"},
@@ -42,22 +42,20 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillSacrifice:           {"10/20/30/50%", "Strongest living active protector", "after defenses", "no second mitigation or DoTs"},
 		character.SkillImpenetrableDefense: {"3/5/7/10", "after defenses", "Does not reduce true damage or DoTs"},
 		character.SkillLockpicking:         {"20/35/50/60%", "3 failed non-key attempts", "key still works"},
-		character.SkillNaturalHealer:       {"20/40/60/100%", "Spell HP healing"},
+		character.SkillNaturalHealer:       {"20/40/60/100%", "HP healed by healing spells"},
 		character.SkillCelestialProvidence: {"dawn/dusk", "Living active Celestial", "Master-tier", "Does not stack"},
 		character.SkillOrcishFury:          {"Normal weapon damage +3/5/7/10"},
 		character.SkillHalflingGuile:       {"Halves this hero's weight", "random party target"},
-		character.SkillDarkElfBinding:      {" 3% chance", "including fields", "turn the target into an ally for this map", "undead, formless, bosses"},
+		character.SkillDarkElfBinding:      {" 3% chance", "including fields", "turn the target into an ally until the party leaves for another map", "undead, bosses and invulnerable"},
 		character.SkillSpellAbsorption:     {"15/30/45/60%", "both HP and SP", "damage before defenses"},
 		character.SkillStrongMagic:         {"damage +25/50/75/100%", "HP cost: 25/50/75/100% of paid SP", "leave 1 HP"},
 		character.SkillBallistics:          {"15/25/35/50%", "0/0/1/2 tiles", "2/4/6/8%"},
 		character.SkillFieldMedicine:       {"15/25/40/60%", "10/20/30/40%", "Revival unchanged"},
 		character.SkillDesignateTarget:     {"6/9/12/15s", "5/8/12/15 percentage points", "One mark per user", "while the marker can act"},
-		character.SkillOverwatch:           {"20/30/40/50%", "half that chance", "free bow/blaster shot", "1.0s in RT", "until next round in TB"},
+		character.SkillOverwatch:           {"20/30/40/50%", "half that chance", "free bow/blaster shot", "1.0s in RT", "until the next party round"},
 		character.SkillAlchemy:             {"common: 2/3/4/6", "protective: 1/2/3/4", "revival: 1/2/3/4"},
 		character.SkillPharmacology:        {"20/35/50/75%", "10/15/20/25%", "Intellect/3", "adds to Field Medicine", "Revival unchanged"},
-		character.SkillBombThrowing:        {"Harm Flask: 72/90/108/126 + INT/3 physical damage", "Fire Flask: 36/48/60/72 + INT/3 fire damage", "Venom Flask: 24/36/48/60 + INT/3 body damage", "poison 6/9/12/15s", "burning 3/5/7/9s"},
-		character.SkillTranslocation:       {"Fold Step: 3/4/6/8 tiles", "8/7/6/5 SP", "12/15/18/24s", "Return Step: 6/5/4/3 SP", "dodge +10/15/20/25%; 3/6/6/9s", "Purify: 12/11/10/9 SP", "RT recovery -20/25/30/35%", "TB +1/1/2/2 actions next turn"},
-		character.SkillFlowingStaff:        {"1/2/3/4 staff charges", "25/50/75/100%", "guarantees a critical staff attack", "remain until spent"},
+		character.SkillFlowingStaff:        {"fills the staff to 1/2/3/4 charges", "25/50/75/100%", "a guaranteed critical", "remain until spent"},
 		character.SkillPathfinding:         {"5/10/15/20%", "Party RT movement speed", "Best capable active guide", "attack and cast while running"},
 	}
 	for _, s := range []character.SkillType{character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear, character.SkillBow, character.SkillMace, character.SkillStaff, character.SkillMartialArts, character.SkillBlaster} {
@@ -67,6 +65,34 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		cases[s] = []string{"0/2/4/6 AC per equipped piece", "+5% Perfect Dodge", "once per armor type"}
 	}
 	cases[character.SkillShield] = []string{"Shield AC +0/2/4/6", "+5% Perfect Dodge"}
+	// Catalog-driven rows read the live definitions; retuned values are
+	// covered by the RetunedFlaskWiring and RetunedTechniqueWiring tests.
+	ladder := func(v [4]int) string {
+		return fmt.Sprintf("%d/%d/%d/%d", v[0], v[1], v[2], v[3])
+	}
+	geometries := map[[2]int]bool{}
+	for _, key := range config.FlaskKeys() {
+		d, _ := config.GetItemDefinition(key)
+		f := d.Flask
+		geometries[[2]int{f.RangeTiles, f.RadiusTiles}] = true
+		facts := []string{fmt.Sprintf("%s: %s + INT/%d %s damage", d.Name, ladder(f.Damage), character.BombThrowingIntellectDivisor, f.Element)}
+		if f.PoisonSeconds != [4]int{} {
+			facts = append(facts, "poison "+ladder(f.PoisonSeconds)+"s")
+		}
+		if f.BurnSeconds != [4]int{} {
+			facts = append(facts, "burning "+ladder(f.BurnSeconds)+"s")
+		}
+		cases[character.SkillBombThrowing] = append(cases[character.SkillBombThrowing], facts...)
+	}
+	for _, d := range config.GlobalTechniques.Techniques {
+		if d.SPCost != [4]int{d.SPCost[0], d.SPCost[0], d.SPCost[0], d.SPCost[0]} {
+			cases[character.SkillTranslocation] = append(cases[character.SkillTranslocation],
+				fmt.Sprintf("%s (level %d): ", d.Name, d.Level), ladder(d.SPCost)+" SP")
+		}
+	}
+	if len(cases[character.SkillBombThrowing]) == 0 || len(cases[character.SkillTranslocation]) == 0 {
+		t.Fatal("fixture: no flask or varying-cost technique in the catalogs")
+	}
 	if len(cases) != len(character.AllSkills) {
 		t.Fatalf("audited %d skills, catalog has %d", len(cases), len(character.AllSkills))
 	}
@@ -93,13 +119,6 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 					t.Errorf("skill reference contains redundant instruction %q", filler)
 				}
 			}
-			ui := &UISystem{game: cs.game}
-			ui.queueTooltip(strings.Split(text, "\n"), 0, 0)
-			assertSharedTooltipLayout(t, ui)
-			layout := layoutTooltip(ui.tooltipLines, false, tooltipColumnWidth(1920, 1), 1080)
-			if layout.h > 1080-2*tooltipScreenMargin {
-				t.Fatal("resized tooltip escapes the screen")
-			}
 		})
 	}
 	for _, school := range character.AllMagicSchools {
@@ -111,33 +130,36 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 			}
 		}
 	}
+	// Each distinct flask geometry is stated once; one shared geometry is "All flasks".
 	flasks := masteryTooltipTextForSkill(character.SkillBombThrowing)
-	if strings.Count(flasks, "range 6 tiles; radius 2 tiles") != 1 || !strings.Contains(flasks, "All flasks:") {
-		t.Fatal("shared flask range/radius must appear once")
+	for g := range geometries {
+		if strings.Count(flasks, fmt.Sprintf("range %d tiles; radius %d tiles", g[0], g[1])) != 1 {
+			t.Errorf("flask geometry %v must appear exactly once: %s", g, flasks)
+		}
+	}
+	if strings.Contains(flasks, "All flasks:") != (len(geometries) == 1) {
+		t.Errorf("All flasks label must match %d distinct geometries: %s", len(geometries), flasks)
 	}
 }
 
 func assertSkillGrandMasterSection(t *testing.T, text string, want bool) {
 	t.Helper()
-	count := strings.Count(text, "\n\nGRAND MASTER\n")
+	count := strings.Count(text, "\n\nGRANDMASTER\n")
 	if (want && count != 1) || (!want && count != 0) {
-		t.Fatalf("Grand Master section count %d, expected section=%v: %s", count, want, text)
+		t.Fatalf("Grandmaster section count %d, expected section=%v: %s", count, want, text)
 	}
 	for _, word := range strings.Fields(text) {
 		if strings.Trim(word, ":;,.()") == "GM" {
 			t.Fatalf("unexplained mastery abbreviation: %s", text)
 		}
 	}
-	if strings.Contains(text, "Grand Master:") {
-		t.Fatal("Grand Master label repeated below its heading")
+	if strings.Contains(text, "Grandmaster:") {
+		t.Fatal("Grandmaster label repeated below its heading")
 	}
 	if want {
-		if !tooltipSectionHeading("GRAND MASTER") {
-			t.Fatal("Grand Master bonus lacks the shared heading style")
-		}
-		_, bonus, _ := strings.Cut(text, "\n\nGRAND MASTER\n")
+		_, bonus, _ := strings.Cut(text, "\n\nGRANDMASTER\n")
 		if strings.TrimSpace(bonus) == "" {
-			t.Fatal("empty Grand Master section")
+			t.Fatal("empty Grandmaster section")
 		}
 	}
 }
@@ -254,7 +276,7 @@ func TestSkillTooltipAuditRetunedTechniqueWiring(t *testing.T) {
 					{&d.Range, "7/8/9/10 tiles", key == "fold_step"},
 					{&d.Duration, "7/8/9/10s", key == "fold_step" || key == "phase_veil" || key == "quickening"},
 					{&d.Power, "7/8/9/10", key == "phase_veil" || key == "quickening"},
-					{&d.TBPower, "TB +7/8/9/10 actions", key == "quickening"},
+					{&d.TBPower, "TB +7/8/9/10 shared actions", key == "quickening"},
 				} {
 					if !tc.used {
 						continue

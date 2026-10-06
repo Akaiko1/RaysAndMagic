@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,74 +12,114 @@ import (
 	"ugataima/internal/stash"
 )
 
-// The chest is the authority: a bag item whose instance id the chest already
-// holds is stripped on load, so reloading a save can't re-deposit that copy.
-func TestReconcileAgainstStash_StripsOwnedInstance(t *testing.T) {
-	g := &MMGame{
-		party: &character.Party{Inventory: []items.Item{
-			{Name: "Muramasa", InstanceID: 100},
-			{Name: "Shield", InstanceID: 200},
-		}},
-		stash: &stash.Stash{},
+// The stash is the authority: an item whose nonzero instance id a chest or card
+// vault slot holds is stripped on load wherever the party keeps it, so reloading
+// a save can't re-deposit that copy. A foreign id survives, and untracked
+// (zero-id) items never match - a chest zero must not match a bag zero, or
+// legacy items would vanish. A neighbour with its own id always stays.
+func TestReconcileAgainstStashStripsOwnedIDs(t *testing.T) {
+	type location struct {
+		name  string
+		place func(g *MMGame, it, neighbour items.Item)
+		holds func(g *MMGame, name string) bool
 	}
-	g.stash.Slots[0] = items.Item{Name: "Muramasa", InstanceID: 100} // chest owns #100
-
-	g.reconcilePartyAgainstStash()
-
-	if len(g.party.Inventory) != 1 || g.party.Inventory[0].InstanceID != 200 {
-		t.Fatalf("expected only #200 kept, got %+v", g.party.Inventory)
+	bagHolds := func(bag []items.Item, name string) bool {
+		for _, it := range bag {
+			if it.Name == name {
+				return true
+			}
+		}
+		return false
 	}
-}
-
-// A save written while the item was still EQUIPPED (or in a quick slot) must
-// not smuggle a chest-owned copy back in - the sweep covers all rosters'
-// slots, not just the bag.
-func TestReconcileAgainstStash_StripsEquippedAndQuickSlot(t *testing.T) {
-	active := &character.MMCharacter{Equipment: map[items.EquipSlot]items.Item{
-		items.SlotMainHand: {Name: "Muramasa", InstanceID: 100},
-		items.SlotArmor:    {Name: "Leather", InstanceID: 300},
-	}}
-	reserve := &character.MMCharacter{Equipment: map[items.EquipSlot]items.Item{}}
-	reserve.QuickSlots[0] = &items.Item{Name: "Potion", InstanceID: 400}
-	g := &MMGame{
-		party: &character.Party{
-			Members: []*character.MMCharacter{active},
-			Reserve: []*character.MMCharacter{reserve},
-		},
-		stash: &stash.Stash{},
+	locations := []location{
+		{"party bag",
+			func(g *MMGame, it, n items.Item) { g.party.Inventory = []items.Item{it, n} },
+			func(g *MMGame, name string) bool { return bagHolds(g.party.Inventory, name) }},
+		{"member bag",
+			func(g *MMGame, it, n items.Item) { g.party.Members[0].Inventory = []items.Item{it, n} },
+			func(g *MMGame, name string) bool { return bagHolds(g.party.Members[0].Inventory, name) }},
+		{"equipped",
+			func(g *MMGame, it, n items.Item) {
+				g.party.Members[0].Equipment[items.SlotMainHand] = it
+				g.party.Members[0].Equipment[items.SlotArmor] = n
+			},
+			func(g *MMGame, name string) bool {
+				for _, it := range g.party.Members[0].Equipment {
+					if it.Name == name {
+						return true
+					}
+				}
+				return false
+			}},
+		{"reserve quick slot",
+			func(g *MMGame, it, n items.Item) {
+				g.party.Reserve[0].QuickSlots[0], g.party.Reserve[0].QuickSlots[1] = &it, &n
+			},
+			func(g *MMGame, name string) bool {
+				for _, it := range g.party.Reserve[0].QuickSlots {
+					if it != nil && it.Name == name {
+						return true
+					}
+				}
+				return false
+			}},
+		{"card collection",
+			func(g *MMGame, it, n items.Item) {
+				g.cardSlots[0] = cardSlot{key: "fixture_card", item: it}
+				g.cardSlots[1] = cardSlot{key: "neighbour_card", item: n}
+			},
+			func(g *MMGame, name string) bool {
+				for _, slot := range g.cardSlots {
+					if slot.item.Name == name {
+						return slot.key != ""
+					}
+				}
+				return false
+			}},
 	}
-	g.stash.Slots[0] = items.Item{Name: "Muramasa", InstanceID: 100}
-	g.stash.Slots[1] = items.Item{Name: "Potion", InstanceID: 400}
+	for _, loc := range locations {
+		for _, vault := range []bool{false, true} {
+			for _, id := range []string{"owned", "foreign", "zero"} {
+				t.Run(fmt.Sprintf("%s/vault=%v/%s", loc.name, vault, id), func(t *testing.T) {
+					member := &character.MMCharacter{Equipment: map[items.EquipSlot]items.Item{}}
+					reserve := &character.MMCharacter{Equipment: map[items.EquipSlot]items.Item{}}
+					g := &MMGame{
+						party: &character.Party{Members: []*character.MMCharacter{member}, Reserve: []*character.MMCharacter{reserve}},
+						stash: &stash.Stash{},
+					}
+					itemType := items.ItemWeapon
+					if vault {
+						itemType = items.ItemCard
+					}
+					partyID, stashID := uint64(100), uint64(100)
+					switch id {
+					case "foreign":
+						stashID = 300
+					case "zero":
+						partyID, stashID = 0, 0
+					}
+					it := items.Item{Name: "Fixture Item", Type: itemType, InstanceID: partyID}
+					neighbour := items.Item{Name: "Neighbour Item", Type: itemType, InstanceID: 200}
+					loc.place(g, it, neighbour)
+					stashed := items.Item{Name: "Fixture Item", Type: itemType, InstanceID: stashID}
+					if vault {
+						g.stash.CardSlots[0] = stashed
+					} else {
+						g.stash.Slots[0] = stashed
+					}
 
-	g.reconcilePartyAgainstStash()
+					g.reconcilePartyAgainstStash()
 
-	if _, has := active.Equipment[items.SlotMainHand]; has {
-		t.Error("chest-owned equipped weapon should be stripped")
-	}
-	if _, has := active.Equipment[items.SlotArmor]; !has {
-		t.Error("unrelated equipment must stay")
-	}
-	if reserve.QuickSlots[0] != nil {
-		t.Error("chest-owned quick-slot item on a RESERVE member should be stripped")
-	}
-}
-
-// Untracked (zero-id) items are never stripped - a chest zero must not match a
-// bag zero, or legacy items would wrongly vanish.
-func TestReconcileAgainstStash_IgnoresZeroIDs(t *testing.T) {
-	g := &MMGame{
-		party: &character.Party{Inventory: []items.Item{
-			{Name: "Old Sword"},  // id 0
-			{Name: "Old Shield"}, // id 0
-		}},
-		stash: &stash.Stash{},
-	}
-	g.stash.Slots[0] = items.Item{Name: "Old Relic"} // id 0 in the chest too
-
-	g.reconcilePartyAgainstStash()
-
-	if len(g.party.Inventory) != 2 {
-		t.Fatalf("zero-id bag items must never be stripped, got %+v", g.party.Inventory)
+					wantKept := id != "owned"
+					if got := loc.holds(g, it.Name); got != wantKept {
+						t.Fatalf("item kept = %v, want %v", got, wantKept)
+					}
+					if !loc.holds(g, neighbour.Name) {
+						t.Fatal("an item the stash does not own was stripped")
+					}
+				})
+			}
+		}
 	}
 }
 
@@ -151,39 +192,6 @@ func TestReconcileAgainstStash_PartialWithdrawalStillClaimsOldSaveUnits(t *testi
 	g.reconcilePartyAgainstStash()
 	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 4 {
 		t.Fatalf("stale save after partial withdrawal = %+v, want four potions", g.party.Inventory)
-	}
-}
-
-// Card-vault slots count as owned too (cards deposit into a separate vault).
-func TestReconcileAgainstStash_CardVaultOwns(t *testing.T) {
-	g := &MMGame{
-		party: &character.Party{Inventory: []items.Item{
-			{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77},
-		}},
-		stash: &stash.Stash{},
-	}
-	g.stash.CardSlots[0] = items.Item{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77}
-
-	g.reconcilePartyAgainstStash()
-
-	if len(g.party.Inventory) != 0 {
-		t.Fatalf("card owned by the vault should be stripped, got %+v", g.party.Inventory)
-	}
-}
-
-func TestReconcileAgainstStash_StripsOwnedCardCollectionSlot(t *testing.T) {
-	g := &MMGame{
-		party: &character.Party{},
-		stash: &stash.Stash{},
-	}
-	g.cardSlots[0].key = "medusa_card"
-	g.cardSlots[0].item = items.Item{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77}
-	g.stash.CardSlots[0] = items.Item{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77}
-
-	g.reconcilePartyAgainstStash()
-
-	if g.cardSlots[0].key != "" || g.cardSlots[0].item.Name != "" {
-		t.Fatalf("card collection slot should be stripped when vault owns the card, key=%q item=%+v", g.cardSlots[0].key, g.cardSlots[0].item)
 	}
 }
 

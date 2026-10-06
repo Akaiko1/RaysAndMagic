@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"testing"
 
 	"ugataima/internal/config"
@@ -157,91 +158,72 @@ func TestCharmAggressionAndReward(t *testing.T) {
 	}
 }
 
-func TestPartyMeleeBreaksCharmBeforeDamageResolution(t *testing.T) {
-	game, _, _ := tbBehaviorGame(t, 5, 5)
-	charmed := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", game.config)
-	charmed.PerfectDodge = 100 // the attempted attack still ends Charm
-	game.world.Monsters = []*monsterPkg.Monster3D{charmed}
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.combat.applyPacify(charmed, 120, "Charm")
+// Every party hit path breaks Charm on each monster it touches - even a hit
+// the target dodges - in both combat modes.
+func TestPartyHitsBreakCharmOnEveryTarget(t *testing.T) {
+	type tile struct{ dx, dy int }
+	for _, tc := range []struct {
+		name    string
+		targets []tile // tiles from the party, which faces +X
+		dodge   bool
+		apply   func(t *testing.T, cs *CombatSystem, targets []*monsterPkg.Monster3D)
+	}{
+		{name: "melee_dodged", targets: []tile{{1, 0}}, dodge: true,
+			apply: func(_ *testing.T, cs *CombatSystem, targets []*monsterPkg.Monster3D) {
+				cs.ApplyDamageToMonster(targets[0], 10, "Iron Sword", false)
+			}},
+		{name: "melee_arc", targets: []tile{{1, 0}, {1, -1}, {1, 1}},
+			apply: func(t *testing.T, cs *CombatSystem, _ []*monsterPkg.Monster3D) {
+				weapon, err := items.TryCreateWeaponFromYAML("steel_axe")
+				if err != nil {
+					t.Fatalf("steel_axe: %v", err)
+				}
+				cs.performMeleeHitDetection(weapon, 20, &config.MeleeAttackConfig{ArcType: 3}, false)
+			}},
+		{name: "melee_aoe", targets: []tile{{1, 0}, {2, 0}},
+			apply: func(t *testing.T, cs *CombatSystem, targets []*monsterPkg.Monster3D) {
+				def, ok := config.GetWeaponDefinition("tonbogiri")
+				if !ok || def == nil || def.AoeRadiusTiles < 1 {
+					t.Fatal("tonbogiri missing or its splash cannot reach the next tile")
+				}
+				cs.ApplyDamageToMonster(targets[0], 20, def.Name, false)
+			}},
+		{name: "spell_aoe", targets: []tile{{1, 0}, {2, 0}},
+			apply: func(_ *testing.T, cs *CombatSystem, targets []*monsterPkg.Monster3D) {
+				bolt := &MagicProjectile{ID: "test_fireball", Active: true, LifeTime: 1, Damage: 20, SpellType: "fireball"}
+				cs.applyProjectileDamage(bolt, "magic_projectile", targets[0], bolt.ID)
+			}},
+	} {
+		for _, tb := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/TB_%v", tc.name, tb), func(t *testing.T) {
+				game, _, ts := tbBehaviorGame(t, 20, 20)
+				game.turnBasedMode = tb
+				const px, py = 10, 10
+				placePlayerAtTile(game, px, py, ts)
+				game.camera.Angle = 0
+				targets := make([]*monsterPkg.Monster3D, len(tc.targets))
+				for i, at := range tc.targets {
+					m := monsterPkg.NewMonster3DFromConfig(float64(px+at.dx)*ts+ts/2, float64(py+at.dy)*ts+ts/2, "goblin", game.config)
+					m.MaxHitPoints, m.HitPoints = 500, 500
+					if tc.dodge {
+						m.PerfectDodge = 100 // the attempted attack still ends Charm
+					}
+					targets[i] = m
+				}
+				game.world.Monsters = targets
+				game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+				for _, m := range targets {
+					game.combat.applyPacify(m, 120, "Charm")
+				}
 
-	game.combat.ApplyDamageToMonster(charmed, 10, "Iron Sword", false)
+				tc.apply(t, game.combat, targets)
 
-	if charmed.Pacified || !charmed.WasAttacked {
-		t.Errorf("a party melee attack must break Charm even on dodge (Pacified=%v WasAttacked=%v)", charmed.Pacified, charmed.WasAttacked)
-	}
-}
-
-func TestPartyMeleeArcBreaksCharmForEveryHitTarget(t *testing.T) {
-	game, _, ts := tbBehaviorGame(t, 20, 20)
-	const tx, ty = 10, 10
-	placePlayerAtTile(game, tx, ty, ts)
-	game.camera.Angle = 0
-	weapon, err := items.TryCreateWeaponFromYAML("steel_axe")
-	if err != nil {
-		t.Fatalf("steel_axe: %v", err)
-	}
-
-	targets := []*monsterPkg.Monster3D{
-		monsterPkg.NewMonster3DFromConfig(float64(tx+1)*ts+ts/2, float64(ty)*ts+ts/2, "goblin", game.config),
-		monsterPkg.NewMonster3DFromConfig(float64(tx+1)*ts+ts/2, float64(ty-1)*ts+ts/2, "goblin", game.config),
-		monsterPkg.NewMonster3DFromConfig(float64(tx+1)*ts+ts/2, float64(ty+1)*ts+ts/2, "goblin", game.config),
-	}
-	for _, target := range targets {
-		target.MaxHitPoints, target.HitPoints = 500, 500
-		game.combat.applyPacify(target, 120, "Charm")
-	}
-	game.world.Monsters = targets
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-
-	game.combat.performMeleeHitDetection(weapon, 20, &config.MeleeAttackConfig{ArcType: 3}, false)
-
-	for i, target := range targets {
-		if target.Pacified || !target.WasAttacked {
-			t.Errorf("arc target %d must break Charm (Pacified=%v WasAttacked=%v)", i, target.Pacified, target.WasAttacked)
-		}
-	}
-}
-
-func TestPartyMeleeAoEBreaksCharmForPrimaryAndSplash(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	ts := float64(cs.game.config.GetTileSize())
-	primary := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", cs.game.config)
-	splash := monsterPkg.NewMonster3DFromConfig(ts, 0, "goblin", cs.game.config)
-	for _, target := range []*monsterPkg.Monster3D{primary, splash} {
-		target.MaxHitPoints, target.HitPoints = 500, 500
-		cs.game.combat.applyPacify(target, 120, "Charm")
-	}
-	cs.game.world.Monsters = []*monsterPkg.Monster3D{primary, splash}
-	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
-
-	cs.ApplyDamageToMonster(primary, 20, "Tonbogiri, the Dragonfly Spear", false)
-
-	for _, target := range []*monsterPkg.Monster3D{primary, splash} {
-		if target.Pacified || !target.WasAttacked {
-			t.Errorf("AoE target %s must break Charm (Pacified=%v WasAttacked=%v)", target.Name, target.Pacified, target.WasAttacked)
-		}
-	}
-}
-
-func TestPartySpellAoEBreaksCharmForPrimaryAndSplash(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	ts := float64(cs.game.config.GetTileSize())
-	primary := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", cs.game.config)
-	splash := monsterPkg.NewMonster3DFromConfig(ts, 0, "goblin", cs.game.config)
-	for _, target := range []*monsterPkg.Monster3D{primary, splash} {
-		target.MaxHitPoints, target.HitPoints = 500, 500
-		cs.applyPacify(target, 120, "Charm")
-	}
-	cs.game.world.Monsters = []*monsterPkg.Monster3D{primary, splash}
-	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
-
-	bolt := &MagicProjectile{ID: "test_fireball", Active: true, LifeTime: 1, Damage: 20, SpellType: "fireball"}
-	cs.applyProjectileDamage(bolt, "magic_projectile", primary, bolt.ID)
-
-	for _, target := range []*monsterPkg.Monster3D{primary, splash} {
-		if target.Pacified || !target.WasAttacked {
-			t.Errorf("spell AoE target %s must break Charm (Pacified=%v WasAttacked=%v)", target.Name, target.Pacified, target.WasAttacked)
+				for i, m := range targets {
+					if m.Pacified || !m.WasAttacked {
+						t.Errorf("target %d must break Charm (Pacified=%v WasAttacked=%v)", i, m.Pacified, m.WasAttacked)
+					}
+				}
+			})
 		}
 	}
 }

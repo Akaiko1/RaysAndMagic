@@ -197,7 +197,13 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 	chestItems = append(chestItems, fixedItemRewards(reward.Items)...)
 	chestGold := reward.Gold
 	if reward.LootTable != "" {
-		poolItems, poolGold := rollWeightedLootTable(reward.LootTable)
+		var poolItems []items.Item
+		var poolGold int
+		if loot, ok := g.adventureLoot(chestMap, "table:"+reward.LootTable); ok {
+			poolItems, poolGold = loot.Items, loot.Gold
+		} else {
+			poolItems, poolGold = rollWeightedLootTable(reward.LootTable)
+		}
 		chestItems = append(chestItems, poolItems...)
 		chestGold += poolGold
 	}
@@ -335,6 +341,12 @@ func rollWeightedLootTable(name string) ([]items.Item, int) {
 		}
 		out = append(out, it)
 	}
+	for _, key := range t.Items {
+		it, err := createLootItem("item", key)
+		if err == nil {
+			out = append(out, it)
+		}
+	}
 	gold := t.GoldMin
 	if t.GoldMax > t.GoldMin {
 		gold += rand.Intn(t.GoldMax - t.GoldMin + 1)
@@ -354,6 +366,33 @@ func (g *MMGame) tryPickupNearestGroundContainer(maxDist float64) bool {
 		return true
 	}
 	return false
+}
+
+// autoPickupLootBags gathers every loot bag on the party's tile or a tile next
+// to it, so walking over a kill picks up its drops. Chests stay closed until
+// the party opens them.
+func (g *MMGame) autoPickupLootBags() {
+	if g == nil || g.camera == nil || g.config == nil || g.party == nil {
+		return
+	}
+	ts := float64(g.config.GetTileSize())
+	px, py := math.Floor(g.camera.X/ts), math.Floor(g.camera.Y/ts)
+	near := func(c *GroundContainer, _ float64) bool {
+		return c.Kind == ContainerKindLootBag &&
+			math.Abs(math.Floor(c.X/ts)-px) <= 1 && math.Abs(math.Floor(c.Y/ts)-py) <= 1
+	}
+	// A neighbouring tile's far corner is under 3 tiles away.
+	for range len(g.groundContainers) {
+		idx := g.findGroundContainerIndex(3*ts, near)
+		if idx < 0 {
+			return
+		}
+		before := len(g.groundContainers)
+		g.pickupGroundContainerAt(idx)
+		if len(g.groundContainers) >= before {
+			return
+		}
+	}
 }
 
 // findGroundContainerIndexAtScreen finds the closest in-range container whose

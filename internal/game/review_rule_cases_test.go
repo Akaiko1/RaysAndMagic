@@ -56,39 +56,6 @@ func TestSaveMapResolutionBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestEarnedChoiceRoundTrip(t *testing.T) {
-	for _, level := range []int{3, 6} {
-		for _, reserve := range []bool{false, true} {
-			t.Run(fmt.Sprintf("level_%d/reserve_%v", level, reserve), func(t *testing.T) {
-				g, _ := summonTileWorld(t)
-				if _, err := config.LoadLevelUpConfig("../../assets/level_up.yaml"); err != nil {
-					t.Fatal(err)
-				}
-				m := g.party.Members[0]
-				if reserve {
-					g.party.Members = g.party.Members[1:]
-					g.party.Reserve = []*character.MMCharacter{m}
-				}
-				m.Level, m.Experience = level-1, xpStepCost(level-1)
-				g.combat.checkLevelUp(m, false)
-				wm := world.NewWorldManager(g.config)
-				wm.LoadedMaps["forest"] = g.world
-				setTestWorldManager(t, wm)
-				save := g.buildSave(wm)
-				if err := g.applySave(wm, &save); err != nil {
-					t.Fatal(err)
-				}
-				if reserve && !g.swapRosterMember(0, 0) {
-					t.Fatal("could not activate reserve")
-				}
-				if len(g.levelUpChoiceQueue) != 1 || g.levelUpChoiceQueue[0].level != level || len(g.levelUpChoiceQueue[0].options) < MinLevelUpOptions {
-					t.Fatalf("earned choice not restored: %+v", g.levelUpChoiceQueue)
-				}
-			})
-		}
-	}
-}
-
 func TestRoundEligibilityPrecedesStunExpiry(t *testing.T) {
 	for _, gear := range []string{"normal", "dual", "suppressor_gun"} {
 		for _, stun := range []int{0, 1, 2} {

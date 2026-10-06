@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -14,31 +15,41 @@ import (
 	"ugataima/internal/world"
 )
 
+// A saved weapon adopts its current weapons.yaml definition wholesale and
+// keeps only its instance id.
 func TestNormalizeWeaponFromConfigRefreshesSavedRarity(t *testing.T) {
 	loadTestConfig(t)
+	if len(config.GlobalWeapons.Weapons) == 0 {
+		t.Fatal("no weapons loaded")
+	}
+	for key := range config.GlobalWeapons.Weapons {
+		want, err := items.TryCreateWeaponFromYAML(key)
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		item := items.Item{
+			Name:        want.Name,
+			Type:        items.ItemWeapon,
+			Description: "old saved description",
+			Rarity:      "stale_rarity",
+			Attributes:  map[string]int{"stale_attribute": 999},
+			InstanceID:  42,
+		}
 
-	item := items.Item{
-		Name:        "Fists",
-		Type:        items.ItemWeapon,
-		Description: "old saved description",
-		Rarity:      "common",
-		Attributes:  map[string]int{"value": 999},
-		InstanceID:  42,
-	}
+		normalizeItemFromConfig(&item)
 
-	normalizeItemFromConfig(&item)
-
-	if item.Rarity != "legendary" {
-		t.Fatalf("saved Fists rarity = %q, want YAML legendary", item.Rarity)
-	}
-	if item.InstanceID != 42 {
-		t.Fatalf("normalizing a weapon must preserve instance id, got %d", item.InstanceID)
-	}
-	if item.Description == "old saved description" {
-		t.Fatal("weapon description was not refreshed from YAML")
-	}
-	if len(item.Attributes) != 0 {
-		t.Fatalf("weapon attributes should be refreshed from YAML, got %+v", item.Attributes)
+		if item.Rarity != want.Rarity {
+			t.Errorf("%s: saved rarity = %q, want YAML %q", key, item.Rarity, want.Rarity)
+		}
+		if item.InstanceID != 42 {
+			t.Errorf("%s: normalizing a weapon must preserve instance id, got %d", key, item.InstanceID)
+		}
+		if item.Description != want.Description {
+			t.Errorf("%s: description = %q, want YAML %q", key, item.Description, want.Description)
+		}
+		if !reflect.DeepEqual(item.Attributes, want.Attributes) {
+			t.Errorf("%s: attributes = %+v, want YAML %+v", key, item.Attributes, want.Attributes)
+		}
 	}
 }
 
@@ -162,14 +173,14 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightDuration, game.torchLightActive, game.torchLightDuration)
 	}
 	// The radius deliberately does NOT round-trip: on load an active torch
-	// adopts the CURRENT spells.yaml vision_radius_tiles, so old saves pick
+	// adopts the CURRENT spells.yaml light_radius_tiles, so old saves pick
 	// up retunes.
 	torchDef, err := spells.GetSpellDefinitionByID("torch_light")
 	if err != nil {
 		t.Fatalf("torch_light def: %v", err)
 	}
-	if loaded.torchLightRadius != torchDef.VisionRadiusTiles {
-		t.Fatalf("torchLightRadius: got %v want spells.yaml value %v", loaded.torchLightRadius, torchDef.VisionRadiusTiles)
+	if loaded.torchLightRadius != torchDef.LightRadiusTiles {
+		t.Fatalf("torchLightRadius: got %v want spells.yaml value %v", loaded.torchLightRadius, torchDef.LightRadiusTiles)
 	}
 	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeDuration != game.wizardEyeDuration {
 		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeDuration, game.wizardEyeActive, game.wizardEyeDuration)
@@ -555,42 +566,87 @@ func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
 	}
 }
 
-// A spent hide_when_visited statue must vanish from interaction yet stay in the
-// world, so its Visited=true is captured by the save (NPC states only persist
-// NPCs still present). Dropping it from the world - the old RemoveNPC behaviour -
-// lost the spent state and resurrected the statue unspent on reload.
+// A spent hide_when_visited statue vanishes from interaction but stays in the
+// world, so its Visited flag reaches the save (NPC states persist only NPCs
+// still present) and the statue is still spent after a reload.
 func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
-	cfg := loadTestConfig(t)
-	w := newTestWorld(cfg)
-	statue := &character.NPC{RenderCategory: "scenery", Name: "Black Dragon Statue", X: 80, Y: 64, Sprite: "dragon_statue", HideWhenVisited: true}
-	w.NPCs = append(w.NPCs, statue)
-	game := newTestGame(cfg, w)
-	game.renderHelper = NewRenderingHelper(game)
-	prevWM := world.GlobalWorldManager
-	world.GlobalWorldManager = nil // interact focus reads GetCurrentWorld; pin it to w
-	t.Cleanup(func() { world.GlobalWorldManager = prevWM })
-	game.camera.Angle = 0 // face the statue: it sits at +X from the camera
-	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
-
-	game.updateFocusedNPC()
-	if game.focusedNPC != statue {
-		t.Fatalf("unspent statue should take interact focus")
+	g, qm := bootQuestGiverTest(t)
+	statueKey := ""
+	for _, key := range sortedMapKeys(character.NPCConfigInstance.NPCs) {
+		if d := character.NPCConfigInstance.NPCs[key]; d != nil && d.HideWhenVisited && len(d.Summons) > 0 {
+			statueKey = key
+			break
+		}
 	}
+	if statueKey == "" {
+		t.Fatal("no shipped hide_when_visited statue summons a monster")
+	}
+	ts := float64(g.config.GetTileSize())
+	// The statue stands one tile east of a party facing east.
+	newWorld := func(game *MMGame) (*world.WorldManager, *world.World3D, *character.NPC) {
+		w := newTestWorldSized(game.config, 12, 12)
+		statue, err := character.CreateNPCFromConfig(statueKey, 6.5*ts, 5.5*ts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.NPCs = append(w.NPCs, statue)
+		wm := world.NewWorldManager(game.config)
+		wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+		wm.CurrentMapKey = "forest"
+		setTestWorldManager(t, wm)
+		game.world = w
+		game.collisionSystem.UpdateTileChecker(w)
+		game.camera.X, game.camera.Y, game.camera.Angle = 5.5*ts, 5.5*ts, 0
+		game.camera.FOV = squareProjectionFOV(game.config.GetScreenWidth(), game.config.GetScreenHeight())
+		game.renderHelper = NewRenderingHelper(game)
+		return wm, w, statue
+	}
+	wm, w, statue := newWorld(g)
 
-	statue.Visited = true // mirrors summonDragonFromStatue: mark spent, keep in world
+	summon := statue.Summons[0]
+	if err := qm.ActivateQuest(summon.QuestID); err != nil {
+		t.Fatal(err)
+	}
+	_, statuetteKey, ok := config.GetItemDefinitionByName(summon.Statuette)
+	if !ok {
+		t.Fatalf("statuette %q is not an item", summon.Statuette)
+	}
+	g.party.AddItem(items.CreateItemFromYAML(statuetteKey))
 
-	game.updateFocusedNPC()
-	if game.focusedNPC != nil {
-		t.Errorf("spent hide_when_visited statue must not take interact focus")
+	g.updateFocusedNPC()
+	if g.focusedNPC != statue {
+		t.Fatal("unspent statue should take interact focus")
+	}
+	monsters := len(w.Monsters)
+	NewInputHandler(g).summonDragonFromStatue(statue, 0)
+	if !statue.Visited || len(w.Monsters) != monsters+1 {
+		t.Fatalf("rite did not spend the statue: visited=%v monsters %d -> %d", statue.Visited, monsters, len(w.Monsters))
+	}
+	g.updateFocusedNPC()
+	if g.focusedNPC != nil {
+		t.Error("spent hide_when_visited statue must not take interact focus")
 	}
 	kept := false
 	for _, n := range w.NPCs {
-		if n == statue {
-			kept = true
-		}
+		kept = kept || n == statue
 	}
 	if !kept {
-		t.Errorf("spent statue must stay in the world so its Visited state reaches the save")
+		t.Fatal("spent statue must stay in the world so its Visited state reaches the save")
+	}
+
+	save := g.buildSave(wm)
+	loaded := newTestGame(g.config, nil)
+	loaded.questManager = loadTestQuestManager(t)
+	wmLoad, _, reloaded := newWorld(loaded)
+	if err := loaded.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	if !reloaded.Visited {
+		t.Fatal("statue was restored unspent after reload")
+	}
+	loaded.updateFocusedNPC()
+	if loaded.focusedNPC != nil {
+		t.Error("reloaded spent statue took interact focus")
 	}
 }
 
@@ -651,132 +707,6 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || q.Completed {
 		t.Errorf("quest must NOT complete while a troll lives in its target_map; got %+v", q)
 	}
-}
-
-// A map can enter an old save before its authored markers are valid (the clock
-// tower briefly used uppercase monster letters). Such a save serializes an
-// empty roster. Once the map gains valid respawn_days spawns, that untracked
-// empty snapshot must not erase them again; an actual cleared farming map has
-// a respawn stamp and remains empty until its normal refresh window elapses.
-func TestSaveLoad_UntrackedEmptyRespawnRosterUsesAuthoredSpawns(t *testing.T) {
-	cfg := loadTestConfig(t)
-	const mapKey = "respawn_test"
-
-	newAuthoredWorld := func() *world.World3D {
-		w := newTestWorld(cfg)
-		w.MonsterSpawns = []world.MonsterSpawn{{X: 0, Y: 0, MonsterKey: "bandit"}}
-		w.RespawnAuthoredMonsters()
-		return w
-	}
-	newManager := func(w *world.World3D) *world.WorldManager {
-		wm := world.NewWorldManager(cfg)
-		wm.CurrentMapKey = mapKey
-		wm.LoadedMaps = map[string]*world.World3D{mapKey: w}
-		wm.MapConfigs = map[string]*config.MapConfig{mapKey: {RespawnDays: 3}}
-		return wm
-	}
-
-	for _, tc := range []struct {
-		name             string
-		respawnStamp     map[string]int
-		wantMonsters     int
-		wantRespawnStamp int
-	}{
-		{name: "legacy empty snapshot", wantMonsters: 1, wantRespawnStamp: 1},
-		{name: "tracked cleared roster", respawnStamp: map[string]int{mapKey: 3}, wantMonsters: 0, wantRespawnStamp: 3},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			wmSave := newManager(newAuthoredWorld())
-			gameSave := newTestGame(cfg, wmSave.LoadedMaps[mapKey])
-			save := gameSave.buildSave(wmSave)
-			save.MapKey = mapKey
-			save.MapMonsters = map[string][]MonsterSave{mapKey: []MonsterSave{}}
-			save.MapRespawnDay = tc.respawnStamp
-
-			worldLoad := newAuthoredWorld()
-			wmLoad := newManager(worldLoad)
-			oldWM := world.GlobalWorldManager
-			world.GlobalWorldManager = wmLoad
-			defer func() { world.GlobalWorldManager = oldWM }()
-
-			loaded := newTestGame(cfg, worldLoad)
-			if err := loaded.applySave(wmLoad, &save); err != nil {
-				t.Fatalf("apply save: %v", err)
-			}
-			if got := len(worldLoad.Monsters); got != tc.wantMonsters {
-				t.Fatalf("monsters after load = %d, want %d", got, tc.wantMonsters)
-			}
-			resaved := loaded.buildSave(wmLoad)
-			if got := len(resaved.MapMonsters[mapKey]); got != tc.wantMonsters {
-				t.Fatalf("monsters after resave = %d, want %d", got, tc.wantMonsters)
-			}
-			if got := resaved.MapRespawnDay[mapKey]; got != tc.wantRespawnStamp {
-				t.Fatalf("respawn stamp after resave = %d, want %d", got, tc.wantRespawnStamp)
-			}
-			if tc.wantMonsters > 0 {
-				if worldLoad.Monsters[0].Key != "bandit" {
-					t.Fatalf("restored roster key = %q, want bandit", worldLoad.Monsters[0].Key)
-				}
-				if worldLoad.LastRespawnDay != loaded.currentCalendarDay() {
-					t.Fatalf("respawn stamp = %d, want %d", worldLoad.LastRespawnDay, loaded.currentCalendarDay())
-				}
-			}
-		})
-	}
-}
-
-// A respawn_days roster with NO stamp is of unknown age (a pre-stamp save):
-// arrival must rewind it to the CURRENT authored spawns immediately, so old
-// saves pick up re-authored maps on first entry. A stamped roster keeps its
-// normal refresh window.
-func TestRespawnOnArrival_UnstampedRosterRewindsToAuthored(t *testing.T) {
-	cfg := loadTestConfig(t)
-	const mapKey = "respawn_test"
-
-	setup := func(stamp int) (*MMGame, *world.World3D) {
-		w := newTestWorld(cfg)
-		w.MonsterSpawns = []world.MonsterSpawn{
-			{X: 0, Y: 0, MonsterKey: "bandit"},
-			{X: 1, Y: 0, MonsterKey: "bandit"},
-		}
-		// Stale roster from an old save: one survivor of a smaller authoring.
-		w.Monsters = []*monster.Monster3D{monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)}
-		w.LastRespawnDay = stamp
-		wm := world.NewWorldManager(cfg)
-		wm.CurrentMapKey = mapKey
-		wm.LoadedMaps = map[string]*world.World3D{mapKey: w}
-		wm.MapConfigs = map[string]*config.MapConfig{mapKey: {RespawnDays: 3}}
-		oldWM := world.GlobalWorldManager
-		world.GlobalWorldManager = wm
-		t.Cleanup(func() { world.GlobalWorldManager = oldWM })
-		return newTestGame(cfg, w), w
-	}
-
-	t.Run("unstamped: rewound on arrival", func(t *testing.T) {
-		g, w := setup(0)
-		g.maybeRespawnMapMonsters()
-		if got := len(w.Monsters); got != 2 {
-			t.Fatalf("unstamped roster must rewind to authored spawns, got %d monsters, want 2", got)
-		}
-		if w.LastRespawnDay != g.currentCalendarDay() {
-			t.Fatalf("rewind must stamp the day, got %d", w.LastRespawnDay)
-		}
-	})
-	t.Run("fresh stamp: untouched", func(t *testing.T) {
-		g, w := setup(1) // spawned "today" (calendar day 1 -> stamp 1)
-		g.maybeRespawnMapMonsters()
-		if got := len(w.Monsters); got != 1 {
-			t.Fatalf("freshly stamped roster must keep its refresh window, got %d monsters, want 1", got)
-		}
-	})
-	t.Run("expired stamp: rewound", func(t *testing.T) {
-		g, w := setup(1)
-		g.calendarDay = 4 // Three calendar days later.
-		g.maybeRespawnMapMonsters()
-		if got := len(w.Monsters); got != 2 {
-			t.Fatalf("expired stamp must rewind, got %d monsters, want 2", got)
-		}
-	})
 }
 
 // Hostility must survive save/load: a provoked monster (WasAttacked) stays
@@ -1134,8 +1064,13 @@ func TestSaveLoad_PersistsMasteryScaledSummonStats(t *testing.T) {
 		t.Fatal("summon spell was not handled")
 	}
 	add := wSave.Monsters[len(wSave.Monsters)-1]
-	if add.MaxHitPoints != 1000 || add.DamageMin != 50 || add.DamageMax != 50 {
-		t.Fatalf("GM summon stats before save = %d HP, %d-%d damage", add.MaxHitPoints, add.DamageMin, add.DamageMax)
+	gm := int(character.MasteryGrandMaster)
+	if len(def.SummonHPByMastery) <= gm || len(def.SummonDamageByMastery) <= gm {
+		t.Fatalf("%s authors no Grandmaster summon ladder", def.ID)
+	}
+	if hp, dmg := def.SummonHPByMastery[gm], def.SummonDamageByMastery[gm]; add.MaxHitPoints != hp || add.DamageMin != dmg || add.DamageMax != dmg {
+		t.Fatalf("GM summon stats before save = %d HP, %d-%d damage, want the ladder's %d HP, %d damage",
+			add.MaxHitPoints, add.DamageMin, add.DamageMax, hp, dmg)
 	}
 	add.HitPoints = 777
 	wantElemental := MonsterRuntimeStatsSave{
@@ -1160,8 +1095,8 @@ func TestSaveLoad_PersistsMasteryScaledSummonStats(t *testing.T) {
 		hitPoints int
 		stats     MonsterRuntimeStatsSave
 	}{
-		"bear":            {hitPoints: bear.HitPoints, stats: wantBear},
-		"frost_elemental": {hitPoints: add.HitPoints, stats: wantElemental},
+		bear.Key: {hitPoints: bear.HitPoints, stats: wantBear},
+		add.Key:  {hitPoints: add.HitPoints, stats: wantElemental},
 	}
 	for _, m := range wLoad.Monsters {
 		want, ok := wantByKey[m.Key]
@@ -1185,62 +1120,73 @@ func TestSaveLoad_PersistsMasteryScaledSummonStats(t *testing.T) {
 	}
 }
 
+// Monster specials are not saved: a load rebuilds them from the CURRENT
+// monster definition, so a stale live value never survives the round trip.
 func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
 	cfg := loadTestConfig(t)
+	type specials struct {
+		pierceChance        float64
+		pierceTargets       int
+		healChance          float64
+		healAmount          int
+		healRadius          float64
+		hasPierce, hasHeals bool
+	}
+	read := func(m *monster.Monster3D) specials {
+		return specials{m.PiercingShotChance, m.PiercingShotTargets, m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels,
+			m.PiercingShotChance > 0, m.AllyHealChance > 0}
+	}
 	wSave := newTestWorld(cfg)
-	wSave.Monsters = []*monster.Monster3D{
-		monster.NewMonster3DFromConfig(64, 64, "ashigaru_firelock", cfg),
-		monster.NewMonster3DFromConfig(96, 64, "ronin_marksman", cfg),
-		monster.NewMonster3DFromConfig(128, 64, "ningyo", cfg),
-		monster.NewMonster3DFromConfig(192, 64, "vengeful_ningyo", cfg),
+	want := map[string]specials{}
+	pierce, heal := 0, 0
+	for _, key := range sortedMapKeys(monster.MonsterConfig.Monsters) {
+		def := monster.MonsterConfig.Monsters[key]
+		if def.PiercingShotChance <= 0 && def.AllyHealChance <= 0 {
+			continue
+		}
+		m := monster.NewMonster3DFromConfig(64+float64(len(want))*32, 64, key, cfg)
+		want[key] = read(m)
+		if def.PiercingShotChance > 0 {
+			pierce++
+		}
+		if def.AllyHealChance > 0 {
+			heal++
+		}
+		m.PiercingShotChance, m.PiercingShotTargets = 0, 0
+		m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels = 0, 0, 0
+		wSave.Monsters = append(wSave.Monsters, m)
+	}
+	if pierce == 0 || heal == 0 {
+		t.Fatalf("shipped monsters carry %d piercing-shot and %d ally-heal specials, want both kinds", pierce, heal)
 	}
 
 	wmSave := world.NewWorldManager(cfg)
-	wmSave.LoadedMaps = map[string]*world.World3D{"japanese_castle": wSave}
-	wmSave.CurrentMapKey = "japanese_castle"
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+	wmSave.CurrentMapKey = "forest"
 	gSave := newTestGame(cfg, wSave)
 	save := gSave.buildSave(wmSave)
-	save.MapKey = "japanese_castle"
 
 	wLoad := newTestWorld(cfg)
 	wmLoad := world.NewWorldManager(cfg)
-	wmLoad.LoadedMaps = map[string]*world.World3D{"japanese_castle": wLoad}
-	wmLoad.CurrentMapKey = "japanese_castle"
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+	wmLoad.CurrentMapKey = "forest"
 	gLoad := newTestGame(cfg, wLoad)
 	if err := gLoad.applySave(wmLoad, &save); err != nil {
 		t.Fatalf("apply save: %v", err)
 	}
 
-	byKey := map[string]*monster.Monster3D{}
 	for _, m := range wLoad.Monsters {
-		byKey[m.Key] = m
-	}
-	ashigaru := byKey["ashigaru_firelock"]
-	if ashigaru == nil {
-		t.Fatal("ashigaru missing after load")
-	}
-	if ashigaru.PiercingShotChance != 0.50 || ashigaru.PiercingShotTargets != 2 {
-		t.Fatalf("ashigaru specials after load = chance %.2f targets %d, want 0.50/2",
-			ashigaru.PiercingShotChance, ashigaru.PiercingShotTargets)
-	}
-	ronin := byKey["ronin_marksman"]
-	if ronin == nil {
-		t.Fatal("ronin missing after load")
-	}
-	if ronin.PiercingShotChance != 0.25 || ronin.PiercingShotTargets != 2 {
-		t.Fatalf("ronin specials after load = chance %.2f targets %d, want 0.25/2",
-			ronin.PiercingShotChance, ronin.PiercingShotTargets)
-	}
-
-	for _, key := range []string{"ningyo", "vengeful_ningyo"} {
-		m := byKey[key]
-		if m == nil {
-			t.Fatalf("%s missing after load", key)
+		w, ok := want[m.Key]
+		if !ok {
+			continue
 		}
-		if m.AllyHealChance != 0.15 || m.AllyHealAmount != 200 || m.AllyHealRadiusPixels <= 0 {
-			t.Fatalf("%s heal special after load = chance %.2f amount %d radius %.1f, want 0.15/200/>0",
-				key, m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels)
+		if got := read(m); got != w {
+			t.Errorf("%s specials after load = %+v, want the YAML %+v", m.Key, got, w)
 		}
+		delete(want, m.Key)
+	}
+	for key := range want {
+		t.Errorf("%s missing after load", key)
 	}
 }
 

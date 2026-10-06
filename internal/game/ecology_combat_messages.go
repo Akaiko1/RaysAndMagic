@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"time"
 
 	uitext "ugataima/assets/text"
@@ -20,10 +19,26 @@ func quietActorCombat(attacker, target *monster.Monster3D) bool {
 		!attacker.IsPartyControlled() && !target.IsPartyControlled()
 }
 
+// quietDeath is a death that is none of the party's business: a caravan's
+// (it reports its own loss) or a wildlife hunt's prey, as quietActorCombat.
+func quietDeath(m *monster.Monster3D) bool {
+	return m.IsCaravan() || (m.NoKillRewards && m.IsWildlife() && !m.IsPartyControlled())
+}
+
+// addActorCombatMessage logs a fight between two monsters, toned by the
+// party's stake in it: its ally striking is good, its ally struck is bad.
 func (g *MMGame) addActorCombatMessage(attacker, target *monster.Monster3D, format string, args ...any) {
-	if !quietActorCombat(attacker, target) {
-		g.AddCombatMessage(fmt.Sprintf(format, args...))
+	if quietActorCombat(attacker, target) {
+		return
 	}
+	tone := logToneNone
+	switch {
+	case monsterIsPartyAlly(attacker):
+		tone = logToneGood
+	case monsterIsPartyAlly(target):
+		tone = logToneBad
+	}
+	g.logCombat(tone, format, args...)
 }
 
 // Remote encounters notify the live campaign, sharing one wall-clock cooldown

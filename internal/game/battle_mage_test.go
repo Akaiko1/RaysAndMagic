@@ -7,87 +7,12 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
-	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
-
-// The Battle Mage kit contract: skills, four schools with their authored
-// spells, and the three-piece starting equipment routed by slot.
-func TestBattleMageClassKit(t *testing.T) {
-	cfg := loadTestConfig(t)
-	ch := character.CreateCharacter("Isolde", character.ClassBattleMage, cfg)
-
-	for _, skill := range []character.SkillType{
-		character.SkillSword, character.SkillMace, character.SkillAxe,
-		character.SkillPlate, character.SkillBodybuilding,
-		character.SkillSpellAbsorption, character.SkillStrongMagic,
-	} {
-		if !ch.HasSkill(skill) {
-			t.Errorf("battle mage kit is missing skill %s", skill)
-		}
-	}
-	wantSpells := map[character.MagicSchoolID]spells.SpellID{
-		"light": "resurrect",
-		"earth": "rock_blast",
-		"fire":  "firewall",
-		"air":   "sparks",
-	}
-	for school, spellID := range wantSpells {
-		ms, ok := ch.MagicSchools[school]
-		if !ok {
-			t.Errorf("school %s is not open", school)
-			continue
-		}
-		found := false
-		for _, known := range ms.KnownSpells {
-			if known == spellID {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("school %s does not know %s: %v", school, spellID, ms.KnownSpells)
-		}
-	}
-	if got := ch.Equipment[items.SlotMainHand]; got.Name != "Silver Sword" {
-		t.Errorf("main hand = %q, want Silver Sword", got.Name)
-	}
-	if got := ch.Equipment[items.SlotArmor]; got.Name != "Iron Armor" {
-		t.Errorf("armor slot = %q, want Iron Armor", got.Name)
-	}
-	if got := ch.Equipment[items.SlotRing1]; got.Name != "Magic Ring" {
-		t.Errorf("ring slot = %q, want Magic Ring", got.Name)
-	}
-	// The class is registered end to end: key round-trip, roster, blurb.
-	if key := character.ClassBattleMage.Key(); key != "battle_mage" {
-		t.Fatalf("class key = %q", key)
-	}
-	if cls, ok := character.ClassFromKey("battle_mage"); !ok || cls != character.ClassBattleMage {
-		t.Fatal("ClassFromKey does not resolve battle_mage")
-	}
-	if character.ClassBattleMage.String() != "Battle Mage" || character.ClassBattleMage.Blurb() == "" {
-		t.Fatal("battle mage String/Blurb incomplete")
-	}
-	found := false
-	for _, cls := range character.PlayableClasses {
-		if cls == character.ClassBattleMage {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("battle mage missing from PlayableClasses")
-	}
-	recruit := false
-	for _, entry := range cfg.Characters.TavernRecruits {
-		if entry.Name == "Isolde" && entry.Class == "battle_mage" {
-			recruit = true
-		}
-	}
-	if !recruit {
-		t.Fatal("Isolde (battle_mage) missing from tavern_recruits")
-	}
-}
 
 func absorptionTestMember(cs *CombatSystem, tier character.SkillMastery) *character.MMCharacter {
 	member := cs.game.party.Members[0]
@@ -102,7 +27,9 @@ func absorptionTestMember(cs *CombatSystem, tier character.SkillMastery) *charac
 // channels can be absorbed, and an absorbed hit deals nothing while restoring
 // HP and SP equal to the packet's own damage. Non-spell rows are deterministic;
 // spell rows sample the real roll (miss probability at GM over 400 tries is
-// 0.4^400, i.e. never).
+// 0.4^400, i.e. never). Projectile rows fly a real monster dart or bolt into
+// the party, so the absorber is only one of the weighted targets - still far
+// past any chance of 400 misses.
 func TestSpellAbsorptionChannelTable(t *testing.T) {
 	if got := []int{
 		character.SpellAbsorbChancePct(0), character.SpellAbsorbChancePct(1),
@@ -120,32 +47,54 @@ func TestSpellAbsorptionChannelTable(t *testing.T) {
 		t.Fatal("dragon-breath channel must be a spell")
 	}
 
+	// Channels: "hit" calls monsterHitCharacter with the row's label, "parts"
+	// calls damagePartyMemberParts, "dart" and "bolt" fly a real monster Arrow
+	// or MagicProjectile through CheckProjectilePlayerCollisions.
 	tests := []struct {
 		name       string
-		spell      bool
-		viaParts   bool // drive damagePartyMemberParts instead of monsterHitCharacter
+		channel    string
+		spell      bool // label for the "hit" and "parts" channels
 		absorbable bool
 	}{
-		{name: "melee hit is never absorbed", spell: false, absorbable: false},
-		{name: "weapon dart is never absorbed", spell: false, absorbable: false},
-		{name: "spell projectile can be absorbed", spell: true, absorbable: true},
-		{name: "fireburst channel can be absorbed", spell: true, viaParts: true, absorbable: true},
-		{name: "crate trap channel is never absorbed", spell: false, viaParts: true, absorbable: false},
+		{name: "melee hit is never absorbed", channel: "hit", spell: false, absorbable: false},
+		{name: "weapon dart is never absorbed", channel: "dart", absorbable: false},
+		{name: "spell projectile can be absorbed", channel: "bolt", absorbable: true},
+		{name: "fireburst channel can be absorbed", channel: "parts", spell: true, absorbable: true},
+		{name: "crate trap channel is never absorbed", channel: "parts", spell: false, absorbable: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
+			g := cs.game
 			member := absorptionTestMember(cs, character.MasteryGrandMaster)
 			mob := mkTestMonster("Goblin", 1000)
 			parts := damagecalc.Parts{Normal: 10, True: 5}
 			absorbed := false
 			for try := 0; try < 400; try++ {
 				member.HitPoints, member.SpellPoints = 100, 10
-				if tt.viaParts {
-					cs.damagePartyMemberParts(0, member, parts, "fire", tt.spell)
-				} else {
+				id := fmt.Sprintf("absorb_%s_%d", tt.channel, try)
+				switch tt.channel {
+				case "hit":
 					hit := monsterCharacterHit{Parts: parts, DamageType: "fire", Spell: tt.spell}
 					cs.monsterHitCharacter(mob, member, "Test Mob", hit)
+				case "parts":
+					cs.damagePartyMemberParts(0, member, parts, "fire", tt.spell)
+				case "dart":
+					g.arrows = append(g.arrows[:0], Arrow{
+						ID: id, X: g.camera.X, Y: g.camera.Y, Damage: parts.Normal, TrueDamage: parts.True,
+						LifeTime: 10, Active: true, DamageType: "fire",
+						Owner: ProjectileOwnerMonster, SourceName: mob.Name, SourceMonster: mob,
+					})
+				case "bolt":
+					g.magicProjectiles = append(g.magicProjectiles[:0], MagicProjectile{
+						ID: id, X: g.camera.X, Y: g.camera.Y, Damage: parts.Normal, TrueDamage: parts.True,
+						LifeTime: 10, Active: true, SpellType: "firebolt",
+						Owner: ProjectileOwnerMonster, SourceName: mob.Name, SourceMonster: mob,
+					})
+				}
+				if tt.channel == "dart" || tt.channel == "bolt" {
+					g.collisionSystem.RegisterEntity(collision.NewEntity(id, g.camera.X, g.camera.Y, 8, 8, collision.CollisionTypeProjectile, false))
+					cs.CheckProjectilePlayerCollisions()
 				}
 				if member.HitPoints > 100 || member.SpellPoints > 10 {
 					absorbed = true
@@ -235,7 +184,7 @@ func TestSpellAbsorptionChannelTable(t *testing.T) {
 		}
 		for try := 0; try < 100; try++ {
 			member.HitPoints = member.MaxHitPoints
-			if !cs.tryCastInferno(def, member) {
+			if !cs.tryCastPartyNova(def, member) {
 				t.Fatal("inferno was not handled")
 			}
 			if member.HitPoints >= member.MaxHitPoints {
@@ -276,6 +225,29 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 	if pct := strongMagicPct(caster, heal); pct != 0 {
 		t.Fatalf("a heal must not be boosted, got %d%%", pct)
 	}
+	// A spell that deals no damage gains nothing, so it pays nothing: every
+	// offensive spell without a damage path is flagged deals_no_damage, and
+	// every one that deals damage is boosted.
+	for key := range config.GlobalSpells.Spells {
+		def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
+		if err != nil || !def.IsOffensive() {
+			continue
+		}
+		pureStun := def.StunRadiusTiles > 0 && !def.IsProjectile && def.AoeRadiusTiles == 0 && def.ZoneRadiusTiles == 0 && !def.MapWide && def.PartyAoeRadiusTiles == 0
+		if pureStun && !def.DealsNoDamage {
+			t.Errorf("%s only stuns but is not marked deals_no_damage", key)
+		}
+		if got := strongMagicPct(caster, def); (got > 0) == def.DealsNoDamage {
+			t.Errorf("%s: Strong Magic %d%% with deals_no_damage=%v", key, got, def.DealsNoDamage)
+		}
+		if def.DealsNoDamage {
+			caster.HitPoints = 100
+			cs.applyStrongMagicBurn(caster, def, 20)
+			if caster.HitPoints != 100 {
+				t.Errorf("%s deals no damage but Strong Magic burned %d HP", key, 100-caster.HitPoints)
+			}
+		}
+	}
 
 	tests := []struct {
 		name     string
@@ -288,6 +260,9 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 		{name: "grandmaster burns the full cost", tier: character.MasteryGrandMaster, cost: 20, hpBefore: 100, wantHP: 80},
 		{name: "burn never takes the last hit point", tier: character.MasteryGrandMaster, cost: 20, hpBefore: 1, wantHP: 1},
 		{name: "burn clamps to leave one hit point", tier: character.MasteryGrandMaster, cost: 20, hpBefore: 15, wantHP: 1},
+		{name: "novice rounds half a point up", tier: character.MasteryNovice, cost: 2, hpBefore: 100, wantHP: 99},
+		{name: "novice rounds a quarter point down", tier: character.MasteryNovice, cost: 5, hpBefore: 100, wantHP: 99},
+		{name: "master rounds to the nearest point", tier: character.MasteryMaster, cost: 5, hpBefore: 100, wantHP: 96},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -467,9 +442,9 @@ func TestStrongMagicOutgoingBuffOrderTable(t *testing.T) {
 				if err != nil {
 					t.Fatalf("inferno definition: %v", err)
 				}
-				parts := cs.spellDamageParts(def.ID, caster, cs.CalculateInfernoDamage(def, caster))
+				parts := cs.spellDamageParts(def.ID, caster, cs.CalculatePartyNovaDamage(def, caster))
 				before := mob.HitPoints
-				if !cs.tryCastInferno(def, caster) {
+				if !cs.tryCastPartyNova(def, caster) {
 					t.Fatal("inferno was not handled")
 				}
 				return formResult{got: before - mob.HitPoints, want: parts.Total() + flatBonus}
@@ -638,7 +613,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 			}},
 			{spellID: "inferno", needle: "Damage: ", expected: func(def spells.SpellDefinition) string {
 				parts, _ := cs.spellPartsWithOutgoingBuff(
-					cs.spellDamageParts(def.ID, caster, cs.CalculateInfernoDamage(def, caster)), def.School,
+					cs.spellDamageParts(def.ID, caster, cs.CalculatePartyNovaDamage(def, caster)), def.School,
 				)
 				return fmt.Sprintf("Damage: %d", parts.Total())
 			}},
@@ -682,4 +657,53 @@ func TestStrongMagicContractTable(t *testing.T) {
 			t.Fatalf("comparison lines %q do not contain %q", lines, want)
 		}
 	})
+}
+
+// The spell card names the HP a damaging cast burns, and it is exactly what
+// the real cast takes; spells that deal no damage and heals show no price.
+func TestStrongMagicSpellCardStatesHPCost(t *testing.T) {
+	tiers := []struct {
+		name  string
+		skill *character.Skill
+	}{
+		{"no skill", nil},
+		{"novice", &character.Skill{Mastery: character.MasteryNovice}},
+		{"expert", &character.Skill{Mastery: character.MasteryExpert}},
+		{"master", &character.Skill{Mastery: character.MasteryMaster}},
+		{"grandmaster", &character.Skill{Mastery: character.MasteryGrandMaster}},
+	}
+	for _, key := range []spells.SpellID{"rock_blast", "fireball", "stun", "heal"} {
+		for _, tier := range tiers {
+			t.Run(fmt.Sprintf("%s/%s", key, tier.name), func(t *testing.T) {
+				cs := newTestCombatSystemWithConfig(t)
+				caster := cs.game.party.Members[0]
+				delete(caster.Skills, character.SkillStrongMagic)
+				if tier.skill != nil {
+					caster.Skills[character.SkillStrongMagic] = tier.skill
+				}
+				def, err := spells.GetSpellDefinitionByID(key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				caster.HitPoints, caster.MaxHitPoints = 500, 500
+				caster.SpellPoints, caster.MaxSpellPoints = 500, 500
+				cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+				want := character.StrongMagicHPCost(cost, strongMagicPct(caster, def))
+				card := GetSpellTooltip(key, caster, cs, false)
+				shown := strings.Contains(card, "Strong Magic: also burns")
+				if shown != (want > 0) || (want > 0 && !strings.Contains(card, fmt.Sprintf("also burns %d HP", want))) {
+					t.Fatalf("card shows a Strong Magic price = %v, want %d HP:\n%s", shown, want, card)
+				}
+				if !def.IsOffensive() || def.DealsNoDamage {
+					return
+				}
+				if !cs.castResolvedSpell(key, def, caster, cost, false, false) {
+					t.Fatal("cast failed")
+				}
+				if got := 500 - caster.HitPoints; got != want {
+					t.Fatalf("the cast burned %d HP, the card says %d", got, want)
+				}
+			})
+		}
+	}
 }

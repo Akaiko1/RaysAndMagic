@@ -20,6 +20,8 @@ type NPC struct {
 	// GridSpanTiles >=2: render a fixed grid-aligned facade spanning this many
 	// tiles. Its span and sprite aspect set its visual geometry; normal size and
 	// spin settings are invalid for this mode.
+	WallBacked       bool
+	CrystalShimmer   *CrystalShimmer
 	GridSpanTiles    int
 	GridSpanDir      string // span direction from the anchor tile: "e"|"s" (the slab runs along it)
 	RenderCategory   string // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
@@ -29,7 +31,8 @@ type NPC struct {
 	SizeClass        string // shared quantized visual-size tier
 	MerchantStock    []*MerchantStockItem
 	Currency         string // "" = gold; "arena_points" = arena victory currency
-	ArenaBoard       bool   // carries the champions' leaderboard dialog tab
+	ShopDialogue     bool
+	ArenaBoard       bool // carries the champions' leaderboard dialog tab
 	SellAvailable    bool
 	SteamWhenVisited bool
 	HideWhenVisited  bool

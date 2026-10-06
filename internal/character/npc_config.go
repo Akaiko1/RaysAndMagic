@@ -19,6 +19,10 @@ type NPCConfig struct {
 
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
+	// EditorOwnerMap identifies local definitions whose last placement can be deleted.
+	EditorOwnerMap string `yaml:"editor_owner_map,omitempty"`
+
+	ShopDialogue bool `yaml:"shop_dialogue,omitempty"`
 	// Empty biome scope keeps the NPC available in every editor palette.
 	Biomes        []string `yaml:"biomes,omitempty"`
 	Name          string   `yaml:"name"`
@@ -30,20 +34,22 @@ type NPCData struct {
 	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
 	// Its span and sprite aspect are its complete visual-size contract, so it is
 	// mutually exclusive with size_class and no_spin.
-	GridSpanTiles    int      `yaml:"grid_span_tiles,omitempty"`
-	GridSpanDir      string   `yaml:"grid_span_dir,omitempty"` // span direction from the anchor tile: e|s
-	RenderCategory   string   `yaml:"render_category"`         // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
-	PromptVerb       string   `yaml:"prompt_verb,omitempty"`   // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
-	Transparent      bool     `yaml:"transparent,omitempty"`
-	GroundTile       string   `yaml:"ground_tile,omitempty"`
-	SizeClass        string   `yaml:"size_class,omitempty"` // shared quantized visual-size tier
-	RemovedSizeTiles *float64 `yaml:"size_tiles,omitempty"` // retired raw key; rejected during load
-	SellAvailable    bool     `yaml:"sell_available,omitempty"`
-	SteamWhenVisited bool     `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
-	HideWhenVisited  bool     `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
-	MinPartyLevel    int      `yaml:"min_party_level,omitempty"`
-	NightOnly        bool     `yaml:"night_only,omitempty"`   // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
-	RejectsLich      bool     `yaml:"rejects_lich,omitempty"` // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
+	WallBacked       bool            `yaml:"wall_backed,omitempty"`
+	CrystalShimmer   *CrystalShimmer `yaml:"crystal_shimmer,omitempty"`
+	GridSpanTiles    int             `yaml:"grid_span_tiles,omitempty"`
+	GridSpanDir      string          `yaml:"grid_span_dir,omitempty"` // span direction from the anchor tile: e|s
+	RenderCategory   string          `yaml:"render_category"`         // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
+	PromptVerb       string          `yaml:"prompt_verb,omitempty"`   // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
+	Transparent      bool            `yaml:"transparent,omitempty"`
+	GroundTile       string          `yaml:"ground_tile,omitempty"`
+	SizeClass        string          `yaml:"size_class,omitempty"` // shared quantized visual-size tier
+	RemovedSizeTiles *float64        `yaml:"size_tiles,omitempty"` // retired raw key; rejected during load
+	SellAvailable    bool            `yaml:"sell_available,omitempty"`
+	SteamWhenVisited bool            `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
+	HideWhenVisited  bool            `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
+	MinPartyLevel    int             `yaml:"min_party_level,omitempty"`
+	NightOnly        bool            `yaml:"night_only,omitempty"`   // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
+	RejectsLich      bool            `yaml:"rejects_lich,omitempty"` // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
 	// TownPortal makes this NPC's map a Town Portal destination and the party's
 	// arrival point on it. Authored, not inferred from renting rooms: an inn is
 	// the usual anchor, but the flag is what counts.
@@ -141,11 +147,21 @@ type NPCQuestMessages struct {
 }
 
 // NPCDialogueChoice represents a dialogue choice option
+type NPCExchange struct {
+	Output string         `yaml:"output"`
+	Gold   int            `yaml:"gold,omitempty"`
+	Costs  map[string]int `yaml:"costs"`
+}
+
 type NPCDialogueChoice struct {
-	Text    string `yaml:"text"`
-	Action  string `yaml:"action"`
-	Map     string `yaml:"map,omitempty"`
-	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
+	ArrivalTile *[2]int      `yaml:"arrival_tile,omitempty"`
+	Spell       string       `yaml:"spell,omitempty"`
+	Exchange    *NPCExchange `yaml:"exchange,omitempty"`
+	Control     string       `yaml:"control,omitempty"`
+	Text        string       `yaml:"text"`
+	Action      string       `yaml:"action"`
+	Map         string       `yaml:"map,omitempty"`
+	QuestID     string       `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
 	// Prop marks this choice as a one-shot quest prop (a valve, a rack, a lamp)
 	// and carries its wording. Its presence IS what routes the choice to the
 	// shared prop handler - the action name is only a label.
@@ -274,6 +290,7 @@ func (nc *NPCConfig) EncounterByQuestID(id string) *NPCEncounter {
 // tag it credits and what the player reads. Content, so it lives in npcs.yaml
 // beside the prop's own greeting and choice text.
 type NPCPropCopy struct {
+	Step          string `yaml:"step,omitempty"`
 	HideMapMarker bool   `yaml:"hide_map_marker,omitempty"`
 	Token         string `yaml:"token,omitempty"`
 	DormantSprite string `yaml:"dormant_sprite,omitempty"`
@@ -329,10 +346,14 @@ func LoadNPCConfig(filename string) error {
 	}
 
 	NPCConfigInstance = &config
+	return validateLoadedNPCConfig(&config)
+}
+
+func validateLoadedNPCConfig(cfg *NPCConfig) error {
 	if err := backfillTraderSpells(); err != nil {
 		return err
 	}
-	if err := validateNPCItemSources(&config); err != nil {
+	if err := validateNPCItemSources(cfg); err != nil {
 		return err
 	}
 	if err := validatePricedChoices(); err != nil {
@@ -340,7 +361,7 @@ func LoadNPCConfig(filename string) error {
 	}
 	// A rarity weapon rack without a positive price would sell every listed
 	// weapon for free - fail the load instead.
-	for key, npc := range config.NPCs {
+	for key, npc := range cfg.NPCs {
 		if npc != nil && npc.StockRefreshWeeks < 0 {
 			return fmt.Errorf("NPC %q: stock_refresh_weeks cannot be negative", key)
 		}
@@ -356,16 +377,16 @@ func LoadNPCConfig(filename string) error {
 			return fmt.Errorf("NPC %q: sell_available needs a gold till, but the shop trades in %q", key, npc.Currency)
 		}
 	}
-	if err := validateNPCTypes(&config); err != nil {
+	if err := validateNPCTypes(cfg); err != nil {
 		return err
 	}
-	if err := validateNPCTraining(&config); err != nil {
+	if err := validateNPCTraining(cfg); err != nil {
 		return err
 	}
-	if err := validateCratesAndLecterns(&config); err != nil {
+	if err := validateCratesAndLecterns(cfg); err != nil {
 		return err
 	}
-	for key, npc := range config.NPCs {
+	for key, npc := range cfg.NPCs {
 		if npc != nil && npc.RemovedSizeTiles != nil {
 			return fmt.Errorf("NPC %q uses removed size_tiles - use size_class", key)
 		}
@@ -433,7 +454,34 @@ func validatePricedChoices() error {
 			continue
 		}
 		if err := npc.Dialogue.WalkChoices(func(c *NPCDialogueChoice) error {
+			if c.ArrivalTile != nil && (c.Action != "enter_map" || c.Map == "" || c.ArrivalTile[0] < 0 || c.ArrivalTile[1] < 0) {
+				return fmt.Errorf("NPC %q: invalid authored arrival", npcKey)
+			}
 			switch c.Action {
+			case "teach_spell":
+				if c.Cost <= 0 || c.Spell == "" {
+					return fmt.Errorf("NPC %q: teach_spell requires a spell and positive price", npcKey)
+				}
+				if _, ok := config.GetSpellDefinition(c.Spell); !ok {
+					return fmt.Errorf("NPC %q: unknown teaching spell", npcKey)
+				}
+			case "exchange":
+				if c.Exchange == nil || len(c.Exchange.Costs) == 0 {
+					return fmt.Errorf("NPC %q: missing exchange", npcKey)
+				}
+				if c.Exchange.Gold < 0 || (c.Exchange.Output == "") == (c.Exchange.Gold == 0) {
+					return fmt.Errorf("NPC %q: exchange requires exactly one item or positive gold output", npcKey)
+				}
+				if c.Exchange.Output != "" {
+					if _, ok := config.GetItemDefinition(c.Exchange.Output); config.GlobalItems != nil && !ok {
+						return fmt.Errorf("NPC %q: unknown exchange output", npcKey)
+					}
+				}
+				for key, n := range c.Exchange.Costs {
+					if _, ok := config.GetItemDefinition(key); key == "" || (config.GlobalItems != nil && !ok) || n < 1 {
+						return fmt.Errorf("NPC %q: invalid exchange cost", npcKey)
+					}
+				}
 			case "tavern_rest":
 				if c.Cost <= 0 {
 					return fmt.Errorf("npc %q: tavern_rest choice requires cost > 0", npcKey)
@@ -550,6 +598,8 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		MinPartyLevel:    data.MinPartyLevel,
 		VisitedSprite:    data.VisitedSprite,
 		NoSpin:           data.NoSpin,
+		WallBacked:       data.WallBacked,
+		CrystalShimmer:   data.CrystalShimmer,
 		GridSpanTiles:    data.GridSpanTiles,
 		GridSpanDir:      data.GridSpanDir,
 		RejectsLich:      data.RejectsLich,
@@ -572,6 +622,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		npc.MerchantStock = buildMerchantStock(data.Inventory)
 		npc.Currency = data.Currency
 		npc.ArenaBoard = data.ArenaBoard
+		npc.ShopDialogue = data.ShopDialogue
 		if data.StockWeaponsRarity != "" {
 			npc.MerchantStock = append(npc.MerchantStock,
 				buildRarityWeaponStock(data.StockWeaponsRarity, data.StockWeaponsCost)...)

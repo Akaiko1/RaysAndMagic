@@ -3,7 +3,6 @@ package game
 import (
 	"fmt"
 	"image/color"
-	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -32,7 +31,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 
 	mouseX, mouseY := uiCursorPosition()
 
-	var tooltip string
+	var tooltip character.CardRows
 	var tooltipIcon string
 	var tooltipX, tooltipY int
 
@@ -64,14 +63,14 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 		ui.drawTrapCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, key, def, currentChar, i == ui.game.selectedTrap)
 
 		if mouseX >= cardX && mouseX < cardX+bl.cardW && mouseY >= cardY && mouseY < cardY+bl.cardH {
-			tooltip = trapTooltip(key, def, currentChar, ui.game.combat)
+			tooltip = trapTooltipRows(key, def, currentChar, ui.game.combat)
 			tooltipIcon = def.Icon
 			tooltipX, tooltipY = mouseX+16, mouseY+8
 		}
 	}
 
-	if tooltip != "" {
-		ui.queueTitledTooltipIcon(strings.Split(tooltip, "\n"), nil, woodPlateColor, nil, tooltipIcon, tooltipX, tooltipY)
+	if len(tooltip) > 0 {
+		ui.queueCardTooltip(tooltip, nil, woodPlateColor, nil, tooltipIcon, tooltipX, tooltipY)
 	}
 	ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput(), func() {
 		ui.game.selectedTrap = ui.spellPage * perSpread
@@ -108,9 +107,14 @@ func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int,
 // trapTooltip renders the unified template card for a trap (the same builder
 // the quick-slot hover uses).
 func trapTooltip(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem) string {
-	out := buildTrapTooltipUnified(key, def, char, cs, tooltipDetailHeld())
+	return trapTooltipRows(key, def, char, cs).String()
+}
+
+func trapTooltipRows(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem) character.CardRows {
+	out := buildTrapTooltipUnifiedRows(key, def, char, cs, tooltipDetailHeld())
 	if def.Description != "" {
-		out += "\n\n\"" + def.Description + "\""
+		out.Add(character.CardRowSpacer, "")
+		out.Add(character.CardRowFlavor, "\""+def.Description+"\"")
 	}
 	return out
 }

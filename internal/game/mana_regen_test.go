@@ -34,107 +34,59 @@ func turnBasedRegenSetup(t *testing.T) *MMGame {
 	return g
 }
 
-func TestTurnBasedRegenFiresEveryNRounds(t *testing.T) {
-	g := turnBasedRegenSetup(t)
-
-	// Rounds 1 .. N-1: no regen.
-	for i := 1; i < TurnBasedSpRegenEveryNRounds; i++ {
-		g.endPartyTurn()
-		for _, m := range g.party.Members {
-			if m.SpellPoints != 20 {
-				t.Fatalf("round %d: regen fired early, SP=%d", i, m.SpellPoints)
+// TB SP regen through endPartyTurn: one payout every
+// TurnBasedSpRegenEveryNRounds rounds, skipped for unconscious and HP-0
+// members, capped at max, sized by effective Personality. Every member starts
+// at Personality 10 (regen 2) with SP 20/100.
+func TestTurnBasedRegenTable(t *testing.T) {
+	n := TurnBasedSpRegenEveryNRounds
+	all := func(sp int) func(int) int { return func(int) int { return sp } }
+	except := func(idx, sp, others int) func(int) int {
+		return func(i int) int {
+			if i == idx {
+				return sp
 			}
+			return others
 		}
 	}
-
-	// Round N: tick fires for everyone.
-	g.endPartyTurn()
-	for i, m := range g.party.Members {
-		if m.SpellPoints != 22 { // 20 + regen(2)
-			t.Errorf("char %d: SP=%d after first regen tick, want 22", i, m.SpellPoints)
-		}
+	tests := []struct {
+		name   string
+		setup  func(g *MMGame)
+		rounds int
+		wantSP func(member int) int
+	}{
+		{"one round short of the cadence", nil, n - 1, all(20)},
+		{"first cadence pays", nil, n, all(22)},
+		{"second cadence pays again", nil, 2 * n, all(24)},
+		{"unconscious member is skipped", func(g *MMGame) {
+			g.party.Members[0].AddCondition(character.ConditionUnconscious)
+		}, 3 * n, except(0, 20, 26)},
+		{"HP-0 member is skipped", func(g *MMGame) { g.party.Members[1].HitPoints = 0 }, 2 * n, except(1, 20, 24)},
+		{"payout caps at max", func(g *MMGame) {
+			for _, m := range g.party.Members {
+				m.SpellPoints = 99
+			}
+		}, n, all(100)},
+		{"stat buff raises effective Personality", func(g *MMGame) {
+			// Personality 10 -> effective 30 -> regen 4.
+			g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(20)})
+		}, n, all(24)},
 	}
-
-	// Another N rounds -> another tick.
-	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
-		g.endPartyTurn()
-	}
-	for i, m := range g.party.Members {
-		if m.SpellPoints != 24 {
-			t.Errorf("char %d: SP=%d after second regen tick, want 24", i, m.SpellPoints)
-		}
-	}
-}
-
-func TestTurnBasedRegenSkipsUnconscious(t *testing.T) {
-	g := turnBasedRegenSetup(t)
-	g.party.Members[0].AddCondition(character.ConditionUnconscious)
-	startSP := g.party.Members[0].SpellPoints
-
-	// Drive enough rounds to trigger several regen ticks.
-	for i := 0; i < TurnBasedSpRegenEveryNRounds*3; i++ {
-		g.endPartyTurn()
-	}
-
-	if got := g.party.Members[0].SpellPoints; got != startSP {
-		t.Errorf("unconscious char regenerated SP from %d to %d in turn-based", startSP, got)
-	}
-
-	// Healthy members should have regenerated 3 times -> +6.
-	for i, m := range g.party.Members {
-		if i == 0 {
-			continue
-		}
-		if m.SpellPoints != 26 { // 20 + 3*2
-			t.Errorf("char %d (healthy): SP=%d after 3 ticks, want 26", i, m.SpellPoints)
-		}
-	}
-}
-
-func TestTurnBasedRegenSkipsDeadHP(t *testing.T) {
-	g := turnBasedRegenSetup(t)
-	g.party.Members[1].HitPoints = 0
-	startSP := g.party.Members[1].SpellPoints
-
-	for i := 0; i < TurnBasedSpRegenEveryNRounds*2; i++ {
-		g.endPartyTurn()
-	}
-
-	if got := g.party.Members[1].SpellPoints; got != startSP {
-		t.Errorf("dead (HP=0) char regenerated SP from %d to %d", startSP, got)
-	}
-}
-
-func TestTurnBasedRegenCapsAtMax(t *testing.T) {
-	g := turnBasedRegenSetup(t)
-	for _, m := range g.party.Members {
-		m.SpellPoints = 99 // 1 short of cap with regen=2
-		m.MaxSpellPoints = 100
-	}
-
-	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
-		g.endPartyTurn()
-	}
-
-	for i, m := range g.party.Members {
-		if m.SpellPoints != 100 {
-			t.Errorf("char %d: SP=%d after regen near cap, want 100", i, m.SpellPoints)
-		}
-	}
-}
-
-func TestTurnBasedRegenUsesEffectivePersonalityViaStatBonus(t *testing.T) {
-	g := turnBasedRegenSetup(t)
-	g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(20)}) // Personality 10 -> effective 30 -> regen 4
-
-	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
-		g.endPartyTurn()
-	}
-
-	for i, m := range g.party.Members {
-		if m.SpellPoints != 24 { // 20 + regen(4)
-			t.Errorf("char %d: SP=%d with statBonus=20, want 24", i, m.SpellPoints)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := turnBasedRegenSetup(t)
+			if tt.setup != nil {
+				tt.setup(g)
+			}
+			for range tt.rounds {
+				g.endPartyTurn()
+			}
+			for i, m := range g.party.Members {
+				if want := tt.wantSP(i); m.SpellPoints != want {
+					t.Errorf("member %d: SP=%d after %d rounds, want %d", i, m.SpellPoints, tt.rounds, want)
+				}
+			}
+		})
 	}
 }
 

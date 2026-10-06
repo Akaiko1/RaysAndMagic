@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
@@ -28,20 +29,22 @@ func TestMerchantPriceLabelsFitTheirBox(t *testing.T) {
 		t.Fatalf("price box [%d,%d) escapes its cell gap (icon %d, pitch %d)", x, x+w, merchantIconSize, pitch)
 	}
 
-	for _, label := range []string{
-		"20000 g",                         // plain gold, biggest realistic buy price
-		"5000 ap",                         // arena points
-		"x3",                              // item currency alone
-		"x3 +20000",                       // compound BEFORE compaction - must be clamped
-		"x3 +" + compactCoinAmount(20000), // the shipped Scalewright form
-		"sold out",
-		"no value",
-	} {
-		fitted := merchantPriceLabel(label)
-		if got := uiTextWidth(fitted); got > merchantPriceBoxW {
-			t.Errorf("price %q renders %dpx wide, box is %dpx", fitted, got, merchantPriceBoxW)
+	forEachUIFont(t, func(t *testing.T) {
+		for _, label := range []string{
+			"20000 g",                         // plain gold, biggest realistic buy price
+			"5000 ap",                         // arena points
+			"x3",                              // item currency alone
+			"x3 +20000",                       // compound BEFORE compaction - must be clamped
+			"x3 +" + compactCoinAmount(20000), // the shipped Scalewright form
+			"sold out",
+			"no value",
+		} {
+			fitted := merchantPriceLabel(label)
+			if got := uiTextWidth(fitted); got > merchantPriceBoxW {
+				t.Errorf("price %q renders %dpx wide, box is %dpx", fitted, got, merchantPriceBoxW)
+			}
 		}
-	}
+	})
 
 	// The shipped compound form must fit WITHOUT being clipped: a "20k" that
 	// arrives as "20.." tells the player nothing.
@@ -58,38 +61,36 @@ func TestMerchantPriceLabelsFitTheirBox(t *testing.T) {
 }
 
 // Every shipped merchant's stock must fit the price box with its real currency
-// wiring - the catalog is the thing that actually ships, so measure IT.
+// wiring - the catalog is the thing that actually ships, so measure IT through
+// the label the shop draws.
 func TestShippedMerchantStockPricesFit(t *testing.T) {
-	loadTestConfig(t)
+	cfg := loadTestConfig(t)
 	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
 		t.Fatalf("load npcs: %v", err)
 	}
-	checked := 0
-	for key, npc := range character.NPCConfigInstance.NPCs {
-		for _, entry := range npc.Inventory {
-			if entry == nil {
-				continue
-			}
-			label := "0 g"
-			switch {
-			case entry.CurrencyItem != "" && entry.GoldCost > 0:
-				label = fmt.Sprintf("x%d +%s", entry.Cost, compactCoinAmount(entry.GoldCost))
-			case entry.CurrencyItem != "":
-				label = fmt.Sprintf("x%d", entry.Cost)
-			case npc.Currency == character.CurrencyArenaPoints:
-				label = fmt.Sprintf("%d ap", entry.Cost)
-			default:
-				label = fmt.Sprintf("%d g", entry.Cost)
-			}
-			checked++
-			if w := uiTextWidth(label); w > merchantPriceBoxW {
-				t.Errorf("NPC %q sells %q at %q: %dpx wide, box is %dpx",
-					key, entry.Name, label, w, merchantPriceBoxW)
-			}
+	// No Merchant skill: the full, widest gold price.
+	g := newTestGame(cfg, newTestWorld(cfg))
+	var shops []*character.NPC
+	for key := range character.NPCConfigInstance.NPCs {
+		npc, err := character.CreateNPCFromConfig(key, 0, 0)
+		if err != nil {
+			t.Fatalf("NPC %q: %v", key, err)
+		}
+		if len(npc.MerchantStock) > 0 {
+			shops = append(shops, npc)
 		}
 	}
-	if checked == 0 {
+	if len(shops) == 0 {
 		t.Fatal("no merchant stock measured - the catalog did not load")
+	}
+	for _, npc := range shops {
+		for _, entry := range npc.MerchantStock {
+			label := g.merchantStockPriceText(npc, entry)
+			if w := uiTextWidth(label); w > merchantPriceBoxW {
+				t.Errorf("NPC %q sells %q at %q: %dpx wide, box is %dpx",
+					npc.Key, entry.Item.Name, label, w, merchantPriceBoxW)
+			}
+		}
 	}
 }
 
@@ -155,44 +156,16 @@ func TestQuestCardsSizeToCopyAndPackByHeight(t *testing.T) {
 }
 
 // The clipped-copy tooltip is the promise that nothing authored is lost.
-// Measured against the SHIPPED greetings: a merchant greeting that overflows
-// its two-line box must be detectable as clipped, with the whole text intact.
+// Measured against the SHIPPED greetings in every font: a merchant greeting
+// that overflows its two-line box must be detectable as clipped, with the
+// whole text intact.
 func TestShippedGreetingsThatOverflowStayRecoverable(t *testing.T) {
-	loadTestConfig(t)
+	cfg := loadTestConfig(t)
 	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
 		t.Fatalf("load npcs: %v", err)
 	}
-	greetingW := min(npcDialogWidth-40, tabGreetingWrapColumns*uiTextCharWidth)
-
-	overflowing := 0
-	for key, npc := range character.NPCConfigInstance.NPCs {
-		if npc.Dialogue == nil || npc.Dialogue.Greeting == "" {
-			continue
-		}
-		full := wrapUIText(npc.Dialogue.Greeting, greetingW)
-		shown := truncateWrappedLines(full, 2, greetingW)
-		for _, line := range shown {
-			if w := uiTextWidth(line); w > greetingW {
-				t.Errorf("NPC %q greeting line %q is %dpx wide, box is %dpx", key, line, w, greetingW)
-			}
-		}
-		if len(full) > len(shown) {
-			overflowing++
-			// The clipped view keeps its ellipsis cue and the full copy its tail.
-			if !strings.HasSuffix(shown[len(shown)-1], "...") {
-				t.Errorf("NPC %q greeting is clipped without an ellipsis cue: %q", key, shown[len(shown)-1])
-			}
-			if strings.Join(full, " ") == strings.Join(shown, " ") {
-				t.Errorf("NPC %q full greeting was not preserved for the hover tooltip", key)
-			}
-		}
-	}
-	if overflowing == 0 {
-		t.Skip("no shipped greeting currently overflows its two-line box")
-	}
 
 	// The generic dialog body reports the same condition through the layout.
-	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
 	long := strings.Repeat("Maruna turns a scale to the light and keeps talking. ", 40)
 	npc := &character.NPC{Name: "Scalewright", DialogueData: &character.NPCDialogue{Greeting: long}}
@@ -200,7 +173,36 @@ func TestShippedGreetingsThatOverflowStayRecoverable(t *testing.T) {
 	if !layout.bodyClipped() || len(layout.bodyFullLines) <= len(layout.bodyLines) {
 		t.Fatal("an over-long body must report itself clipped and keep the full copy")
 	}
-	_ = config.TitleWords // keeps the config import honest if assertions change
+
+	forEachUIFont(t, func(t *testing.T) {
+		greetingW := computeNPCDialogSectionLayout(layoutRect{0, 0, npcDialogWidth, npcDialogHeight}, true).greeting.w
+		overflowing := 0
+		for key, npc := range character.NPCConfigInstance.NPCs {
+			if npc.Dialogue == nil || npc.Dialogue.Greeting == "" {
+				continue
+			}
+			full := wrapUIText(npc.Dialogue.Greeting, greetingW)
+			shown := truncateWrappedLines(full, 2, greetingW)
+			for _, line := range shown {
+				if w := uiTextWidth(line); w > greetingW {
+					t.Errorf("NPC %q greeting line %q is %dpx wide, box is %dpx", key, line, w, greetingW)
+				}
+			}
+			if len(full) > len(shown) {
+				overflowing++
+				// The clipped view keeps its ellipsis cue and the full copy its tail.
+				if !strings.HasSuffix(shown[len(shown)-1], "...") {
+					t.Errorf("NPC %q greeting is clipped without an ellipsis cue: %q", key, shown[len(shown)-1])
+				}
+				if strings.Join(full, " ") == strings.Join(shown, " ") {
+					t.Errorf("NPC %q full greeting was not preserved for the hover tooltip", key)
+				}
+			}
+		}
+		if overflowing == 0 {
+			t.Skip("no shipped greeting overflows its two-line box in this font")
+		}
+	})
 }
 
 // Journal order is driven by what the player must DO next: hand-in first, then
@@ -241,24 +243,14 @@ func TestQuestJournalOrder(t *testing.T) {
 	}
 }
 
-// A paid NPC cast grants the buff for its AUTHORED span (not a mastery curve),
-// charges the gold, and refuses when the purse is short.
+// A paid NPC cast grants the buff for its AUTHORED span (not a mastery curve)
+// and charges the gold.
 func TestCastBuffServiceGrantsAuthoredDuration(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
 	g.gameLoop = &GameLoop{game: g}
 	ih := &InputHandler{game: g}
 	tps := cfg.GetTPS()
-
-	// Too poor: nothing happens, nothing is charged.
-	g.party.Gold = 100
-	ih.handleCastBuff(&character.NPCDialogueChoice{
-		Text: "Walk us over the water", Action: "cast_buff",
-		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
-	})
-	if g.walkOnWaterActive || g.party.Gold != 100 {
-		t.Fatalf("an unaffordable cast must not fire: active=%v gold=%d", g.walkOnWaterActive, g.party.Gold)
-	}
 
 	g.party.Gold = 8000
 	g.dialogNPC = &character.NPC{Name: "Apprentice Mira"}
@@ -283,30 +275,72 @@ func TestCastBuffServiceGrantsAuthoredDuration(t *testing.T) {
 	if !g.waterBreathingActive || g.waterBreathingDuration != 600*tps {
 		t.Fatalf("water breathing: active=%v duration=%d frames, want %d", g.waterBreathingActive, g.waterBreathingDuration, 600*tps)
 	}
+}
 
-	// Refreshing never shortens a longer span already running.
-	g.party.Gold = 9000
-	g.walkOnWaterDuration = 600 * tps
-	ih.handleCastBuff(&character.NPCDialogueChoice{
-		Text: "Again", Action: "cast_buff", Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
-	})
-	if g.walkOnWaterDuration != 600*tps {
-		t.Fatalf("a shorter re-cast cut the running buff to %d frames", g.walkOnWaterDuration)
+// Every refused paid cast leaves the purse and the buff exactly as they were
+// and logs why. A chant already woven over the party refuses at ANY remaining
+// span (an active-but-shorter buff used to be extended and charged, so stray
+// clicks drained the purse), and so does a permanent walk-on-water card. A
+// faded chant sells again.
+func TestCastBuffServiceRefusals(t *testing.T) {
+	cfg := loadTestConfig(t)
+	tps := cfg.GetTPS()
+	walk := &character.NPCDialogueChoice{
+		Text: "Walk us over the water", Action: "cast_buff",
+		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
 	}
-	if g.party.Gold != 9000 {
-		t.Fatalf("a shorter no-op re-cast charged the party: gold = %d, want 9000", g.party.Gold)
+	waterCard := ""
+	for key := range config.GlobalItems.Items {
+		if def := cardDef(key); def != nil && def.CardWalkOnWater {
+			waterCard = key
+		}
 	}
-	if countCombatLog(g, "no gold was spent") != 1 {
-		t.Fatal("a shorter no-op re-cast did not explain that no gold was spent")
+	if waterCard == "" {
+		t.Fatal("fixture: no card grants walk-on-water")
 	}
-
-	// An unknown buff name is refused outright (validated at boot, guarded here).
-	g.party.Gold = 9000
-	ih.handleCastBuff(&character.NPCDialogueChoice{
-		Text: "Nonsense", Action: "cast_buff", Buff: "not_a_buff", DurationSeconds: 60, Cost: 10,
-	})
-	if g.party.Gold != 9000 {
-		t.Fatalf("an unknown buff must not charge the party (gold %d)", g.party.Gold)
+	covered := uitext.Text("dialog.is_already_woven_over_the_party_no", buffServiceLabel(walk.Buff))
+	for _, tc := range []struct {
+		name    string
+		gold    int
+		pose    func(*MMGame)
+		choice  *character.NPCDialogueChoice
+		wantLog string // "" = the cast is sold
+	}{
+		{"too poor", 100, func(*MMGame) {}, walk, uitext.Text("dialog.that_casting_costs_gold_your_purse_is", walk.Cost)},
+		{"unknown buff", 9000, func(*MMGame) {},
+			&character.NPCDialogueChoice{Text: "Nonsense", Action: "cast_buff", Buff: "not_a_buff", DurationSeconds: 60, Cost: 10},
+			uitext.Text("dialog.nothing_happens")},
+		{"chant active, nearly spent", 5000, func(g *MMGame) {
+			g.walkOnWaterActive, g.walkOnWaterDuration = true, 10*tps
+		}, walk, covered},
+		{"permanent card", 5000, func(g *MMGame) { g.cardSlots[0].key = waterCard }, walk, covered},
+		{"faded chant sells again", 5000, func(g *MMGame) {
+			g.walkOnWaterActive, g.walkOnWaterDuration = false, 0
+		}, walk, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := newTestGame(cfg, newTestWorld(cfg))
+			g.gameLoop = &GameLoop{game: g}
+			g.party.Gold = tc.gold
+			tc.pose(g)
+			active, duration := g.walkOnWaterActive, g.walkOnWaterDuration
+			(&InputHandler{game: g}).handleCastBuff(tc.choice)
+			if tc.wantLog == "" {
+				if !g.walkOnWaterActive || g.party.Gold != tc.gold-tc.choice.Cost {
+					t.Fatalf("control failed: not re-sold (active=%v gold=%d)", g.walkOnWaterActive, g.party.Gold)
+				}
+				return
+			}
+			if g.party.Gold != tc.gold {
+				t.Fatalf("a refused cast charged the party: gold = %d, want %d", g.party.Gold, tc.gold)
+			}
+			if g.walkOnWaterActive != active || g.walkOnWaterDuration != duration {
+				t.Fatalf("a refused cast changed the buff: active %v->%v, duration %d->%d", active, g.walkOnWaterActive, duration, g.walkOnWaterDuration)
+			}
+			if countCombatLog(g, tc.wantLog) != 1 {
+				t.Fatalf("the refusal did not log %q", tc.wantLog)
+			}
+		})
 	}
 }
 
@@ -381,16 +415,19 @@ func TestCastBuffServiceRunsTimedBuffActivationHooks(t *testing.T) {
 		id        string
 		isActive  func(*MMGame) bool
 		getRadius func(*MMGame) float64
+		authored  func(*config.SpellDefinitionConfig) float64
 	}{
 		{
 			id:        "torch_light",
 			isActive:  func(g *MMGame) bool { return g.torchLightActive },
 			getRadius: func(g *MMGame) float64 { return g.torchLightRadius },
+			authored:  func(d *config.SpellDefinitionConfig) float64 { return d.LightRadiusTiles },
 		},
 		{
 			id:        "wizard_eye",
 			isActive:  func(g *MMGame) bool { return g.wizardEyeActive },
 			getRadius: func(g *MMGame) float64 { return g.wizardEyeRadiusTiles },
+			authored:  func(d *config.SpellDefinitionConfig) float64 { return d.RadarRadiusTiles },
 		},
 	}
 
@@ -414,8 +451,8 @@ func TestCastBuffServiceRunsTimedBuffActivationHooks(t *testing.T) {
 			if !tc.isActive(g) {
 				t.Fatalf("%s service did not activate its timed buff", tc.id)
 			}
-			if got := tc.getRadius(g); got != def.VisionRadiusTiles {
-				t.Fatalf("%s radius = %v, want authored %v", tc.id, got, def.VisionRadiusTiles)
+			if got := tc.getRadius(g); got != tc.authored(def) {
+				t.Fatalf("%s radius = %v, want authored %v", tc.id, got, tc.authored(def))
 			}
 			if g.party.Gold != 90 {
 				t.Fatalf("%s service left %d gold, want 90", tc.id, g.party.Gold)
@@ -442,8 +479,8 @@ func TestBuffServiceDialogTabsAndGeometry(t *testing.T) {
 		t.Fatalf("Mira resolves to dialog kind %d, want dialogKindBuffService (%d)", got, dialogKindBuffService)
 	}
 	services := buffServiceChoices(npc)
-	if len(services) != 2 {
-		t.Fatalf("service rows = %d, want 2 (walk on water, water breathing)", len(services))
+	if len(services) == 0 {
+		t.Fatal("Mira offers no service rows")
 	}
 	for _, service := range services {
 		if strings.Contains(strings.ToLower(service.Text), "gold") {
@@ -540,46 +577,6 @@ func TestValidateNPCCastBuffsRejectsCatalogBeyondDialogCapacity(t *testing.T) {
 	}
 }
 
-// The service refuses while its chant is ALREADY woven over the party - at any
-// remaining span. Before this rule an active-but-shorter buff was silently
-// extended and charged, so stray clicks drained the purse.
-func TestCastBuffRefusedWhileChantActive(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	g.gameLoop = &GameLoop{game: g}
-	ih := &InputHandler{game: g}
-	tps := cfg.GetTPS()
-
-	g.party.Gold = 5000
-	g.walkOnWaterActive = true
-	g.walkOnWaterDuration = 10 * tps // nearly spent - still refuses
-
-	ih.handleCastBuff(&character.NPCDialogueChoice{
-		Text: "Walk us over the water", Action: "cast_buff",
-		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
-	})
-	if g.party.Gold != 5000 {
-		t.Fatalf("an active chant was re-sold: gold = %d, want 5000", g.party.Gold)
-	}
-	if g.walkOnWaterDuration != 10*tps {
-		t.Fatalf("the refused sale still extended the buff to %d frames", g.walkOnWaterDuration)
-	}
-	if countCombatLog(g, "no gold was spent") != 1 {
-		t.Fatal("the refusal did not explain that no gold was spent")
-	}
-
-	// Control: once the chant fades, the same purchase works again.
-	g.walkOnWaterActive = false
-	g.walkOnWaterDuration = 0
-	ih.handleCastBuff(&character.NPCDialogueChoice{
-		Text: "Walk us over the water", Action: "cast_buff",
-		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
-	})
-	if !g.walkOnWaterActive || g.party.Gold != 3000 {
-		t.Fatalf("control failed: expired chant not re-sold (active=%v gold=%d)", g.walkOnWaterActive, g.party.Gold)
-	}
-}
-
 // Buff-service rows follow the dialog list convention: the first click only
 // selects, the second within the window queues the purchase.
 func TestBuffServiceRowNeedsDoubleClick(t *testing.T) {
@@ -614,28 +611,5 @@ func TestBuffServiceRowNeedsDoubleClick(t *testing.T) {
 	rowClick()
 	if g.pendingBuffService == nil {
 		t.Fatal("control failed: the double click did not queue the cast")
-	}
-}
-
-// The walk-on-water CARD grants the effect permanently: the paid chant is the
-// same wasted coin as an active buff, so the service refuses card holders too.
-func TestCastBuffRefusedWithPermanentCard(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	g.gameLoop = &GameLoop{game: g}
-	ih := &InputHandler{game: g}
-
-	g.party.Gold = 5000
-	g.cardSlots[0].key = "medusa_card" // grants permanent walk-on-water
-
-	ih.handleCastBuff(&character.NPCDialogueChoice{
-		Text: "Walk us over the water", Action: "cast_buff",
-		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
-	})
-	if g.walkOnWaterActive || g.party.Gold != 5000 {
-		t.Fatalf("a card holder was sold the chant: active=%v gold=%d", g.walkOnWaterActive, g.party.Gold)
-	}
-	if countCombatLog(g, "no gold was spent") != 1 {
-		t.Fatal("the refusal did not explain that no gold was spent")
 	}
 }

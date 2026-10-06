@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"testing"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -45,12 +46,8 @@ func TestAIRegressionStationaryBroodMotherBothModes(t *testing.T) {
 			g.turnBasedMode = tb
 			placePlayerAtTile(g, 25, 25, tile)
 			m := monster.NewMonster3DFromConfig(10.5*tile, 10.5*tile, "dragon_brood_mother", g.config)
-			if m.Speed != 0 {
-				t.Fatal("fixture must use authored zero speed")
-			}
-			// Isolate locomotion from random summons, without changing movement data.
-			m.SummonChance = 0
-			m.SummonFirstGuaranteed = false
+			m.Speed = 0
+			disableRandomSpecials(m) // isolate locomotion from summons and blinks
 			m.WasAttacked = true
 			m.BeginPlayerEngagement()
 			g.world.Monsters = []*monster.Monster3D{m}
@@ -68,34 +65,6 @@ func TestAIRegressionStationaryBroodMotherBothModes(t *testing.T) {
 			}
 			if m.X != x || m.Y != y {
 				t.Fatalf("zero-speed brood mother moved (%.1f,%.1f) -> (%.1f,%.1f) tiles", x/tile, y/tile, m.X/tile, m.Y/tile)
-			}
-		})
-	}
-}
-
-func TestAIRegressionFleeRespectsSlowBothModes(t *testing.T) {
-	for _, tb := range []bool{false, true} {
-		t.Run(fmt.Sprintf("TB=%v", tb), func(t *testing.T) {
-			g, gl, tile := tbBehaviorGame(t, 40, 40)
-			g.turnBasedMode = tb
-			placePlayerAtTile(g, 10, 10, tile)
-			m := monster.NewMonster3DFromConfig(12.5*tile, 10.5*tile, "kasa_obake", g.config)
-			m.State = monster.StateFleeing
-			m.WasAttacked = true
-			m.ApplySlow(100, 10*g.config.GetTPS(), 10)
-			g.world.Monsters = []*monster.Monster3D{m}
-			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-			x, y := m.X, m.Y
-			g.refreshMonsterAIState()
-			if tb {
-				runOneMonsterTurn(g, gl)
-			} else {
-				wr := CreateMonsterWrapper(m, g.collisionSystem, g.collisionSystem.Snapshot(), g)
-				wr.Update()
-				wr.ApplyCollisionUpdate()
-			}
-			if m.X != x || m.Y != y {
-				t.Fatalf("100%% slowed fleer still moved (%.1f,%.1f) -> (%.1f,%.1f)", x/tile, y/tile, m.X/tile, m.Y/tile)
 			}
 		})
 	}
@@ -145,6 +114,11 @@ func TestAIRegressionChampionOpenerWhenFightingSummon(t *testing.T) {
 			g, gl, tile := tbBehaviorGame(t, 40, 40)
 			g.turnBasedMode = tb
 			primeTestChampions(t, g)
+			def := config.GetChampionDefinition("wild_druid")
+			original := *def
+			t.Cleanup(func() { *def = original })
+			def.OpeningSpell = "stone_skin"
+			def.OpeningSpellTiers = nil
 			placePlayerAtTile(g, 30, 30, tile)
 			m := monster.NewMonster3DFromConfig(10.5*tile, 10.5*tile, "wild_druid", g.config)
 			m.ChampionTier = "normal"

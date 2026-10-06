@@ -31,6 +31,7 @@ type loadingRenderMiss struct{}
 type gameLoadingState struct {
 	worldPass     bool
 	worldRequests map[graphics.SpriteResourceRequest]bool
+	cpuRequests   map[graphics.SpriteResourceRequest]bool
 
 	stream        *graphics.ResourceStream
 	generation    uint64
@@ -58,6 +59,7 @@ func (gl *GameLoop) ensureResourceLoading() bool {
 		l.stream.Close()
 		l.stream = graphics.NewResourceStream(gl.game.sprites)
 		l.worldRequests = make(map[graphics.SpriteResourceRequest]bool)
+		l.cpuRequests = make(map[graphics.SpriteResourceRequest]bool)
 		l.generation = gl.renderer.mapRenderGeneration
 		l.uploads = nil
 	}
@@ -73,6 +75,7 @@ func (gl *GameLoop) closeResourceLoading() {
 	if gl.renderer != nil {
 		gl.renderer.cancelFloorPreparation()
 		gl.renderer.cancelMapRenderPrewarmOutside(nil)
+		clear(gl.renderer.lazySpriteCPUPixels)
 	}
 	uiReleaseLayer(l.front)
 	uiReleaseLayer(l.back)
@@ -99,6 +102,30 @@ func (gl *GameLoop) deferGameplayResource(request graphics.SpriteResourceRequest
 		panic(loadingRenderMiss{})
 	}
 	return true
+}
+
+// A resident source can acquire a new derived consumer during speculative
+// Draw. Request its CPU pixels through the same worker before falling back to
+// a GPU readback. A failed re-decode gets one attempt per presented frame.
+func (r *Renderer) deferRenderReadback(src *ebiten.Image) {
+	if r.game == nil || r.game.gameLoop == nil {
+		return
+	}
+	gl := r.game.gameLoop
+	l := gl.loading
+	if l == nil || !l.rendering || !l.worldPass {
+		return
+	}
+	origin, ok := r.resourceOrigin(src)
+	if !ok || origin.kind != renderResourceSource {
+		return
+	}
+	request := graphics.SpriteResourceRequest{Name: origin.source.name, AnimationType: origin.source.animationType}
+	if l.cpuRequests[request] {
+		return
+	}
+	l.cpuRequests[request] = true
+	gl.deferGameplayResource(request)
 }
 
 func (l *gameLoadingState) begin(now time.Time) {
@@ -212,7 +239,6 @@ func (gl *GameLoop) discardLoadingInput() {
 	}
 	// Retire ordinary drag gestures so their release cannot act on the first
 	// complete frame. Picked-up split fragments retain their inventory owner.
-	gl.game.prevWorldClickAllowed = false
 	gl.game.dragDropAt = 0
 	gl.game.stashDragDrop = false
 	if !gl.game.dragPickedUp {
@@ -238,14 +264,16 @@ func (gl *GameLoop) advanceResourceLoading() {
 	}
 	gl.ensureResourceLoading()
 	l := gl.loading
-	// Paused loading can fill idle time with small commits. Keep the same
-	// chunk size and memory ownership as background streaming; never wait
-	// for a worker or drain a region in one Update.
+	// Background work gets one pass: WritePixels may defer its GPU cost until
+	// Draw, so a cheap CPU call must not buy more upload chunks during play.
+	// A loading pause can drain ready work under the shared deadline.
 	steps, duration := loadingPreparationBudget(l.awaitingFrame)
 	deadline := time.Now().Add(duration)
+	regionDone := false
 	for step := 0; step < steps; step++ {
-		gl.renderer.advanceFloorPreparation(mapRenderSpriteCommitFrameBytes)
-		request, images := l.stream.Advance(mapRenderSpriteCommitFrameBytes)
+		progress := gl.renderer.advanceFloorPreparation(mapRenderSpriteCommitChunkBytes)
+		request, images, advanced := l.stream.Advance(mapRenderSpriteCommitChunkBytes)
+		progress = progress || advanced
 		if len(images) != 0 {
 			if l.worldRequests[request] {
 				gl.renderer.observeLazySpriteLoad(request, images)
@@ -255,10 +283,13 @@ func (gl *GameLoop) advanceResourceLoading() {
 			}
 		}
 		delete(l.worldRequests, request)
-		if gl.renderer.floorPreparation == nil {
-			gl.renderer.prewarmPendingMapRenderResources()
+		if !regionDone && gl.renderer.floorPreparation == nil && time.Now().Before(deadline) {
+			progress = gl.renderer.advanceMapRenderPrewarm(deadline) || progress
+			// Publishing one region must not start planning its successor in
+			// this Update. Floor and demand queues can still finish their work.
+			regionDone = gl.renderer.mapRenderResourcePrewarmActive == nil
 		}
-		if time.Now().After(deadline) {
+		if !progress || time.Now().After(deadline) {
 			break
 		}
 	}
@@ -285,6 +316,7 @@ func (gl *GameLoop) tryLoadingFrame(dst *ebiten.Image) (complete bool) {
 	}()
 	dst.Clear()
 	gl.drawExplorationFrame(dst)
+	clear(l.cpuRequests)
 	return true
 }
 
@@ -456,6 +488,8 @@ func loadingPreparationBudget(paused bool) (int, time.Duration) {
 	if paused {
 		return 32, 4 * time.Millisecond
 	}
+	// Bound upload bursts as well as CPU time: cheap WritePixels calls can
+	// otherwise fill the next Draw with several megabytes of deferred work.
 	return 1, mapRenderDerivedFrameBudget
 }
 

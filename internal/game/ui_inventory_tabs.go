@@ -25,7 +25,7 @@ var inventoryTabs = []inventoryTab{
 	{label: "All"},
 	{label: "Weapons", types: []items.ItemType{items.ItemWeapon}},
 	{label: "Armor", types: []items.ItemType{items.ItemArmor, items.ItemAccessory}},
-	{label: "Consumables", types: []items.ItemType{items.ItemConsumable, items.ItemTrap}},
+	{label: "Consumables", types: []items.ItemType{items.ItemConsumable, items.ItemTrap, items.ItemDevice}},
 	{label: "Quest", types: []items.ItemType{items.ItemQuest}},
 	{label: "Loot"},
 }

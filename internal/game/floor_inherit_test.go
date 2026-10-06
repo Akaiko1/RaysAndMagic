@@ -2,87 +2,83 @@ package game
 
 import (
 	"image/color"
+	"slices"
+	"sort"
 	"testing"
 
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 )
 
-func TestJapaneseCastleSpawn_InheritsCobbleFloor(t *testing.T) {
+// A tile that inherits its floor takes the surrounding floor's texture group
+// and colour. Explicit markers (inherit_floor: spawn, teleporters) also take
+// the floor's near tint; ordinary props and walls match the floor exactly.
+// Every castle floor is checked under every marker and every castle inheritor.
+func TestJapaneseCastleInheritedFloors(t *testing.T) {
+	const biome = "japanese_castle"
 	cfg := loadTestConfig(t)
-	wm, _ := loadRealWorldForTest(t, cfg, "japanese_castle")
-	castle := wm.GetCurrentWorld()
-
-	g := newTestGame(cfg, castle)
-	r := NewRenderer(g)
-	r.precomputeFloorColorCache()
-
-	x, y := castle.StartX, castle.StartY
-	tileType := castle.Tiles[y][x]
-	if key := world.GlobalTileManager.GetTileKey(tileType); key != "spawn" {
-		t.Fatalf("start tile key = %q, want spawn", key)
-	}
-	if group := r.floorTextureGroupForTile(x, y, tileType); group != "cobble" {
-		t.Fatalf("spawn floor texture group = %q, want cobble", group)
-	}
-	if _, ok := r.floorTextureIndexForTile(x, y, tileType); !ok {
-		t.Fatal("spawn tile should bake a floor texture index")
-	}
-	// The castle cobble floor applies its existing near-floor tint during cache bake.
-	want := color.RGBA{118, 118, 126, 255}
-	if got := r.floorColorCache[[2]int{x, y}]; got != want {
-		t.Fatalf("spawn floor color = %#v, want %#v", got, want)
-	}
-}
-
-func TestJapaneseCastleDecor_InheritsDominantNeighbourFloor(t *testing.T) {
-	cfg := loadTestConfig(t)
-	wm, _ := loadRealWorldForTest(t, cfg, "japanese_castle")
+	wm, _ := loadRealWorldForTest(t, cfg, biome)
 	castle := wm.GetCurrentWorld()
 	g := newTestGame(cfg, castle)
 	r := NewRenderer(g)
+	tm := world.GlobalTileManager
 
-	tests := []struct {
-		name        string
-		propLetter  string
-		floorLetter string
-		wantGroup   string
-		x, y        int
-	}{
-		{name: "lantern over wood", propLetter: "L", floorLetter: ",", wantGroup: "wood", x: 5, y: 5},
-		{name: "bonsai over tatami", propLetter: "Y", floorLetter: ":", wantGroup: "tatami", x: 15, y: 15},
-		{name: "shoji over garden", propLetter: "H", floorLetter: ";", wantGroup: "garden", x: 25, y: 25},
+	keys := tm.GetAllTileKeys()
+	sort.Strings(keys)
+	var floors, markers, decor []string
+	for _, key := range keys {
+		data := tm.GetTileDataByKey(key)
+		inCastle := slices.Contains(data.Biomes, biome)
+		switch {
+		case data.InheritFloor:
+			markers = append(markers, key)
+		case !inCastle:
+		case data.RenderType == config.TileRenderFloor && data.FloorTextureGroup != "":
+			floors = append(floors, key)
+		case data.InheritsNeighbourFloor():
+			decor = append(decor, key)
+		}
 	}
+	if len(floors) == 0 || len(markers) == 0 || len(decor) == 0 {
+		t.Fatalf("fixture needs castle floors, markers and decor: %d/%d/%d", len(floors), len(markers), len(decor))
+	}
+	mapDefault := wm.GetCurrentMapConfig().DefaultFloorColor
+	rgba := func(c [3]int) color.RGBA { return color.RGBA{R: uint8(c[0]), G: uint8(c[1]), B: uint8(c[2]), A: 255} }
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			prop, ok := world.GlobalTileManager.GetTileTypeFromLetterForBiome(tt.propLetter, "japanese_castle")
-			if !ok {
-				t.Fatalf("missing %q tile", tt.propLetter)
-			}
-			floor, ok := world.GlobalTileManager.GetTileTypeFromLetterForBiome(tt.floorLetter, "japanese_castle")
-			if !ok {
-				t.Fatalf("missing %q floor", tt.floorLetter)
-			}
-			if !world.GlobalTileManager.InheritsFloor(prop) {
-				t.Fatal("decor without an authored floor should inherit it")
-			}
-
-			for y := tt.y - 1; y <= tt.y+1; y++ {
-				for x := tt.x - 1; x <= tt.x+1; x++ {
-					castle.Tiles[y][x] = floor
+	const x, y = 5, 5
+	for _, floorKey := range floors {
+		floor, _ := tm.GetTileTypeFromKey(floorKey)
+		floorData := tm.GetTileData(floor)
+		base := floorData.FloorColor
+		if base == ([3]int{}) {
+			base = mapDefault
+		}
+		for _, propKey := range append(append([]string(nil), markers...), decor...) {
+			prop, _ := tm.GetTileTypeFromKey(propKey)
+			marker := tm.GetTileData(prop).InheritFloor
+			t.Run(floorKey+"/"+propKey, func(t *testing.T) {
+				for ty := y - 1; ty <= y+1; ty++ {
+					for tx := x - 1; tx <= x+1; tx++ {
+						castle.Tiles[ty][tx] = floor
+					}
 				}
-			}
-			castle.Tiles[tt.y][tt.x] = prop
-			r.precomputeFloorColorCache()
+				castle.Tiles[y][x] = prop
+				r.precomputeFloorColorCache()
 
-			if got := r.floorTextureGroupForTile(tt.x, tt.y, prop); got != tt.wantGroup {
-				t.Fatalf("floor texture group = %q, want %q", got, tt.wantGroup)
-			}
-			wantRGB := world.GlobalTileManager.GetFloorColor(floor)
-			wantColor := color.RGBA{R: uint8(wantRGB[0]), G: uint8(wantRGB[1]), B: uint8(wantRGB[2]), A: 255}
-			if got := r.floorColorCache[[2]int{tt.x, tt.y}]; got != wantColor {
-				t.Fatalf("floor color = %#v, want %#v", got, wantColor)
-			}
-		})
+				if got := r.floorTextureGroupForTile(x, y, prop); got != floorData.FloorTextureGroup {
+					t.Fatalf("floor texture group = %q, want %q", got, floorData.FloorTextureGroup)
+				}
+				if _, ok := r.floorTextureIndexForTile(x, y, prop); !ok {
+					t.Fatal("inherited floor baked no texture index")
+				}
+				want := rgba(base)
+				if marker && tm.HasFloorNearColor(floor) {
+					want = rgba(floorData.FloorNearColor)
+				}
+				if got := r.floorColorCache[[2]int{x, y}]; got != want {
+					t.Fatalf("floor color = %#v, want %#v (marker=%v)", got, want, marker)
+				}
+			})
+		}
 	}
 }

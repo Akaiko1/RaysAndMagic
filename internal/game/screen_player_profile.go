@@ -61,7 +61,8 @@ func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, s
 		img = ui.profileArt.thumbnail(strings.TrimPrefix(key, "sky:"))
 	} else if strings.HasPrefix(key, "monster:") {
 		name := strings.TrimPrefix(key, "monster:")
-		for _, animType := range []string{"walking_r", "walking_l"} {
+		// Fish use leap sheets instead of walking or standalone sprites.
+		for _, animType := range []string{"walking_r", "walking_l", "leaping_r", "leaping_l"} {
 			if anim := ui.game.sprites.GetAnimation(name, animType); anim != nil && len(anim.Frames) > 0 {
 				img = anim.Frames[0]
 				break
@@ -96,7 +97,7 @@ func profileText(s string, width int) string {
 }
 
 type profileAchievementsLayout struct {
-	panel, body                         layoutRect
+	panel, body, track                  layoutRect
 	columns, columnW, contentH, footerY int
 }
 
@@ -109,7 +110,13 @@ func makeProfileAchievementsLayout(w, h, count int) profileAchievementsLayout {
 	}
 	footer := r.bottom() - menuFrameInset - menuBackButtonH
 	bodyY := r.y + menuFrameInset + 64
-	return profileAchievementsLayout{panel: r, body: layoutRect{r.x + menuFrameInset, bodyY, iw, max(1, footer-bodyY-16)}, columns: cols, columnW: (iw - 12 - (cols-1)*16) / cols, contentH: ((count + cols - 1) / cols) * 104, footerY: footer}
+	body := layoutRect{r.x + menuFrameInset, bodyY, iw, max(1, footer-bodyY-16)}
+	return profileAchievementsLayout{panel: r, body: body, track: layoutRect{body.right() - 5, body.y, 3, body.h}, columns: cols, columnW: (iw - 12 - (cols-1)*16) / cols, contentH: ((count + cols - 1) / cols) * 104, footerY: footer}
+}
+
+// card is achievement idx's card on screen, with the list scrolled by scroll.
+func (l profileAchievementsLayout) card(idx, scroll int) layoutRect {
+	return layoutRect{l.body.x + (idx%l.columns)*(l.columnW+16), l.body.y + (idx/l.columns)*104 - scroll, l.columnW, 94}
 }
 
 func (g *MMGame) updateAchievementsKeys(pressed func(ebiten.Key) bool) {
@@ -147,7 +154,8 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 	clip := image.Rect(l.body.x, l.body.y, l.body.right(), l.body.bottom()).Intersect(uiBounds(screen))
 	dst := uiClip(screen, clip)
 	for idx, def := range defs {
-		cx, cy := x+(idx%l.columns)*(l.columnW+16), l.body.y+(idx/l.columns)*104-g.achievementsScroll
+		card := l.card(idx, g.achievementsScroll)
+		cx, cy := card.x, card.y
 		if cy+96 <= clip.Min.Y || cy >= clip.Max.Y {
 			continue
 		}
@@ -158,7 +166,7 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 			progress = g.playerProfile.Data.AchievementProgress(def.AnyOf)
 		}
 		unlocked := !stamp.IsZero()
-		ui.drawProfileCard(dst, layoutRect{cx, cy, l.columnW, 94}, unlocked)
+		ui.drawProfileCard(dst, card, unlocked)
 		ui.profileIcon(dst, def.Icon, def.Name, cx+10, cy+14, 64)
 		if !unlocked {
 			drawFilledRect(dst, cx+10, cy+14, 64, 64, color.RGBA{0, 0, 0, 115})
@@ -182,7 +190,7 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 		drawFilledRect(dst, tx, cy+81, tw, 3, color.RGBA{47, 39, 45, 255})
 		drawFilledRect(dst, tx, cy+81, int(int64(tw)*min(progress, def.Target)/max(int64(1), def.Target)), 3, clr)
 	}
-	ui.drawScrollbar(screen, "profile:achievements", layoutRect{l.body.right() - 5, l.body.y, 3, l.body.h}, g.achievementsScroll, l.contentH, true, func(v int) {
+	ui.drawScrollbar(screen, "profile:achievements", l.track, g.achievementsScroll, l.contentH, true, func(v int) {
 		g.achievementsScroll = v
 	})
 	ui.drawBackButton(screen, x, l.footerY, func() { g.entryMenuMode = EntryMenuRoot })
@@ -239,7 +247,7 @@ func profileValue(n int64, duration bool) string {
 const profileRankingRowH = 64
 
 type profileStatsLayout struct {
-	panel, body                                                     layoutRect
+	panel, body, track                                              layoutRect
 	columns, columnW, counterRows, rankRows, rankY, rankH, contentH int
 	footerY                                                         int
 	counterColumns, counterW                                        int
@@ -256,7 +264,8 @@ func makeProfileStatsLayout(w, h int, page profilePageSpec) profileStatsLayout {
 	}
 	footer := r.y + r.h - menuFrameInset - 30
 	bodyY := r.y + menuFrameInset + 76
-	l := profileStatsLayout{panel: r, body: layoutRect{x, bodyY, iw, max(1, footer-bodyY-14)}, columns: columns, columnW: (iw - 12 - (columns-1)*14) / columns, footerY: footer}
+	body := layoutRect{x, bodyY, iw, max(1, footer-bodyY-14)}
+	l := profileStatsLayout{panel: r, body: body, track: layoutRect{body.right() - 6, body.y, 4, body.h}, columns: columns, columnW: (iw - 12 - (columns-1)*14) / columns, footerY: footer}
 	l.counterColumns = columns
 	if iw >= 600 {
 		l.counterColumns = min(3, len(page.counters))
@@ -274,8 +283,18 @@ func (l profileStatsLayout) rankingRect(i, scroll int) layoutRect {
 	return layoutRect{l.body.x + (i%l.columns)*(l.columnW+14), l.body.y - scroll + l.rankY + (i/l.columns)*(l.rankH+14), l.columnW, l.rankH}
 }
 
+// counterRect is counter card i in the statistics viewport, before scrolling.
+func (l profileStatsLayout) counterRect(i int) layoutRect {
+	return layoutRect{(i % l.counterColumns) * (l.counterW + 14), (i / l.counterColumns) * 100, l.counterW, 86}
+}
+
 func profileRankingBody(r layoutRect) layoutRect {
 	return layoutRect{r.x + 8, r.y + 48, r.w - 16, max(1, r.h-76)}
+}
+
+// profileRankingTrack is a ranking card's scrollbar inside its body.
+func profileRankingTrack(body layoutRect) layoutRect {
+	return layoutRect{body.right() - 4, body.y, 3, body.h}
 }
 
 func (g *MMGame) setStatisticsTab(tab int) {
@@ -387,8 +406,10 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 	dst.Clear()
 	offset := -g.statisticsScroll
 	for i, c := range spec.counters {
-		cx, cy := (i%l.counterColumns)*(l.counterW+14), offset+(i/l.counterColumns)*100
-		ui.drawProfileCard(dst, layoutRect{cx, cy, l.counterW, 86}, true)
+		card := l.counterRect(i)
+		card.y += offset
+		cx, cy := card.x, card.y
+		ui.drawProfileCard(dst, card, true)
 		iconSize := min(60, l.counterW/5)
 		tx := cx + iconSize + 24
 		tw := l.counterW - iconSize - 36
@@ -447,7 +468,7 @@ func (ui *UISystem) drawPlayerStatistics(screen *ebiten.Image, w, h int) {
 		}
 	}
 	drawImageScaled(screen, dst, l.body.x, l.body.y, l.body.w, l.body.h)
-	ui.drawScrollbar(screen, "profile:statistics", layoutRect{l.body.right() - 6, l.body.y, 4, l.body.h}, g.statisticsScroll, l.contentH, true, func(v int) {
+	ui.drawScrollbar(screen, "profile:statistics", l.track, g.statisticsScroll, l.contentH, true, func(v int) {
 		g.statisticsScroll = v
 	})
 	bottom := l.footerY
@@ -499,7 +520,7 @@ func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, view layoutRect, sp
 			drawFilledRect(dst, tx, cy+47, tw, 3, color.RGBA{53, 44, 52, 255})
 			drawFilledRect(dst, tx, cy+47, max(1, int(float64(spec.score(e))/float64(maximum)*float64(tw))), 3, color.RGBA{151, 120, 66, 255})
 		}
-		track := layoutRect{body.right() - 4, body.y, 3, body.h}
+		track := profileRankingTrack(body)
 		drawScrollbarThumb(dst, track, scroll, len(entries)*profileRankingRowH)
 		// The card lives in the viewport layer; its thumb is grabbed on screen,
 		// only where the viewport shows it.

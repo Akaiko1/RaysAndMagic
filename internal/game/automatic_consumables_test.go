@@ -12,9 +12,16 @@ func TestAutomaticConsumableSourcesAndThresholds(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, source := range []string{"bag", "quick"} {
 			for _, key := range []string{"health_potion", "sake_flask", "mana_potion"} {
-				for _, percent := range []int{34, 35, 36} {
-					t.Run(fmt.Sprintf("tb=%v/%s/%s/%d", tb, source, key, percent), func(t *testing.T) {
+				// One point below, at and above the configured threshold.
+				for _, offset := range []int{-1, 0, 1} {
+					t.Run(fmt.Sprintf("tb=%v/%s/%s/threshold%+d", tb, source, key, offset), func(t *testing.T) {
 						g, _, ch, _ := sniperFixture(t, tb)
+						threshold := g.config.AutoPotionThreshold(key == "mana_potion")
+						if threshold < 2 || threshold > 98 {
+							t.Fatalf("fixture: threshold %d leaves no room around it", threshold)
+						}
+						percent := threshold + offset
+						below := percent < threshold
 						ch.MaxHitPoints, ch.MaxSpellPoints = 100, 100
 						ch.HitPoints, ch.SpellPoints = 100, 100
 						if key == "mana_potion" {
@@ -37,16 +44,16 @@ func TestAutomaticConsumableSourcesAndThresholds(t *testing.T) {
 							left = ch.QuickSlots[2].Count()
 						}
 						want := 3
-						if percent < 35 {
+						if below {
 							want = 2
 						}
 						if left != want {
 							t.Fatalf("units=%d want %d", left, want)
 						}
-						if percent < 35 && ch.AutoDrinkCooldown <= 0 {
+						if below && ch.AutoDrinkCooldown <= 0 {
 							t.Fatal("no automatic-use interval")
 						}
-						if percent < 35 {
+						if below {
 							ch.HitPoints, ch.SpellPoints = 1, 1
 							g.updateAutomaticConsumables()
 							if source == "bag" {

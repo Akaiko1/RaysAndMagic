@@ -42,6 +42,9 @@ type SpellDefinition struct {
 	JumpTiles             float64 // >0: self teleport this many tiles straight ahead
 	ZoneAheadTiles        float64 // zone line placed this far in front of the party
 	ZoneWidthTiles        int     // zone line width in tiles (across the facing)
+	ZoneEdgeTiles         int     // band beside a wall zone that takes partial damage
+	ZoneEdgeDamagePercent int     // damage share in that band
+	ZoneBurnSeconds       float64 // zone hits ignite the victim for this long
 	StandeeDestroyChance  float64 // chance to topple a crossed-standee tile it hits
 	SparesParty           bool    // party-centred nova that does not hurt the party
 	Duration              int     // Duration in seconds (0 for instant spells)
@@ -96,18 +99,19 @@ type SpellDefinition struct {
 	// Mortar (Stone Blossom): no collisions in flight, detonates at a fixed distance.
 	MortarRangeTiles float64
 	// Effect configuration
-	Schools           []string // every school the spell belongs to (dual-school); empty = just School
-	HealAmount        int      // For healing spells
-	VisionRadiusTiles float64  // vision spells: torch glow / wizard-eye radar radius (tiles)
-	TargetSelf        bool     // Whether spell targets self or others
-	Awaken            bool     // For awaken spell
-	WaterWalk         bool     // For water walking spell
-	WaterBreathing    bool     // For water breathing spell
-	Fly               bool     // Fly: walk through non-border tiles
-	TerrainPassage    bool     // Shared traversal capability granted by a timed buff
-	OutdoorOnly       bool     // castable only under a day/night sky
-	TownPortal        bool     // opens the visited-destination picker
-	Message           string   // Effect message to display
+	Schools          []string // every school the spell belongs to (dual-school); empty = just School
+	HealAmount       int      // For healing spells
+	LightRadiusTiles float64  // light around the party (tiles)
+	RadarRadiusTiles float64  // compass radar of monsters through walls (tiles)
+	TargetSelf       bool     // Whether spell targets self or others
+	Awaken           bool     // For awaken spell
+	WaterWalk        bool     // For water walking spell
+	WaterBreathing   bool     // For water breathing spell
+	Fly              bool     // Fly: walk through non-border tiles
+	TerrainPassage   bool     // Shared traversal capability granted by a timed buff
+	OutdoorOnly      bool     // castable only under a day/night sky
+	TownPortal       bool     // opens the visited-destination picker
+	Message          string   // Effect message to display
 }
 
 // DamageForMastery evaluates the authored damage without character stats.
@@ -183,6 +187,9 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		JumpTiles:                          configDef.JumpTiles,
 		ZoneAheadTiles:                     configDef.ZoneAheadTiles,
 		ZoneWidthTiles:                     configDef.ZoneWidthTiles,
+		ZoneEdgeTiles:                      configDef.ZoneEdgeTiles,
+		ZoneEdgeDamagePercent:              configDef.ZoneEdgeDamagePercent,
+		ZoneBurnSeconds:                    configDef.ZoneBurnSeconds,
 		StandeeDestroyChance:               configDef.StandeeDestroyChance,
 		SparesParty:                        configDef.SparesParty,
 		StarburstFx:                        configDef.StarburstFx,
@@ -193,18 +200,19 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		ResistBuffSchoolPct:                configDef.ResistBuffSchoolPct,
 		MortarRangeTiles:                   configDef.MortarRangeTiles,
 		// Effect configuration from YAML
-		Schools:           configDef.Schools,
-		HealAmount:        configDef.HealAmount,
-		VisionRadiusTiles: configDef.VisionRadiusTiles,
-		TargetSelf:        configDef.TargetSelf,
-		Awaken:            configDef.Awaken,
-		WaterWalk:         configDef.WaterWalk,
-		WaterBreathing:    configDef.WaterBreathing,
-		Fly:               configDef.Fly,
-		TerrainPassage:    configDef.TerrainPassage,
-		OutdoorOnly:       configDef.OutdoorOnly,
-		TownPortal:        configDef.TownPortal,
-		Message:           configDef.Message,
+		Schools:          configDef.Schools,
+		HealAmount:       configDef.HealAmount,
+		LightRadiusTiles: configDef.LightRadiusTiles,
+		RadarRadiusTiles: configDef.RadarRadiusTiles,
+		TargetSelf:       configDef.TargetSelf,
+		Awaken:           configDef.Awaken,
+		WaterWalk:        configDef.WaterWalk,
+		WaterBreathing:   configDef.WaterBreathing,
+		Fly:              configDef.Fly,
+		TerrainPassage:   configDef.TerrainPassage,
+		OutdoorOnly:      configDef.OutdoorOnly,
+		TownPortal:       configDef.TownPortal,
+		Message:          configDef.Message,
 	}, nil
 }
 
@@ -233,24 +241,34 @@ func (d SpellDefinition) IsOffensive() bool {
 		d.StunChance > 0
 }
 
-// EffectLines returns every character-independent mechanic, including reference
-// ranges/formulas used by comparisons and the editor. CoreEffectLines omits
-// summaries for values the live tooltip already renders with the current
-// caster; both views come from effectLines, so wording cannot drift.
-func (d SpellDefinition) EffectLines() []string {
-	return d.effectLines(true, true)
-}
-
+// CoreEffectLines omits summaries for values the live tooltip already renders
+// with the current caster; all views come from effectLines, so wording cannot
+// drift.
 func (d SpellDefinition) CoreEffectLines() []string {
-	return d.effectLines(false, false)
+	return d.effectLines(effectViewCore)
 }
 
 // CardEffectLines keeps base values but omits rows the editor renders separately.
 func (d SpellDefinition) CardEffectLines() []string {
-	return d.effectLines(true, false)
+	return d.effectLines(effectViewCard)
 }
 
-func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool) []string {
+// BuffMechanicLines omits magnitudes supplied by running stat and combat buffs.
+// Their cast or saved values may differ from the current spell definition.
+func (d SpellDefinition) BuffMechanicLines() []string {
+	return d.effectLines(effectViewBuff)
+}
+
+type effectView uint8
+
+const (
+	effectViewCore effectView = iota
+	effectViewCard
+	effectViewBuff
+)
+
+func (d SpellDefinition) effectLines(view effectView) []string {
+	includeStructured := view == effectViewCard
 	var out []string
 	// Every authored field states itself here, so the game tooltip, the editor
 	// card and the shop line can never disagree about a new spell.
@@ -261,19 +279,10 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 				d.SummonHPByMastery[0], d.SummonHPByMastery[3],
 				d.SummonDamageByMastery[0], d.SummonDamageByMastery[3])
 		}
-		out = append(out, line)
+		out = append(out, line, uitext.Text("spell.summon_lasts_until_killed"))
 	}
 	if d.JumpTiles > 0 {
 		out = append(out, uitext.Text("spell.teleports_the_party_tiles_straight_ahead_refused", d.JumpTiles))
-	}
-	if includeCardDetails && d.SparesParty {
-		out = append(out, uitext.Text("spell.the_party_is_not_caught_in_the"))
-	}
-	if includeCardDetails && d.StandeeDestroyChance > 0 {
-		out = append(out, uitext.Text("spell.chance_to_topple_each_tree_dune_or", d.StandeeDestroyChance*100))
-	}
-	if includeStructured && includeCardDetails && d.AoeRadiusTiles > 0 {
-		out = append(out, uitext.Text("spell.aoe_radius_tiles_splashes_nearby_monsters", d.AoeRadiusTiles))
 	}
 	if d.DisintegrateChance > 0 {
 		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100))
@@ -281,18 +290,18 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 	if d.StunChance > 0 {
 		line := uitext.Text("spell.stun_chance_on_hit", d.StunChance*100)
 		if d.StunDurationSeconds > 0 {
-			line += uitext.Text("spell.stun_duration", d.StunDurationSeconds, d.StunDurationTurns)
+			line += uitext.Text("spell.stun_duration", d.StunDurationSeconds, tbTurns(d.StunDurationTurns))
 		}
 		out = append(out, line)
 	}
 	if d.StunRadiusTiles > 0 {
-		out = append(out, uitext.Text("spell.stuns_every_monster_within_tiles_for_s", d.StunRadiusTiles, d.StunDurationSeconds, d.StunDurationTurns))
+		out = append(out, uitext.Text("spell.stuns_every_monster_within_tiles_for_s", d.StunRadiusTiles, d.StunDurationSeconds, tbTurns(d.StunDurationTurns)))
 	}
 	if d.StunChance > 0 || d.StunRadiusTiles > 0 {
 		out = append(out, uitext.Text("spell.repeated_stuns_wear_off_diminishing_returns_then"))
 	}
 	if d.BindUndead {
-		out = append(out, uitext.Text("spell.binds_an_undead_target_for_s_it", d.BindDurationSeconds))
+		out = append(out, uitext.Text("spell.binds_an_undead_target_for_s_it", d.BindDurationSeconds), uitext.Text("spell.bound_undead_still_takes_party_hits"))
 	}
 	if d.Pacify {
 		out = append(out, uitext.Text("spell.pacifies_a_living_target_for_s_stops", d.PacifyDurationSeconds))
@@ -327,7 +336,10 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 		out = append(out, uitext.Text("spell.arcs_over_everything_and_blooms_exactly_tiles", d.MortarRangeTiles))
 	}
 	if d.TerrainPassage {
-		out = append(out, uitext.Text("spell.the_party_crosses_terrain_and_walls_but"))
+		out = append(out, uitext.Text("spell.the_party_crosses_terrain_and_walls_but"), uitext.Text("spell.no_fighting_inside_solid_terrain"))
+		if d.OutdoorOnly {
+			out = append(out, uitext.Text("spell.ends_without_open_sky"))
+		}
 	}
 	if d.OutdoorOnly {
 		out = append(out, uitext.Text("spell.only_under_an_open_sky_never_in"))
@@ -335,7 +347,7 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 	if d.TownPortal {
 		out = append(out, uitext.Text("spell.opens_a_portal_to_visited_taverns_towns"))
 	}
-	if d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
+	if view != effectViewBuff && d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
 		out = append(out, uitext.Text("spell.party_resists_for_the_duration",
 			strings.ToUpper(d.ResistBuffSchool[:1])+d.ResistBuffSchool[1:], d.ResistBuffSchoolPct))
 	}
@@ -343,19 +355,15 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 		// Radius and tick cadence are rendered STRUCTURED in the unified card's ZONE
 		// section (and filtered out of EFFECTS), so this summary line states only
 		// who it hits - monsters, never the party.
-		out = append(out, uitext.Text("spell.leaves_a_lingering_zone_that_scalds_any"))
+		out = append(out, uitext.Text("spell.leaves_a_lingering_zone_that_harms_any"))
 	}
 	switch {
 	case d.HealParty:
-		if includeCardDetails {
-			out = append(out, uitext.Text("spell.heals_the_entire_party"))
-		}
+		out = append(out, uitext.Text("spell.heal_skips_allies_at_0_hp"))
 	case d.HealAmount > 0 && d.TargetSelf:
-		if includeCardDetails {
-			out = append(out, uitext.Text("spell.self_target_only"))
-		}
+		// Self heals have no ally to point at.
 	case d.HealAmount > 0:
-		out = append(out, uitext.Text("spell.can_target_any_party_member"))
+		out = append(out, uitext.Text("spell.heals_the_ally_you_point_at"))
 	}
 	if d.Revive {
 		if d.FullHeal {
@@ -365,7 +373,7 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 		}
 	}
 	if d.ReviveHpPct > 0 {
-		out = append(out, uitext.Text("spell.revives_a_fallen_ally_to_hp", d.ReviveHpPct))
+		out = append(out, uitext.Text("spell.revives_the_first_fallen_ally_to_hp", d.ReviveHpPct))
 	}
 	if includeStructured && d.ResistBuffPct > 0 {
 		if d.ResistBuffPctGrandmaster > d.ResistBuffPct {
@@ -375,10 +383,7 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 		}
 	}
 	if includeStructured && d.OutgoingDamageBonus > 0 {
-		target := uitext.Text("spell.attacks")
-		if damageType, err := damagecalc.ParseType(d.OutgoingDamageType); err == nil && damageType == damagecalc.Physical {
-			target = uitext.Text("spell.physical_attacks")
-		}
+		target := OutgoingDamageTarget(d.OutgoingDamageType)
 		if d.OutgoingDamageBonusGrandmaster > d.OutgoingDamageBonus {
 			out = append(out, uitext.Text("spell.party_deal_to_damage_by_mastery", target, d.OutgoingDamageBonus, d.OutgoingDamageBonusGrandmaster))
 		} else {
@@ -392,34 +397,22 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 			out = append(out, uitext.Text("spell.party_takes_damage_per_hit", d.IncomingDamageReduction))
 		}
 	}
-	if d.VisionRadiusTiles > 0 {
-		out = append(out, uitext.Text("spell.sight_radar_radius_tiles", d.VisionRadiusTiles))
+	if d.LightRadiusTiles > 0 {
+		out = append(out, uitext.Text("spell.light_radius_tiles", d.LightRadiusTiles))
+	}
+	if d.RadarRadiusTiles > 0 {
+		out = append(out, uitext.Text("spell.radar_radius_tiles", d.RadarRadiusTiles))
 	}
 	if d.WaterWalk {
 		out = append(out, uitext.Text("spell.allows_the_party_to_walk_on_water"))
 	}
 	if d.WaterBreathing {
-		out = append(out, uitext.Text("spell.allows_underwater_travel_through_deep_water"))
+		out = append(out, uitext.Text("spell.deep_water_leads_to_the_depths"))
 	}
 	if d.Awaken {
 		out = append(out, uitext.Text("spell.wakes_all_unconscious_allies_back_to_hp"))
 	}
 
-	// Scaling source - character-INDEPENDENT (which stat & mastery the effect
-	// grows with), so the map-editor card and the in-game tooltip both surface
-	// what a spell scales from. The numeric bonus itself is caster-dependent and
-	// shown only by the in-game tooltip.
-	if includeStructured && includeCardDetails {
-		switch {
-		case d.IsProjectile && !d.DealsNoDamage:
-			out = append(out, uitext.Text("spell.damage_scales_with_mastery", d.DamageScalingStat(), d.School))
-		case d.ZoneRadiusTiles > 0:
-			out = append(out, uitext.Text("spell.tick_damage_scales_with_intellect_mastery", d.School))
-		}
-		if d.HealAmount > 0 {
-			out = append(out, uitext.Text("spell.healing_scales_with_personality_mastery", d.School))
-		}
-	}
 	if includeStructured && d.StatBonus > 0 {
 		if d.StatBonusGrandmaster > d.StatBonus {
 			out = append(out, uitext.Text("spell.to_to_all_stats_by_mastery_whole", d.StatBonus, d.StatBonusGrandmaster))
@@ -427,16 +420,40 @@ func (d SpellDefinition) effectLines(includeStructured, includeCardDetails bool)
 			out = append(out, uitext.Text("spell.to_all_stats_whole_party", d.StatBonus))
 		}
 	}
-	if len(d.StatBonuses) > 0 {
-		// Per-stat buffs are authored absolute (no mastery scaling) - the exact
-		// numbers are character-independent, so they belong in this shared SSoT.
-		for _, key := range config.StatNames {
-			if v, ok := d.StatBonuses[key]; ok && v != 0 {
-				out = append(out, uitext.Text("spell.whole_party", v, strings.ToUpper(key[:1])+key[1:]))
-			}
+	// Per-stat buffs are authored absolute (no mastery scaling) - the exact
+	// numbers are character-independent, so they belong in this shared SSoT.
+	if view != effectViewBuff {
+		out = append(out, PerStatBonusLines(d.StatBonuses)...)
+	}
+	return out
+}
+
+// OutgoingDamageTarget names what a party damage buff boosts, by the same
+// damage-type parse combat applies.
+func OutgoingDamageTarget(damageType string) string {
+	if t, err := damagecalc.ParseType(damageType); err == nil && t == damagecalc.Physical {
+		return uitext.Text("spell.physical_attacks")
+	}
+	return uitext.Text("spell.attacks")
+}
+
+// PerStatBonusLines states a per-stat party bonus map in canonical stat order.
+func PerStatBonusLines(bonuses map[string]int) []string {
+	var out []string
+	for _, key := range config.StatNames {
+		if v := bonuses[key]; v != 0 {
+			out = append(out, uitext.Text("spell.whole_party", v, strings.ToUpper(key[:1])+key[1:]))
 		}
 	}
 	return out
+}
+
+// tbTurns renders a turn-based span: "1 TB turn", "3 TB turns".
+func tbTurns(n int) string {
+	if n == 1 {
+		return "1 TB turn"
+	}
+	return fmt.Sprintf("%d TB turns", n)
 }
 
 // SchoolScalesWithPersonality reports whether a school's spells scale with
@@ -451,25 +468,6 @@ func SchoolScalesWithPersonality(school string) bool {
 		return true
 	}
 	return false
-}
-
-// DamageStatLabel names the stat(s) that scale a spell's damage: Personality for
-// self schools, Intellect otherwise, plus a second Personality term when the
-// spell is flagged scales_with_personality. Character-independent SSoT shared by
-// EffectLines and the in-game damage label.
-func DamageStatLabel(school string, scalesWithPersonality bool) string {
-	if SchoolScalesWithPersonality(school) {
-		return "Personality"
-	}
-	if scalesWithPersonality {
-		return "Intellect + Personality"
-	}
-	return "Intellect"
-}
-
-// DamageScalingStat is DamageStatLabel for this definition.
-func (d SpellDefinition) DamageScalingStat() string {
-	return DamageStatLabel(d.School, d.ScalesWithPersonality)
 }
 
 // IsHeal reports whether this spell restores HP to a living ally (single-target

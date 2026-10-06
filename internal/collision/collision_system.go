@@ -19,6 +19,9 @@ func (cs *CollisionSystem) DebugCanMoveTo(entityID string, newX, newY float64) (
 
 	// Create a temporary bounding box at the new position
 	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
+	if !entity.movementBounds.Allows(tempBox) {
+		return false, "outside movement bounds"
+	}
 
 	// World tiles
 	width, height := cs.tileChecker.GetWorldBounds()
@@ -207,6 +210,9 @@ func (cs *CollisionSystem) CanMoveTo(entityID string, newX, newY float64) bool {
 
 	// Create a temporary bounding box at the new position
 	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
+	if !entity.movementBounds.Allows(tempBox) {
+		return false
+	}
 
 	// Check collision with world tiles
 	if !cs.canMoveToWorldPosition(tempBox) {
@@ -230,6 +236,9 @@ func (cs *CollisionSystem) CanMoveToWithTileOverrides(entityID string, newX, new
 
 	// Create a temporary bounding box at the new position
 	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
+	if !entity.movementBounds.Allows(tempBox) {
+		return false
+	}
 
 	// Check collision with world tiles (monster-terrain-aware)
 	if !cs.canMoveToWorldPositionWithTileOverrides(tempBox, walkableTileOverrides, flying) {
@@ -409,6 +418,9 @@ func (cs *CollisionSystem) CanOccupyTilesWithTileOverrides(entityID string, x, y
 		return false
 	}
 	tempBox := NewBoundingBox(x, y, entity.BoundingBox.Width, entity.BoundingBox.Height)
+	if !entity.movementBounds.Allows(tempBox) {
+		return false
+	}
 	return cs.canMoveToWorldPositionWithTileOverrides(tempBox, walkableTileOverrides, flying)
 }
 
@@ -601,4 +613,11 @@ func (cs *CollisionSystem) GetEntityByID(id string) *Entity {
 		return entity
 	}
 	return nil
+}
+
+// SetMovementBounds updates an actor between worker phases.
+func (cs *CollisionSystem) SetMovementBounds(id string, bounds MovementBounds) {
+	if e := cs.entities[id]; e != nil {
+		e.movementBounds = bounds
+	}
 }

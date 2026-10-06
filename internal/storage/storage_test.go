@@ -82,33 +82,6 @@ func TestSetupBundleRuntime_SeedsAndChdirs(t *testing.T) {
 	}
 }
 
-func TestSeedUserData_CopiesAndPreservesMaps(t *testing.T) {
-	content := t.TempDir()
-	user := t.TempDir()
-	writeFile(t, filepath.Join(content, "config.yaml"), "cfg-v1")
-	writeFile(t, filepath.Join(content, "assets", "forest.map"), "map-shipped")
-	writeFile(t, filepath.Join(content, "assets", "sprites", "x.png"), "png-v1")
-
-	if err := seedUserData(content, user); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if got := read(t, filepath.Join(user, "config.yaml")); got != "cfg-v1" {
-		t.Fatalf("config not seeded: %q", got)
-	}
-	if got := read(t, filepath.Join(user, "assets", "sprites", "x.png")); got != "png-v1" {
-		t.Fatalf("sprite not seeded: %q", got)
-	}
-
-	// Player edits a map; a second seed at the SAME version must not touch it.
-	writeFile(t, filepath.Join(user, "assets", "forest.map"), "map-edited")
-	if err := seedUserData(content, user); err != nil {
-		t.Fatalf("reseed: %v", err)
-	}
-	if got := read(t, filepath.Join(user, "assets", "forest.map")); got != "map-edited" {
-		t.Fatalf("edited map was clobbered: %q", got)
-	}
-}
-
 func TestCopyAssetsTree_UntrackedMapAuthorWins(t *testing.T) {
 	src := t.TempDir()
 	dst := t.TempDir()
@@ -177,46 +150,5 @@ func TestSeedUserData_AuthorUpdateWinsEditSurvivesOtherwise(t *testing.T) {
 	}
 	if got := read(t, filepath.Join(user, "assets", "castle.map")); got != "castle-v2" {
 		t.Errorf("authored castle update must override the player edit, got %q", got)
-	}
-}
-
-// TestSeedUserData_StaleBuildDoesNotStompNewerSeed: the game and editor bundles
-// share the user dir; an older build (smaller buildStamp) with different
-// content must leave a newer build's seed alone.
-func TestSeedUserData_StaleBuildDoesNotStompNewerSeed(t *testing.T) {
-	content := t.TempDir()
-	user := t.TempDir()
-	writeFile(t, filepath.Join(content, "config.yaml"), "cfg-new")
-	writeFile(t, filepath.Join(content, "assets", "forest.map"), "forest-new")
-
-	t.Cleanup(func() { buildStamp = "" })
-	buildStamp = "200" // the newer build seeds first
-	if err := seedUserData(content, user); err != nil {
-		t.Fatalf("newer seed: %v", err)
-	}
-
-	// A stale build (older stamp) carrying older content launches afterwards.
-	stale := t.TempDir()
-	writeFile(t, filepath.Join(stale, "config.yaml"), "cfg-old")
-	writeFile(t, filepath.Join(stale, "assets", "forest.map"), "forest-old")
-	buildStamp = "100"
-	if err := seedUserData(stale, user); err != nil {
-		t.Fatalf("stale seed: %v", err)
-	}
-	if got := read(t, filepath.Join(user, "config.yaml")); got != "cfg-new" {
-		t.Errorf("stale build stomped config: got %q, want cfg-new", got)
-	}
-	if got := read(t, filepath.Join(user, "assets", "forest.map")); got != "forest-new" {
-		t.Errorf("stale build stomped map: got %q, want forest-new", got)
-	}
-
-	// The same old content under an EQUAL-or-newer stamp is a legitimate
-	// rollback/update and must apply.
-	buildStamp = "300"
-	if err := seedUserData(stale, user); err != nil {
-		t.Fatalf("newer stale-content seed: %v", err)
-	}
-	if got := read(t, filepath.Join(user, "config.yaml")); got != "cfg-old" {
-		t.Errorf("newer build's content should apply, got %q", got)
 	}
 }

@@ -2,7 +2,6 @@ package game
 
 import (
 	"image/color"
-	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -66,16 +65,16 @@ func (ui *UISystem) drawInventoryBagGrid(screen *ebiten.Image, owner *character.
 		if hover {
 			key := itemCardKey(item)
 			ui.fullArtCardKey = key
-			lines := ui.appendCardArtHint(strings.Split(GetItemTooltip(item, hero, g.combat, tooltipDetailHeld()), "\n"), key)
+			lines := ui.appendCardArtHintRows(GetItemTooltipRows(item, hero, g.combat, tooltipDetailHeld()), key)
 			ui.queueItemTooltip(lines, item, hero, mx+16, my+8)
-			if compare := GetItemComparisonTooltip(item, hero, g.combat); compare != "" {
-				lines := strings.Split(compare, "\n")
+			if compare := GetItemComparisonTooltipRows(item, hero, g.combat); len(compare) > 0 {
+				lines := compare
 				var body []color.Color
 				if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
-					body = equipmentComparisonColors(lines, body)
+					body = equipmentComparisonColors(lines.Lines(), body)
 				}
 				plate, title := ui.itemTitleColors(item)
-				ui.queueTitledTooltipComparison(lines, body, plate, title)
+				ui.queueCardComparison(lines, body, plate, title)
 			}
 		}
 	}

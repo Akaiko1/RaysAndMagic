@@ -304,7 +304,9 @@ func (ui *UISystem) drawSettingsContent(screen *ebiten.Image, px, py, panelW, pa
 
 func (ui *UISystem) drawEntryAudioSettings(screen *ebiten.Image, w, h int) {
 	ui.tooltipLines = nil
+	ui.tooltipRows = nil
 	ui.tooltipCompareLines = nil
+	ui.tooltipCompareRows = nil
 	layout := makeAudioSettingsPanelLayout(w, h, true)
 	ui.drawPanel(screen, "menu_panel_wide", layout.px, layout.py, layout.panelW, layout.panelH)
 	ui.drawSettingsContent(screen, layout.px, layout.py, layout.panelW, layout.panelH, layout.contentInset)

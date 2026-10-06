@@ -204,6 +204,8 @@ func TestOverwatchNormalShotPayloadParity(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			g, _, ch, tile := sniperFixture(t, false)
 			def, _, _ := config.GetWeaponDefinitionByName(items.CreateWeaponFromYAML(key).Name)
+			crit := def.CritChance
+			t.Cleanup(func() { def.CritChance = crit })
 			def.CritChance = 100
 			ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
 			if !g.combat.EquipmentMeleeAttack() {
@@ -222,22 +224,10 @@ func TestOverwatchNormalShotPayloadParity(t *testing.T) {
 	}
 }
 
-func TestTacticalSkillDataAndSaveContract(t *testing.T) {
-	g, _, ch, _ := sniperFixture(t, false)
-	if ch.HasSkill(character.SkillDagger) || ch.HasSkill(character.SkillBodybuilding) {
-		t.Fatal("unwanted starting skills")
-	}
-	if g.config.Characters.Classes["sniper"].CardRarity != "legendary" {
-		t.Fatal("sniper rarity")
-	}
-	ch.AutoDrinkCooldown = 37
-	ch.DesignatedTargetID = "target"
-	ch.DesignationFrames = 99
-	saved := buildCharacterSave(ch)
-	restored := restoreCharacterSave(saved)
-	if restored.Class != ch.Class || restored.AutoDrinkCooldown != 37 || restored.DesignatedTargetID != "target" || restored.DesignationFrames != 99 || !restored.HasSkill(character.SkillOverwatch) {
-		t.Fatal("tactical state lost on save round trip")
-	}
+// Tactical skill descriptions are well-formed ASCII, and the recruit migration
+// adds the sniper exactly once. Save round trips: TestCatalogSkillsPreserveMasteryAcrossSave.
+func TestTacticalSkillDescriptionsAndRecruitMigration(t *testing.T) {
+	g, _, _, _ := sniperFixture(t, false)
 	for _, skill := range []character.SkillType{character.SkillOverwatch, character.SkillBallistics, character.SkillFieldMedicine, character.SkillDesignateTarget} {
 		text := skill.Description()
 		if text == "" || strings.Contains(text, "%!") {
@@ -267,6 +257,8 @@ func TestTacticalSkillDataAndSaveContract(t *testing.T) {
 func TestDesignationUsesWeaponImpactAndExpires(t *testing.T) {
 	g, _, ch, tile := sniperFixture(t, false)
 	def, _ := config.GetWeaponDefinition("surveyors_rifle")
+	crit := def.CritChance
+	t.Cleanup(func() { def.CritChance = crit })
 	def.CritChance = 0
 	delete(ch.Skills, character.SkillBallistics)
 	ch.Luck = 0
@@ -585,6 +577,9 @@ func TestCatalogSkillsPreserveMasteryAcrossSave(t *testing.T) {
 				if !restored.HasSkill(skill) || restored.SkillTier(skill) != tier {
 					t.Fatal("saved skill or mastery changed")
 				}
+			}
+			if restored.Class != ch.Class {
+				t.Fatalf("saved class %v, want %v", restored.Class, ch.Class)
 			}
 			if g.combat.CalculateWeaponCritChance(restored.Equipment[items.SlotMainHand], restored) != beforeCrit || character.ConsumableRestore(restored, 100, 0, false) != beforeRecovery || restored.AutoDrinkCooldown != 47 || restored.DesignationFrames != 93 || restored.DesignatedTargetID != "saved-mark" {
 				t.Fatal("save round trip changed skill effects or ongoing state")

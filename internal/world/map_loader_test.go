@@ -3,12 +3,14 @@ package world
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 )
 
 // installTestTileManager loads the shipped tiles into a fresh manager, installs
@@ -59,28 +61,8 @@ func TestInstallTestTileManagerRestoresThePrevious(t *testing.T) {
 	}
 }
 
-// hasNPCKey reports whether a map spawned an NPC with the given key. Map tests
-// assert key NPCs are PRESENT by name rather than counting spawns, so adding
-// service NPCs (taverns, etc.) doesn't break unrelated tests.
-func hasNPCKey(spawns []NPCSpawn, key string) bool {
-	for _, s := range spawns {
-		if s.NPCKey == key {
-			return true
-		}
-	}
-	return false
-}
-
 func TestMapLoader_SpecialTileByKey(t *testing.T) {
-	tm := NewTileManager(testTileSizeClasses())
-	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
-		t.Fatalf("load tiles: %v", err)
-	}
-	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
-		t.Fatalf("load special tiles: %v", err)
-	}
-	GlobalTileManager = tm
-	defer func() { GlobalTileManager = nil }()
+	tm := installTestTileManager(t)
 
 	mapDir := t.TempDir()
 	mapPath := filepath.Join(mapDir, "test.map")
@@ -108,15 +90,7 @@ func TestMapLoader_SpecialTileByKey(t *testing.T) {
 // placed entity ('@') matches the dominant FLOOR variant around it, not the bare
 // biome '.' default - and stays the '.' default when neighbours are uniform.
 func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
-	tm := NewTileManager(testTileSizeClasses())
-	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
-		t.Fatalf("load tiles: %v", err)
-	}
-	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
-		t.Fatalf("special tiles: %v", err)
-	}
-	GlobalTileManager = tm
-	defer func() { GlobalTileManager = nil }()
+	tm := installTestTileManager(t)
 
 	// japanese_castle has two walkable floor variants: '.'=cobble (default), ','=wood.
 	wood, ok := tm.GetTileTypeFromLetterForBiome(",", "japanese_castle")
@@ -239,8 +213,9 @@ func TestMapContractRejectsWrongLetterCase(t *testing.T) {
 	if err := goodTiles.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
 		t.Fatalf("load tiles: %v", err)
 	}
+	prev := GlobalTileManager
 	GlobalTileManager = goodTiles
-	defer func() { GlobalTileManager = nil }()
+	t.Cleanup(func() { GlobalTileManager = prev })
 
 	mapPath := filepath.Join(t.TempDir(), "bad_marker.map")
 	if err := os.WriteFile(mapPath, []byte("B\n"), 0o644); err != nil {
@@ -254,15 +229,7 @@ func TestMapContractRejectsWrongLetterCase(t *testing.T) {
 // Map content tests pin QUEST NPCs and MERCHANTS only - monster spawns are
 // balance-tuned live and must never be pinned by count.
 func TestClockTowerMapsCarryQuestAndMerchantNPCs(t *testing.T) {
-	tm := NewTileManager(testTileSizeClasses())
-	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
-		t.Fatalf("load tiles: %v", err)
-	}
-	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
-		t.Fatalf("special tiles: %v", err)
-	}
-	GlobalTileManager = tm
-	defer func() { GlobalTileManager = nil }()
+	installTestTileManager(t)
 
 	previousConfig := monster.MonsterConfig
 	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
@@ -303,15 +270,7 @@ func TestClockTowerMapsCarryQuestAndMerchantNPCs(t *testing.T) {
 // only reason to walk there (bows, potions, armour, the two archives and the
 // drill master).
 func TestOutlandTownsCarryServiceNPCsAndBothGates(t *testing.T) {
-	tm := NewTileManager(testTileSizeClasses())
-	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
-		t.Fatalf("load tiles: %v", err)
-	}
-	if err := tm.LoadSpecialTileConfig(filepath.Join("..", "..", "assets", "special_tiles.yaml")); err != nil {
-		t.Fatalf("special tiles: %v", err)
-	}
-	GlobalTileManager = tm
-	defer func() { GlobalTileManager = nil }()
+	installTestTileManager(t)
 
 	previousConfig := monster.MonsterConfig
 	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
@@ -342,7 +301,7 @@ func TestOutlandTownsCarryServiceNPCsAndBothGates(t *testing.T) {
 
 // assertMapCarriesNPCs checks PRESENCE only, never cells: maps are hand-edited
 // and an NPC may be moved anywhere in its map without breaking anything.
-func assertMapCarriesNPCs(t *testing.T, file, biome string, want []string) {
+func assertMapCarriesNPCs(t *testing.T, file, biome string, want []string) *MapData {
 	t.Helper()
 	md, err := NewMapLoaderWithBiome(nil, biome).LoadMap(filepath.Join("..", "..", "assets", file))
 	if err != nil {
@@ -357,6 +316,7 @@ func assertMapCarriesNPCs(t *testing.T, file, biome string, want []string) {
 			t.Errorf("%s: NPC %q missing (have %v)", file, key, present)
 		}
 	}
+	return md
 }
 
 // Yusra's service gate (shrine_lamps) asks for three lamps, ONE PER PYRAMID
@@ -376,6 +336,153 @@ func TestPyramidFloorsCarryTheShrineLamps(t *testing.T) {
 	} {
 		t.Run(floor, func(t *testing.T) {
 			assertMapCarriesNPCs(t, floor, "pyramid", []string{lamp})
+		})
+	}
+}
+
+// Zone maps carry their quest givers, exits and split-world travel tiles, the
+// boss the zone is built around, and at least target_count authored targets
+// for every quest they host - read from quests.yaml, never pinned here.
+func TestZoneMapsCarryQuestNPCsAndQuestTargets(t *testing.T) {
+	installTestTileManager(t)
+	restoreContentGlobals(t)
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+	if err := character.LoadNPCConfig(filepath.Join("..", "..", "assets", "npcs.yaml")); err != nil {
+		t.Fatalf("load npcs: %v", err)
+	}
+	previousConfig := monster.MonsterConfig
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+	t.Cleanup(func() { monster.MonsterConfig = previousConfig })
+	questCfg, err := quests.LoadQuestConfig(filepath.Join("..", "..", "assets", "quests.yaml"))
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+
+	cases := []struct {
+		file, biome  string
+		npcs         []string
+		specialTiles []string
+		bosses       []string
+		quests       []string
+	}{
+		{file: "culverts.map", biome: "culverts",
+			npcs: []string{"culverts_exit", "culverts_oldman"}, bosses: []string{"golden_thief_bug"}, quests: []string{"culverts_valves"}},
+		{file: "japanese_castle.map", biome: "japanese_castle",
+			npcs: []string{"japanese_castle_exit", "castle_oldman"}, bosses: []string{"old_samurai"}, quests: []string{"castle_armory"}},
+		{file: "deep_jungle.map", biome: "jungle",
+			npcs: []string{"deep_jungle_exit"}, bosses: []string{"orc_hero_boss"}},
+		{file: "dragon_cliffs.map", biome: "dragon_cliffs",
+			npcs:         []string{"dragon_cliffs_ranger", "dragon_cliffs_bone_hermit", "dragon_cliffs_ember_lair", "dragon_cliffs_bone_lair"},
+			specialTiles: []string{"vteleporter"}, quests: []string{"dragon_cliffs_troll_cull", "dragon_cliffs_ember_rites"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			md := assertMapCarriesNPCs(t, tc.file, tc.biome, tc.npcs)
+			if md.StartX < 0 || md.StartY < 0 {
+				t.Errorf("no start position parsed (%d,%d)", md.StartX, md.StartY)
+			}
+			for _, key := range tc.specialTiles {
+				if !hasSpecialTileKey(md.SpecialTileSpawns, key) {
+					t.Errorf("special tile %q missing", key)
+				}
+			}
+			for _, key := range tc.bosses {
+				if countMatchingMonsterSpawns(md, func(k string) bool { return k == key }) == 0 {
+					t.Errorf("boss %q missing", key)
+				}
+			}
+			for _, id := range tc.quests {
+				def := questCfg.Quests[id]
+				if def == nil || def.TargetCount <= 0 {
+					t.Fatalf("quest %q is not authored with a target_count", id)
+				}
+				var have int
+				switch def.Type {
+				case quests.QuestTypeKill:
+					have = countMatchingMonsterSpawns(md, def.MatchesTarget)
+				case quests.QuestTypeInteract:
+					have = countQuestPropSpawns(md, id, def)
+				default:
+					t.Fatalf("quest %q type %q has no map target to count", id, def.Type)
+				}
+				if have < def.TargetCount {
+					t.Errorf("quest %q needs %d targets, the map authors %d", id, def.TargetCount, have)
+				}
+			}
+		})
+	}
+}
+
+func hasSpecialTileKey(spawns []SpecialTileSpawn, key string) bool {
+	for _, s := range spawns {
+		if s.TileKey == key {
+			return true
+		}
+	}
+	return false
+}
+
+func countMatchingMonsterSpawns(md *MapData, match func(string) bool) int {
+	n := 0
+	for _, s := range md.MonsterSpawns {
+		if match(s.MonsterKey) {
+			n++
+		}
+	}
+	return n
+}
+
+// countQuestPropSpawns counts the placed NPCs whose authored prop choice
+// credits this quest's interact tag.
+func countQuestPropSpawns(md *MapData, questID string, def *quests.QuestDefinition) int {
+	n := 0
+	for _, s := range md.NPCSpawns {
+		npc := character.NPCConfigInstance.NPCs[s.NPCKey]
+		if npc == nil {
+			continue
+		}
+		credits := false
+		_ = npc.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			credits = credits || (c.Prop != nil && c.QuestID == questID && def.MatchesTarget(c.Prop.Tag))
+			return nil
+		})
+		if credits {
+			n++
+		}
+	}
+	return n
+}
+
+// Monsters of the narrow-passage biomes must fit a 1-wide gap: a collision box
+// >= the tile size spans a 2x2 footprint (half-open bounds) and wedges in
+// corridors, doorways and foliage gaps, freezing the monster.
+func TestNarrowPassageMonstersFitOneTileGaps(t *testing.T) {
+	cfg, err := config.LoadConfig(filepath.Join("..", "..", "config.yaml"))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	tile := cfg.GetTileSize()
+	previousConfig := monster.MonsterConfig
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+	t.Cleanup(func() { monster.MonsterConfig = previousConfig })
+
+	for _, biome := range []string{"culverts", "jungle", "japanese_castle"} {
+		t.Run(biome, func(t *testing.T) {
+			found := false
+			for key, def := range monster.MonsterConfig.Monsters {
+				if !slices.Contains(def.Biomes, biome) {
+					continue
+				}
+				found = true
+				if def.BoxW >= tile || def.BoxH >= tile {
+					t.Errorf("%s collision box %gx%g >= tile %g - wedges in 1-wide gaps", key, def.BoxW, def.BoxH, tile)
+				}
+			}
+			if !found {
+				t.Fatalf("no %s-biome monsters found", biome)
+			}
 		})
 	}
 }

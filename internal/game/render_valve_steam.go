@@ -22,7 +22,7 @@ var valveSteamColor = [3]int{225, 230, 236} // pale gray-white
 
 // drawClosedValveSteam draws rising steam across the tile of every shut valve
 // (SteamWhenVisited NPCs that have been Visited), hugging the tile bounds and
-// depth-tested against walls. Procedural per-frame, mirroring drawImpassableTileAura.
+// depth-tested against walls. Procedural and rebuilt each frame.
 func (r *Renderer) drawClosedValveSteam(screen *ebiten.Image) {
 	if r.game.world == nil {
 		return

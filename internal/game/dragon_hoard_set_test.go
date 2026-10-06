@@ -1,60 +1,63 @@
 package game
 
 import (
+	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
 
+// Some monster drops every Dragon's Hoard piece, and the completed exact-piece set adds its critical chance to weapon and
+// spell rolls and to every card that shows them.
 func TestDragonHoardSetLootAndCriticalChance(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
 		t.Fatalf("load loots: %v", err)
 	}
-
-	for _, tc := range []struct {
-		monsterKey string
-		chance     float64
-	}{
-		{"dragon_green", 0.05},
-		{"dragon_gold", 0.06},
-	} {
-		t.Run(tc.monsterKey+" drops both pieces", func(t *testing.T) {
-			entries := config.GetLootTable(tc.monsterKey, false)
-			for _, want := range []struct {
-				typ, key string
-			}{
-				{"item", "golden_armor"},
-				{"weapon", "gold_sword"},
-			} {
-				found := false
-				for _, entry := range entries {
-					if entry.Type == want.typ && entry.Key == want.key {
-						found = true
-						if entry.Chance != tc.chance {
-							t.Errorf("%s chance = %.2f, want %.2f", want.key, entry.Chance, tc.chance)
-						}
-					}
-				}
-				if !found {
-					t.Errorf("missing %s %q from %s loot", want.typ, want.key, tc.monsterKey)
-				}
-			}
-		})
+	if prev := monster.MonsterConfig; prev == nil {
+		t.Cleanup(func() { monster.MonsterConfig = prev })
+		monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	}
-
 	set := config.GetItemSet("dragon_hoard")
-	if set == nil || set.Name != "Dragon's Hoard" || set.PiecesRequired != 2 ||
-		set.BonusCritChance != 75 || strings.Join(set.RequiredPieces, ",") != "golden_armor,gold_sword" {
-		t.Fatalf("dragon_hoard set = %+v, want the authored two-piece +75%% crit set", set)
+	if set == nil || set.BonusCritChance <= 0 || len(set.RequiredPieces) != 2 {
+		t.Fatalf("fixture: dragon_hoard must be a two-piece crit set: %+v", set)
+	}
+	var armorKey, swordKey string
+	for _, key := range set.RequiredPieces {
+		if _, isWeapon := config.GlobalWeapons.Weapons[key]; isWeapon {
+			swordKey = key
+		} else {
+			armorKey = key
+		}
+	}
+	if armorKey == "" || swordKey == "" {
+		t.Fatalf("fixture: dragon_hoard needs one weapon and one armor piece: %v", set.RequiredPieces)
 	}
 
-	armor := items.CreateItemFromYAML("golden_armor")
-	sword := items.CreateWeaponFromYAML("gold_sword")
+	// The set is completable from one hunt: some monster drops every piece.
+	complete := false
+	for _, mobKey := range slices.Sorted(maps.Keys(monster.MonsterConfig.Monsters)) {
+		dropped := map[string]bool{}
+		for _, entry := range config.GetLootTable(mobKey, false) {
+			if entry.Chance > 0 && ((entry.Type == "item" && entry.Key == armorKey) || (entry.Type == "weapon" && entry.Key == swordKey)) {
+				dropped[entry.Key] = true
+			}
+		}
+		complete = complete || len(dropped) == 2
+	}
+	if !complete {
+		t.Fatalf("no monster drops both %s and %s", armorKey, swordKey)
+	}
+
+	armor := items.CreateItemFromYAML(armorKey)
+	sword := items.CreateWeaponFromYAML(swordKey)
 	if armor.Set != "dragon_hoard" || sword.Set != "dragon_hoard" {
 		t.Fatalf("set membership armor=%q sword=%q, want dragon_hoard", armor.Set, sword.Set)
 	}
@@ -65,32 +68,36 @@ func TestDragonHoardSetLootAndCriticalChance(t *testing.T) {
 	delete(ch.Skills, character.SkillArmsMaster)
 	ch.Equipment = map[items.EquipSlot]items.Item{}
 	baseCrit := cs.CalculateWeaponCritChance(sword, ch)
-	if baseCrit != 25 {
-		t.Fatalf("Gold Sword base crit = %d, want 25", baseCrit)
+	if want := config.GlobalWeapons.Weapons[swordKey].CritChance; baseCrit != want {
+		t.Fatalf("%s base crit = %d, want its authored %d with no luck or skills", sword.Name, baseCrit, want)
 	}
+	bonus := set.BonusCritChance
 
 	// A duplicate sword must not replace the armor in an exact-piece set.
 	ch.Equipment[items.SlotMainHand] = sword
-	ch.Equipment[items.SlotOffHand] = items.CreateWeaponFromYAML("gold_sword")
+	ch.Equipment[items.SlotOffHand] = items.CreateWeaponFromYAML(swordKey)
 	if got := cs.CalculateWeaponCritChance(sword, ch); got != baseCrit {
-		t.Fatalf("two Gold Swords crit = %d, want %d without Golden Armor", got, baseCrit)
+		t.Fatalf("two %s crit = %d, want %d without %s", sword.Name, got, baseCrit, armor.Name)
 	}
 
 	ch.Equipment = map[items.EquipSlot]items.Item{
 		items.SlotMainHand: sword,
 		items.SlotArmor:    armor,
 	}
-	if got := cs.CalculateWeaponCritChance(sword, ch); got != 100 {
-		t.Fatalf("completed Dragon's Hoard crit = %d, want 100", got)
+	weaponCrit := min(100, baseCrit+bonus)
+	if got := cs.CalculateWeaponCritChance(sword, ch); got != weaponCrit {
+		t.Fatalf("completed %s crit = %d, want %d", set.Name, got, weaponCrit)
 	}
-	if got := cs.CalculateCriticalChance(ch); got != 75 {
-		t.Fatalf("Dragon's Hoard spell crit bonus = %d, want 75", got)
+	if got := cs.CalculateCriticalChance(ch); got != bonus {
+		t.Fatalf("%s spell crit bonus = %d, want %d", set.Name, got, bonus)
 	}
-	if _, total := cs.RollCriticalChance(0, ch); total != 75 {
-		t.Fatalf("Dragon's Hoard spell crit total = %d, want 75", total)
+	if _, total := cs.RollCriticalChance(0, ch); total != bonus {
+		t.Fatalf("%s spell crit total = %d, want %d", set.Name, total, bonus)
 	}
+	setRow := fmt.Sprintf("Set: +%d%%", bonus)
+	bonusRow := fmt.Sprintf("Set bonus: critical chance +%d%%", bonus)
 	spellTip := GetSpellTooltip(spells.SpellID("fireball"), ch, cs, true)
-	for _, want := range []string{"Chance: 75%", "Set: +75%"} {
+	for _, want := range []string{fmt.Sprintf("Chance: %d%%", bonus), setRow} {
 		if !strings.Contains(spellTip, want) {
 			t.Errorf("Fireball tooltip missing %q:\n%s", want, spellTip)
 		}
@@ -98,15 +105,14 @@ func TestDragonHoardSetLootAndCriticalChance(t *testing.T) {
 
 	weaponTip := GetItemTooltip(sword, ch, cs, true)
 	for _, want := range []string{
-		"Chance: 100%", "Set: Dragon's Hoard (2/2 equipped)",
-		"Set bonus: critical chance +75%", "Set: +75%",
+		fmt.Sprintf("Chance: %d%%", weaponCrit), fmt.Sprintf("Set: %s (2/2 equipped)", set.Name), bonusRow, setRow,
 	} {
 		if !strings.Contains(weaponTip, want) {
-			t.Errorf("Gold Sword tooltip missing %q:\n%s", want, weaponTip)
+			t.Errorf("%s tooltip missing %q:\n%s", sword.Name, want, weaponTip)
 		}
 	}
 	armorTip := GetItemTooltip(armor, ch, cs, true)
-	if !strings.Contains(armorTip, "Set bonus: critical chance +75%") {
-		t.Errorf("Golden Armor tooltip missing set bonus:\n%s", armorTip)
+	if !strings.Contains(armorTip, bonusRow) {
+		t.Errorf("%s tooltip missing set bonus:\n%s", armor.Name, armorTip)
 	}
 }

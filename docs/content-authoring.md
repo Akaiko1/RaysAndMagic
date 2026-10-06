@@ -42,8 +42,12 @@ safe margins. Follow the project's asset-generation instructions when producing 
 | Item tooltip icon | `assets/sprites/interface/items/icon_item_<key>.png`; shared resolver: `itemTooltipIconName` |
 
 New detailed weapon/spell icons are 128x128; preserve existing 64x64 legacy
-icons. Use the established thin gold rim and opaque black background. Optimize
-PNG losslessly and verify decoded pixels are unchanged.
+icons. Generate item, weapon, spell, and trap artwork without a baked-in frame,
+on a uniform opaque black background, with the complete silhouette inside safe
+margins. The engine supplies the frame and its rarity or school tint. Register
+only unframed sources in [icon_frames.yaml](../assets/icon_frames.yaml), with
+basic, Asian, or boss provenance; do not add a runtime frame over a legacy rim.
+Optimize PNG losslessly and verify decoded pixels are unchanged.
 
 Monster walking and attacking sheets each contain four square frames. Preserve
 an existing layout: 512x128 means four 128x128 cells; 256x256 means four 128x128
@@ -114,6 +118,26 @@ Read the [dialogue style guide](dialogue-style.md) for the full writing workflow
 Document what was actually run. A loader test cannot establish that a sprite
 looks correct, a new item is obtainable, or a quest can be completed in a save.
 
+## Combat input and tooltips
+
+Mouse smart attack shares Space's healing, spell, and weapon priorities and
+cooldowns. Pointer targeting uses the last displayed view in both combat modes;
+an unmatched click expires in the same input update. Movement or turning must
+not retarget an old click. Friendly party-controlled creatures and transparent
+sprite margins are excluded, and background doors or NPCs must not intercept
+a foreground monster's click.
+
+Explicit aim keeps its direction through melee resolution and projectile flight,
+with the normal weapon arcs, splash, and physical interception. A held attack
+ends on release, leaving the target, losing line of sight, or opening a menu;
+acquiring another target requires a new press. Keep these rules consistent when
+extending [combat input](../internal/game/input.go).
+
+Equipped item tooltips mark completed set bonuses in green with `[ACTIVE]`.
+Loose items show requirements without claiming an active bonus. Skill effects
+and detailed calculations belong in the shared tooltip producers, not in a
+separate README balance table.
+
 ## Regular skill balance
 
 Regular skills, including Ballistics, Field Medicine, Designate Target and
@@ -124,6 +148,12 @@ moved into the existing regular-skill catalog to keep that model consistent.
 Changing these tables requires a rebuild. Content such as weapons, spells,
 monsters and class skill access remains YAML-driven and validated at load time.
 
-Automatic drinking is a party-wide mechanic configured by `auto_drink` in
-`config.yaml`. Field Medicine modifies its efficiency through the same catalog
-used by the skill description; it does not enable the feature only for Snipers.
+Overwatch reacts to enemy attacks at half its movement reaction chance.
+Ballistics' bow/blaster critical chance bonus uses the same mastery table as its
+tooltip in [the skill catalog](../internal/character/catalog.go).
+
+Automatic drinking is a party-wide mechanic configured by
+`characters.auto_drink` in `config.yaml` (`threshold_pct`, `interval_seconds`).
+Field Medicine improves both manual and automatic potion recovery through the
+same catalog used by the skill description; it does not enable automatic use
+or restrict it to Snipers.

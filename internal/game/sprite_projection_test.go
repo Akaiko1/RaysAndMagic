@@ -5,162 +5,63 @@ import (
 	"testing"
 )
 
-// TestSpriteUsesPerpendicularDistance verifies that sprite projection uses
-// perpendicular distance (transformY) for sizing, not Euclidean distance.
-//
-// This is the core fix: when viewing sprites at angles, perpendicular distance
-// is shorter than Euclidean distance. Using perpendicular distance ensures
-// sprites align with the floor and don't drift when viewed from angles.
-//
+// Sprite depth and size come from the PERPENDICULAR camera distance, not the
+// Euclidean one: Euclidean sizing shrinks off-axis sprites, so they drift off
+// the floor point their screen X anchors to.
 // Reference: https://lodev.org/cgtutor/raycasting3.html
 func TestSpriteUsesPerpendicularDistance(t *testing.T) {
-	screenWidth := 640
-	fov := math.Pi / 3 // 60 degrees
+	cfg := loadTestConfig(t)
+	game := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
+	game.camera.FOV = squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	game.camera.ViewDist = cfg.GetViewDistance()
+	game.renderHelper = NewRenderingHelper(game)
+	rh := game.renderHelper
+	ts := float64(cfg.GetTileSize())
+	camX, camY := 5*ts, 10*ts
+	game.camera.X, game.camera.Y = camX, camY
 
-	testCases := []struct {
-		name       string
-		camX, camY float64
-		camAngle   float64
-		entityX    float64
-		entityY    float64
+	tests := []struct {
+		name            string
+		angle           float64
+		ahead, lateral  float64 // tiles along / across the view direction
+		wantRightOfMidX bool
 	}{
-		{
-			name: "entity directly ahead - perp equals euclidean",
-			camX: 320, camY: 320,
-			camAngle: 0,                 // facing east
-			entityX:  512, entityY: 320, // directly ahead
-		},
-		{
-			name: "entity at angle - perp less than euclidean",
-			camX: 320, camY: 320,
-			camAngle: 0,
-			entityX:  512, entityY: 448, // 3 tiles ahead, 2 tiles right
-		},
-		{
-			name: "entity at steep angle",
-			camX: 320, camY: 320,
-			camAngle: 0,
-			entityX:  384, entityY: 512, // 1 tile ahead, 3 tiles right
-		},
+		{name: "directly ahead", angle: 0, ahead: 3},
+		{name: "ahead and to the right", angle: 0, ahead: 3, lateral: 2, wantRightOfMidX: true},
+		{name: "steep angle", angle: 0, ahead: 3, lateral: 1.7, wantRightOfMidX: true},
+		{name: "rotated camera", angle: math.Pi / 3, ahead: 4, lateral: 2.5, wantRightOfMidX: true},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			game.camera.Angle = tt.angle
+			dirX, dirY := math.Cos(tt.angle), math.Sin(tt.angle)
+			// Screen-right is +lateral along (-dirY, dirX) in this y-down world.
+			ex := camX + (tt.ahead*dirX-tt.lateral*dirY)*ts
+			ey := camY + (tt.ahead*dirY+tt.lateral*dirX)*ts
+			euclid := Distance(camX, camY, ex, ey)
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Calculate Euclidean distance
-			dx := tc.entityX - tc.camX
-			dy := tc.entityY - tc.camY
-			euclideanDist := math.Sqrt(dx*dx + dy*dy)
-
-			// Get perpendicular distance from projection
-			_, perpDist := projectToScreenXTest(
-				tc.camX, tc.camY, tc.camAngle, fov,
-				tc.entityX, tc.entityY, screenWidth,
-			)
-
-			// Calculate expected perpendicular distance
-			// perpDist = euclidean * cos(angle_between_camera_and_entity)
-			angleToEntity := math.Atan2(dy, dx)
-			angleDiff := angleToEntity - tc.camAngle
-			expectedPerpDist := euclideanDist * math.Cos(angleDiff)
-
-			// Verify perpendicular distance matches expected
-			if math.Abs(perpDist-expectedPerpDist) > 0.01 {
-				t.Errorf("Perpendicular distance mismatch: got %.4f, expected %.4f",
-					perpDist, expectedPerpDist)
+			screenX, depth, ok := rh.projectToScreenXF(ex, ey)
+			if !ok {
+				t.Fatal("entity in front of the camera did not project")
+			}
+			if want := tt.ahead * ts; math.Abs(depth-want) > 1e-6 {
+				t.Fatalf("depth = %.4f, want perpendicular %.4f (euclidean %.4f)", depth, want, euclid)
+			}
+			mid := float64(game.worldWidth()) / 2
+			if tt.wantRightOfMidX != (screenX > mid+0.5) {
+				t.Fatalf("screenX = %.2f vs center %.2f, want right of center %v", screenX, mid, tt.wantRightOfMidX)
 			}
 
-			// For angled views, perp should be less than euclidean
-			if angleDiff != 0 && perpDist >= euclideanDist {
-				t.Errorf("For angled view, perp (%.2f) should be < euclidean (%.2f)",
-					perpDist, euclideanDist)
+			// Same perpendicular depth straight ahead: same size and floor anchor.
+			ax, ay := camX+tt.ahead*dirX*ts, camY+tt.ahead*dirY*ts
+			_, bottom, size, visible := rh.CalculateMonsterSpriteMetricsF(ex, ey, euclid, 1)
+			_, wantBottom, wantSize, aheadVisible := rh.CalculateMonsterSpriteMetricsF(ax, ay, tt.ahead*ts, 1)
+			if !visible || !aheadVisible {
+				t.Fatalf("sprite visibility = %v, on-axis control = %v", visible, aheadVisible)
 			}
-
-			t.Logf("Euclidean=%.2f, Perpendicular=%.2f, Ratio=%.3f, AngleDiff=%.2fdeg",
-				euclideanDist, perpDist, perpDist/euclideanDist, angleDiff*180/math.Pi)
+			if math.Abs(size-wantSize) > 1e-6 || math.Abs(bottom-wantBottom) > 1e-6 {
+				t.Fatalf("size/bottom = %.3f/%.3f, want %.3f/%.3f from the perpendicular depth", size, bottom, wantSize, wantBottom)
+			}
 		})
 	}
-}
-
-// TestSpriteDriftPrevention is the key regression test for the NPC drift bug.
-// This test would FAIL with the old code that used Euclidean distance for sizing,
-// and PASSES with the fix that uses perpendicular distance.
-func TestSpriteDriftPrevention(t *testing.T) {
-	screenWidth := 640
-	screenHeight := 480
-	tileSize := 64.0
-	fov := math.Pi / 3
-
-	// Simulate the spell_trader_mage NPC scenario from the bug report:
-	// NPC at tile center, player viewing from an angle at medium distance
-
-	// Camera at 5 tiles away, looking at an angle
-	camX, camY := 320.0, 320.0
-	camAngle := 0.0 // facing east
-
-	// NPC at 4 tiles ahead and 2 tiles to the side (medium distance, angled view)
-	npcX, npcY := 576.0, 448.0
-
-	// Calculate both distances
-	dx := npcX - camX
-	dy := npcY - camY
-	euclideanDist := math.Sqrt(dx*dx + dy*dy)
-
-	screenX, perpDist := projectToScreenXTest(camX, camY, camAngle, fov, npcX, npcY, screenWidth)
-
-	// With the FIX: sprite size uses perpendicular distance
-	correctSpriteSize := int(tileSize / perpDist * float64(screenHeight) / 5) // simplified size calc
-
-	// With the BUG: sprite size would use Euclidean distance
-	wrongSpriteSize := int(tileSize / euclideanDist * float64(screenHeight) / 5)
-
-	// The wrong size is SMALLER because euclidean > perpendicular for angled views
-	// This made sprites appear further away than their screen X position suggested
-	if wrongSpriteSize >= correctSpriteSize {
-		t.Errorf("Test logic error: wrong size (%d) should be < correct size (%d)",
-			wrongSpriteSize, correctSpriteSize)
-	}
-
-	sizeDifference := correctSpriteSize - wrongSpriteSize
-	percentError := float64(sizeDifference) / float64(correctSpriteSize) * 100
-
-	t.Logf("NPC at (%.0f, %.0f), camera at (%.0f, %.0f)", npcX, npcY, camX, camY)
-	t.Logf("Euclidean=%.2f, Perpendicular=%.2f", euclideanDist, perpDist)
-	t.Logf("Screen X=%d", screenX)
-	t.Logf("Correct sprite size (perp): %d", correctSpriteSize)
-	t.Logf("Wrong sprite size (euclidean): %d", wrongSpriteSize)
-	t.Logf("Size difference: %d pixels (%.1f%% error)", sizeDifference, percentError)
-
-	// The bug caused significant visual drift - verify the error was substantial
-	if percentError < 5 {
-		t.Logf("Note: Error was small (%.1f%%) - bug may not have been noticeable at this angle", percentError)
-	} else {
-		t.Logf("Error was significant (%.1f%%) - this would cause visible drift", percentError)
-	}
-}
-
-// projectToScreenXTest replicates the projectToScreenX logic for testing.
-// Returns screen X and perpendicular distance (transformY).
-func projectToScreenXTest(camX, camY, camAngle, fov, entityX, entityY float64, screenWidth int) (screenX int, perpDist float64) {
-	dx := entityX - camX
-	dy := entityY - camY
-
-	dirX := math.Cos(camAngle)
-	dirY := math.Sin(camAngle)
-	planeScale := math.Tan(fov / 2)
-	planeX := -dirY * planeScale
-	planeY := dirX * planeScale
-
-	det := planeX*dirY - dirX*planeY
-	if math.Abs(det) < 1e-9 {
-		return 0, 0
-	}
-	invDet := 1.0 / det
-	transformX := invDet * (dirY*dx - dirX*dy)
-	transformY := invDet * (-planeY*dx + planeX*dy)
-	if transformY <= 0 {
-		return 0, 0
-	}
-
-	screenX = int(float64(screenWidth) / 2 * (1 + transformX/transformY))
-	return screenX, transformY
 }

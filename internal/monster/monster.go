@@ -40,6 +40,34 @@ const (
 	AIBehaviorAmbient
 )
 
+// BehaviorCaps is what a behavior mode lets its monster do. The AI sites -
+// attack targets, posts and commits, foe selection, band alarms - read these
+// instead of re-listing the modes; movement algorithms and clocks stay their
+// own per mode.
+type BehaviorCaps struct {
+	MayAttack   bool // may hold an attack target and post, and commit a hit
+	TakesFoe    bool // foe selection may hand it a monster to fight
+	AnswersBand bool // its band's alarm (a peer's sight or hit) may rouse it
+}
+
+// A passive peer ignores its band's sight; the band's hit is shared before
+// caps are read, which provokes it out of Passive.
+var behaviorCaps = [...]BehaviorCaps{
+	AIBehaviorInert:           {},
+	AIBehaviorBoundAlly:       {MayAttack: true, TakesFoe: true},
+	AIBehaviorPacified:        {},
+	AIBehaviorEvasive:         {},
+	AIBehaviorFightFoe:        {MayAttack: true, TakesFoe: true},
+	AIBehaviorRelentlessParty: {MayAttack: true, TakesFoe: true},
+	AIBehaviorFleeing:         {},
+	AIBehaviorPassive:         {},
+	AIBehaviorSeekParty:       {MayAttack: true, TakesFoe: true, AnswersBand: true},
+	AIBehaviorAmbient:         {TakesFoe: true},
+}
+
+// Caps returns the mode's capabilities.
+func (b AIBehaviorMode) Caps() BehaviorCaps { return behaviorCaps[b] }
+
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
 	Gold              int                   `yaml:"gold"`
@@ -119,6 +147,11 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m.IsCaravan() || (m.IsWildlife() && (m.AmbientFlee || m.AIFoe == nil)) {
 		return AIBehaviorAmbient
 	}
+	// A fleeing monster keeps fleeing even with a foe at hand; only a relentless
+	// hunter (a raging boss, an avenging retainer) never breaks off.
+	if m.State == StateFleeing && !m.relentlessHunter() {
+		return AIBehaviorFleeing
+	}
 	if m.AIFoe != nil {
 		// A stale crossfire target must not wake a passive creature. Normal
 		// selection clears it too, but keeping the policy here makes every AI
@@ -130,9 +163,6 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	}
 	if m.relentlessHunter() {
 		return AIBehaviorRelentlessParty
-	}
-	if m.State == StateFleeing {
-		return AIBehaviorFleeing
 	}
 	if m.IsPassiveUntilProvoked() {
 		return AIBehaviorPassive
@@ -239,6 +269,7 @@ func generateUniqueMonsterID() string {
 }
 
 type Monster3D struct {
+	Telegraph         TelegraphState
 	Arboreal          *ArborealConfig
 	Arbor             ArborealState
 	FishLeap          *FishLeapState
@@ -440,6 +471,12 @@ type Monster3D struct {
 	// QuestProgressIgnored marks ad-hoc/runtime summons that should not advance or
 	// block map-clear kill quests. Fixed map spawns leave this false.
 	QuestProgressIgnored bool
+	// HomeMap is the map or open-world region the monster was created in. A
+	// target_map kill quest counts it there wherever it wanders or dies.
+	HomeMap string
+	// AdventureScaleLevel is zero until an authored visit scales this actor.
+	// Runtime spawns in the same map keep their own unscaled archetype stats.
+	AdventureScaleLevel int
 
 	// Resistances and immunities
 	Resistances map[DamageType]int
@@ -545,6 +582,7 @@ type Monster3D struct {
 	SummonCount           int      // adds spawned per summon (default 1)
 	SummonMax             int      // cap on simultaneously-live summons (0 = uncapped)
 	SummonedBy            string   // ID of the boss that summoned this monster ("" = not a summon)
+	SummonerName          string   // party member who called this ally ("" = none, or the whole party)
 	PackKey               string   // ambient day/night pack tag ("" = not a pack spawn); despawned on phase flips
 	// Enrage: at/below EnrageAtHP the boss hits harder and/or faster. The effect is
 	// derived LIVE from current HP in GetAttackDamage/AttackCooldownFrames, so it is
@@ -553,16 +591,14 @@ type Monster3D struct {
 	EnrageDamageMult   float64
 	EnrageCooldownMult float64
 	Enraged            bool
-	// Visual tint: a persistent RGB cast multiplied into the lit sprite, marking a
-	// variant apart when it shares a base mob's sprite (e.g. an elite). All-zero = none.
-	TintR, TintG, TintB float32
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
 	EncounterRewards   *EncounterRewards // Rewards for defeating this encounter monster
 
 	// Configuration reference
-	config *config.Config
+	ElementalMarks map[string]ElementalWeaponMark
+	config         *config.Config
 
 	// Immutable config-derived render/collision data, cached at setup. Rendering,
 	// collision registration, and overlap recovery read it frequently; none
@@ -760,7 +796,7 @@ func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Pa
 // future poison source follows the same rule. Refreshing never shortens an
 // existing, longer poison.
 func (m *Monster3D) ApplyPoison(frames int) bool {
-	if m == nil || frames <= 0 || m.MonsterType == "undead" {
+	if m == nil || frames <= 0 || m.MonsterType == TypeUndead {
 		return false
 	}
 	return status.Refresh(&m.PoisonedFramesRemaining, frames)
@@ -1387,7 +1423,7 @@ func (m *Monster3D) CanMoveWithinTether(newX, newY float64) bool {
 // MovementHeld is the shared non-random movement gate. Slow percentages below
 // 100 are applied by RT speed or one TB roll per attempted movement action.
 func (m *Monster3D) MovementHeld(turnBased bool) bool {
-	if m == nil || !m.IsAlive() || m.Speed <= 0 {
+	if m == nil || !m.IsAlive() || m.Speed <= 0 || m.Telegraph.Warning > 0 {
 		return true
 	}
 	// Charm may wander on the ground, but cannot hand an unfinished canopy

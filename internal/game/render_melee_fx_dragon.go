@@ -48,8 +48,7 @@ func (r *Renderer) dragonEmberRise(screen *ebiten.Image, seed, salt int, u, x, y
 			if gu > 0.6 {
 				col = mixColor(dragonEmber, dragonScale, (gu-0.6)/0.4)
 			}
-			r.drawGlowRect(screen, ex+drift, y-gu*h*0.34,
-				math.Max(2.5, h*0.011*f*(1-gu*0.5)), col, fade*(1-gu)*f, additiveGlowBlend)
+			r.drawWeaponShard(screen, ex+drift, y-gu*h*0.34, math.Max(2.5, h*0.011*f*(1-gu*0.5)), col, fade*(1-gu)*f, gu, seed+salt+k*37, false)
 		}
 	}
 }
@@ -121,97 +120,14 @@ func (r *Renderer) drawMeleeFxDragonFang(screen *ebiten.Image, s SlashEffect, cx
 		// down as light first so the charred centre has an edge to sit in.
 		r.drawGlowSprite(screen, fx, fy, h*0.062*w, mixColor(dragonEmber, dragonScale, 0.45), fade*0.6, additiveGlowBlend)
 		r.drawGlowSprite(screen, fx, fy, h*0.036*w, dragonScale, fade*0.85, ebiten.BlendSourceOver)
-		r.drawGlowRect(screen, fx, fy, math.Max(4, h*0.032*w*(1-0.25*cool)), col, fade*(1-0.3*cool), additiveGlowBlend)
+		r.weaponFxAccent(screen, fx, fy, math.Max(4, h*0.032*w*(1-0.25*cool)), col, fade*(1-0.3*cool), additiveGlowBlend)
 	}
 	r.dragonEmberRise(screen, seed, 517, u, bx, by-gap, gap*3, h, fade*0.8, 6)
 }
 
-// Wyrmcleaver - the closing jaws: TWO opposing crescents, an upper and a lower
-// jaw studded with bone teeth, closing on the anchor through the sweep. The
-// finish is the SNAP (the sub-15% execute): the jaws slam shut in a white-red
-// flash and bone chips spray from the bite line.
+// Wyrmcleaver keeps its carved axe and a decisive cutting sweep.
 func (r *Renderer) drawMeleeFxDragonJaws(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	progress, fade, sweepT, lead := meleeFxTiming(s)
-	if fade <= 0 {
-		return
-	}
-	seed := seedFromID(s.ID)
-	h, w := arenaFxScale(s, screenH)
-	reach := h * 0.3
-	jawY := cy - reach*0.15
-	span := reach * 1.5
-	// gape: jaws start wide open and close with an accelerating bite.
-	gape := reach * 0.62 * (1 - lead*lead)
-
-	jaw := func(sign float64) func(t float64) (float64, float64) {
-		return func(t float64) (float64, float64) {
-			x := cx - span/2 + span*t
-			bow := math.Sin(math.Pi*t) * reach * 0.5
-			return x, jawY + sign*(gape+bow*0.35)
-		}
-	}
-	for j, sign := range []float64{-1, 1} {
-		path := jaw(sign)
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   path,
-			width:  func(t float64) float64 { return (24 + 12*math.Sin(math.Pi*t)) * w },
-			color:  func(t float64) [3]int { return mixColor(dragonScale, dragonBlood, 0.45) },
-			alpha:  func(t float64) float64 { return 0.84 },
-			length: span * 1.2, seed: seed, salt: 530 + j*4, blend: ebiten.BlendSourceOver,
-		}, lead, progress)
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   path,
-			width:  func(t float64) float64 { return (9 + 5*math.Sin(math.Pi*t)) * w },
-			color:  func(t float64) [3]int { return mixColor(dragonBlood, dragonHot, 0.35+0.4*math.Sin(math.Pi*t)) },
-			alpha:  func(t float64) float64 { return 0.7 },
-			length: span * 1.2, seed: seed, salt: 532 + j*4, blend: additiveGlowBlend,
-		}, lead, progress)
-		// Bone teeth on the inner edge, pointing into the bite.
-		const teeth = 7
-		for i := 0; i < teeth; i++ {
-			tt := (float64(i) + 0.5) / teeth
-			if tt > lead {
-				break
-			}
-			px, py := path(tt)
-			tl := (8 + 5*math.Sin(math.Pi*tt)) * w
-			r.drawGlowRect(screen, px, py-sign*tl*0.5, math.Max(2.5, tl*0.42),
-				mixColor(dragonBone, dragonHot, 0.2), fade*0.9, additiveGlowBlend)
-		}
-	}
-
-	if sweepT >= 1 {
-		// The SNAP: a white-red flash bar along the closed bite line, bone
-		// chips spraying with ghost trails, and a blood-dark afterglow.
-		u := (progress - meleeSweepFrac) / (1 - meleeSweepFrac)
-		if u < 0.3 {
-			f := 1 - u/0.3
-			r.drawDissolveStroke(screen, dissolveStroke{
-				path:   func(t float64) (float64, float64) { return cx - span/2 + span*t, jawY },
-				width:  func(t float64) float64 { return (9 + 7*math.Sin(math.Pi*t)) * w * f },
-				color:  func(t float64) [3]int { return mixColor(dragonHot, dragonBlood, t*0.3) },
-				alpha:  func(t float64) float64 { return 0.9 * f },
-				length: span, seed: seed, salt: 540, blend: additiveGlowBlend,
-			}, 1, 0.2)
-			r.drawSparkStar(screen, cx, jawY, h*0.075*w*f, dragonHot, dragonBone, fade*f, 2.2)
-		}
-		const chips = 10
-		for k := 0; k < chips; k++ {
-			ang := (auraHash(seed, k, 542, 0) - 0.5) * 2.4
-			spd := 0.5 + auraHash(seed, k, 543, 0)
-			for g := 0; g < 3; g++ {
-				gu := u - float64(g)*0.05
-				if gu < 0 {
-					break
-				}
-				f := 1 - 0.3*float64(g)
-				bx := cx + math.Sin(ang)*spd*h*0.24*gu
-				by := jawY - math.Abs(math.Cos(ang))*spd*h*0.17*gu + gu*gu*h*0.26
-				r.drawGlowRect(screen, bx, by, math.Max(2.5, h*0.012*f),
-					mixColor(dragonBone, dragonBlood, auraHash(seed, k, 544, 0)*0.4), fade*(1-gu)*f*f, additiveGlowBlend)
-			}
-		}
-	}
+	r.drawIdentityStrike(screen, s, cx, cy, screenH, "dragon_jaws", "chop")
 }
 
 // Ember Egg - the mace that never cooled: an overhead smash led by a pulsing
@@ -266,7 +182,7 @@ func (r *Renderer) drawMeleeFxDragonEmberEgg(screen *ebiten.Image, s SlashEffect
 
 	// Hatch. Shell shards out, ember ring to the burst radius, breathing core.
 	u := (progress - meleeSweepFrac) / (1 - meleeSweepFrac)
-	r.arenaImpactRings(screen, cx, hitY, u, reach*1.5, 0.5, h*0.013*w, 2, dragonEmber, fade)
+	r.arenaImpactCloud(screen, cx, hitY, u, reach*1.5, 0.5, dragonEmber, fade)
 	const shards = 9
 	for k := 0; k < shards; k++ {
 		ang := 2*math.Pi*float64(k)/shards + auraHash(seed, k, 552, 0)*0.5
@@ -280,8 +196,8 @@ func (r *Renderer) drawMeleeFxDragonEmberEgg(screen *ebiten.Image, s SlashEffect
 			sx := cx + math.Cos(ang)*spd*h*0.3*gu
 			sy := hitY + math.Sin(ang)*spd*h*0.19*gu + gu*gu*h*0.2
 			// Dark shard body with a hot rim - the shell was full of fire.
-			r.drawGlowRect(screen, sx, sy, math.Max(3, h*0.018*f), dragonScale, fade*(1-gu)*f, ebiten.BlendSourceOver)
-			r.drawGlowRect(screen, sx, sy, math.Max(2, h*0.008*f), mixColor(dragonEmber, dragonHot, auraHash(seed, k, 554, 0)), fade*(1-gu)*f*f, additiveGlowBlend)
+			r.drawWeaponShard(screen, sx, sy, math.Max(3, h*0.018*f), dragonScale, fade*(1-gu)*f, gu, seed+k*37, false)
+			r.drawWeaponShard(screen, sx, sy, math.Max(2, h*0.008*f), mixColor(dragonEmber, dragonHot, auraHash(seed, k, 554, 0)), fade*(1-gu)*f*f, gu, seed+k*37, false)
 		}
 	}
 	pulse := 0.7 + 0.3*math.Sin(float64(r.game.frameCount)*0.5)
@@ -361,7 +277,7 @@ func (r *Renderer) drawMeleeFxDragonBroodspike(screen *ebiten.Image, s SlashEffe
 			f := 1 - 0.3*float64(g)
 			sx := cx + math.Cos(ang)*spd*h*0.2*gu
 			sy := markY - reach*0.2 + math.Sin(ang)*spd*h*0.26*gu
-			r.drawGlowRect(screen, sx, sy, math.Max(2.5, h*0.01*f), mixColor(pale, spur, auraHash(seed, k, 566, 0)), fade*(1-gu)*f*f, additiveGlowBlend)
+			r.drawWeaponShard(screen, sx, sy, math.Max(2.5, h*0.01*f), mixColor(pale, spur, auraHash(seed, k, 566, 0)), fade*(1-gu)*f*f, gu, seed+k*37, false)
 		}
 	}
 }
@@ -427,7 +343,7 @@ func (r *Renderer) drawMeleeFxDragonTarn(screen *ebiten.Image, s SlashEffect, cx
 			dx := cx + (auraHash(seed, k, 575, 0)-0.5)*h*0.14
 			rise := math.Sin(math.Min(1, du*1.6)*math.Pi) * reach * (0.3 + 0.4*auraHash(seed, k, 576, 0))
 			sag := du * du * reach * 0.55
-			r.drawGlowRect(screen, dx, baseY-rise+sag, math.Max(3, h*0.016),
+			r.weaponFxAccent(screen, dx, baseY-rise+sag, math.Max(3, h*0.016),
 				mixColor(wet, murk, du), fade*(1-du*0.6), additiveGlowBlend)
 		}
 	}
@@ -506,7 +422,7 @@ func (r *Renderer) drawMeleeFxDragonHatchling(screen *ebiten.Image, s SlashEffec
 				continue
 			}
 			bx, by := stab(math.Max(0, bu))
-			r.drawGlowRect(screen, bx+(auraHash(seed, k, 595, 0)-0.5)*h*0.05, by+bu*h*0.05,
+			r.weaponFxAccent(screen, bx+(auraHash(seed, k, 595, 0)-0.5)*h*0.05, by+bu*h*0.05,
 				math.Max(2, h*0.008), venom, fade*0.8, additiveGlowBlend)
 		}
 		return
@@ -527,10 +443,10 @@ func (r *Renderer) drawMeleeFxDragonHatchling(screen *ebiten.Image, s SlashEffec
 		land := math.Min(1, u*3)
 		run := math.Max(0, u-0.3) * reach * 0.45 * (0.3 + auraHash(seed, k, 598, 0))
 		// The clinging drop and its downward run.
-		r.drawGlowRect(screen, dx, dy+run, math.Max(2, h*0.009*(1+0.4*land)),
+		r.weaponFxAccent(screen, dx, dy+run, math.Max(2, h*0.009*(1+0.4*land)),
 			mixColor(glass, venom, land), fade*(1-u*0.45), additiveGlowBlend)
 		if run > h*0.02 {
-			r.drawGlowRect(screen, dx, dy+run*0.55, math.Max(2, h*0.006), venom, fade*(1-u*0.6)*0.7, additiveGlowBlend)
+			r.weaponFxAccent(screen, dx, dy+run*0.55, math.Max(2, h*0.006), venom, fade*(1-u*0.6)*0.7, additiveGlowBlend)
 		}
 	}
 }
@@ -575,7 +491,7 @@ func (r *Renderer) drawMeleeFxDragonRoar(screen *ebiten.Image, s SlashEffect, cx
 
 	// The roar: THREE ring salvos - sound has echoes - plus shed scales.
 	u := (progress - meleeSweepFrac) / (1 - meleeSweepFrac)
-	r.arenaImpactRings(screen, cx, hitY, u, reach*1.7, 0.42, h*0.015*w, 3, mixColor(sand, roar, 0.6), fade*1.1)
+	r.arenaImpactCloud(screen, cx, hitY, u, reach*1.7, 0.42, mixColor(sand, roar, 0.6), fade*1.1)
 	if u < 0.2 {
 		r.drawSparkStar(screen, cx, hitY, h*0.08*w*(1-u/0.2), roar, roar, fade*(1-u/0.2), 1.6)
 	}
@@ -592,71 +508,22 @@ func (r *Renderer) drawMeleeFxDragonRoar(screen *ebiten.Image, s SlashEffect, cx
 		sway := math.Sin(su*6+float64(k)*2) * h * 0.03
 		sy := hitY - reach*0.5*auraHash(seed, k, 606, 0) + su*su*reach*0.75
 		flip := math.Abs(math.Sin(su*9 + float64(k)))
-		r.drawGlowRect(screen, sx+sway, sy, math.Max(3, h*0.016*(0.4+0.6*flip)),
-			dragonScale, fade*(1-su)*0.95, ebiten.BlendSourceOver)
-		r.drawGlowRect(screen, sx+sway, sy, math.Max(2, h*0.007*(0.4+0.6*flip)),
-			sand, fade*(1-su)*0.8, additiveGlowBlend)
+		r.drawWeaponShard(screen, sx+sway, sy, math.Max(3, h*0.016*(0.4+0.6*flip)), dragonScale, fade*(1-su)*0.95, su, seed+k*37, true)
+		r.drawWeaponShard(screen, sx+sway, sy, math.Max(2, h*0.007*(0.4+0.6*flip)), sand, fade*(1-su)*0.8, su, seed+k*37, false)
 	}
 }
 
 // ============================ DRAKEFORGED RANGED ============================
 // Overlays on top of the normal arrow silhouette (weaponProjectileFxStyleDraw).
 
-// Verdant Eye - a living green lens carried by the scepter's earth bolt. The
-// eye stays readable in both side-on and camera-axis projections.
+// Verdant Eye is an eye-shaped green flash, with open luminous arcs and a
+// brief central flare in both side-on and camera-axis projections.
 func (r *Renderer) drawWeaponProjectileFxDragonEye(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
-	fc := float64(r.game.frameCount)
-	moss, iris, sclera := [3]int{54, 112, 58}, [3]int{112, 226, 118}, [3]int{210, 255, 188}
-	nx, ny := -dirY, dirX
-	pulse := 0.92 + 0.08*math.Sin(fc*0.16+float64(id))
-	length := size * 1.45
-	height := size * 0.62 * pulse
-	frontX, frontY := cx+dirX*length, cy+dirY*length
-	backX, backY := cx-dirX*length, cy-dirY*length
-	topX, topY := cx+nx*height, cy+ny*height
-	bottomX, bottomY := cx-nx*height, cy-ny*height
-	width := math.Max(2, size*0.12)
-
-	for _, edge := range [][4]float64{
-		{frontX, frontY, topX, topY},
-		{topX, topY, backX, backY},
-		{backX, backY, bottomX, bottomY},
-		{bottomX, bottomY, frontX, frontY},
-	} {
-		r.fxSegment(screen, edge[0], edge[1], edge[2], edge[3], width, iris, 0.7*critBoost, additiveGlowBlend)
-	}
-	r.drawGlowSprite(screen, cx, cy, size*0.58*pulse, moss, 0.65*critBoost, additiveGlowBlend)
-	r.drawGlowSprite(screen, cx, cy, size*0.3*pulse, sclera, 0.9*critBoost, additiveGlowBlend)
-	r.fxSegment(screen, cx-nx*size*0.28, cy-ny*size*0.28, cx+nx*size*0.28, cy+ny*size*0.28,
-		math.Max(2, size*0.13), dragonScale, critBoost, ebiten.BlendSourceOver)
-
-	seed := id + 621
-	for k := 0; k < 5; k++ {
-		t := 0.7 + 0.55*float64(k)
-		wobble := (auraHash(seed, k, 622, int(fc)/4) - 0.5) * size
-		x := cx - dirX*size*t + nx*wobble
-		y := cy - dirY*size*t + ny*wobble
-		r.drawGlowRect(screen, x, y, math.Max(2, size*(0.13-0.012*float64(k))),
-			mixColor(iris, moss, float64(k)/5), (0.5-0.07*float64(k))*critBoost, additiveGlowBlend)
-	}
+	r.drawSpellMaterial(screen, cx, cy, size*1.25, 0, 0, [3]int{112, 226, 118}, critBoost, id, spellEye)
 }
 
 func (r *Renderer) drawWeaponProjectileFxDragonEyeHeadOn(screen *ebiten.Image, cx, cy, size, critBoost float64, id int) {
-	fc := float64(r.game.frameCount)
-	moss, iris, sclera := [3]int{54, 112, 58}, [3]int{112, 226, 118}, [3]int{210, 255, 188}
-	pulse := 0.92 + 0.08*math.Sin(fc*0.16+float64(id))
-	radius := size * 0.88 * pulse
-
-	r.drawGlowSprite(screen, cx, cy, radius*0.9, moss, 0.55*critBoost, additiveGlowBlend)
-	const segments = 16
-	for i := 0; i < segments; i++ {
-		angle := 2 * math.Pi * float64(i) / segments
-		r.drawGlowRect(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius*0.62,
-			math.Max(2, size*0.13), iris, 0.8*critBoost, additiveGlowBlend)
-	}
-	r.drawGlowSprite(screen, cx, cy, size*0.42*pulse, sclera, 0.9*critBoost, additiveGlowBlend)
-	r.fxSegment(screen, cx, cy-size*0.42, cx, cy+size*0.42,
-		math.Max(2, size*0.16), dragonScale, critBoost, ebiten.BlendSourceOver)
+	r.drawWeaponProjectileFxDragonEye(screen, cx, cy, size, 0, 0, critBoost, id)
 }
 
 // Wyrmspine Wing - the bow strung on wing-tendon. The bolt FLIES: membrane
@@ -682,11 +549,11 @@ func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy
 			ay := cy - dirY*size*root
 			tipX := ax + nx*side*span - dirX*size*0.7*float64(i)
 			tipY := ay + ny*side*span - dirY*size*0.7*float64(i)
-			r.fxSegment(screen, ax, ay, tipX, tipY, math.Max(2.5, size*0.16), wing, 0.6*critBoost, additiveGlowBlend)
-			r.fxSegment(screen, ax, ay, tipX, tipY, math.Max(2, size*0.07), vein, 0.75*critBoost, additiveGlowBlend)
+			r.weaponFxSegment(screen, ax, ay, tipX, tipY, math.Max(2.5, size*0.16), wing, 0.6*critBoost, additiveGlowBlend)
+			r.weaponFxSegment(screen, ax, ay, tipX, tipY, math.Max(2, size*0.07), vein, 0.75*critBoost, additiveGlowBlend)
 			if i == 1 {
 				// Membrane: the trailing edge closing the two spars.
-				r.fxSegment(screen, prevX, prevY, tipX, tipY, math.Max(2, size*0.1), wing, 0.4*critBoost, additiveGlowBlend)
+				r.weaponFxSegment(screen, prevX, prevY, tipX, tipY, math.Max(2, size*0.1), wing, 0.4*critBoost, additiveGlowBlend)
 				r.drawGlowSprite(screen, (prevX+tipX)/2, (prevY+tipY)/2, size*0.5*beat, wing, 0.22*critBoost, additiveGlowBlend)
 			}
 			prevX, prevY = tipX, tipY
@@ -698,7 +565,7 @@ func (r *Renderer) drawWeaponProjectileFxDragonWing(screen *ebiten.Image, cx, cy
 		wob := (auraHash(seed, k, 602, 0) - 0.5) * size * 1.1
 		x := cx - dirX*size*3.6*t - dirY*wob
 		y := cy - dirY*size*3.6*t + dirX*wob
-		r.drawGlowRect(screen, x, y, math.Max(2.5, size*0.13*(1-0.1*float64(k))),
+		r.weaponFxAccent(screen, x, y, math.Max(2.5, size*0.13*(1-0.1*float64(k))),
 			mixColor(wing, dragonScale, float64(k)/6), (0.42-0.055*float64(k))*critBoost, additiveGlowBlend)
 	}
 }
@@ -723,17 +590,17 @@ func (r *Renderer) drawWeaponProjectileFxDragonNest(screen *ebiten.Image, cx, cy
 		// Outer barb: point -> swept back and out.
 		obX := cx - dirX*size*0.5 + nx*side*size*1.05*flex
 		obY := cy - dirY*size*0.5 + ny*side*size*1.05*flex
-		r.fxSegment(screen, tipX, tipY, obX, obY, math.Max(2.5, size*0.19), hunt, 0.66*critBoost, additiveGlowBlend)
-		r.fxSegment(screen, tipX, tipY, obX, obY, math.Max(2, size*0.09), bone, 0.85*critBoost, additiveGlowBlend)
+		r.weaponFxSegment(screen, tipX, tipY, obX, obY, math.Max(2.5, size*0.19), hunt, 0.66*critBoost, additiveGlowBlend)
+		r.weaponFxSegment(screen, tipX, tipY, obX, obY, math.Max(2, size*0.09), bone, 0.85*critBoost, additiveGlowBlend)
 		// Inner barb: a shorter second hook, giving the head its clutch look.
 		ibX := cx - dirX*size*1.4 + nx*side*size*0.62*flex
 		ibY := cy - dirY*size*1.4 + ny*side*size*0.62*flex
-		r.fxSegment(screen, obX, obY, ibX, ibY, math.Max(2, size*0.12), mixColor(hunt, bone, 0.3), 0.5*critBoost, additiveGlowBlend)
+		r.weaponFxSegment(screen, obX, obY, ibX, ibY, math.Max(2, size*0.12), mixColor(hunt, bone, 0.3), 0.5*critBoost, additiveGlowBlend)
 	}
 	// The shaft the barbs hang on, and the taut leash running back along the
 	// flight path - the line it will follow to the next target.
-	r.fxSegment(screen, tipX, tipY, cx-dirX*size*1.6, cy-dirY*size*1.6, math.Max(2.5, size*0.14), bone, 0.7*critBoost, additiveGlowBlend)
-	r.fxSegment(screen, cx-dirX*size*1.6, cy-dirY*size*1.6, cx-dirX*size*4.8, cy-dirY*size*4.8,
+	r.weaponFxSegment(screen, tipX, tipY, cx-dirX*size*1.6, cy-dirY*size*1.6, math.Max(2.5, size*0.14), bone, 0.7*critBoost, additiveGlowBlend)
+	r.weaponFxSegment(screen, cx-dirX*size*1.6, cy-dirY*size*1.6, cx-dirX*size*4.8, cy-dirY*size*4.8,
 		math.Max(2, size*0.1), hunt, 0.38*critBoost, additiveGlowBlend)
 	r.drawGlowSprite(screen, tipX, tipY, size*0.34, bone, 0.75*critBoost, additiveGlowBlend)
 	_ = seed

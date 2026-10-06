@@ -31,7 +31,7 @@ func TestEditorWeaponStrikeUnits(t *testing.T) {
 			}
 			installEditorWeapon(t, def)
 			card := weaponCard("test", "iron_sword", def)
-			text := strings.Join(card.tooltipRows, "\n")
+			text := card.tooltipRows.String()
 			wantDamage := tc.base
 			if tc.wantSplit {
 				wantDamage = (tc.base + 1) / 2
@@ -108,7 +108,7 @@ func TestEditorSpellCardsUseCompleteFormula(t *testing.T) {
 			config.GlobalSpells = &config.SpellSystemConfig{Spells: map[string]*config.SpellDefinitionConfig{"fixture": def}}
 			t.Cleanup(func() { config.GlobalSpells = previous })
 			card := spellCard("test", "fixture", def)
-			text := card.subtitle + "\n" + strings.Join(card.tooltipRows, "\n")
+			text := card.subtitle + "\n" + card.tooltipRows.String()
 			for _, want := range tc.want {
 				if !strings.Contains(text, want) {
 					t.Errorf("missing %q:\n%s", want, text)
@@ -136,7 +136,7 @@ func TestEditorWeaponCardUsesFormulaTerms(t *testing.T) {
 			if primary == "" {
 				primary = "Might"
 			}
-			text := strings.Join(card.tooltipRows, "\n")
+			text := card.tooltipRows.String()
 			for _, want := range []string{"Base: 17", "Scales with " + primary + " / 3", "Also scales with Personality / 4"} {
 				if !strings.Contains(text, want) {
 					t.Errorf("missing %q:\n%s", want, text)

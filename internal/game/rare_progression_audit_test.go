@@ -67,6 +67,9 @@ func TestRareProgressionEveryClassThroughXPAndSave(t *testing.T) {
 						}
 						return
 					}
+					if len(g.levelUpChoiceQueue) != 1 {
+						t.Fatalf("earned choice queued %d times after load, want 1", len(g.levelUpChoiceQueue))
+					}
 					g.openLevelUpChoiceForChar(0)
 					req := g.currentLevelUpChoice()
 					if req == nil || req.level != level || len(req.options) < MinLevelUpOptions {

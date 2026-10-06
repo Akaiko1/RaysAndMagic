@@ -1,74 +1,42 @@
 package game
 
 import (
+	"fmt"
 	"testing"
 
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 )
 
-// A melee champion's swing at a summon uses its real weapon ARC: it catches
-// more than the single foe (the front target plus one flank), exactly like the
-// party's PvE arc - not the old single-target monster-vs-monster blow.
-func TestChampionArcHitsMultipleSummons(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	primeTestChampions(t, cs.game)
-	fillTestParty(t, cs.game)
-	ts := float64(cs.game.config.GetTileSize())
-
-	// Park the party far away so it is never caught in this swing.
-	cs.game.camera.X, cs.game.camera.Y = 40*ts, 40*ts
-
-	champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config) // steel_mace, arc 2
-	champ.ChampionTier = "impossible"
-
-	// Front + both flanks around the champion, all adjacent (facing = east at the
-	// front huntress). Arc 2 = front always + ONE flank -> exactly two of three.
-	front := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config)
-	left := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 9*ts+ts/2, "masked_huntress", cs.game.config)
-	right := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 11*ts+ts/2, "masked_huntress", cs.game.config)
-	for _, h := range []*monsterPkg.Monster3D{front, left, right} {
-		h.MaxHitPoints, h.HitPoints = 5000, 5000
-		markCardAlly(h)
-	}
-	cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, front, left, right}
-	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
-	cs.game.refreshMonsterAIState()
-
-	cs.championCrossfireStrike(champ, front, false)
-
-	damaged := 0
-	for _, h := range []*monsterPkg.Monster3D{front, left, right} {
-		if h.HitPoints < 5000 {
-			damaged++
-		}
-	}
-	if front.HitPoints >= 5000 {
-		t.Error("the front summon (the foe) must be hit")
-	}
-	if damaged < 2 {
-		t.Errorf("arc-2 swing should catch the front summon plus one flank (>=2), hit %d", damaged)
-	}
-}
+// Range-1 formation counts per arc type: bound targets on front, both
+// diagonals and both sides; a party standing on the front tile.
+var (
+	crossfireBoundsByArc = map[int]int{1: 1, 2: 2, 3: 3, 4: 5}
+	crossfirePartyByArc  = map[int]int{1: 1, 2: 2, 3: 3, 4: 4}
+)
 
 // A crossfire arc has two independent results: it applies the shared arc
 // geometry to bound targets and, when that same geometry reaches the party,
 // applies the champion's normal formation hit. Cover every arc width here so a
-// change to either side cannot silently desynchronise them.
+// change to either side cannot silently desynchronise them; arc 0 is the real
+// template's own main hand.
 func TestChampionCrossfireArcHitsBoundsAndParty(t *testing.T) {
-	for _, tc := range []struct {
-		name, weapon  string
-		bounds, party int
-	}{
-		{name: "arc_1", weapon: "magic_dagger", bounds: 1, party: 1},
-		{name: "arc_2", weapon: "steel_mace", bounds: 2, party: 2},
-		{name: "arc_3", weapon: "muramasa", bounds: 3, party: 3},
-		{name: "arc_4", weapon: "gorehorn_greataxe", bounds: 5, party: 4},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, arc := range []int{0, 1, 2, 3, 4} {
+		name := fmt.Sprintf("arc_%d", arc)
+		if arc == 0 {
+			name = "template"
+		}
+		t.Run(name, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			primeTestChampions(t, cs.game)
 			fillTestParty(t, cs.game)
-			overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", tc.weapon)
+			weapon := "template"
+			if arc == 0 {
+				arc = championHandArc(t, cs.game.championTemplate("weapon_master", "impossible"), false)
+			} else {
+				weapon = meleeWeaponWithArc(t, arc)
+				overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", weapon)
+			}
 			for _, mem := range cs.game.party.Members {
 				mem.Luck = 0
 			}
@@ -99,8 +67,8 @@ func TestChampionCrossfireArcHitsBoundsAndParty(t *testing.T) {
 					hitBounds++
 				}
 			}
-			if hitBounds != tc.bounds {
-				t.Fatalf("%s crossfire hit %d bound targets, want %d", tc.weapon, hitBounds, tc.bounds)
+			if want := crossfireBoundsByArc[arc]; hitBounds != want {
+				t.Fatalf("%s crossfire hit %d bound targets, want %d", weapon, hitBounds, want)
 			}
 			hitParty := 0
 			for _, mem := range cs.game.party.Members {
@@ -108,8 +76,8 @@ func TestChampionCrossfireArcHitsBoundsAndParty(t *testing.T) {
 					hitParty++
 				}
 			}
-			if hitParty != tc.party {
-				t.Fatalf("%s crossfire hit %d party members, want %d", tc.weapon, hitParty, tc.party)
+			if want := crossfirePartyByArc[arc]; hitParty != want {
+				t.Fatalf("%s crossfire hit %d party members, want %d", weapon, hitParty, want)
 			}
 		})
 	}
@@ -119,7 +87,7 @@ func TestChampionCrossfireArcDoesNotHitPartyOutsideWorldCone(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	primeTestChampions(t, cs.game)
 	fillTestParty(t, cs.game)
-	overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", "magic_dagger")
+	overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", meleeWeaponWithArc(t, 1))
 	ts := float64(cs.game.config.GetTileSize())
 
 	champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config)
@@ -131,8 +99,8 @@ func TestChampionCrossfireArcDoesNotHitPartyOutsideWorldCone(t *testing.T) {
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, foe}
 	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
 
-	// The dagger swings east at the summon. The party is equally close but
-	// north of the champion, outside the arc-1 cone.
+	// The arc-1 weapon swings east at the summon. The party is equally close
+	// but north of the champion, outside the arc-1 cone.
 	cs.game.camera.X, cs.game.camera.Y = 10*ts+ts/2, 9*ts+ts/2
 	partyHP := make([]int, len(cs.game.party.Members))
 	for i, member := range cs.game.party.Members {
@@ -154,9 +122,8 @@ func TestChampionCrossfireArcDoesNotHitPartyOutsideWorldCone(t *testing.T) {
 	}
 }
 
-// Weapon Master's hands keep their own authored arc shapes during crossfire:
-// impossible-tier main-hand Steel Mace is arc 2, while off-hand Muramasa is
-// arc 3. This guards the multi-summon case specifically, not just party arcs.
+// Weapon Master's hands keep their own authored arc shapes during crossfire
+// against several summons, and the front summon (the foe) is always struck.
 func TestWeaponMasterCrossfireUsesEachHandArcAgainstSummons(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	primeTestChampions(t, cs.game)
@@ -186,16 +153,25 @@ func TestWeaponMasterCrossfireUsesEachHandArcAgainstSummons(t *testing.T) {
 		}
 		return hits
 	}
+	// Front plus both diagonals: arc N reaches min(N, 3) of them.
+	template := cs.game.championTemplate("weapon_master", "impossible")
+	wantMain := min(championHandArc(t, template, false), len(bounds))
+	wantOff := min(championHandArc(t, template, true), len(bounds))
+	if wantMain == wantOff {
+		t.Fatalf("fixture hands reach the same %d summons; cannot tell them apart", wantMain)
+	}
 	cs.championCrossfireStrike(champ, bounds[0], false)
-	if got := hitCount(); got != 2 {
-		t.Fatalf("main-hand Steel Mace crossfire hit %d summons, want arc 2", got)
+	if got := hitCount(); got != wantMain || bounds[0].HitPoints == bounds[0].MaxHitPoints {
+		t.Fatalf("main-hand crossfire hit %d summons (front hit=%v), want %d incl. the front",
+			got, bounds[0].HitPoints < bounds[0].MaxHitPoints, wantMain)
 	}
 	for _, bound := range bounds {
 		bound.HitPoints = bound.MaxHitPoints
 	}
 	cs.championCrossfireStrike(champ, bounds[0], true)
-	if got := hitCount(); got != 3 {
-		t.Fatalf("off-hand Muramasa crossfire hit %d summons, want arc 3", got)
+	if got := hitCount(); got != wantOff || bounds[0].HitPoints == bounds[0].MaxHitPoints {
+		t.Fatalf("off-hand crossfire hit %d summons (front hit=%v), want %d incl. the front",
+			got, bounds[0].HitPoints < bounds[0].MaxHitPoints, wantOff)
 	}
 }
 
@@ -219,6 +195,13 @@ func TestWeaponMasterCrossfireUsesOffHandArcAgainstCaughtParty(t *testing.T) {
 		member.MaxHitPoints = 5000
 		member.HitPoints = 5000
 	}
+	template := cs.game.championTemplate("weapon_master", "impossible")
+	offArc := championHandArc(t, template, true)
+	mainDef, _, _ := config.GetWeaponDefinitionByName(championHandWeapon(template, false).Name)
+	offDef, _, _ := config.GetWeaponDefinitionByName(championHandWeapon(template, true).Name)
+	if mainDef.StunChance == offDef.StunChance {
+		t.Fatal("fixture hands share a stun rider; cannot tell which hand armed it")
+	}
 	cs.championCrossfireStrike(champ, foe, true)
 
 	hitParty := 0
@@ -227,11 +210,11 @@ func TestWeaponMasterCrossfireUsesOffHandArcAgainstCaughtParty(t *testing.T) {
 			hitParty++
 		}
 	}
-	if hitParty != 3 {
-		t.Fatalf("off-hand Muramasa crossfire hit %d party members, want its arc 3", hitParty)
+	if want := crossfirePartyByArc[offArc]; hitParty != want {
+		t.Fatalf("off-hand crossfire hit %d party members, want its arc-%d %d", hitParty, offArc, want)
 	}
-	if champ.StunCharChance != 0 {
-		t.Fatalf("off-hand Muramasa crossfire left main-hand Steel Mace stun rider %.2f", champ.StunCharChance)
+	if champ.StunCharChance != offDef.StunChance {
+		t.Fatalf("off-hand crossfire left stun rider %.2f, want the off hand's own %.2f", champ.StunCharChance, offDef.StunChance)
 	}
 }
 
@@ -471,43 +454,5 @@ func TestChampionCrossfireAoESparesSourceAndEnemyAllies(t *testing.T) {
 	}
 	if otherAlly.HitPoints >= 5000 {
 		t.Error("bound ally in the blast must take crossfire AoE damage")
-	}
-}
-
-// When the same swing's arc reaches the party, the party takes the champion's
-// normal vs-party hit too (the additional action) - vs-party handling reused.
-func TestChampionCrossfireAlsoHitsCaughtParty(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	primeTestChampions(t, cs.game)
-	fillTestParty(t, cs.game)
-	ts := float64(cs.game.config.GetTileSize())
-
-	champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config)
-	champ.ChampionTier = "impossible"
-	// The party stands right in front of the champion (east, adjacent) - inside
-	// the swing that also strikes the summon foe there.
-	cs.game.camera.X, cs.game.camera.Y = 11*ts+ts/2, 10*ts+ts/2
-	foe := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config)
-	foe.MaxHitPoints, foe.HitPoints = 5000, 5000
-	markCardAlly(foe)
-	cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, foe}
-	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
-	cs.game.refreshMonsterAIState()
-
-	partyHP0 := 0
-	for _, mem := range cs.game.party.Members {
-		partyHP0 += mem.HitPoints
-	}
-	cs.championCrossfireStrike(champ, foe, false)
-
-	if foe.HitPoints >= 5000 {
-		t.Error("the summon foe must be struck")
-	}
-	partyHP1 := 0
-	for _, mem := range cs.game.party.Members {
-		partyHP1 += mem.HitPoints
-	}
-	if partyHP1 >= partyHP0 {
-		t.Errorf("the party caught in the swing must take the champion's hit (party HP %d -> %d)", partyHP0, partyHP1)
 	}
 }

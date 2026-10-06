@@ -536,9 +536,11 @@ func TestLootGuardUsesSevenTileSightInRealTime(t *testing.T) {
 	game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
 	game.refreshMonsterAIState()
 
-	radius, _ := guard.PlayerDetectionRange(game.collisionSystem, game.camera.X, game.camera.Y)
-	if radius != monster.LootGuardAggroRadiusTiles*tile {
-		t.Fatalf("outside-tether guard sight = %.1f, want %.1f", radius, monster.LootGuardAggroRadiusTiles*tile)
+	// Guard sight is exactly seven tiles: in at the edge, out just past it.
+	edge := monster.LootGuardAggroRadiusTiles * tile
+	if !guard.SeesPlayerWithinAlertRadius(game.collisionSystem, guard.X-edge, guard.Y) ||
+		guard.SeesPlayerWithinAlertRadius(game.collisionSystem, guard.X-edge-1, guard.Y) {
+		t.Fatalf("outside-tether guard sight is not exactly %.1f px", edge)
 	}
 	runLootGuardRealTimeStep(game, loop)
 
@@ -567,8 +569,8 @@ func TestLootGuardSightEngagementKeepsLeashUntilPartyLeaves(t *testing.T) {
 			t.Fatalf("frame %d: guard flapped between patrol and combat: guarding=%v engaging=%v",
 				frame, guard.LootGuarding, guard.IsEngagingPlayer)
 		}
-		if radius, _ := guard.PlayerDetectionRange(game.collisionSystem, game.camera.X, game.camera.Y); radius != monster.LootGuardAggroRadiusTiles*tile {
-			t.Fatalf("frame %d: sighted guard radius = %.1f, want %.1f", frame, radius, monster.LootGuardAggroRadiusTiles*tile)
+		if leash := guard.PursuitLeashPixels(); leash != monster.LootGuardAggroRadiusTiles*tile {
+			t.Fatalf("frame %d: sighted guard leash = %.1f, want %.1f", frame, leash, monster.LootGuardAggroRadiusTiles*tile)
 		}
 	}
 
@@ -603,8 +605,8 @@ func TestLootGuardSightEncounterSurvivesRealTimeToTurnBasedSwitch(t *testing.T) 
 		t.Fatalf("RT-to-TB switch lost active guard encounter: mode=%v alerted=%v engaging=%v",
 			game.turnBasedMode, guard.LootGuardAlerted, guard.IsEngagingPlayer)
 	}
-	if radius, _ := guard.PlayerDetectionRange(game.collisionSystem, game.camera.X, game.camera.Y); radius != monster.LootGuardAggroRadiusTiles*tile {
-		t.Fatalf("switched guard radius = %.1f, want %.1f", radius, monster.LootGuardAggroRadiusTiles*tile)
+	if leash := guard.PursuitLeashPixels(); leash != monster.LootGuardAggroRadiusTiles*tile {
+		t.Fatalf("switched guard leash = %.1f, want %.1f", leash, monster.LootGuardAggroRadiusTiles*tile)
 	}
 	loop.prepareLootPropGuards()
 	if guard.LootGuarding {
@@ -845,7 +847,7 @@ func TestSaveLoadPreservesActiveLootGuardEncounter(t *testing.T) {
 		t.Fatalf("active guard encounter restored incorrectly: guarding=%v alerted=%v engaging=%v hit=%v",
 			loaded.LootGuarding, loaded.LootGuardAlerted, loaded.IsEngagingPlayer, loaded.WasAttacked)
 	}
-	if radius, _ := loaded.PlayerDetectionRange(loadGame.collisionSystem, loadGame.camera.X, loadGame.camera.Y); radius != monster.LootGuardAggroRadiusTiles*tile {
-		t.Fatalf("restored guard radius = %.1f, want %.1f", radius, monster.LootGuardAggroRadiusTiles*tile)
+	if leash := loaded.PursuitLeashPixels(); leash != monster.LootGuardAggroRadiusTiles*tile {
+		t.Fatalf("restored guard leash = %.1f, want %.1f", leash, monster.LootGuardAggroRadiusTiles*tile)
 	}
 }

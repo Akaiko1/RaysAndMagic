@@ -4,7 +4,6 @@ import (
 	"image"
 	"image/color"
 	"strconv"
-	"strings"
 
 	"ugataima/internal/items"
 	"ugataima/internal/stash"
@@ -742,11 +741,11 @@ func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX
 		ui.fullArtCardKey = key
 	}
 	char := g.party.Members[g.selectedChar]
-	tip := GetItemTooltip(it, char, g.combat, tooltipDetailHeld())
-	if tip == "" {
+	tip := GetItemTooltipRows(it, char, g.combat, tooltipDetailHeld())
+	if len(tip) == 0 {
 		return
 	}
-	lines := strings.Split(tip, "\n")
+	lines := tip
 	ui.queueItemTooltip(lines, it, char, mouseX+16, mouseY+8)
 }
 

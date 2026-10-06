@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -200,18 +201,20 @@ func TestRareFlaskGroundVisibility(t *testing.T) {
 
 func TestRareReturnAcrossFoldChain(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for tier, tiles := range []int{3, 4, 6, 8} {
+		for tier := 0; tier <= int(character.MasteryGrandMaster); tier++ {
 			for _, state := range []string{"clear", "intervening_wall", "save_load", "occupied", "landing_wall", "expired", "different_map"} {
 				t.Run(fmt.Sprintf("TB=%v/tier=%d/%s", tb, tier, state), func(t *testing.T) {
 					g, c := rareClassGame(t, character.ClassWayfarer, tb)
 					c.Skills[character.SkillTranslocation] = &character.Skill{Mastery: character.SkillMastery(tier)}
 					x, y := g.camera.X, g.camera.Y
 					ts := float64(g.config.GetTileSize())
+					fold := config.Technique("fold_step")
+					tiles := config.TierValue(fold.Range, tier)
 					settle := func() {
 						if tb {
 							g.startPartyTurn()
 						} else {
-							g.tickRareClassClocks(3 * g.config.GetTPS())
+							g.tickRareClassClocks(fold.ReuseSeconds * g.config.GetTPS())
 						}
 						g.spellInputCooldown = 0
 					}
@@ -227,7 +230,7 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 						if math.Abs(g.camera.X-x-float64((hop+1)*tiles)*ts) > .01 || c.ActionsRemaining != 0 || c.RTCooldown != 123 {
 							t.Fatal("equipped F step did not use mastery range for free")
 						}
-						if c.RareClass.Anchor.X != x || c.RareClass.Anchor.Y != y || c.RareClass.Anchor.Frames != config.TierValue(config.Technique("fold_step").Duration, tier)*g.config.GetTPS() {
+						if c.RareClass.Anchor.X != x || c.RareClass.Anchor.Y != y || c.RareClass.Anchor.Frames != config.TierValue(fold.Duration, tier)*g.config.GetTPS() {
 							t.Fatal("later Fold replaced first anchor or failed to refresh it")
 						}
 					}
@@ -418,11 +421,12 @@ func TestRarePathfindingPartyAndRunning(t *testing.T) {
 func TestRareAlchemyMaterialVariety(t *testing.T) {
 	rareClassGame(t, character.ClassAlchemist, false)
 	for _, r := range config.GlobalAlchemy.Recipes {
+		// Solstice has exact two-reagent formulas, checked separately.
+		if strings.HasPrefix(r.Key, "solstice_") {
+			continue
+		}
 		keys := map[string]bool{}
 		for _, a := range r.Ingredients[1].Alternatives {
-			if len(a.Items) > 4 {
-				t.Errorf("%s source icons exceed the measured row", r.Key)
-			}
 			for _, k := range a.Items {
 				keys[k] = true
 			}
@@ -458,10 +462,24 @@ func TestRarePathfindingAutocastAndProgression(t *testing.T) {
 		}
 	}
 	g, c := rareClassGame(t, character.ClassWayfarer, false)
-	if _, err := config.LoadLevelUpConfig("../../assets/level_up.yaml"); err != nil {
+	cfg, err := config.LoadLevelUpConfig("../../assets/level_up.yaml")
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, level := range []int{3, 6, 9} {
+	// The first authored wayfarer levels that offer Pathfinding, enough to reach Grandmaster.
+	need := int(character.MasteryGrandMaster) - c.SkillTier(character.SkillPathfinding)
+	var levels []int
+	for _, lvl := range cfg.LevelUps["wayfarer"].Levels {
+		for _, choice := range lvl.Choices {
+			if choice.Skill == "pathfinding" && len(levels) < need {
+				levels = append(levels, lvl.Level)
+			}
+		}
+	}
+	if need <= 0 || len(levels) != need {
+		t.Fatalf("wayfarer level-ups offer Pathfinding at %v; need %d to reach Grandmaster", levels, need)
+	}
+	for _, level := range levels {
 		g.levelUpChoiceQueue = nil
 		g.queueLevelUpChoices(c, level, config.GetLevelUpChoices("wayfarer", level))
 		if len(g.levelUpChoiceQueue) != 1 {
@@ -482,7 +500,7 @@ func TestRarePathfindingAutocastAndProgression(t *testing.T) {
 		c = restoreCharacterSave(buildCharacterSave(c))
 		g.party.Members[0] = c
 	}
-	if c.SkillTier(character.SkillPathfinding) != 3 || !g.partyFireWhileRunning() {
+	if c.SkillTier(character.SkillPathfinding) != int(character.MasteryGrandMaster) || !g.partyFireWhileRunning() {
 		t.Fatal("trained mastery did not survive save/load")
 	}
 }

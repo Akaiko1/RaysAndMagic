@@ -229,6 +229,7 @@ func (ui *UISystem) beginDisplayedInput() {
 	d := &ui.displayedInput
 	d.building = true
 	ui.scrollDragShown = false
+	ui.hoverDwell.seen = false
 	d.suspended = false
 	d.audioSelection = -1
 	// Release captured references from the previous layout before reuse.
@@ -249,6 +250,10 @@ func (ui *UISystem) endDisplayedInput() {
 		// The held thumb's list is gone from the frame - its menu closed,
 		// another tab or a modal took over - so the grab ends with it.
 		ui.scrollDrag = scrollbarDrag{}
+	}
+	if !ui.hoverDwell.seen {
+		// Nothing drawn this frame is under a resting pointer.
+		ui.hoverDwell = hoverDwell{}
 	}
 	// Presentation may clamp a page; identity describes the layout just drawn.
 	d.identity = ui.displayIdentity()

@@ -23,6 +23,7 @@ Supported fields:
 | Field | Meaning |
 | --- | --- |
 | `party` | Up to four members, with `name`, class key, optional `skills` mastery map and `equipment` item keys. Omit to keep the normal starting party. |
+| `bench_party` | A complete build from `assets/bench_parties.yaml` at `level` (see below). Excludes `party`, the stat targets and `learn_school_spells`. |
 | `level` | Raise active members through the normal XP progression to this level. Earned level-up choices remain unspent. |
 | `speed_target`, `endurance_target` | Spend earned attribute points toward these targets, then the class's primary attribute. |
 | `learn_school_spells` | Learn spells from each member's existing schools. |
@@ -38,13 +39,60 @@ Unknown fields, classes, skills, mastery names, items, maps and blocked start
 positions fail loudly. The launcher is a development fixture, not a balance
 migration or an automatic quest completion tool.
 
+## Benchmark parties
+
+`assets/bench_parties.yaml` holds parties built at levels 15, 20, 25 and 30.
+Together they field every class and every race:
+
+| Party | Members |
+| --- | --- |
+| `seabright` | Knight, Sorcerer, Alchemist, Wayfarer (the current run) |
+| `classic` | Paladin, Druid, Cleric, Archer |
+| `classic_no_quake` | `classic` without Earthquake; the Druid readies Deadly Swarm |
+| `starting` | the new-game roster: Knight and Sorcerer from `seabright`, Cleric and Archer from `classic` |
+| `rogues` | dark-elf Thief, half-orc Knight, Arms Master, Monk |
+| `rares` | Battle Mage, Sniper, celestial Cleric, halfling Archer |
+| `rares_no_quake` | `rares` without Earthquake; the Battle Mage readies Starburst |
+
+Start one with `bin/test_scenario.command bench_rogues_25`. Each member is
+built by the normal progression: class kit, race, XP level-ups and the class
+auto stat chain. The build then sets the authored masteries, learns every
+spell of its open schools, and equips the listed gear, readied spell and quick
+slots. The party gets its cards and gold and carries exactly its listed items
+(`items`: key and count per level). Of the new game's starting kit, only key
+items such as the world map stay.
+
+A member written as `{name: X, from: <party>}` copies that party's member X,
+so one hero's build is authored once. A variant (`base: <party>`) copies that
+party and lists only its changes:
+`without_spells` (no member learns them) and `spell` (a member's readied
+action at every level, by name). Use one to measure how much a party owes to
+a single spell or action.
+
+`TestBenchPartiesBuildAsAuthored` keeps the catalog honest:
+
+- **Mastery budget.** Tiers above the class kit stay within one per third
+  level plus trainer purchases: 6 at L15, 8 at L20, 11 at L25 and 14 at L30.
+- **Availability.** Every piece of gear, card and item is obtainable by that
+  level. The earliest level comes from the data: drops from monsters of that
+  level, shops, quest chains and their givers, arena points from L20, clock
+  hands from L22, and dragon scales late.
+- **Spells.** Every open school knows all of its spells, except the ones the
+  party withholds.
+- **Inventory.** The party carries the listed items in the listed counts and
+  nothing else but key items.
+- **Persistence.** The built party survives save/load unchanged.
+
+When content changes, a bench build that no longer fits fails the test. Fix
+the build, not the rule.
+
 ## Pilgrimage check
 
 The fixture starts four level-15 heroes (Monk, Cleric, Archer, Knight) beside
 Sister Mira on Brae Meadow. The Monk has Expert Iron Body; the quest
 does not train mastery. Earned level-up choices remain available through the portraits.
 
-1. Speak to Mira. Defeat the level-16 Bronze Gatekeeper and level-15 Gale Novice
+1. Speak to Mira. Defeat the level-20 Bronze Gatekeeper and level-15 Gale Novice
    northeast of her. Claim the headband and handwraps in the journal.
 2. Find the three sluices northeast of the desert's central oasis. Turn Spring,
    Travelers, Monastery. A wrong order resets without damage. Claim sandals

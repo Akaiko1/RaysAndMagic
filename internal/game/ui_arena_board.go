@@ -243,5 +243,8 @@ func (g *MMGame) merchantServiceTabs() []string {
 	if g.dialogNPC != nil && g.dialogNPC.FreeGoods {
 		return []string{"Talk", uitext.Text("caravan.goods_tab")}
 	}
+	if g.dialogNPC != nil && !g.dialogNPC.ArenaBoard {
+		return []string{"Talk", "Shop"}
+	}
 	return []string{"Talk", "Shop", "Board"}
 }

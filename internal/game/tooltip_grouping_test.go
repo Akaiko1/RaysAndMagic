@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -30,12 +31,15 @@ func TestTooltipCatalogUsesSharedLayout(t *testing.T) {
 			if base {
 				bearer = nil
 			}
-			check := func(kind, key, card string, queue func(*UISystem, []string)) {
+			check := func(kind, key string, rows character.CardRows, queue func(*UISystem, character.CardRows)) {
 				t.Helper()
 				t.Run(fmt.Sprintf("%s/%s/full%v/base%v", kind, key, full, base), func(t *testing.T) {
-					lines := strings.Split(card, "\n")
+					card := rows.String()
 					ui := &UISystem{game: cs.game}
-					queue(ui, lines)
+					queue(ui, rows)
+					if !reflect.DeepEqual(ui.tooltipRows, rows) {
+						t.Fatal("queue discarded authored row roles")
+					}
 					if strings.Contains(card, "\nRULES\n") {
 						t.Fatal("exceptions are separated from their mechanic")
 					}
@@ -44,19 +48,19 @@ func TestTooltipCatalogUsesSharedLayout(t *testing.T) {
 			}
 			for key := range config.GlobalItems.Items {
 				it := items.CreateItemFromYAML(key)
-				check("item", key, GetItemTooltip(it, bearer, cs, full), func(ui *UISystem, lines []string) {
+				check("item", key, GetItemTooltipRows(it, bearer, cs, full), func(ui *UISystem, lines character.CardRows) {
 					ui.queueItemTooltip(lines, it, bearer, 0, 0)
 				})
 			}
 			for key := range config.GlobalSpells.Spells {
-				check("spell", key, GetSpellTooltip(spells.SpellID(key), bearer, cs, full), func(ui *UISystem, lines []string) {
-					ui.queueTooltipIcon(lines, "", 0, 0)
+				check("spell", key, GetSpellTooltipRows(spells.SpellID(key), bearer, cs, full), func(ui *UISystem, lines character.CardRows) {
+					ui.queueCardTooltip(lines, nil, nil, nil, "", 0, 0)
 				})
 			}
 			for _, key := range config.TrapKeysOrdered() {
 				def, _ := config.GetTrapDefinition(key)
-				check("trap", key, buildTrapTooltipUnified(key, def, bearer, cs, full), func(ui *UISystem, lines []string) {
-					ui.queueTitledTooltipIcon(lines, nil, woodPlateColor, nil, def.Icon, 0, 0)
+				check("trap", key, buildTrapTooltipUnifiedRows(key, def, bearer, cs, full), func(ui *UISystem, lines character.CardRows) {
+					ui.queueCardTooltip(lines, nil, woodPlateColor, nil, def.Icon, 0, 0)
 				})
 			}
 		}
@@ -80,8 +84,8 @@ func assertSharedTooltipLayout(t *testing.T, ui *UISystem) {
 				}
 			}
 			w, h := ui.mainTooltipSize(cap, size[1])
-			measuredW, measuredH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, 0, cap, size[1])
-			layout := layoutTooltip(ui.tooltipLines, hasIcon, cap, size[1])
+			measuredW, measuredH := cardTooltipBoxSize(ui.mainTooltipRows(), hasIcon, cap, size[1])
+			layout := layoutCardTooltip(ui.mainTooltipRows(), hasIcon, cap, size[1])
 			if w != measuredW || h != measuredH || w != layout.w || h != layout.h || w > cap || h > size[1]-2*tooltipScreenMargin {
 				t.Fatalf("%v/icon%v: card %dx%d does not fit or differs from renderer", size, hasIcon, w, h)
 			}
@@ -112,9 +116,9 @@ func TestTooltipResultsAndExceptionsStayTogether(t *testing.T) {
 	}{
 		{"item", "golden_armor", "DEFENSE", "Item Armor Class:", "Base Armor Class:", "Typed true damage"},
 		{"item", "health_potion", "RECOVERY", "Current recovery:", "Base recovery:", "Field Medicine:"},
-		{"spell", "fireball", "DAMAGE", "Total Damage:", "Base (", "Resistance reduces damage"},
+		{"spell", "fireball", "DAMAGE", "Total Damage:", "Base (", "Reduced by target Armor"},
 		{"spell", "fireball", "CRITICAL", "Chance:", "Luck:", "Critical Damage:"},
-		{"spell", "firewall", "DAMAGE PER TICK", "Total per tick:", "Base (", "Resistance reduces damage"},
+		{"spell", "firewall", "DAMAGE PER TICK", "Total per tick:", "Base (", "Reduced by target Armor"},
 		{"spell", "heal_other", "HEALING", "Total Healing:", "Base:", "Natural Healer:"},
 		{"spell", "hour_of_power", "DURATION", "Current Duration:", "Base Duration:", "Light Mastery -"},
 		{"trap", "cleave_trap", "DAMAGE", "Total Damage:", "Base:", "Reduced by target Armor"},
@@ -122,29 +126,29 @@ func TestTooltipResultsAndExceptionsStayTogether(t *testing.T) {
 		{"trap", "stasis_trap", "CONTROL", "Total Stun:", "Base Stun:", "Trapper -"},
 	} {
 		t.Run(tc.kind+"/"+tc.key+"/"+tc.group, func(t *testing.T) {
-			var card string
+			var rows character.CardRows
 			switch tc.kind {
 			case "item":
-				card = GetItemTooltip(items.CreateItemFromYAML(tc.key), ch, cs, true)
+				rows = GetItemTooltipRows(items.CreateItemFromYAML(tc.key), ch, cs, true)
 			case "spell":
-				card = GetSpellTooltip(spells.SpellID(tc.key), ch, cs, true)
+				rows = GetSpellTooltipRows(spells.SpellID(tc.key), ch, cs, true)
 			case "trap":
 				def, _ := config.GetTrapDefinition(tc.key)
-				card = buildTrapTooltipUnified(tc.key, def, ch, cs, true)
+				rows = buildTrapTooltipUnifiedRows(tc.key, def, ch, cs, true)
 			}
 			section := ""
 			var body []string
-			for _, line := range strings.Split(card, "\n") {
-				if tooltipSectionHeading(line) {
-					section = line
+			for _, row := range rows {
+				if row.Kind == character.CardRowSection {
+					section = row.Section
 				} else if section == tc.group {
-					body = append(body, line)
+					body = append(body, row.Text)
 				}
 			}
 			text := strings.Join(body, "\n")
 			result, detail := strings.Index(text, tc.result), strings.Index(text, tc.detail)
 			if result < 0 || detail < result || !strings.Contains(text, tc.exception) {
-				t.Fatalf("result/calculation/exception missing or separated:\n%s", card)
+				t.Fatalf("result/calculation/exception missing or separated:\n%s", rows.String())
 			}
 		})
 	}
@@ -152,34 +156,33 @@ func TestTooltipResultsAndExceptionsStayTogether(t *testing.T) {
 
 func TestReferenceTooltipsKeepCanonicalDescriptions(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
-	check := func(name, description, card string) {
+	check := func(name, description string, rows character.CardRows) {
 		t.Helper()
 		t.Run(name, func(t *testing.T) {
-			lines := strings.Split(card, "\n")
 			var body []string
-			for _, line := range lines[1:] {
-				if !tooltipSectionHeading(line) {
-					body = append(body, line)
+			for _, row := range rows[1:] {
+				if row.Kind != character.CardRowSection {
+					body = append(body, row.Text)
 				}
 			}
 			// Section labels become headings; every gameplay fact remains unchanged.
-			description = strings.ReplaceAll(description, "Grand Master:\n", "")
+			description = strings.ReplaceAll(description, "Grandmaster:\n", "")
 			if strings.Join(strings.Fields(strings.Join(body, " ")), " ") != strings.Join(strings.Fields(description), " ") {
 				t.Fatal("reference formatting changed the canonical facts")
 			}
 			ui := &UISystem{game: cs.game}
-			ui.queueTooltip(lines, 0, 0)
+			ui.queueCardTooltip(rows, nil, nil, nil, "", 0, 0)
 			assertSharedTooltipLayout(t, ui)
 		})
 	}
 	for _, stat := range []string{"Might", "Intellect", "Personality", "Endurance", "Accuracy", "Speed", "Luck"} {
-		check(stat, character.StatDescription(stat), statTooltipText(stat))
+		check(stat, character.StatDescription(stat), statTooltipRows(stat))
 	}
 	for _, skill := range character.AllSkills {
-		check(skill.String(), skill.Description(), masteryTooltipTextForSkill(skill))
+		check(skill.String(), skill.Description(), masteryTooltipRowsForSkill(skill))
 	}
 	for _, school := range character.AllMagicSchools {
-		check(school.DisplayName(), character.MagicMasteryDescription(school), magicMasteryTooltipText(school))
+		check(school.DisplayName(), character.MagicMasteryDescription(school), magicMasteryTooltipRows(school))
 	}
 }
 
@@ -200,16 +203,16 @@ func TestGroupedTooltipComparisonsFit(t *testing.T) {
 			}
 			t.Run(fmt.Sprintf("item/%s/full%v", key, full), func(t *testing.T) {
 				ui := &UISystem{game: cs.game}
-				ui.queueItemTooltip(strings.Split(GetItemTooltip(it, ch, cs, full), "\n"), it, ch, 0, 0)
-				ui.queueTooltipComparison(strings.Split(compare, "\n"), nil)
+				ui.queueItemTooltip(GetItemTooltipRows(it, ch, cs, full), it, ch, 0, 0)
+				ui.queueCardComparison(GetItemComparisonTooltipRows(it, ch, cs), nil, nil, nil)
 				assertSharedTooltipLayout(t, ui)
 			})
 		}
 		for key := range config.GlobalSpells.Spells {
 			t.Run(fmt.Sprintf("spell/%s/full%v", key, full), func(t *testing.T) {
 				ui := &UISystem{game: cs.game}
-				ui.queueTooltipIcon(strings.Split(GetSpellTooltip(spells.SpellID(key), ch, cs, full), "\n"), "", 0, 0)
-				ui.queueTooltipComparison(buildSpellComparisonLinesByID(spells.SpellID(key), "fireball", ch, cs), nil)
+				ui.queueCardTooltip(GetSpellTooltipRows(spells.SpellID(key), ch, cs, full), nil, nil, nil, "", 0, 0)
+				ui.queueCardComparison(buildSpellComparisonRowsByID(spells.SpellID(key), "fireball", ch, cs), nil, nil, nil)
 				assertSharedTooltipLayout(t, ui)
 			})
 		}

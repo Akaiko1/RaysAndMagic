@@ -1,6 +1,7 @@
 package character
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,10 +15,9 @@ func TestFilteredItemEffectLinesRemovesStructuredArmorRows(t *testing.T) {
 		BonusMight:              3,
 	}
 
-	all := def.EffectLines()
 	filtered := FilteredItemEffectLines(def)
-	if got, want := len(filtered), len(all)-2; got != want {
-		t.Fatalf("filtered effect lines = %d, want %d (all=%q filtered=%q)", got, want, all, filtered)
+	if want := def.StatBonusLines(); len(want) == 0 || !slices.Equal(filtered, want) {
+		t.Fatalf("filtered effect lines = %q, want only the stat rows %q", filtered, want)
 	}
 	for _, line := range filtered {
 		if strings.HasPrefix(line, "Armor class") || strings.HasPrefix(line, "AC +Endurance") {

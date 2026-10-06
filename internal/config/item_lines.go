@@ -10,8 +10,8 @@ import (
 )
 
 // Presentation lines for items - the ONE formatter behind the in-game item
-// tooltip and the map-editor card (same contract as the weapon/spell/trap
-// EffectLines). New YAML fields get a line HERE, and every consumer shows it.
+// tooltip and the map-editor card (same contract as the weapon and spell effect
+// lines). New YAML fields get a line HERE, and every consumer shows it.
 
 func nonPhysicalDamageSchools() []damagecalc.Type {
 	all := damagecalc.Types()
@@ -67,8 +67,8 @@ func (d *ItemDefinitionConfig) ScalingStatBonusLines() []string {
 
 // ItemMechanicLines lists the per-item special-mechanic rows - projectile
 // reflection, hostile-status duration, growing scales, draught wards. ONE
-// formatter shared by EffectLines (editor) and the unified in-game tooltip,
-// so the two can never drift (tooltip parity contract).
+// formatter shared by the editor card and the unified in-game tooltip, so the
+// two can never drift (tooltip parity contract).
 func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	var lines []string
 	if len(d.AllowedClasses) > 0 {
@@ -94,6 +94,19 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	if hasTimedBuff && d.BuffDodgePct > 0 {
 		lines = append(lines, uitext.Text("item.party_dodge_for_s", d.BuffDodgePct, d.BuffDurationSeconds))
 	}
+	if hasTimedBuff && d.DamageBuffPct > 0 {
+		lines = append(lines, uitext.Text("item.party_elemental_draught", TitleWords(d.DamageBuffSchool), d.DamageBuffPct, d.BuffDurationSeconds))
+	}
+	if hasTimedBuff && (d.BuffHPRegenPct > 0 || d.BuffManaRegenPct > 0) {
+		var recovery []string
+		if d.BuffHPRegenPct > 0 {
+			recovery = append(recovery, uitext.Text("item.regeneration_hp", d.BuffHPRegenPct))
+		}
+		if d.BuffManaRegenPct > 0 {
+			recovery = append(recovery, uitext.Text("item.regeneration_mana", d.BuffManaRegenPct))
+		}
+		lines = append(lines, uitext.Text("item.party_regeneration_draught", strings.Join(recovery, uitext.Text("item.regeneration_join")), float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds, d.BuffDurationSeconds))
+	}
 	if hasTimedBuff && d.BuffArmorClass > 0 {
 		lines = append(lines, uitext.Text("item.party_stoneskin_armor_class_for_s", d.BuffArmorClass, d.BuffDurationSeconds))
 	}
@@ -101,8 +114,8 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 }
 
 // PartyArmorLine describes the party_armor_bonus "shield wall" aura, or "" if
-// the item grants none. One formatter for the wording, shared by EffectLines
-// and the unified armor tooltip (which builds its own EFFECTS section).
+// the item grants none. One formatter for the wording, shared by the effect
+// lines and the unified armor tooltip (which builds its own EFFECTS section).
 func (d *ItemDefinitionConfig) PartyArmorLine() string {
 	if d.PartyArmorBonus <= 0 {
 		return ""
@@ -146,19 +159,6 @@ func (d *ItemDefinitionConfig) ResistLines() []string {
 		}
 	}
 	return parts
-}
-
-// EffectLines is the complete character-independent mechanics list.
-func (d *ItemDefinitionConfig) EffectLines() []string {
-	var lines []string
-	if d.ArmorClassBase > 0 {
-		lines = append(lines, uitext.Text("item.armor_class", d.ArmorClassBase))
-	}
-	if d.EnduranceScalingDivisor > 0 {
-		lines = append(lines, uitext.Text("item.ac_endurance", d.EnduranceScalingDivisor))
-	}
-	lines = append(lines, d.CoreEffectLines()...)
-	return append(lines, d.SetLines()...)
 }
 
 // CoreEffectLines leaves armor and set membership to their own card sections.
@@ -213,11 +213,22 @@ func (d *ItemDefinitionConfig) behaviorLines() []string {
 	if d.PromotesLich {
 		lines = append(lines, uitext.Text("item.offers_a_party_member_the_path_of"))
 	}
+	lines = append(lines, d.DeviceEffectLines()...)
 	lines = append(lines, d.TooltipEffects...)
-	if cl := d.CardEffectLines(); len(cl) > 0 {
-		lines = append(lines, uitext.Text("item.collection")+strings.Join(cl, ", "))
+	if d.Type == "card" {
+		lines = append(lines, d.CardCollectionLines()...)
 	}
 	return lines
+}
+
+// CardCollectionLines is what a monster card does while it is in the
+// collection, one effect per line; a card with no Card* field yet says so.
+// Every card view (bag, shop, collector, Cards tab, editor) shows this list.
+func (d *ItemDefinitionConfig) CardCollectionLines() []string {
+	if lines := d.CardEffectLines(); len(lines) > 0 {
+		return lines
+	}
+	return []string{uitext.Text("item.card_not_implemented")}
 }
 
 // RecoveryLines describes the item's base recovery and attribute scaling.
@@ -328,7 +339,7 @@ func EquipmentSetLines(setKey string) []string {
 
 // CardEffectLines is the SINGLE SOURCE of a monster card's collection-effect
 // text, derived from its Card* fields. Shared by the item tooltip (via
-// EffectLines), the card collector dialog, and the Cards menu tab. ASCII only -
+// SpecialEffectLines), the card collector dialog, and the Cards menu tab. ASCII only -
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string

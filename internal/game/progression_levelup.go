@@ -96,39 +96,63 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 	})
 }
 
+// xpShare is each hero's part of a kill's experience: the kill is split by
+// the active party, and every living hero then gains that share.
+func (g *MMGame) xpShare(xp int) int {
+	if g.party == nil || len(g.party.Members) == 0 {
+		return 0
+	}
+	return xp / len(g.party.Members)
+}
+
 // grantSharedXP gives `amount` experience to every LIVING hero - active party,
 // tavern reserve, and imprisoned captives - and applies any level-ups. Benched
 // heroes thus "train alongside the party" (their stat points / L3 choice bank
 // unspent). The living-only rule is uniform, so a downed hero (even benched)
 // gains nothing. Single source for all XP-award sites. No-op without combat.
 func (g *MMGame) grantSharedXP(amount int) {
+	g.grantSharedXPFromMap(amount, "")
+}
+
+// Only monster awards supply a map key; scripted rewards have no kill budget.
+func (g *MMGame) grantSharedXPFromMap(amount int, mapKey string) {
 	defer g.updatePartyLevelUnlocks()
-	if amount <= 0 || g.combat == nil {
+	if amount <= 0 || g.combat == nil || g.party == nil {
 		return
 	}
 	// A Grandmaster of Learning teaches the whole party: a flat % to everyone,
 	// on top of each hero's own per-tier bonus.
 	teacherPct := g.learningTeacherBonusPct()
 	totalGain := 0
-	award := func(m *character.MMCharacter, announce bool) {
-		if m != nil && m.HitPoints > 0 {
-			pct := m.SkillTier(character.SkillLearning)*LearningXPPctPerTier + teacherPct
-			gain := amount + amount*pct/100
-			m.Experience += gain
-			totalGain += gain
-			g.combat.checkLevelUp(m, announce) // only the visible active party announces level-ups
+	g.forEachLivingXPRecipient(func(m *character.MMCharacter, announce bool) {
+		gain := experienceWithLearning(m, amount, teacherPct)
+		gain = g.capAdventureExperience(m, mapKey, gain)
+		m.Experience += gain
+		totalGain += gain
+		g.combat.checkLevelUp(m, announce)
+	})
+	g.totalExperienceEarned += totalGain
+}
+
+// Awarding and previewing XP share the same living recipients and bench policy.
+func (g *MMGame) forEachLivingXPRecipient(visit func(*character.MMCharacter, bool)) {
+	if g.party == nil {
+		return
+	}
+	for i, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
+		for _, hero := range roster {
+			if hero != nil && hero.HitPoints > 0 {
+				visit(hero, i == 0)
+			}
 		}
 	}
-	for _, m := range g.party.Members {
-		award(m, true)
-	}
-	for _, m := range g.party.Reserve {
-		award(m, false)
-	}
-	for _, m := range g.party.Captive {
-		award(m, false)
-	}
-	g.totalExperienceEarned += totalGain
+}
+
+// experienceWithLearning applies personal and party bonuses with one rounding
+// step. Callers provide a living hero and apply any map budget afterwards.
+func experienceWithLearning(hero *character.MMCharacter, amount, teacherPct int) int {
+	pct := hero.SkillTier(character.SkillLearning)*LearningXPPctPerTier + teacherPct
+	return amount + amount*pct/100
 }
 
 // learningTeacherBonusPct returns the party-wide XP percentage contributed by a
@@ -184,6 +208,7 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 	outgoing.BuffBonuses = character.StatBonuses{}
 	outgoing.BonusMaxHP = 0
 	outgoing.BonusRegenPct = 0
+	outgoing.BuffHPRegenPct, outgoing.BuffManaRegenPct = 0, 0
 	outgoing.RecalculateMaxStatsKeepingCurrent(g.config)
 	g.applyPartyStatBonuses()
 	g.drainOwedChoices(activeIdx)

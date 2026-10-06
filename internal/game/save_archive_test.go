@@ -79,20 +79,13 @@ func TestRestoreArchiveFileRefusesOccupiedSlot(t *testing.T) {
 }
 
 func TestArchiveRestoreRowValidation(t *testing.T) {
-	if _, err := ArchiveSaveRow(0); err == nil {
-		t.Error("ArchiveSaveRow(0) accepted the autosave row")
-	}
-	if _, err := ArchiveSaveRow(-2); err == nil {
-		t.Error("ArchiveSaveRow(-2) accepted a negative row")
-	}
-	if _, err := ArchiveSaveRow(saveRowCount + 1); err == nil {
-		t.Error("ArchiveSaveRow past the last slot was accepted")
-	}
-	if err := RestoreArchivedSave("x.json", 0); err == nil {
-		t.Error("RestoreArchivedSave into the autosave row was accepted")
-	}
-	if err := RestoreArchivedSave("x.json", saveRowCount+1); err == nil {
-		t.Error("RestoreArchivedSave past the last slot was accepted")
+	for _, row := range []int{autosaveRow, quicksaveRow, -2, saveRowCount} {
+		if _, err := ArchiveSaveRow(row); err == nil {
+			t.Errorf("ArchiveSaveRow(%d) was accepted", row)
+		}
+		if err := RestoreArchivedSave("x.json", row); err == nil {
+			t.Errorf("RestoreArchivedSave into row %d was accepted", row)
+		}
 	}
 }
 

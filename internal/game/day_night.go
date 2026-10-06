@@ -184,7 +184,7 @@ func (g *MMGame) refreshCelestialProvidence() {
 	hasLivingCelestial := false
 	if g.party != nil {
 		for _, member := range g.party.Members {
-			if member != nil && member.Race == "celestial" && member.HitPoints > 0 &&
+			if member != nil && member.HasSkill(character.SkillCelestialProvidence) && member.HitPoints > 0 &&
 				!member.HasCondition(character.ConditionDead) && !member.HasCondition(character.ConditionEradicated) {
 				hasLivingCelestial = true
 				break
@@ -222,17 +222,7 @@ func (g *MMGame) refreshCelestialProvidence() {
 	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
 		g.combat.applyStatBuffSpellFromSource(spellID, celestialProvidenceSourceID, frames, g.combat.spellStatBuffBonuses(spellID, caster))
 	} else {
-		g.addCombatBuff(TimedCombatBuff{
-			SpellID:         string(spellID),
-			SourceID:        celestialProvidenceSourceID,
-			Frames:          frames,
-			OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
-			OutDamageType:   def.OutgoingDamageType,
-			InReduce:        scaledIncomingDamageReduction(def, caster),
-			ResistPct:       scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
-			ResistSchool:    def.ResistBuffSchool,
-			ResistSchoolPct: def.ResistBuffSchoolPct,
-		})
+		g.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, celestialProvidenceSourceID))
 	}
 	g.celestialBuffSpellID = string(spellID)
 	g.setUtilityStatus(spellID, frames)
@@ -632,11 +622,9 @@ func (g *MMGame) spawnPackMember(w *world.World3D, tag string, member config.Pac
 			key = r.Monster
 		}
 		m := monster.NewMonster3DFromConfig(x, y, key, g.config)
-		if m == nil {
-			continue
-		}
 		m.PackKey = tag
 		m.QuestProgressIgnored = !member.QuestProgress
+		g.stampMonsterHome(w, m)
 		if w == g.world {
 			g.registerSpawnedMonster(m)
 			g.refreshMonsterCollisionState(m)

@@ -1,8 +1,10 @@
 package game
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
@@ -100,6 +102,10 @@ func TestHealthPotion_IncapacitatedOwnerHealsEligibleAlly(t *testing.T) {
 func TestTimedDraughtUsesItemDefinitionAsSourceOfTruth(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
+	def, ok := config.GetItemDefinition("flame_ward_draught")
+	if !ok || def.ResistBuffSchool == "" || def.ResistBuffSchoolPct <= 0 || def.BuffDurationSeconds <= 0 {
+		t.Fatal("fixture: flame_ward_draught must be a timed resist ward")
+	}
 	g.party.Inventory = []items.Item{items.CreateItemFromYAML("flame_ward_draught")}
 
 	if !g.UseConsumableFromInventory(0, 0) {
@@ -109,8 +115,8 @@ func TestTimedDraughtUsesItemDefinitionAsSourceOfTruth(t *testing.T) {
 	if !ok {
 		t.Fatal("draught did not use its YAML item key as buff identity")
 	}
-	if buff.ResistSchool != "fire" || buff.ResistSchoolPct != 50 || buff.Frames != 60*g.config.GetTPS() {
-		t.Fatalf("draught buff = %+v", buff)
+	if buff.ResistSchool != def.ResistBuffSchool || buff.ResistSchoolPct != def.ResistBuffSchoolPct || buff.Frames != def.BuffDurationSeconds*g.config.GetTPS() {
+		t.Fatalf("draught buff = %+v, want %s +%d%% for %ds", buff, def.ResistBuffSchool, def.ResistBuffSchoolPct, def.BuffDurationSeconds)
 	}
 
 	saves := buildCombatBuffSaves(g.combatBuffs)
@@ -121,7 +127,7 @@ func TestTimedDraughtUsesItemDefinitionAsSourceOfTruth(t *testing.T) {
 		t.Fatalf("save duplicated static item data: %+v", saves[0])
 	}
 	restored := restoreCombatBuffs(saves)
-	if len(restored) != 1 || restored[0].ResistSchool != "fire" || restored[0].ResistSchoolPct != 50 {
+	if len(restored) != 1 || restored[0].ResistSchool != def.ResistBuffSchool || restored[0].ResistSchoolPct != def.ResistBuffSchoolPct {
 		t.Fatalf("restored draught did not re-derive YAML data: %+v", restored)
 	}
 
@@ -131,22 +137,33 @@ func TestTimedDraughtUsesItemDefinitionAsSourceOfTruth(t *testing.T) {
 	// at "fire_shield" once put the Fire Shield spell icon in the status bar for
 	// a fire-resist potion. The token is the item key; resolveStatusIconSprite
 	// turns it into icon_item_<key> when that sprite is present.
-	if status == nil || status.Icon != "flame_ward_draught" || status.Label != "Flame Ward Draught" {
+	if status == nil || status.Icon != "flame_ward_draught" || status.Label != def.Name {
 		t.Fatalf("draught status did not use its own YAML metadata: %+v", status)
 	}
-	for _, key := range []string{"flame_ward_draught", "storm_ward_draught", "gloom_ward_draught", "stoneskin_draught"} {
-		def, ok := config.GetItemDefinition(key)
-		if !ok || def.StatusIcon != key {
-			t.Errorf("draught %q must carry its own status_icon, got %q", key, def.StatusIcon)
+	draughts := 0
+	for _, key := range slices.Sorted(maps.Keys(config.GlobalItems.Items)) {
+		def := config.GlobalItems.Items[key]
+		if !def.HasTimedBuff() {
+			continue
 		}
-		if _, err := os.Stat(filepath.Join("..", "..", "assets", "sprites", "interface", "items", "icon_item_"+key+".png")); err != nil {
+		draughts++
+		// Its own bottle; a brewed copy may wear the bottle it is brewed as - never a spell icon.
+		if _, isItem := config.GlobalItems.Items[def.StatusIcon]; !isItem || (!def.CraftedOnly && def.StatusIcon != key) {
+			t.Errorf("draught %q status_icon %q must name its own item bottle", key, def.StatusIcon)
+			continue
+		}
+		if _, err := os.Stat(filepath.Join("..", "..", "assets", "sprites", "interface", "items", "icon_item_"+def.StatusIcon+".png")); err != nil {
 			t.Errorf("draught %q has no icon art for the status bar: %v", key, err)
 		}
+	}
+	if draughts == 0 {
+		t.Fatal("no authored timed-buff draughts")
 	}
 }
 
 func TestLegacyDraughtSaveMigratesToItemKey(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
+	def, _ := config.GetItemDefinition("flame_ward_draught")
 	restored := restoreCombatBuffs([]CombatBuffSave{{
 		SpellID:         "draught_fire",
 		Frames:          123,
@@ -157,8 +174,8 @@ func TestLegacyDraughtSaveMigratesToItemKey(t *testing.T) {
 		t.Fatalf("restored buffs = %d, want 1", len(restored))
 	}
 	if restored[0].SpellID != "flame_ward_draught" ||
-		restored[0].ResistSchool != "fire" ||
-		restored[0].ResistSchoolPct != 50 {
+		restored[0].ResistSchool != def.ResistBuffSchool ||
+		restored[0].ResistSchoolPct != def.ResistBuffSchoolPct {
 		t.Fatalf("legacy draught migration = %+v", restored[0])
 	}
 }

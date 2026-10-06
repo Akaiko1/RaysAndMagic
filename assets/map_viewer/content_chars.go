@@ -83,15 +83,17 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 			txt := func(s string) { d.rows = append(d.rows, panelRow{text: s}) }
 			hdr := func(s string) { d.rows = append(d.rows, panelRow{text: s, header: true}) }
 
-			race := e.Race
-			if race == "" {
-				race = "human"
+			race := cfg.Characters.Races["human"].Name
+			if r, ok := cfg.Characters.Races[e.Race]; ok {
+				race = r.Name
 			}
 			hdr(fmt.Sprintf("%s - %s", e.Name, class.String()))
-			txt(fmt.Sprintf("%s   -   Race: %s", grp.label, titleCase(strings.ReplaceAll(race, "_", " "))))
+			txt(fmt.Sprintf("%s   -   Race: %s", grp.label, race))
 			txt("")
-			for _, ln := range wrapTooltipLines(class.Blurb(), cols) {
-				txt(ln)
+			for _, paragraph := range character.HeroPitch(ch, cfg) {
+				for _, ln := range wrapTooltipLines(config.PlainKeywordText(paragraph), cols) {
+					txt(ln)
+				}
 			}
 			txt("")
 			txt(fmt.Sprintf("HP %d    SP %d    Level %d", ch.MaxHitPoints, ch.MaxSpellPoints, ch.Level))
@@ -104,7 +106,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 			var skills []string
 			for _, st := range character.AllSkills {
 				if sk, ok := ch.Skills[st]; ok && sk != nil {
-					skills = append(skills, fmt.Sprintf("%s (%s)", st.String(), sk.Mastery.String()))
+					skills = append(skills, st.MasteryLabel(sk.Mastery))
 				}
 			}
 			txt("")

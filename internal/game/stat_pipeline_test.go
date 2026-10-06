@@ -24,8 +24,13 @@ func TestEnduranceDivisor_ACOnly_NoStatFeedback(t *testing.T) {
 	}
 
 	// AC of the piece = base + effectiveEnd/div, where effectiveEnd has no
-	// divisor feedback: leather scales category-wide as END/10.
-	wantAC := 2 + cs.armorMasteryBonus(char, char.Equipment[items.SlotArmor]) + baseEnd/10
+	// divisor feedback.
+	piece := char.Equipment[items.SlotArmor]
+	div := piece.Attributes["endurance_scaling_divisor"]
+	if div <= 0 {
+		t.Fatal("leather_armor authors no endurance_scaling_divisor; the case needs one")
+	}
+	wantAC := piece.Attributes["armor_class_base"] + cs.armorMasteryBonus(char, piece) + baseEnd/div
 	if got := cs.CalculateTotalArmorClass(char); got != wantAC {
 		t.Errorf("AC = %d, want %d (no divisor feedback)", got, wantAC)
 	}

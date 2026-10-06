@@ -20,6 +20,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
+// coloredTextSegment is a piece of a line drawn in its own color.
 type coloredTextSegment struct {
 	text  string
 	color color.Color
@@ -27,12 +28,21 @@ type coloredTextSegment struct {
 
 var missingTooltipIcons = make(map[string]bool)
 
+// drawColoredTextSegments draws a line piece by piece, each in its color.
 func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredTextSegment) {
 	curX := x
 	for _, seg := range segments {
-		drawUITextColored(screen, seg.text, curX, y, seg.color)
+		if strings.TrimSpace(seg.text) != "" {
+			drawUITextColored(screen, seg.text, curX, y, seg.color)
+		}
 		curX += uiTextWidth(seg.text)
 	}
+}
+
+func sameColor(a, b color.Color) bool {
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
 // partyPortraitLayout returns the responsive four-card HUD strip. Card slots
@@ -51,10 +61,10 @@ func partyPortraitLayout(g *MMGame) (portraitWidth, portraitHeight, baseLeft, st
 const (
 	partyCardPanelNativeWidth  = 256
 	partyCardPanelNativeHeight = 100
-	partyCardFrameReserve      = 3
-	partyCardInnerFrameGap     = 1
-	partyCardOuterFrameGap     = 2
-	partyHUDWorldClearance     = 2
+	// partyCardFrameReserve is the gutter around each panel: the state band, a
+	// 1px gap, and the selection band reaching the slot edge.
+	partyCardFrameReserve  = partySelectionBandGap + partyFrameBand - 1
+	partyHUDWorldClearance = 2
 )
 
 func partyHUDHeight() int {
@@ -675,9 +685,13 @@ func flipTooltipY(y, bgHeight, screenH int) int {
 // pass the screen width for a lone tooltip, or a tighter column edge so two
 // side-by-side cards (item + its comparison) each wrap within their own column.
 func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
+	drawCardTooltip(screen, character.PlainCardRows(lines), colors, titlePlate, titleText, iconName, x, y, maxRight, sprites)
+}
+
+func drawCardTooltip(screen *ebiten.Image, rows character.CardRows, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
-	layout := layoutTooltip(lines, hasIcon, maxRight-x, uiBounds(screen).Dy())
-	drawTooltipLayout(screen, lines, colors, titlePlate, titleText, iconName, x, max(0, y), layout, sprites)
+	layout := layoutCardTooltip(rows, hasIcon, maxRight-x, uiBounds(screen).Dy())
+	drawTooltipLayout(screen, rows, colors, titlePlate, titleText, iconName, x, max(0, y), layout, sprites)
 }
 
 // metalPlateBase returns the nameplate's base color: a darkened metal of the
@@ -785,16 +799,20 @@ func tooltipPairX(cursorX, mainW, compareW, gap, screenW int) (mainX, compareX i
 }
 
 func (ui *UISystem) queueTooltip(lines []string, x, y int) {
-	if len(lines) == 0 {
+	ui.queueCardTooltip(character.PlainCardRows(lines), nil, nil, nil, "", x, y)
+}
+
+func (ui *UISystem) queueCardTooltip(rows character.CardRows, colors []color.Color, plate, title color.Color, icon string, x, y int) {
+	if len(rows) == 0 {
 		return
 	}
-	ui.tooltipLines = lines
-	ui.tooltipColors = nil
-	ui.tooltipTitleColor = nil
-	ui.tooltipTitleText = nil
-	ui.tooltipIcon = ""
-	ui.tooltipX = x
-	ui.tooltipY = y
+	ui.tooltipRows = rows
+	ui.tooltipLines = rows.Lines()
+	ui.tooltipColors = colors
+	ui.tooltipTitleColor = plate
+	ui.tooltipTitleText = title
+	ui.tooltipIcon = ui.validTooltipIcon(icon)
+	ui.tooltipX, ui.tooltipY = x, y
 }
 
 // drawWrappedTextWithOverflow draws wrapped copy into area (clipped to
@@ -831,34 +849,7 @@ func (ui *UISystem) offerClippedTextTooltip(fullLines []string, clipped bool, x,
 }
 
 func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
-	if len(lines) == 0 {
-		return
-	}
-	ui.tooltipLines = lines
-	ui.tooltipColors = nil
-	ui.tooltipTitleColor = nil
-	ui.tooltipTitleText = nil
-	ui.tooltipIcon = ui.validTooltipIcon(icon)
-	ui.tooltipX = x
-	ui.tooltipY = y
-}
-
-// queueTitledTooltipIcon queues a tooltip whose first line (the name) gets a
-// metallic nameplate (plate base) with the name in titleText (nil = plain white
-// name). bodyColors overrides individual semantic rows; nil uses the shared
-// section/result/detail palette. Plate hue: rarity for gear, school for
-// spells, wood for traps.
-func (ui *UISystem) queueTitledTooltipIcon(lines []string, bodyColors []color.Color, plate, titleText color.Color, icon string, x, y int) {
-	if len(lines) == 0 {
-		return
-	}
-	ui.tooltipLines = lines
-	ui.tooltipColors = bodyColors
-	ui.tooltipTitleColor = plate
-	ui.tooltipTitleText = titleText
-	ui.tooltipIcon = ui.validTooltipIcon(icon)
-	ui.tooltipX = x
-	ui.tooltipY = y
+	ui.queueCardTooltip(character.PlainCardRows(lines), nil, nil, nil, icon, x, y)
 }
 
 func (ui *UISystem) validTooltipIcon(icon string) string {
@@ -876,25 +867,22 @@ func (ui *UISystem) validTooltipIcon(icon string) string {
 }
 
 func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color) {
-	if len(lines) == 0 {
-		return
-	}
-	ui.tooltipCompareLines = lines
-	ui.tooltipCompareColors = colors
-	ui.tooltipCompareTitle = nil
-	ui.tooltipCompareText = nil
+	ui.queueCardComparison(character.PlainCardRows(lines), colors, nil, nil)
 }
 
-// queueTitledTooltipComparison queues the side-by-side comparison card with a
-// metallic nameplate on its first line.
-func (ui *UISystem) queueTitledTooltipComparison(lines []string, bodyColors []color.Color, plate, titleText color.Color) {
-	if len(lines) == 0 {
+func (ui *UISystem) queueTitledTooltipComparison(lines []string, colors []color.Color, plate, title color.Color) {
+	ui.queueCardComparison(character.PlainCardRows(lines), colors, plate, title)
+}
+
+func (ui *UISystem) queueCardComparison(rows character.CardRows, colors []color.Color, plate, title color.Color) {
+	if len(rows) == 0 {
 		return
 	}
-	ui.tooltipCompareLines = lines
-	ui.tooltipCompareColors = bodyColors
+	ui.tooltipCompareRows = rows
+	ui.tooltipCompareLines = rows.Lines()
+	ui.tooltipCompareColors = colors
 	ui.tooltipCompareTitle = plate
-	ui.tooltipCompareText = titleText
+	ui.tooltipCompareText = title
 }
 
 func schoolPlateColor(school string) color.Color {
@@ -994,6 +982,17 @@ func uiTextWidth(text string) int {
 // active UI font - for labels that must not overrun their box.
 func clipUIText(text string, maxW int) string {
 	return clipUITextSuffix(text, maxW, "..")
+}
+
+// fittingUIForm picks the first of forms, most to least informative, that
+// fits maxW in the active font; when none does, the last one cut to fit.
+func fittingUIForm(maxW int, forms ...string) string {
+	for _, form := range forms {
+		if uiTextWidth(form) <= maxW {
+			return form
+		}
+	}
+	return clipUIText(forms[len(forms)-1], maxW)
 }
 
 // clipUITextSuffix is clipUIText with its own suffix. When not even the
@@ -1368,36 +1367,42 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 	return mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2
 }
 
-// statTooltipText quotes the canonical stat description from the character
-// catalog - one source for the in-game tooltip and the map editor.
-func statTooltipText(stat string) string {
-	return referenceTooltipText(config.TitleWords(stat), "EFFECTS", character.StatDescription(stat))
+// Text APIs project the same canonical reference card used by live hovers.
+func statTooltipText(stat string) string { return statTooltipRows(stat).String() }
+func statTooltipRows(stat string) character.CardRows {
+	return referenceTooltipRows(config.TitleWords(stat), "EFFECTS", character.StatDescription(stat))
 }
-
-// masteryTooltipTextForSkill returns the canonical skill description. The text
-// (and the constants behind it) live in the character package so the in-game
-// tooltip, combat, and the map editor all share one source - see
-// character.SkillType.Description.
 func masteryTooltipTextForSkill(skill character.SkillType) string {
-	return referenceTooltipText(skill.String(), "EFFECTS", skill.Description())
+	return masteryTooltipRowsForSkill(skill).String()
 }
-
+func masteryTooltipRowsForSkill(skill character.SkillType) character.CardRows {
+	return referenceTooltipRows(skill.String(), "EFFECTS", skill.Description())
+}
 func magicMasteryTooltipText(school character.MagicSchoolID) string {
-	return referenceTooltipText(school.DisplayName()+" Magic", "MASTERY", character.MagicMasteryDescription(school))
+	return magicMasteryTooltipRows(school).String()
+}
+func magicMasteryTooltipRows(school character.MagicSchoolID) character.CardRows {
+	return referenceTooltipRows(school.DisplayName()+" Magic", "MASTERY", character.MagicMasteryDescription(school))
 }
 
-// Reference prose stays canonical. Only paragraph boundaries and headings are
-// added here; no tooltip independently restates a skill's formulas or effects.
-func referenceTooltipText(title, section, description string) string {
+// Reference prose stays canonical. Only its authored paragraph boundaries and
+// Grandmaster block are formatted; renderers never inspect those strings.
+func referenceTooltipRows(title, section, description string) character.CardRows {
 	if description == "" {
-		return ""
+		return nil
 	}
-	text := strings.ReplaceAll(description, ". ", ".\n")
-	text = strings.ReplaceAll(text, "\n\nGrand Master:\n", "\n\nGRAND MASTER\n")
-	for _, marker := range []string{"\nGrandmaster:", "\nAt Grandmaster,"} {
-		text = strings.ReplaceAll(text, marker, "\n\nGRANDMASTER"+marker)
+	var rows character.CardRows
+	rows.Add(character.CardRowTitle, title)
+	rows.Add(character.CardRowSpacer, "")
+	rows.Add(character.CardRowSection, section)
+	for i, block := range strings.Split(description, "\n\nGrandmaster:\n") {
+		if i > 0 {
+			rows.Add(character.CardRowSpacer, "")
+			rows.Add(character.CardRowSection, "GRANDMASTER")
+		}
+		rows.Add(character.CardRowBody, strings.ReplaceAll(block, ". ", ".\n"))
 	}
-	return title + "\n\n" + section + "\n" + text
+	return rows
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

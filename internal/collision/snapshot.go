@@ -6,9 +6,10 @@ import "math"
 // Snapshot() time - safe to read concurrently no matter what happens to the
 // live Entity afterward.
 type EntitySnapshot struct {
-	Box           BoundingBox
-	CollisionType CollisionType
-	Solid         bool
+	movementBounds MovementBounds
+	Box            BoundingBox
+	CollisionType  CollisionType
+	Solid          bool
 }
 
 // CollisionSnapshot is an immutable, concurrency-safe point-in-time view of a
@@ -79,9 +80,10 @@ func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
 	}
 	for id, e := range cs.entities {
 		snap.entities[id] = EntitySnapshot{
-			Box:           *e.BoundingBox,
-			CollisionType: e.CollisionType,
-			Solid:         e.Solid,
+			movementBounds: e.movementBounds,
+			Box:            *e.BoundingBox,
+			CollisionType:  e.CollisionType,
+			Solid:          e.Solid,
 		}
 		if snap.buckets == nil || !e.Solid {
 			// Non-solid attack-post entities still need their own lookup index.
@@ -123,6 +125,9 @@ func (cs *CollisionSnapshot) CanMoveTo(entityID string, newX, newY float64) bool
 		return false
 	}
 	tempBox := NewBoundingBox(newX, newY, entity.Box.Width, entity.Box.Height)
+	if !entity.movementBounds.Allows(tempBox) {
+		return false
+	}
 	if !tilesAllowPosition(cs.tileChecker, cs.tileSize, tempBox) {
 		return false
 	}
@@ -137,6 +142,9 @@ func (cs *CollisionSnapshot) CanMoveToWithTileOverrides(entityID string, newX, n
 		return false
 	}
 	tempBox := NewBoundingBox(newX, newY, entity.Box.Width, entity.Box.Height)
+	if !entity.movementBounds.Allows(tempBox) {
+		return false
+	}
 	if !tilesAllowPositionWithTileOverrides(cs.tileChecker, cs.tileSize, tempBox, walkableTileOverrides, flying) {
 		return false
 	}
@@ -151,6 +159,9 @@ func (cs *CollisionSnapshot) CanOccupyTilesWithTileOverrides(entityID string, x,
 		return false
 	}
 	tempBox := NewBoundingBox(x, y, entity.Box.Width, entity.Box.Height)
+	if !entity.movementBounds.Allows(tempBox) {
+		return false
+	}
 	return tilesAllowPositionWithTileOverrides(cs.tileChecker, cs.tileSize, tempBox, walkableTileOverrides, flying)
 }
 

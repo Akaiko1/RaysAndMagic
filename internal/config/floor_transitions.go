@@ -12,6 +12,7 @@ const (
 	FloorTransitionCliffEast FloorTransition = "cliff_east"
 	FloorTransitionCliffWest FloorTransition = "cliff_west"
 	FloorTransitionVoid      FloorTransition = "void"
+	FloorTransitionChasm     FloorTransition = "chasm"
 )
 
 func (b BiomeConfig) ValidateFloorTransitions() error {
@@ -21,7 +22,7 @@ func (b BiomeConfig) ValidateFloorTransitions() error {
 		}
 		switch profile {
 		case FloorTransitionHard, FloorTransitionNatural, FloorTransitionWater,
-			FloorTransitionCliffEast, FloorTransitionCliffWest, FloorTransitionVoid:
+			FloorTransitionCliffEast, FloorTransitionCliffWest, FloorTransitionVoid, FloorTransitionChasm:
 		default:
 			return fmt.Errorf("floor_transitions group %q has unknown profile %q", group, profile)
 		}

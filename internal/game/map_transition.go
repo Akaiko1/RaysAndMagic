@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
@@ -19,9 +20,12 @@ const (
 )
 
 type mapTransition struct {
-	mapKey  string
-	arrival mapArrivalKind
-	pose    MapPose
+	arrivalTile    *[2]int
+	adventureWorld *world.World3D
+	adventureVisit *AdventureVisit
+	mapKey         string
+	arrival        mapArrivalKind
+	pose           MapPose
 }
 
 // transitionToMap owns one complete travel operation. No arrival, quest entry
@@ -37,13 +41,55 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 	if g.worldByKey(request.mapKey) == nil {
 		return fmt.Errorf("destination map is not loaded: %s", request.mapKey)
 	}
+	if request.arrivalTile != nil {
+		x, y := request.arrivalTile[0], request.arrivalTile[1]
+		w := g.worldByKey(request.mapKey)
+		if region := wm.OpenWorldRegionByKey(request.mapKey); region != nil {
+			if x < 0 || y < 0 || x >= region.LocalWidth || y >= region.LocalHeight {
+				return fmt.Errorf("authored arrival outside region")
+			}
+		}
+		x, y = wm.ProjectTile(request.mapKey, x, y)
+		if x < 0 || y < 0 || x >= w.Width || y >= w.Height || w.IsTileBlockingTerrainAt(x, y) {
+			return fmt.Errorf("invalid authored arrival tile")
+		}
+	}
+	if g.adventureArenaBounds().Enabled && request.arrival != mapArrivalTownPortal {
+		g.announceAdventureArenaBarrier()
+		return fmt.Errorf("%s", uitext.Text("adventure.arena_barrier"))
+	}
 	originKey := wm.CurrentMapKey
 	origin := MapPose{X: g.camera.X, Y: g.camera.Y, Angle: g.camera.Angle}
 	if request.arrival == mapArrivalUnderwater {
 		origin.X, origin.Y = g.FindNearestWalkableTileMustSucceed(origin.X, origin.Y)
 	}
+	if request.adventureWorld != nil {
+		wm.LoadedMaps[request.mapKey] = request.adventureWorld
+	}
 	if err := g.switchToMap(request.mapKey); err != nil {
 		return err
+	}
+	if request.adventureVisit != nil {
+		g.commitAdventureVisit(request.mapKey, request.adventureVisit)
+	}
+	if policy := g.adventureConfig(originKey); request.arrival == mapArrivalTownPortal && policy != nil && policy.OpeningOwned && policy.Boss != nil {
+		if v := g.adventure.Visits[originKey]; v != nil {
+			v.ArenaLocked = false
+		}
+		if old := g.worldByKey(originKey); old != nil {
+			for _, m := range old.Monsters {
+				if m != nil && m.Key == policy.Boss.Monster {
+					m.EndPlayerEngagement()
+					m.WasAttacked = false
+					m.BossAggro = false
+					m.AIFoe = nil
+				}
+			}
+		}
+	}
+	g.adventure.Occupied = ""
+	if a := g.adventureConfig(request.mapKey); a != nil && a.OpeningOwned {
+		g.adventure.Occupied = request.mapKey
 	}
 	pose := request.pose
 	switch request.arrival {
@@ -70,6 +116,11 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 		if x, y, ok := g.townPortalArrivalPoint(request.mapKey); ok {
 			pose.X, pose.Y = x, y
 		}
+	}
+	if request.arrivalTile != nil {
+		x, y := wm.ProjectTile(request.mapKey, request.arrivalTile[0], request.arrivalTile[1])
+		pose.X, pose.Y = TileCenterFromTile(x, y, float64(g.config.GetTileSize()))
+		pose.Angle = wm.ProjectAngle(request.mapKey, AngleNorth)
 	}
 	for _, c := range g.party.Members {
 		if c != nil {
@@ -110,6 +161,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 	if g.world != nil {
 		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 	}
+	g.syncAdventureArenaBounds()
 	g.clearTransientCombatState()
 	// A map change ends every approach: drop the focus identity and any nudge
 	// queued for it. (The nudge producer additionally refuses to announce an NPC
@@ -169,6 +221,7 @@ func (g *MMGame) finishMapArrival(x, y, angle float64) {
 	if g.turnBasedMode {
 		g.snapToCardinalDirection()
 	}
+	g.applyEnvironmentArrival()
 	g.Autosave()
 }
 

@@ -41,28 +41,29 @@ func TestClampPage(t *testing.T) {
 // in row-major order, so buy/sell clicks resolve to the right item index.
 func TestMerchantCellRectLayout(t *testing.T) {
 	const baseX, gridTop = 100, 200
-	seen := map[[2]int]int{}
+	type cell struct{ x, y, w, h int }
+	cells := make([]cell, 0, merchantPageSize)
 	for slot := 0; slot < merchantPageSize; slot++ {
 		x, y, w, h := merchantCellRect(baseX, gridTop, slot)
 		if w != merchantIconSize || h != merchantIconSize {
 			t.Fatalf("slot %d: size = %dx%d, want %d square", slot, w, h, merchantIconSize)
 		}
-		col := slot % merchantGridCols
-		row := slot / merchantGridCols
-		if key := ([2]int{col, row}); seen[key] != 0 || (col == 0 && row == 0 && slot != 0) {
-			t.Fatalf("slot %d collides at col=%d row=%d", slot, col, row)
+		for other, c := range cells {
+			if x < c.x+c.w && c.x < x+w && y < c.y+c.h && c.y < y+h {
+				t.Fatalf("slot %d (%d,%d) overlaps slot %d (%d,%d)", slot, x, y, other, c.x, c.y)
+			}
 		}
-		seen[[2]int{col, row}] = slot + 1
-		// x grows with column, y with row; both anchored at the grid origin.
-		wantX := baseX + col*(merchantIconSize+merchantIconGapX)
-		if x != wantX {
+		// Row-major: x grows with column, y with row; both anchored at the grid origin.
+		col, row := slot%merchantGridCols, slot/merchantGridCols
+		if wantX := baseX + col*(merchantIconSize+merchantIconGapX); x != wantX {
 			t.Errorf("slot %d: x = %d, want %d", slot, x, wantX)
 		}
-		if y < gridTop || (row > 0 && y <= gridTop) {
-			t.Errorf("slot %d: y = %d not below grid top %d for row %d", slot, y, gridTop, row)
+		if row == 0 && y != gridTop {
+			t.Errorf("slot %d: first-row y = %d, want the grid top %d", slot, y, gridTop)
 		}
-	}
-	if len(seen) != merchantPageSize {
-		t.Errorf("expected %d distinct cells, got %d", merchantPageSize, len(seen))
+		if row > 0 && y <= cells[slot-merchantGridCols].y {
+			t.Errorf("slot %d: y = %d not below the cell above (%d)", slot, y, cells[slot-merchantGridCols].y)
+		}
+		cells = append(cells, cell{x, y, w, h})
 	}
 }

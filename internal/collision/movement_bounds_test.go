@@ -2,37 +2,43 @@ package collision
 
 import "testing"
 
-func TestMovementBoundsUseFloorCoordinates(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		x, y float64
-		want bool
-	}{
-		{"interior", 32, 32, true}, {"west_touch", 8, 32, true}, {"north_touch", 32, 8, true},
-		{"west_fraction", 7.99, 32, false}, {"north_fraction", 32, 7.99, false},
-		{"west_outside", -32, 32, false}, {"north_outside", 32, -32, false},
-		{"east_inside", 119.99, 32, true}, {"south_inside", 32, 119.99, true},
-		{"east_edge", 120, 32, false}, {"south_edge", 32, 120, false},
+func TestMovementBoundsLiveAndSnapshot(t *testing.T) {
+	sys := NewCollisionSystem(newMockTileChecker(20, 20), 64)
+	bound := MovementBounds{Enabled: true, MinX: 128, MinY: 128, MaxX: 512, MaxY: 512}
+	entity := NewEntity("boss", 256, 256, 32, 32, CollisionTypeMonster, false).WithMovementBounds(bound)
+	sys.RegisterEntity(entity)
+	sys.RegisterEntity(NewEntity("free", 256, 256, 32, 32, CollisionTypeMonster, false))
+	snapshot := sys.Snapshot()
+	for name, check := range map[string]func(string, float64, float64) bool{
+		"live": sys.CanMoveTo, "snapshot": snapshot.CanMoveTo,
+		"live flight": func(id string, x, y float64) bool {
+			return sys.CanMoveToWithTileOverrides(id, x, y, []string{"wall"}, true)
+		},
+		"snapshot flight": func(id string, x, y float64) bool {
+			return snapshot.CanMoveToWithTileOverrides(id, x, y, []string{"wall"}, true)
+		},
+		"live terrain": func(id string, x, y float64) bool { return sys.CanOccupyTilesWithTileOverrides(id, x, y, nil, false) },
+		"snapshot terrain": func(id string, x, y float64) bool {
+			return snapshot.CanOccupyTilesWithTileOverrides(id, x, y, nil, false)
+		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cs := NewCollisionSystem(newMockTileChecker(2, 2), 64)
-			cs.RegisterEntity(NewEntity("actor", 32, 32, 16, 16, CollisionTypeMonster, false))
-			snap := cs.Snapshot()
-			gotDebug, _ := cs.DebugCanMoveTo("actor", tc.x, tc.y)
-			for name, got := range map[string]bool{
-				"ordinary":                cs.CanMoveTo("actor", tc.x, tc.y),
-				"tile_overrides":          cs.CanMoveToWithTileOverrides("actor", tc.x, tc.y, nil, false),
-				"flying":                  cs.CanMoveToWithTileOverrides("actor", tc.x, tc.y, nil, true),
-				"occupancy":               cs.CanOccupyTilesWithTileOverrides("actor", tc.x, tc.y, nil, false),
-				"debug":                   gotDebug,
-				"snapshot":                snap.CanMoveTo("actor", tc.x, tc.y),
-				"snapshot_tile_overrides": snap.CanMoveToWithTileOverrides("actor", tc.x, tc.y, nil, false),
-				"snapshot_occupancy":      snap.CanOccupyTilesWithTileOverrides("actor", tc.x, tc.y, nil, false),
-			} {
-				if got != tc.want {
-					t.Errorf("%s accepted=%v, want %v", name, got, tc.want)
+		t.Run(name, func(t *testing.T) {
+			for _, c := range []struct {
+				x, y float64
+				want bool
+			}{{144, 256, true}, {496, 256, true}, {256, 144, true}, {256, 496, true}, {143, 256, false}, {497, 256, false}, {256, 143, false}, {256, 497, false}} {
+				if got := check("boss", c.x, c.y); got != c.want {
+					t.Errorf("position %v,%v=%v want %v", c.x, c.y, got, c.want)
+				}
+				if !check("free", c.x, c.y) {
+					t.Error("unconstrained actor acquired arena bounds")
 				}
 			}
 		})
+	}
+	// Later live changes cannot race with or alter a worker's frozen view.
+	entity.WithMovementBounds(MovementBounds{})
+	if !sys.CanMoveTo("boss", 100, 256) || snapshot.CanMoveTo("boss", 100, 256) {
+		t.Fatal("snapshot shared mutable movement bounds")
 	}
 }

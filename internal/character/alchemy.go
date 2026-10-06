@@ -98,10 +98,6 @@ func AlchemySourceSelection(recipe *config.AlchemyRecipe, choices []int) Alchemy
 	return out
 }
 
-func (p *Party) PlanAlchemy(recipe *config.AlchemyRecipe, choices []int, batches int) (map[int]int, error) {
-	return p.PlanAlchemySelected(recipe, AlchemySourceSelection(recipe, choices), batches)
-}
-
 // PlanAlchemySelected reserves groups in recipe order, then finds the cheapest
 // exact mixture of checked materials. Whole items contribute 1/authoredCount of
 // a batch. Integer units preserve the recipe's costs without rounding or waste.
@@ -187,12 +183,8 @@ func (p *Party) PlanAlchemySelected(recipe *config.AlchemyRecipe, selected Alche
 	return plan, nil
 }
 
-// Brew returns the output count and snapshots of the materials actually spent.
+// BrewSelected returns the output count and snapshots of the materials actually spent.
 // The receipt follows the allocation plan, including mixed and split stacks.
-func (p *Party) Brew(caster *MMCharacter, recipe *config.AlchemyRecipe, choices []int, batches int) (int, []items.Item, error) {
-	return p.BrewSelected(caster, recipe, AlchemySourceSelection(recipe, choices), batches)
-}
-
 func (p *Party) BrewSelected(caster *MMCharacter, recipe *config.AlchemyRecipe, selected AlchemySelection, batches int) (int, []items.Item, error) {
 	if caster == nil || caster.Class != ClassAlchemist || !caster.CanUseCombatAction() || !caster.HasSkill(SkillAlchemy) {
 		return 0, nil, fmt.Errorf("A capable Alchemist must prepare the batch.")
@@ -247,12 +239,8 @@ func (p *Party) BrewSelected(caster *MMCharacter, recipe *config.AlchemyRecipe, 
 	return count, ingredients, nil
 }
 
-// MaxAlchemyBatches uses the same allocation rules as the commit, including
+// MaxAlchemySelected uses the same allocation rules as the commit, including
 // overlapping alternative groups. The UI batch limit is deliberately shared.
-func (p *Party) MaxAlchemyBatches(recipe *config.AlchemyRecipe, choices []int) int {
-	return p.MaxAlchemySelected(recipe, AlchemySourceSelection(recipe, choices))
-}
-
 func (p *Party) MaxAlchemySelected(recipe *config.AlchemyRecipe, selected AlchemySelection) int {
 	low, high := 0, 99
 	for low < high {

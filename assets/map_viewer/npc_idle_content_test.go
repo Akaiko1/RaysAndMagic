@@ -1,33 +1,35 @@
 package main
 
 import (
+	"image"
 	"testing"
 
-	"ugataima/internal/character"
-	"ugataima/internal/config"
-	"ugataima/internal/graphics"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Editor map and palette thumbnails share firstFrame; keep the new idle sheet
-// readable as one square instead of shrinking the whole four-pose strip.
-func TestSafiyaIdleThumbnail(t *testing.T) {
-	t.Chdir("../..")
-	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
-		t.Fatal(err)
+// Editor map and palette thumbnails share firstFrame: a horizontal sheet of N
+// square poses shows its first square, anything else is shown whole.
+func TestFirstFrameSelectsLeadingSquare(t *testing.T) {
+	atlas := ebiten.NewImage(64, 64)
+	offsetStrip := atlas.SubImage(image.Rect(4, 2, 36, 10)).(*ebiten.Image)
+	for _, tc := range []struct {
+		name string
+		img  *ebiten.Image
+		want image.Rectangle
+	}{
+		{"square sprite", ebiten.NewImage(8, 8), image.Rect(0, 0, 8, 8)},
+		{"four-pose idle sheet", ebiten.NewImage(32, 8), image.Rect(0, 0, 8, 8)},
+		{"sheet inside an atlas", offsetStrip, image.Rect(4, 2, 12, 10)},
+		{"wide non-sheet", ebiten.NewImage(30, 8), image.Rect(0, 0, 30, 8)},
+		{"tall sprite", ebiten.NewImage(8, 32), image.Rect(0, 0, 8, 32)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := firstFrame(tc.img).Bounds(); got != tc.want {
+				t.Fatalf("firstFrame bounds = %v, want %v", got, tc.want)
+			}
+		})
 	}
-	if err := character.LoadNPCConfig("assets/npcs.yaml"); err != nil {
-		t.Fatal(err)
-	}
-	sprite := npcSpriteForKey("nomad_city_safiya")
-	if sprite == "" {
-		t.Fatal("Safiya has no configured sprite")
-	}
-	sheet := graphics.NewSpriteManager().GetSprite(sprite)
-	if sheet.Bounds().Dx() != 4*sheet.Bounds().Dy() {
-		t.Fatalf("Safiya must use the NPC idle sheet layout: %v", sheet.Bounds())
-	}
-	frame := firstFrame(sheet)
-	if frame.Bounds().Min != sheet.Bounds().Min || frame.Bounds().Dx() != 512 || frame.Bounds().Dy() != 512 {
-		t.Fatalf("editor thumbnail did not select the first square frame: %v", frame.Bounds())
+	if firstFrame(nil) != nil {
+		t.Fatal("missing sprite must stay nil so the caller draws its fallback marker")
 	}
 }

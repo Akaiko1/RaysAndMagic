@@ -168,9 +168,10 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
 	m.TickBurn()            // Drakefang ignite; independent clock, stacks with poison
 	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
-	m.TickSlowFrame()       // Tarn Trident silt decays regardless of stun/root state
-	m.TickWeakenFrame()     // Scalebreaker roar decays regardless of stun/root state
-	m.TickSoakFrame()       // Champion Stone Skin uses the same rated dual-clock contract
+	m.TickElementalMarks(false)
+	m.TickSlowFrame()   // Tarn Trident silt decays regardless of stun/root state
+	m.TickWeakenFrame() // Scalebreaker roar decays regardless of stun/root state
+	m.TickSoakFrame()   // Champion Stone Skin uses the same rated dual-clock contract
 	if !m.IsAlive() {
 		// Match the TB scheduler: a lethal autonomous tick ends this actor's
 		// action immediately. The game-level indirect-kill sweep awards and
@@ -352,7 +353,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		return
 	}
 
-	if m.ShouldDisengageFromPlayer(collisionChecker, partyX, partyY) {
+	if m.ShouldDisengageFromPlayer(partyX, partyY) {
 		// Stop engaging player - return to idle (only if not recently attacked).
 		m.EndPlayerEngagement()
 	}
@@ -495,38 +496,33 @@ func (m *Monster3D) playerAlertRadii() (float64, float64) {
 	return detectionRadius, disengageMult
 }
 
-// PlayerDetectionRange returns the current sight radius and hysteresis range
-// multiplier used for player engagement. Keeping the calculation here lets UI
-// and pursuit code consume the same radii while the initial LoS gate stays
-// centralized in HasLineOfSightToPlayer.
-func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, playerX, playerY float64) (float64, float64) {
-	detectionRadius, disengageMult := m.playerAlertRadii()
-
-	// Passive detection needs LINE OF SIGHT: an unaware monster never aggros
-	// through walls or trees. Engagement, once made, is distance-ruled only
-	// (the hysteresis at the callers), so pursuit survives corners and cover.
-	// The DDA trace runs only when its result can matter: unaware AND in range.
-	// DELIBERATE: the rule is absolute - the old outside-tether exemption
-	// (a lured mob kept detecting through cover) is gone with it; a mob that
-	// disengages behind a wall walks home like any other unaware monster.
-	if !m.IsEngagingPlayer && collisionChecker != nil &&
-		distance(m.X, m.Y, playerX, playerY) <= detectionRadius &&
-		!m.HasLineOfSightToPlayer(collisionChecker, playerX, playerY) {
-		return 0, disengageMult
-	}
-	return detectionRadius, disengageMult
-}
-
 // ShouldDisengageFromPlayer is the shared non-sticky pursuit exit rule. RT
 // applies it to every sight-only party encounter; TB applies it only to the
 // loot-guard objective, whose encounter deliberately returns to its post at
 // the exact seven-tile radius instead of becoming a sticky TB fight.
-func (m *Monster3D) ShouldDisengageFromPlayer(collisionChecker CollisionChecker, playerX, playerY float64) bool {
+func (m *Monster3D) ShouldDisengageFromPlayer(playerX, playerY float64) bool {
 	if m == nil || !m.IsEngagingPlayer || m.WasAttacked {
 		return false
 	}
-	detectionRadius, disengageMult := m.PlayerDetectionRange(collisionChecker, playerX, playerY)
-	return distance(m.X, m.Y, playerX, playerY) > detectionRadius*disengageMult
+	return distance(m.X, m.Y, playerX, playerY) > m.PursuitLeashPixels()
+}
+
+// PursuitLeashPixels is the distance at which this monster drops a sight-only
+// chase: detection radius times the disengage hysteresis.
+func (m *Monster3D) PursuitLeashPixels() float64 {
+	detectionRadius, disengageMult := m.playerAlertRadii()
+	return detectionRadius * disengageMult
+}
+
+// PressesParty reports a party-hostile monster close enough to press the
+// fight: within its pursuit leash or its attack reach. Sticky hostility keeps
+// the AI hunting from any distance, but a hunter stranded beyond both (another
+// region of the open world, no route) is not a fight the party is in.
+func (m *Monster3D) PressesParty(partyX, partyY float64) bool {
+	if !m.TargetsParty() {
+		return false
+	}
+	return distance(m.X, m.Y, partyX, partyY) <= math.Max(m.PursuitLeashPixels(), m.PursuitReachPixels())
 }
 
 func (m *Monster3D) updateIdle(playerX, playerY float64) {
@@ -709,15 +705,11 @@ func (m *Monster3D) usesAttackPosts() bool {
 	if m == nil {
 		return false
 	}
-	switch m.CurrentAIBehavior() {
-	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive:
+	behavior := m.CurrentAIBehavior()
+	if !behavior.Caps().MayAttack {
 		return false
-	case AIBehaviorBoundAlly:
-		return m.AIFoe != nil
-	case AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorSeekParty:
-		return true
 	}
-	return false
+	return behavior != AIBehaviorBoundAlly || m.AIFoe != nil
 }
 
 // entersTargetTile reports whether (x, y) would land an attacker on the

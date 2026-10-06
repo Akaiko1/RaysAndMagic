@@ -32,7 +32,7 @@ type contentCard struct {
 
 	// Tooltip-only fields (full data).
 	description string
-	tooltipRows []string // complete shared tooltip, including name and category
+	tooltipRows character.CardRows // complete shared tooltip, including name and category
 
 	// icon overrides the icon_<kind>_<key>.png naming convention (traps ship
 	// their sprite name in traps.yaml).
@@ -221,6 +221,40 @@ func buildSpellCards() []contentCard {
 		emitSchool(s)
 	}
 	cards = append(cards, buildTrapCards()...)
+	cards = append(cards, buildTechniqueCards()...)
+	return cards
+}
+
+// buildTechniqueCards lists the Pilgrim's techniques by level with the game's
+// own catalog card (base cost, every tier, the reuse locks).
+func buildTechniqueCards() []contentCard {
+	if config.GlobalTechniques == nil {
+		return nil
+	}
+	techniques := append([]config.TechniqueDefinition(nil), config.GlobalTechniques.Techniques...)
+	sort.SliceStable(techniques, func(i, j int) bool {
+		if techniques[i].Level != techniques[j].Level {
+			return techniques[i].Level < techniques[j].Level
+		}
+		return techniques[i].Name < techniques[j].Name
+	})
+	section := fmt.Sprintf("Techniques (%s)", character.ClassWayfarer)
+	var cards []contentCard
+	for _, d := range techniques {
+		it, ok := config.TechniqueItem(d.Key)
+		if !ok {
+			panic("unknown catalog technique: " + d.Key)
+		}
+		cards = append(cards, contentCard{
+			kind:        cardSpell,
+			section:     section,
+			key:         d.Key,
+			name:        d.Name,
+			subtitle:    fmt.Sprintf("Lv %d  SP %d", d.Level, d.SPCost[0]),
+			tooltipRows: game.GetItemTooltipRows(it, nil, nil, true),
+			icon:        d.Icon,
+		})
+	}
 	return cards
 }
 
@@ -242,7 +276,7 @@ func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard
 	if !ok {
 		panic("unknown catalog trap: " + key)
 	}
-	rows := strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n")
+	rows := game.GetItemTooltipRows(it, nil, nil, true)
 	return contentCard{
 		kind:        cardSpell,
 		section:     section,
@@ -269,7 +303,7 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	if def.TrueDamage > 0 {
 		subtitle += fmt.Sprintf("  +%d True", def.TrueDamage)
 	}
-	rows := strings.Split(game.GetItemTooltip(items.CreateWeaponFromYAML(key), nil, nil, true), "\n")
+	rows := game.GetItemTooltipRows(items.CreateWeaponFromYAML(key), nil, nil, true)
 	return contentCard{
 		kind:        cardWeapon,
 		section:     section,
@@ -290,7 +324,7 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 		subtitle = strings.TrimSpace(kind + "  " + subtitle)
 	}
 
-	rows := strings.Split(game.GetItemTooltip(it, nil, nil, true), "\n")
+	rows := game.GetItemTooltipRows(it, nil, nil, true)
 	return contentCard{
 		kind:        cardItem,
 		section:     section,
@@ -349,7 +383,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	if def.MonsterOnly {
 		subtitle = "Monster only - " + titleCase(def.School)
 	}
-	rows := strings.Split(game.GetSpellTooltip(spells.SpellID(key), nil, nil, true), "\n")
+	rows := game.GetSpellTooltipRows(spells.SpellID(key), nil, nil, true)
 	return contentCard{
 		kind:        cardSpell,
 		section:     section,
@@ -416,17 +450,6 @@ func buildSkillCards() []contentCard {
 }
 
 func titleCase(s string) string { return config.TitleWords(s) }
-
-// tileSpriteThumbnail loads a tile's sprite image (for legend previews),
-// searching the same sprite dirs the game does. Returns nil for tiles with no
-// sprite (floors) or no file on disk. Cached alongside card icons.
-func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
-	if sprite == "" {
-		return nil
-	}
-	img, _ := v.iconImages.Get(sprite)
-	return img
-}
 
 // iconForCard loads the per-card sprite by naming convention
 // (icon_<kind>_<key>), resolved anywhere under assets/sprites via the shared

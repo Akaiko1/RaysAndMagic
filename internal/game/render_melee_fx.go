@@ -25,6 +25,32 @@ const meleeAnchorYFrac = 0.68
 // occupied area.
 const meleeSizeScale = 0.7071
 
+// Category controls the weight of every swing ribbon, including bespoke FX.
+// Limits are half-widths in viewport pixels; material and motifs stay authored.
+type meleeTrailProfile struct {
+	widthScale, widthLimit float64
+	tail, tip              float64
+	angular                bool
+}
+
+func meleeTrailShape(kind string, screenH float64, crit bool) meleeTrailProfile {
+	if crit {
+		screenH *= 1.2
+	}
+	switch kind {
+	case "stab":
+		return meleeTrailProfile{.42, screenH * .009, .24, .32, false}
+	case "smash":
+		return meleeTrailProfile{.95, screenH * .055, .14, .12, false}
+	case "chop":
+		return meleeTrailProfile{.85, screenH * .038, .26, .09, true}
+	case "lunge":
+		return meleeTrailProfile{.65, screenH * .016, .22, .24, false}
+	default:
+		return meleeTrailProfile{.52, screenH * .015, .18, .18, false}
+	}
+}
+
 // meleeFxKind maps a weapon category to its swing flavor so every weapon type
 // gets a distinct effect (sword crescent, axe chop, mace smash, dagger stab,
 // spear lunge).
@@ -37,6 +63,8 @@ func meleeFxKind(def *config.WeaponDefinitionConfig) string {
 		return "chop"
 	case "mace", "hammer", "club", "flail":
 		return "smash"
+	case "martial_arts":
+		return "punch"
 	case "dagger", "knife":
 		return "stab"
 	case "spear", "rapier", "halberd", "pike":
@@ -68,6 +96,14 @@ func meleeFxTiming(s SlashEffect) (progress, fade, sweepT, lead float64) {
 	} else if progress > 1 {
 		progress = 1
 	}
+	// Stretch the visual tail without slowing the initial weapon motion.
+	if s.SweepFrames > 0 && s.MaxFrames > s.SweepFrames {
+		if s.AnimationFrame <= s.SweepFrames {
+			progress = meleeSweepFrac * math.Max(0, float64(s.AnimationFrame)) / float64(s.SweepFrames)
+		} else {
+			progress = math.Min(1, meleeSweepFrac+(1-meleeSweepFrac)*float64(s.AnimationFrame-s.SweepFrames)/float64(s.MaxFrames-s.SweepFrames))
+		}
+	}
 	fade = 1.0 - progress
 	sweepT = progress / meleeSweepFrac
 	if sweepT > 1 {
@@ -79,134 +115,110 @@ func meleeFxTiming(s SlashEffect) (progress, fade, sweepT, lead float64) {
 
 // drawMeleeParticles renders a melee swing as a shaped, slowly-fading trail
 // (flourish) plus particle sparks, in screen space around the first-person
-// centre. The trail is a smooth ribbon of overlapping soft sprites; sparks fly
-// off the leading edge during the fast sweep. Geometry differs per weapon kind.
+// centre. Material ribbons and shaped weapon heads retain each category's
+// silhouette; impact shards have stable ballistic paths.
 func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	if s.MaxFrames <= 0 {
 		return
 	}
+	progress, _, _, _ := meleeFxTiming(s)
+	previous := r.weaponMaterialState
+	r.weaponMaterialState = weaponMaterialState{
+		weaponKey: s.WeaponKey, material: weaponMaterial(s.Style), phase: progress * 6, seed: seedFromID(s.ID),
+		trail: meleeTrailShape(s.Kind, screenH, s.Crit),
+	}
+	defer func() { r.weaponMaterialState = previous }()
 	if draw, ok := meleeFxStyleDraw[s.Style]; ok {
 		draw(r, screen, s, cx, cy, screenH)
+		r.drawSignatureSilhouette(screen, s, cx, cy, screenH)
+		return
+	}
+	if s.Kind == "punch" {
+		r.drawIdentityStrike(screen, s, cx, cy, screenH, "", "punch")
 		return
 	}
 	_, fade, sweepT, lead := meleeFxTiming(s)
 	if fade <= 0 {
 		return
 	}
-
 	seed := seedFromID(s.ID)
-	fc := int(r.game.frameCount)
 	col := s.Color
-	if col == [3]int{0, 0, 0} {
-		col = [3]int{255, 255, 255}
+	if col == [3]int{} {
+		col = [3]int{210, 225, 240}
 	}
-	edge := [3]int{255, 255, 255}
-
-	// All dimensions derive from h (= screenH x scale) so the whole swing shrinks
-	// uniformly; positions anchor around the (already-lowered) cx, cy.
+	edge := [3]int{240, 247, 255}
 	h := screenH * meleeSizeScale
-
-	// Critical swing: a quarter bigger, hotter, with a golden leading edge and a
-	// denser spark shower - the crit reads from the swing itself, not just the
-	// damage number.
-	sparkCount := 14
 	if s.Crit {
 		h *= 1.25
-		fade = math.Min(1, fade*1.15)
-		edge = [3]int{255, 235, 170}
-		sparkCount = 22
+		edge = [3]int{255, 232, 170}
 	}
-
-	// --- Thrust kinds: dagger (short/quick) and spear (long/lean) ---
+	var path func(float64) (float64, float64)
+	var thick, length float64
 	if s.Kind == "stab" || s.Kind == "lunge" {
-		reach := h * 0.18
-		thick := h * 0.045
+		reach := h * .20
+		thick = h * .028
 		if s.Kind == "lunge" {
-			reach = h * 0.34
-			thick = h * 0.03
+			reach = h * .38
+			thick = h * .022
 		}
-		baseX, baseY := cx, cy+reach*0.5
-		dirX, dirY := 0.0, -1.0 // jab forward/up the view
-		tipLen := reach * lead
-		tipX, tipY := baseX+dirX*tipLen, baseY+dirY*tipLen
-
-		// Tapered ribbon (thick at base -> thin at tip), lingering.
-		const n = 16
-		for k := 0; k < n; k++ {
-			t := float64(k) / float64(n-1)
-			px := baseX + dirX*tipLen*t
-			py := baseY + dirY*tipLen*t
-			w := thick * (1.0 - 0.8*t)
-			a := fade * (0.45 + 0.55*t)
-			r.drawGlowSprite(screen, px, py, math.Max(2, w), mixColor(col, edge, t), a, additiveGlowBlend)
+		path = func(t float64) (float64, float64) { return cx + h*.05*(1-t), cy + reach*.5 - reach*t }
+		length = reach
+	} else {
+		reach := h * .22
+		px, py, R, start, end := cx, cy+reach*.95, reach*1.7, -math.Pi/2-.6, -math.Pi/2+.6
+		thick = h * .047
+		switch s.Kind {
+		case "chop":
+			px, py, R, start, end = cx-reach*.15, cy-reach*.1, reach*1.25, -1.35, .85
+			thick = h * .065
+		case "smash":
+			px, py, R, start, end = cx, cy-reach*.2, reach*1.1, -math.Pi/2-.3, math.Pi/2
+			thick = h * .07
 		}
-		// Bright tip flash + sparks while extending.
-		r.drawGlowSprite(screen, tipX, tipY, thick*1.7, edge, fade*0.9, additiveGlowBlend)
-		if sweepT < 1 {
-			for k := 0; k < sparkCount-4; k++ {
-				ang := auraHash(seed, k, 1, fc) * 2 * math.Pi
-				rr := auraHash(seed, k, 2, fc) * thick * 1.6
-				r.drawGlowRect(screen, tipX+math.Cos(ang)*rr, tipY+math.Sin(ang)*rr, math.Max(2, thick*0.4), edge, fade*0.85, additiveGlowBlend)
-			}
+		path = func(t float64) (float64, float64) {
+			a := start + (end-start)*t
+			return px + math.Cos(a)*R, py + math.Sin(a)*R
 		}
-		return
+		length = R * math.Abs(end-start)
 	}
-
-	// --- Arc kinds: sword crescent, axe chop, mace smash ---
-	var pivotX, pivotY, R, thetaStart, thetaEnd, thick float64
-	switch s.Kind {
-	case "chop": // heavy diagonal downward chop (upper-right -> lower-left)
-		reach := h * 0.24
-		pivotX, pivotY = cx-reach*0.15, cy-reach*0.1
-		R = reach * 1.25
-		thetaStart, thetaEnd = -1.35, 0.85
-		thick = h * 0.075
-	case "smash": // short, near-vertical overhead bash with an impact flash
-		reach := h * 0.22
-		pivotX, pivotY = cx, cy-reach*0.2
-		R = reach * 1.1
-		thetaStart, thetaEnd = -math.Pi/2-0.3, math.Pi/2
-		thick = h * 0.08
-	default: // "slash": flat, wide crescent across the top (shallow = less curved)
-		reach := h * 0.22
-		pivotX, pivotY = cx, cy+reach*0.95
-		R = reach * 1.7
-		thetaStart, thetaEnd = -math.Pi/2-0.6, -math.Pi/2+0.6
-		thick = h * 0.06
+	r.drawDissolveStroke(screen, dissolveStroke{
+		path: path, width: func(t float64) float64 { return thick * (.25 + .75*math.Sin(math.Pi*t)) },
+		color: func(t float64) [3]int { return mixColor(col, edge, t*.4) }, alpha: func(t float64) float64 { return .6 + .3*t },
+		length: length, seed: seed, salt: 10, blend: additiveGlowBlend,
+	}, lead, progress)
+	tipX, tipY := path(lead)
+	angle := tangentAt(path, lead)
+	if s.Kind == "slash" || s.Kind == "chop" {
+		angle -= math.Pi / 2
 	}
-
-	curTheta := thetaStart + (thetaEnd-thetaStart)*lead
-
-	// Shaped ribbon along the swept arc [start ... current]. Two offset rows make a
-	// fuller, juicier blade-streak than a single line. Thick in the middle, thin
-	// at the ends; brighter at the leading edge; fades slowly via `fade`.
-	const n = 26
-	for k := 0; k < n; k++ {
-		tf := float64(k) / float64(n-1) // 0 start -> 1 leading edge
-		theta := thetaStart + (curTheta-thetaStart)*tf
-		w := thick * (0.3 + 0.7*math.Sin(math.Pi*tf))
-		a := fade * (0.4 + 0.6*tf)
-		cosT, sinT := math.Cos(theta), math.Sin(theta)
-		c := mixColor(col, edge, tf)
-		for _, off := range [2]float64{-0.25, 0.25} {
-			rr := R + off*w
-			r.drawGlowSprite(screen, pivotX+cosT*rr, pivotY+sinT*rr, math.Max(2, w*0.7), c, a, additiveGlowBlend)
+	if progress < .65 {
+		headSize := h * .065
+		if s.Kind == "stab" {
+			headSize *= .62
 		}
+		r.drawWeaponHead(screen, s.Kind, tipX, tipY, angle, headSize, col, fade)
 	}
-
-	// Sparks off the leading edge during the sweep.
-	tipX := pivotX + math.Cos(curTheta)*R
-	tipY := pivotY + math.Sin(curTheta)*R
-	if sweepT < 1 {
-		for k := 0; k < sparkCount; k++ {
-			ang := auraHash(seed, k, 3, fc) * 2 * math.Pi
-			rr := auraHash(seed, k, 4, fc) * thick * 1.7
-			r.drawGlowRect(screen, tipX+math.Cos(ang)*rr, tipY+math.Sin(ang)*rr, math.Max(2, thick*0.3), edge, fade*0.9, additiveGlowBlend)
+	if sweepT >= 1 {
+		u := (progress - meleeSweepFrac) / (1 - meleeSweepFrac)
+		count := 9
+		shardScale := 1.0
+		if s.Kind == "stab" {
+			count, shardScale = 5, .48
 		}
-	}
-
-	// Mace: heavy impact flash where the swing lands.
-	if s.Kind == "smash" && sweepT >= 1 {
-		r.drawGlowSprite(screen, tipX, tipY, thick*2.4*fade+thick, edge, fade*0.85, additiveGlowBlend)
+		if s.Kind == "smash" || s.Kind == "chop" {
+			count = 15
+		}
+		if s.Crit {
+			count += 5
+		}
+		for k := 0; k < count; k++ {
+			a := -math.Pi*.5 + (auraHash(seed, k, 31, 0)-.5)*4.5
+			speed := h * (.12 + .18*auraHash(seed, k, 32, 0))
+			x, y := tipX+math.Cos(a)*speed*u, tipY+math.Sin(a)*speed*u+h*.18*u*u
+			r.drawWeaponShard(screen, x, y, h*shardScale*(.01+.009*auraHash(seed, k, 33, 0)), mixColor(col, edge, auraHash(seed, k, 34, 0)), .8*math.Sqrt(fade), u, seed+k*37, false)
+		}
+		if s.Kind == "smash" {
+			r.arenaImpactCloud(screen, tipX, tipY, u, h*.25, .45, col, fade)
+		}
 	}
 }

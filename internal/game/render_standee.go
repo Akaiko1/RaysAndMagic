@@ -14,10 +14,10 @@ import (
 // Standee rendering: an entity drawn as a thick wooden token standing in the
 // world (a board-game standee) instead of a camera-facing billboard. The token
 // is a slab: front and back sticker faces (the sprite, mirrored on the back)
-// separated by a wooden core. Each screen column whose ray crosses a surface
-// gets a 1px texture slice at the intersection's perpendicular depth, so the
-// near edge renders larger than the far edge, the core rim becomes visible at
-// viewing angles, and walls occlude per column via the wall depth buffer.
+// separated by a wooden core. Sampling follows the perpendicular depth of each
+// column's ray intersection; adjacent columns share geometry where wall clipping
+// permits it. The near edge renders larger than the far edge, the core rim stays
+// visible at viewing angles, and walls occlude through the wall depth buffer.
 
 const (
 	standeeCoreShade    = 0.92 // token rim sits just out of the light vs the face
@@ -533,29 +533,6 @@ func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *mip
 	return r.cacheStandeeMipChain(key, src, cpuLevel)
 }
 
-// Ebitengine chooses one integer mip level for an entire DrawTriangles call.
-// That is correct spatial filtering, but a moving token visibly jumps between
-// sharp and soft levels because the engine does not trilinearly blend them.
-// Images 1 and 2 are adjacent sticker levels, image 3 is the selected core
-// level, and image 0 is the full-size coordinate reference. In pixel mode Kage
-// adjusts only atlas origins for imageSrcNAt, so these helpers explicitly map
-// full-size coordinates into each level before sampling.
-//
-//ebitengine:shadersource
-const standeeTrilinearShaderSrc = standeeSamplingShaderSrc + `func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
-	// custom.y selects near sticker, core, or far sticker. custom.w carries
-	// the major-axis footprint (negative for vertical minification).
-	if custom.y > 1.5 {
-		return stickerAt(srcPos, custom.x) * color
-	}
-	if custom.y > 0.5 {
-		return sampleLinear3(srcPos) * color
-	}
-	footprint := vec2(max(custom.w, 0.0), max(-custom.w, 0.0))
-	return nearStickerAt(srcPos, custom.z > 0.0, custom.x, footprint) * color
-}
-`
-
 func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
 	if r.standeeTrilinearShader != nil {
 		return r.standeeTrilinearShader, nil
@@ -567,100 +544,6 @@ func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
 	r.standeeTrilinearShader = shader
 	return shader, nil
 }
-
-// The crossed-standee volume shader composites the exact shell stack in one
-// fragment invocation. It receives all per-slab data through vertices so
-// successive trees with the same texture remain batchable:
-//
-//	custom.xy  far/near reciprocal perpendicular depth
-//	custom.zw  far/near source U divided by depth
-//	srcPos.xy  height/bottom projection invariants
-//	color      brightness, wall depth, wall top, shell count
-//
-// Geometry covers the projected union of both outer faces. Every virtual
-// layer reconstructs the same perspective height, source coordinate, wall
-// clipping, shade, and front-to-back alpha blend as the physical shell path.
-//
-//ebitengine:shadersource
-const standeeVolumeShaderSrc = standeeSamplingShaderSrc + `func sourcePosition(dstY float, depth float, u float, heightScale float, bottomScale float) (vec2, bool) {
-	if depth <= 0.0 || u < 0.0 || u > 1.0 {
-		return vec2(0), false
-	}
-	height := heightScale / depth
-	bottom := imageDstSize().y/2.0 + bottomScale/depth
-	v := (dstY - (bottom - height)) / height
-	if v < 0.0 || v > 1.0 {
-		return vec2(0), false
-	}
-	size := imageSrc0Size()
-	local := vec2(min(u*size.x, size.x-1.0)+0.5, v*(size.y-1.0)+0.5)
-	return local + imageSrc0Origin(), true
-}
-
-func tinted(c vec4, brightness float, shade float) vec4 {
-	return vec4(c.rgb*brightness*shade, c.a)
-}
-
-func addFront(acc vec4, c vec4) vec4 {
-	return acc + c*(1.0-acc.a)
-}
-
-func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
-	farDepth := 1.0/custom.x
-	nearDepth := 1.0/custom.y
-	farU := custom.z*farDepth
-	nearU := custom.w*nearDepth
-	projection := srcPos - imageSrc0Origin()
-	dstY := dstPos.y - imageDstOrigin().y
-	wallDepth := color.g
-	wallTop := color.b
-	packed := color.a
-	shellCount := floor(packed)
-	filterData := fract(packed)
-	filtered := filterData >= 0.125
-	mipBlend := clamp((filterData-0.25)/0.5, 0.0, 1.0)
-	acc := vec4(0)
-	// Evaluate the derivative before any coverage-dependent branch.
-	footprint := vec2(abs(dfdx(nearU))*imageSrc0Size().x, 0)
-	vertical := nearDepth / projection.x * imageSrc0Size().y
-	if vertical > footprint.x {
-		footprint = vec2(0, vertical)
-	}
-
-	if nearDepth < wallDepth || dstY < wallTop {
-		if p, ok := sourcePosition(dstY, nearDepth, nearU, projection.x, projection.y); ok {
-			acc = addFront(acc, tinted(nearStickerAt(p, filtered, mipBlend, footprint), color.r, 1.0))
-		}
-	}
-	if acc.a >= 0.999 {
-		return acc
-	}
-
-	for i := 0; i < 16; i++ {
-		if float(i) < shellCount && acc.a < 0.999 {
-			f := (shellCount - float(i)) / (shellCount + 1.0)
-			depth := mix(farDepth, nearDepth, f)
-			u := mix(farU, nearU, f)
-			if depth < wallDepth || dstY < wallTop {
-				if p, ok := sourcePosition(dstY, depth, u, projection.x, projection.y); ok {
-					shade := 0.75 + (0.92-0.75)*f
-					acc = addFront(acc, tinted(sampleLinear3(p), color.r, shade))
-				}
-			}
-		}
-	}
-	if acc.a >= 0.999 {
-		return acc
-	}
-
-	if farDepth < wallDepth || dstY < wallTop {
-		if p, ok := sourcePosition(dstY, farDepth, farU, projection.x, projection.y); ok {
-			acc = addFront(acc, tinted(stickerAt(p, mipBlend), color.r, 0.75))
-		}
-	}
-	return acc
-}
-`
 
 func (r *Renderer) ensureStandeeVolumeShader() (*ebiten.Shader, error) {
 	if r.standeeVolumeShader != nil {
@@ -1129,11 +1012,10 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		rayX, rayY := standeeRayAtScreenX(screenX, screenW, dirX, dirY, planeX, planeY)
 		return standeeColumnIntersection(cam.X, cam.Y, rayX, rayY, surface.p0x, surface.p0y, surface.dx, surface.dy)
 	}
+	projection := slab.projection(screenH)
 	geometryAt := func(depth float64) (top, bottom float32) {
-		horizon := float64(screenH) / 2
-		height := slab.centerSize * slab.centerDepth / depth
-		bottomF := horizon + (slab.bottomY-horizon)*slab.centerDepth/depth
-		return float32(bottomF - height), float32(bottomF)
+		top, bottom, _ = projection.atInverseDepth(1 / depth)
+		return
 	}
 
 	vertices := r.standeeVerts[:0]
@@ -1152,9 +1034,10 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	farInv, nearInv := 1/f0Depth, 1/n0Depth
 	farInvStep := (1/farEnd - farInv) / spanWidth
 	nearInvStep := (1/nearEnd - nearInv) / spanWidth
-	heightScale := float32(slab.centerSize * slab.centerDepth)
-	bottomScale := float32((slab.bottomY - float64(screenH)/2) * slab.centerDepth)
-	filterData := float32(0)
+	heightScale := float32(projection.heightScale)
+	bottomScale := float32(projection.bottomScale)
+	// The unfiltered case also needs a margin above the integer shell count.
+	filterData := float32(0.0625)
 	if filtered {
 		filterData = 0.25 + 0.5*mipBlend
 	}
@@ -1263,8 +1146,8 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 // [clipMinX,clipMaxX] (-1 disables - crossed trees split the draw at the planes'
 // crossover column so each arm draws far->near). All far sticker, core-shell
 // and near-sticker triangles are submitted in painter order through one shader
-// call. This preserves the old geometry and blending while avoiding a separate
-// Ebitengine/GPU command for every physical shell.
+// call. Wide perspective-correct strips avoid rebuilding geometry per column;
+// narrow clips and near-plane cases retain individual column intersections.
 func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab, clipMinX, clipMaxX int) {
 	minX, maxX := slab.minX, slab.maxX
 	if clipMinX >= 0 && clipMinX > minX {
@@ -1278,7 +1161,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	}
 
 	screenW := r.game.worldWidth()
-	horizon := float64(r.game.worldHeight()) / 2
+	projection := slab.projection(r.game.worldHeight())
 	cam := r.game.camera
 	basis := r.cameraBasis()
 	camDirX, camDirY := basis.dirX, basis.dirY
@@ -1290,7 +1173,6 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 
 	centerSize := slab.centerSize
 	centerDepth := slab.centerDepth
-	bottomY := slab.bottomY
 	// All slab surfaces are parallel and separated only by its tiny physical
 	// thickness. Measure the outer faces once and use the smaller projection as
 	// the conservative mip footprint for every sticker/core layer; doing the
@@ -1354,8 +1236,8 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	if filtered {
 		filteredFlag = 1
 	}
-	// A subpixel face cannot support the volume shader's interpolation of
-	// boundary depths/UVs. Use exact pixel-centre intersections in that case.
+	// Very thin faces retain per-surface material coverage. That path chooses
+	// spans or individual columns independently from this projected-width gate.
 	if projectedWidth >= 2 && canUseStandeeVolume(slab) &&
 		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered) {
 		return
@@ -1378,9 +1260,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		return standeeRayAtScreenX(screenX, screenW, camDirX, camDirY, planeX, planeY)
 	}
 	geometryAt := func(t float64) (top, bottom, height float32) {
-		height = float32(centerSize * centerDepth / t)
-		bottom = float32(horizon + (bottomY-horizon)*centerDepth/t)
-		return bottom - height, bottom, height
+		return projection.atInverseDepth(1 / t)
 	}
 
 	for surfaceIndex := slab.firstSurface; surfaceIndex < len(slab.surfaces); surfaceIndex++ {
@@ -1396,6 +1276,19 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		cr := slab.rr * sf.shade * opacity
 		cg := slab.gg * sf.shade * opacity
 		cb := slab.bb * sf.shade * opacity
+		layerMode := float32(0)
+		if sf.mipKey.layer == standeeMipCore {
+			layerMode = 1
+		} else if surfaceIndex != len(slab.surfaces)-1 {
+			layerMode = 2
+		}
+		material := ebiten.Vertex{ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity,
+			Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint}
+		var spanned bool
+		verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, minX, maxX, material, stickerMips.levels[0].Bounds().Min)
+		if spanned {
+			continue
+		}
 		textureX := func(u float64) float32 {
 			if u < 0 {
 				u = 0
@@ -1445,12 +1338,6 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			}
 			x0, x1 := float32(x), float32(x+1)
 			srcX := textureX(u)
-			layerMode := float32(0)
-			if sf.mipKey.layer == standeeMipCore {
-				layerMode = 1
-			} else if surfaceIndex != len(slab.surfaces)-1 {
-				layerMode = 2
-			}
 			base := uint32(len(verts))
 			verts = append(verts,
 				ebiten.Vertex{DstX: x0, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity, Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint},

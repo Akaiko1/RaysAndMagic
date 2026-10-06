@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"ugataima/internal/spells"
 )
 
@@ -109,21 +108,6 @@ func (g *MMGame) phaseOwnsBuff(id string) bool {
 	return false
 }
 
-func (g *MMGame) buffStatusTooltip(s *UtilitySpellStatus) []string {
-	label := s.Label
-	if label == "" {
-		label = spellDisplayName(s.SpellID)
-	}
-	if g.phaseOwnsBuff(string(s.SpellID)) {
-		boundary := "dusk"
-		if g.dayNightIsNight {
-			boundary = "dawn"
-		}
-		return []string{label, "Celestial Providence", "Until " + boundary}
-	}
-	return []string{label, g.partyBuffDurationLabel(s.Duration), "Double-click to dispel"}
-}
-
 // Providence belongs to the calendar phase, regardless of combat mode. Its
 // source already survives saves and is replaced by an ordinary same-spell cast.
 func (g *MMGame) remainingBuffFrames(source string, remaining, elapsed int) int {
@@ -133,21 +117,9 @@ func (g *MMGame) remainingBuffFrames(source string, remaining, elapsed int) int 
 	return max(0, remaining-elapsed)
 }
 
-func (g *MMGame) partyBuffDurationLabel(frames int) string {
-	tps := max(1, g.config.GetTPS())
-	if g.turnBasedMode {
-		round := g.combatRoundFrames()
-		turns := (max(0, frames) + round - 1) / round
-		if turns == 1 {
-			return "1 turn remaining"
-		}
-		return fmt.Sprintf("%d turns remaining", turns)
-	}
-	return fmt.Sprintf("%.1fs remaining", float64(frames)/float64(tps))
-}
-
 func (g *MMGame) tickPartyBuffsTurn() {
 	frames := g.combatRoundFrames()
+	g.tickDeviceCooldowns(frames)
 	g.tickCombatBuffsTurn(frames)
 	g.advanceStatBuffs(frames)
 	g.advanceUtilityBuffs(frames)
@@ -160,6 +132,7 @@ func (g *MMGame) tickPartyBuffsTurn() {
 // new game; save load overwrites these via their restore* counterparts.
 func (g *MMGame) resetTimedEffects() {
 	g.partyRoot = PartyRootState{}
+	g.partyHinder = PartyHinderState{}
 	g.alchemy = AlchemyState{}
 	g.harvestRuntime = harvestRuntime{}
 	g.spatialReuseFrames = 0
@@ -167,8 +140,8 @@ func (g *MMGame) resetTimedEffects() {
 	g.rareBookMessage = ""
 	g.brewAnimation = nil
 	g.statBuffs = nil
-	g.recomputeStatBonuses()
 	g.combatBuffs = nil
+	g.recomputeStatBonuses()
 	g.celestialBuffSpellID = ""
 	g.persistentDamageZones = nil
 	g.nextPersistentDamageZoneFieldID = 0

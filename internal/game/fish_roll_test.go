@@ -11,7 +11,8 @@ import (
 // certain probabilities make the cadence, tile count and overlapping flights
 // deterministic without replacing the production random source.
 func TestFishIndependentTileRolls(t *testing.T) {
-	for _, region := range []string{"forest", "sakura_garden", "highlands"} {
+	for _, species := range authoredFishSpecies(t) {
+		region := species.region
 		for _, tb := range []bool{false, true} {
 			for _, chance := range []float64{0, 1} {
 				t.Run(fmt.Sprintf("%s/TB=%v/chance=%g", region, tb, chance), func(t *testing.T) {
@@ -23,12 +24,12 @@ func TestFishIndependentTileRolls(t *testing.T) {
 					if count != 2 {
 						t.Fatalf("expected two connected water cells, got %d", count)
 					}
-					for i := 0; i < 119; i++ {
+					for i := 0; i < f.RollEveryFrames-1; i++ {
 						g.frameCount++
 						g.updateFish()
 					}
 					if len(g.world.Monsters) != 0 {
-						t.Fatal("fish spawned before frame 120")
+						t.Fatalf("fish spawned before frame %d", f.RollEveryFrames)
 					}
 					g.frameCount++
 					g.updateFish()
@@ -36,7 +37,7 @@ func TestFishIndependentTileRolls(t *testing.T) {
 					if len(g.world.Monsters) != want {
 						t.Fatalf("first roll: got %d, want %d", len(g.world.Monsters), want)
 					}
-					for i := 0; i < 120; i++ {
+					for i := 0; i < f.RollEveryFrames; i++ {
 						g.frameCount++
 						g.updateFish()
 					}

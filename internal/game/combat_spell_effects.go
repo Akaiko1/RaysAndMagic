@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"ugataima/internal/character"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
 
@@ -36,11 +37,12 @@ func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellTy
 	return 0
 }
 
-// effectiveSpellCost applies a Grandmaster meditator's flat percent spell-cost
-// reduction. Single source used by every SP check/deduction site.
+// effectiveSpellCost applies a Grandmaster meditator's percent spell-cost
+// reduction, rounded to the nearest SP so a cheap spell is never made free.
+// Single source used by every SP check/deduction site.
 func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCost int) int {
 	if caster != nil && caster.SkillTier(character.SkillMeditation) >= int(character.MasteryGrandMaster) {
-		baseCost = baseCost * (100 - MeditationGMSpellCostReductionPct) / 100
+		baseCost = (baseCost*(100-MeditationGMSpellCostReductionPct) + 50) / 100
 	}
 	return baseCost
 }
@@ -54,9 +56,9 @@ func (cs *CombatSystem) CalculatePersistentDamageZoneTickDamage(def spells.Spell
 	return character.SpellDamageBreakdown(def, char).Total
 }
 
-// CalculateInfernoDamage returns the whole normal-fire nova payload. Inferno
-// has explicit YAML mastery scaling and never converts any part to true damage.
-func (cs *CombatSystem) CalculateInfernoDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
+// CalculatePartyNovaDamage returns a party nova's whole payload (Inferno,
+// Earthquake): its YAML mastery scaling, never converted to true damage.
+func (cs *CombatSystem) CalculatePartyNovaDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
 	return character.SpellDamageBreakdown(def, char).Total
 }
 
@@ -81,7 +83,7 @@ func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.
 	if result := cs.tryCastSummon(def, caster); result != castNotHandled {
 		return result
 	}
-	if cs.tryCastInferno(def, caster) {
+	if cs.tryCastPartyNova(def, caster) {
 		return castCommitted
 	}
 	if result := cs.tryCastPersistentDamageZone(spellID, def, caster); result != castNotHandled {
@@ -99,15 +101,15 @@ func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.
 	return cs.tryCastAwaken(def, caster)
 }
 
-// tryCastInferno handles party-centered nova spells (Inferno): every monster AND
-// every party member takes the spell's full damage (cost x SpellDamagePerSP).
-// MapWide burns the ENTIRE current map - no radius; the party always burns too
-// (fire resistance is the intended answer). Gated on either trigger field.
-func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *character.MMCharacter) bool {
+// tryCastPartyNova handles the novas centered on the party (Inferno,
+// Earthquake): every monster in reach takes the spell's full damage, and the
+// party does too unless the spell spares it (Earthquake). MapWide reaches the
+// whole current region - no radius. Gated on either trigger field.
+func (cs *CombatSystem) tryCastPartyNova(def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if def.PartyAoeRadiusTiles <= 0 && !def.MapWide {
 		return false
 	}
-	dmg := cs.CalculateInfernoDamage(def, caster)
+	dmg := cs.CalculatePartyNovaDamage(def, caster)
 	radius := math.Inf(1) // MapWide: every monster on the map
 	if !def.MapWide {
 		radius = def.PartyAoeRadiusTiles * float64(cs.game.config.GetTileSize())
@@ -116,42 +118,41 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 	damageTypeStr := normalizeDamageTypeStr(def.School)
 	// The nova's packet goes through the SAME builder as projectiles, zones and
 	// mortars (spellDamageParts), so Strong Magic and any future packet-level
-	// modifier reach it - a direct CalculateInfernoDamage total would silently
+	// modifier reach it - a direct CalculatePartyNovaDamage total would silently
 	// bypass them while the cast still pays their price.
 	monsterParts := cs.spellDamageParts(def.ID, caster, dmg)
 	monsterParts, _ = cs.spellPartsWithOutgoingBuff(monsterParts, damageTypeStr)
 	resistPierce := cs.spellResistPierce(caster, string(def.ID))
 	attack := cs.newPartyMonsterAttack(monsterParts.Normal, monsterParts.True, damageTypeStr, resistPierce, nil, def.Name, false, true, false)
 
-	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
+	cs.game.logCombat(logToneGood, "%s erupts around the party!", logSchoolWord(def.School, def.Name))
 
 	// Monsters in range. A sealed (dormant) boss is invulnerable and inert -
 	// skip it so the nova neither damages nor wakes it. On the unified world
 	// "the map" is the party's REGION - MapWide must not burn the other four.
+	// It burns what stands there now, wherever the monster was born.
 	regionScoped := def.MapWide && cs.game.openWorldActive()
-	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || isPurePartySummon(m) || m.IsDamageInvulnerable() ||
-			Distance(cx, cy, m.X, m.Y) > radius {
-			continue
-		}
-		if regionScoped && cs.game.questKillMapKey(m) != currentMapKey() {
-			continue
-		}
+	ts := float64(cs.game.config.GetTileSize())
+	hurts := func(m *monsterPkg.Monster3D) bool {
+		return !isPurePartySummon(m) && !m.IsDamageInvulnerable() &&
+			(!regionScoped || cs.game.mapKeyAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) == currentMapKey())
+	}
+	// A nova fills the ground around the party: walls do not shield from it.
+	nova := areaReach{x: cx, y: cy, radius: radius, throughWalls: true}
+	cs.forEachAreaVictim(nova, hurts, func(m *monsterPkg.Monster3D) {
 		if cs.tryDarkElfBindInstead(caster, m) {
-			continue
+			return
 		}
 		dealt := cs.applyPartyMonsterAttack(m, attack)
 		cs.markMonsterHit(m)
 		cs.spawnMonsterHitBurst(m, damageTypeStr)
+		cs.game.logCombat(logToneGood, "%s takes %s from %s! %s", logMonsterName(m), logDamage(dealt.Total(), damageTypeStr),
+			logSchoolWord(damageTypeStr, def.Name), logHP(m.HitPoints, m.MaxHitPoints))
 		if !m.IsAlive() {
 			cs.game.collisionSystem.UnregisterEntity(m.ID)
-			xpAwarded := cs.finishMonsterKill(m)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s is consumed by %s! (+%d XP)", m.Name, def.Name, xpAwarded))
-		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d from %s! (HP: %d/%d)",
-				m.Name, dealt.Total(), def.Name, m.HitPoints, m.MaxHitPoints))
+			cs.finishMonsterKill(m)
 		}
-	}
+	})
 
 	// Ground-shaking novas topple what stands on the shaken ground.
 	if def.StandeeDestroyChance > 0 {
@@ -179,8 +180,8 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition, caster *chara
 		// This is the party's own self-splash, not a hostile spell hit, so Spell
 		// Absorption cannot turn Inferno's drawback into healing.
 		dealt := cs.damagePartyMemberElement(idx, member, partySplash, damageTypeStr, false)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",
-			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
+		cs.game.logCombat(logToneBad, "%s is scorched for %s! %s",
+			logHeroName(member), logDamage(dealt, damageTypeStr), logHP(member.HitPoints, member.MaxHitPoints))
 		cs.game.TriggerPartyFlame(idx) // flame-particle overlay on the burned card
 	})
 	return true
@@ -215,7 +216,7 @@ func (cs *CombatSystem) tryCastRaiseDead(def spells.SpellDefinition, caster *cha
 		hp = 1
 	}
 	target.HitPoints = hp
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is raised to %d HP!", target.Name, hp))
+	cs.game.logCombat(logToneGood, "%s is raised to %s HP!", logHeroName(target), logHealed(hp))
 	return castCommitted
 }
 
@@ -245,8 +246,9 @@ func (cs *CombatSystem) tryCastAwaken(def spells.SpellDefinition, caster *charac
 	return castCommitted
 }
 
-// tryCastResurrect handles the Resurrect spell: restores the first fallen party
-// member (unconscious, dead, or even eradicated) - to full HP if FullHeal.
+// tryCastResurrect handles the Resurrect spell: restores a fallen party member
+// (unconscious, dead, or even eradicated) - to full HP if FullHeal. The
+// eradicated go first in slot order, since nothing else can bring them back.
 // Shared by both cast paths; returns castNoEffect when nobody needs revival.
 func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
 	if !def.Revive {
@@ -257,12 +259,12 @@ func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *cha
 		if m == nil {
 			continue
 		}
-		if m.HasCondition(character.ConditionUnconscious) ||
-			m.HasCondition(character.ConditionDead) ||
-			m.HasCondition(character.ConditionEradicated) ||
-			m.HitPoints <= 0 {
+		if m.HasCondition(character.ConditionEradicated) {
 			target = m
 			break
+		}
+		if target == nil && (m.HasCondition(character.ConditionUnconscious) || m.HasCondition(character.ConditionDead) || m.HitPoints <= 0) {
+			target = m
 		}
 	}
 	if target == nil {
@@ -277,7 +279,7 @@ func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *cha
 	} else if target.HitPoints <= 0 {
 		target.HitPoints = 1
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is restored to life!", target.Name))
+	cs.game.logCombat(logToneGood, "%s is %s!", logHeroName(target), logKeyword("heal", "restored to life"))
 	return castCommitted
 }
 
@@ -290,20 +292,12 @@ func (cs *CombatSystem) tryCastAoeStunBy(spellID spells.SpellID, def spells.Spel
 	frames := def.StunDurationSeconds * cs.game.config.GetTPS()
 	turns := def.StunDurationTurns
 	stunned := 0
-	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || isPurePartySummon(m) {
-			continue
-		}
-		if Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) > radius {
-			continue
-		}
-		if cs.tryDarkElfBindInstead(caster, m) {
-			continue
-		}
-		if cs.applyStunDR(m, turns, frames, false) { // per-target DR; summary printed below
+	hurts := func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) }
+	cs.forEachAreaVictim(cs.partyNova(radius), hurts, func(m *monsterPkg.Monster3D) {
+		if !cs.tryDarkElfBindInstead(caster, m) && cs.applyStunDR(m, turns, frames, false) { // per-target DR; summary printed below
 			stunned++
 		}
-	}
+	})
 	// Flavor lead comes from the spell's own `message:` (Darkness engulfs, a
 	// shockwave rips...); the count suffix is shared.
 	lead := def.Message
@@ -325,12 +319,16 @@ func casterSpellMasteryTier(caster *character.MMCharacter, def spells.SpellDefin
 }
 
 func scaledSpellMasteryValue(def spells.SpellDefinition, caster *character.MMCharacter, base, max int) int {
+	return scaledMasteryValueAt(base, max, casterSpellMasteryTier(caster, def))
+}
+
+// scaledMasteryValueAt interpolates base..max (the *_grandmaster cap) by tier.
+func scaledMasteryValueAt(base, max, tier int) int {
 	if base <= 0 || max <= base {
 		return base
 	}
-	tier := casterSpellMasteryTier(caster, def)
 	gmTier := int(character.MasteryGrandMaster)
-	if tier <= 0 || gmTier <= 0 {
+	if tier <= 0 {
 		return base
 	}
 	if tier > gmTier {
@@ -353,17 +351,8 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	// Party-buff magnitudes may opt into mastery scaling with *_grandmaster
 	// caps; spells without a cap stay flat at their authored base value.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
-	cs.game.addCombatBuff(TimedCombatBuff{
-		SpellID:         string(spellID),
-		Frames:          frames,
-		OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
-		OutDamageType:   def.OutgoingDamageType,
-		InReduce:        scaledIncomingDamageReduction(def, caster),
-		ResistPct:       scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
-		ResistSchool:    def.ResistBuffSchool,
-		ResistSchoolPct: def.ResistBuffSchoolPct,
-	})
-	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))
+	cs.game.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, ""))
+	cs.game.logCombat(logToneGood, "%s empowers the party!", logKeyword("buff", def.Name))
 	cs.game.setUtilityStatus(spellID, frames)
 	return true
 }

@@ -258,174 +258,113 @@ func TestMonsterMoveTurnBased_RoutesToOuterRingWhenAttackPostsAreBlocked(t *test
 	}
 }
 
-// TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons reproduces the
-// real save1 bundle layout, anchored one tile south of the Great River's south
-// arm so it sits on open varzea: party at (40,36), Gorilla Titan at (40,41), and
-// the two Masked Huntress summons spawned by that gorilla at (40,42) and (40,47).
-// The direct route is blocked by deep water, and the nearest summon blocks the
-// first southward escape tile; the TB mover must still follow A* around the
-// water instead of greedily bouncing toward the bank and back.
-func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
+// gorillaTBGame is a synthetic open grid in TB mode with the party on
+// partyTile and a struck, engaged Gorilla Titan (real boss kit, random specials
+// off) on gorillaTile; water tiles are deep water.
+func gorillaTBGame(t *testing.T, width, height int, partyTile, gorillaTile [2]int, water [][2]int) (*MMGame, *GameLoop, *monsterPkg.Monster3D, float64) {
+	t.Helper()
 	cfg := loadTestConfig(t)
-	wm, _ := loadRealWorldForTest(t, cfg, "deep_jungle")
-	w := wm.GetCurrentWorld()
-	if w == nil {
-		t.Fatal("deep_jungle world did not load")
-	}
-
 	tile := float64(cfg.GetTileSize())
+	w := newTestWorldSized(cfg, width, height)
+	for _, c := range water {
+		w.Tiles[c[1]][c[0]] = world.TileDeepWater
+	}
 	g := newTestGame(cfg, w)
 	g.turnBasedMode = true
 	g.combat = NewCombatSystem(g)
-	g.camera.X, g.camera.Y = TileCenterFromTile(40, 36, tile)
-	g.camera.Angle = 1.5707963267948966
-	g.collisionSystem = collision.NewCollisionSystem(w, tile)
-	g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
-
-	at := func(key, id string, tx, ty int) *monsterPkg.Monster3D {
-		x, y := TileCenterFromTile(tx, ty, tile)
-		m := monsterPkg.NewMonster3DFromConfig(x, y, key, cfg)
-		m.ID = id
-		m.WasAttacked = true
-		m.IsEngagingPlayer = true
-		return m
-	}
-
-	gorilla := at("gorilla_titan", "monster_594", 40, 41)
-	gorilla.HitPoints = 822
+	g.camera.X, g.camera.Y = TileCenterFromTile(partyTile[0], partyTile[1], tile)
+	g.collisionSystem.UpdateEntity("player", g.camera.X, g.camera.Y)
+	gorilla := engagedTBPathMonster(g, "gorilla_titan", "monster_594", gorillaTile, tile)
 	gorilla.SummonFirstDone = true
-	disableRandomBossSpecialsForTBPathTest(gorilla)
-	nearSummon := at("masked_huntress", "monster_447", 40, 42)
-	nearSummon.SummonedBy = gorilla.ID
-	farSummon := at("masked_huntress", "monster_446", 40, 47)
-	farSummon.SummonedBy = gorilla.ID
-
-	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
-	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshMonsterAIState() // marks the struck gorilla as BossAggro.
-	for _, m := range w.Monsters {
-		g.refreshMonsterCollisionState(m)
-	}
-
-	gl := &GameLoop{game: g}
-	ptx, pty := g.GetPlayerTilePosition()
-	chebyshev := func() int {
-		tx, ty := int(gorilla.X/tile), int(gorilla.Y/tile)
-		dx, dy := tx-ptx, ty-pty
-		if dx < 0 {
-			dx = -dx
-		}
-		if dy < 0 {
-			dy = -dy
-		}
-		if dy > dx {
-			return dy
-		}
-		return dx
-	}
-	ready := func() bool {
-		mtx, mty := int(gorilla.X/tile), int(gorilla.Y/tile)
-		dx, dy := mtx-ptx, mty-pty
-		if dx < 0 {
-			dx = -dx
-		}
-		if dy < 0 {
-			dy = -dy
-		}
-		if dx <= 1 && dy <= 1 && dx+dy > 0 {
-			return g.collisionSystem.CheckLineOfSight(gorilla.X, gorilla.Y, g.camera.X, g.camera.Y)
-		}
-		if !gorilla.CanPounce() || gorilla.PounceCDTurns != 0 {
-			return false
-		}
-		pounceTiles := int(gorilla.PounceRangePixels / tile)
-		manhattan := dx + dy
-		if manhattan < 2 || manhattan > pounceTiles {
-			return false
-		}
-		for _, c := range [8][2]int{
-			{ptx + 1, pty}, {ptx - 1, pty}, {ptx, pty + 1}, {ptx, pty - 1},
-			{ptx + 1, pty + 1}, {ptx + 1, pty - 1}, {ptx - 1, pty + 1}, {ptx - 1, pty - 1},
-		} {
-			cx, cy := TileCenterFromTile(c[0], c[1], tile)
-			if g.collisionSystem.CanMoveToWithTileOverrides(gorilla.ID, cx, cy, gorilla.WalkableTileOverrides, gorilla.Flying) {
-				return true
-			}
-		}
-		return false
-	}
-
-	startTile := [2]int{40, 41}
-	leftStart := false
-	visited := make([][2]int, 0, 40)
-	for step := 0; step < 40 && !ready(); step++ {
-		gl.monsterMoveTurnBased(gorilla)
-		tx, ty := int(gorilla.X/tile), int(gorilla.Y/tile)
-		cur := [2]int{tx, ty}
-		visited = append(visited, cur)
-		if cur != startTile {
-			leftStart = true
-		}
-		if leftStart && cur == startTile {
-			t.Fatalf("gorilla returned to its start tile after leaving it at step %d; path oscillated, visited=%v", step, visited)
-		}
-	}
-	if !ready() {
-		t.Fatalf("gorilla never reached an attack/pounce staging tile from save1 layout; final tile=(%d,%d), chebyshev=%d, visited=%v",
-			int(gorilla.X/tile), int(gorilla.Y/tile), chebyshev(), visited)
-	}
-	t.Logf("gorilla routed around save1 water/summon layout to attack/pounce staging in %d TB steps: %v", len(visited), visited)
+	disableRandomSpecials(gorilla)
+	return g, &GameLoop{game: g}, gorilla, tile
 }
 
-// TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves
-// reproduces the longer live sequence that exposed the freeze: the gorilla takes
-// the real deep-jungle route through its own pass-through summons, the party
-// kills one, then moves around the lake for several TB rounds.
-// The gorilla must keep advancing or be in a legal attack/pounce staging tile;
-// standing still out of reach means the runtime turn/collision state wedged.
-func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *testing.T) {
-	cfg := loadTestConfig(t)
-	wm, _ := loadRealWorldForTest(t, cfg, "deep_jungle")
-	w := wm.GetCurrentWorld()
-	if w == nil {
-		t.Fatal("deep_jungle world did not load")
+func engagedTBPathMonster(g *MMGame, key, id string, at [2]int, tile float64) *monsterPkg.Monster3D {
+	x, y := TileCenterFromTile(at[0], at[1], tile)
+	m := monsterPkg.NewMonster3DFromConfig(x, y, key, g.config)
+	m.ID = id
+	m.WasAttacked = true
+	m.IsEngagingPlayer = true
+	return m
+}
+
+// ownTBSummon is a summon of boss: pass-through for its own summoner.
+func ownTBSummon(g *MMGame, boss *monsterPkg.Monster3D, id string, at [2]int, tile float64) *monsterPkg.Monster3D {
+	m := engagedTBPathMonster(g, "masked_huntress", id, at, tile)
+	m.SummonedBy = boss.ID
+	return m
+}
+
+// The gorilla is cut off from the party by a river with one ford, with its own
+// summons beside and behind it. The TB mover must follow A* across the ford
+// (summons are pass-through for their summoner) to melee contact instead of
+// bouncing toward the bank and back.
+func TestMonsterMoveTurnBased_GorillaFordsRiverPastOwnSummons(t *testing.T) {
+	const riverRow, fordCol = 5, 12
+	var river [][2]int
+	for x := 0; x < 16; x++ {
+		if x != fordCol {
+			river = append(river, [2]int{x, riverRow})
+		}
 	}
+	g, gl, gorilla, tile := gorillaTBGame(t, 16, 16, [2]int{4, 2}, [2]int{4, 9}, river)
+	nearSummon := ownTBSummon(g, gorilla, "monster_447", [2]int{5, 8}, tile)
+	farSummon := ownTBSummon(g, gorilla, "monster_446", [2]int{4, 13}, tile)
+	g.world.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
+	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+	g.refreshMonsterAIState() // marks the struck gorilla as BossAggro.
+	refreshTBMonsterCollisionState(g)
 
-	tile := float64(cfg.GetTileSize())
-	g := newTestGame(cfg, w)
-	g.turnBasedMode = true
-	g.combat = NewCombatSystem(g)
-	g.camera.X, g.camera.Y = TileCenterFromTile(40, 36, tile)
-	g.camera.Angle = 1.5707963267948966
-	g.collisionSystem = collision.NewCollisionSystem(w, tile)
-	g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
-
-	at := func(key, id string, tx, ty int) *monsterPkg.Monster3D {
-		x, y := TileCenterFromTile(tx, ty, tile)
-		m := monsterPkg.NewMonster3DFromConfig(x, y, key, cfg)
-		m.ID = id
-		m.WasAttacked = true
-		m.IsEngagingPlayer = true
-		return m
+	ptx, pty := g.GetPlayerTilePosition()
+	cur := func() [2]int { return [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)} }
+	start := cur()
+	leftStart, crossed := false, false
+	visited := make([][2]int, 0, 40)
+	for step := 0; step < 40 && chebyshevDistance(cur()[0], cur()[1], ptx, pty) > 1; step++ {
+		gl.monsterMoveTurnBased(gorilla)
+		c := cur()
+		visited = append(visited, c)
+		if c[1] == riverRow && c[0] != fordCol {
+			t.Fatalf("step %d: gorilla entered the river at %v", step, c)
+		}
+		crossed = crossed || c[1] < riverRow
+		if c != start {
+			leftStart = true
+		} else if leftStart {
+			t.Fatalf("gorilla returned to its start tile at step %d; path oscillated, visited=%v", step, visited)
+		}
 	}
+	if chebyshevDistance(cur()[0], cur()[1], ptx, pty) > 1 {
+		t.Fatalf("gorilla never reached melee contact; final tile=%v, visited=%v", cur(), visited)
+	}
+	if !crossed {
+		t.Fatalf("gorilla reached the party without crossing the river - setup is wrong; visited=%v", visited)
+	}
+}
 
-	gorilla := at("gorilla_titan", "monster_594", 40, 41)
-	gorilla.HitPoints = 822
-	gorilla.SummonFirstDone = true
-	disableRandomBossSpecialsForTBPathTest(gorilla)
-	nearSummon := at("masked_huntress", "monster_447", 40, 42)
-	nearSummon.SummonedBy = gorilla.ID
-	farSummon := at("masked_huntress", "monster_446", 40, 47)
-	farSummon.SummonedBy = gorilla.ID
-
-	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
-	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+// TestMonsterTurnBased_GorillaRetargetsAfterSummonDiesAndPartyMoves is the
+// longer live sequence that exposed the freeze: the gorilla advances through
+// its own pass-through summon, the party kills the other one, then walks around
+// a lake for several TB rounds. The gorilla must keep advancing or be in a
+// legal attack/pounce staging tile; standing still out of reach means the
+// runtime turn/collision state wedged.
+func TestMonsterTurnBased_GorillaRetargetsAfterSummonDiesAndPartyMoves(t *testing.T) {
+	var lake [][2]int
+	for y := 7; y <= 10; y++ {
+		for x := 6; x <= 9; x++ {
+			lake = append(lake, [2]int{x, y})
+		}
+	}
+	g, gl, gorilla, tile := gorillaTBGame(t, 16, 20, [2]int{10, 6}, [2]int{10, 11}, lake)
+	nearSummon := ownTBSummon(g, gorilla, "monster_447", [2]int{10, 10}, tile)
+	farSummon := ownTBSummon(g, gorilla, "monster_446", [2]int{10, 16}, tile)
+	g.world.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
+	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
 	refreshTBMonsterCollisionState(g)
 
-	gl := &GameLoop{game: g}
-
-	// Drive only the gorilla through the real route. Own summons are physically
+	// Drive only the gorilla through the route. Own summons are physically
 	// pass-through now, so this must not depend on the old swap-only movement
 	// path; the regression we care about is the later retarget after one dies.
 	startTile := [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
@@ -445,7 +384,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 			int(gorilla.X/tile), int(gorilla.Y/tile))
 	}
 
-	// Simulate the party shooting the displaced summon dead, including the same
+	// Simulate the party shooting the far summon dead, including the same
 	// collision cleanup path the frame loop uses for dead monsters.
 	farSummon.HitPoints = 0
 	g.combat.markMonsterHit(farSummon)
@@ -460,8 +399,8 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 	g.partyActionsUsed = 1 // shooting before moving should grant the anti-kite extra monster pass.
 
 	partyPath := [][2]int{
-		{40, 35}, {39, 35}, {38, 35}, {37, 35}, {36, 35}, {36, 36}, {35, 36},
-		{35, 37}, {35, 38}, {35, 39}, {35, 40},
+		{10, 5}, {9, 5}, {8, 5}, {7, 5}, {6, 5}, {6, 6}, {5, 6},
+		{5, 7}, {5, 8}, {5, 9}, {5, 10},
 	}
 	visited := make([][2]int, 0, len(partyPath)*2)
 	stuckOutOfReach := 0
@@ -533,7 +472,7 @@ func TestMonsterTurnBased_PounceFailFallsThroughToMovement(t *testing.T) {
 	gorilla.WasAttacked = true
 	gorilla.IsEngagingPlayer = true
 	gorilla.SummonFirstDone = true
-	disableRandomBossSpecialsForTBPathTest(gorilla)
+	disableRandomSpecials(gorilla)
 	gorilla.PounceCDTurns = 0
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
@@ -566,38 +505,14 @@ func TestMonsterTurnBased_PounceFailFallsThroughToMovement(t *testing.T) {
 	}
 }
 
-func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves(t *testing.T) {
-	cfg := loadTestConfig(t)
-	wm, _ := loadRealWorldForTest(t, cfg, "deep_jungle")
-	w := wm.GetCurrentWorld()
-	if w == nil {
-		t.Fatal("deep_jungle world did not load")
-	}
-
-	tile := float64(cfg.GetTileSize())
-	g := newTestGame(cfg, w)
-	g.turnBasedMode = true
-	g.combat = NewCombatSystem(g)
-	g.camera.X, g.camera.Y = TileCenterFromTile(35, 40, tile)
-	g.camera.Angle = 1.5707963267948966
-	g.collisionSystem = collision.NewCollisionSystem(w, tile)
-	g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
-
-	gorillaX, gorillaY := TileCenterFromTile(38, 47, tile)
-	gorilla := monsterPkg.NewMonster3DFromConfig(gorillaX, gorillaY, "gorilla_titan", cfg)
-	gorilla.ID = "monster_594"
-	gorilla.HitPoints = 822
-	gorilla.WasAttacked = true
-	gorilla.IsEngagingPlayer = true
-	gorilla.SummonFirstDone = true
-	disableRandomBossSpecialsForTBPathTest(gorilla)
-	w.Monsters = []*monsterPkg.Monster3D{gorilla}
-	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+func TestMonsterTurnBased_GorillaDoesNotFreezeDuringTwentyBackAndForthMoves(t *testing.T) {
+	g, gl, gorilla, tile := gorillaTBGame(t, 12, 14, [2]int{5, 3}, [2]int{8, 10}, nil)
+	g.world.Monsters = []*monsterPkg.Monster3D{gorilla}
+	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
 	refreshTBMonsterCollisionState(g)
 
-	gl := &GameLoop{game: g}
-	bounce := [][2]int{{34, 40}, {35, 40}}
+	bounce := [][2]int{{4, 3}, {5, 3}}
 	visited := make([][2]int, 0, 20)
 	stuckOutOfReach := 0
 	for turn := 0; turn < 20; turn++ {
@@ -624,31 +539,10 @@ func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves
 }
 
 func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageAtLongRange(t *testing.T) {
-	cfg := loadTestConfig(t)
-	wm, _ := loadRealWorldForTest(t, cfg, "deep_jungle")
-	w := wm.GetCurrentWorld()
-	if w == nil {
-		t.Fatal("deep_jungle world did not load")
-	}
-
-	tile := float64(cfg.GetTileSize())
-	g := newTestGame(cfg, w)
-	g.turnBasedMode = true
-	g.combat = NewCombatSystem(g)
-	g.camera.X, g.camera.Y = TileCenterFromTile(35, 40, tile)
-	g.collisionSystem = collision.NewCollisionSystem(w, tile)
-	g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
-
-	gorillaX, gorillaY := TileCenterFromTile(38, 47, tile)
-	gorilla := monsterPkg.NewMonster3DFromConfig(gorillaX, gorillaY, "gorilla_titan", cfg)
-	gorilla.ID = "monster_594"
-	gorilla.HitPoints = 822
-	gorilla.WasAttacked = true
+	g, gl, gorilla, tile := gorillaTBGame(t, 12, 14, [2]int{5, 3}, [2]int{8, 10}, nil)
 	gorilla.IsEngagingPlayer = false // corrupt transient live state; save/load restores this from WasAttacked.
-	gorilla.SummonFirstDone = true
-	disableRandomBossSpecialsForTBPathTest(gorilla)
-	w.Monsters = []*monsterPkg.Monster3D{gorilla}
-	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+	g.world.Monsters = []*monsterPkg.Monster3D{gorilla}
+	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
 	refreshTBMonsterCollisionState(g)
 	if !gorilla.BossAggro {
@@ -659,7 +553,6 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageAtLongRange(
 		t.Fatal("setup failed: gorilla must begin more than seven tiles from the party")
 	}
 
-	gl := &GameLoop{game: g}
 	start := [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
 	runOneMonsterTurn(g, gl)
 	end := [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
@@ -675,16 +568,6 @@ func refreshTBMonsterCollisionState(g *MMGame) {
 	for _, m := range g.world.Monsters {
 		g.refreshMonsterCollisionState(m)
 	}
-}
-
-func disableRandomBossSpecialsForTBPathTest(m *monsterPkg.Monster3D) {
-	if m.EnrageAtHP == 0 {
-		m.EnrageAtHP = 1
-	}
-	m.SummonChance = 0
-	m.SummonMonsters = nil
-	m.TeleportChance = 0
-	m.InfernoChance = 0
 }
 
 func movePartyToTileForTBTest(t *testing.T, g *MMGame, tx, ty int, tile float64) {

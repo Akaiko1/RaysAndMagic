@@ -15,19 +15,6 @@ import (
 // PERFORMANCE MONITOR TESTS (Consolidated)
 // =============================================================================
 
-func TestNewPerformanceMonitor(t *testing.T) {
-	pm := NewPerformanceMonitor()
-
-	if pm == nil {
-		t.Fatal("NewPerformanceMonitor returned nil")
-	}
-
-	// Check that start time is recent
-	if time.Since(pm.startTime) > time.Second {
-		t.Error("Start time should be recent")
-	}
-}
-
 // Percentiles come from the presented-frame interval ring: known intervals in,
 // exact order statistics out; empty and reset states report not-ok.
 func TestFrameTimePercentiles(t *testing.T) {
@@ -150,30 +137,6 @@ func TestWorkerPoolCreation(t *testing.T) {
 	}
 }
 
-func TestWorkerPoolJobExecution(t *testing.T) {
-	wp := core.NewWorkerPool(2)
-	wp.Start()
-	defer wp.Stop()
-
-	var counter int32
-	var wg sync.WaitGroup
-
-	// Submit multiple jobs
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		wp.Submit(func() {
-			atomic.AddInt32(&counter, 1)
-			wg.Done()
-		})
-	}
-
-	wg.Wait()
-
-	if counter != 10 {
-		t.Errorf("Expected counter to be 10, got %d", counter)
-	}
-}
-
 func TestWorkerPoolConcurrentAccess(t *testing.T) {
 	wp := core.NewWorkerPool(4)
 	wp.Start()
@@ -218,32 +181,6 @@ func mockRaycastFunc(rayIndex int) (float64, interface{}) {
 	return distance, tileType
 }
 
-func TestParallelRenderer(t *testing.T) {
-	renderer := rendering.NewParallelRenderer()
-	if renderer == nil {
-		t.Fatal("NewParallelRenderer returned nil")
-	}
-
-	// Test parallel raycast
-	numRays := 100
-	results := renderer.RenderRaycastInto(numRays, func(rayIndex int, result *rendering.RaycastResult) {
-		result.Distance, result.TileType = mockRaycastFunc(rayIndex)
-	})
-
-	if len(results) != numRays {
-		t.Errorf("Expected %d results, got %d", numRays, len(results))
-	}
-
-	// Verify some results
-	for i := 0; i < min(10, len(results)); i++ {
-		expectedDistance, _ := mockRaycastFunc(i)
-
-		if results[i].Distance != expectedDistance {
-			t.Errorf("Ray %d: expected distance %.2f, got %.2f", i, expectedDistance, results[i].Distance)
-		}
-	}
-}
-
 func TestParallelRendererInto(t *testing.T) {
 	renderer := rendering.NewParallelRenderer()
 	const numRays = 100
@@ -255,6 +192,9 @@ func TestParallelRendererInto(t *testing.T) {
 		result.TileType = &payloads[rayIndex]
 	})
 
+	if len(results) != numRays {
+		t.Fatalf("got %d results, want %d", len(results), numRays)
+	}
 	for i := range results {
 		if results[i].Distance != float64(i)*1.5 {
 			t.Fatalf("ray %d distance = %.2f", i, results[i].Distance)
@@ -339,35 +279,6 @@ func (m *MockMonster) IsUpdated() bool {
 // Update() runs on every monster, not the two-phase collision apply.
 func (m *MockMonster) ApplyCollisionUpdate() {}
 
-func TestEntityUpdater(t *testing.T) {
-	updater := entities.NewEntityUpdater()
-	if updater == nil {
-		t.Fatal("NewEntityUpdater returned nil")
-	}
-
-	// Create test monsters
-	monsters := make([]entities.MonsterUpdateInterface, 10)
-	for i := range monsters {
-		monsters[i] = &MockMonster{
-			id:    i,
-			x:     float64(i),
-			y:     float64(i * 2),
-			alive: true,
-		}
-	}
-
-	// Update monsters in parallel
-	updater.UpdateMonstersParallel(monsters)
-
-	// Verify all monsters were updated
-	for i, monster := range monsters {
-		mockMonster := monster.(*MockMonster)
-		if !mockMonster.IsUpdated() {
-			t.Errorf("Monster %d was not updated", i)
-		}
-	}
-}
-
 func TestEntityUpdaterWithDeadMonsters(t *testing.T) {
 	updater := entities.NewEntityUpdater()
 
@@ -394,136 +305,6 @@ func TestEntityUpdaterWithDeadMonsters(t *testing.T) {
 		if shouldBeUpdated != wasUpdated {
 			t.Errorf("Monster %d: expected updated=%v, got updated=%v", i, shouldBeUpdated, wasUpdated)
 		}
-	}
-}
-
-// =============================================================================
-// INTEGRATION TESTS
-// =============================================================================
-
-func TestFullParallelPipeline(t *testing.T) {
-	// Test the complete parallel processing pipeline
-	pm := NewPerformanceMonitor()
-	wp := core.NewWorkerPool(4)
-	wp.Start()
-	defer wp.Stop()
-
-	renderer := rendering.NewParallelRenderer()
-	updater := entities.NewEntityUpdater()
-
-	// Simulate a game frame
-	frameTimer := pm.StartFrame()
-
-	// Create entities
-	monsters := make([]entities.MonsterUpdateInterface, 20)
-	for i := range monsters {
-		monsters[i] = &MockMonster{
-			id:    i,
-			x:     float64(i * 10),
-			y:     float64(i * 15),
-			alive: true,
-		}
-	}
-
-	// Parallel entity updates
-	updater.UpdateMonstersParallel(monsters)
-
-	// Parallel rendering
-	results := renderer.RenderRaycastInto(50, func(rayIndex int, result *rendering.RaycastResult) {
-		result.Distance, result.TileType = mockRaycastFunc(rayIndex)
-	})
-
-	// Some parallel work via the worker pool
-	var workCounter int64
-	for i := 0; i < 100; i++ {
-		wp.Submit(func() {
-			atomic.AddInt64(&workCounter, 1)
-			time.Sleep(time.Microsecond * 50)
-		})
-	}
-	wp.Wait()
-
-	frameTimer.EndFrame()
-
-	// Verify everything completed
-	if len(results) != 50 {
-		t.Errorf("Expected 50 raycast results, got %d", len(results))
-	}
-
-	if atomic.LoadInt64(&workCounter) != 100 {
-		t.Errorf("Expected 100 work units, got %d", workCounter)
-	}
-
-	for i, monster := range monsters {
-		mockMonster := monster.(*MockMonster)
-		if !mockMonster.IsUpdated() {
-			t.Errorf("Monster %d was not updated", i)
-		}
-	}
-
-	// Check performance metrics
-	metrics := pm.GetCurrentMetrics()
-	if metrics.FramesPerSecond <= 0 {
-		t.Error("Expected positive FPS")
-	}
-
-	if pm.frameCount.Load() != 1 {
-		t.Errorf("Expected 1 frame, got %d", pm.frameCount.Load())
-	}
-}
-
-func TestHighLoadConcurrency(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping high-load test in short mode")
-	}
-
-	// Stress test with high concurrency
-	numWorkers := runtime.NumCPU() * 2
-	wp := core.NewWorkerPool(numWorkers)
-	wp.Start()
-	defer wp.Stop()
-
-	pm := NewPerformanceMonitor()
-
-	var totalWork int64
-	numIterations := 1000
-
-	startTime := time.Now()
-
-	// Submit lots of concurrent work
-	for i := 0; i < numIterations; i++ {
-		wp.Submit(func() {
-			// Simulate various types of work
-			frameTimer := pm.StartFrame()
-
-			// Some CPU work
-			sum := 0
-			for j := 0; j < 1000; j++ {
-				sum += j
-			}
-
-			// Update metrics
-			pm.UpdateGameMetrics(uint64(sum), 1, 1)
-
-			frameTimer.EndFrame()
-			atomic.AddInt64(&totalWork, 1)
-		})
-	}
-
-	wp.Wait()
-	duration := time.Since(startTime)
-
-	t.Logf("Completed %d work units in %v", totalWork, duration)
-	t.Logf("Average time per work unit: %v", duration/time.Duration(totalWork))
-
-	if atomic.LoadInt64(&totalWork) != int64(numIterations) {
-		t.Errorf("Expected %d work units, got %d", numIterations, totalWork)
-	}
-
-	// Check that we didn't have any race conditions
-	metrics := pm.GetCurrentMetrics()
-	if metrics.FramesPerSecond < 0 {
-		t.Error("Invalid FPS value, possible race condition")
 	}
 }
 
@@ -564,12 +345,4 @@ func BenchmarkParallelRenderer(b *testing.B) {
 			result.Distance, result.TileType = mockRaycastFunc(rayIndex)
 		})
 	}
-}
-
-// Helper function for min
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

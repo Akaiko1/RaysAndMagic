@@ -1,27 +1,55 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
+// Every equipment set parses with a positive size and every member renders
+// the shared set lines: the set's name and size, then its completed bonus.
 func TestItemSetsParsedAndLinesRender(t *testing.T) {
-	if _, err := LoadItemConfig("../../assets/items.yaml"); err != nil {
+	cfg, err := LoadItemConfig("../../assets/items.yaml")
+	if err != nil {
 		t.Fatalf("load items: %v", err)
 	}
-	for _, key := range []string{"padded", "ringmail"} {
+	weapons, err := LoadWeaponConfig("../../assets/weapons.yaml")
+	if err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	members := map[string][]string{}
+	for key, def := range cfg.Items {
+		if def.Set != "" {
+			members[def.Set] = append(members[def.Set], key)
+		}
+	}
+	for key, def := range weapons.Weapons {
+		if def.Set != "" {
+			members[def.Set] = append(members[def.Set], key)
+		}
+	}
+	if len(cfg.Sets) == 0 {
+		t.Fatal("no item sets parsed")
+	}
+	for key := range cfg.Sets {
 		set := GetItemSet(key)
-		if set == nil {
-			t.Fatalf("item set %q not parsed", key)
+		if set == nil || set.RequiredPieceCount() <= 0 {
+			t.Errorf("set %q parsed as %+v, want a positive piece count", key, set)
+			continue
 		}
-		if set.PiecesRequired != 4 {
-			t.Fatalf("%s pieces_required = %d, want 4", key, set.PiecesRequired)
+		if len(members[key]) == 0 {
+			t.Errorf("set %q has no member items", key)
 		}
-	}
-	def, ok := GetItemDefinition("padded_cap")
-	if !ok || def.Set != "padded" {
-		t.Fatalf("padded_cap set field = %+v", def)
-	}
-	lines := def.SetLines()
-	if len(lines) != 2 {
-		t.Fatalf("padded_cap SetLines = %v, want set name + bonus", lines)
+		for _, member := range members[key] {
+			var lines []string
+			if def, ok := GetItemDefinition(member); ok {
+				lines = def.SetLines()
+			} else {
+				lines = weapons.Weapons[member].SetLines()
+			}
+			if len(lines) != 2 || !strings.Contains(lines[0], set.Name) {
+				t.Errorf("%s SetLines = %v, want set %q + its bonus", member, lines, set.Name)
+			}
+		}
 	}
 }
 

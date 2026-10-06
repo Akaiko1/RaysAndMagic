@@ -55,8 +55,12 @@ func TestStatusHUDCatalog(t *testing.T) {
 					t.Fatalf("%s has a decorated or missing HUD source: %s", key, status.Icon)
 				}
 				if strings.HasPrefix(status.Icon, "status_") {
-					token := config.GlobalSpells.Spells[key]
-					if token == nil || (token.StatusIcon != "bless" && token.StatusIcon != "torch" && token.StatusIcon != "eye" && token.StatusIcon != "water_walk" && token.StatusIcon != "water_breathing") {
+					// Only a known legacy token may keep its dedicated status_* sprite.
+					def := config.GlobalSpells.Spells[key]
+					if def == nil {
+						t.Fatalf("%s copied old art instead of using current content: %s", key, status.Icon)
+					}
+					if legacy, _ := resolveStatusIcon(def.StatusIcon); legacy == def.StatusIcon || legacy != status.Icon {
 						t.Fatalf("%s copied old art instead of using current content: %s", key, status.Icon)
 					}
 				}

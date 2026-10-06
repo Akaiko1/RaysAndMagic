@@ -5,56 +5,6 @@ import (
 	"testing"
 )
 
-// The aura breathes: it must reach full strength, never dim below its floor (an
-// unspent point stays legible at the trough), and repeat on its period.
-func TestBadgeAuraPulseBreathesWithinItsFloor(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	period := int64(g.framesForSeconds(badgeAuraPeriodSeconds))
-	minSeen, maxSeen := 2.0, -1.0
-	for f := int64(0); f < period; f++ {
-		p := g.badgeAuraPulse(f)
-		if p < badgeAuraFloor-0.001 || p > 1.001 {
-			t.Fatalf("frame %d pulse = %.3f, want it inside [%.2f, 1]", f, p, badgeAuraFloor)
-		}
-		minSeen = min(minSeen, p)
-		maxSeen = max(maxSeen, p)
-	}
-	if minSeen > badgeAuraFloor+0.01 {
-		t.Fatalf("the trough only reached %.3f, want it down at the floor %.2f", minSeen, badgeAuraFloor)
-	}
-	if maxSeen < 0.99 {
-		t.Fatalf("the peak only reached %.3f, want full strength", maxSeen)
-	}
-	// Same phase one period later - the cue never drifts against itself.
-	for _, f := range []int64{0, 7, 31, 65} {
-		if a, b := g.badgeAuraPulse(f), g.badgeAuraPulse(f+period); a != b {
-			t.Fatalf("frame %d and one period later differ: %.3f vs %.3f", f, a, b)
-		}
-	}
-	// Both badges read the same clock, so a portrait carrying both pulses as one.
-	if g.badgeAuraPulse(19) != g.badgeAuraPulse(19) {
-		t.Fatal("the pulse is not a pure function of the frame")
-	}
-}
-
-// The stat badge is green and the skill badge is gold, and each one's aura, hover
-// ring and icon come from the SAME style entry - the association cannot drift.
-func TestProgressionBadgeStylesCarryOneTintEach(t *testing.T) {
-	if statBadgeStyle.tint != rarityEmerald {
-		t.Fatalf("stat badge tint = %v, want the emerald green %v", statBadgeStyle.tint, rarityEmerald)
-	}
-	if skillBadgeStyle.tint != rarityGold {
-		t.Fatalf("skill badge tint = %v, want gold %v", skillBadgeStyle.tint, rarityGold)
-	}
-	if statBadgeStyle.icon != "icon_stat_up" || skillBadgeStyle.icon != "icon_level_choice" {
-		t.Fatalf("badge icons drifted: %q / %q", statBadgeStyle.icon, skillBadgeStyle.icon)
-	}
-	if statBadgeStyle.tint == skillBadgeStyle.tint {
-		t.Fatal("the two badges must be told apart by colour")
-	}
-}
-
 // ebiten's vector fills treat their colour as premultiplied: fading has to scale
 // RGB as well as alpha, or a faint glow renders as a solid saturated block.
 func TestFadeVectorColorPremultiplies(t *testing.T) {

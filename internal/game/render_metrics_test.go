@@ -23,21 +23,18 @@ func TestBillboardSizingSingleFormula(t *testing.T) {
 	// Close: both floors are irrelevant - the shared formula must agree exactly.
 	nx, ny := game.camera.X+2*ts, game.camera.Y
 	near := Distance(game.camera.X, game.camera.Y, nx, ny)
-	_, _, personSize, pv := game.renderHelper.NPCSpriteMetrics(person, nx, ny, near)
-	_, _, propSize, sv := game.renderHelper.NPCSpriteMetrics(prop, nx, ny, near)
-	containerX, containerY, contSize, cv := game.renderHelper.CalculateGroundContainerSpriteMetrics(nx, ny, near, 1)
+	personX, personBottom, personSize, pv := game.renderHelper.NPCSpriteMetricsF(person, nx, ny, near)
+	propX, propBottom, propSize, sv := game.renderHelper.NPCSpriteMetricsF(prop, nx, ny, near)
+	contX, contBottom, contSize, cv := game.renderHelper.CalculateGroundContainerSpriteMetricsF(nx, ny, near, 1)
 	if !pv || !sv || !cv {
 		t.Fatal("close-range billboards must be visible")
 	}
 	if personSize != propSize || personSize != contSize {
-		t.Fatalf("close-range sizes diverged: person=%d prop=%d container=%d - the single formula split", personSize, propSize, contSize)
+		t.Fatalf("close-range sizes diverged: person=%.3f prop=%.3f container=%.3f - the single formula split", personSize, propSize, contSize)
 	}
-	containerXF, containerBottomF, containerSizeF, containerFloatVisible := game.renderHelper.CalculateGroundContainerSpriteMetricsF(nx, ny, near, 1)
-	if !containerFloatVisible {
-		t.Fatal("close-range float container metrics must be visible")
-	}
-	if gotX, gotY, gotSize := int(containerXF), int(containerBottomF)-int(containerSizeF), int(containerSizeF); gotX != containerX || gotY != containerY || gotSize != contSize {
-		t.Fatalf("container float/int projections diverged: float=(%d,%d,%d) int=(%d,%d,%d)", gotX, gotY, gotSize, containerX, containerY, contSize)
+	if personX != propX || personX != contX || personBottom != propBottom || personBottom != contBottom {
+		t.Fatalf("close-range anchors diverged: person=(%.3f,%.3f) prop=(%.3f,%.3f) container=(%.3f,%.3f)",
+			personX, personBottom, propX, propBottom, contX, contBottom)
 	}
 
 	// Far: only the per-category minimum pixel floor may differ.

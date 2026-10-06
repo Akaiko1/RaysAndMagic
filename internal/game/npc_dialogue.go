@@ -189,6 +189,11 @@ func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 		return node.Response
 	}
 	d := npc.DialogueData
+	for _, c := range d.Choices {
+		if c.Action == "enter_schedule" {
+			return d.Greeting + "\n" + g.adventureScheduleText(c.Map)
+		}
+	}
 	state := g.npcDialogueState(npc)
 	if message := g.questStepMessage(npc, state); message != "" {
 		return message
@@ -457,6 +462,31 @@ const questPropAction = "prop"
 // at load (prop block <-> action "prop"), a prop row no longer needs to be
 // intercepted ahead of the dispatch.
 var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NPCDialogueChoice){
+	"disarm_environment": func(ih *InputHandler, n *character.NPC, c *character.NPCDialogueChoice) {
+		if !ih.game.sceneInteractionInCurrentRegion(n) {
+			return
+		}
+		ih.game.disarmEnvironment(c.Control)
+		ih.game.closeConversation()
+	},
+	"teach_spell": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) { ih.teachPreparationSpell(c) },
+	"exchange": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		ih.game.exchangePreparation(c)
+	},
+	"enter_schedule": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
+		if err := ih.game.enterAdventureSchedule(c.Map); err != nil {
+			ih.game.AddCombatMessage(err.Error())
+		} else {
+			ih.game.closeConversation()
+		}
+	},
+	"adventure_control": func(ih *InputHandler, n *character.NPC, c *character.NPCDialogueChoice) {
+		if !ih.game.sceneInteractionInCurrentRegion(n) {
+			return
+		}
+		ih.game.useAdventureControl(c.Control)
+		ih.game.closeConversation()
+	},
 	questPropAction: func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleQuestPropInteract(c.QuestID, c.Prop)
 	},
@@ -477,7 +507,7 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 		ih.startEncounter()
 	},
 	"enter_map": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
-		ih.enterEncounterMap(c.Map)
+		ih.enterEncounterMapAt(c.Map, c.ArrivalTile)
 	},
 	"open_door": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.game.openLockedDoor(ih.game.dialogNPC, c.RuntimeOptionIndex)
@@ -523,14 +553,19 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 // plain authored choices that would otherwise keep working: a gated tavern would
 // still rest and heal the party, a gated pit would still run a bout.
 var gatedServiceActions = map[string]bool{
-	"tavern_rest":      true,
-	"buy_food":         true,
-	"open_roster":      true,
-	"manage_stash":     true,
-	"cast_buff":        true,
-	"start_arena_duel": true,
-	"wait_until_night": true, // the arena's paid rest (750g in npcs.yaml)
-	"wait_until_dawn":  true,
+	"teach_spell":        true,
+	"exchange":           true,
+	"enter_schedule":     true,
+	"adventure_control":  true,
+	"disarm_environment": true,
+	"tavern_rest":        true,
+	"buy_food":           true,
+	"open_roster":        true,
+	"manage_stash":       true,
+	"cast_buff":          true,
+	"start_arena_duel":   true,
+	"wait_until_night":   true, // the arena's paid rest (750g in npcs.yaml)
+	"wait_until_dawn":    true,
 }
 
 // choiceSurvivesConclusion reports whether a row outlives the NPC's errand. A
@@ -594,7 +629,7 @@ func npcDialogKindUngated(npc *character.NPC) npcDialogKind {
 		return dialogKindSpellTrader
 	case npcHasSkillTraining(npc):
 		return dialogKindSkillTrainer
-	case (npc.ArenaBoard || npc.FreeGoods) && npcHasChoiceDialog(npc) && npcHasMerchant(npc):
+	case (npc.ArenaBoard || npc.FreeGoods || npc.ShopDialogue) && npcHasChoiceDialog(npc) && npcHasMerchant(npc):
 		// Arena gladiators (authored arena_board: true): dialogue choices + a
 		// points shop + the champions' board in one tabbed dialog. The explicit
 		// flag keeps the board off future shop+choices NPCs.

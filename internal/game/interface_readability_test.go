@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -15,7 +15,7 @@ import (
 
 type itemTooltipCard struct {
 	name           string
-	lines, compare []string
+	lines, compare character.CardRows
 	icon           string
 }
 
@@ -39,49 +39,56 @@ func tooltipCatalog(t *testing.T) (*CombatSystem, []itemTooltipCard) {
 	}
 	var cards []itemTooltipCard
 	for _, it := range catalog {
-		var compare []string
+		var compare character.CardRows
 		if _, ok := ch.EquipDestination(it); ok {
-			if text := GetItemComparisonTooltip(it, ch, cs); text != "" {
-				compare = strings.Split(text, "\n")
+			if text := GetItemComparisonTooltipRows(it, ch, cs); len(text) > 0 {
+				compare = text
 			}
 		}
 		for _, full := range []bool{false, true} {
 			cards = append(cards, itemTooltipCard{
 				name:    fmt.Sprintf("item %s (full=%v)", it.Name, full),
-				lines:   strings.Split(GetItemTooltip(it, ch, cs, full), "\n"),
+				lines:   GetItemTooltipRows(it, ch, cs, full),
 				compare: compare,
 				icon:    itemTooltipIconName(it),
 			})
 		}
 		if key := itemCardKey(it); key != "" {
-			cards = append(cards, itemTooltipCard{name: "card " + key, lines: cardCollectionTooltipLines(cardDef(key))})
+			cards = append(cards, itemTooltipCard{name: "card " + key, lines: cardItemTooltipRows(key, uitext.Text("dialog.double_click_to_remove"))})
 		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(config.GlobalSpells.Spells)) {
 		id := spells.SpellID(key)
-		var compare []string
-		if text := GetSpellComparisonTooltip(id, ch, cs); text != "" {
-			compare = strings.Split(text, "\n")
+		var compare character.CardRows
+		if text := GetSpellComparisonTooltipRows(id, ch, cs); len(text) > 0 {
+			compare = text
 		}
 		for _, full := range []bool{false, true} {
 			cards = append(cards, itemTooltipCard{
 				name:    fmt.Sprintf("spell %s (full=%v)", key, full),
-				lines:   strings.Split(GetSpellTooltip(id, ch, cs, full), "\n"),
+				lines:   GetSpellTooltipRows(id, ch, cs, full),
 				compare: compare,
 				icon:    spellTooltipIconName(id),
 			})
 		}
 	}
 	for _, skill := range character.AllSkills {
-		cards = append(cards, itemTooltipCard{name: "skill " + skill.String(), lines: strings.Split(masteryTooltipTextForSkill(skill), "\n")})
+		cards = append(cards, itemTooltipCard{name: "skill " + skill.String(), lines: masteryTooltipRowsForSkill(skill)})
 	}
 	for _, stat := range []string{"might", "intellect", "personality", "endurance", "accuracy", "speed", "luck"} {
-		cards = append(cards, itemTooltipCard{name: "stat " + stat, lines: strings.Split(statTooltipText(stat), "\n")})
+		cards = append(cards, itemTooltipCard{name: "stat " + stat, lines: statTooltipRows(stat)})
 	}
 	for _, key := range slices.Sorted(maps.Keys(config.GlobalTrapConfig.Traps)) {
-		text := trapTooltip(key, config.GlobalTrapConfig.Traps[key], ch, cs)
-		cards = append(cards, itemTooltipCard{name: "trap " + key, lines: strings.Split(text, "\n")})
+		text := trapTooltipRows(key, config.GlobalTrapConfig.Traps[key], ch, cs)
+		cards = append(cards, itemTooltipCard{name: "trap " + key, lines: text})
 	}
+	for _, key := range slices.Sorted(maps.Keys(config.GlobalSpells.Spells)) {
+		status := &UtilitySpellStatus{SpellID: spells.SpellID(key), Duration: 300 * cs.game.config.GetTPS()}
+		lines, _ := cs.game.buffStatusCardRows(status)
+		cards = append(cards, itemTooltipCard{name: "status " + key, lines: lines, icon: spellTooltipIconName(status.SpellID)})
+	}
+	campLines, _ := cs.game.campStatusCardRows()
+	cards = append(cards, itemTooltipCard{name: "camp", lines: campLines, icon: campHUDSprite})
 	return cs, cards
 }
 
@@ -99,8 +106,8 @@ func TestEveryTooltipFitsEveryInterfaceFrame(t *testing.T) {
 
 func tooltipsFitEveryFrame(t *testing.T, ui *UISystem, cards []itemTooltipCard) {
 	measure := func(c itemTooltipCard, w, h int) (single [2]int, pair tooltipPairGeometry) {
-		ui.tooltipLines, ui.tooltipIcon = c.lines, c.icon
-		ui.tooltipCompareLines, ui.tooltipCompareColors = c.compare, nil
+		ui.tooltipRows, ui.tooltipLines, ui.tooltipIcon = c.lines, c.lines.Lines(), c.icon
+		ui.tooltipCompareRows, ui.tooltipCompareLines, ui.tooltipCompareColors = c.compare, c.compare.Lines(), nil
 		single[0], single[1] = ui.mainTooltipSize(tooltipColumnWidth(w, 1), h)
 		if c.compare != nil {
 			pair = ui.queuedTooltipPairLayout(w, h)

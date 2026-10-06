@@ -43,6 +43,7 @@ type TeleporterLocation struct {
 }
 
 type World3D struct {
+	adventure          *config.AdventureConfig
 	Width              int
 	Height             int
 	Tiles              [][]TileType3D
@@ -50,6 +51,7 @@ type World3D struct {
 	entityFloors       map[[2]int]entityFloor
 	Monsters           []*monster.Monster3D
 	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
+	spawnHomeMap       string              // HomeMap of the authored spawns (respawns reuse it)
 	// MonsterSpawns is the authored roster (retained verbatim) and
 	// LastRespawnDay is the one-based calendar day when it was last spawned -
 	// respawn_days maps (the clock tower) rebuild the roster from it.
@@ -84,40 +86,7 @@ func NewWorld3D(cfg *config.Config) *World3D {
 		OutOfBoundsKey:        "oob_cliff",
 		environmentSpriteSeed: rand.Uint64(),
 	}
-
-	// Note: Map loading is now handled by WorldManager
-	// No longer auto-loading forest.map here to avoid conflicts
-
 	return world
-}
-
-// loadFromMapFile loads the world from the forest.map file. Used by tests
-// that need a deterministic map without going through the world manager.
-func (w *World3D) loadFromMapFile() {
-	// Create map loader
-	mapLoader := NewMapLoader(w.config)
-
-	// Load the forest map
-	mapData, err := mapLoader.LoadForestMap()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to load map file: %v", err))
-	}
-
-	// Use loaded map data
-	w.Width = mapData.Width
-	w.Height = mapData.Height
-	w.StartX = mapData.StartX
-	w.StartY = mapData.StartY
-
-	// Copy loaded tiles directly (already converted to TileType3D)
-	w.Tiles = mapData.Tiles
-	w.entityFloors = mapData.entityFloors
-
-	// Load NPCs from map data
-	w.loadNPCsFromMapData(mapData.NPCSpawns)
-
-	// Load monsters from map data (fixed placements only)
-	w.loadMonstersFromMapData(mapData.MonsterSpawns)
 }
 
 // CanProjectileMoveTo reports clearance at projectile/attack height at (x,y).
@@ -335,16 +304,20 @@ func getTeleporterFloat(props map[string]interface{}, key string, fallback float
 // RegisterMonstersWithCollisionSystem registers all monsters with the collision system
 func (w *World3D) RegisterMonstersWithCollisionSystem(collisionSystem *collision.CollisionSystem) {
 	for _, monster := range w.Monsters {
-		// Use the monster's unique ID instead of array index
-
-		// Get monster size from YAML config
-		width, height := monster.GetSize()
-
-		// Map-loaded monsters begin physically walkable. The game later promotes a
-		// party attacker only to a logical attack-post marker, never a blocker.
-		entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, false)
-		collisionSystem.RegisterEntity(entity)
+		collisionSystem.RegisterEntity(w.NewMonsterCollisionEntity(monster, collision.CollisionTypeMonster))
 	}
+}
+
+// NewMonsterCollisionEntity applies the same movement policy to authored,
+// restored and newly spawned actors before their collision registration.
+func (w *World3D) NewMonsterCollisionEntity(m *monster.Monster3D, kind collision.CollisionType) *collision.Entity {
+	width, height := m.GetSize()
+	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, kind, false)
+	if a := w.adventure; a != nil && a.Boss != nil && a.Boss.Monster == m.Key && a.Boss.Arena != nil {
+		b, ts := a.Boss.Arena, float64(w.config.GetTileSize())
+		entity.WithMovementBounds(collision.MovementBounds{Enabled: true, MinX: float64(b[0]) * ts, MinY: float64(b[1]) * ts, MaxX: float64(b[2]+1) * ts, MaxY: float64(b[3]+1) * ts})
+	}
+	return entity
 }
 
 // IsTileBlocking implements the collision.TileChecker interface
@@ -537,9 +510,11 @@ func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 	return float64(tileX)*tileSize + tileSize/2, float64(tileY)*tileSize + tileSize/2
 }
 
-// loadMonstersFromMapData loads monsters from map spawn data
-func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
+// loadMonstersFromMapData loads monsters from map spawn data. homeMap is the
+// map key the spawns belong to; respawns reuse it.
+func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn, homeMap string) {
 	w.MonsterSpawns = monsterSpawns
+	w.spawnHomeMap = homeMap
 	for _, spawn := range monsterSpawns {
 		if w.InitialMonsterKeys == nil {
 			w.InitialMonsterKeys = make(map[string]struct{})
@@ -550,6 +525,7 @@ func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
 
 		// Create monster from YAML configuration
 		newMonster := monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config)
+		newMonster.HomeMap = homeMap
 		w.Monsters = append(w.Monsters, newMonster)
 	}
 }
@@ -569,7 +545,9 @@ func (w *World3D) RespawnAuthoredMonsters() {
 	w.Monsters = preserved
 	for _, spawn := range w.MonsterSpawns {
 		worldX, worldY := tileCenterFromTile(spawn.X, spawn.Y, w.config.GetTileSize())
-		w.Monsters = append(w.Monsters, monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config))
+		m := monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config)
+		m.HomeMap = w.spawnHomeMap
+		w.Monsters = append(w.Monsters, m)
 	}
 }
 

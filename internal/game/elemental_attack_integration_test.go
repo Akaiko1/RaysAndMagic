@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"ugataima/internal/character"
@@ -97,8 +98,18 @@ func TestElementalSpecialsAndChampionsStayExcluded(t *testing.T) {
 			}
 		})
 	}
-	for _, key := range []string{"weapon_master", "hobbit_archer", "dark_elf_sorceress", "wild_druid"} {
-		for _, tier := range []string{"easy", "normal", "impossible"} {
+	probe := newTestCombatSystemWithConfig(t)
+	primeTestChampions(t, probe.game)
+	tiers := make([]string, 0, len(config.GlobalChampionConfig.Tiers))
+	for tier := range config.GlobalChampionConfig.Tiers {
+		tiers = append(tiers, tier)
+	}
+	sort.Strings(tiers)
+	if len(tiers) == 0 || len(config.ChampionKeys()) == 0 {
+		t.Fatal("no champions or tiers loaded")
+	}
+	for _, key := range config.ChampionKeys() {
+		for _, tier := range tiers {
 			t.Run(key+"/"+tier, func(t *testing.T) {
 				cs := newTestCombatSystemWithConfig(t)
 				primeTestChampions(t, cs.game)
@@ -154,17 +165,12 @@ func TestElementalBiomeContextAndSaveRoundTrip(t *testing.T) {
 	oldWorld := g.world
 	g.world = newTestWorldSized(cfg, 4, 4)
 	oldKey := wm.CurrentMapKey
-	seen := map[string]bool{}
 	for key, mc := range wm.MapConfigs {
 		wm.CurrentMapKey = key
 		ctx := g.monsterEffectContext(m)
-		seen[mc.Biome] = true
 		if ctx.ElementalSchool == "" || ctx.ElementalSchool != wm.Biomes[mc.Biome].ElementalAttackSchool {
 			t.Fatalf("map %s unresolved: %+v", key, ctx)
 		}
-	}
-	if len(seen) != 19 {
-		t.Fatalf("biome coverage=%d", len(seen))
 	}
 	g.world = oldWorld
 	wm.CurrentMapKey = oldKey

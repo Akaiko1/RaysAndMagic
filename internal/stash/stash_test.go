@@ -1,6 +1,7 @@
 package stash_test
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -9,23 +10,15 @@ import (
 	"ugataima/internal/storage"
 )
 
-// chdirTemp points the storage save dir at a throwaway location so tests never
-// touch the real saves folder. storage.AppSaveDir falls back to cwd/saves when
-// the test binary lives in a go-build temp dir.
-func chdirTemp(t *testing.T) {
+// freshSaveDir gives each test its own empty save dir.
+func freshSaveDir(t *testing.T) {
 	t.Helper()
-	old, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	if err := os.Chdir(t.TempDir()); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(old) })
+	storage.SetDataRootForTesting(t.TempDir())
+	t.Cleanup(func() { storage.SetDataRootForTesting("") })
 }
 
 func TestStash_RoundTrip(t *testing.T) {
-	chdirTemp(t)
+	freshSaveDir(t)
 
 	// A fresh load with no file yields an empty stash, not an error.
 	s, err := stash.Load()
@@ -64,7 +57,7 @@ func TestStash_RoundTrip(t *testing.T) {
 // stash - otherwise the UI opens a blank chest and the next save overwrites the
 // file, permanently losing the deposited items.
 func TestStash_CorruptFileErrors(t *testing.T) {
-	chdirTemp(t)
+	freshSaveDir(t)
 
 	s := &stash.Stash{}
 	s.Slots[0] = items.Item{Name: "Belt of Strength", Type: items.ItemAccessory}
@@ -80,8 +73,32 @@ func TestStash_CorruptFileErrors(t *testing.T) {
 	}
 }
 
-func TestStash_SlotCount(t *testing.T) {
-	if stash.SlotCount != 8 {
-		t.Errorf("SlotCount = %d, want 8 (per the design)", stash.SlotCount)
+// A full chest keeps every general and card slot across a reload.
+func TestStash_FullChestKeepsEverySlot(t *testing.T) {
+	freshSaveDir(t)
+
+	s := &stash.Stash{}
+	for i := range s.Slots {
+		s.Slots[i] = items.Item{Name: fmt.Sprintf("Item %d", i), Type: items.ItemAccessory, InstanceID: uint64(100 + i)}
+	}
+	for i := range s.CardSlots {
+		s.CardSlots[i] = items.Item{Name: fmt.Sprintf("Card %d", i), Type: items.ItemCard, InstanceID: uint64(200 + i)}
+	}
+	if err := stash.Save(s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := stash.Load()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	for i, want := range s.Slots {
+		if got.Slots[i].Name != want.Name || got.Slots[i].InstanceID != want.InstanceID {
+			t.Errorf("slot %d = %+v, want %+v", i, got.Slots[i], want)
+		}
+	}
+	for i, want := range s.CardSlots {
+		if got.CardSlots[i].Name != want.Name || got.CardSlots[i].Type != want.Type || got.CardSlots[i].InstanceID != want.InstanceID {
+			t.Errorf("card slot %d = %+v, want %+v", i, got.CardSlots[i], want)
+		}
 	}
 }

@@ -1,6 +1,8 @@
 package game
 
 import (
+	"math"
+	"sort"
 	"testing"
 
 	"ugataima/internal/character"
@@ -40,6 +42,25 @@ func newSpellCooldownTestSystem(t *testing.T) *CombatSystem {
 	return game.combat
 }
 
+// sortedSpellDefs returns every authored spell definition in key order.
+func sortedSpellDefs(t *testing.T) []spells.SpellDefinition {
+	t.Helper()
+	keys := make([]string, 0, len(config.GlobalSpells.Spells))
+	for key := range config.GlobalSpells.Spells {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	defs := make([]spells.SpellDefinition, 0, len(keys))
+	for _, key := range keys {
+		def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
+		if err != nil {
+			t.Fatalf("load %s: %v", key, err)
+		}
+		defs = append(defs, def)
+	}
+	return defs
+}
+
 // TestSpellCooldownFrames_MatchesAuthoredSeconds checks that at the reference
 // Speed every cooldown-bearing spell's RT cooldown equals its authored
 // cooldown_seconds (xTPS), proving the safety clamp no longer crushes the long
@@ -50,28 +71,20 @@ func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
 	tps := cs.game.config.GetTPS()
 	caster := charWithSpeed(SpellCooldownSpeedRefSpeed)
 
-	cases := []struct {
-		id      string
-		seconds float64
-	}{
-		{"firebolt", 0.8},
-		{"fireball", 1.5},
-		{"deadly_swarm", 1.5},
-		{"charm", 2.0},
-		{"starburst", 3.0},
-		{"inferno", 3.0},
-		{"hot_steam", 3.0},
-		{"stun", 3.0},
-		{"darkness", 4.0},
-		{"resurrect", 5.0},
-	}
-	for _, tc := range cases {
-		want := int(tc.seconds * float64(tps)) // factor == 1.0 at reference speed
-		got := cs.SpellCooldownFrames(caster, spells.SpellID(tc.id))
-		if got != want {
-			t.Errorf("%s: cooldown = %d frames (%.2fs), want %d (%.2fs)",
-				tc.id, got, float64(got)/float64(tps), want, tc.seconds)
+	checked := 0
+	for _, def := range sortedSpellDefs(t) {
+		if def.IsBuff() || def.CooldownSeconds <= 0 {
+			continue
 		}
+		checked++
+		want := int(math.Round(def.CooldownSeconds * float64(tps))) // factor == 1.0 at reference speed
+		if got := cs.SpellCooldownFrames(caster, def.ID); got != want {
+			t.Errorf("%s: cooldown = %d frames (%.2fs), want %d (%.2fs)",
+				def.ID, got, float64(got)/float64(tps), want, def.CooldownSeconds)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no cooldown-bearing spells loaded")
 	}
 }
 
@@ -79,20 +92,18 @@ func TestSpellCooldownFrames_BuffsHaveNoRTCooldown(t *testing.T) {
 	cs := newSpellCooldownTestSystem(t)
 	caster := charWithSpeed(SpellCooldownSpeedRefSpeed)
 
-	for _, id := range []spells.SpellID{
-		"day_of_the_gods", "hour_of_power", "bless", "stone_skin", "heroism", "fire_shield",
-		"torch_light", "wizard_eye", "walk_on_water", "water_breathing", "fly",
-	} {
-		def, err := spells.GetSpellDefinitionByID(id)
-		if err != nil {
-			t.Fatalf("load %s: %v", id, err)
-		}
+	buffs := 0
+	for _, def := range sortedSpellDefs(t) {
 		if !def.IsBuff() {
-			t.Errorf("%s must be category %q", id, spells.SpellCategoryBuff)
+			continue
 		}
-		if got := cs.SpellCooldownFrames(caster, id); got != 0 {
-			t.Errorf("%s RT cooldown = %d, want 0", id, got)
+		buffs++
+		if got := cs.SpellCooldownFrames(caster, def.ID); got != 0 {
+			t.Errorf("%s RT cooldown = %d, want 0", def.ID, got)
 		}
+	}
+	if buffs == 0 {
+		t.Fatalf("no category %q spells loaded", spells.SpellCategoryBuff)
 	}
 }
 

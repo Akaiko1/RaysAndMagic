@@ -45,7 +45,7 @@ func (r *RareClassState) Tick(frames int) {
 
 func AlchemyYield(tier int, family string) int {
 	switch family {
-	case "protective":
+	case "protective", "empowering":
 		return masteryTableValue([4]int{1, 2, 3, 4}, tier)
 	case "revival":
 		return masteryTableValue([4]int{1, 2, 3, 4}, tier)
@@ -102,15 +102,15 @@ func rareSkillDescription(skill SkillType) string {
 		}
 		return "Batch yield - " + strings.Join(yields, "; ") + ". Flasks use common yields."
 	case SkillPharmacology:
-		return fmt.Sprintf("Party potion recovery: HP +%s%% + Intellect/3; SP +%s%%. Best capable active Alchemist; adds to Field Medicine. Revival unchanged.", masteryProgression(PharmacologyHP), masteryProgression(PharmacologySP))
+		return fmt.Sprintf("Party recovery from potions and other restoratives: HP +%s%% + Intellect/3; SP +%s%%. Best capable active Alchemist; adds to Field Medicine. Revival unchanged.", masteryProgression(PharmacologyHP), masteryProgression(PharmacologySP))
 	case SkillBombThrowing:
 		return bombThrowingDescription()
 	case SkillTranslocation:
 		return translocationDescription()
 	case SkillFlowingStaff:
-		return fmt.Sprintf("Moving one tile refills %s staff charges. Each adds +%s%% normal damage and guarantees a critical staff attack. Charges remain until spent.", masteryProgression(FlowingStaffCapacity), masteryProgression(FlowingStaffPct))
+		return fmt.Sprintf("Moving one tile fills the staff to %s charges. Each staff attack, hit or miss, spends one charge for +%s%% normal damage and a guaranteed critical. Charges remain until spent; none build while the Pilgrim cannot act.", masteryProgression(FlowingStaffCapacity), masteryProgression(FlowingStaffPct))
 	case SkillPathfinding:
-		return fmt.Sprintf("Party RT movement speed +%s%%. Best capable active guide only.\n\nGrand Master:\nParty may attack and cast while running.", masteryProgression(PathfindingSpeedPct))
+		return fmt.Sprintf("Party RT movement speed +%s%%. Best capable active guide only.\n\nGrandmaster:\nParty may attack and cast while running.", masteryProgression(PathfindingSpeedPct))
 	}
 	return ""
 }
@@ -163,20 +163,20 @@ func translocationDescription() string {
 			case "phase_veil":
 				effects = append(effects, fmt.Sprintf("dodge +%s%%; %ss", masteryValues(d.Power), masteryValues(d.Duration)))
 			case "quickening":
-				effects = append(effects, fmt.Sprintf("RT recovery -%s%%; TB +%s actions next turn; %ss", masteryValues(d.Power), masteryValues(d.TBPower), masteryValues(d.Duration)))
+				effects = append(effects, fmt.Sprintf("RT recovery -%s%%; TB +%s shared actions each round from the next, at most one extra per hero; %ss", masteryValues(d.Power), masteryValues(d.TBPower), masteryValues(d.Duration)))
 			}
 			if d.SPCost != [4]int{d.SPCost[0], d.SPCost[0], d.SPCost[0], d.SPCost[0]} {
 				effects = append(effects, masteryValues(d.SPCost)+" SP")
 			}
 			if len(effects) > 0 {
-				lines = append(lines, d.Name+": "+strings.Join(effects, "; ")+".")
+				lines = append(lines, fmt.Sprintf("%s (level %d): %s.", d.Name, d.Level, strings.Join(effects, "; ")))
 			}
 		}
 	}
 	if len(lines) == 0 {
 		return "Technique mastery."
 	}
-	return strings.Join(lines, "\n")
+	return "Pilgrim techniques, each from its level:\n" + strings.Join(lines, "\n")
 }
 
 // GrantClassItems grants only active heroes' initial supplies. Benching/loading a

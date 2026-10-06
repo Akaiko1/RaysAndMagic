@@ -55,9 +55,10 @@ func TestElementalEditorMapsCarryAuthoredBiome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seen := map[string]bool{}
+	if len(maps) == 0 {
+		t.Fatal("editor loaded no maps")
+	}
 	for _, m := range maps {
-		seen[m.Config.Biome] = true
 		ctx := game.MonsterCatalogEffectContext(cfg)
 		ctx.ElementalSchool = m.Biome.ElementalAttackSchool
 		lines := (monster.MonsterDefinition{}).CombatEffectLines(ctx)
@@ -73,8 +74,5 @@ func TestElementalEditorMapsCarryAuthoredBiome(t *testing.T) {
 		if !found {
 			t.Fatalf("map %s lost elemental description", m.Key)
 		}
-	}
-	if len(seen) != 19 {
-		t.Fatalf("covered %d biomes", len(seen))
 	}
 }

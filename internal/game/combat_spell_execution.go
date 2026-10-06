@@ -177,6 +177,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 			Crit:               isCrit,
 			DisintegrateChance: disintegrateChance,
 			Owner:              ProjectileOwnerPlayer,
+			AoeTiles:           spellDef.AoeRadiusTiles,
 		}
 		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -214,14 +215,14 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		// the number really applied (e.g. Bless is +5 base, +10 only at GM).
 		isStatBuff := spellDef.StatBonus > 0 || len(spellDef.StatBonuses) > 0
 		var statBuff character.StatBonuses
-		msg := result.Message
+		msg, summary := result.Message, logStyled{"", keywordColors["buff"]}
 		if isStatBuff {
 			statBuff = cs.spellStatBuffBonuses(spellID, caster)
 			if suffix := statBuff.Summary(); suffix != "" {
-				msg = fmt.Sprintf("%s (%s)", strings.TrimSpace(result.Message), suffix)
+				msg, summary.text = strings.TrimSpace(result.Message), " ("+suffix+")"
 			}
 		}
-		cs.game.AddCombatMessage(msg)
+		cs.game.logCombat(logToneGood, "%s%s", msg, summary)
 
 		// Apply healing
 		if spellDef.HealAmount > 0 {
@@ -230,15 +231,17 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 				// Mass Heal: restore every party member.
 				cs.healWholeParty(totalHeal)
 			} else {
-				// Fallback self-heal (mouse-targeted heals go via CastEquippedHealOnTarget).
-				cs.healMember(cs.findCharacterIndex(caster), totalHeal)
+				// Mouse-targeted heals go via CastEquippedHealOnTarget. Cast without a
+				// pointer target, an ally heal takes the most wounded ally, else the caster.
+				target := -1
+				if !spellDef.TargetSelf {
+					target = cs.mostWoundedHealTarget(spellDef, 1)
+				}
+				if target < 0 {
+					target = cs.findCharacterIndex(caster)
+				}
+				cs.healMember(target, totalHeal)
 			}
-		}
-
-		// Town Portal: open the visited-destination picker; the teleport happens
-		// on confirm. The no-destination case was already refused before the SP spend.
-		if spellDef.TownPortal {
-			cs.game.townPortalPickerOpen = true
 		}
 
 		// Stat-buff spells, by DATA (stat_bonus / stat_bonuses), not by ID -
@@ -295,7 +298,7 @@ func (cs *CombatSystem) activateUtilityTimedBuff(
 	if result.WaterBreathing {
 		activate("water_breathing")
 	}
-	if result.VisionRadiusTiles > 0 {
+	if result.Vision {
 		// Torch Light and Wizard Eye have distinct runtime state, so their
 		// authored spell ID selects the matching registry entry.
 		activate(spellID)

@@ -24,7 +24,7 @@ type menuTabSpec struct {
 
 var tabbedMenuTabs = []menuTabSpec{
 	{TabInventory, "Inventory", "(I)"},
-	{TabCharacters, "Characters", "(C)"},
+	{TabCharacters, "Characters", "(P)"},
 	{TabSpellbook, "Spellbook", "(M)"},
 	{TabQuests, "Quests", "(J)"},
 	{TabCards, "Cards", "(K)"},
@@ -45,7 +45,7 @@ func centeredRect(screenW, screenH, w, h int) layoutRect {
 // mainMenuPanelRect is the ESC menu panel for a mode: one source for drawing,
 // hover and clicks.
 func mainMenuPanelRect(screenW, screenH int, mode MainMenuMode) layoutRect {
-	w, h := menuPanelSize(mode)
+	w, h := menuPanelSize(mode, screenW, screenH)
 	return centeredRect(screenW, screenH, w, h)
 }
 

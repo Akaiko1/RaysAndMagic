@@ -1,4 +1,675 @@
 monsters:
+  solstice_ember_elemental:
+    telegraphed_attack:
+      name: "Burning Strip"
+      kind: "strike"
+      school: "fire"
+      shape: "lane"
+      range: 5
+      cooldown_seconds: 8
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 90
+      duration_seconds: 4
+      duration_rounds: 2
+      sustain_damage: 8
+    name: "Ember Elemental"
+    level: 24
+    max_hit_points: 1330
+    armor_class: 28
+    experience: 1500
+    damage_min: 40
+    damage_max: 58
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_ember_elemental"
+    letter: "a"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_fire"]
+    resistances:
+      fire: 60
+      water: -20
+    boss: false
+    projectile_spell: "firebolt"
+    ranged_attack_range: 5
+  solstice_cinder_hound:
+    telegraphed_attack:
+      name: "Cinder Charge"
+      kind: "charge"
+      school: "fire"
+      shape: "lane"
+      range: 3
+      cooldown_seconds: 8
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 115
+    name: "Cinder Hound"
+    level: 23
+    max_hit_points: 1160
+    armor_class: 24
+    experience: 1500
+    damage_min: 36
+    damage_max: 54
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_cinder_hound"
+    letter: "b"
+    box_w: 42
+    box_h: 42
+    size_class: "medium"
+    biomes: ["solstice_fire"]
+    resistances:
+      fire: 40
+      water: -20
+    boss: false
+  solstice_kiln_automaton:
+    telegraphed_attack:
+      name: "Heat Discharge"
+      kind: "strike"
+      school: "fire"
+      shape: "burst"
+      range: 2
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Kiln Automaton"
+    level: 25
+    max_hit_points: 1650
+    armor_class: 42
+    experience: 1500
+    damage_min: 38
+    damage_max: 58
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_kiln_automaton"
+    letter: "c"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_fire"]
+    resistances:
+      physical: 20
+      fire: 40
+      water: -20
+    boss: false
+  solstice_aureth:
+    enrage_at_hp: 787
+    enrage_cooldown_mult: 0.8
+    name: "Aureth"
+    level: 27
+    max_hit_points: 3150
+    armor_class: 44
+    experience: 4000
+    damage_min: 40
+    damage_max: 60
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_aureth"
+    letter: "m"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_fire"]
+    resistances:
+      fire: 70
+      water: -20
+    boss: true
+    projectile_spell: "firebolt"
+    ranged_attack_range: 5
+  solstice_tide_elemental:
+    telegraphed_attack:
+      name: "Slowing Wave"
+      kind: "slow"
+      school: "water"
+      shape: "cone"
+      range: 5
+      cooldown_seconds: 9
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 90
+    name: "Tide Elemental"
+    level: 24
+    max_hit_points: 1300
+    armor_class: 26
+    experience: 1500
+    damage_min: 38
+    damage_max: 56
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_tide_elemental"
+    letter: "a"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_water"]
+    resistances:
+      water: 60
+      fire: -20
+    boss: false
+    projectile_spell: "ice_bolt"
+    ranged_attack_range: 5
+  solstice_cistern_eel:
+    telegraphed_attack:
+      name: "Coiled Frost"
+      kind: "slow"
+      school: "water"
+      shape: "burst"
+      range: 2
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Cistern Eel"
+    level: 23
+    max_hit_points: 1120
+    armor_class: 22
+    experience: 1500
+    damage_min: 34
+    damage_max: 52
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_cistern_eel"
+    letter: "b"
+    box_w: 42
+    box_h: 42
+    size_class: "medium"
+    biomes: ["solstice_water"]
+    resistances:
+      water: 40
+      fire: -20
+    boss: false
+  solstice_flow_automaton:
+    telegraphed_attack:
+      name: "Circulation Shield"
+      kind: "shield"
+      school: "water"
+      shape: "target"
+      range: 3
+      cooldown_seconds: 12
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 0
+      duration_seconds: 6
+      duration_rounds: 2
+    name: "Flow Automaton"
+    level: 25
+    max_hit_points: 1570
+    armor_class: 38
+    experience: 1500
+    damage_min: 36
+    damage_max: 54
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_flow_automaton"
+    letter: "c"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_water"]
+    resistances:
+      physical: 20
+      water: 40
+      fire: -20
+    boss: false
+  solstice_neressa:
+    telegraphed_attack:
+      name: "Undertow Lance"
+      kind: "slow"
+      school: "water"
+      shape: "lane"
+      range: 7
+      cooldown_seconds: 9
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 100
+      below_hp_percent: 25
+    name: "Neressa"
+    level: 27
+    max_hit_points: 3150
+    armor_class: 40
+    experience: 4000
+    damage_min: 38
+    damage_max: 58
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_neressa"
+    letter: "m"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_water"]
+    resistances:
+      water: 70
+      fire: -20
+    boss: true
+    projectile_spell: "ice_bolt"
+    ranged_attack_range: 5
+  solstice_jade_elemental:
+    telegraphed_attack:
+      name: "Anchor Roots"
+      kind: "root"
+      school: "earth"
+      shape: "target"
+      range: 5
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 75
+    name: "Jade Elemental"
+    level: 24
+    max_hit_points: 1390
+    armor_class: 32
+    experience: 1500
+    damage_min: 38
+    damage_max: 56
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_jade_elemental"
+    letter: "a"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_earth"]
+    resistances:
+      earth: 60
+      air: -20
+    boss: false
+    projectile_spell: "rock_blast"
+    ranged_attack_range: 5
+  solstice_shardback_burrower:
+    telegraphed_attack:
+      name: "Shard Cone"
+      kind: "strike"
+      school: "earth"
+      shape: "cone"
+      range: 3
+      cooldown_seconds: 9
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Shardback Burrower"
+    level: 23
+    max_hit_points: 1220
+    armor_class: 35
+    experience: 1500
+    damage_min: 36
+    damage_max: 54
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_shardback_burrower"
+    letter: "b"
+    box_w: 42
+    box_h: 42
+    size_class: "medium"
+    biomes: ["solstice_earth"]
+    resistances:
+      earth: 40
+      air: -20
+    boss: false
+  solstice_anchor_automaton:
+    telegraphed_attack:
+      name: "Ground Shock"
+      kind: "strike"
+      school: "earth"
+      shape: "burst"
+      range: 2
+      cooldown_seconds: 12
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Anchor Automaton"
+    level: 25
+    max_hit_points: 1740
+    armor_class: 46
+    experience: 1500
+    damage_min: 38
+    damage_max: 58
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_anchor_automaton"
+    letter: "c"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_earth"]
+    resistances:
+      physical: 20
+      earth: 40
+      air: -20
+    boss: false
+  solstice_talura:
+    name: "Talura"
+    level: 28
+    max_hit_points: 3480
+    armor_class: 48
+    experience: 4000
+    damage_min: 40
+    damage_max: 60
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_talura"
+    letter: "m"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_earth"]
+    resistances:
+      earth: 70
+      air: -20
+    boss: true
+    projectile_spell: "rock_blast"
+    ranged_attack_range: 5
+  solstice_gale_elemental:
+    flying: true
+    telegraphed_attack:
+      name: "Pressure Front"
+      kind: "push"
+      school: "air"
+      shape: "lane"
+      range: 5
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 80
+    name: "Gale Elemental"
+    level: 24
+    max_hit_points: 1270
+    armor_class: 25
+    experience: 1500
+    damage_min: 38
+    damage_max: 56
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_gale_elemental"
+    letter: "a"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_air"]
+    resistances:
+      air: 60
+      earth: -20
+    boss: false
+    projectile_spell: "lightning"
+    ranged_attack_range: 5
+  solstice_storm_kite:
+    projectile_spell: "sparks"
+    ranged_attack_range: 4
+    flying: true
+    telegraphed_attack:
+      name: "Storm Dive"
+      kind: "charge"
+      school: "air"
+      shape: "lane"
+      range: 3
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 110
+    name: "Storm Kite"
+    level: 23
+    max_hit_points: 1100
+    armor_class: 22
+    experience: 1500
+    damage_min: 34
+    damage_max: 52
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_storm_kite"
+    letter: "b"
+    box_w: 42
+    box_h: 42
+    size_class: "medium"
+    biomes: ["solstice_air"]
+    resistances:
+      air: 40
+      earth: -20
+    boss: false
+  solstice_transfer_automaton:
+    flying: true
+    telegraphed_attack:
+      name: "Charged Core"
+      kind: "strike"
+      school: "air"
+      shape: "target"
+      range: 5
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 120
+    name: "Transfer Automaton"
+    level: 25
+    max_hit_points: 1520
+    armor_class: 36
+    experience: 1500
+    damage_min: 36
+    damage_max: 54
+    alert_radius: 3.2
+    attack_radius: 1
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_transfer_automaton"
+    letter: "c"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_air"]
+    resistances:
+      physical: 20
+      air: 40
+      earth: -20
+    boss: false
+  solstice_vaelith:
+    flying: true
+    name: "Vaelith"
+    level: 28
+    max_hit_points: 3480
+    armor_class: 42
+    experience: 4000
+    damage_min: 40
+    damage_max: 60
+    alert_radius: 3.2
+    attack_radius: 5
+    speed: 1
+    gold_min: 15
+    gold_max: 40
+    sprite: "solstice_vaelith"
+    letter: "m"
+    box_w: 42
+    box_h: 42
+    size_class: "person"
+    biomes: ["solstice_air"]
+    resistances:
+      air: 70
+      earth: -20
+    boss: true
+    projectile_spell: "lightning"
+    ranged_attack_range: 5
+  solstice_sunscarab:
+    telegraphed_attack:
+      name: "Solar Burst"
+      kind: "strike"
+      school: "fire"
+      shape: "burst"
+      range: 2
+      cooldown_seconds: 10
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 100
+    name: "Sunscarab"
+    level: 22
+    max_hit_points: 1000
+    armor_class: 22
+    experience: 1200
+    damage_min: 34
+    damage_max: 50
+    alert_radius: 3
+    attack_radius: 1
+    speed: 1
+    gold_min: 10
+    gold_max: 25
+    sprite: "solstice_sunscarab"
+    letter: "a"
+    box_w: 40
+    box_h: 40
+    size_class: "person"
+    biomes: ["jungle"]
+  solstice_rain_serpent:
+    telegraphed_attack:
+      name: "Coldwater Spit"
+      kind: "slow"
+      school: "water"
+      shape: "target"
+      range: 4
+      cooldown_seconds: 9
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 90
+    name: "Rain Serpent"
+    level: 22
+    max_hit_points: 1000
+    armor_class: 22
+    experience: 1200
+    damage_min: 34
+    damage_max: 50
+    alert_radius: 3
+    attack_radius: 4
+    speed: 1
+    gold_min: 10
+    gold_max: 25
+    sprite: "solstice_rain_serpent"
+    letter: "c"
+    box_w: 40
+    box_h: 40
+    size_class: "person"
+    biomes: ["jungle"]
+    projectile_spell: "ice_bolt"
+    ranged_attack_range: 4
+  solstice_rootbound_sentinel:
+    telegraphed_attack:
+      name: "Binding Roots"
+      kind: "root"
+      school: "earth"
+      shape: "target"
+      range: 3
+      cooldown_seconds: 12
+      cooldown_rounds: 4
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 70
+    name: "Rootbound Sentinel"
+    level: 23
+    max_hit_points: 1200
+    armor_class: 32
+    experience: 1200
+    damage_min: 34
+    damage_max: 50
+    alert_radius: 3
+    attack_radius: 1
+    speed: 1
+    gold_min: 10
+    gold_max: 25
+    sprite: "solstice_rootbound_sentinel"
+    letter: "e"
+    box_w: 40
+    box_h: 40
+    size_class: "person"
+    biomes: ["jungle"]
+  solstice_dusk_moth:
+    flying: true
+    telegraphed_attack:
+      name: "Receding Spark"
+      kind: "retreat"
+      school: "air"
+      shape: "target"
+      range: 4
+      cooldown_seconds: 8
+      cooldown_rounds: 3
+      warning_seconds: 1.25
+      warning_rounds: 1
+      damage_percent: 100
+    name: "Dusk Moth"
+    level: 22
+    max_hit_points: 1000
+    armor_class: 22
+    experience: 1200
+    damage_min: 34
+    damage_max: 50
+    alert_radius: 3
+    attack_radius: 4
+    speed: 1
+    gold_min: 10
+    gold_max: 25
+    sprite: "solstice_dusk_moth"
+    letter: "q"
+    box_w: 40
+    box_h: 40
+    size_class: "person"
+    biomes: ["jungle"]
+    projectile_spell: "lightning"
+    ranged_attack_range: 4
+
   # All radius values are in TILES (1 tile = 64 pixels)
   # alert_radius: detection/aggro range in tiles (minimum 4 for active monsters)
   # attack_radius: attack reach in tiles (typically 1 for melee, 2+ for ranged/reach weapons)
@@ -164,7 +835,7 @@ monsters:
 
   minotaur:
     name: "Minotaur"
-    level: 8
+    level: 13
     max_hit_points: 360
     armor_class: 33
     experience: 532
@@ -188,13 +859,13 @@ monsters:
 
   isis:
     name: "Isis"
-    level: 11
+    level: 15
     max_hit_points: 460
     armor_class: 40
     perfect_dodge: 10
     experience: 920
-    damage_min: 20
-    damage_max: 32
+    damage_min: 24
+    damage_max: 39
     projectile_spell: "lightning"
     ranged_attack_range: 5
     alert_radius: 7
@@ -240,12 +911,12 @@ monsters:
   dragon:
     type: "dragon"
     name: "Dragon"
-    level: 15
-    max_hit_points: 1400
+    level: 23
+    max_hit_points: 1650
     armor_class: 52
     experience: 2000
-    damage_min: 34
-    damage_max: 54
+    damage_min: 42
+    damage_max: 66
     true_damage: 12  # follows the attack school; resistance applies, armor/flat/dodge do not
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "fire"
@@ -277,12 +948,12 @@ monsters:
   dragon_red:
     type: "dragon"
     name: "Dragon"
-    level: 15
-    max_hit_points: 1400
+    level: 23
+    max_hit_points: 1650
     armor_class: 52
     experience: 2000
-    damage_min: 34
-    damage_max: 54
+    damage_min: 42
+    damage_max: 66
     true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "dark"
@@ -311,8 +982,8 @@ monsters:
     type: "dragon"
     name: "Dragon"
     banding: true
-    level: 15
-    max_hit_points: 1500
+    level: 25
+    max_hit_points: 2030
     armor_class: 70            # tankier: melee-only, no ranged attack
     experience: 2000
     damage_min: 36
@@ -343,12 +1014,12 @@ monsters:
   dragon_gold:
     type: "dragon"
     name: "Dragon"
-    level: 15
-    max_hit_points: 1350       # a bit squishier but faster + longer reach
+    level: 23
+    max_hit_points: 1590       # a bit squishier but faster + longer reach
     armor_class: 52
     experience: 2000
-    damage_min: 32
-    damage_max: 52
+    damage_min: 39
+    damage_max: 63
     true_damage: 10  # follows the attack school; resistance applies, armor/flat/dodge do not
     attack_cooldown_multiplier: 0.85
     dragon_breath_chance: 0.33
@@ -376,14 +1047,14 @@ monsters:
       water: -25               # vulnerable to water/ice
 
   # -- Elder Dragons (ELITE) ------------------------------------------------
-  # Summoned ONLY by the four desert statues (dragon_statue_*). Same sprites as
-  # the base dragons but tinted, ~1.5x HP/XP and harder hits. All named "Elder
+  # Summoned ONLY by the four desert statues (dragon_statue_*). Dedicated elder
+  # sprites, ~1.5x HP/XP and harder hits. All named "Elder
   # Dragon" -> type "elder_dragon", which the dragon_slayer quest matches (base
   # wild "Dragon"s never count). No letter/biome: never map-placed or wild-spawned.
   elder_dragon:
     type: "dragon"
     name: "Elder Dragon"
-    level: 18
+    level: 30
     max_hit_points: 3600
     armor_class: 55
     experience: 3000
@@ -401,7 +1072,6 @@ monsters:
     gold_min: 1000
     gold_max: 2500
     sprite: "elder_dragon"
-    tint_color: [0.55, 0.5, 0.5]   # elder onyx cast
     flying: true
     box_w: 48
     box_h: 48
@@ -414,7 +1084,7 @@ monsters:
   elder_dragon_red:
     type: "dragon"
     name: "Elder Dragon"
-    level: 18
+    level: 29
     max_hit_points: 3400
     armor_class: 55
     experience: 3000
@@ -434,7 +1104,6 @@ monsters:
     gold_min: 1000
     gold_max: 2500
     sprite: "elder_dragon_red"
-    tint_color: [1.45, 0.5, 0.5]   # elder crimson cast
     flying: true
     box_w: 48
     box_h: 48
@@ -447,7 +1116,7 @@ monsters:
   elder_dragon_green:
     type: "dragon"
     name: "Elder Dragon"
-    level: 18
+    level: 31
     max_hit_points: 3500
     armor_class: 72
     experience: 3000
@@ -465,7 +1134,6 @@ monsters:
     gold_min: 1000
     gold_max: 2500
     sprite: "elder_dragon_green"
-    tint_color: [0.5, 1.4, 0.5]   # elder viridian cast
     flying: true
     box_w: 48
     box_h: 48
@@ -478,7 +1146,7 @@ monsters:
   elder_dragon_gold:
     type: "dragon"
     name: "Elder Dragon"
-    level: 18
+    level: 29
     max_hit_points: 3300
     armor_class: 55
     experience: 3000
@@ -499,7 +1167,6 @@ monsters:
     gold_min: 1000
     gold_max: 2500
     sprite: "elder_dragon_gold"
-    tint_color: [1.5, 1.3, 0.5]   # elder amber cast
     flying: true
     box_w: 48
     box_h: 48
@@ -553,12 +1220,12 @@ monsters:
 
   alien:
     name: "Alien"
-    level: 5
+    level: 15
     max_hit_points: 500
     armor_class: 38
     experience: 660
-    damage_min: 25
-    damage_max: 35
+    damage_min: 31
+    damage_max: 43
     alert_radius: 6
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "alien_dark_bolt"
@@ -647,8 +1314,8 @@ monsters:
     armor_class: 6     # Light armor, relies on dodge
     perfect_dodge: 20  # 20% chance to completely avoid attacks
     experience: 50
-    damage_min: 12
-    damage_max: 12
+    damage_min: 15
+    damage_max: 15
     fireburst_chance: 0.33
     fireburst_damage_min: 6
     fireburst_damage_max: 18
@@ -675,12 +1342,12 @@ monsters:
   desert_dervish:
     name: "Desert Dervish"
     level: 24
-    max_hit_points: 900
+    max_hit_points: 1130
     armor_class: 32
     perfect_dodge: 20
     experience: 1200
-    damage_min: 40
-    damage_max: 60
+    damage_min: 49
+    damage_max: 73
     alert_radius: 4
     attack_radius: 2
     projectile_weapon: "throwing_knife"
@@ -724,12 +1391,12 @@ monsters:
   # Water-specific monsters
   medusa:
     name: "Medusa"
-    level: 6
+    level: 11
     max_hit_points: 360
     armor_class: 38
     experience: 300
-    damage_min: 15
-    damage_max: 23
+    damage_min: 18
+    damage_max: 28
     alert_radius: 5
     attack_radius: 1
     projectile_spell: "lightning"
@@ -752,7 +1419,7 @@ monsters:
 
   octopus:
     name: "Octopus"
-    level: 5
+    level: 10
     max_hit_points: 330
     armor_class: 20
     experience: 280
@@ -816,8 +1483,8 @@ monsters:
     max_hit_points: 190
     armor_class: 14
     experience: 380
-    damage_min: 16
-    damage_max: 26
+    damage_min: 20
+    damage_max: 32
     perfect_dodge: 10
     projectile_weapon: "hunting_bow"
     ranged_attack_range: 5
@@ -837,7 +1504,7 @@ monsters:
   elf_swordsman:
     name: "Elf Swordsman"
     banding: true
-    level: 9
+    level: 13
     max_hit_points: 320
     armor_class: 32
     experience: 520
@@ -860,7 +1527,7 @@ monsters:
   # L10 - brute. Huge HP, hits hard, slow; resists physical, burns to fire.
   mountain_troll:
     name: "Mountain Troll"
-    level: 10
+    level: 16
     max_hit_points: 480
     armor_class: 34
     experience: 480
@@ -887,8 +1554,8 @@ monsters:
     max_hit_points: 360
     armor_class: 24
     experience: 700
-    damage_min: 16
-    damage_max: 26
+    damage_min: 20
+    damage_max: 32
     projectile_spell: "fireball"
     ranged_attack_range: 5
     alert_radius: 7
@@ -911,12 +1578,12 @@ monsters:
   lich:
     type: "undead"
     name: "Lich"
-    level: 12
+    level: 16
     max_hit_points: 620
     armor_class: 40
     experience: 1300
-    damage_min: 24
-    damage_max: 36
+    damage_min: 29
+    damage_max: 44
     projectile_spell: "darkbolt"
     ranged_attack_range: 5
     alert_radius: 7
@@ -941,7 +1608,7 @@ monsters:
     type: "undead"
     name: "Revenant"
     banding: true
-    level: 10
+    level: 14
     max_hit_points: 420
     armor_class: 32
     experience: 840
@@ -1001,12 +1668,12 @@ monsters:
   lich_king:
     type: "undead"
     name: "Lich King"
-    level: 14
-    max_hit_points: 900
+    level: 21
+    max_hit_points: 950
     armor_class: 52
     experience: 1800
-    damage_min: 32
-    damage_max: 52
+    damage_min: 39
+    damage_max: 63
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
     alert_radius: 8
@@ -1104,7 +1771,7 @@ monsters:
     type: "formless"
     name: "Golden Thief Bug"
     boss: true
-    level: 10
+    level: 18
     max_hit_points: 1200
     armor_class: 55
     perfect_dodge: 20
@@ -1151,8 +1818,8 @@ monsters:
     max_hit_points: 420
     armor_class: 18
     experience: 760
-    damage_min: 26
-    damage_max: 40
+    damage_min: 32
+    damage_max: 49
     piercing_shot_chance: 0.50
     piercing_shot_targets: 2
     projectile_weapon: "tanegashima"
@@ -1182,8 +1849,8 @@ monsters:
     armor_class: 20
     perfect_dodge: 5
     experience: 1200
-    damage_min: 30
-    damage_max: 46
+    damage_min: 37
+    damage_max: 56
     piercing_shot_chance: 0.25
     piercing_shot_targets: 2
     projectile_weapon: "tanegashima"
@@ -1193,13 +1860,12 @@ monsters:
     speed: 1.4
     gold_min: 220
     gold_max: 450
-    sprite: "ashigaru_firelock"
+    sprite: "ronin_marksman"
     letter: "m"
     box_w: 48
     box_h: 48
     size_class: person
     biomes: ["japanese_castle"]
-    tint_color: [1.3, 0.5, 0.45]   # crimson cast: marks the elite apart from the ashigaru (shared sprite)
     resistances:
       mind: 100      # undead: immune to mind
       body: 50       # undead: resist body
@@ -1241,7 +1907,7 @@ monsters:
   vengeful_ningyo:
     type: "undead"
     name: "Vengeful Ningyo"
-    level: 16
+    level: 19
     max_hit_points: 740
     armor_class: 32
     perfect_dodge: 20
@@ -1258,13 +1924,12 @@ monsters:
     speed: 1.9
     gold_min: 260
     gold_max: 560
-    sprite: "ningyo"
+    sprite: "vengeful_ningyo"
     letter: "e"
     box_w: 48
     box_h: 48
     size_class: person
     biomes: ["japanese_castle"]
-    tint_color: [1.2, 0.55, 1.1]   # vengeful violet cast: marks the elite apart from the ningyo (shared sprite)
     resistances:
       mind: 100      # undead: immune to mind
       body: 50       # undead: resist body
@@ -1272,13 +1937,13 @@ monsters:
       light: -50     # undead: vulnerable to light
 
   # Boss: dormant on the throne (visible, inert) until the castle_armory quest
-  # completes, then aggressive - ignores armor, rallies adds, enrages below 480 HP.
+  # completes, then aggressive - ignores armor, rallies adds, enrages at 30% HP.
   old_samurai:
     type: "formless"
     name: "Samurai Warlord"
     boss: true
-    level: 17
-    max_hit_points: 1600
+    level: 24
+    max_hit_points: 1920
     armor_class: 50
     perfect_dodge: 10
     experience: 3500
@@ -1296,7 +1961,7 @@ monsters:
     summon_monsters: ["ashigaru_firelock", "ningyo"]
     summon_count: 2
     summon_max: 4
-    enrage_at_hp: 480
+    enrage_at_hp: 580
     enrage_damage_mult: 1.5
     enrage_cooldown_mult: 0.6
     sprite: "old_samurai"
@@ -1399,12 +2064,12 @@ monsters:
   kitsune_onmyoji:
     name: "Kitsune Onmyoji"
     level: 22
-    max_hit_points: 760
+    max_hit_points: 1080
     armor_class: 24
     perfect_dodge: 10
     experience: 1440
-    damage_min: 28
-    damage_max: 44
+    damage_min: 42
+    damage_max: 66
     projectile_spell: "firebolt"  # foxfire
     ranged_attack_range: 6
     attack_radius: 5
@@ -1435,7 +2100,7 @@ monsters:
     name: "Sakura Jorogumo"
     boss: true
     level: 24
-    max_hit_points: 2200
+    max_hit_points: 2630
     armor_class: 50
     perfect_dodge: 10
     experience: 4000
@@ -1446,7 +2111,7 @@ monsters:
     attack_radius: 1
     alert_radius: 12  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.8
-    enrage_at_hp: 700
+    enrage_at_hp: 840
     enrage_damage_mult: 1.4
     enrage_cooldown_mult: 0.7
     # Calls her fox retainers to the web (shared boss summon kit).
@@ -1529,8 +2194,8 @@ monsters:
     armor_class: 20
     perfect_dodge: 10
     experience: 1400
-    damage_min: 36
-    damage_max: 54
+    damage_min: 44
+    damage_max: 66
     true_damage: 10  # typed physical true damage: bypasses armor/flat/dodge, not resistance
     projectile_weapon: "blowgun"
     ranged_attack_range: 6
@@ -1556,7 +2221,7 @@ monsters:
     banding: true
     type: "human"
     level: 21
-    max_hit_points: 720
+    max_hit_points: 760
     armor_class: 38
     perfect_dodge: 25
     experience: 1640
@@ -1585,12 +2250,12 @@ monsters:
     name: "Masked Hexer"
     type: "human"
     level: 22
-    max_hit_points: 780
+    max_hit_points: 1080
     armor_class: 26
     perfect_dodge: 10
     experience: 2120
-    damage_min: 30
-    damage_max: 46
+    damage_min: 43
+    damage_max: 65
     dispel_chance: 0.10           # 10% to strip a random active party buff on hit
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
@@ -1619,7 +2284,7 @@ monsters:
     name: "Gorilla Titan"
     boss: true
     level: 23
-    max_hit_points: 1700
+    max_hit_points: 1980
     armor_class: 58
     experience: 2600
     damage_min: 49
@@ -1659,7 +2324,7 @@ monsters:
     name: "Orc Warlord"
     boss: true
     level: 24
-    max_hit_points: 2400
+    max_hit_points: 2870
     armor_class: 52
     perfect_dodge: 5
     experience: 4200
@@ -1670,7 +2335,7 @@ monsters:
     speed: 1.7
     ignores_armor: true
     warded_by_idols: true
-    enrage_at_hp: 800
+    enrage_at_hp: 960
     enrage_damage_mult: 1.5
     enrage_cooldown_mult: 0.6
     # Calls masked Amazon retainers to the fight (shared boss summon kit).
@@ -1832,7 +2497,7 @@ monsters:
     type: "construct"
     banding: true
     level: 22
-    max_hit_points: 950
+    max_hit_points: 1060
     armor_class: 26
     experience: 680
     damage_min: 42
@@ -1856,11 +2521,11 @@ monsters:
     name: "Possessed Tome"
     type: "construct"
     level: 25
-    max_hit_points: 880
+    max_hit_points: 1570
     armor_class: 30
     experience: 760
-    damage_min: 48
-    damage_max: 66
+    damage_min: 54
+    damage_max: 73
     alert_radius: 5
     attack_radius: 1.2
     projectile_weapon: "oak_staff"
@@ -1881,11 +2546,11 @@ monsters:
     name: "Alarm Sentry"
     type: "construct"
     level: 28
-    max_hit_points: 1150
+    max_hit_points: 1700
     armor_class: 38
     experience: 1000
-    damage_min: 50
-    damage_max: 68
+    damage_min: 59
+    damage_max: 79
     alert_radius: 7
     attack_radius: 1.2
     attacks_per_round: 2
@@ -1908,7 +2573,7 @@ monsters:
     name: "Grandfather Clock"
     type: "construct"
     level: 30
-    max_hit_points: 1900
+    max_hit_points: 2600
     armor_class: 52
     experience: 960
     damage_min: 62
@@ -1937,7 +2602,7 @@ monsters:
     type: "undead"
     name: "Deathbound Mummy"
     level: 33
-    max_hit_points: 1050
+    max_hit_points: 2070
     armor_class: 48
     experience: 0
     damage_min: 48
@@ -1959,7 +2624,7 @@ monsters:
     type: "formless"
     name: "Enforcer Alien"
     level: 35
-    max_hit_points: 1200
+    max_hit_points: 2240
     armor_class: 50
     perfect_dodge: 10
     experience: 0
@@ -1991,7 +2656,7 @@ monsters:
     type: "formless"
     name: "Brood Mother"
     level: 32
-    max_hit_points: 4200
+    max_hit_points: 6390
     armor_class: 60
     experience: 6500
     damage_min: 70
@@ -2016,7 +2681,7 @@ monsters:
     summon_monsters: ["dragon"]
     summon_count: 1
     summon_max: 3
-    enrage_at_hp: 1260
+    enrage_at_hp: 1920
     enrage_damage_mult: 1.5
     enrage_cooldown_mult: 0.6
     trap_volley_count: 20
@@ -2036,7 +2701,7 @@ monsters:
     type: "formless"
     name: "Ancient God of Death"
     level: 33
-    max_hit_points: 3400
+    max_hit_points: 5330
     armor_class: 58
     experience: 7000
     damage_min: 66
@@ -2051,7 +2716,7 @@ monsters:
     ignores_armor: true
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
-    teleport_at_hp: 1100
+    teleport_at_hp: 1720
     teleport_chance: 0.15
     stun_char_chance: 0.15
     stun_char_seconds: 6
@@ -2060,7 +2725,7 @@ monsters:
     summon_monsters: ["deathbound_mummy"]
     summon_count: 2
     summon_max: 4
-    enrage_at_hp: 1150
+    enrage_at_hp: 1800
     enrage_damage_mult: 1.5
     enrage_cooldown_mult: 0.6
     sprite: "ancient_god_of_death"
@@ -2076,7 +2741,7 @@ monsters:
     type: "formless"
     name: "Alien Enforcer"
     level: 35
-    max_hit_points: 3800
+    max_hit_points: 6330
     armor_class: 64
     perfect_dodge: 20
     experience: 8000
@@ -2094,7 +2759,7 @@ monsters:
     aggro_whole_map: true
     projectile_spell: "lightning"
     ranged_attack_range: 5
-    teleport_at_hp: 1300
+    teleport_at_hp: 2170
     teleport_chance: 0.20
     stun_char_chance: 0.20
     stun_char_seconds: 6
@@ -2103,7 +2768,7 @@ monsters:
     summon_monsters: ["enforcer_alien"]
     summon_count: 2
     summon_max: 4
-    enrage_at_hp: 1150
+    enrage_at_hp: 1920
     enrage_damage_mult: 1.4
     enrage_cooldown_mult: 0.7
     sprite: "alien_enforcer"
@@ -2286,7 +2951,7 @@ monsters:
     root_party_seconds: 2
     root_party_turns: 1
     name: Bronze Gatekeeper
-    level: 16
+    level: 20
     max_hit_points: 950
     armor_class: 38
     experience: 750
@@ -2316,8 +2981,8 @@ monsters:
     max_hit_points: 470
     armor_class: 20
     experience: 750
-    damage_min: 20
-    damage_max: 30
+    damage_min: 24
+    damage_max: 37
     alert_radius: 5
     attack_radius: 4
     speed: 1.6

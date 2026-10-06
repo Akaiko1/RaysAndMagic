@@ -22,6 +22,12 @@ func commandTestUI(t *testing.T) (*MMGame, *UISystem, *ebiten.Image) {
 	return g, ui, ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 }
 
+// firstStatPlusPoint is the centre of the stat popup's first "+" button.
+func firstStatPlusPoint(g *MMGame) (int, int) {
+	r := statPlusButtonRect(statPopupRect(g.config.GetScreenWidth(), g.config.GetScreenHeight()), 0)
+	return r.x + r.w/2, r.y + r.h/2
+}
+
 func TestDisplayedInputDrawIsPureAndUpdateConsumesOnce(t *testing.T) {
 	for _, setup := range []struct {
 		name  string
@@ -40,8 +46,7 @@ func TestDisplayedInputDrawIsPureAndUpdateConsumesOnce(t *testing.T) {
 			before, _ := json.Marshal(g.party)
 			// A real queued press is present for every repeated Draw. In the stat case
 			// it lands on the first + button, so the purity assertion has a live target.
-			x := (g.config.GetScreenWidth()-340)/2 + 194
-			y := (g.config.GetScreenHeight()-320)/2 + 90
+			x, y := firstStatPlusPoint(g)
 			g.mouseLeftClicks = []queuedClick{{x: x, y: y, at: 1000}}
 			for i := 0; i < 3; i++ {
 				ui.Draw(screen)
@@ -228,8 +233,7 @@ func TestGameLoopDispatchesDisplayedCommandBeforePause(t *testing.T) {
 	loop := &GameLoop{game: g, inputHandler: NewInputHandler(g), ui: ui}
 	g.gameLoop = loop
 	ui.Draw(screen)
-	x := (g.config.GetScreenWidth()-340)/2 + 194
-	y := (g.config.GetScreenHeight()-320)/2 + 90
+	x, y := firstStatPlusPoint(g)
 	g.mouseLeftClicks = []queuedClick{{x: x, y: y, at: time.Now().UnixMilli()}}
 	beforeFrame := g.frameCount
 	if err := loop.Update(); err != nil {
@@ -262,7 +266,7 @@ func TestDisplayedStatHoldKeepsItsActorAndLayout(t *testing.T) {
 			g.party.Members[0].FreeStatPoints = 5
 			g.party.Members[1].FreeStatPoints = 5
 			fp := installFakePointer(t)
-			fp.moveTo((g.config.GetScreenWidth()-340)/2+194, (g.config.GetScreenHeight()-320)/2+90)
+			fp.moveTo(firstStatPlusPoint(g))
 			fp.hold()
 			ui.Draw(screen)
 			ui.dispatchDisplayedInput()

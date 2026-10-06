@@ -65,3 +65,58 @@ func TestFieldMedicineAndBallisticsRequireLearnedSkill(t *testing.T) {
 		})
 	}
 }
+
+// A skill's label names its mastery only when the skill has grades: racial
+// traits like Celestial Providence read as the bare name.
+func TestMasteryLabelNamesGradesOnlyForGradedSkills(t *testing.T) {
+	for _, s := range AllSkills {
+		got := s.MasteryLabel(MasteryExpert)
+		want := s.String()
+		if s.UsesMastery() {
+			want += " (Expert)"
+		}
+		if got != want {
+			t.Errorf("%s label = %q, want %q", s.String(), got, want)
+		}
+	}
+	for _, s := range []SkillType{SkillCelestialProvidence, SkillHalflingGuile, SkillDarkElfBinding} {
+		if s.UsesMastery() || strings.Contains(s.MasteryLabel(MasteryNovice), "(") {
+			t.Errorf("%s shows a grade it does not have", s.String())
+		}
+	}
+}
+
+// Race-owned skills are exactly the ones a race grants: EnsureRacialTraits
+// gives each to its race, and no class kit lists one.
+func TestRaceOwnedSkillsComeFromRaces(t *testing.T) {
+	cfg, err := config.LoadConfig("../../config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	granted := map[SkillType]bool{}
+	for race := range cfg.Characters.Races {
+		for _, class := range PlayableClasses {
+			c := CreateCharacter("Race", class, cfg)
+			if race != "human" {
+				c.ApplyRace(race, cfg)
+			}
+			for st := range c.Skills {
+				if st.RaceOwned() {
+					granted[st] = true
+				}
+			}
+		}
+	}
+	for _, st := range AllSkills {
+		if st.RaceOwned() != granted[st] {
+			t.Errorf("%s: race-owned=%v but a race grants it=%v", st.String(), st.RaceOwned(), granted[st])
+		}
+	}
+	for key, class := range cfg.Characters.Classes {
+		for _, sk := range class.Skills {
+			if st, ok := SkillTypeFromKey(sk); ok && st.RaceOwned() {
+				t.Errorf("class %s kit lists race-owned %s", key, sk)
+			}
+		}
+	}
+}

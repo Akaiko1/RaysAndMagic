@@ -36,6 +36,109 @@ func loadingFixture(t *testing.T) *GameLoop {
 	return gl
 }
 
+func TestLoadingPreparationDrainsReadySources(t *testing.T) {
+	for _, paused := range []bool{false, true} {
+		t.Run(fmt.Sprintf("paused=%v", paused), func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			gl.loading.awaitingFrame = paused
+			prepared := make(chan graphics.PreparedSpriteResource, 2)
+			task := &mapRenderPrewarmTask{
+				mapKey: currentMapKey(), skiesDone: true,
+				preparedSprites: prepared, cpuImages: make(map[*ebiten.Image]*image.RGBA),
+				// Keep publication pending after the source batch. Readiness must
+				// still include the unfinished derived resources.
+				steps: []mapRenderPrewarmStep{func(time.Time) bool { return false }},
+			}
+			task.prewarmer = newMapRenderPrewarmer(r, task)
+			r.mapRenderResourcePrewarmActive = task
+			t.Cleanup(r.resetMapRenderResourceResidency)
+			for i := 0; i < cap(prepared); i++ {
+				req := graphics.SpriteResourceRequest{Name: fmt.Sprintf("ready-%d", i)}
+				gl.game.sprites.ResourceImages(req)
+				cpu := image.NewRGBA(image.Rect(0, 0, 8, 8))
+				prepared <- graphics.PreparedSpriteResource{Request: req, CPU: cpu, Image: cpu, Found: true}
+			}
+			close(prepared)
+			started := time.Now()
+			gl.advanceResourceLoading()
+			_, budget := loadingPreparationBudget(paused)
+			exhausted := time.Since(started) >= budget
+			if !paused {
+				// Background preparation spreads work over successive Updates.
+				for range 3 {
+					gl.advanceResourceLoading()
+				}
+			}
+			for i := 0; i < cap(prepared); i++ {
+				req := graphics.SpriteResourceRequest{Name: fmt.Sprintf("ready-%d", i)}
+				if !exhausted && len(gl.game.sprites.ResourceImages(req)) != 1 {
+					t.Fatal("ready sources did not finish within the mode's preparation budget")
+				}
+			}
+			if r.mapRenderResourcePrewarmActive != task {
+				t.Fatal("unfinished derived work was published")
+			}
+		})
+	}
+}
+
+func TestLoadingBackgroundBoundsPixelWrites(t *testing.T) {
+	for _, kind := range []string{"floor", "region"} {
+		t.Run(kind, func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			cpu := image.NewRGBA(image.Rect(0, 0, 512, 1024))
+			img := ebiten.NewImage(512, 1024)
+			_, cancel := context.WithCancel(context.Background())
+			var uploaded func() int
+			if kind == "floor" {
+				p := &floorPreparation{cancel: cancel, prepared: &preparedFloor{pixels: cpu}, image: img}
+				r.floorPreparation = p
+				uploaded = func() int { return p.row * cpu.Stride }
+			} else {
+				commit := &mapRenderSkyCommit{name: "large", cpu: cpu, image: img}
+				task := &mapRenderPrewarmTask{mapKey: currentMapKey(), cancel: cancel, skyCommit: commit}
+				task.prewarmer = newMapRenderPrewarmer(r, task)
+				r.mapRenderResourcePrewarmActive = task
+				uploaded = func() int { return commit.row * cpu.Stride }
+			}
+			gl.advanceResourceLoading()
+			if bytes := uploaded(); bytes != 256<<10 {
+				t.Fatalf("background Update wrote %d bytes; want one 256 KiB chunk", bytes)
+			}
+		})
+	}
+}
+
+func TestLoadingRegionHandoffWaitsForNextUpdate(t *testing.T) {
+	for _, paused := range []bool{false, true} {
+		t.Run(fmt.Sprintf("paused=%v", paused), func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			gl.loading.awaitingFrame = paused
+			task := &mapRenderPrewarmTask{
+				mapKey: "finished", spritesDone: true, skiesDone: true,
+				steps: []mapRenderPrewarmStep{func(time.Time) bool { return true }},
+			}
+			task.prewarmer = newMapRenderPrewarmer(r, task)
+			// Warm the shared shaders first; their first compilation must not
+			// exhaust the deadline and accidentally hide a same-Update handoff.
+			r.finalizeMapRenderPrewarm(task)
+			r.mapRenderResourcePrewarmActive = task
+			r.scheduleMapRenderResourcePrewarm("next")
+			gl.advanceResourceLoading()
+			if !containsString(r.mapRenderResidentMapKeys, "finished") || r.mapRenderResourcePrewarmActive != nil || !containsString(r.mapRenderResourcePrewarmMapKeys, "next") {
+				t.Fatal("region handoff was lost or started its successor in the same Update")
+			}
+			gl.advanceResourceLoading()
+			if containsString(r.mapRenderResourcePrewarmMapKeys, "next") {
+				t.Fatal("the next Update did not resume the queued region")
+			}
+		})
+	}
+}
+
 func TestLoadingUpdateFreezesSimulationAndRetiresInput(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, stage := range []string{"worker", "upload", "floor", "fresh_frame"} {
@@ -140,12 +243,22 @@ func TestLoadingBannerLifetime(t *testing.T) {
 	}
 }
 
+// Streamed pixels wait in the world-pass stash; a reload that resets residency
+// before the next pass (save-scumming during the loading banner) must drop
+// them, or every reload leaks one batch of decoded sprites.
 func TestLoadingGenerationAndExitCancelOwnedWork(t *testing.T) {
 	for _, entry := range []string{"generation", "title", "shutdown"} {
 		t.Run(entry, func(t *testing.T) {
 			gl := loadingFixture(t)
 			old := gl.loading.stream
 			old.Request(graphics.SpriteResourceRequest{Name: "obsolete"})
+			streamed := ebiten.NewImage(1, 1)
+			defer streamed.Deallocate()
+			gl.renderer.observeLazySpriteLoad(graphics.SpriteResourceRequest{Name: "streamed"},
+				map[*ebiten.Image]*image.RGBA{streamed: image.NewRGBA(image.Rect(0, 0, 1, 1))})
+			if len(gl.renderer.lazySpriteCPUPixels) != 1 {
+				t.Fatal("streamed pixels never reached the stash (positive control)")
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			gl.renderer.mapRenderResourcePrewarmActive = &mapRenderPrewarmTask{ctx: ctx, cancel: cancel}
 			gl.loading.begin(time.Now())
@@ -166,6 +279,9 @@ func TestLoadingGenerationAndExitCancelOwnedWork(t *testing.T) {
 			}
 			if old.Pending() || ctx.Err() == nil {
 				t.Fatal("obsolete resource work survived its owner")
+			}
+			if n := len(gl.renderer.lazySpriteCPUPixels); n != 0 {
+				t.Fatalf("%d streamed pixel buffers survived their owner", n)
 			}
 		})
 	}
@@ -313,4 +429,103 @@ func TestLoadingRetiresDragActionsWithoutLosingPickedUpFragments(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadingRetainsReusedSourcePixelsAcrossRenderMisses(t *testing.T) {
+	gl := loadingFixture(t)
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("assets/sprites/environment", 0755); err != nil {
+		t.Fatal(err)
+	}
+	var sources []*ebiten.Image
+	var expected [][]byte
+	for i, name := range []string{"first", "second"} {
+		cpu := image.NewRGBA(image.Rect(0, 0, 8, 8))
+		for p := range cpu.Pix {
+			cpu.Pix[p] = byte(100 + i*40)
+		}
+		file, err := os.Create("assets/sprites/environment/" + name + ".png")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(file, cpu); err != nil {
+			t.Fatal(err)
+		}
+		file.Close()
+	}
+	for _, name := range []string{"first", "second"} {
+		req := graphics.SpriteResourceRequest{Name: name}
+		for prepared := range gl.game.sprites.PrepareResources(context.Background(), []graphics.SpriteResourceRequest{req}) {
+			expected = append(expected, append([]byte(nil), prepared.CPU.Pix...))
+			gl.game.sprites.CommitPreparedResource(prepared)
+		}
+		sources = append(sources, gl.game.sprites.ResourceImages(req)[0])
+	}
+	r := gl.renderer
+	for pass := 0; pass <= len(sources); pass++ {
+		missed := false
+		func() {
+			gl.loading.rendering = true
+			defer func() {
+				gl.loading.rendering = false
+				if caught := recover(); caught != nil {
+					if _, ok := caught.(loadingRenderMiss); !ok {
+						panic(caught)
+					}
+					missed = true
+				}
+			}()
+			r.withMapRenderSourceTracking(func() {
+				for i, source := range sources {
+					pixels := make([]byte, len(expected[i]))
+					r.readRenderPixels(source, pixels)
+					if !reflect.DeepEqual(pixels, expected[i]) {
+						t.Fatal("reused source pixels changed")
+					}
+				}
+			})
+		}()
+		if missed != (pass < len(sources)) || r.loadDiagnostics.readbacks != 0 {
+			t.Fatalf("pass %d: missed=%v GPU readbacks=%d", pass, missed, r.loadDiagnostics.readbacks)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for gl.loading.stream.Pending() && time.Now().Before(deadline) {
+			gl.advanceResourceLoading()
+			time.Sleep(time.Millisecond)
+		}
+		if gl.loading.stream.Pending() {
+			t.Fatal("CPU request never completed")
+		}
+	}
+	if len(r.lazySpriteCPUPixels) != 0 {
+		t.Fatal("completed world pass retained temporary CPU pixels")
+	}
+	// Both resident sources now need a new consumer. Discovery must collect
+	// their missing CPU copies before starting one bounded worker batch.
+	r.scheduleMapRenderResourcePrewarm("batch")
+	r.startNextMapRenderPrewarm()
+	task := r.mapRenderResourcePrewarmActive
+	task.plan = mapRenderPrewarmPlan{wallSprites: []string{"first", "second"}}
+	sawBatch := false
+	deadline := time.Now().Add(5 * time.Second)
+	for r.mapRenderResourcePrewarmActive != nil && time.Now().Before(deadline) {
+		r.prewarmPendingMapRenderResources()
+		pending := 0
+		for _, complete := range task.prewarmer.cpuRequested {
+			if !complete {
+				pending++
+			}
+		}
+		sawBatch = sawBatch || pending == 2
+		time.Sleep(time.Millisecond)
+	}
+	if !sawBatch || r.mapRenderResourcePrewarmActive != nil || r.loadDiagnostics.readbacks != 0 {
+		t.Fatal("CPU requests did not finish as a shared batch without GPU readback")
+	}
+	for _, source := range sources {
+		if rm := r.wallRipmaps[source]; rm == nil || rm.building || len(rm.owned) == 0 {
+			t.Fatal("batched decode did not publish wall filtering data")
+		}
+	}
+	r.resetMapRenderResourceResidency()
 }

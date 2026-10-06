@@ -21,83 +21,61 @@ func facingTestLoop(monsters ...*monsterPkg.Monster3D) *GameLoop {
 	return &GameLoop{game: &MMGame{world: &world.World3D{Monsters: monsters}}}
 }
 
-func TestFaceMonstersAlongFrameMotionUsesActualDisplacement(t *testing.T) {
-	m := &monsterPkg.Monster3D{
-		X:         1,
-		Y:         5,
-		Direction: math.Pi,
-		HitPoints: 1,
-	}
-
-	stepFacing(facingTestLoop(m), func() { m.X = 10 })
-
-	if math.Abs(m.Direction) > 0.0001 {
-		t.Fatalf("direction = %.4f, want 0 for eastward movement", m.Direction)
-	}
-}
-
-func TestFaceMonstersAlongFrameMotionIgnoresTinyJitter(t *testing.T) {
-	const original = math.Pi / 2
-	m := &monsterPkg.Monster3D{
-		X:         5,
-		Y:         5,
-		Direction: original,
-		HitPoints: 1,
-	}
-	gl := facingTestLoop(m)
-
-	// Back-and-forth jitter cancels in the accumulator and never commits.
-	for i := 0; i < 20; i++ {
-		delta := 1.0
-		if i%2 == 1 {
-			delta = -1.0
-		}
-		stepFacing(gl, func() { m.X += delta })
-	}
-
-	if m.Direction != original {
-		t.Fatalf("direction = %.4f, want unchanged %.4f", m.Direction, original)
-	}
-}
-
-// A slow walker whose per-tick step is far under the facing threshold must
-// still turn once its walk accumulates past it.
-func TestFaceMonstersAlongFrameMotionAccumulatesSlowWalk(t *testing.T) {
-	m := &monsterPkg.Monster3D{
-		X:         5,
-		Y:         5,
-		Direction: math.Pi, // stale facing: west
-		HitPoints: 1,
-	}
-	gl := facingTestLoop(m)
-
-	for i := 0; i < 10; i++ { // 0.2px/tick east; commits once 1.5px accumulate
-		stepFacing(gl, func() { m.X += 0.2 })
-	}
-
-	if math.Abs(m.Direction) > 0.0001 {
-		t.Fatalf("direction = %.4f, want 0 after accumulating 2px eastward", m.Direction)
-	}
-}
-
-// A displacement outside the capture->face window (band snap, teleport, blink)
-// must not touch facing.
-func TestFaceMonstersAlongFrameMotionIgnoresOutOfWindowShoves(t *testing.T) {
-	m := &monsterPkg.Monster3D{
-		X:         5,
-		Y:         5,
-		Direction: 0, // walking east
-		HitPoints: 1,
-	}
-	gl := facingTestLoop(m)
-
-	for i := 0; i < 10; i++ {
-		stepFacing(gl, func() { m.X += 0.4 }) // walk east
-		m.X -= 2.0                            // post-window band/teleport displacement west
-	}
-
-	if math.Abs(m.Direction) > 0.0001 {
-		t.Fatalf("direction = %.4f, want 0: out-of-window shoves must not flip the walker", m.Direction)
+// TestFaceMonstersAlongFrameMotion: facing follows the displacement made inside
+// the capture->face window, accumulated across ticks, and nothing else.
+func TestFaceMonstersAlongFrameMotion(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		x, facing  float64
+		ticks      int
+		tick       func(m *monsterPkg.Monster3D, i int) // in-window move
+		afterTick  func(m *monsterPkg.Monster3D)        // out-of-window shove
+		wantFacing float64
+	}{
+		{
+			name: "actual displacement", x: 1, facing: math.Pi, ticks: 1,
+			tick:       func(m *monsterPkg.Monster3D, _ int) { m.X = 10 },
+			wantFacing: 0,
+		},
+		{
+			// Back-and-forth jitter cancels in the accumulator and never commits.
+			name: "tiny jitter", x: 5, facing: math.Pi / 2, ticks: 20,
+			tick: func(m *monsterPkg.Monster3D, i int) {
+				if i%2 == 1 {
+					m.X -= 1
+				} else {
+					m.X += 1
+				}
+			},
+			wantFacing: math.Pi / 2,
+		},
+		{
+			// 0.2px/tick east is far under the threshold; it commits once 1.5px accumulate.
+			name: "slow walk accumulates", x: 5, facing: math.Pi, ticks: 10,
+			tick:       func(m *monsterPkg.Monster3D, _ int) { m.X += 0.2 },
+			wantFacing: 0,
+		},
+		{
+			// A band snap, teleport or blink outside the window must not flip the walker.
+			name: "out-of-window shoves", x: 5, facing: 0, ticks: 10,
+			tick:       func(m *monsterPkg.Monster3D, _ int) { m.X += 0.4 },
+			afterTick:  func(m *monsterPkg.Monster3D) { m.X -= 2.0 },
+			wantFacing: 0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &monsterPkg.Monster3D{X: tc.x, Y: 5, Direction: tc.facing, HitPoints: 1}
+			gl := facingTestLoop(m)
+			for i := 0; i < tc.ticks; i++ {
+				stepFacing(gl, func() { tc.tick(m, i) })
+				if tc.afterTick != nil {
+					tc.afterTick(m)
+				}
+			}
+			if math.Abs(m.Direction-tc.wantFacing) > 0.0001 {
+				t.Fatalf("direction = %.4f, want %.4f", m.Direction, tc.wantFacing)
+			}
+		})
 	}
 }
 

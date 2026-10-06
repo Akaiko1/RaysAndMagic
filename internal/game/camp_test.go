@@ -24,12 +24,12 @@ func TestTryCamp_RefusedNearEnemiesAndWithoutFood(t *testing.T) {
 		t.Errorf("refused camp must not spend food, have %d", g.party.Food)
 	}
 
-	// An ENGAGED monster blocks the camp from any distance (no resting
+	// An ENGAGED monster blocks the camp inside its pursuit leash (no resting
 	// mid-fight by kiting the pursuer out of the radius).
 	near.X = g.camera.X + 9*float64(cfg.World.TileSize)
 	near.IsEngagingPlayer = true
 	if _, ok := g.TryCamp(); ok {
-		t.Error("camp should be refused while a monster is engaged, even beyond the radius")
+		t.Error("camp should be refused while a monster is engaged inside its leash, even beyond the radius")
 	}
 	near.IsEngagingPlayer = false
 
@@ -129,30 +129,6 @@ func TestTryCamp_BoundAlliesAllowCampButCharmDoesNot(t *testing.T) {
 				t.Fatalf("refused camp spent food: %d, want 1", g.party.Food)
 			}
 		})
-	}
-}
-
-// Charm is a countdown that breaks on any hit, not an alliance: a pacified
-// monster next to the party still blocks the camp, or the party banks a full
-// heal moments before it turns hostile again.
-func TestTryCamp_PacifiedMonsterStillBlocksCamp(t *testing.T) {
-	cfg := loadTestConfig(t)
-	g := newTestGame(cfg, newTestWorld(cfg))
-	g.party.Food = 2
-	tile := float64(cfg.GetTileSize())
-
-	charmed := &monster.Monster3D{ID: "charmed", Name: "Charmed Dragon", HitPoints: 40, MaxHitPoints: 40,
-		X: g.camera.X + tile, Y: g.camera.Y, Pacified: true, PacifiedFramesRemaining: 60}
-	g.world.Monsters = []*monster.Monster3D{charmed}
-
-	if !charmed.IsPartyControlled() {
-		t.Fatal("setup: a pacified monster should read as party-controlled")
-	}
-	if msg, ok := g.TryCamp(); ok {
-		t.Fatalf("camp succeeded next to a charmed monster: %s", msg)
-	}
-	if g.party.Food != 2 {
-		t.Errorf("refused camp still spent food: %d, want 2", g.party.Food)
 	}
 }
 

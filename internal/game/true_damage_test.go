@@ -4,11 +4,22 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
+
+// cardItemDef is an authored card's definition; a missing card fails the test.
+func cardItemDef(t *testing.T, key string) *config.ItemDefinitionConfig {
+	t.Helper()
+	def, ok := config.GetItemDefinition(key)
+	if !ok || def == nil {
+		t.Fatalf("card %s missing from items.yaml", key)
+	}
+	return def
+}
 
 func isolateTrueDamageMember(member *character.MMCharacter, resist int) {
 	member.Equipment = map[items.EquipSlot]items.Item{}
@@ -59,17 +70,23 @@ func TestMonsterTrueDamage_LandsThroughPartyDodgeButUsesResistance(t *testing.T)
 	attacker := mkTestMonster("True Striker", 500)
 	cs.game.cardSlots = [MaxCardSlots]cardSlot{}
 	cs.game.cardSlots[0].key = "vengeful_ningyo_card"
+	thornsPct := cardItemDef(t, "vengeful_ningyo_card").CardThornsPct
 
 	cs.monsterHitCharacter(attacker, member, attacker.Name, monsterCharacterHit{
 		Parts:      damagecalc.Parts{Normal: 100, True: 20},
 		DamageType: monsterPkg.DamagePhysical.String(),
 	})
 
-	if got := 200 - member.HitPoints; got != 10 {
-		t.Fatalf("damage through 100%% dodge = %d, want 10 resistance-reduced true damage", got)
+	received := 20 * (100 - 50) / 100
+	if got := 200 - member.HitPoints; got != received {
+		t.Fatalf("damage through 100%% dodge = %d, want %d resistance-reduced true damage", got, received)
 	}
-	if got := 500 - attacker.HitPoints; got != 1 {
-		t.Fatalf("thorns reflected %d from true damage through dodge, want 1", got)
+	reflected := received * thornsPct / 100
+	if reflected <= 0 {
+		t.Fatalf("fixture reflects nothing at %d%% thorns", thornsPct)
+	}
+	if got := 500 - attacker.HitPoints; got != reflected {
+		t.Fatalf("thorns reflected %d from true damage through dodge, want %d", got, reflected)
 	}
 }
 
@@ -79,22 +96,28 @@ func TestPartyCardTrueDamage_DodgeResistanceAndMeleeMultiplier(t *testing.T) {
 	attacker := g.party.Members[g.selectedChar]
 	isolateTrueDamageMember(attacker, 0)
 	g.cardSlots = [MaxCardSlots]cardSlot{}
-	g.cardSlots[0].key = "samurai_card"               // +20 true
-	g.cardSlots[1].key = "masked_serpent_dancer_card" // +20% normal melee
+	g.cardSlots[0].key = "samurai_card"               // flat melee true
+	g.cardSlots[1].key = "masked_serpent_dancer_card" // +% normal melee
+	trueDmg := cardItemDef(t, "samurai_card").CardMeleeTrueDmg
+	meleePct := cardItemDef(t, "masked_serpent_dancer_card").CardMeleeDmgPct
+	maul := lookupWeaponConfigByName("Idol-Breaker, the Warlord's Maul")
+	if maul == nil || maul.TrueDamage != 0 {
+		t.Fatal("fixture weapon missing or carries its own true damage")
+	}
 
 	target := mkTestMonster("Target", 1000)
-	cs.ApplyDamageToMonster(target, 100, "Idol-Breaker, the Warlord's Maul", false)
-	if got := 1000 - target.HitPoints; got != 140 {
-		t.Fatalf("100 normal with +20%% normal and +20 true dealt %d, want 140", got)
+	cs.ApplyDamageToMonster(target, 100, maul.Name, false)
+	if got, want := 1000-target.HitPoints, 100*(100+meleePct)/100+trueDmg; got != want {
+		t.Fatalf("100 normal with +%d%% normal and +%d true dealt %d, want %d", meleePct, trueDmg, got, want)
 	}
 
 	g.cardSlots[1] = cardSlot{}
 	dodger := mkTestMonster("Dodger", 100)
 	dodger.PerfectDodge = 100
 	dodger.Resistances[monsterPkg.DamagePhysical] = 50
-	cs.ApplyDamageToMonster(dodger, 100, "Idol-Breaker, the Warlord's Maul", false)
-	if got := 100 - dodger.HitPoints; got != 10 {
-		t.Fatalf("card true through dodge dealt %d, want 10 after physical resistance", got)
+	cs.ApplyDamageToMonster(dodger, 100, maul.Name, false)
+	if got, want := 100-dodger.HitPoints, trueDmg*(100-50)/100; got != want {
+		t.Fatalf("card true through dodge dealt %d, want %d after physical resistance", got, want)
 	}
 }
 
@@ -109,8 +132,9 @@ func TestPartyWeaponMasteryTrueDamage_InheritsWeaponElement(t *testing.T) {
 	if weapon == nil {
 		t.Fatal("Holy Mace definition missing")
 	}
-	if trueDamage, _ := cs.weaponMasteryStrike(attacker, weapon); trueDamage != 9 {
-		t.Fatalf("GM mace mastery true damage = %d, want 9", trueDamage)
+	wantTrue := int(character.MasteryGrandMaster) * MasteryWeaponTrueDamagePerTier
+	if trueDamage, _ := cs.weaponMasteryStrike(attacker, weapon); trueDamage != wantTrue {
+		t.Fatalf("GM mace mastery true damage = %d, want %d", trueDamage, wantTrue)
 	}
 
 	target := mkTestMonster("Element Ward", 100)
@@ -119,10 +143,10 @@ func TestPartyWeaponMasteryTrueDamage_InheritsWeaponElement(t *testing.T) {
 
 	cs.ApplyDamageToMonster(target, 0, "Holy Mace", false)
 
-	// GM mace mastery contributes 9 true damage. Holy Mace makes it Light:
-	// physical immunity is irrelevant and 50% Light resistance rounds it to 4.
-	if got := 100 - target.HitPoints; got != 4 {
-		t.Fatalf("elemental weapon true damage = %d, want 4 Light damage", got)
+	// Holy Mace makes the mastery true damage Light: physical immunity is
+	// irrelevant and 50% Light resistance halves it (rounded down).
+	if got, want := 100-target.HitPoints, wantTrue*(100-50)/100; got != want {
+		t.Fatalf("elemental weapon true damage = %d, want %d Light damage", got, want)
 	}
 }
 
@@ -133,6 +157,7 @@ func TestPartyTrueDamage_ReachesWeaponAoeVictims(t *testing.T) {
 	isolateTrueDamageMember(attacker, 0)
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "samurai_card"
+	trueDmg := cardItemDef(t, "samurai_card").CardMeleeTrueDmg
 
 	tile := float64(g.config.GetTileSize())
 	center := mkTestMonster("Center", 1000)
@@ -144,8 +169,8 @@ func TestPartyTrueDamage_ReachesWeaponAoeVictims(t *testing.T) {
 	g.world.Monsters = []*monsterPkg.Monster3D{center, near}
 
 	cs.ApplyDamageToMonster(center, 0, "Idol-Breaker, the Warlord's Maul", false)
-	if got := 1000 - near.HitPoints; got != 10 {
-		t.Fatalf("AoE victim took %d, want 10 resistance-reduced true damage through soak", got)
+	if got, want := 1000-near.HitPoints, trueDmg*(100-50)/100; got != want {
+		t.Fatalf("AoE victim took %d, want %d resistance-reduced true damage through soak", got, want)
 	}
 }
 
@@ -225,7 +250,15 @@ func TestChampionSpellUsesOnlySpellMasteryTrueDamage(t *testing.T) {
 		t.Fatal("champion spell did not spawn a projectile")
 	}
 	projectile := cs.game.magicProjectiles[len(cs.game.magicProjectiles)-1]
-	wantTrue := int(character.MasteryGrandMaster) * MasterySpellEffectPerLevel
+	tier := config.GetChampionTier("impossible")
+	if tier == nil {
+		t.Fatal("impossible champion tier missing")
+	}
+	mastery, ok := character.MasteryFromKey(tier.Mastery)
+	if !ok {
+		t.Fatalf("impossible tier: bad mastery %q", tier.Mastery)
+	}
+	wantTrue := int(mastery) * MasterySpellEffectPerLevel
 	if projectile.TrueDamage != wantTrue || projectile.IgnoresDodge {
 		t.Fatalf("champion spell riders: true=%d ignoreDodge=%v, want spell true=%d and no dodge ignore",
 			projectile.TrueDamage, projectile.IgnoresDodge, wantTrue)

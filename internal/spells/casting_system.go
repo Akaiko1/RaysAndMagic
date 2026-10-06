@@ -73,19 +73,19 @@ func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID) (UtilitySpellResult,
 		return UtilitySpellResult{}, err
 	}
 	return UtilitySpellResult{
-		Success:           true,
-		Message:           def.Message,
-		VisionRadiusTiles: def.VisionRadiusTiles,
-		WaterWalk:         def.WaterWalk,
-		WaterBreathing:    def.WaterBreathing,
+		Success:        true,
+		Message:        def.Message,
+		Vision:         def.LightRadiusTiles > 0 || def.RadarRadiusTiles > 0,
+		WaterWalk:      def.WaterWalk,
+		WaterBreathing: def.WaterBreathing,
 	}, nil
 }
 
 // UtilitySpellResult represents the result of casting a utility spell
 type UtilitySpellResult struct {
-	Success           bool
-	Message           string
-	VisionRadiusTiles float64
-	WaterWalk         bool
-	WaterBreathing    bool
+	Success        bool
+	Message        string
+	Vision         bool
+	WaterWalk      bool
+	WaterBreathing bool
 }

@@ -127,8 +127,8 @@ func questMonsterTag(m *monster.Monster3D) string {
 
 // countLivingQuestTargets returns living, quest-eligible monsters whose name
 // maps to the same normalized target key used by kill progress. TargetMap
-// scopes the census to one map or merged-world region; an empty target scans
-// every loaded world.
+// scopes the census to the monsters whose home is that map or region, wherever
+// they stand; an empty target counts every loaded world.
 func (g *MMGame) countLivingQuestTargets(def *quests.QuestDefinition) int {
 	return g.countQuestTargetsFromSource(def, "", false)
 }
@@ -151,46 +151,26 @@ func (g *MMGame) countQuestTargetsFromSource(def *quests.QuestDefinition, questI
 		}
 		return def.MatchesTarget(questMonsterTag(m)) && (!def.EncounterOnly || (m.IsEncounterMonster && m.EncounterRewards != nil && m.EncounterRewards.QuestID == questID))
 	}
-	scan := func(w *world.World3D) int {
-		if w == nil {
-			return 0
-		}
-		count := 0
-		for _, m := range w.Monsters {
-			if matches(w, m) {
-				count++
-			}
-		}
-		return count
-	}
-
 	wm := world.GlobalWorldManager
 	if wm == nil {
-		return scan(g.world)
+		targetMap = "" // no world registry: nothing to scope by
 	}
-	if targetMap != "" {
-		// A merged region scopes the census to its rect of the unified world.
-		if r := wm.OpenWorldRegionByKey(targetMap); r != nil {
-			ts := g.config.GetTileSize()
-			count := 0
-			for _, m := range wm.OpenWorld.Monsters {
-				if !matches(wm.OpenWorld, m) {
-					continue
-				}
-				if wm.OpenWorldRegionAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) != r {
-					continue
-				}
-				count++
-			}
-			return count
-		}
-		return scan(wm.LoadedMaps[targetMap])
-	}
-
 	total := 0
-	wm.EachWorld(func(_ string, w *world.World3D) {
-		total += scan(w)
-	})
+	scan := func(w *world.World3D) {
+		if w == nil {
+			return
+		}
+		for _, m := range w.Monsters {
+			if matches(w, m) && (targetMap == "" || g.monsterIsFrom(w, m, targetMap)) {
+				total++
+			}
+		}
+	}
+	if wm == nil {
+		scan(g.world)
+	} else {
+		wm.EachWorld(func(_ string, w *world.World3D) { scan(w) })
+	}
 	return total
 }
 
@@ -443,14 +423,15 @@ func (g *MMGame) announceQuestCompletionWithMessage(q *quests.Quest, message str
 	}
 	g.playSound(soundQuestComplete)
 	if message != "" {
-		g.AddCombatMessage(message)
+		g.logCombat(logToneReward, "%s", message)
 		return
 	}
+	name := logColored(q.Definition.Name, combatMessageGold)
 	if q.RewardsClaimed {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed!", q.Definition.Name))
+		g.logCombat(logToneReward, "Quest '%s' completed!", name)
 		return
 	}
-	g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Open Quests (J) to claim reward.", q.Definition.Name))
+	g.logCombat(logToneReward, "Quest '%s' completed! Open Quests (J) to claim reward.", name)
 }
 
 // spawnQuestCompletionMonsters places each completed quest's on_complete_spawns
@@ -496,6 +477,7 @@ func (g *MMGame) spawnQuestCompletionMonsters(arrival bool) {
 			tx, ty := projectTileToCurrentWorld(sp.Map, sp.X, sp.Y)
 			x, y := TileCenterFromTile(tx, ty, ts)
 			m := monster.NewMonster3DFromConfig(x, y, sp.Monster, g.config)
+			m.HomeMap = sp.Map
 			if m.BandGroup != "" {
 				m.BandInstance = fmt.Sprintf("quest:%s:%s:%t:%s", sp.Map, id, i < len(def.OnAcceptSpawns), m.BandGroup)
 			}
@@ -622,91 +604,64 @@ func placedNPCKeys(wm *world.WorldManager) map[string]bool {
 	return placed
 }
 
-// questIsObtainable reports whether the party can ever hold this quest: it starts
-// active, or an NPC that is really out there OFFERS it on a choice the party can
-// reach. A gate on anything else is a permanent lock.
+// obtainableQuests is every quest the party can ever hold: it starts active,
+// an obtainable quest chains into it, or an NPC that is really out there OFFERS
+// it on a choice the party can reach. A gate on anything else is a permanent lock.
+//
+// Reachability follows the runtime navigation: only an info row opens its
+// children, and every requires_quest on the path must itself be obtainable. The
+// set is the least fixed point of these rules, so a chain that only waits on
+// itself reaches nothing. Each round walks every placed dialogue once, and a
+// round that adds no quest ends the search.
 //
 // placed is the live spawn set. Nil means placement is unavailable and authoring
 // alone counts; an empty non-nil set is a trustworthy world with no givers.
-func questIsObtainable(qm *quests.QuestManager, questID string, catalog map[string]*character.NPCData, placed map[string]bool) bool {
-	return questIsObtainableVia(qm, questID, catalog, placed, map[string]bool{}, map[string]bool{})
-}
-
-// questIsObtainableVia is the recursive body. An offer can carry its own
-// requires_quest, so "somebody gives it" is only true if that somebody's offer is
-// itself reachable - and a chain that loops back on itself (pending marks the
-// quests already being resolved) reaches nothing.
 //
 // Only requires_quest is followed. quest_step scopes a choice to a step of the
 // giver's OWN chain, which is a sequencing detail rather than a lock, and
 // judging it here would abort boots over authoring that works.
-func questIsObtainableVia(qm *quests.QuestManager, questID string, catalog map[string]*character.NPCData,
-	placed, pending, obtainable map[string]bool) bool {
-	if def := qm.Definitions()[questID]; def != nil && def.IsStartingQuest {
-		return true
-	}
-	if obtainable[questID] {
-		return true // answered already: two offers gated on one quest resolve it once
-	}
-	if pending[questID] {
-		// Already being resolved further up: this branch offers nothing, but that
-		// is a fact about the CYCLE, not about the quest - another giver may still
-		// reach it, so the answer must not be memoized.
-		return false
-	}
-	pending[questID] = true
-	defer delete(pending, questID)
-
+func obtainableQuests(qm *quests.QuestManager, catalog map[string]*character.NPCData, placed map[string]bool) map[string]bool {
+	obtainable := map[string]bool{}
 	for id, def := range qm.Definitions() {
-		if def.NextQuest == questID && questIsObtainableVia(qm, id, catalog, placed, pending, obtainable) {
-			obtainable[questID] = true
-			return true
+		if def != nil && def.IsStartingQuest {
+			obtainable[id] = true
 		}
-	}
-	for npcKey, npc := range catalog {
-		if npc == nil || (placed != nil && !placed[npcKey]) {
-			continue
-		}
-		if dialogueOffersObtainableQuest(qm, npc.Dialogue, questID, catalog, placed, pending, obtainable) {
-			obtainable[questID] = true
-			return true
-		}
-	}
-	// Only POSITIVE answers are remembered. A negative can be the product of a
-	// cycle cut anywhere below this walk, and another branch may still reach the
-	// quest - memoizing it would answer a later branch with a wrong "no".
-	return false
-}
-
-// dialogueOffersObtainableQuest follows the same navigation topology as the
-// runtime: only an info row opens its children, and every requires_quest on the
-// path must itself be obtainable. A flat WalkChoices scan loses both facts and
-// can certify a quest hidden behind an unreachable parent.
-func dialogueOffersObtainableQuest(qm *quests.QuestManager, dialogue *character.NPCDialogue, questID string,
-	catalog map[string]*character.NPCData, placed, pending, obtainable map[string]bool) bool {
-	if dialogue == nil {
-		return false
 	}
 	var walk func([]*character.NPCDialogueChoice) bool
 	walk = func(choices []*character.NPCDialogueChoice) bool {
+		grew := false
 		for _, c := range choices {
-			if c == nil {
+			if c == nil || (c.RequiresQuest != "" && !obtainable[c.RequiresQuest]) {
 				continue
 			}
-			if c.RequiresQuest != "" &&
-				!questIsObtainableVia(qm, c.RequiresQuest, catalog, placed, pending, obtainable) {
-				continue
-			}
-			if c.Action == "give_quest" && c.QuestID == questID {
-				return true
+			if c.Action == "give_quest" && c.QuestID != "" && !obtainable[c.QuestID] {
+				obtainable[c.QuestID] = true
+				grew = true
 			}
 			if c.Action == "info" && walk(c.Choices) {
-				return true
+				grew = true
 			}
 		}
-		return false
+		return grew
 	}
-	return walk(dialogue.Choices)
+	for grew := true; grew; {
+		grew = false
+		for id, def := range qm.Definitions() {
+			if def != nil && obtainable[id] && def.NextQuest != "" && !obtainable[def.NextQuest] {
+				obtainable[def.NextQuest] = true
+				grew = true
+			}
+		}
+		for npcKey, npc := range catalog {
+			if npc == nil || npc.Dialogue == nil || (placed != nil && !placed[npcKey]) {
+				continue
+			}
+			if walk(npc.Dialogue.Choices) {
+				grew = true
+			}
+		}
+	}
+	return obtainable
 }
 
 // ValidateInteractTagProducers fails when an interact quest cannot be finished:
@@ -801,7 +756,8 @@ func placedPropTagCounts(wm *world.WorldManager) (map[string]int, error) {
 			propTag := ""
 			propChoices := 0
 			if err := npc.DialogueData.WalkChoices(func(c *character.NPCDialogueChoice) error {
-				if c.Prop == nil {
+				if c.Prop == nil || c.Prop.Token != "" {
+					// Token producers are validated against their activity graph separately.
 					return nil
 				}
 				propChoices++
@@ -913,9 +869,24 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 		return nil
 	}
 	wm := world.GlobalWorldManager
+	// Kill progress matches a monster by its normalized display name
+	// (questMonsterTag), so a target must name at least one monster that way.
+	monsterTags := map[string]bool{}
+	if monster.MonsterConfig != nil {
+		for _, def := range monster.MonsterConfig.Monsters {
+			monsterTags[quests.NormalizeTarget(def.Name)] = true
+		}
+	}
 	for id, def := range qm.Definitions() {
 		if def == nil {
 			return fmt.Errorf("quest %q has empty definition", id)
+		}
+		if def.Type == quests.QuestTypeKill && len(monsterTags) > 0 {
+			for _, target := range append([]string{def.TargetMonster}, def.TargetMonsters...) {
+				if target != "" && !monsterTags[quests.NormalizeTarget(target)] {
+					return fmt.Errorf("quest %q target %q matches no monster name in monsters.yaml (kills are counted by normalized name)", id, target)
+				}
+			}
 		}
 		if wm != nil && def.TargetMap != "" && wm.WorldByKey(def.TargetMap) == nil {
 			return fmt.Errorf("quest %q references unknown target_map %q", id, def.TargetMap)
@@ -966,6 +937,7 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 	if character.NPCConfigInstance != nil {
 		catalog := character.NPCConfigInstance.NPCs
 		placed := placedNPCKeys(wm)
+		var obtainable map[string]bool // computed once, on the first service gate
 		for _, npcKey := range sortedMapKeys(catalog) {
 			npc := catalog[npcKey]
 			if npc == nil {
@@ -993,7 +965,10 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 				// The gate quest must be reachable at all: a typo that lands on
 				// another real quest id - or a giver that no map spawns any more -
 				// passes the existence check above and then shuts the shop forever.
-				if !questIsObtainable(qm, npc.RequiresQuest, catalog, placed) {
+				if obtainable == nil {
+					obtainable = obtainableQuests(qm, catalog, placed)
+				}
+				if !obtainable[npc.RequiresQuest] {
 					return fmt.Errorf("NPC %q gates on quest %q that no PLACED NPC gives and that does not start active - the service could never open",
 						npcKey, npc.RequiresQuest)
 				}

@@ -136,15 +136,6 @@ func TestStandeeUsesMinificationSampling(t *testing.T) {
 	}
 }
 
-func TestStandeeProjectedFootprintUsesLeastMinifiedAxis(t *testing.T) {
-	if got := standeeProjectedFootprint(128, 64, 256, 256); got != 2 {
-		t.Fatalf("anisotropic footprint = %.2f, want 2", got)
-	}
-	if got := standeeProjectedFootprint(512, 512, 256, 256); got != 1 {
-		t.Fatalf("magnified footprint = %.2f, want 1", got)
-	}
-}
-
 func TestTreeIsBillboardLOD(t *testing.T) {
 	const tileSize = 64.0
 	if treeIsBillboardLOD(25*tileSize, tileSize, 25) {
@@ -271,7 +262,9 @@ func TestStandeeMipBlendIsContinuousAcrossLevels(t *testing.T) {
 		wantLevel int
 		wantBlend float32
 	}{
+		{name: "quarter magnified", footprint: 0.25, wantLevel: 0, wantBlend: 0},
 		{name: "magnified", footprint: 0.5, wantLevel: 0, wantBlend: 0},
+		{name: "just under one to one", footprint: 0.9, wantLevel: 0, wantBlend: 0},
 		{name: "one to one", footprint: 1, wantLevel: 0, wantBlend: 0},
 		{name: "pure lower mip", footprint: float32(math.Pow(2, 0.25)), wantLevel: 0, wantBlend: 0},
 		{name: "halfway to level one", footprint: float32(math.Sqrt2), wantLevel: 0, wantBlend: 0.5},

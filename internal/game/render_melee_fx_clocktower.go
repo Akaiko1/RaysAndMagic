@@ -46,7 +46,7 @@ func (r *Renderer) clockCogRing(screen *ebiten.Image, x, y, rad, dotSize float64
 		if i%2 == 0 {
 			rr, sz, c = rad*1.35, dotSize, mixColor(col, hot, 0.5) // tooth
 		}
-		r.drawGlowRect(screen, x+math.Cos(ang)*rr, y+math.Sin(ang)*rr,
+		r.weaponFxAccent(screen, x+math.Cos(ang)*rr, y+math.Sin(ang)*rr,
 			math.Max(2.5, sz), c, alpha, additiveGlowBlend)
 	}
 }
@@ -98,7 +98,7 @@ func (r *Renderer) drawMeleeFxClockCogfang(screen *ebiten.Image, s SlashEffect, 
 		theta := th0 + (cur-th0)*tt
 		outR := R + (14+8*math.Sin(math.Pi*tt))*w
 		a := fade * (0.55 + 0.45*tt)
-		r.drawGlowRect(screen, pivotX+math.Cos(theta)*outR, pivotY+math.Sin(theta)*outR,
+		r.weaponFxAccent(screen, pivotX+math.Cos(theta)*outR, pivotY+math.Sin(theta)*outR,
 			math.Max(3, h*0.014*w), mixColor(clockSteel, clockWhite, tt), a, additiveGlowBlend)
 	}
 
@@ -125,8 +125,7 @@ func (r *Renderer) drawMeleeFxClockCogfang(screen *ebiten.Image, s SlashEffect, 
 				if i%2 == 0 {
 					rr *= 1.25
 				}
-				r.drawGlowRect(screen, bx+math.Cos(ang)*rr, by+math.Sin(ang)*rr*0.55,
-					math.Max(3, h*0.015*(1-u*0.4)), clockBrass, fade*(1-u)*1.3, additiveGlowBlend)
+				r.weaponFxAccent(screen, bx+math.Cos(ang)*rr, by+math.Sin(ang)*rr*0.55, math.Max(3, h*0.015*(1-u*0.4)), clockBrass, fade*(1-u)*1.3, additiveGlowBlend)
 			}
 		}
 		// Punched plate chips off the bite (shared debris beat).
@@ -187,14 +186,14 @@ func (r *Renderer) drawMeleeFxClockChime(screen *ebiten.Image, s SlashEffect, cx
 			r.drawSparkStar(screen, impactX, impactY, h*0.13*w*flash, clockBrass, clockWhite, fade*flash, 1)
 		}
 		// Three resonance waves - the bell note spreading out of the strike.
-		r.arenaImpactRings(screen, impactX, impactY, u, reach*2.0, 0.45, h*0.02, 3, clockBrass, fade*1.4)
+		r.arenaImpactCloud(screen, impactX, impactY, u, reach*2.0, 0.45, clockBrass, fade*1.4)
 		// Twelve hour-marks flash on around the strike, in dial order - the
 		// dial IS the finish, it must outshine the fading swing.
 		lit := int(u * 30)
 		for i := 0; i < 12 && i < lit; i++ {
 			ang := -math.Pi/2 + 2*math.Pi*float64(i)/12
 			rad := reach * 0.8
-			r.drawGlowRect(screen, impactX+math.Cos(ang)*rad, impactY+math.Sin(ang)*rad*0.6,
+			r.weaponFxAccent(screen, impactX+math.Cos(ang)*rad, impactY+math.Sin(ang)*rad*0.6,
 				math.Max(4, h*0.02), mixColor(clockBrass, clockWhite, 0.5), fade*(1-u*0.45)*1.3, additiveGlowBlend)
 		}
 		// Hanging golden motes: the note's shimmer, drifting up, slow to leave.
@@ -209,81 +208,9 @@ func (r *Renderer) drawMeleeFxClockChime(screen *ebiten.Image, s SlashEffect, cx
 	}
 }
 
-// Minute Hand - sixty stabs an hour: a long needle thrust extending in five
-// hard ticks with a bright notch-dash snapped at every height it passed, a
-// ghost needle one beat behind (the 0.65x cooldown, visible), and at full
-// extension the dial flash - twelve marks and a minute hand snapping from
-// noon to the strike before the reading fades.
+// Minute Hand thrusts its clockwork needle with a restrained trailing wake.
 func (r *Renderer) drawMeleeFxClockMinute(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	progress, fade, sweepT, lead := meleeFxTiming(s)
-	if fade <= 0 {
-		return
-	}
-	seed := seedFromID(s.ID)
-	h, w := arenaFxScale(s, screenH)
-	reach := h * 0.36
-	baseX, baseY := cx, cy+reach*0.5
-	tick := clockTickLead(lead, 5)
-
-	needle := func(off, ld, alphaMul float64) {
-		bx := baseX + off
-		tipLen := reach * ld
-		path := func(t float64) (float64, float64) { return bx + off*0.2*t, baseY - tipLen*t }
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   path,
-			width:  func(t float64) float64 { return (16 - 9*t) * w },
-			color:  func(t float64) [3]int { return mixColor(clockSteel, clockWhite, t) },
-			alpha:  func(t float64) float64 { return (0.7 + 0.3*t) * alphaMul },
-			length: reach, seed: seed, salt: 350 + int(off), blend: additiveGlowBlend,
-		}, 1, progress)
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   path,
-			width:  func(t float64) float64 { return (6 - 2.5*t) * w },
-			color:  func(t float64) [3]int { return clockWhite },
-			alpha:  func(t float64) float64 { return (0.8 + 0.2*t) * alphaMul },
-			length: reach, seed: seed, salt: 352 + int(off), blend: additiveGlowBlend,
-		}, 1, progress)
-		if sweepT < 1 {
-			r.drawGlowSprite(screen, bx, baseY-tipLen, h*0.04*w*alphaMul, clockWhite, fade*alphaMul, additiveGlowBlend)
-		}
-	}
-	needle(0, tick, 1)
-	// Ghost needle one tick behind - the second stab already queued.
-	ghostLead := clockTickLead(math.Max(0, lead-0.2), 5)
-	needle(h*0.045, ghostLead, 0.5)
-
-	// Notch dashes: a bright horizontal tick crossing the blade at each height
-	// the needle has snapped past - the minute marks of the thrust.
-	notches := int(tick * 5)
-	for i := 1; i <= notches && i <= 5; i++ {
-		ny := baseY - reach*float64(i)/5
-		for d := -1; d <= 1; d++ {
-			r.drawGlowRect(screen, baseX+float64(d)*h*0.016, ny, math.Max(3, h*0.011),
-				mixColor(clockSteel, clockWhite, 0.5), fade*0.75, additiveGlowBlend)
-		}
-	}
-
-	// The dial flash at full extension: 12 marks + the minute hand snapping over.
-	if sweepT >= 1 {
-		u := (progress - meleeSweepFrac) / (1 - meleeSweepFrac)
-		tipX, tipY := baseX, baseY-reach
-		dialR := reach * 0.42
-		for i := 0; i < 12; i++ {
-			ang := -math.Pi/2 + 2*math.Pi*float64(i)/12
-			r.drawGlowRect(screen, tipX+math.Cos(ang)*dialR, tipY+math.Sin(ang)*dialR,
-				math.Max(3, h*0.012), clockSteel, fade*(1-u), additiveGlowBlend)
-		}
-		// Minute hand: snaps from noon around the dial as the flash fades.
-		handAng := -math.Pi/2 + math.Min(1, u*1.6)*2*math.Pi*0.65
-		for k := 0; k <= 8; k++ {
-			t := float64(k) / 8
-			r.drawGlowSprite(screen, tipX+math.Cos(handAng)*dialR*t, tipY+math.Sin(handAng)*dialR*t,
-				math.Max(2.5, h*0.012*(1-t*0.35)), clockWhite, fade*(1-u)*(0.55+0.45*t), additiveGlowBlend)
-		}
-		if u < 0.2 {
-			r.drawSparkStar(screen, tipX, tipY, h*0.07*w*(1-u/0.2), clockSteel, clockWhite, fade*(1-u/0.2), 1.8)
-		}
-	}
+	r.drawIdentityStrike(screen, s, cx, cy, screenH, "clock_minute", "stab")
 }
 
 // Mainspring Pike - unwound fury: the thrust is a mainspring letting go. The
@@ -342,8 +269,7 @@ func (r *Renderer) drawMeleeFxClockMainspring(screen *ebiten.Image, s SlashEffec
 			ang := auraHash(seed, k, 375, 0) * 2 * math.Pi
 			for st := 0; st < 3; st++ {
 				d := h * (0.015 + 0.02*float64(st)) * (0.4 + sweepT)
-				r.drawGlowRect(screen, gx+math.Cos(ang)*d, gy+math.Sin(ang)*d,
-					math.Max(2.5, h*0.012*(1-0.25*float64(st))), clockSteel, fade*(0.85-0.22*float64(st)), additiveGlowBlend)
+				r.drawWeaponShard(screen, gx+math.Cos(ang)*d, gy+math.Sin(ang)*d, math.Max(2.5, h*0.012*(1-0.25*float64(st))), clockSteel, fade*(0.85-0.22*float64(st)), sweepT*.6, seed+k*37, false)
 			}
 		}
 		tx, ty := helix(ld)
@@ -357,14 +283,14 @@ func (r *Renderer) drawMeleeFxClockMainspring(screen *ebiten.Image, s SlashEffec
 		if u < 0.3 {
 			r.drawSparkStar(screen, tipX, tipY, h*0.09*w*(1-u/0.3), clockSteel, clockWhite, fade*(1-u/0.3), 2.4)
 		}
-		r.arenaImpactRings(screen, tipX, tipY, u, reach*0.6, 0.6, h*0.013, 2, clockCopper, fade)
+		r.arenaImpactCloud(screen, tipX, tipY, u, reach*0.6, 0.6, clockCopper, fade)
 	}
 }
 
 // Escapement Mace - tick, tock: two ratcheting chops that CONVERGE on the same
 // strike point, the second half a beat behind, each advancing through four
 // hard notches with a click-spark at every one. The finish shears BRASS GEAR
-// TEETH off the target - square flakes tumbling with ghost trails - while
+// TEETH off the target - faceted shards tumbling with ghost trails - while
 // pawl-click arc segments snap in around the strike. Armor stripped, tooth by
 // tooth.
 func (r *Renderer) drawMeleeFxClockEscapement(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
@@ -411,7 +337,7 @@ func (r *Renderer) drawMeleeFxClockEscapement(screen *ebiten.Image, s SlashEffec
 		notches := int(ld * 4)
 		for n := 1; n <= notches && n <= 4; n++ {
 			nx, ny := pathTo(float64(n) / 4 / ld)
-			r.drawGlowRect(screen, nx, ny, math.Max(3, h*0.012), clockWhite, fade*0.65, additiveGlowBlend)
+			r.weaponFxAccent(screen, nx, ny, math.Max(3, h*0.012), clockWhite, fade*0.65, additiveGlowBlend)
 		}
 		if st < 1 {
 			tx, ty := pathTo(1)
@@ -425,7 +351,7 @@ func (r *Renderer) drawMeleeFxClockEscapement(screen *ebiten.Image, s SlashEffec
 		if u < 0.3 {
 			r.drawSparkStar(screen, meetX, meetY, h*0.1*w*(1-u/0.3), clockBrass, clockWhite, fade*(1-u/0.3), 1)
 		}
-		r.arenaImpactRings(screen, meetX, meetY, u, reach*1.1, 0.5, h*0.013, 2, clockBrass, fade)
+		r.arenaImpactCloud(screen, meetX, meetY, u, reach*1.1, 0.5, clockBrass, fade)
 		// Pawl clicks: three short arc segments appear around the strike, stepwise.
 		clicks := int(u * 6)
 		for c := 0; c < 3 && c < clicks; c++ {
@@ -448,6 +374,7 @@ func (r *Renderer) drawMeleeFxClockEscapement(screen *ebiten.Image, s SlashEffec
 func (r *Renderer) drawWeaponProjectileFxClockPistol(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
 	seed := id + 421
 	fc := float64(r.game.frameCount)
+	r.weaponFxHalo(screen, cx, cy, size*.9, size*.72, math.Max(1.5, size*.13), 8, clockBrass, .65*critBoost)
 	// Spinning cog ring around the slug.
 	const teeth = 8
 	for i := 0; i < teeth; i++ {
@@ -456,7 +383,7 @@ func (r *Renderer) drawWeaponProjectileFxClockPistol(screen *ebiten.Image, cx, c
 		if i%2 == 0 {
 			rr *= 1.3
 		}
-		r.drawGlowRect(screen, cx+math.Cos(ang)*rr, cy+math.Sin(ang)*rr*0.8,
+		r.weaponFxAccent(screen, cx+math.Cos(ang)*rr, cy+math.Sin(ang)*rr*0.8,
 			math.Max(2, size*0.14), mixColor(clockBrass, clockWhite, float64(i%2)*0.5), 0.5*critBoost, additiveGlowBlend)
 	}
 	// Steam puffs venting behind: soft, widening, quick to thin.

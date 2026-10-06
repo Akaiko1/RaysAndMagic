@@ -128,46 +128,11 @@ func (rt *RaycastTimer) EndRaycast() {
 	rt.monitor.raycastTime.Store(uint64(raycastTime.Nanoseconds()))
 }
 
-// GameMetrics tracks game-specific performance data
-type GameMetrics struct {
-	MonstersUpdated    uint64
-	ProjectilesActive  int32
-	CollisionsDetected uint64
-	FramesPerSecond    float64
-	MemoryUsageMB      uint64
-}
-
 // UpdateGameMetrics updates game-specific metrics
 func (pm *PerformanceMonitor) UpdateGameMetrics(monsters uint64, projectiles int32, collisions uint64) {
 	pm.monstersUpdated.Store(monsters)
 	pm.projectilesActive.Store(projectiles)
 	pm.collisionsDetected.Store(collisions)
-}
-
-// GetCurrentMetrics returns current performance metrics
-func (pm *PerformanceMonitor) GetCurrentMetrics() GameMetrics {
-	pm.mutex.RLock()
-	defer pm.mutex.RUnlock()
-
-	// Calculate FPS
-	frameTime := pm.frameTime.Load()
-	fps := 0.0
-	if frameTime > 0 {
-		fps = 1000000000.0 / float64(frameTime) // Convert nanoseconds to FPS
-	}
-
-	// Get memory usage
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-	memoryMB := memStats.Alloc / 1024 / 1024
-
-	return GameMetrics{
-		MonstersUpdated:    pm.monstersUpdated.Load(),
-		ProjectilesActive:  pm.projectilesActive.Load(),
-		CollisionsDetected: pm.collisionsDetected.Load(),
-		FramesPerSecond:    fps,
-		MemoryUsageMB:      memoryMB,
-	}
 }
 
 // GetDetailedStats returns detailed performance statistics

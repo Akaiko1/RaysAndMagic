@@ -10,6 +10,7 @@ func TestFloorTransitionValidation(t *testing.T) {
 	}{
 		{FloorTransitionHard, true, true}, {FloorTransitionNatural, true, true}, {FloorTransitionWater, true, true},
 		{FloorTransitionCliffEast, true, true}, {FloorTransitionCliffWest, true, true}, {FloorTransitionVoid, true, true},
+		{FloorTransitionChasm, true, true}, {FloorTransitionChasm, false, false},
 		{"natual", true, false}, {FloorTransitionNatural, false, false},
 	} {
 		t.Run(string(tc.profile), func(t *testing.T) {

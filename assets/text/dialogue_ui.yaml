@@ -4,7 +4,6 @@ dialog.a_service_the_party_does_not_learn: "A service - the party does not learn
 dialog.add_food_to_the_party_supplies: "Add %d food to the party supplies."
 dialog.already_active: " (already active)"
 dialog.already_knows: "%s already knows %s!"
-dialog.already_lasts_at_least_no_gold_was: "%s already lasts at least %s - no gold was spent."
 dialog.already_woven_over_the_party: "Already woven over the party."
 dialog.arena_points: "Arena Points: %d"
 dialog.arena_price_short: "%d ap"

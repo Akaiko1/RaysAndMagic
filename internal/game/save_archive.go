@@ -2,7 +2,6 @@ package game
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +22,7 @@ const archiveDirName = "archive"
 func ArchiveDirPath() string { return storage.AppSavePath(archiveDirName) }
 
 // SaveRowsTotal is the number of save-menu rows (autosave row 0 + manual slots).
-func SaveRowsTotal() int { return saveRowCount + 1 }
+func SaveRowsTotal() int { return saveRowCount }
 
 // SaveRowFilePath is the save file backing a global save-row index.
 func SaveRowFilePath(row int) string { return saveRowPath(row) }
@@ -36,8 +35,9 @@ func SaveRowFileName(row int) string { return saveRowFileName(row) }
 // SaveRowDisplayName is the slot's display name ("Autosave" or "Slot N").
 func SaveRowDisplayName(row int) string { return saveRowLabel(row) }
 
-// IsAutosaveRow reports whether a row is the load-only autosave slot.
-func IsAutosaveRow(row int) bool { return saveRowIsAutosave(row) }
+// IsLoadOnlyRow reports whether a row is written by the game (Autosave,
+// Quicksave) and only loaded by the menus.
+func IsLoadOnlyRow(row int) bool { return saveRowIsLoadOnly(row) }
 
 // ReadGameSave decodes a full save file (slot or archive).
 func ReadGameSave(path string) (*GameSave, error) {
@@ -91,13 +91,13 @@ func ListArchivedSaves() []ArchivedSave {
 }
 
 // ArchiveSaveRow moves a manual slot's save file into the archive, freeing the
-// slot. The autosave row is refused: it regenerates on the next map change, so
-// archiving it frees nothing. Returns the archived file's path.
+// slot. The Autosave and Quicksave rows are refused: the game rewrites them,
+// so archiving frees nothing. Returns the archived file's path.
 func ArchiveSaveRow(row int) (string, error) {
-	if saveRowIsAutosave(row) {
-		return "", errors.New("the Autosave slot regenerates and cannot be archived")
+	if saveRowIsLoadOnly(row) {
+		return "", fmt.Errorf("the %s slot regenerates and cannot be archived", saveRowLabel(row))
 	}
-	if row < 0 || row > saveRowCount {
+	if !saveRowIsSlot(row) {
 		return "", fmt.Errorf("row %d is not a save slot", row)
 	}
 	src := saveRowPath(row)
@@ -109,12 +109,12 @@ func ArchiveSaveRow(row int) (string, error) {
 }
 
 // RestoreArchivedSave moves an archived save into a FREE manual slot. An
-// occupied slot (and the load-only autosave row) is refused - archive it first.
+// occupied slot (and the load-only rows) is refused - archive it first.
 func RestoreArchivedSave(archivePath string, row int) error {
-	if saveRowIsAutosave(row) {
-		return errors.New("the Autosave slot is load-only")
+	if saveRowIsLoadOnly(row) {
+		return fmt.Errorf("the %s slot is load-only", saveRowLabel(row))
 	}
-	if row < 0 || row > saveRowCount {
+	if !saveRowIsSlot(row) {
 		return fmt.Errorf("row %d is not a save slot", row)
 	}
 	return restoreArchiveFile(archivePath, saveRowPath(row), saveRowLabel(row))

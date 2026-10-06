@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"math"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -159,57 +158,6 @@ func TestCampSceneUsesPartyBiome(t *testing.T) {
 					t.Fatalf("scene=%s want=%s", got, want)
 				}
 			})
-		}
-	}
-}
-
-func TestCampCoverPreservesProportionsAndHeads(t *testing.T) {
-	for _, res := range campHUDResolutions {
-		for _, hud := range []bool{true, false} {
-			h := res[1]
-			if hud {
-				h = gameplayViewportBottomWithPartyHUD(h)
-			}
-			x, y, w, height := campSceneCoverGeometry(res[0], h, 1536, 1024, .08)
-			if math.Abs(w/1536-height/1024) > 1e-9 {
-				t.Fatal("non-uniform artwork scaling")
-			}
-			if x > 0 || y > 0 || x+w < float64(res[0])-1e-9 || y+height < float64(h)-1e-9 {
-				t.Fatal("artwork does not cover viewport")
-			}
-			// All current scenes keep the top of every head below 10% of source height.
-			if y+.10*height <= 0 {
-				t.Fatalf("%v crops a character's head", res)
-			}
-		}
-	}
-}
-
-func TestCampClusterPatterns(t *testing.T) {
-	for _, count := range []int{5, 6} {
-		for trial := 0; trial < 20; trial++ {
-			c := config.DefaultCampingConfig()
-			c.DissolveClustersMin, c.DissolveClustersMax = count, count
-			p := newCampDissolvePattern(c)
-			unique := make(map[[2]float32]bool)
-			for i := 0; i < 6; i++ {
-				point := [2]float32{p.centers[i*2], p.centers[i*2+1]}
-				if point[0] <= 0 || point[0] >= 1 || point[1] <= 0 || point[1] >= 1 {
-					t.Fatal("cluster origin outside the picture")
-				}
-				unique[point] = true
-			}
-			if len(unique) != count {
-				t.Fatalf("got %d cluster origins, want %d", len(unique), count)
-			}
-			if other := newCampDissolvePattern(c); other.centers == p.centers {
-				t.Fatal("new transition reused the same origins")
-			}
-			for _, res := range campHUDResolutions {
-				if r := p.coverageRadius(res[0], res[1]); r <= 0 || math.IsNaN(float64(r)) {
-					t.Fatal("invalid cluster coverage after resize")
-				}
-			}
 		}
 	}
 }

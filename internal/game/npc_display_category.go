@@ -109,6 +109,26 @@ func ValidateNPCVisualSizes(npcs map[string]*character.NPCData, classes map[stri
 		if category != catWideLandmark && npc.GridSpanTiles != 0 {
 			return fmt.Errorf("NPC %q sets grid_span_tiles but render_category %q is not wide_landmark", key, npc.RenderCategory)
 		}
+		if npc.WallBacked && category != catWideLandmark {
+			return fmt.Errorf("NPC %q wall_backed requires wide_landmark", key)
+		}
+		if s := npc.CrystalShimmer; s != nil {
+			if category != catWideLandmark || s.IntervalSeconds <= 0 || s.DurationSeconds <= 0 || s.DurationSeconds > s.IntervalSeconds || len(s.Crystals) == 0 {
+				return fmt.Errorf("NPC %q has invalid crystal_shimmer timing or category", key)
+			}
+			for _, c := range s.Crystals {
+				for axis := range 2 {
+					if c.Radius[axis] <= 0 || c.Center[axis]-c.Radius[axis] < 0 || c.Center[axis]+c.Radius[axis] > 1 {
+						return fmt.Errorf("NPC %q crystal_shimmer extends outside its sprite", key)
+					}
+				}
+				for _, channel := range c.Color {
+					if channel < 0 || channel > 255 {
+						return fmt.Errorf("NPC %q crystal_shimmer has invalid color", key)
+					}
+				}
+			}
+		}
 		if category == catInvisible {
 			if npc.SizeClass != "" {
 				return fmt.Errorf("NPC %q is invisible and must not set size_class", key)

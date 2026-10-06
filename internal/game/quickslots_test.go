@@ -1,7 +1,10 @@
 package game
 
 import (
+	"image"
 	"testing"
+	"ugataima/internal/character"
+	"ugataima/internal/spells"
 
 	"ugataima/internal/items"
 )
@@ -11,7 +14,8 @@ import (
 func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 20, 20)
 	ch := game.party.Members[0]
-	ch.ActionsRemaining = 9 // turn-based: quick slots require an available action
+	// Drinking and equipping never spend an action, so an empty turn budget must not block them.
+	ch.ActionsRemaining = 0
 
 	// Consumable: double-click drinks one and empties the slot.
 	pot := items.CreateItemFromYAML("health_potion")
@@ -29,7 +33,7 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	// then re-equip it via the quick slot.
 	cur, had := ch.Equipment[items.SlotMainHand]
 	if !had {
-		t.Skip("class has no starting main-hand weapon")
+		t.Fatal("fixture: the first hero has no starting main-hand weapon")
 	}
 	w := cur
 	ch.QuickSlots[1] = &w
@@ -40,6 +44,9 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	}
 	if ch.QuickSlots[1] != nil {
 		t.Fatalf("equipping into an empty hand should empty the slot")
+	}
+	if ch.ActionsRemaining != 0 {
+		t.Fatalf("drinking or equipping spent the turn budget: %d", ch.ActionsRemaining)
 	}
 
 	// Drag an inventory item into a slot: it leaves the shared bag.
@@ -200,7 +207,7 @@ func TestQuickSlot_EquipIsFree(t *testing.T) {
 	ch := game.party.Members[0]
 	cur, had := ch.Equipment[items.SlotMainHand]
 	if !had {
-		t.Skip("class has no starting main-hand weapon")
+		t.Fatal("fixture: the first hero has no starting main-hand weapon")
 	}
 
 	// Turn-based: equipping from a slot must NOT consume an action.
@@ -229,5 +236,70 @@ func TestQuickSlot_EquipIsFree(t *testing.T) {
 	}
 	if ch.RTCooldown != 30 {
 		t.Errorf("equipping changed the RT cooldown (RTCooldown=%d, want 30 unchanged)", ch.RTCooldown)
+	}
+}
+
+// A double-click on the in-game bar uses the slot - the two clicks land in
+// separate frames with the bar redrawn between them, whether or not the
+// slot's card is showing. One click alone does nothing, and a click on
+// another cell does not complete the pair.
+func TestInGameQuickSlotDoubleClickUsesTheSlot(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		slot    int
+		tooltip bool
+		second  int // cell of the second click
+		want    bool
+	}{
+		{"potion", 0, false, 0, true},
+		{"potion with its card up", 0, true, 0, true},
+		{"spell", 1, false, 1, true},
+		{"spell with its card up", 1, true, 1, true},
+		{"clicks on two cells", 0, false, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDwellHarness(t)
+			g := d.h.g
+			g.party.Members[g.selectedChar] = character.CreateCharacter("Lysander", character.ClassSorcerer, g.config)
+			ch := g.party.Members[g.selectedChar]
+			potion := items.CreateItemFromYAML("health_potion")
+			potion.Quantity = 3
+			spell, err := spells.CreateSpellItem("firebolt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ch.QuickSlots[0], ch.QuickSlots[1] = &potion, &spell
+			ch.HitPoints = ch.MaxHitPoints / 2
+			bar, visible := inGameQuickSlotBarLayout(g)
+			if !visible {
+				t.Fatal("fixture: the in-game quick bar is hidden")
+			}
+			_, cells := quickSlotRects(bar.x, bar.y, bar.w)
+			first, second := centerOf(cells[tc.slot]), centerOf(cells[tc.second])
+			d.at = first
+			d.frame()
+			if tc.tooltip {
+				d.clock = d.clock.Add(quickSlotCardDelay)
+				if d.frame() == "" {
+					t.Fatal("fixture: the card did not open")
+				}
+			}
+			hp, sp := ch.HitPoints, ch.SpellPoints
+			click := func(p image.Point) {
+				d.at = p
+				beginUIFrame(d.h.screen, g.uiPixelScale())
+				d.h.clicks(false, p.X, p.Y, 1)
+				d.frame()
+			}
+			click(first)
+			if ch.HitPoints != hp || ch.SpellPoints != sp || potion.Quantity != 3 {
+				t.Fatal("a single click used the slot")
+			}
+			click(second)
+			used := ch.HitPoints > hp || ch.SpellPoints < sp
+			if used != tc.want {
+				t.Fatalf("double-click used the slot = %v, want %v (HP %d->%d, SP %d->%d)", used, tc.want, hp, ch.HitPoints, sp, ch.SpellPoints)
+			}
+		})
 	}
 }

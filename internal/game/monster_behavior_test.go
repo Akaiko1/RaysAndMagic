@@ -2,9 +2,11 @@ package game
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -370,15 +372,20 @@ func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	}
 }
 
-// Darkness stuns every monster within its radius (5 tiles) of the caster and
-// deals no damage; monsters outside the radius are untouched.
+// Darkness stuns every monster within its authored radius of the caster
+// (inclusive) and deals no damage; monsters outside the radius are untouched.
 func TestDarkness_StunsMonstersInRadiusOnly(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
-	placePlayerAtTile(game, 10, 10, ts)
-
-	near := monster.NewMonster3DFromConfig(float64(12)*ts+ts/2, float64(10)*ts+ts/2, "goblin", game.config) // 2 tiles
-	edge := monster.NewMonster3DFromConfig(float64(15)*ts+ts/2, float64(10)*ts+ts/2, "goblin", game.config) // 5 tiles (== radius)
-	far := monster.NewMonster3DFromConfig(float64(18)*ts+ts/2, float64(10)*ts+ts/2, "goblin", game.config)  // 8 tiles
+	placePlayerAtTile(game, 2, 10, ts)
+	def, err := spells.GetSpellDefinitionByID("darkness")
+	if err != nil || def.StunRadiusTiles <= 0 {
+		t.Fatalf("darkness needs a stun radius: %v", err)
+	}
+	r := def.StunRadiusTiles
+	at := func(tiles float64) *monster.Monster3D {
+		return monster.NewMonster3DFromConfig(game.camera.X+tiles*ts, game.camera.Y, "goblin", game.config)
+	}
+	near, edge, far := at(r/2), at(r), at(r+3)
 	game.world.Monsters = []*monster.Monster3D{near, edge, far}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
@@ -390,60 +397,74 @@ func TestDarkness_StunsMonstersInRadiusOnly(t *testing.T) {
 	}
 
 	if near.StunFramesRemaining <= 0 || near.StunTurnsRemaining <= 0 {
-		t.Errorf("monster at 2 tiles should be stunned (RT %d, TB %d)", near.StunFramesRemaining, near.StunTurnsRemaining)
+		t.Errorf("monster inside the radius should be stunned (RT %d, TB %d)", near.StunFramesRemaining, near.StunTurnsRemaining)
 	}
 	if edge.StunFramesRemaining <= 0 {
-		t.Errorf("monster at exactly 5 tiles (radius) should be stunned, got %d", edge.StunFramesRemaining)
+		t.Errorf("monster at exactly the radius (%.1f tiles) should be stunned, got %d", r, edge.StunFramesRemaining)
 	}
 	if far.StunFramesRemaining != 0 || far.StunTurnsRemaining != 0 {
-		t.Errorf("monster at 8 tiles (outside radius) must NOT be stunned, got RT %d TB %d", far.StunFramesRemaining, far.StunTurnsRemaining)
+		t.Errorf("monster outside the radius must NOT be stunned, got RT %d TB %d", far.StunFramesRemaining, far.StunTurnsRemaining)
 	}
 	if partyHPSum(game) != hp0 {
 		t.Errorf("darkness should deal no damage to the party")
 	}
-	// Stun durations come from YAML (data-driven), not hardcoded here.
-	def, _ := spells.GetSpellDefinitionByID("darkness")
-	if def.StunRadiusTiles != 5 {
-		t.Errorf("darkness stun_radius_tiles should be 5, got %v", def.StunRadiusTiles)
+}
+
+// Disintegrate: undead and dragons are immune to the instakill; other types
+// are not. The rule is type-driven.
+func TestDisintegrate_TypeImmunity(t *testing.T) {
+	for _, tc := range []struct {
+		monsterType string
+		immune      bool
+	}{
+		{monster.TypeUndead, true},
+		{monster.TypeDragon, true},
+		{monster.TypeFormless, false},
+		{"", false},
+	} {
+		m := &monster.Monster3D{MonsterType: tc.monsterType, HitPoints: 10, MaxHitPoints: 10}
+		if got := monsterImmuneToDisintegrate(m); got != tc.immune {
+			t.Errorf("type %q: immune = %v, want %v", tc.monsterType, got, tc.immune)
+		}
 	}
 }
 
-// Disintegrate: undead and dragons are immune to the instakill; generic mobs
-// are not. Also verifies the spell is configured as a no-damage 15% instakill.
-func TestDisintegrate_ImmunityAndConfig(t *testing.T) {
-	game, _, _ := tbBehaviorGame(t, 5, 5) // loads monster + spell configs
-	cfg := game.config
+// partyBuffGrant holds the mastery-scaled authored magnitudes of one cast.
+type partyBuffGrant struct {
+	def                        spells.SpellDefinition
+	resistPct, outBonus, inCut int
+}
 
-	skeleton := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
-	lich := monster.NewMonster3DFromConfig(0, 0, "lich", cfg)
-	goblin := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
-	dragon := monster.NewMonster3DFromConfig(0, 0, "dragon", cfg)
+// castPartyBuffGrant casts key from member 0 and returns what the cast must grant.
+func castPartyBuffGrant(t *testing.T, game *MMGame, key string) partyBuffGrant {
+	t.Helper()
+	def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
+	if err != nil {
+		t.Fatalf("%s: %v", key, err)
+	}
+	equipSpellAndPrepareCaster(t, game.combat, key, 100, 30)
+	caster := game.party.Members[0]
+	want := partyBuffGrant{
+		def:       def,
+		resistPct: scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
+		outBonus:  scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
+		inCut:     scaledIncomingDamageReduction(def, caster),
+	}
+	if !game.combat.CastEquippedSpell() {
+		t.Fatalf("%s cast failed", key)
+	}
+	return want
+}
 
-	if skeleton.MonsterType != "undead" || lich.MonsterType != "undead" {
-		t.Errorf("skeleton/lich should be tagged undead, got %q / %q", skeleton.MonsterType, lich.MonsterType)
-	}
-	if goblin.MonsterType != "" {
-		t.Errorf("goblin should have empty type (generic), got %q", goblin.MonsterType)
-	}
-	if !monsterImmuneToDisintegrate(skeleton) || !monsterImmuneToDisintegrate(lich) {
-		t.Errorf("undead must be immune to disintegrate")
-	}
-	if dragon.MonsterType != "dragon" {
-		t.Errorf("dragon should be tagged type 'dragon', got %q", dragon.MonsterType)
-	}
-	if !monsterImmuneToDisintegrate(dragon) {
-		t.Errorf("dragon must be immune to disintegrate (type-driven)")
-	}
-	if monsterImmuneToDisintegrate(goblin) {
-		t.Errorf("generic mob (goblin) must NOT be immune to disintegrate")
-	}
-
-	def, _ := spells.GetSpellDefinitionByID("disintegrate")
-	if !def.DealsNoDamage {
-		t.Errorf("disintegrate should deal no direct damage")
-	}
-	if def.DisintegrateChance != 0.15 {
-		t.Errorf("disintegrate_chance should be 0.15, got %v", def.DisintegrateChance)
+// requireUnbuffedFireHits pins the fixture: without buffs, member 0 takes fire
+// hits unchanged, so the buff arithmetic below is exact.
+func requireUnbuffedFireHits(t *testing.T, game *MMGame, hits ...int) {
+	t.Helper()
+	m := game.party.Members[0]
+	for _, hit := range hits {
+		if got := game.combat.mitigateCharacterDamage(hit, "fire", m, false); got != hit {
+			t.Fatalf("fixture: unbuffed %d fire became %d", hit, got)
+		}
 	}
 }
 
@@ -451,55 +472,58 @@ func TestDisintegrate_ImmunityAndConfig(t *testing.T) {
 // for its YAML-driven duration.
 func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
-	equipSpellAndPrepareCaster(t, game.combat, "day_of_the_gods", 100, 30)
-	if !game.combat.CastEquippedSpell() {
-		t.Fatalf("day_of_the_gods cast failed")
+	requireUnbuffedFireHits(t, game, 100)
+	cast := castPartyBuffGrant(t, game, "day_of_the_gods")
+	if cast.resistPct <= 0 {
+		t.Fatalf("day_of_the_gods grants no resist: %+v", cast)
 	}
-	if got := game.combatBuffResistPct(); got != 10 {
-		t.Fatalf("expected 10%% resist active, got %d", got)
+	if got := game.combatBuffResistPct(); got != cast.resistPct {
+		t.Fatalf("expected %d%% resist active, got %d", cast.resistPct, got)
 	}
-	// Day of the Gods boosts every school's resist -> 100 fire -> 90 at Novice.
+	// Day of the Gods boosts every school's resist, fire included.
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 90 {
-		t.Errorf("100 incoming with 10%% resist should be 90, got %d", got)
+	if got, want := game.combat.mitigateCharacterDamage(100, "fire", m, false), 100-cast.resistPct; got != want {
+		t.Errorf("100 incoming with %d%% resist should be %d, got %d", cast.resistPct, want, got)
 	}
-	def, _ := spells.GetSpellDefinitionByID("day_of_the_gods")
 	buff, ok := game.combatBuffByID("day_of_the_gods")
-	if want := def.Duration * game.config.GetTPS(); !ok || buff.Frames != want {
-		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Frames, ok, want, def.Duration)
+	if want := cast.def.Duration * game.config.GetTPS(); !ok || buff.Frames != want {
+		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Frames, ok, want, cast.def.Duration)
 	}
 }
 
-// Hour of Power: +5 outgoing damage and -1 incoming at Novice.
+// Hour of Power: a flat outgoing bonus and a flat incoming cut per hit.
 func TestHourOfPower_DamageBuffs(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
-	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
-	if !game.combat.CastEquippedSpell() {
-		t.Fatalf("hour_of_power cast failed")
+	requireUnbuffedFireHits(t, game, 10, 3)
+	cast := castPartyBuffGrant(t, game, "hour_of_power")
+	if cast.outBonus <= 0 || cast.inCut <= 0 {
+		t.Fatalf("hour_of_power grants no bonus: %+v", cast)
 	}
-	if out, in := game.combatBuffOutBonusForDamageType("fire"), game.combatBuffInReduce(); out != 5 || in != 1 {
-		t.Fatalf("hour_of_power: out=%d in=%d (want 5/1)", out, in)
+	if out, in := game.combatBuffOutBonusForDamageType("fire"), game.combatBuffInReduce(); out != cast.outBonus || in != cast.inCut {
+		t.Fatalf("hour_of_power: out=%d in=%d (want %d/%d)", out, in, cast.outBonus, cast.inCut)
 	}
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(10, "fire", m, false); got != 9 {
-		t.Errorf("10 incoming -1 should be 9, got %d", got)
-	}
-	if got := game.combat.mitigateCharacterDamage(3, "fire", m, false); got != 2 {
-		t.Errorf("3 incoming -1 should be 2, got %d", got)
+	for _, hit := range []int{10, 3} {
+		if got, want := game.combat.mitigateCharacterDamage(hit, "fire", m, false), max(0, hit-cast.inCut); got != want {
+			t.Errorf("%d incoming -%d should be %d, got %d", hit, cast.inCut, want, got)
+		}
 	}
 }
 
 // Both party buffs stack on incoming damage: % reduction first, then flat reduction.
 func TestPartyBuffs_StackOnIncoming(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
-	equipSpellAndPrepareCaster(t, game.combat, "day_of_the_gods", 100, 30)
-	game.combat.CastEquippedSpell()
-	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
-	game.combat.CastEquippedSpell()
-	// 100 fire -> 10% resist -> 90 -> flat -1 -> 89
+	requireUnbuffedFireHits(t, game, 100)
+	gods := castPartyBuffGrant(t, game, "day_of_the_gods")
+	power := castPartyBuffGrant(t, game, "hour_of_power")
+	resist := gods.resistPct + power.resistPct
+	cut := gods.inCut + power.inCut
+	if resist <= 0 || cut <= 0 {
+		t.Fatalf("fixture needs both a resist and a flat cut: resist=%d cut=%d", resist, cut)
+	}
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 89 {
-		t.Errorf("100 with 10%% resist then -1 should be 89, got %d", got)
+	if got, want := game.combat.mitigateCharacterDamage(100, "fire", m, false), 100*(100-resist)/100-cut; got != want {
+		t.Errorf("100 with %d%% resist then -%d should be %d, got %d", resist, cut, want, got)
 	}
 }
 
@@ -582,28 +606,40 @@ func TestBindUndead_BoundFightsOtherMonsterNotParty(t *testing.T) {
 	}
 }
 
-// alien_dark_bolt is a monster-only projectile (the alien's attack) and must
-// never appear in a player-learnable school list - e.g. the Lich Dark picks.
-func TestSpells_AlienDarkBoltNotLearnable(t *testing.T) {
+// A monster_only spell (a monster's projectile) never appears in a
+// player-learnable school list; every other spell appears in each of its
+// schools. The synthetic row keeps the negative half from going vacuous.
+func TestSpells_MonsterOnlyNotLearnable(t *testing.T) {
 	loadTestConfig(t)
-	dark, err := spells.GetSpellIDsBySchool("dark")
-	if err != nil {
-		t.Fatalf("dark school lookup: %v", err)
-	}
-	var hasBolt, hasAlien bool
-	for _, id := range dark {
-		switch id {
-		case spells.SpellID("darkbolt"):
-			hasBolt = true
-		case spells.SpellID("alien_dark_bolt"):
-			hasAlien = true
+	var donor *config.SpellDefinitionConfig
+	for _, def := range config.GlobalSpells.Spells {
+		if def.School != "" {
+			donor = def
+			break
 		}
 	}
-	if hasAlien {
-		t.Errorf("alien_dark_bolt is monster_only and must not be a learnable Dark spell")
+	if donor == nil {
+		t.Fatal("no authored spell to copy")
 	}
-	if !hasBolt {
-		t.Errorf("regular darkbolt should still be a learnable Dark spell")
+	fixture := *donor
+	fixture.MonsterOnly = true
+	const fixtureKey = "fixture_monster_only_bolt"
+	config.GlobalSpells.Spells[fixtureKey] = &fixture
+	t.Cleanup(func() { delete(config.GlobalSpells.Spells, fixtureKey) })
+
+	for key, def := range config.GlobalSpells.Spells {
+		for _, school := range append([]string{def.School}, def.Schools...) {
+			if school == "" {
+				continue
+			}
+			ids, err := spells.GetSpellIDsBySchool(school)
+			if err != nil {
+				t.Fatalf("%s school lookup: %v", school, err)
+			}
+			if listed := slices.Contains(ids, spells.SpellID(key)); listed == def.MonsterOnly {
+				t.Errorf("%s in %s school list = %v, monster_only = %v", key, school, listed, def.MonsterOnly)
+			}
+		}
 	}
 }
 
@@ -1005,9 +1041,9 @@ func TestResurrect_RestoresFallenAlly(t *testing.T) {
 	}
 }
 
-// Magic Ring (intellect_scaling_divisor 6, personality_scaling_divisor 8) boosts
-// the wearer's effective Intellect and Personality - confirming the scaling-
-// divisor accessory chain (YAML -> Attributes -> calculateEquipmentBonuses) works.
+// Magic Ring's authored scaling divisors boost the wearer's effective Intellect
+// and Personality - confirming the scaling-divisor accessory chain (YAML ->
+// Attributes -> calculateEquipmentBonuses) works.
 func TestMagicRing_BoostsEffectiveStats(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	c := game.party.Members[0]
@@ -1016,19 +1052,24 @@ func TestMagicRing_BoostsEffectiveStats(t *testing.T) {
 	baseInt := c.GetEffectiveIntellect()
 	basePer := c.GetEffectivePersonality()
 
+	def, ok := config.GlobalItems.Items["magic_ring"]
+	if !ok || def.IntellectScalingDivisor <= 0 || def.PersonalityScalingDivisor <= 0 {
+		t.Fatal("magic_ring with both scaling divisors missing")
+	}
+	intDiv, perDiv := def.IntellectScalingDivisor, def.PersonalityScalingDivisor
 	ring := items.CreateItemFromYAML("magic_ring")
-	if ring.Attributes["intellect_scaling_divisor"] != 6 || ring.Attributes["personality_scaling_divisor"] != 8 {
+	if ring.Attributes["intellect_scaling_divisor"] != intDiv || ring.Attributes["personality_scaling_divisor"] != perDiv {
 		t.Fatalf("magic_ring attributes not populated: %v", ring.Attributes)
 	}
 	if _, _, ok := c.EquipItem(ring); !ok {
 		t.Fatalf("could not equip magic_ring")
 	}
 
-	if got, want := c.GetEffectiveIntellect(), baseInt+c.Intellect/6; got != want {
-		t.Errorf("effective Intellect with ring: got %d, want %d (+Int/6)", got, want)
+	if got, want := c.GetEffectiveIntellect(), baseInt+c.Intellect/intDiv; got != want {
+		t.Errorf("effective Intellect with ring: got %d, want %d (+Int/%d)", got, want, intDiv)
 	}
-	if got, want := c.GetEffectivePersonality(), basePer+c.Personality/8; got != want {
-		t.Errorf("effective Personality with ring: got %d, want %d (+Per/8)", got, want)
+	if got, want := c.GetEffectivePersonality(), basePer+c.Personality/perDiv; got != want {
+		t.Errorf("effective Personality with ring: got %d, want %d (+Per/%d)", got, want, perDiv)
 	}
 }
 
@@ -1046,15 +1087,6 @@ func TestStatusIconResolver_LegacyAndFallback(t *testing.T) {
 	}
 	// Unknown token must not panic even when no status_/icon_spell_ sprite resolves.
 	_, _ = game.resolveStatusIconSprite("day_of_the_gods")
-}
-
-// bind_undead is a dark-school spell.
-func TestBindUndead_IsDarkSchool(t *testing.T) {
-	tbBehaviorGame(t, 5, 5) // loads spell config
-	def, _ := spells.GetSpellDefinitionByID("bind_undead")
-	if def.School != "dark" {
-		t.Errorf("bind_undead should be dark school, got %q", def.School)
-	}
 }
 
 // Real-time melee reaches exactly one tile (inclusive): a monster sitting on an

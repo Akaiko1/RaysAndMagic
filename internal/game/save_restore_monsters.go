@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"sort"
 	"ugataima/internal/collision"
 	"ugataima/internal/monster"
@@ -52,7 +53,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 			}
 			takenMonsterIDs[m.ID] = struct{}{}
 		}
-		restoreMonsters := func(w *world.World3D, monsters []MonsterSave) {
+		// homeFallback is the home of a legacy record with none: the map it was
+		// saved on, which is where the old rule placed it.
+		restoreMonsters := func(w *world.World3D, monsters []MonsterSave, homeFallback string) {
 			sealedSpawn := make(map[string][2]float64)
 			for _, fresh := range w.Monsters {
 				if fresh != nil && fresh.IsBoss() && fresh.PassiveUntilQuest != "" && fresh.EvadeRadiusTiles == 0 &&
@@ -67,6 +70,12 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					key = findMonsterKeyByName(ms.Name)
 				}
 				if key == "" {
+					continue
+				}
+				// A monster removed or renamed in monsters.yaml since the save was
+				// written cannot be rebuilt; drop it rather than fail the load.
+				if _, err := monster.MonsterConfig.GetMonsterByKey(key); err != nil {
+					fmt.Printf("[Load] dropping saved monster %q: %v\n", key, err)
 					continue
 				}
 				x, y := ms.X, ms.Y
@@ -87,6 +96,11 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// throne snap-back above.
 				m.BossDormant = m.IsBoss() && m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
 					!completedQuests[m.PassiveUntilQuest]
+				m.HomeMap = ms.HomeMap
+				if m.HomeMap == "" {
+					m.HomeMap = homeFallback
+				}
+				g.restoreAdventureMonster(m, g.savedAdventureScaleLevel(wm, w, m, ms))
 				m.HitPoints = ms.HitPoints
 				// The enrage EFFECT is derived from HP; only the announcement
 				// latch is saved, so a threshold crossed just before the save
@@ -110,6 +124,10 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					m.ArmorClass = ms.RuntimeStats.ArmorClass
 					m.DamageMin = ms.RuntimeStats.DamageMin
 					m.DamageMax = ms.RuntimeStats.DamageMax
+				}
+				// A boss saved before a curve reduction cannot keep excess HP.
+				if m.AdventureScaleLevel > 0 && m.IsBoss() {
+					m.HitPoints = min(m.HitPoints, m.MaxHitPoints)
 				}
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
@@ -136,6 +154,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.RootTurnsRemaining = ms.RootTurnsRemaining
 				m.RootRate = ms.RootRate
 				m.ArmorShredPct = ms.ArmorShredPct
+				m.RestoreElementalMarks(ms.ElementalMarks)
 				m.ArmorShredFramesRemaining = ms.ArmorShredFrames
 				m.ArmorShredTurnsRemaining = ms.ArmorShredTurns
 				m.ArmorShredRate = ms.ArmorShredRate
@@ -154,6 +173,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.TrapVolleyCDFrames = ms.TrapVolleyCD
 				m.TrapVolleyTurnCD = ms.TrapVolleyTurnCD
 				m.TrapVolleyCDRate = ms.TrapVolleyCDRate
+				m.Telegraph = ms.Telegraph.Clone()
 				m.SlowPct = ms.SlowPct
 				m.SlowFramesRemaining = ms.SlowFrames
 				m.SlowTurnsRemaining = ms.SlowTurns
@@ -186,6 +206,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone
 				m.SummonedBy = ms.SummonedBy
+				m.SummonerName = ms.SummonerName
 				m.LootGuarding = ms.LootGuarding
 				m.LootGuardTargetKey = ms.LootGuardTargetKey
 				m.LootGuardTargetTileX, m.LootGuardTargetTileY = ms.LootGuardTargetTileX, ms.LootGuardTargetTileY
@@ -204,6 +225,10 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					m.Arbor = ms.Arbor
 				}
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
+				m.HomeMap = ms.HomeMap
+				if m.HomeMap == "" {
+					m.HomeMap = homeFallback
+				}
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live - restore that hostility, or a
 				// lair dragon "forgets" the fight after a reload and idles point-blank.
@@ -285,12 +310,12 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					// Gameplay respawns preserve party charms. A load must not
 					// carry those allies over from the previous timeline.
 					w.Monsters = nil
-					w.RespawnAuthoredMonsters()
+					g.respawnAuthoredMonsters(w)
 					w.LastRespawnDay = g.currentCalendarDay()
 					g.loadNeedsResave = true
 					continue
 				}
-				restoreMonsters(w, monsters)
+				restoreMonsters(w, monsters, mapKey)
 				if mapKey == "pyramid_3" {
 					migratedPyramidReliquaries = g.migrateLegacyPyramidSanctumEncounter(w)
 				}
@@ -311,6 +336,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					restoredRegions[region.MapKey] = true
 					for _, msave := range monsters {
 						msave = projectMonsterSave(wm, region.MapKey, msave)
+						if msave.HomeMap == "" {
+							msave.HomeMap = region.MapKey
+						}
 						if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
 							msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
 								wm.ProjectTile(region.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
@@ -330,7 +358,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 							keepFresh = append(keepFresh, mon)
 						}
 					}
-					restoreMonsters(wm.OpenWorld, combined)
+					restoreMonsters(wm.OpenWorld, combined, "")
 					wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, keepFresh...)
 				}
 			}
@@ -343,6 +371,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				projected := make([]MonsterSave, 0, len(save.Monsters))
 				for _, msave := range save.Monsters {
 					msave = projectMonsterSave(wm, save.MapKey, msave)
+					if msave.HomeMap == "" {
+						msave.HomeMap = save.MapKey
+					}
 					if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
 						msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
 							wm.ProjectTile(save.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
@@ -360,10 +391,10 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 						keepFresh = append(keepFresh, mon)
 					}
 				}
-				restoreMonsters(wm.OpenWorld, projected)
+				restoreMonsters(wm.OpenWorld, projected, "")
 				wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, keepFresh...)
 			} else {
-				restoreMonsters(g.world, save.Monsters)
+				restoreMonsters(g.world, save.Monsters, save.MapKey)
 			}
 		}
 		for mapKey, day := range save.MapRespawnDay {
@@ -499,4 +530,30 @@ func projectMonsterSave(wm *world.WorldManager, mapKey string, ms MonsterSave) M
 		ms.SpawnPosition = &[2]float64{x, y}
 	}
 	return ms
+}
+
+// Legacy saves did not record scaling provenance. Only authored actors from a
+// scaled visit inherit its level; encounter and summon markers exclude runtime
+// spawns even when they reuse an authored monster key and spawn position.
+func (g *MMGame) savedAdventureScaleLevel(wm *world.WorldManager, w *world.World3D, m *monster.Monster3D, saved MonsterSave) int {
+	if saved.AdventureScaleLevel != nil {
+		return max(0, *saved.AdventureScaleLevel)
+	}
+	visit := g.adventure.Visits[m.HomeMap]
+	if visit == nil || visit.Level <= 0 || saved.SummonedBy != "" || saved.QuestProgressIgnored || saved.IsEncounterMonster || saved.RuntimeStats != nil || saved.PackKey != "" || saved.Population != "" {
+		return 0
+	}
+	if home := wm.LoadedMaps[m.HomeMap]; home != nil {
+		w = home
+	}
+	for _, spawn := range w.MonsterSpawns {
+		if spawn.MonsterKey != m.Key {
+			continue
+		}
+		x, y := TileCenterFromTile(spawn.X, spawn.Y, g.config.GetTileSize())
+		if saved.SpawnPosition == nil || *saved.SpawnPosition == [2]float64{x, y} {
+			return visit.Level
+		}
+	}
+	return 0
 }

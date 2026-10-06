@@ -24,6 +24,15 @@ type monsterDamagePacket struct {
 	Components []monsterDamageComponent
 }
 
+// primarySchool is the school of the packet's first component, the one a log
+// line colors its damage by.
+func (p monsterDamagePacket) primarySchool() string {
+	if len(p.Components) == 0 {
+		return monsterPkg.DamagePhysical.String()
+	}
+	return p.Components[0].School.String()
+}
+
 func (p monsterDamagePacket) normalDamage() int {
 	total := 0
 	for _, component := range p.Components {
@@ -107,9 +116,12 @@ func armorAfterPierce(armorClass, piercePct int) int {
 	return armorClass * (100 - piercePct) / 100
 }
 
-func monsterPerfectDodges(target *monsterPkg.Monster3D, ignoresDodge bool) bool {
-	return target != nil && target.PerfectDodge > 0 && !ignoresDodge &&
-		rand.Intn(100) < target.PerfectDodge
+func (cs *CombatSystem) monsterPerfectDodges(target *monsterPkg.Monster3D, ignoresDodge bool) bool {
+	if target == nil || ignoresDodge {
+		return false
+	}
+	chance := cs.game.bossMechanicValue(target, "perfect_dodge", target.PerfectDodge)
+	return chance > 0 && rand.Intn(100) < chance
 }
 
 // partyMonsterAttack is the immutable source-side result shared by a primary
@@ -149,6 +161,7 @@ func (cs *CombatSystem) newPartyWeaponAttack(
 			attack.CriticalPacket = cs.newPartyMonsterDamagePacket(
 				weaponDamageWithBuff(weaponCriticalDamage(normal, true), buff), trueDamage, school, 0, true,
 			)
+			attack.CriticalPacket = cs.elementalBuffPacket(attack.CriticalPacket)
 		}
 	}
 	return attack
@@ -163,6 +176,9 @@ func (cs *CombatSystem) newPartyMonsterAttack(
 	isRanged, isSpell, isMelee bool,
 ) partyMonsterAttack {
 	packet := cs.newPartyMonsterDamagePacket(normal, trueDamage, school, resistPiercePct, !isSpell)
+	if !isSpell {
+		packet = cs.elementalBuffPacket(packet)
+	}
 	return partyMonsterAttack{
 		Packet:     packet,
 		WeaponDef:  weaponDef,
@@ -319,7 +335,7 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		preview.True, _ = cs.weaponMasteryStrike(char, def)
 		preview.OutgoingBuff = cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
 	}
-	isRanged := def.Range > 3
+	isRanged := def.IsRanged()
 	if char != nil && cs != nil && cs.game != nil && cs.game.isPartyMember(char) {
 		if isRanged {
 			preview.CardDamagePct = cs.game.cardRangedDmgPct()
@@ -338,12 +354,18 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		}
 		damage = weaponCriticalDamage(damage, critical)
 		damage = weaponDamageWithBuff(damage, preview.OutgoingBuff)
+		if party {
+			damage = cs.game.elementalDamageBuff(damagecalc.Parts{Normal: damage}, weaponDamageTypeStr(def)).Normal
+		}
 		if !isRanged {
 			damage = cs.weaponMeleeDamageAfterArmor(damage, party)
 		}
 		return damage
 	}
 	preview.Normal = resolve(false)
+	if party {
+		preview.True = cs.game.elementalDamageBuff(damagecalc.Parts{True: preview.True}, weaponDamageTypeStr(def)).True
+	}
 	preview.CriticalTotal = resolve(true) + preview.True
 	preview.Total = preview.Normal + preview.True
 	return preview

@@ -124,80 +124,13 @@ func (r *Renderer) drawMeleeFxGoldSword(screen *ebiten.Image, s SlashEffect, cx,
 		gx += (auraHash(seed, k, 16, 0) - 0.5) * thick * 2.5
 		gy += u * h * 0.18 * (0.6 + auraHash(seed, k, 17, 0))
 		tw := 0.5 + 0.5*math.Sin(fc*0.5+auraHash(seed, k, 18, 0)*2*math.Pi)
-		r.drawGlowRect(screen, gx, gy, math.Max(2, thick*0.24*(1-u*0.5)),
-			mixColor(gold, hot, tw), fade*(1-u)*(0.4+0.6*tw), additiveGlowBlend)
+		r.drawWeaponShard(screen, gx, gy, math.Max(2, thick*0.24*(1-u*0.5)), mixColor(gold, hot, tw), fade*(1-u)*(0.4+0.6*tw), u, seed+k*37, false)
 	}
 }
 
-// Agility Katar - three staggered lightning-quick punches, each a thin green
-// streak in a narrow fan, with speed-lines whipping past the fist.
+// Agility Katar alternates two quick thrusts of its curved claw blades.
 func (r *Renderer) drawMeleeFxAgilityKatar(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	progress, fade, _, _ := meleeFxTiming(s)
-	if fade <= 0 {
-		return
-	}
-	seed := seedFromID(s.ID)
-	h := screenH * meleeSizeScale
-	green := [3]int{120, 225, 150}
-	flash := [3]int{225, 255, 235}
-	lines := 6
-	widthScale := 1.0
-	if s.Crit {
-		h *= 1.25
-		widthScale = 1.3
-		lines = 10
-	}
-
-	reach := h * 0.2
-	thick := h * 0.035
-	baseY := cy + reach*0.5
-	for i := 0; i < 3; i++ {
-		lag := float64(i) * meleeSweepFrac * 0.3
-		lp := progress - lag
-		if lp <= 0 {
-			continue
-		}
-		st := lp / meleeSweepFrac
-		if st > 1 {
-			st = 1
-		}
-		ld := 1 - (1-st)*(1-st)
-		fan := (float64(i) - 1) * h * 0.045 // left / centre / right jab
-		baseX := cx + fan
-		lpDissolve := lp / (1 - lag)
-
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   func(t float64) (float64, float64) { return baseX + fan*0.6*t, baseY - reach*t },
-			width:  func(t float64) float64 { return (3 + 4*(1-t)) * widthScale },
-			color:  func(t float64) [3]int { return mixColor(green, flash, t) },
-			alpha:  func(t float64) float64 { return 0.45 + 0.55*t },
-			length: reach,
-			seed:   seed, salt: 19 + i, blend: additiveGlowBlend,
-		}, ld, lpDissolve)
-		if st < 1 {
-			r.drawGlowSprite(screen, baseX+fan*0.6*ld, baseY-reach*ld, thick*1.4, flash, fade*0.9, additiveGlowBlend)
-		}
-	}
-
-	// Speed-lines whipping backward past the strikes.
-	for k := 0; k < lines; k++ {
-		born := auraHash(seed, k, 23, 0) * 0.4
-		if progress <= born {
-			continue
-		}
-		u := (progress - born) / (1 - born)
-		side := 1.0
-		if k%2 == 0 {
-			side = -1
-		}
-		lx := cx + side*h*(0.06+auraHash(seed, k, 24, 0)*0.06)
-		ly := baseY - reach*auraHash(seed, k, 25, 0) + u*h*0.06
-		for g := 0; g < 3; g++ {
-			r.drawGlowSprite(screen, lx+side*float64(g)*thick*0.9, ly,
-				math.Max(2, thick*0.3*(1-0.25*float64(g))), green,
-				fade*(1-u)*(0.7-0.2*float64(g)), additiveGlowBlend)
-		}
-	}
+	r.drawIdentityStrike(screen, s, cx, cy, screenH, "agility_katar", "stab")
 }
 
 // Gorehorn Greataxe - a brutal full chop trailing heavy gore: fat dark-red

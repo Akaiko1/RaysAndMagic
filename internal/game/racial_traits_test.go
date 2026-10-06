@@ -60,6 +60,7 @@ func TestHalflingRandomTargetWeightIsHalf(t *testing.T) {
 	cs.game.party.Members = []*character.MMCharacter{normal, halfling}
 	normal.Race = "human"
 	halfling.Race = "halfling"
+	halfling.EnsureRacialTraits(nil)
 	normal.HitPoints, halfling.HitPoints = 100, 100
 
 	const trials = 60000
@@ -75,30 +76,57 @@ func TestHalflingRandomTargetWeightIsHalf(t *testing.T) {
 	}
 }
 
-func TestHalflingRangedWeightAppliesAfterTankBiasInBothClocks(t *testing.T) {
+// Piercing Shot draws its targets from the party like any random attack, so
+// Halfling Guile halves the halfling's share there too.
+func TestHalflingGuileWeighsPiercingShot(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	normal := cs.game.party.Members[0]
+	halfling := cs.game.party.Members[1]
+	cs.game.party.Members = []*character.MMCharacter{normal, halfling}
+	normal.Race = "human"
+	halfling.Race = "halfling"
+	halfling.EnsureRacialTraits(nil)
+	shooter := &monster.Monster3D{Name: "Arquebusier", HitPoints: 100, MaxHitPoints: 100, DamageMin: 1, DamageMax: 1, PiercingShotChance: 1, PiercingShotTargets: 1}
+	const trials = 30000
+	halflingHits := 0
+	for i := 0; i < trials; i++ {
+		normal.HitPoints, halfling.HitPoints = 1000, 1000
+		normal.MaxHitPoints, halfling.MaxHitPoints = 1000, 1000
+		if !cs.tryMonsterPiercingShot(shooter) {
+			t.Fatal("piercing shot should fire at 100% chance")
+		}
+		if halfling.HitPoints < 1000 {
+			halflingHits++
+		}
+	}
+	if fraction := float64(halflingHits) / trials; math.Abs(fraction-1.0/3.0) > 0.02 {
+		t.Fatalf("halfling piercing-shot fraction = %.4f, want about 1/3 from weights 1:2", fraction)
+	}
+}
+
+// rangedTarget has one caller (applyMonsterProjectileDamage) for both clocks,
+// so the rule has no mode axis.
+func TestHalflingRangedWeightAppliesAfterTankBias(t *testing.T) {
 	tests := []struct {
 		name          string
-		turnBased     bool
 		halflingIndex int
 	}{
-		{"real-time halfling tank", false, 0},
-		{"turn-based halfling tank", true, 0},
-		{"real-time halfling off-tank", false, 1},
-		{"turn-based halfling off-tank", true, 1},
+		{"halfling tank", 0},
+		{"halfling off-tank", 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
-			cs.game.turnBasedMode = tt.turnBased
 			members := cs.game.party.Members
 			if len(members) < 3 {
-				t.Skip("need >=3 members")
+				t.Fatalf("party has %d members, the case needs a tank and two off-tanks", len(members))
 			}
 			for i, member := range members {
 				member.Race = "human"
 				member.HitPoints = member.MaxHitPoints
 				if i == tt.halflingIndex {
 					member.Race = "halfling"
+					member.EnsureRacialTraits(nil)
 				}
 			}
 			const trials = 60000
@@ -166,6 +194,7 @@ func TestDarkElfBindingEligibilityThroughMeleeEntry(t *testing.T) {
 			forceRacialProc(cs, t)
 			attacker := cs.game.party.Members[0]
 			attacker.Race = "dark_elf"
+			attacker.EnsureRacialTraits(nil)
 			target := newRacialTarget(tt.name, tt.monsterType)
 			target.Boss = tt.boss
 			target.BossWarded = tt.invulnerable
@@ -234,7 +263,7 @@ func TestDarkElfBindingDirectHitEntryPoints(t *testing.T) {
 				if err != nil {
 					t.Fatalf("load Inferno: %v", err)
 				}
-				cs.tryCastInferno(def, caster)
+				cs.tryCastPartyNova(def, caster)
 			},
 		},
 		{
@@ -252,6 +281,7 @@ func TestDarkElfBindingDirectHitEntryPoints(t *testing.T) {
 			forceRacialProc(cs, t)
 			caster := cs.game.party.Members[0]
 			caster.Race = "dark_elf"
+			caster.EnsureRacialTraits(nil)
 			target := newRacialTarget(tt.name, "beast")
 			before := target.HitPoints
 			tt.hit(cs, caster, target)
@@ -284,6 +314,7 @@ func TestDarkElfBindingPersistentDamageZones(t *testing.T) {
 			g.camera.X, g.camera.Y = 5.5*tile, 5.5*tile
 			caster := g.party.Members[0]
 			caster.Race = "dark_elf"
+			caster.EnsureRacialTraits(nil)
 			forceRacialProc(cs, t)
 			def, err := spells.GetSpellDefinitionByID(tt.spellID)
 			if err != nil {
@@ -333,6 +364,7 @@ func TestWeaponDeathBurstPreservesRacialAttacker(t *testing.T) {
 			forceRacialProc(cs, t)
 			attacker := cs.game.party.Members[0]
 			attacker.Race = tt.race
+			attacker.EnsureRacialTraits(nil)
 			corpse := newRacialTarget("burst corpse", "beast")
 			corpse.ID = "burst-corpse"
 			corpse.HitPoints = 0
@@ -365,6 +397,7 @@ func TestPersistentDamageZoneCasterIdentitySaveAndLegacyFallback(t *testing.T) {
 	g := cs.game
 	caster := g.party.Members[0]
 	caster.Race = "dark_elf"
+	caster.EnsureRacialTraits(nil)
 	forceRacialProc(cs, t)
 	tile := float64(g.config.GetTileSize())
 
@@ -401,70 +434,94 @@ func TestPersistentDamageZoneCasterIdentitySaveAndLegacyFallback(t *testing.T) {
 	}
 }
 
+// newCelestialHero builds a hero of the race that grants Celestial Providence.
+func newCelestialHero(t *testing.T, cfg *config.Config) *character.MMCharacter {
+	t.Helper()
+	c := character.CreateRosterCharacter(config.RosterEntry{Name: "Celestial", Class: character.ClassCleric.Key(), Race: "celestial"}, cfg)
+	if c == nil || !c.HasSkill(character.SkillCelestialProvidence) {
+		t.Fatal("the celestial race does not grant Celestial Providence")
+	}
+	return c
+}
+
+// assertMasterProvidenceBuff: the only active buff is Providence's grant of id,
+// equal to what a Master-tier caster's own cast of id produces.
+func assertMasterProvidenceBuff(t *testing.T, g *MMGame, id spells.SpellID) {
+	t.Helper()
+	if g.celestialBuffSpellID != string(id) {
+		t.Fatalf("Providence chose %q, want %q", g.celestialBuffSpellID, id)
+	}
+	if total := len(g.statBuffs) + len(g.combatBuffs); total != 1 {
+		t.Fatalf("active buff count = %d, want only the Providence grant", total)
+	}
+	def, err := spells.GetSpellDefinitionByID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	master := &character.MMCharacter{MagicSchools: map[character.MagicSchoolID]*character.MagicSkill{
+		character.MagicSchoolID(def.School): {Mastery: character.MasteryMaster},
+	}}
+	if len(g.statBuffs) == 1 {
+		got := g.statBuffs[0]
+		if got.SpellID != string(id) || got.SourceID != celestialProvidenceSourceID {
+			t.Fatalf("Providence stat buff = %+v, want %s owned by Providence", got, id)
+		}
+		if want := g.combat.spellStatBuffBonuses(id, master); got.Bonuses != want {
+			t.Fatalf("Providence %s bonuses = %+v, want the Master cast's %+v", id, got.Bonuses, want)
+		}
+		return
+	}
+	got := g.combatBuffs[0]
+	if got.SpellID != string(id) || got.SourceID != celestialProvidenceSourceID {
+		t.Fatalf("Providence combat buff = %+v, want %s owned by Providence", got, id)
+	}
+	ref := newTestCombatSystemWithConfig(t)
+	ref.game.combatBuffs = nil
+	if !ref.tryCastPartyBuff(id, def, master) || len(ref.game.combatBuffs) != 1 {
+		t.Fatalf("a Master cast of %s is not a party buff", id)
+	}
+	want := ref.game.combatBuffs[0]
+	if got.OutBonus != want.OutBonus || got.OutDamageType != want.OutDamageType || got.InReduce != want.InReduce ||
+		got.ResistPct != want.ResistPct || got.ResistSchool != want.ResistSchool || got.ResistSchoolPct != want.ResistSchoolPct {
+		t.Fatalf("Providence %s = %+v, want the Master cast's %+v", id, got, want)
+	}
+}
+
+// Every pool spell is granted at dawn and again at dusk as the Master-tier
+// buff, and the next phase replaces the previous spell instead of stacking.
 func TestCelestialProvidenceRunsAtBothPhaseBoundaries(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	celestial := character.CreateRosterCharacter(g.config.Characters.TavernRecruits[3], g.config)
-	if celestial == nil || celestial.Race != "celestial" {
-		t.Fatal("celestial roster fixture missing")
+	pool := celestialProvidenceBuffPool
+	t.Cleanup(func() { celestialProvidenceBuffPool = pool })
+	for _, id := range pool {
+		t.Run(string(id), func(t *testing.T) {
+			celestialProvidenceBuffPool = []spells.SpellID{id}
+			g := newTestCombatSystemWithConfig(t).game
+			g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
+			for _, night := range []bool{true, false} {
+				g.applyDayNightPhase(night)
+				assertMasterProvidenceBuff(t, g, id)
+			}
+		})
 	}
-	g.party.Members = []*character.MMCharacter{celestial}
-
-	assertOneMasterBuff := func() string {
-		t.Helper()
-		id := g.celestialBuffSpellID
-		if id == "" {
-			t.Fatal("Providence did not choose a buff")
+	t.Run("next phase replaces the previous spell", func(t *testing.T) {
+		if len(pool) < 2 {
+			t.Fatalf("Providence pool has %d spells, the case needs two", len(pool))
 		}
-		total := len(g.statBuffs) + len(g.combatBuffs)
-		if total != 1 {
-			t.Fatalf("active Providence buff count = %d, want 1", total)
+		g := newTestCombatSystemWithConfig(t).game
+		g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
+		celestialProvidenceBuffPool = pool[:1]
+		g.applyDayNightPhase(true)
+		assertMasterProvidenceBuff(t, g, pool[0])
+		celestialProvidenceBuffPool = pool[1:2]
+		g.applyDayNightPhase(false)
+		assertMasterProvidenceBuff(t, g, pool[1])
+		if _, ok := g.statBuffByID(string(pool[0])); ok {
+			t.Fatalf("previous stat buff %q survived phase replacement", pool[0])
 		}
-		if len(g.statBuffs) == 1 && g.statBuffs[0].SourceID != celestialProvidenceSourceID {
-			t.Fatalf("Providence stat source = %q", g.statBuffs[0].SourceID)
+		if _, ok := g.combatBuffByID(string(pool[0])); ok {
+			t.Fatalf("previous combat buff %q survived phase replacement", pool[0])
 		}
-		if len(g.combatBuffs) == 1 && g.combatBuffs[0].SourceID != celestialProvidenceSourceID {
-			t.Fatalf("Providence combat source = %q", g.combatBuffs[0].SourceID)
-		}
-		switch id {
-		case "day_of_the_gods":
-			if g.combatBuffs[0].ResistPct != 23 {
-				t.Fatalf("Master Day of the Gods = %d, want 23", g.combatBuffs[0].ResistPct)
-			}
-		case "hour_of_power":
-			if g.combatBuffs[0].OutBonus != 11 || g.combatBuffs[0].InReduce != 3 {
-				t.Fatalf("Master Hour of Power = %+v", g.combatBuffs[0])
-			}
-		case "bless":
-			if g.statBuffs[0].Bonuses.Might != 8 {
-				t.Fatalf("Master Bless = %+v, want +8", g.statBuffs[0].Bonuses)
-			}
-		case "stone_skin":
-			if g.combatBuffs[0].InReduce != 8 {
-				t.Fatalf("Master Stone Skin = %d, want 8", g.combatBuffs[0].InReduce)
-			}
-		case "heroism":
-			if g.combatBuffs[0].OutBonus != 7 {
-				t.Fatalf("Master Heroism = %d, want 7", g.combatBuffs[0].OutBonus)
-			}
-		default:
-			t.Fatalf("unexpected Providence buff %q", id)
-		}
-		return id
-	}
-
-	g.applyDayNightPhase(true)
-	first := assertOneMasterBuff()
-	g.applyDayNightPhase(false)
-	second := assertOneMasterBuff()
-	if first != second {
-		if _, ok := g.statBuffByID(first); ok {
-			t.Fatalf("previous stat buff %q survived phase replacement", first)
-		}
-		if _, ok := g.combatBuffByID(first); ok {
-			t.Fatalf("previous combat buff %q survived phase replacement", first)
-		}
-	}
+	})
 }
 
 func TestCelestialProvidenceOwnershipAcrossRecastAndRemoval(t *testing.T) {
@@ -571,8 +628,7 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 			t.Cleanup(func() { celestialProvidenceBuffPool = oldPool })
 
 			g := newTestCombatSystemWithConfig(t).game
-			celestial := character.CreateRosterCharacter(g.config.Characters.TavernRecruits[3], g.config)
-			g.party.Members = []*character.MMCharacter{celestial}
+			g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
 			tt.installManual(g)
 
 			g.refreshCelestialProvidence()
@@ -600,8 +656,7 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 		t.Cleanup(func() { celestialProvidenceBuffPool = oldPool })
 
 		g := newTestCombatSystemWithConfig(t).game
-		celestial := character.CreateRosterCharacter(g.config.Characters.TavernRecruits[3], g.config)
-		g.party.Members = []*character.MMCharacter{celestial}
+		g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
 		g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 999, Bonuses: character.UniformStatBonuses(10)})
 		g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 999, OutBonus: 10})
 
@@ -680,7 +735,7 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 		SpellID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 60, OutBonus: 7,
 	})
 	dispeller := &monster.Monster3D{Name: "Dispeller", DispelChance: 1}
-	cs.tryApplyMonsterDispel(dispeller, g.party.Members[0])
+	cs.applyMonsterHitRiders(dispeller, "", heroHitTarget{cs, g.party.Members[0]})
 	if len(g.statBuffs) != 1 || len(g.combatBuffs) != 1 {
 		t.Fatalf("phase-bound buffs entered the monster dispel pool: stat=%d combat=%d", len(g.statBuffs), len(g.combatBuffs))
 	}

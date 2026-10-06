@@ -28,10 +28,11 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 
 // strongMagicPct is the caster's Strong Magic exchange percent for the given
 // spell: the share of the SP cost burned as HP at cast, and the share added to
-// the spell's damage. Zero when the passive does not apply (no skill, no
-// caster, or a non-offensive spell).
+// the spell's damage. Zero when the passive does not apply: no skill, no
+// caster, or a spell that deals no damage (a control spell such as a stun,
+// charm or bind gains nothing, so it pays nothing).
 func strongMagicPct(caster *character.MMCharacter, def spells.SpellDefinition) int {
-	if caster == nil || !def.IsOffensive() || !caster.HasSkill(character.SkillStrongMagic) {
+	if caster == nil || !def.IsOffensive() || def.DealsNoDamage || !caster.HasSkill(character.SkillStrongMagic) {
 		return 0
 	}
 	return character.StrongMagicPct(caster.SkillTier(character.SkillStrongMagic))
@@ -39,15 +40,14 @@ func strongMagicPct(caster *character.MMCharacter, def spells.SpellDefinition) i
 
 // applyStrongMagicBurn is Strong Magic's HP price, paid at the SAME site the
 // SP cost is paid (castResolvedSpell - the one payment point for offensive
-// casts): pct% of the paid cost, clamped so the passive never takes the last
-// hit point. The matching damage boost lives in spellDamageParts, so tooltips
+// casts): pct% of the paid cost rounded to the nearest HP, clamped so the
+// passive never takes the last hit point. The matching damage boost lives in spellDamageParts, so tooltips
 // and combat read one number.
 func (cs *CombatSystem) applyStrongMagicBurn(caster *character.MMCharacter, def spells.SpellDefinition, paidCost int) {
-	pct := strongMagicPct(caster, def)
-	if pct <= 0 || paidCost <= 0 {
+	burn := character.StrongMagicHPCost(paidCost, strongMagicPct(caster, def))
+	if burn <= 0 {
 		return
 	}
-	burn := paidCost * pct / 100
 	if burn >= caster.HitPoints {
 		burn = caster.HitPoints - 1
 	}
@@ -77,11 +77,15 @@ func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *charact
 // The bonus always joins the Normal component and is never multiplied by those
 // modifiers. Runtime spell forms and their tooltips share this final step.
 func (cs *CombatSystem) spellPartsWithOutgoingBuff(parts damagecalc.Parts, damageType string) (damagecalc.Parts, int) {
-	if cs == nil || cs.game == nil || parts.Normal <= 0 {
+	if cs == nil || cs.game == nil {
 		return parts, 0
 	}
-	bonus := cs.game.combatBuffOutBonusForDamageType(damageType)
-	parts.Normal += bonus
+	bonus := 0
+	if parts.Normal > 0 {
+		bonus = cs.game.combatBuffOutBonusForDamageType(damageType)
+		parts.Normal += bonus
+	}
+	parts = cs.game.elementalDamageBuff(parts, damageType)
 	return parts, bonus
 }
 
@@ -349,7 +353,13 @@ func (g *MMGame) partyArmorAuraBonusFor(char *character.MMCharacter) int {
 // CalculateSpellRangeTiles returns the configured range in tiles for a spell.
 func (cs *CombatSystem) CalculateSpellRangeTiles(spellID spells.SpellID) (float64, bool) {
 	def, ok := config.GetSpellDefinition(string(spellID))
-	if !ok || def == nil || def.Physics == nil || def.Physics.RangeTiles <= 0 {
+	if !ok || def == nil {
+		return 0, false
+	}
+	if def.MortarRangeTiles > 0 {
+		return def.MortarRangeTiles, true // a mortar always lands exactly this far
+	}
+	if def.Physics == nil || def.Physics.RangeTiles <= 0 {
 		return 0, false
 	}
 	return def.Physics.RangeTiles, true
@@ -429,6 +439,8 @@ type weaponCooldownBreakdown struct {
 	WeaponMultiplier         float64
 	DualWieldingReductionPct int
 	RawFrames                int
+	ClampedFrames            int // RawFrames inside the RT cooldown limits
+	QuickenPct               int
 	TotalFrames              int
 }
 
@@ -451,7 +463,9 @@ func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, wea
 	}
 	dualWieldingMultiplier := 1.0 - float64(result.DualWieldingReductionPct)/100.0
 	result.RawFrames = int(math.Round(result.BaseFrames * result.WeaponMultiplier * dualWieldingMultiplier))
-	result.TotalFrames = cs.game.quickenRecovery(char, clampRTCooldown(result.RawFrames))
+	result.ClampedFrames = clampRTCooldown(result.RawFrames)
+	result.QuickenPct = cs.game.quickenRecoveryPct(char)
+	result.TotalFrames = cs.game.quickenRecovery(char, result.ClampedFrames)
 	return result
 }
 
@@ -478,6 +492,8 @@ type spellCooldownBreakdown struct {
 	WeaponName             string
 	WeaponMultiplier       float64
 	RawFrames, TotalFrames int
+	ClampedFrames          int // RawFrames inside the RT cooldown limits
+	QuickenPct             int
 }
 
 // SpellCooldownFrames scales the authored cooldown by caster Speed and the
@@ -512,7 +528,9 @@ func (cs *CombatSystem) spellCooldownBreakdown(char *character.MMCharacter, spel
 		}
 	}
 	result.RawFrames = int(math.Round(frames))
-	result.TotalFrames = cs.game.quickenRecovery(char, clampRTCooldown(result.RawFrames))
+	result.ClampedFrames = clampRTCooldown(result.RawFrames)
+	result.QuickenPct = cs.game.quickenRecoveryPct(char)
+	result.TotalFrames = cs.game.quickenRecovery(char, result.ClampedFrames)
 	return result
 }
 

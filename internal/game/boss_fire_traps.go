@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 
@@ -140,7 +139,7 @@ func (g *MMGame) sowBossTrapField(m *monsterPkg.Monster3D) {
 	}
 	g.bossFireTraps = field
 	g.bossFireTrapsOwner = m.ID
-	g.AddColoredCombatMessage(fmt.Sprintf("%s seeds the ground with smouldering eggs!", m.Name), combatMessageOrange)
+	g.logCombat(logToneBad, "%s seeds the ground with %s!", logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "smouldering eggs"))
 }
 
 // checkBossFireTraps runs every frame in both modes: clears an orphaned field
@@ -174,7 +173,7 @@ func (g *MMGame) detonateBossFireTrap(owner *monsterPkg.Monster3D) {
 	if cs == nil {
 		return
 	}
-	g.AddColoredCombatMessage("The ground erupts in brood-fire!", combatMessageOrange)
+	g.logCombat(logToneBad, "The ground erupts in %s!", logSchoolWord(monsterPkg.DamageFire.String(), "brood-fire"))
 	g.CreateSpellHitEffect(g.camera.X, g.camera.Y, "fire", 26, 9)
 	g.addScreenShake(3, 5)
 	// The field carries authored trap damage only, not the owner's true_damage.

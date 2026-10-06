@@ -62,11 +62,15 @@ func (s EquipSlot) DisplayName() string {
 }
 
 type Item struct {
-	Name        string
-	Type        ItemType
-	Attributes  map[string]int
-	Description string
-	Rarity      string
+	// DeviceCooldownFrames is the exact remaining gameplay budget.
+	DeviceCooldownFrames int     `json:"device_cooldown_frames,omitempty"`
+	LegacyDeviceCooldown float64 `json:"device_cooldown,omitempty"`
+	UseAction            string  `json:"use_action,omitempty"`
+	Name                 string
+	Type                 ItemType
+	Attributes           map[string]int
+	Description          string
+	Rarity               string
 	// InstanceID identifies this item across save/load and the cross-save stash.
 	// Stackable items retain it as the primary lineage ID for compatibility with
 	// older saves; Lineages carries the complete provenance after stacks merge.
@@ -381,6 +385,7 @@ const (
 	ItemCard      // Collectible monster cards (party-wide collection via the card collector)
 	ItemThrowable // Non-owning bag-backed flask shortcut.
 	ItemTechnique // Pilgrim technique shortcut.
+	ItemDevice    // Reusable physical utility item with its own cooldown.
 )
 
 // String returns the display name of the item type (Stringer interface).
@@ -410,12 +415,14 @@ func (t ItemType) String() string {
 		return "Trinket"
 	case ItemCard:
 		return "Card"
+	case ItemDevice:
+		return "Device"
 	default:
 		return "Unknown"
 	}
 }
 
-// SpellEffect stores the spell identifier on spell items.
+// SpellEffect stores the referenced spell identifier on spell items and devices.
 type SpellEffect string
 
 // Spell effect constants mirror spell IDs from config.
@@ -523,12 +530,16 @@ func GetWeaponKeyByName(name string) string {
 
 // ItemDefinitionFromYAML represents simple item data from YAML
 type ItemDefinitionFromYAML struct {
-	Name        string
-	Description string
-	Flavor      string
-	Type        string // "armor", "accessory", "consumable", "quest"
-	ArmorType   string
-	Rarity      string
+	UseAction          string
+	UseSpell           string
+	UseJumpExtraTiles  int
+	UseCooldownSeconds int
+	Name               string
+	Description        string
+	Flavor             string
+	Type               string // armor, accessory, consumable, quest, trinket, card, device
+	ArmorType          string
+	Rarity             string
 	// Optional numeric stats
 	ArmorClassBase            int
 	EnduranceScalingDivisor   int
@@ -600,12 +611,18 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 		t = ItemTrinket
 	case "card":
 		t = ItemCard
+	case "device":
+		t = ItemDevice
 	default:
 		return Item{}, fmt.Errorf("unknown item type for '%s': %s", itemKey, def.Type)
 	}
 
 	// Populate attributes from definition
 	attrs := make(map[string]int)
+	if def.UseCooldownSeconds > 0 {
+		attrs["use_cooldown_seconds"] = def.UseCooldownSeconds
+		attrs["use_jump_extra_tiles"] = def.UseJumpExtraTiles
+	}
 	if def.ArmorClassBase != 0 {
 		attrs["armor_class_base"] = def.ArmorClassBase
 	}
@@ -706,6 +723,8 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 
 	return Item{
 		Name:          def.Name,
+		UseAction:     def.UseAction,
+		SpellEffect:   SpellEffect(def.UseSpell),
 		Type:          t,
 		Description:   desc,
 		Rarity:        def.Rarity,

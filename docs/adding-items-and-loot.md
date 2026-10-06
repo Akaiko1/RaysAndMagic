@@ -86,9 +86,28 @@ loot_tables:
 | `crates.<NPC key>` | Loot/trap behavior for a `loot_crate` NPC; use a named `loot_table` or complete `roll_sources` |
 
 Monster drops go into a ground bag. An encounter's `treasure_chest` can reference
-a named `loot_table`, or explicit `items`/`weapons` keys. Crate `special_rolls`
-replace a normal roll; they do not add an extra item. Copy a shipped crate with
-the intended pool and trap behavior, including paired fields.
+a named `loot_table`, or explicit `items`/`weapons` keys.
+
+A crate either rolls a named `loot_table` or fills `rolls` slots from
+`roll_sources`. Each slot picks one source by `weight` and draws from it.
+Weights are percents in 0.1 steps, and a crate's weights total 100.
+
+| `pool` | One slot draws | Fields |
+| --- | --- | --- |
+| `map` | one entry from the drop tables of the monsters the map (or open-world region) was created with | optional `rarity` |
+| `catalog` | a uniform pick of `item_type`: armor, accessory, consumable, trinket, weapon or any | `item_type`, optional `rarity` |
+| `loot_table` | one roll of that named pool, items and gold as authored | `loot_table` |
+| `gold`, `arena_points` | a fixed sum, paid again by every slot that picks it | `amount` |
+| `nothing` | an empty slot | none |
+
+`rarity` is `rare` (exactly), `common-uncommon` (a span) or `uncommon+` (that
+tier and up). A `map` source with nothing in its span on the current map sits
+out, and its share goes to the others. A source with share w over n slots shows
+up in 1-(1-w)^n of the chests. The catalog never rolls the unique tier, quest
+items or `no_loot` weapons; a named `loot_table` may still list them. The loader
+is strict: an unknown or removed field (such as the old `special_rolls`) fails
+the boot. Copy a shipped crate with the intended pool and trap behavior,
+including paired fields.
 
 To make a new item obtainable, add its key to a chosen source after installing
 the definition. Merchant `inventory` instead uses the exact display name and

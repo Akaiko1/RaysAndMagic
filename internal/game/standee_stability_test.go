@@ -33,45 +33,39 @@ func TestStandeeSideFadeIsContinuous(t *testing.T) {
 	}
 }
 
+// The isotropic mip follows the LESS compressed axis: a grazing or edge-on face
+// must not select a silhouette blurred along its visible axis.
 func TestStandeeFootprintBoundsDirectionalSampling(t *testing.T) {
 	for _, tc := range []struct {
-		name                  string
-		width, height, expect float64
+		name                      string
+		width, height, texW, texH float64
+		wantFootprint             float64
+		wantLevel                 int
 	}{
-		{"native", 512, 512, 1},
-		{"magnified", 1024, 1024, 1},
-		{"square", 64, 64, 8},
-		{"horizontal compression", 16, 128, 4},
-		{"vertical compression", 128, 16, 4},
-		{"moderate angle", 64, 128, 4},
+		{"native", 512, 512, 512, 512, 1, 0},
+		{"magnified", 1024, 1024, 512, 512, 1, 0},
+		{"square", 64, 64, 512, 512, 8, 3},
+		{"horizontal compression", 16, 128, 512, 512, 4, 2},
+		{"vertical compression", 128, 16, 512, 512, 4, 2},
+		{"moderate angle", 64, 128, 512, 512, 4, 2},
+		{"anisotropic small texture", 128, 64, 256, 256, 2, 1},
+		{"magnified small texture", 512, 512, 256, 256, 1, 0},
+		{"edge-on width", 0, 100, 512, 512, 5.12, 2},
+		{"edge-on height", 100, 0, 512, 512, 5.12, 2},
+		{"collapsed both axes", 0, 0, 512, 512, 512 / 1e-6, maxMipLevel},
+		{"grazing subpixel width", 0.01, 300, 512, 1024, 1024.0 / 300, 2},
+		{"grazing one pixel width", 1, 300, 512, 1024, 1024.0 / 300, 2},
+		{"grazing one pixel height", 300, 1, 1024, 512, 1024.0 / 300, 2},
+		{"tall texture moderate angle", 100, 200, 512, 1024, 5.12, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := standeeProjectedFootprint(tc.width, tc.height, 512, 512); got != float32(tc.expect) {
-				t.Fatalf("footprint = %g, want %g", got, tc.expect)
+			got := standeeProjectedFootprint(tc.width, tc.height, tc.texW, tc.texH)
+			if math.Abs(float64(got)-tc.wantFootprint) > 1e-5*max(1, tc.wantFootprint) {
+				t.Fatalf("footprint = %g, want %g", got, tc.wantFootprint)
+			}
+			if level, _ := mipLevelBlend(got, maxMipLevel); level != tc.wantLevel {
+				t.Fatalf("footprint %g selected level %d, want %d", got, level, tc.wantLevel)
 			}
 		})
-	}
-}
-
-// Horizontal collapse must not select a vertically blurred silhouette.
-func TestStandeeEdgeOnFootprintPreservesVisibleAxis(t *testing.T) {
-	for _, tc := range []struct {
-		width, height float64
-		level         int
-	}{{0, 100, 2}, {100, 0, 2}, {0, 0, maxMipLevel}} {
-		footprint := standeeProjectedFootprint(tc.width, tc.height, 512, 512)
-		if level, _ := mipLevelBlend(footprint, maxMipLevel); level != tc.level {
-			t.Fatalf("footprint at %gx%g selected level %d, want %d", tc.width, tc.height, level, tc.level)
-		}
-	}
-}
-
-func TestGrazingStandeeMipPreservesUncompressedAxis(t *testing.T) {
-	for _, dims := range [][4]float64{{0.01, 300, 512, 1024}, {1, 300, 512, 1024}, {300, 1, 1024, 512}, {100, 200, 512, 1024}, {1024, 1024, 512, 512}} {
-		footprint := standeeProjectedFootprint(dims[0], dims[1], dims[2], dims[3])
-		minor := max(1, math.Min(dims[2]/dims[0], dims[3]/dims[1]))
-		if float64(footprint) > minor+1e-5 {
-			t.Fatalf("grazing width blurred the uncompressed silhouette: footprint=%g bound=%g", footprint, minor)
-		}
 	}
 }

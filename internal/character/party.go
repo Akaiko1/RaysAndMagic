@@ -243,12 +243,6 @@ func (p *Party) AddMember(character *MMCharacter) {
 	}
 }
 
-func (p *Party) Update() {
-	for _, member := range p.Members {
-		member.Update()
-	}
-}
-
 // UpdateWithMode updates the party with knowledge of the current game mode and
 // reports whether any member completed an RT regeneration cadence.
 func (p *Party) UpdateWithMode(turnBasedMode bool) bool {

@@ -8,6 +8,9 @@ type bookLayout struct {
 	header, quick, pager, controls layoutRect
 	bookX, bookY, bookW, bookH     int
 	scaleX, scaleY                 float64
+	// stackedH and sideH are the book heights the footer strip under the book
+	// and the column beside it allow; the taller placement wins.
+	stackedH, sideH int
 
 	cols, cardsPerPage int
 	gridY              int
@@ -54,6 +57,7 @@ func computeBookLayout(content layoutRect) bookLayout {
 	// beside it, leaving the book every row down to the controls line.
 	stackedH := min(maxBookH, content.h-topReserve-footerReserve, (content.w-32)/2)
 	sideH := min(maxBookH, content.bottom()-footerGap-l.controls.h-(content.y+topReserve), (content.w-32-sideGap-quickMinW)/2)
+	l.stackedH, l.sideH = stackedH, sideH
 	side := sideH > stackedH
 	l.bookH = max(1, stackedH)
 	if side {

@@ -18,12 +18,13 @@
 # tight at its map's design anchor - the '+' start tile / tavern - and the
 # highlands->cliffs opening sits on the old violet teleporter wall.
 #
-# Current layout (unified grid 206x220, every corridor a straight 2 tiles):
+# Current layout (unified grid 240x220, every corridor a straight 2 tiles):
 #   mainland (y 0..97): dragon_cliffs (17,0, rot270 - its village west gate
 #     turns down to meet the highlands teleporter wall), highlands (0,47,
 #     rot270 - its south wall, 8 tiles from the '+', turns to face the forest;
 #     its old-teleporter east wall turns up toward the cliffs),
-#     forest (52,36), desert (104,32), deep_jungle (156,31)
+#     forest (52,36), desert (104,32), deep_jungle (156,31),
+#     solstice_approach (208,30), joined at the survey camp
 #   eastern island (y 120..219, void-separated from the mainland, ship-only):
 #     japanese_castle (0,120), sakura_garden (0,172)
 
@@ -38,6 +39,7 @@ placements:
   forest:        { x: 52,  y: 36 }
   desert:        { x: 104, y: 32 }
   deep_jungle:   { x: 156, y: 31 }
+  solstice_approach: { x: 208, y: 30 }
   # The eastern-island component: castle + garden, deliberately DISCONNECTED
   # from the mainland (void_tile all around, no carved connection to any
   # mainland map). Ship travel (seabright_gate <-> japanese_castle_exit)
@@ -71,6 +73,11 @@ connections:
   - from: { map: desert, edge: east, at: 43 }
     to:   { map: deep_jungle, edge: west, at: 44 }
     width: 2
+  # The jungle ruin gate becomes a walkable path to the survey camp.
+  # Pierce both tree columns at the approach's west edge, beside its exit.
+  - from: { map: deep_jungle, edge: east, at: 28 }
+    to:   { map: solstice_approach, edge: west, at: 29, depth: 2 }
+    width: 1
   # Castle south wall x29..31 (three tiles from the arrival '+') -> the
   # garden's north opening into its Entry Court: a straight 2-tile pass.
   - from: { map: japanese_castle, edge: south, at: 29 }
@@ -88,6 +95,10 @@ removals:
     npcs: [portal_gate_forest]
   dragon_cliffs:
     special_tiles: [vteleporter]
+  deep_jungle:
+    npcs: [solstice_jungle_entrance]
+  solstice_approach:
+    npcs: [solstice_approach_exit]
   # The paired garden gates are replaced by the carved castle-garden passage.
   # The moored ship (japanese_castle_exit) stays - it is the island's only
   # link to the mainland.

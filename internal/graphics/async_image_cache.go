@@ -76,7 +76,7 @@ func (c *AsyncImageCache) Advance(maxBytes int) {
 	if c == nil || c.closed {
 		return
 	}
-	request, images := c.stream.Advance(maxBytes)
+	request, images, _ := c.stream.Advance(maxBytes)
 	if request.Name != "" {
 		entry := c.entries[request.Name]
 		entry.ready = true

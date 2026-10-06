@@ -74,12 +74,22 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		return err
 	}
 
+	if err := mapConfigs.ValidateAdventures(); err != nil {
+		return err
+	}
+
 	// Store map configs
 	wm.MapConfigs = make(map[string]*config.MapConfig)
 	for key, mapConfig := range mapConfigs.Maps {
 		// Make a copy to avoid pointer issues
 		configCopy := mapConfig
 		wm.MapConfigs[key] = &configCopy
+	}
+
+	if config.GlobalBossMechanics != nil {
+		if err := config.GlobalBossMechanics.Validate(wm.MapConfigs); err != nil {
+			return err
+		}
 	}
 
 	// Store biome definitions (floor texture groups etc.) shared by maps, each
@@ -276,7 +286,10 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 	RegisterTeleportersFromMapData(mapData.SpecialTileSpawns, mapKey, wm.GlobalTeleporterRegistry, mapData.Tiles)
 
 	// Load fixed monsters from map data (converts MonsterSpawn entries to Monster3D objects)
-	world.loadMonstersFromMapData(mapData.MonsterSpawns)
+	world.loadMonstersFromMapData(mapData.MonsterSpawns, mapKey)
+	if err := validateAdventureWorld(mapKey, world, mapConfig.Adventure); err != nil {
+		return nil, err
+	}
 	wm.attachMapClearEncounter(world, mapKey, mapConfig)
 
 	// Do NOT add random/procedural monsters on premade (.map) worlds.
@@ -473,4 +486,13 @@ func (wm *WorldManager) IsValidMap(mapKey string) bool {
 		return true
 	}
 	return wm.IsOpenWorldRegion(mapKey)
+}
+
+// FreshAdventureMap prepares a replacement without discarding the live visit.
+func (wm *WorldManager) FreshAdventureMap(key string) (*World3D, error) {
+	mc := wm.MapConfigs[key]
+	if mc == nil || mc.Adventure == nil || !mc.Adventure.OpeningOwned {
+		return nil, fmt.Errorf("map %q does not own openings", key)
+	}
+	return wm.loadSingleMap(key, mc)
 }

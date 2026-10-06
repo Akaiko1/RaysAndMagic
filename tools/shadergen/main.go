@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	shadersource "ugataima/internal/shaders"
 )
 
 type shader struct {
@@ -69,7 +70,28 @@ func previousArtifacts() []shader {
 }
 
 func generate() error {
-	cmd := exec.Command("go", "run", "github.com/hajimehoshi/ebiten/v2/internal/shadercollector", "-target", "glsl,hlsl,msl", "./internal/game", "./assets/map_viewer")
+	dir, err := os.MkdirTemp("", "raysandmagic-shaders-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	// The manifest uses exactly the expanded sources embedded at runtime.
+	// Package discovery below still collects Ebitengine's built-in shaders.
+	names := shadersource.Names()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(shadersource.Source(name)), 0600); err != nil {
+			return err
+		}
+	}
+	manifest, err := json.Marshal(struct{ ShaderFiles []string }{names})
+	if err != nil {
+		return err
+	}
+	manifestPath := filepath.Join(dir, "manifest.json")
+	if err := os.WriteFile(manifestPath, manifest, 0600); err != nil {
+		return err
+	}
+	cmd := exec.Command("go", "run", "github.com/hajimehoshi/ebiten/v2/internal/shadercollector", "-target", "glsl,hlsl,msl", "-manifest", manifestPath, "./internal/game", "./assets/map_viewer")
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
@@ -80,11 +102,6 @@ func generate() error {
 		return err
 	}
 	mergePlatformArtifacts(shaders, previousArtifacts())
-	dir, err := os.MkdirTemp("", "raysandmagic-shaders-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(dir)
 	metal := runtime.GOOS == "darwin" && exec.Command("xcrun", "-sdk", "macosx", "metal", "--version").Run() == nil
 	fxc, _ := exec.LookPath("fxc.exe")
 	if runtime.GOOS == "darwin" && !metal {

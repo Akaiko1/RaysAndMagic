@@ -1,0 +1,482 @@
+# Benchmark parties: realistic builds at fixed levels for balance checks and
+# play-tests. Launch one with `bin/test_scenario.command bench_<party>_<level>`
+# or build it headless through ApplyTestScenario (see docs/test-scenarios.md).
+#
+# Together the parties field every class and every race. Each member is built
+# by the normal progression: class kit, race, XP level-ups, the class auto
+# stat chain. A build then lists:
+#   - skills / schools: tiers above Novice. The budget is one tier per third
+#     level plus trainer purchases: 6 at L15, 8 at L20, 11 at L25, 14 at L30.
+#   - equipment: only gear obtainable by that level (drops from monsters at or
+#     below it, shops, arena points from L20, clock hands from L22, dragon
+#     scales late). Every open school knows all of its spells.
+#   - spell / quick: the readied action (spell, flask, trap or technique) and
+#     the quick-slot bar.
+#   - items: everything the party carries, by key and count. Parties without
+#     a healer carry 50 health and 50 mana potions.
+# A member written as {name: X, from: <party>} copies that party's X.
+# A variant (base: <party>) copies that party and lists only its changes:
+# without_spells (no member learns them) and spell (a member's readied action
+# at every level).
+# TestBenchPartiesBuildAsAuthored enforces all of the above.
+levels: [15, 20, 25, 30]
+
+parties:
+  seabright:
+    note: "The current run (saves at L13, L23, L28): Knight, Sorcerer, Alchemist, Wayfarer."
+    members:
+      - name: Gareth
+        class: knight
+        levels:
+          15:
+            skills: {sword: grandmaster, plate: expert, impenetrable_defense: expert}
+            equipment: [silver_sword, elven_shield, iron_armor, iron_helmet, iron_pants, direpelt_cloak, bearpaw_gauntlets, belt_of_strength, lucky_paw]
+          20:
+            skills: {sword: grandmaster, plate: master, impenetrable_defense: master}
+            equipment: [katana, elven_shield, golden_armor, kabuto, iron_pants, direpelt_cloak, bearpaw_gauntlets, belt_of_strength, lucky_paw]
+          25:
+            skills: {sword: grandmaster, plate: grandmaster, impenetrable_defense: master, shield: expert}
+            equipment: [muramasa, elven_shield, mantle_of_the_idol_king, clockplate_helm, clockplate_greaves, direpelt_cloak, clockplate_gauntlets, belt_of_strength, lucky_paw, warlords_signet]
+          30:
+            skills: {sword: grandmaster, plate: grandmaster, impenetrable_defense: grandmaster, shield: master, bodybuilding: expert}
+            equipment: [drakefang_blade, parma_shield, clockplate_cuirass, clockplate_helm, clockplate_greaves, chrono_cape, clockplate_gauntlets, belt_of_strength, lucky_paw, warlords_signet, warlords_signet]
+      - name: Lysander
+        class: sorcerer
+        levels:
+          15:
+            skills: {elemental_mastery: expert}
+            schools: {fire: master, air: expert, water: expert}
+            equipment: [archmage_staff, wizard_robe, leather_helmet, leather_pants, batwing_cloak, scarab_amulet, magic_ring, magic_ring]
+            spell: fireball
+            quick: [fireball, firewall, summon_ice_elemental, fly, town_portal]
+          20:
+            skills: {elemental_mastery: expert, meditation: expert}
+            schools: {fire: grandmaster, air: expert, water: expert}
+            equipment: [archmage_staff, archmage_robe, tengu_mask, silk_hakama, haori_cloak, jade_netsuke, onmyoji_talisman, magic_ring]
+            spell: fireball
+            quick: [fireball, firewall, summon_ice_elemental, fly, town_portal]
+          25:
+            skills: {elemental_mastery: master, meditation: expert}
+            schools: {fire: grandmaster, air: master, water: master}
+            equipment: [archmage_staff, archmage_robe, feathered_headdress, cogleather_boots, fivefold_ceremonial_ribbon, kitsune_shrine_bell, onmyoji_talisman, magic_ring]
+            spell: fireball
+            quick: [fireball, firewall, summon_ice_elemental, fly, town_portal]
+          30:
+            skills: {elemental_mastery: grandmaster, meditation: master}
+            schools: {fire: grandmaster, air: grandmaster, water: master}
+            equipment: [verdant_eye_scepter, archmage_robe, feathered_headdress, cogleather_boots, fivefold_ceremonial_ribbon, cogleather_gloves, kitsune_shrine_bell, onmyoji_talisman, foxfire_ofuda]
+            spell: fireball
+            quick: [fireball, firewall, summon_ice_elemental, fly, town_portal]
+      - name: Elara
+        class: alchemist
+        levels:
+          15:
+            skills: {alchemy: grandmaster, pharmacology: master, bomb_throwing: expert}
+            equipment: [agility_katar, leather_armor, leather_helmet, leather_pants, direpelt_cloak, serpentscale_gauntlets, belt_of_speed, scarab_amulet, magic_ring]
+            spell: fire_flask
+            quick: [fire_flask, harm_flask, health_potion, mana_potion]
+          20:
+            skills: {alchemy: grandmaster, pharmacology: grandmaster, bomb_throwing: expert}
+            equipment: [gale_war_fan, kappa_shell_guard, leather_helmet, silk_hakama, haori_cloak, serpentscale_gauntlets, belt_of_speed, jade_netsuke, onmyoji_talisman]
+            spell: fire_flask
+            quick: [fire_flask, harm_flask, venom_flask, health_potion, mana_potion]
+          25:
+            skills: {alchemy: grandmaster, pharmacology: grandmaster, bomb_throwing: master, leather: expert}
+            equipment: [widow_hairpin, kappa_shell_guard, cogleather_helm, cogleather_boots, haori_cloak, cogleather_gloves, belt_of_speed, serpent_idol_amulet, onmyoji_talisman]
+            spell: fire_flask
+            quick: [fire_flask, harm_flask, venom_flask, health_potion, mana_potion]
+          30:
+            skills: {alchemy: grandmaster, pharmacology: grandmaster, bomb_throwing: grandmaster, leather: master, bodybuilding: expert}
+            equipment: [minute_hand, cogleather_pauldrons, cogleather_jacket, cogleather_helm, cogleather_boots, spider_lily_obi, cogleather_gloves, belt_of_speed, serpent_idol_amulet, onmyoji_talisman, foxfire_ofuda]
+            spell: fire_flask
+            quick: [fire_flask, harm_flask, venom_flask, health_potion, mana_potion]
+      - name: Kael
+        class: wayfarer
+        levels:
+          15:
+            skills: {translocation: grandmaster, flowing_staff: expert, staff: expert, pathfinding: expert}
+            equipment: [battle_staff, leather_armor, leather_helmet, leather_pants, direpelt_cloak, goblin_hide_gauntlets, belt_of_speed, puma_claw]
+            quick: [fold_step, return_step, phase_veil, quickening, purify]
+          20:
+            skills: {translocation: grandmaster, flowing_staff: master, staff: master, pathfinding: expert}
+            equipment: [book_of_darkness, kappa_shell_guard, tengu_mask, silk_hakama, haori_cloak, goblin_hide_gauntlets, belt_of_speed, jade_netsuke]
+            quick: [fold_step, return_step, phase_veil, quickening, purify]
+          25:
+            skills: {translocation: grandmaster, flowing_staff: grandmaster, staff: master, pathfinding: expert, meditation: expert}
+            equipment: [lanista_scepter, jaguar_pelt_jerkin, feathered_headdress, cogleather_boots, vinewoven_cloak, cogleather_gloves, belt_of_speed, kitsune_shrine_bell]
+            quick: [fold_step, return_step, phase_veil, quickening, purify]
+          30:
+            skills: {translocation: grandmaster, flowing_staff: grandmaster, staff: grandmaster, pathfinding: master, meditation: expert}
+            equipment: [lanista_scepter, jaguar_pelt_jerkin, feathered_headdress, cogleather_boots, chrono_cape, cogleather_gloves, belt_of_speed, kitsune_shrine_bell, rain_ward_ofuda, foxfire_ofuda]
+            quick: [fold_step, return_step, phase_veil, quickening, purify]
+    cards:
+      15: [troll_card, wolf_card]
+      20: [troll_card, wolf_card, lich_card, forest_spider_card]
+      25: [troll_card, wolf_card, lich_card, forest_spider_card, gorilla_titan_card]
+      30: [troll_card, wolf_card, lich_card, forest_spider_card, gorilla_titan_card, orc_warlord_card, samurai_card, mountain_troll_card]
+    items:
+      15: {health_potion: 50, mana_potion: 50, fire_flask: 6, harm_flask: 1}
+      20: {health_potion: 50, mana_potion: 50, fire_flask: 8, harm_flask: 1, venom_flask: 1}
+      25: {health_potion: 50, mana_potion: 50, fire_flask: 8, harm_flask: 1, venom_flask: 1, mirage_salt: 1}
+      30: {health_potion: 50, mana_potion: 50, fire_flask: 8, harm_flask: 1, venom_flask: 1, mirage_salt: 1}
+    gold: {15: 8000, 20: 15000, 25: 30000, 30: 60000}
+
+  classic:
+    note: "The original line-up: Paladin, Druid, Cleric, Archer."
+    members:
+      - name: Auberon
+        class: paladin
+        levels:
+          15:
+            skills: {axe: master, plate: expert, bodybuilding: expert}
+            schools: {body: expert}
+            equipment: [gorehorn_greataxe, iron_armor, chain_helmet, iron_pants, direpelt_cloak, bearpaw_gauntlets, belt_of_strength, scarab_amulet]
+            spell: heal
+            quick: [heal, heal_other]
+          20:
+            skills: {axe: grandmaster, plate: master, bodybuilding: expert, meditation: expert}
+            schools: {body: expert}
+            equipment: [gorehorn_greataxe, o_yoroi, kabuto, iron_pants, haori_cloak, bearpaw_gauntlets, belt_of_strength, grave_knight_sigil]
+            spell: heal
+            quick: [heal, heal_other]
+          25:
+            skills: {axe: grandmaster, plate: grandmaster, bodybuilding: master, meditation: expert}
+            schools: {body: master}
+            equipment: [arena_labrys, ringmail_vambraces, onryo_lamellar, kabuto, ringmail_boots, vinewoven_cloak, ringmail_gloves, belt_of_strength, grave_knight_sigil, warlords_signet]
+            spell: heal
+            quick: [heal, heal_other, mass_heal]
+          30:
+            skills: {axe: grandmaster, plate: grandmaster, bodybuilding: grandmaster, meditation: master}
+            schools: {body: grandmaster}
+            equipment: [wyrmcleaver, clockplate_pauldrons, clockplate_cuirass, clockplate_helm, clockplate_greaves, chrono_cape, clockplate_gauntlets, belt_of_strength, grave_knight_sigil, warlords_signet, warlords_signet]
+            spell: heal
+            quick: [heal, heal_other, mass_heal]
+      - name: Mirelle
+        class: druid
+        levels:
+          15:
+            skills: {staff: expert, meditation: expert}
+            schools: {earth: master, water: expert}
+            equipment: [archmage_staff, wizard_robe, leather_helmet, leather_pants, batwing_cloak, scarab_amulet, magic_ring, magic_ring]
+            spell: earthquake
+            quick: [deadly_swarm, stone_skin, ice_bolt, awaken, water_breathing]
+          20:
+            skills: {staff: master, meditation: expert}
+            schools: {earth: grandmaster, water: master}
+            equipment: [archmage_staff, archmage_robe, tengu_mask, silk_hakama, haori_cloak, jade_netsuke, onmyoji_talisman, magic_ring]
+            spell: earthquake
+            quick: [deadly_swarm, stone_skin, ice_bolt, awaken, water_breathing]
+          25:
+            skills: {staff: master, meditation: master, bodybuilding: expert}
+            schools: {earth: grandmaster, water: master, mind: expert}
+            equipment: [archmage_staff, archmage_robe, feathered_headdress, padded_boots, stormfold_umbrella, padded_gloves, mirror_basin, onmyoji_talisman, rain_ward_ofuda]
+            spell: earthquake
+            quick: [deadly_swarm, stone_skin, ice_bolt, awaken, water_breathing]
+          30:
+            skills: {staff: grandmaster, meditation: grandmaster, bodybuilding: expert}
+            schools: {earth: grandmaster, water: grandmaster, mind: expert}
+            equipment: [verdant_eye_scepter, padded_greaves, padded_vest, padded_cap, padded_boots, stormfold_umbrella, padded_gloves, mirror_basin, onmyoji_talisman, rain_ward_ofuda]
+            spell: earthquake
+            quick: [deadly_swarm, stone_skin, ice_bolt, awaken, water_breathing]
+      - name: Celestine
+        class: cleric
+        levels:
+          15:
+            skills: {meditation: expert, chain: expert}
+            schools: {body: master, spirit: expert}
+            equipment: [steel_mace, elven_shield, chain_armor, chain_helmet, chain_pants, isis_feather, tideclasp_gauntlets, scarab_amulet]
+            spell: harm
+            quick: [heal_other, bless, mass_heal, raise_dead]
+          20:
+            skills: {meditation: expert, chain: expert, natural_healer: expert}
+            schools: {body: grandmaster, spirit: master}
+            equipment: [bone_warclub, elven_shield, chain_armor, chain_helmet, chain_pants, isis_feather, tideclasp_gauntlets, jade_netsuke, onmyoji_talisman]
+            spell: harm
+            quick: [heal_other, bless, heroism, mass_heal, raise_dead]
+          25:
+            skills: {meditation: master, chain: master, natural_healer: expert}
+            schools: {body: grandmaster, spirit: master, mind: expert}
+            equipment: [lion_warhammer, elven_shield, ringmail_hauberk, ringmail_coif, ringmail_boots, isis_feather, ringmail_gloves, serpent_idol_amulet, onmyoji_talisman]
+            spell: harm
+            quick: [heal_other, bless, heroism, mass_heal, raise_dead]
+          30:
+            skills: {meditation: grandmaster, chain: grandmaster, natural_healer: expert}
+            schools: {body: grandmaster, spirit: grandmaster, mind: expert}
+            equipment: [morningstar, ringmail_vambraces, ringmail_hauberk, ringmail_coif, ringmail_boots, isis_feather, ringmail_gloves, serpent_idol_amulet, onmyoji_talisman, warlords_signet]
+            spell: harm
+            quick: [heal_other, bless, heroism, mass_heal, raise_dead]
+      - name: Silvelyn
+        class: archer
+        levels:
+          15:
+            skills: {bow: grandmaster, leather: expert, disarm_trap: expert}
+            schools: {air: expert}
+            equipment: [long_bow, leather_armor, leather_helmet, leather_pants, direpelt_cloak, goblin_hide_gauntlets, belt_of_speed, accuracy_talisman]
+            spell: wizard_eye
+            quick: [lightning, wizard_eye, fly, town_portal]
+          20:
+            skills: {bow: grandmaster, leather: master, disarm_trap: expert, bodybuilding: expert}
+            schools: {air: expert}
+            equipment: [blowgun, kappa_shell_guard, tengu_mask, silk_hakama, haori_cloak, goblin_hide_gauntlets, belt_of_speed, accuracy_talisman]
+            spell: wizard_eye
+            quick: [lightning, wizard_eye, fly, town_portal]
+          25:
+            skills: {bow: grandmaster, leather: grandmaster, disarm_trap: master, bodybuilding: expert}
+            schools: {air: master}
+            equipment: [arena_shortbow, jaguar_pelt_jerkin, feathered_headdress, cogleather_boots, vinewoven_cloak, cogleather_gloves, belt_of_speed, accuracy_talisman, thief_king_signet]
+            spell: wizard_eye
+            quick: [lightning, wizard_eye, fly, town_portal]
+          30:
+            skills: {bow: grandmaster, leather: grandmaster, disarm_trap: grandmaster, bodybuilding: master}
+            schools: {air: grandmaster}
+            equipment: [wyrmspine_bow, cogleather_pauldrons, cogleather_jacket, cogleather_helm, cogleather_boots, chrono_cape, cogleather_gloves, belt_of_speed, accuracy_talisman, thief_king_signet, thief_king_signet]
+            spell: wizard_eye
+            quick: [lightning, starburst, wizard_eye, fly, town_portal]
+    cards:
+      15: [treant_card, bat_card, mummy_card]
+      20: [treant_card, bat_card, mummy_card, ningyo_card, revenant_card]
+      25: [treant_card, bat_card, mummy_card, ningyo_card, samurai_card, masked_huntress_card, kasa_obake_card]
+      30: [treant_card, bat_card, mummy_card, ningyo_card, samurai_card, masked_huntress_card, kasa_obake_card, orc_warlord_card]
+    items:
+      15: {health_potion: 3, mana_potion: 2}
+      20: {health_potion: 3, mana_potion: 2}
+      25: {health_potion: 3, mana_potion: 2, mirage_salt: 1}
+      30: {health_potion: 3, mana_potion: 2, mirage_salt: 1}
+    gold: {15: 8000, 20: 15000, 25: 30000, 30: 60000}
+
+  rogues:
+    note: "Tavern recruits with the racial passives: dark-elf Thief, half-orc Knight, Arms Master, Monk."
+    members:
+      - name: Nyra
+        class: thief
+        race: dark_elf
+        levels:
+          15:
+            skills: {dagger: master, trapper: expert, sleight_of_hand: expert, disarm_trap: expert, lockpicking: expert}
+            equipment: [agility_katar, leather_armor, leather_helmet, leather_pants, direpelt_cloak, goblin_hide_gauntlets, belt_of_speed, puma_claw, magic_ring]
+            quick: [cleave_trap, bear_trap, stasis_trap, blast_trap]
+          20:
+            skills: {dagger: grandmaster, trapper: master, sleight_of_hand: expert, disarm_trap: expert, lockpicking: expert}
+            equipment: [gale_war_fan, leather_armor, tengu_mask, silk_hakama, haori_cloak, goblin_hide_gauntlets, belt_of_speed, puma_claw, magic_ring, onmyoji_talisman]
+            quick: [cleave_trap, bear_trap, stasis_trap, blast_trap]
+          25:
+            skills: {dagger: grandmaster, trapper: master, sleight_of_hand: grandmaster, disarm_trap: master, lockpicking: expert}
+            equipment: [kage_kunai, jaguar_pelt_jerkin, feathered_headdress, cogleather_boots, vinewoven_cloak, cogleather_gloves, belt_of_speed, puma_claw, magic_ring, foxfire_ofuda]
+            quick: [cleave_trap, bear_trap, stasis_trap, blast_trap]
+          30:
+            skills: {dagger: grandmaster, trapper: grandmaster, sleight_of_hand: grandmaster, disarm_trap: grandmaster, lockpicking: expert, meditation: expert}
+            equipment: [hatchling_fang, cogleather_pauldrons, cogleather_jacket, cogleather_helm, cogleather_boots, chrono_cape, cogleather_gloves, belt_of_speed, puma_claw, magic_ring, magic_ring]
+            quick: [cleave_trap, bear_trap, stasis_trap, blast_trap]
+      - name: Grikka
+        class: knight
+        race: half_orc
+        levels:
+          15:
+            skills: {spear: master, chain: expert, orcish_fury: expert, bodybuilding: expert}
+            equipment: [yari, chain_armor, chain_helmet, chain_pants, direpelt_cloak, bearpaw_gauntlets, belt_of_strength, puma_claw]
+          20:
+            skills: {spear: grandmaster, chain: master, orcish_fury: master, bodybuilding: expert}
+            equipment: [naginata, o_yoroi, kabuto, iron_pants, haori_cloak, bearpaw_gauntlets, belt_of_strength, puma_claw]
+          25:
+            skills: {spear: grandmaster, plate: master, orcish_fury: grandmaster, bodybuilding: expert, chain: expert}
+            equipment: [tonbogiri, mantle_of_the_idol_king, clockplate_helm, clockplate_greaves, vinewoven_cloak, clockplate_gauntlets, belt_of_strength, puma_claw, warlords_signet]
+          30:
+            skills: {spear: grandmaster, plate: grandmaster, orcish_fury: grandmaster, bodybuilding: master, shield: expert}
+            equipment: [tarn_trident, clockplate_pauldrons, clockplate_cuirass, clockplate_helm, clockplate_greaves, chrono_cape, clockplate_gauntlets, belt_of_strength, puma_claw, warlords_signet, warlords_signet]
+      - name: Gwen
+        class: arms_master
+        levels:
+          15:
+            skills: {mace: master, dual_wielding: expert, arms_master: expert, leather: expert, bodybuilding: expert}
+            equipment: [steel_mace, agility_katar, leather_armor, leather_helmet, leather_pants, direpelt_cloak, goblin_hide_gauntlets, belt_of_strength, puma_claw]
+          20:
+            skills: {mace: grandmaster, dual_wielding: master, arms_master: master, leather: expert}
+            equipment: [bone_warclub, katana, kappa_shell_guard, tengu_mask, silk_hakama, haori_cloak, goblin_hide_gauntlets, belt_of_strength, puma_claw]
+          25:
+            skills: {mace: grandmaster, dual_wielding: grandmaster, arms_master: grandmaster, leather: master}
+            equipment: [idol_breakers_maul, katana, jaguar_pelt_jerkin, padded_cap, padded_boots, vinewoven_cloak, padded_gloves, belt_of_strength, puma_claw, warlords_signet]
+          30:
+            skills: {mace: grandmaster, dual_wielding: grandmaster, arms_master: grandmaster, leather: grandmaster, bodybuilding: master}
+            equipment: [scalebreaker_maul, escapement_mace, padded_vest, padded_cap, padded_boots, chrono_cape, padded_gloves, belt_of_strength, puma_claw, warlords_signet, warlords_signet]
+      - name: Sora
+        class: monk
+        levels:
+          15:
+            skills: {martial_arts: master, iron_body: expert, spiritual_training: expert}
+            schools: {spirit: expert}
+            equipment: [monk_fists, silk_hakama, haori_cloak, belt_of_speed, jade_netsuke, magic_ring, magic_ring]
+            spell: spirit_lash
+            quick: [spirit_lash, psychic_shock, heal_other, awaken]
+          20:
+            skills: {martial_arts: grandmaster, iron_body: master, spiritual_training: expert, meditation: expert}
+            schools: {spirit: expert}
+            equipment: [monk_fists, unbroken_headband, unbroken_handwraps, unbroken_sandals, unbroken_sash, haori_cloak, jade_netsuke, magic_ring, magic_ring]
+            spell: spirit_lash
+            quick: [spirit_lash, psychic_shock, heal_other, awaken]
+          25:
+            skills: {martial_arts: grandmaster, iron_body: grandmaster, spiritual_training: master, meditation: expert}
+            schools: {spirit: expert, body: expert}
+            equipment: [monk_fists, unbroken_robe, unbroken_headband, unbroken_sandals, unbroken_mantle, unbroken_handwraps, unbroken_sash, kitsune_shrine_bell, magic_ring, foxfire_ofuda]
+            spell: spirit_lash
+            quick: [spirit_lash, psychic_shock, heal_other, raise_dead, awaken]
+          30:
+            skills: {martial_arts: grandmaster, iron_body: grandmaster, spiritual_training: grandmaster, meditation: master}
+            schools: {spirit: master, body: expert}
+            equipment: [monk_fists, unbroken_robe, unbroken_headband, unbroken_sandals, unbroken_mantle, unbroken_handwraps, unbroken_sash, kitsune_shrine_bell, rain_ward_ofuda, foxfire_ofuda]
+            spell: spirit_lash
+            quick: [spirit_lash, psychic_shock, heal_other, raise_dead, awaken]
+    cards:
+      15: [wolf_card, orc_card, forest_orc_card, rat_card]
+      20: [wolf_card, orc_card, forest_orc_card, rat_card, elf_swordsman_card, octopus_card]
+      25: [wolf_card, orc_card, forest_orc_card, rat_card, elf_swordsman_card, octopus_card, masked_serpent_dancer_card, puma_card]
+      30: [wolf_card, orc_card, forest_orc_card, octopus_card, masked_serpent_dancer_card, puma_card, samurai_card, gorilla_titan_card]
+    items:
+      15: {health_potion: 3, mana_potion: 2}
+      20: {health_potion: 3, mana_potion: 2}
+      25: {health_potion: 3, mana_potion: 2, mirage_salt: 1}
+      30: {health_potion: 3, mana_potion: 2, mirage_salt: 1}
+    gold: {15: 8000, 20: 15000, 25: 30000, 30: 60000}
+
+  rares:
+    note: "The later classes plus the last two races: Battle Mage, Sniper, celestial Cleric, halfling Archer."
+    members:
+      - name: Isolde
+        class: battle_mage
+        levels:
+          15:
+            skills: {strong_magic: expert, spell_absorption: expert, sword: expert, plate: expert}
+            schools: {earth: expert}
+            equipment: [silver_sword, iron_armor, iron_helmet, iron_pants, direpelt_cloak, bearpaw_gauntlets, belt_of_strength, scarab_amulet, magic_ring]
+            spell: earthquake
+            quick: [rock_blast, firewall, sparks, resurrect]
+          20:
+            skills: {strong_magic: master, spell_absorption: expert, sword: master, plate: expert}
+            schools: {earth: master}
+            equipment: [katana, golden_armor, kabuto, iron_pants, haori_cloak, bearpaw_gauntlets, belt_of_strength, jade_netsuke, magic_ring, onmyoji_talisman]
+            spell: earthquake
+            quick: [rock_blast, firewall, sparks, resurrect]
+          25:
+            skills: {strong_magic: grandmaster, spell_absorption: master, sword: master, plate: master}
+            schools: {earth: master}
+            equipment: [gladius, golden_armor, clockplate_helm, clockplate_greaves, vinewoven_cloak, clockplate_gauntlets, belt_of_strength, kitsune_shrine_bell, magic_ring, onmyoji_talisman]
+            spell: earthquake
+            quick: [rock_blast, firewall, sparks, resurrect]
+          30:
+            skills: {strong_magic: grandmaster, spell_absorption: grandmaster, sword: master, plate: grandmaster}
+            schools: {earth: grandmaster}
+            equipment: [cogfang_blade, clockplate_pauldrons, clockplate_cuirass, clockplate_helm, clockplate_greaves, chrono_cape, clockplate_gauntlets, belt_of_strength, kitsune_shrine_bell, magic_ring, onmyoji_talisman]
+            spell: earthquake
+            quick: [rock_blast, firewall, sparks, resurrect]
+      - name: Mara
+        class: sniper
+        levels:
+          15:
+            skills: {blaster: master, ballistics: expert, designate_target: expert, overwatch: expert, leather: expert}
+            equipment: [tanegashima, leather_armor, leather_helmet, leather_pants, batwing_cloak, serpentscale_gauntlets, belt_of_speed, accuracy_talisman]
+          20:
+            skills: {blaster: grandmaster, ballistics: master, designate_target: expert, overwatch: expert, leather: expert}
+            equipment: [tanegashima, kappa_shell_guard, tengu_mask, silk_hakama, haori_cloak, serpentscale_gauntlets, belt_of_speed, accuracy_talisman]
+          25:
+            skills: {blaster: grandmaster, ballistics: grandmaster, designate_target: master, overwatch: expert, leather: master}
+            equipment: [inazuma_matchlock, jaguar_pelt_jerkin, feathered_headdress, cogleather_boots, stormfold_umbrella, cogleather_gloves, belt_of_speed, accuracy_talisman, thief_king_signet]
+          30:
+            skills: {blaster: grandmaster, ballistics: grandmaster, designate_target: grandmaster, overwatch: master, leather: master, field_medicine: expert}
+            equipment: [clockwork_pistol, cogleather_pauldrons, cogleather_jacket, cogleather_helm, cogleather_boots, stormfold_umbrella, cogleather_gloves, belt_of_speed, accuracy_talisman, thief_king_signet, rain_ward_ofuda]
+      - name: Auralis
+        class: cleric
+        race: celestial
+        levels:
+          15:
+            skills: {meditation: expert, natural_healer: expert}
+            schools: {body: expert, spirit: master}
+            equipment: [steel_mace, elven_shield, chain_armor, chain_helmet, chain_pants, isis_feather, tideclasp_gauntlets, scarab_amulet]
+            spell: spirit_lash
+            quick: [bless, heroism, heal_other, raise_dead]
+          20:
+            skills: {meditation: expert, natural_healer: expert, chain: expert}
+            schools: {body: master, spirit: grandmaster}
+            equipment: [bone_warclub, elven_shield, chain_armor, chain_helmet, chain_pants, isis_feather, tideclasp_gauntlets, jade_netsuke, onmyoji_talisman, magic_ring]
+            spell: spirit_lash
+            quick: [bless, heroism, heal_other, raise_dead]
+          25:
+            skills: {meditation: master, natural_healer: master, chain: expert}
+            schools: {body: master, spirit: grandmaster, mind: expert}
+            equipment: [lion_warhammer, elven_shield, chainwork_hauberk, chainwork_helm, chainwork_greaves, isis_feather, chainwork_gauntlets, mirror_basin, onmyoji_talisman, magic_ring]
+            spell: spirit_lash
+            quick: [bless, heroism, heal_other, raise_dead]
+          30:
+            skills: {meditation: grandmaster, natural_healer: master, chain: expert}
+            schools: {body: grandmaster, spirit: grandmaster, mind: master}
+            equipment: [ember_egg_mace, chainwork_pauldrons, chainwork_hauberk, chainwork_helm, chainwork_greaves, isis_feather, chainwork_gauntlets, mirror_basin, onmyoji_talisman, magic_ring]
+            spell: spirit_lash
+            quick: [bless, heroism, heal_other, raise_dead]
+      - name: Brinna
+        class: archer
+        race: halfling
+        levels:
+          15:
+            skills: {bow: master, leather: expert, disarm_trap: expert, bodybuilding: expert}
+            schools: {air: expert}
+            equipment: [elven_bow, leather_armor, leather_helmet, ratskin_boots, direpelt_cloak, goblin_hide_gauntlets, belt_of_speed, accuracy_talisman]
+            spell: wizard_eye
+            quick: [wizard_eye, fly, town_portal]
+          20:
+            skills: {bow: grandmaster, leather: master, disarm_trap: expert, bodybuilding: expert}
+            schools: {air: expert}
+            equipment: [blowgun, kappa_shell_guard, tengu_mask, silk_hakama, haori_cloak, goblin_hide_gauntlets, belt_of_speed, accuracy_talisman]
+            spell: wizard_eye
+            quick: [wizard_eye, fly, town_portal]
+          25:
+            skills: {bow: grandmaster, leather: grandmaster, disarm_trap: master, bodybuilding: expert}
+            schools: {air: master}
+            equipment: [arbalest, jaguar_pelt_jerkin, padded_cap, padded_boots, vinewoven_cloak, padded_gloves, belt_of_speed, accuracy_talisman, thief_king_signet]
+            spell: wizard_eye
+            quick: [wizard_eye, fly, town_portal]
+          30:
+            skills: {bow: grandmaster, leather: grandmaster, disarm_trap: grandmaster, bodybuilding: master}
+            schools: {air: grandmaster}
+            equipment: [nest_arbalest, padded_greaves, padded_vest, padded_cap, padded_boots, chrono_cape, padded_gloves, belt_of_speed, accuracy_talisman, thief_king_signet, thief_king_signet]
+            spell: wizard_eye
+            quick: [wizard_eye, fly, town_portal]
+    cards:
+      15: [pixie_card, elf_archer_card, bandit_card]
+      20: [pixie_card, elf_archer_card, bandit_card, karasu_tengu_card, ronin_marksman_card, ashigaru_firelock_card]
+      25: [pixie_card, elf_archer_card, bandit_card, karasu_tengu_card, ronin_marksman_card, ashigaru_firelock_card, masked_huntress_card, kitsune_onmyoji_card]
+      30: [pixie_card, elf_archer_card, isis_card, karasu_tengu_card, ronin_marksman_card, ashigaru_firelock_card, masked_huntress_card, kitsune_onmyoji_card]
+    items:
+      15: {health_potion: 3, mana_potion: 2}
+      20: {health_potion: 3, mana_potion: 2}
+      25: {health_potion: 3, mana_potion: 2, mirage_salt: 1}
+      30: {health_potion: 3, mana_potion: 2, mirage_salt: 1}
+    gold: {15: 8000, 20: 15000, 25: 30000, 30: 60000}
+
+  rares_no_quake:
+    note: "Rares without Earthquake: how much of their lead is that one spell."
+    base: rares
+    without_spells: [earthquake]
+    spell: {Isolde: starburst}  # beat Stone Blossom, Deadly Swarm and Rock Blast in the sweep
+
+  starting:
+    note: "The new-game roster (config.yaml starting_party): Knight, Sorcerer, Cleric, Archer."
+    members:
+      - {name: Gareth, from: seabright}
+      - {name: Lysander, from: seabright}
+      - {name: Celestine, from: classic}
+      - {name: Silvelyn, from: classic}
+    cards:
+      15: [troll_card, wolf_card]
+      20: [troll_card, wolf_card, lich_card, forest_spider_card]
+      25: [troll_card, wolf_card, lich_card, forest_spider_card, gorilla_titan_card]
+      30: [troll_card, wolf_card, lich_card, forest_spider_card, gorilla_titan_card, orc_warlord_card, samurai_card, mountain_troll_card]
+    items:
+      15: {health_potion: 3, mana_potion: 2}
+      20: {health_potion: 3, mana_potion: 2}
+      25: {health_potion: 3, mana_potion: 2, mirage_salt: 1}
+      30: {health_potion: 3, mana_potion: 2, mirage_salt: 1}
+    gold: {15: 8000, 20: 15000, 25: 30000, 30: 60000}
+
+  classic_no_quake:
+    note: "Classic without Earthquake: how much of their lead is that one spell."
+    base: classic
+    without_spells: [earthquake]
+    spell: {Mirelle: deadly_swarm}  # beat Stone Blossom, Rock Blast, Psychic Shock and Ice Bolt in the sweep

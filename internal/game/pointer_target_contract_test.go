@@ -238,11 +238,17 @@ func TestPointerGroundSpellsKeepAim(t *testing.T) {
 						t.Fatal("mortar followed camera instead of aim")
 					}
 				} else {
-					if len(g.persistentDamageZones) != 3 {
-						t.Fatal("wall spell was not cast")
+					def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
+					if err != nil {
+						t.Fatal(err)
 					}
+					if len(g.persistentDamageZones) != def.ZoneWidthTiles {
+						t.Fatalf("wall spell laid %d cells, want its authored %d", len(g.persistentDamageZones), def.ZoneWidthTiles)
+					}
+					// The aim points south of an east-facing camera: the wall lies
+					// across that axis, its authored distance ahead of the party.
 					for _, cell := range g.persistentDamageZones {
-						if cell.Y != g.camera.Y+2*ts || cell.AxisY != 0 {
+						if math.Abs(cell.Y-(g.camera.Y+def.ZoneAheadTiles*ts)) > 1e-6 || cell.AxisY != 0 {
 							t.Fatal("wall spell followed camera instead of aim")
 						}
 					}

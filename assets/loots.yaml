@@ -1,4 +1,30 @@
+# Loot data, top to bottom:
+#   loots:       per-monster drop tables (kills, Sleight of Hand, and the
+#                "map" pool of every chest on that monster's map)
+#   boss_loot:   appended to the table of every boss: true monster
+#   crates:      placed chests and props (npcs.yaml loot_crate NPCs, by key)
+#   loot_tables: named weighted pools (sword racks, encounter reward chests,
+#                crate slots)
+#   loot_groups: shared material groups for monster drops
+
 loots:
+  solstice_ember_elemental: [{"type": "item", "key": "solstice_living_ember", "chance": 0.4}]
+  solstice_cinder_hound: [{"type": "item", "key": "solstice_heat_resistant_fang", "chance": 0.4}]
+  solstice_kiln_automaton: [{"type": "item", "key": "solstice_furnace_ceramic", "chance": 0.4}]
+  solstice_tide_elemental: [{"type": "item", "key": "solstice_condensed_tideglass", "chance": 0.4}]
+  solstice_cistern_eel: [{"type": "item", "key": "solstice_coldwater_gland", "chance": 0.4}]
+  solstice_flow_automaton: [{"type": "item", "key": "solstice_circulation_membrane", "chance": 0.4}]
+  solstice_jade_elemental: [{"type": "item", "key": "solstice_anchor_crystal", "chance": 0.4}]
+  solstice_shardback_burrower: [{"type": "item", "key": "solstice_mineral_plate", "chance": 0.4}]
+  solstice_anchor_automaton: [{"type": "item", "key": "solstice_petrified_conductor", "chance": 0.4}]
+  solstice_gale_elemental: [{"type": "item", "key": "solstice_bound_breath", "chance": 0.4}]
+  solstice_storm_kite: [{"type": "item", "key": "solstice_charged_quill", "chance": 0.4}]
+  solstice_transfer_automaton: [{"type": "item", "key": "solstice_resonance_coil", "chance": 0.4}]
+  solstice_sunscarab: [{"type": "harvest", "key": "solstice_sun_resin", "chance": 0.45}]
+  solstice_rain_serpent: [{"type": "harvest", "key": "solstice_rain_pearl", "chance": 0.45}]
+  solstice_rootbound_sentinel: [{"type": "harvest", "key": "solstice_calendar_jade", "chance": 0.45}]
+  solstice_dusk_moth: [{"type": "harvest", "key": "solstice_whisper_silk", "chance": 0.45}]
+
   common_carp:
     - {type: item, key: carp_scale, chance: 1}
   koi:
@@ -818,15 +844,6 @@ loots:
       key: "orc_warlord_card"
       chance: 0.03
 
-# Loot crates (chests placed via @ on any map), keyed by their npcs.yaml NPC
-# key. Loot rules live HERE with all other loot. Per crate: either a
-# loot_table (authored treasure) or rolls over a pool - "map" draws from the
-# drop tables of the monster kinds on the current map (min_rarity filters low
-# tiers), "rare" draws catalog rares with a legendary_pct upgrade chance
-# (quest items and arena uniques never roll; cards are ordinary loot).
-# trap_damage = flat party blast; trap_damage_types chooses its element,
-# trap_ignite = party burn for trap_ignite_seconds; Disarm Trap mastery avoids
-# either entirely at 40/60/80/100%.
   # --- Clock Tower (2026-07-16): every tower horror can shed a clock hand ---
   dust_slime:
     - type: "item"
@@ -896,9 +913,6 @@ loots:
       key: "inlaid_key"  # even the tower's old custodians keep a belfry key
       chance: 0.03
 
-# Boss loot is appended to the normal loot table of every monsters.yaml entry
-# authored with boss: true. Every ordinary loot consumer uses the same resolved
-# table, including kills, Sleight of Hand, map crates, and the map viewer.
   # ============ ENDGAME BOSS TRIAD ============
   # The Brood Mother: 3 black scales guaranteed (the Scalewright's top coin)
   # + a 25% roll on each other colour.
@@ -953,14 +967,50 @@ loots:
       key: "diamond"
       chance: 0.4
 
+# Boss loot is appended to the normal loot table of every monsters.yaml entry
+# authored with boss: true. Every ordinary loot consumer uses the same resolved
+# table, including kills, Sleight of Hand, map crates, and the map viewer.
 boss_loot:
   - type: "item"
     key: "skeleton_key"
     chance: 0.05
 
+# Crates, keyed by their npcs.yaml loot_crate NPC key. A crate either rolls
+# a loot_table (authored treasure) or `rolls` slots; each slot picks ONE
+# roll_sources entry by weight (percent, totals 100) and draws from it:
+#   map          one entry from the drop tables of the monsters this map (or
+#                open-world region) was created with, weighted by drop chance
+#   catalog      a uniform pick from the whole catalog of item_type
+#                (armor/accessory/consumable/trinket/weapon/any)
+#   loot_table   one roll of that named pool, as authored (items + gold)
+#   gold, arena_points  a fixed amount;  nothing  an empty slot
+# rarity gates map and catalog: "rare" exactly, "common-uncommon" a span,
+# "uncommon+" that tier and up. A map source with nothing in its span on this
+# map sits the chest out and its share falls to the others. Quest items and
+# arena uniques never roll from a catalog; cards are ordinary loot.
+# Traps: trap_damage blasts every hero (element from trap_damage_types),
+# trap_ignite burns them; Disarm Trap avoids either at 40/60/80/100%.
 crates:
-  # Roadside props (2026-07-14): boxes may hold sellable junk, the campfire is
-  # a one-time free rest + coin cache, the barrels are one-time stat draughts.
+  solstice_fire_cache:
+    interaction_sound: "chest_open"
+    loot_table: "solstice_fire_archive"
+    treasure_chest: true
+  solstice_water_cache:
+    interaction_sound: "chest_open"
+    loot_table: "solstice_water_archive"
+    treasure_chest: true
+  solstice_earth_cache:
+    interaction_sound: "chest_open"
+    loot_table: "solstice_earth_archive"
+    treasure_chest: true
+  solstice_air_cache:
+    interaction_sound: "chest_open"
+    loot_table: "solstice_air_archive"
+    treasure_chest: true
+
+  # --- Roadside props (2026-07-14) ---
+  # Boxes may hold sellable junk, the campfire is a one-time free rest + coin
+  # cache, the barrels are one-time stat draughts.
   pile_of_old_boxes:
     rolls: 1
     roll_sources:
@@ -968,7 +1018,7 @@ crates:
         weight: 50
       - pool: "catalog"
         item_type: "trinket"
-        max_rarity: "rare"  # roadside junk never hides a legendary
+        rarity: "common-rare"   # roadside junk never hides a legendary
         weight: 50
   campfire:
     rolls: 1
@@ -990,60 +1040,59 @@ crates:
     bonus_amount: 1
     bonus_chance_pct: 50
 
+  # --- Map chests (placed via @ on any map) ---
+  # The small rare/legendary/currency weights are per slot: over three slots
+  # they come to about 7% / 3% / 5% a wooden chest, 25% / 5% / 5% an iron one
+  # and 5% arena points a golden one.
   chest_wooden:
     treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
       - pool: "map"
-        max_rarity: "uncommon"
-        weight: 70
+        rarity: "common-uncommon"
+        weight: 66.4
       - pool: "catalog"
         item_type: "consumable"
-        weight: 20
+        weight: 19.0
       - pool: "catalog"
         item_type: "armor"
         rarity: "common"
-        weight: 10
-    special_rolls:
-      # These replace one of the three normal slots, never add a fourth item.
-      # Map rarity is exact, so neither tier can leak from the global catalog.
+        weight: 9.5
       - pool: "map"
         rarity: "rare"
-        chance_pct: 7
+        weight: 2.4
       - pool: "map"
         rarity: "legendary"
-        chance_pct: 3
+        weight: 1.0
       - pool: "gold"
         amount: 1000
-        chance_pct: 5
+        weight: 1.7
   chest_iron:
     treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
       - pool: "map"
-        min_rarity: "uncommon"
-        max_rarity: "uncommon"
-        weight: 60
+        rarity: "uncommon"
+        weight: 52.5
       - pool: "catalog"
         item_type: "accessory"
         rarity: "uncommon"
-        weight: 20
+        weight: 17.5
       - pool: "catalog"
         item_type: "armor"
         rarity: "uncommon"
-        weight: 20
-    special_rolls:
+        weight: 17.5
       - pool: "map"
         rarity: "rare"
-        chance_pct: 25
+        weight: 9.1
       - pool: "map"
         rarity: "legendary"
-        chance_pct: 5
+        weight: 1.7
       - pool: "gold"
         amount: 1500
-        chance_pct: 5
+        weight: 1.7
     trap_ignite: true
     trap_ignite_seconds: 10
   chest_golden:
@@ -1051,27 +1100,30 @@ crates:
     interaction_sound: "chest_open"
     rolls: 3
     roll_sources:
-      # Every roll is a catalog rare, upgraded to a legendary at legendary_pct.
-      - pool: "rare"
-        legendary_pct: 15
-        weight: 100
-    special_rolls:
+      - pool: "catalog"
+        item_type: "any"
+        rarity: "rare"
+        weight: 83.6
+      - pool: "catalog"
+        item_type: "any"
+        rarity: "legendary"
+        weight: 14.7
       - pool: "arena_points"
         amount: 5000
-        chance_pct: 5
+        weight: 1.7
     trap_damage: 150
     trap_damage_types: [physical, fire]
 
-# Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
-# one random ZONE item + a little gold, never a unique (uniques aren't listed).
-  # Clock tower chests: hands + parts below, the regal box hides real gear.
+  # --- Clock Tower chests (2026-07-16) ---
+  # Their map pool is the floor's horrors: hands, gears, oil and wards; the
+  # regal box hides real gear. Consumables and trinkets come from the catalog.
   chest_gearwood:
     treasure_chest: true
     interaction_sound: "chest_open"
     rolls: 2
     roll_sources:
       - pool: "map"
-        max_rarity: "uncommon"
+        rarity: "common-uncommon"
         weight: 60
       - pool: "gold"
         amount: 120
@@ -1085,19 +1137,18 @@ crates:
     rolls: 2
     roll_sources:
       - pool: "map"
-        min_rarity: "uncommon"
-        weight: 60
+        rarity: "uncommon+"
+        weight: 53.6
       - pool: "gold"
         amount: 250
-        weight: 25
+        weight: 22.4
       - pool: "catalog"
         item_type: "trinket"
-        max_rarity: "rare"
-        weight: 15
-    special_rolls:
+        rarity: "common-rare"
+        weight: 13.4
       - pool: "map"
         rarity: "rare"
-        chance_pct: 20
+        weight: 10.6   # about 20% a chest
     trap_ignite: true
     trap_ignite_seconds: 8
   chest_regal:
@@ -1106,27 +1157,67 @@ crates:
     rolls: 3
     roll_sources:
       - pool: "map"
-        min_rarity: "uncommon"
-        weight: 55
+        rarity: "uncommon+"
+        weight: 45.0
       - pool: "catalog"
         item_type: "trinket"
-        max_rarity: "rare"
-        weight: 25
+        rarity: "common-rare"
+        weight: 20.4
       - pool: "gold"
         amount: 400
-        weight: 20
-    special_rolls:
+        weight: 16.4
       - pool: "map"
         rarity: "rare"
-        chance_pct: 30
+        weight: 11.2   # about 30% a chest
       - pool: "gold"
         amount: 800
-        chance_pct: 10
+        weight: 3.5    # about 10% a chest
+      - pool: "loot_table"
+        loot_table: "clock_tower_gear"
+        weight: 3.5    # about 10% a chest
     trap_damage: 60
     trap_damage_types: [physical]
 
-
+# Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
+# one random ZONE item + a little gold, never a unique (uniques aren't listed).
 loot_tables:
+  solstice_fire_signature:
+    rolls: 1
+    entries: [{"type": "weapon", "key": "solstice_thermal_lance", "weight": 1}, {"type": "item", "key": "solstice_heatshield_mantle", "weight": 1}, {"type": "item", "key": "solstice_ember_regulator_ring", "weight": 1}]
+  solstice_water_signature:
+    rolls: 1
+    entries: [{"type": "weapon", "key": "solstice_flowstaff", "weight": 1}, {"type": "item", "key": "solstice_circulation_vestment", "weight": 1}, {"type": "item", "key": "solstice_tideglass_signet", "weight": 1}]
+  solstice_earth_signature:
+    rolls: 1
+    entries: [{"type": "weapon", "key": "solstice_anchor_hammer", "weight": 1}, {"type": "item", "key": "solstice_deepstone_aegis", "weight": 1}, {"type": "item", "key": "solstice_loadbearer_girdle", "weight": 1}]
+  solstice_air_signature:
+    rolls: 1
+    entries: [{"type": "weapon", "key": "solstice_transfer_blade", "weight": 1}, {"type": "item", "key": "solstice_vector_boots", "weight": 1}, {"type": "item", "key": "solstice_resonance_diadem", "weight": 1}]
+  solstice_fire_archive:
+    rolls: 1
+    items: ["health_potion", "mana_potion"]
+    gold_min: 150
+    gold_max: 250
+    entries: [{"type": "weapon", "key": "steel_axe", "weight": 1}, {"type": "item", "key": "iron_armor", "weight": 1}]
+  solstice_water_archive:
+    rolls: 1
+    items: ["health_potion", "mana_potion"]
+    gold_min: 150
+    gold_max: 250
+    entries: [{"type": "weapon", "key": "battle_staff", "weight": 1}, {"type": "item", "key": "chain_armor", "weight": 1}]
+  solstice_earth_archive:
+    rolls: 1
+    items: ["health_potion", "mana_potion"]
+    gold_min: 150
+    gold_max: 250
+    entries: [{"type": "weapon", "key": "steel_mace", "weight": 1}, {"type": "item", "key": "iron_armor", "weight": 1}]
+  solstice_air_archive:
+    rolls: 1
+    items: ["health_potion", "mana_potion"]
+    gold_min: 150
+    gold_max: 250
+    entries: [{"type": "weapon", "key": "silver_sword", "weight": 1}, {"type": "item", "key": "chain_armor", "weight": 1}]
+
   castle_armory:
     rolls: 1
     gold_min: 40
@@ -1221,6 +1312,34 @@ loot_tables:
       - type: "item"
         key: "emerald"
         weight: 6
+
+  # One piece of the Clockmaker's gear, rolled by the regal chest: the three
+  # armor sets, the cape and the six weapons, all equally likely.
+  clock_tower_gear:
+    rolls: 1
+    entries:
+      - {type: item, key: cogleather_helm, weight: 1}
+      - {type: item, key: cogleather_jacket, weight: 1}
+      - {type: item, key: cogleather_pauldrons, weight: 1}
+      - {type: item, key: cogleather_gloves, weight: 1}
+      - {type: item, key: cogleather_boots, weight: 1}
+      - {type: item, key: chainwork_helm, weight: 1}
+      - {type: item, key: chainwork_hauberk, weight: 1}
+      - {type: item, key: chainwork_pauldrons, weight: 1}
+      - {type: item, key: chainwork_gauntlets, weight: 1}
+      - {type: item, key: chainwork_greaves, weight: 1}
+      - {type: item, key: clockplate_helm, weight: 1}
+      - {type: item, key: clockplate_cuirass, weight: 1}
+      - {type: item, key: clockplate_pauldrons, weight: 1}
+      - {type: item, key: clockplate_gauntlets, weight: 1}
+      - {type: item, key: clockplate_greaves, weight: 1}
+      - {type: item, key: chrono_cape, weight: 1}
+      - {type: weapon, key: cogfang_blade, weight: 1}
+      - {type: weapon, key: chime_maul, weight: 1}
+      - {type: weapon, key: minute_hand, weight: 1}
+      - {type: weapon, key: mainspring_pike, weight: 1}
+      - {type: weapon, key: escapement_mace, weight: 1}
+      - {type: weapon, key: clockwork_pistol, weight: 1}
 
 # Material groups keep ordinary and five-roll elite drops on the same chance.
 loot_groups:

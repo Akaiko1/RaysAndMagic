@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"os"
 	"strings"
 
 	"ugataima/internal/config"
@@ -61,12 +60,7 @@ func loadIconFrameEntries() map[string]iconFrameEntry {
 	}
 	masks := make(map[string]*image.RGBA, len(cfg.Frames))
 	for style, path := range cfg.Frames {
-		f, err := os.Open(path)
-		if err != nil {
-			panic(fmt.Sprintf("icon frame: %v", err))
-		}
-		img, _, err := image.Decode(f)
-		f.Close()
+		img, err := DecodeImageFile(path)
 		if err != nil {
 			panic(fmt.Sprintf("icon frame %s: %v", style, err))
 		}

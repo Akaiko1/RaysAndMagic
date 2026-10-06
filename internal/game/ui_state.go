@@ -21,6 +21,7 @@ type menuState struct {
 	saveRenameOpen         bool
 	saveRenameSlot         int
 	saveRenameInput        string
+	controlTipsScroll      int
 }
 
 func newMenuState() menuState {

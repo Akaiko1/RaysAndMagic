@@ -210,7 +210,8 @@ func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.
 	}
 	cs.applyChampionHandRiders(m, ch, wd)
 	_, _, total := cs.CalculateWeaponDamage(weapon, ch)
-	crit, _ := cs.RollWeaponCriticalChance(weapon, ch)
+	chance := cs.game.bossMechanicValue(m, "critical_chance", cs.CalculateWeaponCritChance(weapon, ch))
+	crit := rand.Intn(100) < chance
 	total = weaponCriticalDamage(total, crit)
 	if total < 1 {
 		total = 1
@@ -276,7 +277,7 @@ func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd 
 		return false
 	}
 	if wd != nil && wd.AoeRadiusTiles > 0 {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's sweep engulfs the whole party!", m.Name))
+		cs.game.logCombat(logToneBad, "%s's %s engulfs the whole party!", logMonsterName(m), logAbility("sweep"))
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 			cs.monsterHitCharacter(m, member, m.Name, hit)
 		})
@@ -325,15 +326,13 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 	partyCaught := false
 
 	if wd != nil && wd.AoeRadiusTiles > 0 {
-		// AoE: every bound-ally summon within the radius, and (as the extra action)
-		// the party if it stands in the same radius.
-		r := wd.AoeRadiusTiles * ts
-		for _, o := range cs.game.world.Monsters {
-			if o != nil && o.Bound && o.IsAlive() && Distance(m.X, m.Y, o.X, o.Y) <= r {
-				cs.strikeMonsterPacketFor(m, o, packet, wd, false, hit.IgnoresArmor, hit.IgnoresDodge, false)
-			}
-		}
-		partyCaught = Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) <= r
+		// AoE: every bound-ally summon the blast reaches, and (as the extra
+		// action) the party if it stands in the same blast.
+		blast := cs.pointBlast(m.X, m.Y, wd.AoeRadiusTiles)
+		cs.forEachAreaVictim(blast, func(o *monster.Monster3D) bool { return o.Bound }, func(o *monster.Monster3D) {
+			cs.strikeMonsterPacketFor(m, o, packet, wd, false, hit.IgnoresArmor, hit.IgnoresDodge, false)
+		})
+		partyCaught = cs.reachesParty(blast)
 	} else {
 		// Arc: the weapon's cone catches summons AND, if it reaches the party
 		// point, the party too - resolved by the shared applyMeleeArc.
@@ -577,7 +576,7 @@ func (cs *CombatSystem) recordChampionVictory(m *monster.Monster3D) {
 		return
 	}
 	cs.game.awardArenaPoints(tier.ArenaPoints)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s falls! The crowd roars: +%d arena points.", m.Name, tier.ArenaPoints))
+	cs.game.logCombat(logToneReward, "The crowd roars: %s.", logColored(fmt.Sprintf("+%d arena points", tier.ArenaPoints), combatMessageGold))
 
 	members := make([]arena.Member, 0, len(cs.game.party.Members))
 	for _, mem := range cs.game.party.Members {
@@ -791,7 +790,7 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	m.WasAttacked = true // engage immediately: the duel starts now
 	m.BeginPlayerEngagement()
 	g.registerSpawnedMonster(m)
-	g.AddCombatMessage(fmt.Sprintf("%s (%s) steps onto the sand. The portcullises slam down!", m.Name, choice.Tier))
+	g.logCombat(logToneBad, "%s (%s) steps onto the sand. The portcullises slam down!", logMonsterName(m), choice.Tier)
 }
 
 // championSpellPool resolves a champion's castable pool: every non-utility
@@ -910,7 +909,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 	if err != nil {
 		return
 	}
-	cs.game.addActorCombatMessage(m, target.foe, "%s casts %s!", m.Name, def.Name)
+	cs.game.addActorCombatMessage(m, target.foe, "%s casts %s!", logMonsterName(m), logSchoolWord(def.School, def.Name))
 	if def.IncomingDamageReduction > 0 || def.StunRadiusTiles > 0 {
 		// Projectile casts play at projectile creation. Direct champion spells
 		// have no projectile, so their school cue belongs at the cast itself.
@@ -928,7 +927,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			turns = 1
 		}
 		m.ApplySoak(scaledIncomingDamageReduction(def, ch), frames, turns)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's skin hardens to stone!", m.Name))
+		cs.game.logCombat(logToneBad, "%s's skin hardens to %s!", logMonsterName(m), logKeyword("defense", "stone"))
 
 	case def.StunRadiusTiles > 0:
 		if target.foe == nil && !m.IsPartyControlled() {
@@ -952,7 +951,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			return
 		}
 		if Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) > radius {
-			cs.game.AddCombatMessage("The shockwave dissipates short of the party.")
+			cs.game.logCombat(logToneNone, "The shockwave dissipates short of the party.")
 			return
 		}
 		stunned := 0
@@ -962,15 +961,21 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			}
 		})
 		if stunned == 0 {
-			cs.game.AddCombatMessage("The party resists the shockwave's stun!")
+			cs.game.logCombat(logToneGood, "The party resists the shockwave's %s!", logKeyword("control", "stun"))
 			return
 		}
-		cs.game.AddColoredCombatMessage(fmt.Sprintf("The shockwave stuns %d hero(es)!", stunned), combatMessageYellow)
+		cs.game.logCombat(logToneBad, "The shockwave %s %d hero(es)!", logKeyword("control", "stuns"), stunned)
 
 	default:
 		_, _, total := cs.CalculateSpellDamage(spellID, ch)
 		parts := cs.spellDamageParts(spellID, ch, total)
-		parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
+		if chance := cs.game.bossMechanicValue(m, "critical_chance", -1); chance >= 0 {
+			if rand.Intn(100) < chance {
+				parts = spellCriticalParts(parts)
+			}
+		} else {
+			parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
+		}
 		// Champion spells use the spell's own damage packet. Weapon mastery true
 		// damage and dodge-pierce belong only to weapon strikes.
 		x, y, owner := cs.monsterAttackAim(m, target)

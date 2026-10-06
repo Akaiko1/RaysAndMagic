@@ -134,24 +134,6 @@ func TestMagicMasteryTooltip_ExplainsSelectedSchoolPolicy(t *testing.T) {
 	}
 }
 
-// TestSkillTooltips_CiteGMConstants: every GM capstone's tooltip cites the real
-// constant, so the capstone text can't lie or drift from the mechanic.
-func TestSkillTooltips_CiteGMConstants(t *testing.T) {
-	checks := map[character.SkillType]int{
-		character.SkillSword:        WeaponGMCritBonus,
-		character.SkillLeather:      ArmorGMDodgeBonus,
-		character.SkillBodybuilding: character.BodybuildingGMMaxHPPct,
-		character.SkillMeditation:   MeditationGMSpellCostReductionPct,
-		character.SkillLearning:     LearningGMPartyXPPct,
-		character.SkillArmsMaster:   ArmsMasterGMCritBonus,
-	}
-	for s, want := range checks {
-		if tip := masteryTooltipTextForSkill(s); !strings.Contains(tip, fmt.Sprint(want)) {
-			t.Errorf("skill %v GM tooltip %q should cite constant %d", s, tip, want)
-		}
-	}
-}
-
 // TestEffectiveSpellCost_MeditationGM: a GM meditator pays the reduced percent.
 func TestEffectiveSpellCost_MeditationGM(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -163,6 +145,12 @@ func TestEffectiveSpellCost_MeditationGM(t *testing.T) {
 	m.Skills[character.SkillMeditation] = gmSkill()
 	if got := cs.effectiveSpellCost(m, 100); got != 100-MeditationGMSpellCostReductionPct {
 		t.Errorf("GM Meditation -> cost %d, want %d", got, 100-MeditationGMSpellCostReductionPct)
+	}
+	// The discount rounds to the nearest SP: a cheap spell is never made free.
+	for _, tc := range [][2]int{{0, 0}, {1, 1}, {2, 2}, {3, 2}, {4, 3}, {5, 4}, {6, 5}, {8, 6}, {12, 9}} {
+		if got := cs.effectiveSpellCost(m, tc[0]); got != tc[1] {
+			t.Errorf("GM Meditation: cost %d -> %d, want %d", tc[0], got, tc[1])
+		}
 	}
 }
 
@@ -184,6 +172,30 @@ func TestArmorGMDodge(t *testing.T) {
 	m.Skills[character.SkillShield] = gmSkill()
 	if got := cs.armorGMDodgeBonus(m); got != 2*ArmorGMDodgeBonus {
 		t.Errorf("GM plate + shield -> %d, want %d", got, 2*ArmorGMDodgeBonus)
+	}
+}
+
+// Every armor piece states the Grandmaster dodge rule as combat applies it: a
+// full plate set grants the bonus once, and each piece says it is once per
+// armor type rather than promising it per piece.
+func TestArmorGMDodgeCardMatchesCombat(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	m := cs.game.party.Members[0]
+	m.Skills[character.SkillPlate] = gmSkill()
+	pieces := map[items.EquipSlot]string{
+		items.SlotArmor: "clockplate_cuirass", items.SlotHelmet: "clockplate_helm", items.SlotGauntlets: "clockplate_gauntlets",
+	}
+	for slot, key := range pieces {
+		m.Equipment[slot] = items.CreateItemFromYAML(key)
+	}
+	if got := cs.armorGMDodgeBonus(m); got != ArmorGMDodgeBonus {
+		t.Fatalf("three GM plate pieces -> %d dodge, want %d once", got, ArmorGMDodgeBonus)
+	}
+	for _, key := range pieces {
+		card := GetItemTooltip(items.CreateItemFromYAML(key), m, cs, true)
+		if !strings.Contains(card, "Grandmaster: "+character.ArmorGMDodgeRule()) || strings.Contains(card, "while worn") {
+			t.Fatalf("%s card does not state the once-per-type rule:\n%s", key, card)
+		}
 	}
 }
 

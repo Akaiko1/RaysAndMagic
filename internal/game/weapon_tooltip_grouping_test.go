@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
@@ -38,12 +39,14 @@ func TestWeaponTooltipMechanicGroups(t *testing.T) {
 					} else if context == "offered" {
 						ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
 					}
-					card := GetItemTooltip(it, bearer, cs, full)
+					typed := GetItemTooltipRows(it, bearer, cs, full)
+					card := typed.String()
 					lines := strings.Split(card, "\n")
 					group := ""
-					for _, line := range lines {
-						if tooltipSectionHeading(line) {
-							group = line
+					for _, row := range typed {
+						line := row.Text
+						if row.Kind == character.CardRowSection {
+							group = row.Section
 						}
 						for _, expected := range []struct{ prefix, section string }{
 							{"Total Damage:", "DAMAGE"}, {"Normal Damage:", "DAMAGE"},
@@ -74,7 +77,7 @@ func TestWeaponTooltipMechanicGroups(t *testing.T) {
 						}
 					}
 					ui := &UISystem{game: cs.game}
-					ui.queueItemTooltip(lines, it, bearer, 0, 0)
+					ui.queueItemTooltip(GetItemTooltipRows(it, bearer, cs, full), it, bearer, 0, 0)
 					for _, size := range [][2]int{{800, 600}, {1024, 768}} {
 						for _, columns := range []int{1, 2} {
 							if columns == 2 && context != "offered" {
@@ -96,7 +99,7 @@ func TestWeaponTooltipMechanicGroups(t *testing.T) {
 									}
 								}
 								w, h := ui.mainTooltipSize(cap, size[1])
-								layout := layoutTooltip(lines, icon, cap, size[1])
+								layout := layoutCardTooltip(ui.mainTooltipRows(), icon, cap, size[1])
 								if w != layout.w || h != layout.h || w > cap || h > size[1]-2*tooltipScreenMargin {
 									t.Fatalf("%v/columns%d/icon%v: card %dx%d exceeds viewport or differs from renderer", size, columns, icon, w, h)
 								}

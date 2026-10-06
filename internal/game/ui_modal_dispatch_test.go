@@ -54,7 +54,6 @@ func newDisplayedModalHarness(t *testing.T, width, height int) *displayedModalHa
 func (h *displayedModalHarness) clicks(right bool, x, y, count int) {
 	h.t.Helper()
 	h.ui.Draw(h.screen)
-	h.g.prevWorldClickAllowed = h.g.worldClickAllowed()
 	now := time.Now().UnixMilli()
 	for i := 0; i < count; i++ {
 		c := queuedClick{x: x, y: y, at: now + int64(i)}
@@ -75,7 +74,6 @@ func (h *displayedModalHarness) clicks(right bool, x, y, count int) {
 func (h *displayedModalHarness) pointerStep() {
 	h.t.Helper()
 	h.ui.Draw(h.screen)
-	h.g.prevWorldClickAllowed = h.g.worldClickAllowed()
 	if err := h.loop.Update(); err != nil {
 		h.t.Fatal(err)
 	}
@@ -161,7 +159,7 @@ func TestDisplayedHeldStatRepeatsAndStops(t *testing.T) {
 	ch := h.g.party.Members[0]
 	ch.FreeStatPoints = 5
 	fp := installFakePointer(t)
-	fp.moveTo((1024-340)/2+194, (768-320)/2+90)
+	fp.moveTo(firstStatPlusPoint(h.g))
 	fp.press()
 	h.pointerStep()
 	if ch.FreeStatPoints != 4 {
@@ -217,9 +215,10 @@ func TestDisplayedTavernWidgetsKeepTheirOwner(t *testing.T) {
 				reserve := *g.party.Members[1]
 				g.party.Reserve = []*character.MMCharacter{&reserve}
 				active := g.party.Members[0]
-				roster := layoutRect{area.x + 16, area.y + 18, area.w - 32, area.h - 30}
-				h.clicks(false, roster.x+3, roster.y+40, 1)
-				h.clicks(false, roster.x+(roster.w-16)/2+19, roster.y+40, 1)
+				roster := tavernRosterRect(area)
+				activeRow, reserveRow := rosterRowRect(roster, false, 0), rosterRowRect(roster, true, 0)
+				h.clicks(false, activeRow.x+3, activeRow.y+3, 1)
+				h.clicks(false, reserveRow.x+3, reserveRow.y+3, 1)
 				if g.party.Members[0] != &reserve || g.party.Reserve[0] != active {
 					t.Fatal("displayed tavern roster did not swap selected heroes")
 				}
@@ -247,14 +246,13 @@ func TestDisplayedSaveEventsRespectLeftRightOrder(t *testing.T) {
 		t.Run(fmt.Sprintf("right_first=%v", rightFirst), func(t *testing.T) {
 			h := newDisplayedModalHarness(t, 1024, 768)
 			g := h.g
-			if err := g.SaveGameToFile(saveRowPath(1)); err != nil {
+			if err := g.SaveGameToFile(saveRowPath(firstManualRow)); err != nil {
 				t.Fatal(err)
 			}
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
-			w, height := menuPanelSize(g.mainMenuMode)
-			box, _, _ := menuRowRect((1024-w)/2, (768-height)/2, w, saveMenuListTopY, saveMenuRowPitch, 1)
+			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
+			box, _, _ := menuRowRect((1024-w)/2, (768-height)/2, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
 			h.ui.Draw(h.screen)
-			g.prevWorldClickAllowed = g.worldClickAllowed()
 			now := time.Now().UnixMilli()
 			leftAt, rightAt := now, now+1
 			if rightFirst {
@@ -282,8 +280,8 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 	}{
 		{"combat log close", func(h *displayedModalHarness) {
 			h.g.combatLogOpen = true
-			x, y, w, _ := combatLogPanelLayout(h.g)
-			h.clicks(false, x+w-25, y+13, 1)
+			closeBtn := makeCombatLogLayout(h.g).close
+			h.clicks(false, closeBtn.x+closeBtn.w/2, closeBtn.y+closeBtn.h/2, 1)
 			if h.g.combatLogOpen {
 				h.t.Fatal("displayed combat log did not close")
 			}
@@ -291,19 +289,19 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 		{"combat log arrows", func(h *displayedModalHarness) {
 			h.g.combatLogOpen = true
 			h.g.combatLogHistory = make([]combatLogEntry, 30)
-			x, y, w, height := combatLogPanelLayout(h.g)
-			h.clicks(false, x+w-30, y+65, 1)
+			l := makeCombatLogLayout(h.g)
+			h.clicks(false, l.up.x+l.up.w/2, l.up.y+l.up.h/2, 1)
 			if h.g.combatLogScroll != 3 {
 				h.t.Fatal("up arrow was lost or replayed")
 			}
-			h.clicks(false, x+w-30, y+54+height-88-20, 1)
+			h.clicks(false, l.down.x+l.down.w/2, l.down.y+l.down.h/2, 1)
 			if h.g.combatLogScroll != 0 {
 				h.t.Fatal("down arrow was lost or replayed")
 			}
 		}},
 		{"ESC root", func(h *displayedModalHarness) {
 			h.g.mainMenuOpen = true
-			w, height := menuPanelSize(MenuMain)
+			w, height := menuPanelSize(MenuMain, 1024, 768)
 			x, y := (h.g.config.GetScreenWidth()-w)/2, (h.g.config.GetScreenHeight()-height)/2
 			box, _, _ := menuRowRect(x, y, w, mainMenuListTopY, mainMenuRowPitch, 0)
 			h.clicks(false, box.x1+4, box.y1+4, 1)
@@ -315,11 +313,11 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			g := h.g
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
 			g.party.Gold = 321
-			w, height := menuPanelSize(g.mainMenuMode)
+			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
 			x, y := (g.config.GetScreenWidth()-w)/2, (g.config.GetScreenHeight()-height)/2
-			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, 1)
+			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
 			h.clicks(false, box.x1+4, box.y1+4, 1)
-			if !GetSaveRowSummary(1).Exists || g.mainMenuMode != MenuMain {
+			if !GetSaveRowSummary(firstManualRow).Exists || g.mainMenuMode != MenuMain {
 				h.t.Fatal("Save row did not write the chosen slot")
 			}
 			g.party.Gold = 999
@@ -331,11 +329,11 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 		}},
 		{"save pager and rename", func(h *displayedModalHarness) {
 			g := h.g
-			if err := g.SaveGameToFile(saveRowPath(1)); err != nil {
+			if err := g.SaveGameToFile(saveRowPath(firstManualRow)); err != nil {
 				h.t.Fatal(err)
 			}
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
-			w, height := menuPanelSize(g.mainMenuMode)
+			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
 			x, y := (g.config.GetScreenWidth()-w)/2, (g.config.GetScreenHeight()-height)/2
 			prev, next := savePagerButtonRects(x, y, w, height)
 			h.clicks(false, next.x1+2, next.y1+2, 1)
@@ -346,7 +344,7 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			if g.savePage != 0 {
 				h.t.Fatal("Prev page click was lost")
 			}
-			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, 1)
+			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
 			g.mainMenuMode = MenuLoadSelect
 			h.clicks(true, box.x1+4, box.y1+4, 1)
 			if g.saveRenameOpen {
@@ -354,7 +352,7 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			}
 			g.mainMenuMode = MenuSaveSelect
 			h.clicks(true, box.x1+4, box.y1+4, 1)
-			if !g.saveRenameOpen || g.saveRenameSlot != 1 {
+			if !g.saveRenameOpen || g.saveRenameSlot != firstManualRow {
 				h.t.Fatal("Save row rename click was lost")
 			}
 		}},
@@ -553,7 +551,7 @@ func TestDisplayedTrainerPagerOwnsItsPopup(t *testing.T) {
 				g.party.Members[0].MagicSchools[school] = &character.MagicSkill{Mastery: character.MasteryNovice}
 			}
 			dlg := npcDialogLayout(g)
-			px, py, _, height := skillTrainerPopupRect(dlg.x, dlg.y, dlg.w, dlg.h)
+			px, py, pw, height := skillTrainerPopupRect(dlg.x, dlg.y, dlg.w, dlg.h)
 			if len(trainerOptions(g.party.Members[0], g.dialogNPC)) <= skillTrainerPageSize(height) {
 				t.Fatal("fixture needs two trainer pages")
 			}
@@ -561,7 +559,9 @@ func TestDisplayedTrainerPagerOwnsItsPopup(t *testing.T) {
 				g.levelUpChoiceOpen = true
 				g.levelUpChoiceQueue = []levelUpChoiceRequest{{charIndex: 0, options: []levelUpChoiceOption{{label: "Choose"}}}}
 			}
-			h.clicks(false, px+12+396-15, py+height-40, 1)
+			pager := makeSkillTrainerPopupLayout(px, py, pw, height).pager
+			_, next := pagerButtonRects(pager.x, pager.y, pager.w)
+			h.clicks(false, next.x+next.w/2, next.y+next.h/2, 1)
 			want := 1
 			if covered {
 				want = 0

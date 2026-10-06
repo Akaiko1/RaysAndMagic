@@ -23,6 +23,92 @@ shared_floor_transitions:
 # Cliff names describe the authored drop side; they do not rotate the artwork.
 # Rules, compatibility, shoreline behavior: docs/floor-transitions.md
 biomes:
+  solstice_fire:
+    elemental_attack_school: "fire"
+    out_of_bounds_tile: "solstice_fire_wall"
+    floor_texture_groups:
+      chasm: ["solstice_fire_chasm"]
+      default: ["solstice_fire_floor_0"]
+      service: ["solstice_fire_floor_1"]
+      thermal: ["solstice_fire_floor_1"]
+      circulation: ["solstice_water_floor_1"]
+      pressure: ["solstice_earth_floor_1"]
+    floor_transitions:
+      chasm: "chasm"
+      default: "hard"
+      service: "hard"
+      thermal: "hard"
+      circulation: "hard"
+      pressure: "hard"
+  solstice_water:
+    elemental_attack_school: "water"
+    out_of_bounds_tile: "solstice_water_wall"
+    floor_texture_groups:
+      chasm: ["solstice_water_chasm"]
+      default: ["solstice_water_floor_0"]
+      service: ["solstice_water_floor_1"]
+      thermal: ["solstice_fire_floor_1"]
+      circulation: ["solstice_water_floor_1"]
+      pressure: ["solstice_earth_floor_1"]
+    floor_transitions:
+      chasm: "chasm"
+      default: "hard"
+      service: "hard"
+      thermal: "hard"
+      circulation: "hard"
+      pressure: "hard"
+  solstice_earth:
+    elemental_attack_school: "earth"
+    out_of_bounds_tile: "solstice_earth_wall"
+    floor_texture_groups:
+      chasm: ["solstice_earth_chasm"]
+      default: ["solstice_earth_floor_0"]
+      service: ["solstice_earth_floor_1"]
+      thermal: ["solstice_fire_floor_1"]
+      circulation: ["solstice_water_floor_1"]
+      pressure: ["solstice_earth_floor_1"]
+    floor_transitions:
+      chasm: "chasm"
+      default: "hard"
+      service: "hard"
+      thermal: "hard"
+      circulation: "hard"
+      pressure: "hard"
+  solstice_air:
+    elemental_attack_school: "air"
+    out_of_bounds_tile: "solstice_air_wall"
+    floor_texture_groups:
+      chasm: ["solstice_air_chasm"]
+      default: ["solstice_air_floor_0"]
+      service: ["solstice_air_floor_1"]
+      thermal: ["solstice_fire_floor_1"]
+      circulation: ["solstice_water_floor_1"]
+      pressure: ["solstice_earth_floor_1"]
+    floor_transitions:
+      chasm: "chasm"
+      default: "hard"
+      service: "hard"
+      thermal: "hard"
+      circulation: "hard"
+      pressure: "hard"
+  solstice_vestibule:
+    elemental_attack_school: "earth"
+    out_of_bounds_tile: "wall"
+    floor_texture_groups:
+      chasm: ["solstice_vestibule_chasm"]
+      default: ["solstice_earth_floor_0"]
+      service: ["solstice_earth_floor_1"]
+      thermal: ["solstice_fire_floor_1"]
+      circulation: ["solstice_water_floor_1"]
+      pressure: ["solstice_earth_floor_1"]
+    floor_transitions:
+      chasm: "chasm"
+      default: "hard"
+      service: "hard"
+      thermal: "hard"
+      circulation: "hard"
+      pressure: "hard"
+
   forest:
     floor_transitions:
       default: natural
@@ -405,6 +491,131 @@ biomes:
         - "deep_jungle_floor_1"
 
 maps:
+  solstice_fire:
+    name: "Thermal Chamber"
+    file: "solstice_fire.map"
+    biome: "solstice_fire"
+    sky_texture: "solstice_fire_panorama"
+    sky_color: [25, 28, 32]
+    default_floor_color: [210, 105, 45]
+    ambient_light: 0.7
+    wall_torches: true
+    adventure:
+      jump_links: [[11, 15, 13, 15], [20, 11, 20, 13], [6, 8, 6, 10]]
+      opening_owned: true
+      experience_cap: 7000
+      reset_days: 3
+      element: "fire"
+      effects: [{"id": "kiln_lava", "kind": "occupation", "name": "Kiln Lava", "rect": [16, 18, 22, 18], "school": "fire", "damage": 12}, {"id": "overheat_west", "kind": "occupation", "name": "Overheat West", "rect": [26, 3, 26, 7], "school": "fire", "damage": 12, "boss_below_percent": 50, "warning_seconds": 1.2, "warning_rounds": 1}, {"id": "overheat_east", "kind": "occupation", "name": "Overheat East", "rect": [28, 3, 28, 7], "school": "fire", "damage": 12, "boss_below_percent": 50, "warning_seconds": 1.2, "warning_rounds": 1}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [26, 3, 28, 3], "school": "fire", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2, "sustain_damage": 12}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [26, 5, 28, 5], "school": "fire", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2, "sustain_damage": 12}, {"id": "archive_heat", "kind": "occupation", "name": "Archive Heat Vent", "rect": [6, 8, 6, 8], "school": "fire", "damage": 12}]
+      controls: [{"id": "coolant_west", "disable": ["overheat_west", "kiln_lava", "archive_heat"], "message": "The archive vent and kiln channel cool. The western arena strip will stay safe.", "tiles": [{"x": 6, "y": 8, "tile": "empty"}, {"x": 16, "y": 18, "tile": "empty"}, {"x": 17, "y": 18, "tile": "empty"}, {"x": 18, "y": 18, "tile": "empty"}, {"x": 19, "y": 18, "tile": "empty"}, {"x": 20, "y": 18, "tile": "empty"}, {"x": 21, "y": 18, "tile": "empty"}, {"x": 22, "y": 18, "tile": "empty"}]}, {"id": "coolant_east", "disable": ["overheat_east", "regulator_lane_1"], "message": "The eastern strip cools. Aureth's lower firing row loses pressure."}]
+      boss:
+        monster: "solstice_aureth"
+        phases: [{"below_percent": 25, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]], "every_actions": 1}]
+        arena: [24, 1, 30, 9]
+        lanes: ["regulator_lane_0", "regulator_lane_1"]
+        every_actions: 2
+        armor_floor: 20
+    clear_encounters: [{"monsters": [{"type": "solstice_aureth", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_fire_boss_reward", "map": "solstice_fire", "tile_x": 27, "tile_y": 6, "loot_table": "solstice_fire_signature", "items": ["solstice_thermal_core"], "sprite": "chest"}}}]
+  solstice_water:
+    name: "Flow Chamber"
+    file: "solstice_water.map"
+    biome: "solstice_water"
+    sky_texture: "solstice_water_panorama"
+    sky_color: [25, 28, 32]
+    default_floor_color: [65, 155, 170]
+    ambient_light: 0.7
+    wall_torches: true
+    adventure:
+      jump_links: [[9, 4, 11, 4], [19, 12, 21, 12], [5, 9, 5, 11]]
+      opening_owned: true
+      experience_cap: 7000
+      reset_days: 3
+      element: "water"
+      effects: [{"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [14, 19, 16, 19], "school": "water", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [14, 21, 16, 21], "school": "water", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "cistern_current", "kind": "transfer", "name": "Entrance Return Current", "rect": [28, 17, 28, 17], "destination": [4, 5], "requires_control": "return_sluice", "school": "water"}]
+      controls: [{"id": "intake_sluice", "disable": [], "stop_healing": true, "message": "The intake closes. Neressa's healing supply runs dry."}, {"id": "return_sluice", "disable": [], "message": "The return current now leads to the chamber entrance. Step onto the marked water beyond this console."}]
+      boss:
+        monster: "solstice_neressa"
+        low_health_range: 7
+        arena: [11, 18, 20, 24]
+        lanes: ["regulator_lane_0", "regulator_lane_1"]
+        every_actions: 2
+        armor_floor: 20
+        heal_percent: 1
+        heal_cap_percent: 10
+    clear_encounters: [{"monsters": [{"type": "solstice_neressa", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_water_boss_reward", "map": "solstice_water", "tile_x": 15, "tile_y": 22, "loot_table": "solstice_water_signature", "items": ["solstice_flow_core"], "sprite": "chest"}}}]
+  solstice_earth:
+    name: "Anchor Chamber"
+    file: "solstice_earth.map"
+    biome: "solstice_earth"
+    sky_texture: "solstice_earth_panorama"
+    sky_color: [25, 28, 32]
+    default_floor_color: [140, 155, 80]
+    ambient_light: 0.7
+    wall_torches: true
+    adventure:
+      jump_links: [[11, 21, 13, 21], [20, 11, 20, 13], [6, 8, 6, 10]]
+      opening_owned: true
+      experience_cap: 7000
+      reset_days: 3
+      element: "earth"
+      effects: [{"id": "plate_row_0", "kind": "trap", "name": "Plate Row 0", "rect": [3, 15, 10, 15], "school": "physical", "secondary_school": "earth", "damage": 35, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_1", "kind": "trap", "name": "Plate Row 1", "rect": [16, 19, 23, 19], "school": "physical", "secondary_school": "earth", "damage": 35, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_2", "kind": "trap", "name": "Plate Row 2", "rect": [27, 4, 27, 4], "school": "physical", "secondary_school": "earth", "damage": 35, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "plate_row_3", "kind": "trap", "name": "Plate Row 3", "rect": [27, 7, 27, 7], "school": "physical", "secondary_school": "earth", "damage": 35, "rearm_seconds": 6, "rearm_rounds": 2}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [27, 3, 29, 3], "school": "earth", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [27, 5, 29, 5], "school": "earth", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "ground_shock", "kind": "lane", "name": "Ground Shock", "rect": [26, 4, 29, 6], "school": "earth", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 0.5, "duration_rounds": 1}]
+      controls: [{"id": "brace_one", "disable": [], "armor_reduction": 18, "message": "The load brace releases. Talura's armor loses eighteen points, down to its minimum."}, {"id": "brace_two", "disable": ["plate_row_2", "regulator_lane_1"], "message": "The north brace locks. Its pressure plate and the lower firing row are safe."}, {"id": "brace_three", "disable": ["plate_row_3", "ground_shock"], "message": "The south brace locks. Its plate is safe, and Talura's final ground shock cannot fire."}]
+      boss:
+        monster: "solstice_talura"
+        phases: [{"below_percent": 100, "patterns": [["regulator_lane_0"]]}, {"below_percent": 50, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]]}, {"below_percent": 25, "patterns": [["ground_shock"]], "every_actions": 1}]
+        arena: [24, 1, 30, 9]
+        lanes: ["regulator_lane_0", "regulator_lane_1"]
+        every_actions: 2
+        armor_floor: 20
+    clear_encounters: [{"monsters": [{"type": "solstice_talura", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_earth_boss_reward", "map": "solstice_earth", "tile_x": 28, "tile_y": 6, "loot_table": "solstice_earth_signature", "items": ["solstice_anchor_core"], "sprite": "chest"}}}]
+  solstice_air:
+    name: "Transfer Chamber"
+    file: "solstice_air.map"
+    biome: "solstice_air"
+    sky_texture: "solstice_air_panorama"
+    sky_color: [25, 28, 32]
+    default_floor_color: [155, 195, 215]
+    ambient_light: 0.7
+    wall_torches: true
+    adventure:
+      jump_links: [[6, 17, 6, 19], [10, 15, 12, 15], [6, 9, 6, 11]]
+      opening_owned: true
+      experience_cap: 7000
+      reset_days: 3
+      element: "air"
+      effects: [{"id": "transfer_jet", "kind": "transfer", "name": "Transfer Jet", "rect": [17, 15, 17, 15], "destination": [23, 15], "requires_control": "gallery_vane", "school": "air"}, {"id": "regulator_lane_0", "kind": "lane", "name": "Regulator Lane 0", "rect": [22, 3, 28, 4], "school": "air", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "regulator_lane_1", "kind": "lane", "name": "Regulator Lane 1", "rect": [22, 5, 28, 6], "school": "air", "damage": 45, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 4, "duration_rounds": 2}, {"id": "narrow_lane_0", "kind": "lane", "name": "Narrow Lightning Lane 1", "rect": [24, 3, 24, 7], "school": "air", "damage": 22, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 1, "duration_rounds": 1}, {"id": "narrow_lane_1", "kind": "lane", "name": "Narrow Lightning Lane 2", "rect": [26, 3, 26, 7], "school": "air", "damage": 23, "warning_seconds": 1.2, "warning_rounds": 1, "duration_seconds": 1, "duration_rounds": 1}, {"id": "return_jet", "kind": "transfer", "name": "Return Jet", "rect": [22, 15, 22, 15], "destination": [16, 15], "requires_control": "hub_vane", "school": "air"}, {"id": "arena_jet_0", "kind": "transfer", "name": "West Escape Current", "rect": [23, 4, 23, 4], "destination": [27, 8], "requires_control": "hub_vane", "school": "air"}, {"id": "arena_jet_1", "kind": "transfer", "name": "East Escape Current", "rect": [27, 4, 27, 4], "destination": [23, 8], "requires_control": "hub_vane", "school": "air"}]
+      controls: [{"id": "gallery_vane", "disable": [], "message": "The gallery current opens a crossing to the far platform."}, {"id": "hub_vane", "disable": [], "message": "The return crossing and both arena escape currents are ready. Their green marks show the landings."}]
+      boss:
+        monster: "solstice_vaelith"
+        phases: [{"below_percent": 100, "patterns": [["regulator_lane_0"]]}, {"below_percent": 50, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]]}, {"below_percent": 25, "patterns": [["narrow_lane_0", "narrow_lane_1"]]}]
+        arena: [22, 1, 29, 10]
+        lanes: ["regulator_lane_0", "regulator_lane_1"]
+        every_actions: 2
+        armor_floor: 20
+    clear_encounters: [{"monsters": [{"type": "solstice_vaelith", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_air_boss_reward", "map": "solstice_air", "tile_x": 25, "tile_y": 6, "loot_table": "solstice_air_signature", "items": ["solstice_vector_core"], "sprite": "chest"}}}]
+  solstice_approach:
+    name: "Solstice Ruins - Approach"
+    file: "solstice_approach.map"
+    biome: "jungle"
+    sky_texture: "deep_jungle_panorama"
+    sky_color: [70, 120, 110]
+    default_floor_color: [60, 80, 45]
+    ambient_light: 1
+  solstice_vestibule:
+    name: "Solstice Ruins - Vestibule"
+    file: "solstice_vestibule.map"
+    biome: "solstice_vestibule"
+    sky_texture: "solstice_vestibule_panorama"
+    sky_color: [25, 28, 32]
+    default_floor_color: [100, 110, 90]
+    ambient_light: 0.8
+    adventure:
+      schedule:
+        requires_quest: "solstice_connection"
+        requires_spell: "jump"
+        alternative_technique: "fold_step"
+        days: [["solstice_fire", "solstice_water"], ["solstice_earth", "solstice_air"], ["solstice_water", "solstice_fire"], ["solstice_air", "solstice_earth"], ["solstice_fire", "solstice_air"], ["solstice_water", "solstice_earth"], ["solstice_earth", "solstice_water"]]
+
   forest:
     name: "Elvish Forest"
     file: "forest.map"

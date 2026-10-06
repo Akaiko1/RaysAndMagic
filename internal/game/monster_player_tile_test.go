@@ -1,37 +1,66 @@
 package game
 
 import (
+	"slices"
 	"testing"
+
+	"ugataima/internal/monster"
 )
 
+// ordinaryMeleeMonsterKeys lists every authored monster that pursues and
+// swings in melee: no ranged attack, no special disposition, boss, champion,
+// idol, passivity, flight or terrain override.
+func ordinaryMeleeMonsterKeys(t *testing.T) []string {
+	t.Helper()
+	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	slices.Sort(keys)
+	var out []string
+	for _, key := range keys {
+		def := monster.MonsterConfig.Monsters[key]
+		if def.DamageMax <= 0 || def.Speed <= 0 || def.Disposition != "" || def.Boss || def.Champion != "" ||
+			def.WarlordIdol || def.PassiveUntilHit || def.Flying || len(def.WalkableTileOverrides) > 0 {
+			continue
+		}
+		if monster.NewMonster3DFromConfig(0, 0, key, nil).HasRangedAttack() {
+			continue
+		}
+		out = append(out, key)
+	}
+	if len(out) == 0 {
+		t.Fatal("no ordinary melee monster authored")
+	}
+	return out
+}
+
 // A pursuing melee monster must hold one tile out. This asserts the guarantee
-// for every melee archetype:
-// during RT pursuit of a stationary party the monster (a) never occupies the
-// player's tile and (b) still closes to tile-adjacency and lands a hit - proving
-// the standoff distance is a real attack position, independent of attack_radius
-// or sprite size.
+// for every ordinary melee monster: during RT pursuit of a stationary party the
+// monster (a) never occupies the player's tile and (b) still closes to
+// tile-adjacency and lands a hit - proving the standoff distance is a real
+// attack position, independent of attack_radius or sprite size.
 func TestRealTime_MeleePursuerNeverEntersPlayerTileButStillHits(t *testing.T) {
 	const ptx, pty = 15, 15
-	// One per melee archetype (varied size/speed/attack_radius). All have a clear
-	// straight lane to the party so the only thing that can stop them short is the
-	// reach/standoff logic, not terrain.
-	for _, key := range []string{"wolf", "orc", "bear", "goblin", "troll", "treant", "skeleton", "minotaur"} {
+	// All have a clear straight lane to the party so the only thing that can stop
+	// them short is the reach/standoff logic, not terrain.
+	for _, key := range ordinaryMeleeMonsterKeys(t) {
 		t.Run(key, func(t *testing.T) {
-			game, _, ts := tbBehaviorGame(t, 40, 40)
+			game, gl, ts := tbBehaviorGame(t, 40, 40)
+			game.gameLoop = gl
 			game.turnBasedMode = false
 			cs := game.combat
 			placePlayerAtTile(game, ptx, pty, ts)
 
 			m := spawnMonsterAtTile(game, key, ptx, pty-4, ts) // 4 tiles north, open lane
-			if m.HasRangedAttack() {
-				t.Skipf("%s is not melee", key)
-			}
-			m.State = 2 // StatePursuing
+			m.State = monster.StatePursuing
 			m.AttackCDFrames = 0
 
 			hp0 := partyHPSum(game)
 			reachedAdjacent := false
-			for i := 0; i < 720; i++ { // 6s at 120 TPS - covers even the slowest (treant, speed 0.8)
+			for i := 0; i < 720; i++ { // 6s at 120 TPS - covers even a speed-0.8 walker
+				// The live loop advances warnings before movement. A telegraphed
+				// melee actor holds its position until that clock releases it.
+				game.tickMonsterTelegraphs(1/float64(game.config.GetTPS()), false)
+				game.tickEnvironment(1/float64(game.config.GetTPS()), false)
 				m.Update(game.collisionSystem, game.camera.X, game.camera.Y)
 				cs.HandleMonsterInteractions()
 

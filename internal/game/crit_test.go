@@ -52,7 +52,7 @@ func TestRollCriticalChance_BoundariesAndLuck(t *testing.T) {
 
 	t.Run("Crit chance clamps above 100", func(t *testing.T) {
 		chr := &character.MMCharacter{Luck: 20}       // +5 from luck
-		crit, total := cs.RollCriticalChance(95, chr) // 95 + 5 => 100
+		crit, total := cs.RollCriticalChance(99, chr) // 99 + 5 => 104, past the clamp
 		if total != 100 {
 			t.Fatalf("expected total crit clamped to 100, got %d", total)
 		}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"ugataima/internal/character"
 	"ugataima/internal/game"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -247,16 +248,18 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int, hovered b
 	}
 }
 
-type tooltipLineKind int
+type tooltipLineKind = character.CardRowKind
 
 const (
-	tooltipLineBody tooltipLineKind = iota
-	tooltipLineTitle
-	tooltipLineCategory
-	tooltipLineDescription
-	tooltipLineFlavor
-	tooltipLineSection
-	tooltipLineSpacer
+	tooltipLineBody        = character.CardRowBody
+	tooltipLineTitle       = character.CardRowTitle
+	tooltipLineCategory    = character.CardRowCategory
+	tooltipLineDescription = character.CardRowDescription
+	tooltipLineFlavor      = character.CardRowFlavor
+	tooltipLineSection     = character.CardRowSection
+	tooltipLineSpacer      = character.CardRowSpacer
+	tooltipLineResult      = character.CardRowResult
+	tooltipLineDetail      = character.CardRowDetail
 )
 
 type tooltipLine struct {
@@ -264,7 +267,9 @@ type tooltipLine struct {
 	kind tooltipLineKind
 }
 
-func isTooltipSection(text string) bool {
+// isInspectorHeading spots the headings of the editor's own map-inspector
+// boxes (MONSTER, TERRAIN, ...). Catalog cards already carry typed roles.
+func isInspectorHeading(text string) bool {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" || strings.Contains(trimmed, ":") {
 		return false
@@ -285,20 +290,9 @@ func isTooltipSection(text string) bool {
 func cardTooltipLines(c *contentCard) []tooltipLine {
 	if len(c.tooltipRows) > 0 {
 		var lines []tooltipLine
-		for i, text := range c.tooltipRows {
-			kind := tooltipLineBody
-			switch {
-			case i == 0:
-				kind = tooltipLineTitle
-			case i == 1:
-				kind = tooltipLineCategory
-			case text == "":
-				kind = tooltipLineSpacer
-			case isTooltipSection(text):
-				kind = tooltipLineSection
-			case strings.HasPrefix(text, "\""):
-				kind = tooltipLineFlavor
-			}
+		for _, source := range c.tooltipRows {
+			text := source.Text
+			kind := source.Kind
 			for _, row := range wrapTooltipLines(text, 80) {
 				lines = append(lines, tooltipLine{text: row, kind: kind})
 			}
@@ -390,8 +384,12 @@ func drawCardTooltip(screen *ebiten.Image, c *contentCard, mouseX, mouseY, areaX
 			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{205, 180, 115, 255})
 		case tooltipLineSection:
 			drawTooltipSectionLine(screen, line.text, boxX+7, y, boxW-14, h)
-		case tooltipLineBody:
-			drawTooltipBodyLine(screen, line.text, boxX+10, y)
+		case tooltipLineResult:
+			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{250, 240, 214, 255})
+		case tooltipLineDetail:
+			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{185, 192, 204, 255})
+		case tooltipLineBody, character.CardRowHint:
+			game.DrawShadedText(screen, line.text, boxX+10, y, color.RGBA{225, 225, 235, 255})
 		}
 		y += h
 	}

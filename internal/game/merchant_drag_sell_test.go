@@ -3,6 +3,9 @@ package game
 import (
 	"fmt"
 	"image"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -270,6 +273,79 @@ func TestSellInventoryUnitsPartialAndFull(t *testing.T) {
 	}
 }
 
+// Authored gold shelves must not turn Merchant into buy-and-resell profit.
+// The approximate 3:1 content guideline allows exceptions, so test the actual
+// transactions and margin rather than requiring a fixed price multiplier.
+func TestGoldShopPurchaseResaleMargin(t *testing.T) {
+	cfg := loadTestConfig(t)
+	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.party.Members = g.party.Members[:1]
+	buyer, err := character.CreateNPCFromConfig("desert_merchant", 96, 96)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 0, len(character.NPCConfigInstance.NPCs))
+	for key, def := range character.NPCConfigInstance.NPCs {
+		if len(def.Inventory) > 0 || def.StockWeaponsRarity != "" {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	checked := 0
+	for _, key := range keys {
+		npc, err := character.CreateNPCFromConfig(key, 96, 96)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, stock := range npc.MerchantStock {
+			if stock.EffectiveCurrency(npc.Currency) != "" || npc.FreeGoods {
+				continue
+			}
+			checked++
+			for tier := 0; tier <= 3; tier++ {
+				t.Run(fmt.Sprintf("%s/%s/tier%d", key, stock.Item.Name, tier), func(t *testing.T) {
+					g.party.Members[0].Skills[character.SkillMerchant] = &character.Skill{Mastery: character.SkillMastery(tier)}
+					g.party.Inventory = nil
+					g.party.Gold = 1000000
+					g.dialogNPC = npc
+					entry := *stock
+					if !g.buyMerchantUnits(&entry, 1) || len(g.party.Inventory) != 1 {
+						t.Fatal("authored stock purchase failed")
+					}
+					paid := 1000000 - g.party.Gold
+					value := stock.Item.Attributes["value"]
+					if want := stock.Cost - stock.Cost*tier*5/100; paid != want {
+						t.Fatalf("purchase charged %d, want authored cost after haggling %d", paid, want)
+					}
+					g.dialogNPC = buyer
+					before := g.party.Gold
+					sold := g.sellInventoryUnits(0, 1)
+					if value <= 0 {
+						if sold || g.party.Gold != before || len(g.party.Inventory) != 1 {
+							t.Fatal("worthless stock was consumed or sold")
+						}
+						return
+					}
+					received := g.party.Gold - before
+					if want := value + value*tier*5/100; !sold || received != want || len(g.party.Inventory) != 0 {
+						t.Fatalf("sale returned %d, want full authored value after haggling %d", received, want)
+					}
+					if received >= paid {
+						t.Fatalf("buy/resell has no margin: paid %d, received %d", paid, received)
+					}
+				})
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no gold-priced stock audited")
+	}
+	t.Logf("checked %d gold-priced stock entries at every Merchant tier", checked)
+}
+
 // merchantBuyGame stages a shop with a stocked shelf and the given till.
 func merchantBuyGame(t *testing.T, currency string, entry *character.MerchantStockItem) (*MMGame, *UISystem) {
 	t.Helper()
@@ -312,69 +388,62 @@ func potionStock(cost, quantity int) *character.MerchantStockItem {
 }
 
 // Dragging a shelf item onto the bag opens the buy picker at ONE unit - the
-// safe spending default - with the attainable maximum as the typing ceiling.
-func TestDragBuyDefaultsToOneUnit(t *testing.T) {
-	entry := potionStock(20, 7) // 7 on the shelf
-	g, ui := merchantBuyGame(t, "", entry)
-	g.party.Gold = 1000 // affords far more than the shelf holds
+// safe spending default - with the attainable maximum (shelf, purse or the
+// unlimited-shelf cap, in the shop's own till) as the typing ceiling.
+func TestDragBuyDefaultAndMaximum(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		currency    string
+		cost, shelf int // shelf -1: unlimited
+		purse, ask  int
+		wantMax     int
+		confirm     bool
+	}{
+		{name: "shelf caps a deep purse", cost: 20, shelf: 7, purse: 1000, ask: 999, wantMax: 7, confirm: true},
+		{name: "thin purse caps the shelf", cost: 20, shelf: 10, purse: 65, ask: 999, wantMax: 3, confirm: true},
+		{name: "unlimited shelf types up to the sane cap", cost: 2, shelf: -1, purse: 100000, ask: 100000, wantMax: maxUnlimitedShelfUnits},
+		{name: "arena points till", currency: character.CurrencyArenaPoints, cost: 5, shelf: -1, purse: 12, ask: 999, wantMax: 2, confirm: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := potionStock(tc.cost, tc.shelf)
+			g, ui := merchantBuyGame(t, tc.currency, entry)
+			till := func() *int {
+				if tc.currency == character.CurrencyArenaPoints {
+					return &g.party.ArenaPoints
+				}
+				return &g.party.Gold
+			}
+			other := &g.party.ArenaPoints
+			if till() == other {
+				other = &g.party.Gold
+			}
+			*till(), *other = tc.purse, 0
 
-	dragShelfItemToBag(g, ui, 0, true)
-	if !ui.stackSplitPicker.open || ui.stackSplitPicker.source != stackSplitPickerMerchantBuy {
-		t.Fatalf("picker = %+v, want an open merchant-buy picker", ui.stackSplitPicker)
-	}
-	if ui.stackSplitPicker.quantity != 1 {
-		t.Fatalf("prefill = %d, want the safe default 1", ui.stackSplitPicker.quantity)
-	}
-
-	// The shelf count is the ceiling: asking for more clamps to 7.
-	ui.stackSplitSetQuantity(999)
-	if ui.stackSplitPicker.quantity != 7 {
-		t.Fatalf("max = %d, want the shelf's 7", ui.stackSplitPicker.quantity)
-	}
-
-	ui.stackSplitConfirm()
-	if g.party.Gold != 1000-7*20 {
-		t.Fatalf("gold = %d, want 7 x 20 charged", g.party.Gold)
-	}
-	if entry.Quantity != 0 {
-		t.Fatalf("shelf = %d, want emptied", entry.Quantity)
-	}
-	if got := g.party.CountItemsByName("Health Potion"); got != 7 {
-		t.Fatalf("bag holds %d potions, want 7", got)
-	}
-}
-
-// A thin purse caps the MAXIMUM below the shelf count; the default stays 1.
-func TestDragBuyMaximumCappedByPurse(t *testing.T) {
-	g, ui := merchantBuyGame(t, "", potionStock(20, 10))
-	g.party.Gold = 65 // three at 20, with change
-
-	dragShelfItemToBag(g, ui, 0, true)
-	if ui.stackSplitPicker.quantity != 1 {
-		t.Fatalf("prefill = %d, want 1", ui.stackSplitPicker.quantity)
-	}
-	ui.stackSplitSetQuantity(999)
-	if ui.stackSplitPicker.quantity != 3 {
-		t.Fatalf("max = %d, want the affordable 3", ui.stackSplitPicker.quantity)
-	}
-	ui.stackSplitConfirm()
-	if g.party.Gold != 5 {
-		t.Fatalf("gold = %d, want 5 left", g.party.Gold)
-	}
-}
-
-// An unlimited shelf with a deep purse still types up to the SANE cap only.
-func TestDragBuyUnlimitedShelfCapsMaximum(t *testing.T) {
-	g, ui := merchantBuyGame(t, "", potionStock(2, -1))
-	g.party.Gold = 100000
-
-	dragShelfItemToBag(g, ui, 0, true)
-	if ui.stackSplitPicker.quantity != 1 {
-		t.Fatalf("prefill = %d, want 1", ui.stackSplitPicker.quantity)
-	}
-	ui.stackSplitSetQuantity(100000)
-	if ui.stackSplitPicker.quantity != maxUnlimitedShelfUnits {
-		t.Fatalf("max = %d, want the %d cap", ui.stackSplitPicker.quantity, maxUnlimitedShelfUnits)
+			dragShelfItemToBag(g, ui, 0, true)
+			if !ui.stackSplitPicker.open || ui.stackSplitPicker.source != stackSplitPickerMerchantBuy {
+				t.Fatalf("picker = %+v, want an open merchant-buy picker", ui.stackSplitPicker)
+			}
+			if ui.stackSplitPicker.quantity != 1 {
+				t.Fatalf("prefill = %d, want the safe default 1", ui.stackSplitPicker.quantity)
+			}
+			ui.stackSplitSetQuantity(tc.ask)
+			if ui.stackSplitPicker.quantity != tc.wantMax {
+				t.Fatalf("max = %d, want %d", ui.stackSplitPicker.quantity, tc.wantMax)
+			}
+			if !tc.confirm {
+				return
+			}
+			ui.stackSplitConfirm()
+			if *till() != tc.purse-tc.wantMax*tc.cost || *other != 0 {
+				t.Fatalf("till = %d (other %d), want %d x %d charged to the shop's currency only", *till(), *other, tc.wantMax, tc.cost)
+			}
+			if tc.shelf >= 0 && entry.Quantity != tc.shelf-tc.wantMax {
+				t.Fatalf("shelf = %d, want %d", entry.Quantity, tc.shelf-tc.wantMax)
+			}
+			if got := g.party.CountItemsByName("Health Potion"); got != tc.wantMax {
+				t.Fatalf("bag holds %d potions, want %d", got, tc.wantMax)
+			}
+		})
 	}
 }
 
@@ -392,34 +461,16 @@ func TestBuyPickerHalfButtonHalvesTheMaximum(t *testing.T) {
 	if !ok {
 		t.Fatal("picker lost its stock entry")
 	}
-	halfQ := item.Count() / 2
-	if stackSplitIsMerchantTrade(ui.stackSplitPicker.source) {
-		halfQ = ui.stackSplitMaxQuantity(item) / 2
+	want := ui.stackSplitMaxQuantity(item) / 2
+	if want <= 1 {
+		t.Fatalf("fixture: max %d leaves nothing to halve", ui.stackSplitMaxQuantity(item))
 	}
-	ui.stackSplitSetQuantity(halfQ)
-	if ui.stackSplitPicker.quantity != 4 {
-		t.Fatalf("half = %d, want 4 (half of the max 8)", ui.stackSplitPicker.quantity)
-	}
-}
-
-// An arena-points shop trades in its own currency, and its shelf can still be
-// dragged - the till only restricts SELLING.
-func TestDragBuyUsesArenaPointsTill(t *testing.T) {
-	g, ui := merchantBuyGame(t, character.CurrencyArenaPoints, potionStock(5, -1))
-	g.party.ArenaPoints = 12
-	g.party.Gold = 0
-
-	dragShelfItemToBag(g, ui, 0, true)
-	if ui.stackSplitPicker.quantity != 1 {
-		t.Fatalf("prefill = %d, want 1", ui.stackSplitPicker.quantity)
-	}
-	ui.stackSplitSetQuantity(999) // the points till affords 2 at 5
-	if ui.stackSplitPicker.quantity != 2 {
-		t.Fatalf("max = %d, want 2 (12 points at 5)", ui.stackSplitPicker.quantity)
-	}
-	ui.stackSplitConfirm()
-	if g.party.ArenaPoints != 2 || g.party.Gold != 0 {
-		t.Fatalf("arena purchase charged wrong: points=%d gold=%d", g.party.ArenaPoints, g.party.Gold)
+	screen := ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight())
+	half := stackSplitPickerLayout(stackSplitPickerRect(g.config.GetScreenWidth(), g.config.GetScreenHeight())).half
+	g.mouseLeftClicks = []queuedClick{{x: (half.Min.X + half.Max.X) / 2, y: (half.Min.Y + half.Max.Y) / 2, at: 1000}}
+	ui.drawStackSplitPicker(screen)
+	if ui.stackSplitPicker.quantity != want {
+		t.Fatalf("half = %d, want %d (half of the max %d)", ui.stackSplitPicker.quantity, want, ui.stackSplitMaxQuantity(item))
 	}
 }
 
@@ -452,13 +503,27 @@ func TestNonGoldTraderNeverBuysFromTheParty(t *testing.T) {
 	_ = ui
 }
 
-// Shipped content must never author a non-coin shop that buys.
-func TestShippedTradersSellOnlyForGold(t *testing.T) {
-	crateTestGame(t) // loads npcs.yaml (which now fails the load on a slip)
-	for key, npc := range character.NPCConfigInstance.NPCs {
-		if npc.SellAvailable && npc.Currency != "" {
-			t.Errorf("NPC %q buys goods but trades in %q", key, npc.Currency)
+// The NPC loader refuses a non-coin shop that buys: its till has no gold to
+// pay the party with. The same trader with a gold till loads.
+func TestNPCLoaderRejectsNonGoldTraderThatBuys(t *testing.T) {
+	crateTestGame(t) // item catalog for the loader's stock checks
+	prev := character.NPCConfigInstance
+	t.Cleanup(func() { character.NPCConfigInstance = prev })
+	write := func(extra string) string {
+		path := filepath.Join(t.TempDir(), "npcs.yaml")
+		body := "npcs:\n  test_trader:\n    name: \"Trader\"\n    type: \"merchant\"\n    sprite: \"merchant\"\n" +
+			"    render_category: npc\n    size_class: person\n    sell_available: true\n" + extra
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
 		}
+		return path
+	}
+	if err := character.LoadNPCConfig(write("")); err != nil {
+		t.Fatalf("control: a gold-till buyer was rejected: %v", err)
+	}
+	err := character.LoadNPCConfig(write("    currency: \"" + character.CurrencyArenaPoints + "\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "sell_available needs a gold till") {
+		t.Fatalf("a buying arena-points trader loaded: err = %v", err)
 	}
 }
 
@@ -784,15 +849,7 @@ func TestBagHeaderCarriesTheBuyHintWithoutOverlappingIcons(t *testing.T) {
 		}
 	}
 
-	g, _ := merchantBuyGame(t, character.CurrencyArenaPoints, potionStock(5, -1))
-	dlg := npcDialogLayout(g)
-	_, _, gridTop, _ := merchantGridLayout(dlg.x, dlg.y)
-
-	// The header sits a full line clear of the first icon row.
-	headerY := gridTop - 24
-	if headerY+uiTextCharHeight > gridTop {
-		t.Fatalf("the header line (y=%d..%d) reaches the icons at y=%d", headerY, headerY+uiTextCharHeight, gridTop)
-	}
+	merchantBuyGame(t, character.CurrencyArenaPoints, potionStock(5, -1)) // the drawing UI setup
 	// Assert the DRAWN text, not the source: clipUIText always "fits", so a
 	// too-long label passes a width check while losing the words that matter.
 	drawn := clipUIText(hint, merchantGridW)
@@ -800,5 +857,4 @@ func TestBagHeaderCarriesTheBuyHintWithoutOverlappingIcons(t *testing.T) {
 		t.Fatalf("the header is truncated on screen: %q -> %q (grid %d px, needs %d)",
 			hint, drawn, merchantGridW, uiTextWidth(hint))
 	}
-	_ = g
 }

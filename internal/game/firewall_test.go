@@ -7,14 +7,15 @@ import (
 	"strings"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
 
-// Firewall is a 3x1 wall of zone cells laid ACROSS the party's facing, two tiles
-// ahead, ticking three times per turn for its mastery-authored damage. This pins
-// the authored contract (user spec) and the placement geometry.
-func TestFirewall_LaysThreeCellsAcrossTheFacing(t *testing.T) {
+// Firewall is a wall of zone_width_tiles cells laid ACROSS the party's facing,
+// zone_ahead_tiles ahead, ticking every zone_tick_seconds for its authored
+// mastery damage over the spell's mastery-scaled duration.
+func TestFirewall_LaysAuthoredWallAcrossTheFacing(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	g.world = newTestWorldSized(g.config, 20, 20)
@@ -26,40 +27,43 @@ func TestFirewall_LaysThreeCellsAcrossTheFacing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("firewall definition: %v", err)
 	}
-	if def.ZoneWidthTiles != 3 || def.ZoneAheadTiles != 2 {
-		t.Fatalf("authored placement changed: width=%d ahead=%.1f", def.ZoneWidthTiles, def.ZoneAheadTiles)
+	if def.ZoneWidthTiles < 2 || def.ZoneAheadTiles <= 0 || def.ZoneTickSeconds <= 0 || len(def.DamageByMastery) != 4 {
+		t.Fatalf("firewall must author a multi-cell wall ahead with a tick and a damage ladder: width=%d ahead=%.1f tick=%.1f ladder=%v",
+			def.ZoneWidthTiles, def.ZoneAheadTiles, def.ZoneTickSeconds, def.DamageByMastery)
 	}
-	if got := def.DamageByMastery; len(got) != 4 || got[0] != 15 || got[3] != 60 {
-		t.Fatalf("authored damage ladder changed: %v", got)
-	}
+	caster := g.party.Members[0]
+	tier := character.SpellMasteryTier(caster, def)
 
 	g.persistentDamageZones = g.persistentDamageZones[:0]
-	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, g.party.Members[0]).handled() {
+	if !cs.tryCastPersistentDamageZone(spells.SpellID("firewall"), def, caster).handled() {
 		t.Fatal("firewall must be handled by the zone path")
 	}
-	if len(g.persistentDamageZones) != 3 {
-		t.Fatalf("expected 3 wall cells, got %d", len(g.persistentDamageZones))
+	if len(g.persistentDamageZones) != def.ZoneWidthTiles {
+		t.Fatalf("expected %d wall cells, got %d", def.ZoneWidthTiles, len(g.persistentDamageZones))
 	}
 	tps := g.config.GetTPS()
+	wantInterval := int(def.ZoneTickSeconds * float64(tps))
+	wantLife := character.SpellDurationAtTier(def, tier).Seconds * tps
+	ys := map[float64]bool{}
 	for i := range g.persistentDamageZones {
 		z := &g.persistentDamageZones[i]
-		// Every cell sits 2 tiles downrange (x), spread along y (across the facing).
-		if dx := z.X - g.camera.X; math.Abs(dx-2*ts) > 1 {
-			t.Errorf("cell %d is %.0fpx downrange, want %.0f", i, dx, 2*ts)
+		// Every cell sits zone_ahead_tiles downrange (x), spread along y (across the facing).
+		if dx := z.X - g.camera.X; math.Abs(dx-def.ZoneAheadTiles*ts) > 1 {
+			t.Errorf("cell %d is %.0fpx downrange, want %.0f", i, dx, def.ZoneAheadTiles*ts)
 		}
-		// One tick per second: three ticks inside one three-second TB turn.
-		if z.IntervalFrames != tps {
-			t.Errorf("cell %d tick interval = %d frames, want %d (1s)", i, z.IntervalFrames, tps)
+		if z.IntervalFrames != wantInterval {
+			t.Errorf("cell %d tick interval = %d frames, want %d", i, z.IntervalFrames, wantInterval)
 		}
-		if want := 30 * tps; z.FramesLeft != want {
-			t.Errorf("cell %d lifetime = %d frames, want %d (30s = 10 turns)", i, z.FramesLeft, want)
+		if z.FramesLeft != wantLife || wantLife <= 0 {
+			t.Errorf("cell %d lifetime = %d frames, want %d", i, z.FramesLeft, wantLife)
 		}
-		if z.TickDamage != 15 {
-			t.Errorf("cell %d tick damage = %d, want 15 at Novice", i, z.TickDamage)
+		if z.TickDamage != def.DamageByMastery[tier] {
+			t.Errorf("cell %d tick damage = %d, want %d at tier %d", i, z.TickDamage, def.DamageByMastery[tier], tier)
 		}
+		ys[z.Y] = true
 	}
 	// Cells must be distinct positions across the facing, not stacked.
-	if g.persistentDamageZones[0].Y == g.persistentDamageZones[1].Y || g.persistentDamageZones[1].Y == g.persistentDamageZones[2].Y {
+	if len(ys) != len(g.persistentDamageZones) {
 		t.Error("wall cells are stacked instead of spread across the facing")
 	}
 }
@@ -78,16 +82,16 @@ func TestJump_MovesPartyForwardOrRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jump definition: %v", err)
 	}
-	if def.JumpTiles != 2 {
-		t.Fatalf("authored jump distance changed: %.1f", def.JumpTiles)
+	if def.JumpTiles <= 0 {
+		t.Fatalf("jump must author a distance, got %.1f", def.JumpTiles)
 	}
 	caster := g.party.Members[0]
 	startX := g.camera.X
 	if !cs.tryCastJump(def, caster).handled() {
 		t.Fatal("jump must be handled")
 	}
-	if math.Abs(g.camera.X-(startX+2*ts)) > 1 {
-		t.Errorf("party at %.0f, want %.0f (two tiles ahead)", g.camera.X, startX+2*ts)
+	if want := startX + def.JumpTiles*ts; math.Abs(g.camera.X-want) > 1 {
+		t.Errorf("party at %.0f, want %.0f (%.1f tiles ahead)", g.camera.X, want, def.JumpTiles)
 	}
 
 	// The effect-only handler holds position and leaves payment untouched;
@@ -342,17 +346,20 @@ func TestNewSpellCardsStateTheirAuthoredFields(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
 
-	cardText := func(id string) string {
+	definition := func(id string) spells.SpellDefinition {
 		def, err := spells.GetSpellDefinitionByID(spells.SpellID(id))
 		if err != nil {
 			t.Fatalf("%s definition: %v", id, err)
 		}
-		return buildSpellTooltipUnified(def, char, cs, true)
+		return def
+	}
+	cardText := func(id string) string {
+		return buildSpellTooltipUnified(definition(id), char, cs, true)
 	}
 
 	jump := cardText("jump")
-	if !strings.Contains(jump, "2 tiles straight ahead") {
-		t.Errorf("Jump card hides its distance:\n%s", jump)
+	if want := fmt.Sprintf("%.0f tiles straight ahead", definition("jump").JumpTiles); !strings.Contains(jump, want) {
+		t.Errorf("Jump card hides its distance %q:\n%s", want, jump)
 	}
 
 	quake := cardText("earthquake")

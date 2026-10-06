@@ -113,6 +113,15 @@ type Renderer struct {
 	// frames. Adjacent levels are blended by the trilinear shader so Ebitengine's
 	// integer mip selection cannot make a whole token flash sharp/soft at range.
 	standeeMipCache        map[standeeMipKey]*mipChain
+	crystalShimmerShader   *ebiten.Shader
+	auraCurtainShader      *ebiten.Shader
+	auraCurtainWarmed      bool
+	auraCurtainOpts        ebiten.DrawTrianglesShaderOptions
+	auraCurtainPhase       [1]float32
+	auraCurtainVerts       []ebiten.Vertex
+	auraCurtainIndices     []uint32
+	auraCurtainEdges       []auraCurtainEdge
+	auraSceneDepths        []float64
 	standeeTrilinearShader *ebiten.Shader
 	standeeTrilinearOpts   ebiten.DrawTrianglesShaderOptions
 	standeeVolumeShader    *ebiten.Shader
@@ -180,6 +189,7 @@ type Renderer struct {
 	mapRenderResourcePrewarmMapKeys []string
 	mapRenderResourcePrewarmActive  *mapRenderPrewarmTask
 	mapRenderResidentMapKeys        []string
+	residencyWorld                  *world.World3D // world the residency was inventoried for
 	mapRenderResourcesByMap         map[string]*mapRenderRegionResources
 	mapRenderUploadQueue            []mapRenderUpload
 	mapRenderUploadQueued           map[*ebiten.Image]struct{}
@@ -191,6 +201,8 @@ type Renderer struct {
 	// during the current world pass, keyed by their root images (plus bounded
 	// standee copies), so same-frame derived builders skip ReadPixels. Cleared
 	// when the pass ends - lifetime is one Draw, RAM cost one cold viewport.
+	// Streamed loads land here from Update and wait for the next pass; a
+	// residency reset drops them with the images they belong to.
 	lazySpriteCPUPixels map[*ebiten.Image]*image.RGBA
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
@@ -248,8 +260,9 @@ type Renderer struct {
 	monsterPick    monsterPickFrame
 	hoveredMonster *monster.Monster3D
 	unifiedSprites []UnifiedSpriteRenderData
+	zoneVisuals    []zoneVisual
 	// Cached average texture colour per tile type, used to tint the impassable
-	// aura bubbles to match the rock/cliff sprite they rise from. Computed lazily.
+	// aura curtains to match the rock/cliff sprite they rise from. Computed lazily.
 	auraTileColorCache map[world.TileType3D][3]int
 	// Reused draw options for glow quads (bubbles, projectile/arrow/slash glows).
 	// Thousands of glow draws per frame would otherwise allocate one options
@@ -258,15 +271,29 @@ type Renderer struct {
 	glowOpts ebiten.DrawImageOptions
 	// Unique melee ribbons reuse the standee vertex/index scratch buffers and
 	// this options value. Those effects can emit several ribbons per frame, so
-	// keeping all three temporaries on the renderer avoids transient GC churn.
-	meleeTriOpts ebiten.DrawTrianglesOptions
+	// reusing the geometry and options avoids transient GC churn.
+	weaponRibbonShader   *ebiten.Shader
+	impactMaterialShader *ebiten.Shader
+	weaponOrbShader      *ebiten.Shader
+	spellBodyShader      *ebiten.Shader
+	zonePlumeShader      *ebiten.Shader
+	fireNoise            *ebiten.Image
+	weaponBodyShader     *ebiten.Shader
+	bubbleShader         *ebiten.Shader
+	weaponMaterialWarmed bool
+	weaponMaterialState  weaponMaterialState
+	weaponMaterialOpts   ebiten.DrawTrianglesShaderOptions
+	weaponMaterialQuad   [4]ebiten.Vertex
+	spellAxialScale      float64 // temporary projection for non-mesh directional spells
+	spellFlightAxis      [3]float64
+	spellBoltShader      *ebiten.Shader
+	spellBoltOpts        ebiten.DrawTrianglesShaderOptions
+	spellBoltTime        [1]float32
+	spellVolumeFaces     []spellVolumeFace
+	weaponShardVertices  [3]ebiten.Vertex
 	// softGlowImg is a radial-gradient (opaque centre -> transparent edge) white
-	// texture for soft ROUND glows - used for spell projectile bodies/halos so a
-	// big fireball reads as a fuzzy ball, not a hard square. Built lazily.
+	// texture for soft glows, halos and motion ribbons. Built lazily.
 	softGlowImg *ebiten.Image
-	// bubbleImg is the rim-lit bubble texture (ensureBubbleTex), shared by every
-	// bubbleColumnFx that asks for round bubbles instead of glow rects.
-	bubbleImg *ebiten.Image
 }
 
 // NewRenderer creates a new renderer
@@ -342,8 +369,13 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	// A physical world switch is a real render-resource boundary. Generated
 	// standee cores/mips from the old world cannot become visible again until a
 	// later map load, so release that residency before inventorying the new map.
-	r.resetMapRenderResourceResidency()
-	r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)
+	// A rebuild on the same world (a save load, changed tiles) keeps it: the
+	// party will see those resources again.
+	if current := r.game.GetCurrentWorld(); current != r.residencyWorld {
+		r.resetMapRenderResourceResidency()
+		r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)
+		r.residencyWorld = current
+	}
 
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil
@@ -1304,11 +1336,17 @@ func (r *Renderer) withMapRenderSourceTracking(draw func()) {
 		defer func() { loading.worldPass = false }()
 	}
 	r.game.sprites.SetLazyResourceObserver(r.observeLazySpriteLoad)
+	complete := false
 	defer func() {
 		r.game.sprites.SetLazyResourceObserver(nil)
-		clear(r.lazySpriteCPUPixels)
+		// An incomplete loading frame may discover several dependencies in
+		// succession. Keep decoded sources until one world pass finishes.
+		if complete || r.game.gameLoop == nil || r.game.gameLoop.loading == nil || !r.game.gameLoop.loading.rendering {
+			clear(r.lazySpriteCPUPixels)
+		}
 	}()
 	draw()
+	complete = true
 }
 
 // observeLazySpriteLoad attributes a synchronous fallback load to the current
@@ -1398,21 +1436,11 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		r.statSpritesMs = float64(time.Since(ts).Microseconds()) / 1000.0
 		r.drawNightMotes(screen)
 
-		// Highlight impassable billboard tiles with rising ground bubbles
-		// (after walls/sprites so the depth buffer is populated for occlusion).
-		r.drawImpassableTileAura(screen)
 		// Grey smoke wreath around a sealed (dormant) boss - invulnerable until
 		// its quest unseals it.
 		r.drawSealedBossAura(screen)
-		r.drawTrapTileBorders(screen)
-		// Brood Mother's smouldering field: tiny ember edges on armed tiles.
-		r.drawBossFireTrapBorders(screen)
-		// Red bubble border around the player's start tile (floor inherited).
-		r.drawSpawnTileBorder(screen)
 		// Coloured glow filling every teleporter tile (floor inherited).
 		r.drawTeleporterTileFx(screen)
-		// Steam bubbles across every tile of an active Hot Steam zone.
-		r.drawPersistentDamageZoneEffects(screen)
 		// Steam rising from every shut culvert valve's tile.
 		r.drawClosedValveSteam(screen)
 
@@ -2167,18 +2195,26 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 }
 
 func applyBrightnessToAlphaCPU(source *image.RGBA, strength float64) (*ebiten.Image, *image.RGBA) {
-	if source == nil {
+	pixels := brightnessToAlphaPixels(source, strength)
+	if pixels == nil {
 		return nil, nil
+	}
+	return ebiten.NewImageFromImage(pixels), pixels
+}
+
+func brightnessToAlphaPixels(source *image.RGBA, strength float64) *image.RGBA {
+	if source == nil {
+		return nil
 	}
 	bounds := source.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	if w <= 0 || h <= 0 {
-		return nil, nil
+		return nil
 	}
 	pixels := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.Draw(pixels, pixels.Bounds(), source, bounds.Min, draw.Src)
 	if strength <= 0 {
-		return ebiten.NewImageFromImage(pixels), pixels
+		return pixels
 	}
 	if strength > 1 {
 		strength = 1
@@ -2214,7 +2250,7 @@ func applyBrightnessToAlphaCPU(source *image.RGBA, strength float64) (*ebiten.Im
 		pixels.Pix[i+2] = uint8(bv*alphaScale + 0.5)
 		pixels.Pix[i+3] = uint8(float64(a)*alphaScale + 0.5)
 	}
-	return ebiten.NewImageFromImage(pixels), pixels
+	return pixels
 }
 
 // drawEnvironmentSprite draws environment sprites in the 3D world
@@ -2341,6 +2377,11 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 		if spriteName := world.GlobalTileManager.GetSprite(tileType); spriteName != "" {
 			sprite := r.game.sprites.GetSprite(spriteName)
 			if sprite != nil {
+				if data := world.GlobalTileManager.GetTileData(tileType); data != nil && data.WallUpperMirrorY {
+					r.drawMirroredUpperWallSlice(screen, sprite, screenX, width, wallSide, textureCoord,
+						distance, wallGridLine, hasWallGridLine, queueMipmapped)
+					return
+				}
 				r.drawSpriteTexturedWallSlice(screen, sprite, screenX, width, wallSide, textureCoord,
 					distance, heightMultiplier, wallGridLine, hasWallGridLine, queueMipmapped)
 				return
@@ -2384,14 +2425,30 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 // texels: then it instead maps the two ray boundaries to a mesh quad, exposing
 // the source footprint required for linear mipmap filtering.
 func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, textureCoord, distance, heightMultiplier, wallGridLine float64, hasWallGridLine, queueMipmapped bool) {
+	wallHeightF, floorBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
+	r.drawSpriteWallLayer(screen, sprite, screenX, width, wallSide, textureCoord, distance,
+		floorBottomF-wallHeightF, wallHeightF, wallGridLine, hasWallGridLine, queueMipmapped)
+}
+
+// Both layers sample the same source and resident ripmap. A negative height
+// reflects the upper layer around their shared seam without copying pixels.
+func (r *Renderer) drawMirroredUpperWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, textureCoord, distance, wallGridLine float64, hasWallGridLine, queueMipmapped bool) {
+	height, bottom := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, 1)
+	seam := bottom - height
+	r.drawSpriteWallLayer(screen, sprite, screenX, width, wallSide, textureCoord, distance,
+		seam, height, wallGridLine, hasWallGridLine, queueMipmapped)
+	r.drawSpriteWallLayer(screen, sprite, screenX, width, wallSide, textureCoord, distance,
+		seam, -height, wallGridLine, hasWallGridLine, queueMipmapped)
+}
+
+func (r *Renderer) drawSpriteWallLayer(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, textureCoord, distance, wallTopF, wallHeightF, wallGridLine float64, hasWallGridLine, queueMipmapped bool) {
 	spriteBounds := sprite.Bounds()
 	spriteWidth := spriteBounds.Dx()
 	spriteHeight := spriteBounds.Dy()
 	if spriteWidth <= 0 || spriteHeight <= 0 || width <= 0 {
 		return
 	}
-	wallHeightF, floorBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
-	if wallHeightF <= 0 {
+	if wallHeightF == 0 {
 		return
 	}
 
@@ -2400,12 +2457,12 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 		if ok {
 			if wallTextureUsesMipmappedSlice(spriteWidth, spriteHeight, width, leftU, rightU, wallHeightF) {
 				if queueMipmapped && r.queueMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
-					floorBottomF-wallHeightF, wallHeightF, leftU, rightU) {
+					wallTopF, wallHeightF, leftU, rightU) {
 					return
 				}
 				r.flushMipmappedWallBatch(screen)
 				if r.drawMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
-					floorBottomF-wallHeightF, wallHeightF, leftU, rightU) {
+					wallTopF, wallHeightF, leftU, rightU) {
 					return
 				}
 			}
@@ -2415,7 +2472,11 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 	// Close walls deliberately retain the former nearest-column behavior: it
 	// keeps their authored pixel art sharp and avoids changing their look.
 	wallHeight := int(wallHeightF)
-	wallTop := int(floorBottomF) - wallHeight
+	wallTop := int(wallTopF+wallHeightF) - wallHeight
+	if wallHeightF < 0 {
+		// Use the lower layer's exact integer seam, even at fractional zoom.
+		wallTop = int(wallTopF-wallHeightF) + wallHeight
+	}
 	r.flushMipmappedWallBatch(screen)
 	r.drawNearestSpriteWallSlice(screen, sprite, screenX, wallTop, wallHeight, width, wallSide, textureCoord, distance)
 }
@@ -2463,7 +2524,7 @@ func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebit
 	spriteBounds := sprite.Bounds()
 	spriteWidth := spriteBounds.Dx()
 	spriteHeight := spriteBounds.Dy()
-	if spriteWidth <= 0 || spriteHeight <= 0 || width <= 0 || wallHeight <= 0 {
+	if spriteWidth <= 0 || spriteHeight <= 0 || width <= 0 || wallHeight == 0 {
 		return
 	}
 
@@ -2697,15 +2758,10 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 			profile.glowColor = mixColor(profile.glowColor, [3]int{255, 180, 220}, 0.35)
 			profile.trailColor = mixColor(profile.trailColor, [3]int{255, 200, 230}, 0.25)
 		}
-		// A projectile_school turns the shot into a glowing spell-ORB (not a plain
-		// arrow), tinted to its magic element - staves/books fire magic charges,
-		// not arrows. The "arcane" style name is just the orb body renderer
-		// (pixel-particle, mirrored R->L), independent of the element.
-		if school := normalizeDamageTypeStr(weaponDef.ProjectileSchool); weaponDef.ProjectileSchool != "" {
-			c, ok := ElementColors[school]
-			if !ok {
-				c = ElementColors["arcane"]
-			}
+		// Magical weapons share the authored palette between flight and impact.
+		// The school supplies a fallback when no colour was authored.
+		if weaponDef.ProjectileSchool != "" {
+			c := weaponImpactColor(weaponDef)
 			profile.glowColor = mixColor(c, [3]int{255, 255, 255}, 0.25)
 			profile.trailColor = mixColor(c, [3]int{255, 255, 255}, 0.45)
 			profile.sparkColor = mixColor(c, [3]int{255, 255, 255}, 0.55)
@@ -2716,8 +2772,9 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 	return profile
 }
 
-// additiveGlowBlend is the standard additive blend used for all glow/particle
-// effects (projectiles, arrows, slashes, spell hits, the impassable-tile aura):
+// additiveGlowBlend accumulates light for non-premultiplied glow effects.
+// Solid bodies and mirror debris use source-over; premultiplied shaders use
+// weaponShaderBlend to select BlendLighter for emission:
 // src-srcAlpha + dst, so overlapping glows accumulate into brighter light.
 var additiveGlowBlend = ebiten.Blend{
 	BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
@@ -2730,80 +2787,6 @@ var additiveGlowBlend = ebiten.Blend{
 
 // softGlowSize is the resolution of the radial-gradient glow texture.
 const softGlowSize = 64
-
-// bubbleTexSize is the resolution of the bubble texture (see ensureBubbleTex).
-const bubbleTexSize = 64
-
-// ensureBubbleTex lazily builds a BUBBLE texture: a bright rim, a nearly empty
-// middle and one off-centre specular dot - the three cues that read as a
-// gas bubble rather than a blob. A plain radial glow (ensureSoftGlow) reads as a
-// dot and drawGlowRect reads as a square, which is what Hot Steam looked like.
-func (r *Renderer) ensureBubbleTex() *ebiten.Image {
-	if r.bubbleImg != nil {
-		return r.bubbleImg
-	}
-	const n = bubbleTexSize
-	buf := make([]byte, 4*n*n)
-	c := float64(n-1) / 2
-	for y := 0; y < n; y++ {
-		for x := 0; x < n; x++ {
-			dx := (float64(x) - c) / c
-			dy := (float64(y) - c) / c
-			d := math.Hypot(dx, dy)
-			if d > 1 {
-				continue
-			}
-			// Shell: a gaussian ring just inside the silhouette.
-			rim := math.Exp(-((d - 0.82) * (d - 0.82)) / (2 * 0.085 * 0.085))
-			// Interior: a faint fill so the bubble is not a hollow outline.
-			fill := 0.16 * (1 - d*d)
-			// Specular: a small highlight up-left, like a lit soap bubble.
-			hx, hy := dx+0.34, dy+0.34
-			spec := 0.85 * math.Exp(-(hx*hx+hy*hy)/(2*0.13*0.13))
-			f := rim + fill + spec
-			if f > 1 {
-				f = 1
-			}
-			// Fade the outermost pixels so the silhouette stays anti-aliased.
-			if edge := (1 - d) / 0.06; edge < 1 {
-				f *= edge
-			}
-			v := byte(f * 255)
-			i := (y*n + x) * 4
-			buf[i], buf[i+1], buf[i+2], buf[i+3] = v, v, v, v // premultiplied white
-		}
-	}
-	img := ebiten.NewImage(n, n)
-	img.WritePixels(buf)
-	r.bubbleImg = img
-	return img
-}
-
-// drawBubbleSprite draws one bubble of diameter `size` centred at (x,y). Same
-// contract as drawGlowSprite, different texture.
-func (r *Renderer) drawBubbleSprite(screen *ebiten.Image, x, y, size float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
-	if size <= 0 || alpha <= 0 {
-		return
-	}
-	src := r.ensureBubbleTex()
-	s := size / float64(bubbleTexSize)
-	opts := &r.glowOpts
-	opts.GeoM.Reset()
-	opts.GeoM.Scale(s, s)
-	opts.GeoM.Translate(x-size/2, y-size/2)
-	opts.ColorScale.Reset()
-	opts.ColorScale.Scale(
-		float32(rgb[0])/255,
-		float32(rgb[1])/255,
-		float32(rgb[2])/255,
-		float32(alpha),
-	)
-	opts.Blend = blend
-	// glowOpts is shared with the soft-glow and solid-quad paths. Pin the
-	// sampler here too so a bubble never inherits whichever effect drew first.
-	opts.Filter = ebiten.FilterLinear
-	screen.DrawImage(src, opts)
-}
 
 // ensureSoftGlow lazily builds the radial-gradient white texture (premultiplied
 // alpha: opaque centre fading smoothly to transparent at the edge).
@@ -3123,6 +3106,9 @@ const (
 	SpriteTypeGroundContainer
 	SpriteTypeWallTorch
 	SpriteTypeMonsterCorpse
+	SpriteTypeZoneEffect
+	SpriteTypeTileCurtain
+	SpriteTypeArmedTrap
 )
 
 // UnifiedSpriteRenderData holds data for rendering any sprite type in a unified sorted pass
@@ -3149,9 +3135,8 @@ type UnifiedSpriteRenderData struct {
 	tileX    int
 	tileY    int
 	tileType world.TileType3D
-	// A crossed tree is normally one unified entry. If another nearby standee
-	// overlaps its depth interval, it expands into four arm entries so the
-	// global painter pass can place that standee between the far/near arms.
+	// Every crossed tree expands into four arm entries unless it uses billboard
+	// LOD. The painter pass can place other objects between the far/near arms.
 	// treeCenterDepth remains the projection depth used to build every arm;
 	// depthPerp becomes only that arm's global sort key.
 	treeArmOnly     bool
@@ -3374,8 +3359,8 @@ func compareUnifiedSprites(a, b UnifiedSpriteRenderData) int {
 	return cmp.Compare(a.treeArmIndex, b.treeArmIndex)
 }
 
-// drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
-// and renders them sorted by depth for proper transparency and occlusion.
+// drawAllSpritesSorted collects scenery, actors, fields and tile markers
+// and renders them together by depth for proper transparency and occlusion.
 func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	r.crossedGeometry.begin()
 	defer r.crossedGeometry.end()
@@ -3734,10 +3719,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
-	// A crossed dune/tree normally stays one painter entry. Expand only those
-	// whose depth volume overlaps another visible standee, allowing the global
-	// sort to interleave that object between the cross's individual arms.
+	sprites = r.collectPersistentDamageZoneEffects(sprites)
+	sprites = r.collectBossFireTrapBorders(sprites)
+
+	// Split crosses before curtains so the latter use individual arm depths.
 	sprites = r.splitCrossedTreesForPainterOrder(sprites, crossedTreeStart, crossedTreeEnd)
+	sprites = r.collectTileCurtains(sprites)
 
 	// Sort all sprites by depth (back to front). slices.SortStableFunc: no
 	// reflect swaps and no closure alloc, unlike sort.Slice - this runs every
@@ -3768,6 +3755,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 	// Render all sprites in sorted order
 	for _, s := range sprites {
+		if s.spriteType == SpriteTypeTileCurtain {
+			r.appendAuraCurtain(s)
+			continue
+		}
+		r.flushAuraCurtains(screen)
 		switch s.spriteType {
 		case SpriteTypeEnvironment:
 			r.drawUnifiedEnvironmentSprite(screen, s)
@@ -3796,8 +3788,13 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			r.drawUnifiedGroundContainerSprite(screen, s)
 		case SpriteTypeMonsterCorpse:
 			r.drawMonsterCorpse(screen, s)
+		case SpriteTypeZoneEffect:
+			r.drawZoneVisual(screen, r.zoneVisuals[s.tileX])
+		case SpriteTypeArmedTrap:
+			r.drawArmedTrap(screen, s.tileX)
 		}
 	}
+	r.flushAuraCurtains(screen)
 }
 
 // stampActorDepth records this creature's distance across the central band of the
@@ -4185,15 +4182,6 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		gg = br * (1 - 0.75*f)
 		bb = br * (1 - 0.75*f)
 	}
-	// Elite/variant tint: a persistent colour cast distinguishes a champion from
-	// the base mob it shares a sprite with. Multiplies the lit colour (applied to
-	// both standee and billboard paths below), so it reads at a glance - no new art.
-	if s.monster != nil && (s.monster.TintR != 0 || s.monster.TintG != 0 || s.monster.TintB != 0) {
-		rr *= s.monster.TintR
-		gg *= s.monster.TintG
-		bb *= s.monster.TintB
-	}
-
 	if s.monster == r.hoveredMonster {
 		rr *= standeeHoverBoost
 		gg *= standeeHoverBoost
@@ -4232,6 +4220,7 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	}
 	v := monsterStatusVisuals(s.monster, r.game.turnBasedMode && r.game.currentTurn == 1)
 	r.drawMonsterHeadBadges(screen, s, screenY, v)
+	r.drawElementalWeaponMarks(screen, s, screenY)
 	r.drawAdditionalMonsterStatusFX(screen, s, screenY, v)
 	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
 		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
@@ -4240,7 +4229,7 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 		r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
 	}
 	if s.monster.BurnFramesRemaining > 0 {
-		r.drawMonsterBurnFlames(screen, s.monster)
+		r.drawMonsterBurnFlames(screen, s)
 	}
 }
 
@@ -4266,28 +4255,19 @@ func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY,
 	}
 }
 
-// drawMonsterBurnFlames sets a burning monster alight with the SAME flame
-// machinery as a Firewall cell (emitFlameColumn -> emitBubbleColumn), scaled
-// down to a mob: a few short tongues instead of a wall's curtain. Reusing the
-// zone emitter keeps one fire look in the game, and it projects and depth-tests
-// the columns itself, so the flames sit at the monster's feet without any
-// screen-space guesswork. No area glow - the tongues are the whole effect.
-func (r *Renderer) drawMonsterBurnFlames(screen *ebiten.Image, m *monster.Monster3D) {
+// drawMonsterBurnFlames uses the zone fire material at actor scale, after the
+// actor body in the painter pass. The collected visual position also follows
+// turn-based front-row presentation rather than the monster's simulation tile.
+func (r *Renderer) drawMonsterBurnFlames(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	tile := float64(r.game.config.GetTileSize())
 	maxDepth := monsterFlameMaxDepth(tile)
-	tx, ty := TileIndex(m.X, tile), TileIndex(m.Y, tile)
-	// Salted by the monster ID so two burning mobs do not flicker in lockstep.
-	salt := monsterBurnSalt(m.ID)
-	// Spread ACROSS the view, like the wall spreads along its axis: offsetting by
-	// world axes puts the whole fire to one side of the sprite at most angles.
+	salt := monsterBurnSalt(s.monster.ID)
 	rx, ry := -math.Sin(r.game.camera.Angle), math.Cos(r.game.camera.Angle)
-	// A hair TOWARD the camera: the columns are depth-tested, and the mob's own
-	// standee would otherwise hide every tongue that is not past its edge.
-	fx := -math.Cos(r.game.camera.Angle) * tile * monsterFlameFrontOffset
-	fy := -math.Sin(r.game.camera.Angle) * tile * monsterFlameFrontOffset
 	for i := 0; i < monsterFlameColumns; i++ {
-		off := ((float64(i)+0.5)/float64(monsterFlameColumns) - 0.5) * tile * 0.5
-		r.emitMonsterFlameColumn(screen, m.X+rx*off+fx, m.Y+ry*off+fy, tx, ty, salt+i, maxDepth)
+		off := ((float64(i)+0.5)/float64(monsterFlameColumns) - 0.5) * tile * .5
+		r.drawFirePlume(screen, s.monsterRenderX+rx*off, s.monsterRenderY+ry*off,
+			.16, auraRiseFraction*monsterFlameRiseMultiplier, maxDepth, flameBaseAlpha,
+			flameCoreColor, salt, i)
 	}
 }
 
@@ -4458,6 +4438,8 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 					tiles := r.game.buildingFootprintTiles(s.npc)
 					if s.buildingSegment >= 0 && s.buildingSegment < len(tiles) {
 						c := tiles[s.buildingSegment]
+						dx, dy := r.game.buildingWallOffset(s.npc)
+						c[0], c[1] = c[0]+dx, c[1]+dy
 						dirX, dirY := math.Cos(byaw), math.Sin(byaw)
 						e1x, e1y := c[0]-dirX*ts/2, c[1]-dirY*ts/2
 						e2x, e2y := c[0]+dirX*ts/2, c[1]+dirY*ts/2
@@ -4479,6 +4461,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 									x1, x2 = x2, x1
 								}
 								r.drawStandeeSlabColumns(screen, slab, x1, x2)
+								r.drawFacadeCrystalShimmer(screen, s.npc, slab, x1, x2)
 							}
 						}
 					}
@@ -4559,6 +4542,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	opts.Blend = ebiten.BlendSourceOver
 
 	screen.DrawImage(sprite, opts)
+	r.drawBillboardCrystalShimmer(screen, s.npc, sprite, float64(drawLeft), float64(s.screenY), float64(s.spriteSize))
 }
 
 // drawSpriteEdgeGlow outlines a billboard sprite with a soft warm halo: the
@@ -4685,7 +4669,7 @@ func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize 
 	}
 
 	halfW := float64(r.game.worldWidth()) / 2
-	screenX := int(halfW + (angleDiff/halfFOV)*halfW)
+	screenX := int(halfW * (1 + math.Tan(angleDiff)/math.Tan(halfFOV)))
 
 	depthPerp := dx*math.Cos(cam.Angle) + dy*math.Sin(cam.Angle)
 	if screenX >= 0 && screenX < len(r.game.depthBuffer) {
@@ -4694,8 +4678,7 @@ func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize 
 		}
 	}
 
-	dist := math.Sqrt(distSq)
-	size := int(float64(baseSize) / dist * float64(r.game.config.GetTileSize()))
+	size := int(float64(baseSize) / depthPerp * float64(r.game.config.GetTileSize()))
 	if size > maxSize {
 		size = maxSize
 	}
@@ -4817,6 +4800,8 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		centerX := float64(screenX)
 		centerY := float64(screenY) + float64(projectileSize)/2
 		fxProfile := r.spellFxProfile(spellConfigName, projectileColor)
+		handX, handY, _ := r.spellHandOffset(magicProjectile, fxProfile, screen.Bounds().Dx(), screen.Bounds().Dy())
+		centerX, centerY = centerX+handX, centerY+handY
 		pulse := 0.85 + 0.15*math.Sin(float64(r.game.frameCount)*fxProfile.pulseSpeed*0.15)
 		critBoost := 1.0
 		if magicProjectile.Crit {
@@ -4836,8 +4821,12 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 				continue
 			}
 			fade := 1.0 - float64(gi)*0.28
+			ghost := magicProjectile
+			ghost.X -= magicProjectile.VelX * k
+			ghost.Y -= magicProjectile.VelY * k
+			gx, gy, _ := r.spellHandOffset(ghost, fxProfile, screen.Bounds().Dx(), screen.Bounds().Dy())
 			r.drawGlowSprite(screen,
-				float64(gproj.screenX), float64(gproj.screenY)+float64(gproj.size)/2,
+				float64(gproj.screenX)+gx, float64(gproj.screenY)+float64(gproj.size)/2+gy,
 				float64(gproj.size)*fxProfile.glowScale*0.8*fade,
 				fxProfile.glowColor, 0.35*fade, glowBlend)
 		}
@@ -4849,6 +4838,9 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		// Spells are always magical -> particle body + evaporating trail (never the
 		// old solid square). Drift/mirror come from the school's style; colour comes
 		// from the projectile colour, so every school looks distinct.
+		if r.drawOutgoingSpellFromHand(screen, centerX, centerY, float64(projectileSize), magicProjectile, projectileColor, fxProfile, critBoost, idx) {
+			continue
+		}
 		r.drawSpellProjectileFxForVelocity(screen, centerX, centerY, float64(projectileSize),
 			magicProjectile.VelX, magicProjectile.VelY, projectileColor, fxProfile, critBoost, idx)
 	}
@@ -4858,99 +4850,47 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 // projection before dispatching the spell body. It returns true for head-on,
 // which keeps the projection decision directly testable.
 func (r *Renderer) drawSpellProjectileFxForVelocity(screen *ebiten.Image, cx, cy, size, vx, vy float64, core [3]int, p projectileFxProfile, critBoost float64, id int) bool {
+	previousAxis := r.spellFlightAxis
+	speed := math.Hypot(vx, vy)
+	if speed > 0 {
+		r.spellFlightAxis = [3]float64{(-vx*math.Sin(r.game.camera.Angle) + vy*math.Cos(r.game.camera.Angle)) / speed, 0, (vx*math.Cos(r.game.camera.Angle) + vy*math.Sin(r.game.camera.Angle)) / speed}
+	}
+	defer func() { r.spellFlightAxis = previousAxis }()
 	dirX, ok := r.projectileScreenDir(vx, vy)
 	if ok {
+		previous := r.spellAxialScale
+		right := -vx*math.Sin(r.game.camera.Angle) + vy*math.Cos(r.game.camera.Angle)
+		r.spellAxialScale = math.Max(.08, math.Abs(right)/math.Hypot(vx, vy))
 		r.drawSpellProjectileFx(screen, cx, cy, size, dirX, 0, core, p, critBoost, id)
+		r.spellAxialScale = previous
 		return false
 	}
 	r.drawSpellProjectileFxHeadOn(screen, cx, cy, size, core, p, critBoost, id)
 	return true
 }
 
-// drawSpellProjectileFx renders a flying spell as a cluster of pixel quads with
-// an evaporating trail, instead of a single solid square. "ember" (fire) motes
-// flicker hot and rise as they trail; "shard" (ice) bits stay crisp and sink.
-// Density/length scale with `size`, so a fireball reads far bigger than a bolt.
+// drawSpellProjectileFx shares perspective, material dispatch and silhouettes
+// between the game's projectile pass and the editor's preview.
 func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
-	// Floor the cluster size so a bolt launched far from the camera (e.g. a bound
-	// lich shooting across the room) still reads as a particle puff rather than a
-	// lone dot. Party bolts spawn at the camera (size ~ MaxSize) so they're well
-	// above this and unaffected; only distant/small projectiles get the lift.
-	if size < spellFxMinClusterSize {
-		size = spellFxMinClusterSize
-	}
+	size = math.Max(size, spellFxMinClusterSize)
 	if draw, ok := spellFxStyleDraw[p.style]; ok {
 		draw(r, screen, cx, cy, size, dirX, dirY, core, p, critBoost, id)
 		return
 	}
-	// sink = heavy/cold/void motes fall; others rise like embers/wisps.
-	sink := p.style == "shard" || p.style == "dark"
-	mirror := p.style == "arcane" // staff/book bolt: trail sweeps the other way (R->L)
-	// Hot core = the spell's own colour lightened, so every school reads distinct
-	// (fire -> light orange, dark -> light violet, ice -> light blue, ...).
-	hot := mixColor(core, [3]int{255, 255, 255}, 0.6)
-	// Mirror the trail's horizontal direction for arcane bolts.
-	if mirror {
-		dirX = -dirX
+	kind := spellPsyshock
+	switch p.style {
+	case "ember":
+		kind = spellFireball
+	case "shard":
+		kind = spellIce
+	case "dark":
+		kind = spellShadow
 	}
-	fc := float64(r.game.frameCount)
-
-	// Evaporating trail: quads behind the head (opposite screen-motion), drifting
-	// up (embers) or down (shards) and fading toward the tail. Wide perpendicular
-	// scatter so it reads as smoke/sparks, not a straight line.
-	trailLen := size * p.trailLengthScale * 4.0 * critBoost
-	nTrail := int(size*1.4) + 8
-	if nTrail > 70 {
-		nTrail = 70
-	}
-	for k := 0; k < nTrail; k++ {
-		j1 := auraHash(id, k, 1, int(fc)/3)
-		j2 := auraHash(id, k, 2, int(fc)/3)
-		t := (float64(k) + j1) / float64(nTrail) // 0 head -> 1 tail
-		back := t * trailLen
-		drift := t * size * 1.1
-		// scatter widens along the tail (cone), keyed to the seed
-		spread := size * (0.25 + 0.8*t)
-		px := cx - dirX*back + (j2-0.5)*spread
-		py := cy + (j1-0.5)*spread*0.8
-		if sink {
-			py += drift // ice shards / dark motes sink
-		} else {
-			py -= drift // embers / wisps rise
-		}
-		qs := size*0.22*(1.0-t) + 1.5
-		alpha := (1.0 - t) * 0.5 * (0.6 + 0.4*j2)
-		if alpha <= 0.02 {
-			continue
-		}
-		r.drawGlowSprite(screen, px, py, qs, mixColor(core, p.trailColor, t), alpha, additiveGlowBlend)
-	}
-
-	// Body: a fluffy flickering cluster at the head - many small motes spread
-	// wide (radius ~0.7xsize), hot/white core fading to the spell colour at the
-	// edges. Smaller per-mote size keeps a big fireball round, not a blocky square.
-	nBody := int(size*1.0) + 6
-	if nBody > 60 {
-		nBody = 60
-	}
-	bodyR := size * 0.7
-	for k := 0; k < nBody; k++ {
-		a := auraHash(id, k, 3, int(fc)/2) * 2 * math.Pi
-		// sqrt distribution -> denser core, soft round falloff
-		rad := math.Sqrt(auraHash(id, k, 4, int(fc)/2)) * bodyR
-		px := cx + math.Cos(a)*rad
-		py := cy + math.Sin(a)*rad*0.9
-		edge := rad / (bodyR + 1) // 0 center -> 1 edge
-		qs := size*(0.28-0.13*edge) + 1.5
-		col := mixColor(hot, core, edge)
-		flick := 0.65 + 0.35*auraHash(id, k, 5, int(fc))
-		r.drawGlowSprite(screen, px, py, qs, col, (0.85-0.4*edge)*flick*critBoost, additiveGlowBlend)
-	}
+	r.drawSpellMaterial(screen, cx, cy, size, dirX, dirY, core, critBoost, id, kind)
 }
 
 // drawArrows draws all active arrows
 func (r *Renderer) drawArrows(screen *ebiten.Image) {
-	glowBlend := additiveGlowBlend
 
 	for idx, arrow := range r.game.arrows {
 		if !arrow.Active {
@@ -5019,24 +4959,17 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			continue
 		}
 		if fxProfile.style != "" {
-			// Staff/book bolt: glowing pixel-particle body + evaporating trail as
-			// spells, mirrored (R->L) for arcane. Reuses the spell FX renderer.
-			glowSize := float64(arrowSize) * fxProfile.glowScale * critBoost
-			r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
-			dirX, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY)
+			dirX, lateral := r.projectileScreenDir(arrow.VelX, arrow.VelY)
+			if !lateral {
+				dirX = 0
+			}
+			r.drawWeaponCharge(screen, centerX, centerY, float64(arrowSize), dirX, 0, fxProfile.glowColor, critBoost, seedFromID(arrow.ID))
 			if style := bowDef.Graphics.ProjectileFx; style != "" {
-				if ok {
+				if lateral {
 					r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), dirX, 0, critBoost, idx)
 				} else {
 					r.drawWeaponProjectileFxHeadOn(style, screen, centerX, centerY, float64(arrowSize), critBoost, idx)
 				}
-			}
-			if ok {
-				r.drawSpellProjectileFx(screen, centerX, centerY, float64(arrowSize), dirX, 0,
-					arrowColor, fxProfile, critBoost, idx)
-			} else {
-				r.drawSpellProjectileFxHeadOn(screen, centerX, centerY, float64(arrowSize),
-					arrowColor, fxProfile, critBoost, idx)
 			}
 			continue
 		}
@@ -5187,7 +5120,7 @@ func (r *Renderer) drawArrowHeadOn(screen *ebiten.Image, cx, cy, size float64, c
 	tri(-halfRoot, halfRoot, 0, radius, halfRoot, halfRoot)
 	tri(-halfRoot, -halfRoot, -radius, 0, -halfRoot, halfRoot)
 	tri(halfRoot, -halfRoot, halfRoot, halfRoot, radius, 0)
-	screen.DrawTriangles(verts, idx, r.whiteImg, &ebiten.DrawTrianglesOptions{Blend: ebiten.BlendSourceOver})
+	r.drawWeaponFacets(screen, verts, idx)
 	r.standeeVerts = verts[:0]
 	r.standeeIdx = idx[:0]
 
@@ -5226,7 +5159,7 @@ func (r *Renderer) drawArrowHeadOnIncoming(screen *ebiten.Image, cx, cy, size fl
 		vert(math.Cos(angle1)*radius, math.Sin(angle1)*radius, rim)
 		idx = append(idx, base, base+1, base+2)
 	}
-	screen.DrawTriangles(verts, idx, r.whiteImg, &ebiten.DrawTrianglesOptions{Blend: ebiten.BlendSourceOver})
+	r.drawWeaponFacets(screen, verts, idx)
 	r.standeeVerts = verts[:0]
 	r.standeeIdx = idx[:0]
 
@@ -5236,8 +5169,8 @@ func (r *Renderer) drawArrowHeadOnIncoming(screen *ebiten.Image, cx, cy, size fl
 // drawArrowQuad draws an arrow the shape of a real one - shaft, triangular
 // steel head, two swept-back fletching triangles - rotated along `angle` (its
 // on-screen flight direction), in the bow's element colour. All five triangles
-// go out as ONE DrawTriangles on the white pixel, coloured per vertex; drawn
-// source-over (no bloom) so the colour stays vivid. `size` is the
+// share one material draw with shaded facets. Source-over blending keeps
+// the shaft and feather colours readable against scenery. `size` is the
 // distance-scaled base size; the arrow is ~1.7x as long.
 func (r *Renderer) drawArrowQuad(screen *ebiten.Image, cx, cy, size, angle float64, col [3]int, alpha float64) {
 	r.drawArrowQuadForeshortened(screen, cx, cy, size, angle, 1, col, alpha)
@@ -5292,7 +5225,7 @@ func (r *Renderer) drawArrowQuadForeshortened(screen *ebiten.Image, cx, cy, size
 	tri(-half+flLen, -w, -half, -w-flW, -half, -w, feather)
 	tri(-half+flLen, w, -half, w+flW, -half, w, feather)
 
-	screen.DrawTriangles(verts, idx, r.whiteImg, &ebiten.DrawTrianglesOptions{Blend: ebiten.BlendSourceOver})
+	r.drawWeaponFacets(screen, verts, idx)
 	r.standeeVerts = verts[:0]
 	r.standeeIdx = idx[:0]
 }
@@ -5305,9 +5238,7 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 	cx := float64(r.game.worldWidth()) / 2
 	screenH := float64(r.game.worldHeight())
 	cy := screenH * meleeAnchorYFrac // lower on screen - it's the party's own weapon
-	// Melee swings are now pure pixel-particle FX (see drawMeleeParticles):
-	// a sweeping crescent for slashes, a stab streak for thrusts. The old flat
-	// stroke/square renderer was removed.
+	// Shared materials preserve the authored swing and weapon silhouette.
 	for _, slash := range r.game.slashEffects {
 		if !slash.Active || slash.MaxFrames <= 0 {
 			continue
@@ -5329,6 +5260,16 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			continue
 		}
 
+		if effect.BurstLife > 0 && effect.BurstAge < effect.BurstLife && len(effect.Particles) > 0 {
+			anchor := effect.Particles[0]
+			x, depth, ok := r.game.renderHelper.projectToScreenX(anchor.X, anchor.Y)
+			if ok && depth >= 10 && depth <= r.game.camera.ViewDist {
+				scale := float64(screenHeight) / (depth * r.game.camera.FOV)
+				radius := effect.BurstRadius * scale
+				r.drawImpactCloud(screen, float64(x), centerY, radius, radius*.85, float64(effect.BurstAge)/float64(effect.BurstLife), effect.BurstColor, .85, int(anchor.X*31+anchor.Y*19), effect.BurstDust)
+			}
+		}
+
 		for j := range effect.Particles {
 			particle := &effect.Particles[j]
 			if !particle.Active {
@@ -5341,13 +5282,14 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			// sprite's screenW/(2*tan(fov/2)), so off-axis impacts (e.g. an AoE
 			// splash on a mob to the side) drew pulled toward screen center.
 			anchorX, depth, ok := r.game.renderHelper.projectToScreenX(particle.X, particle.Y)
-			if !ok {
+			if !ok || depth < 10 || depth > r.game.camera.ViewDist {
 				continue
 			}
 
 			fov := r.game.camera.FOV
-			// Screen-space burst spread scales with perspective; the anchor is
-			// already correct, so only the OFFSET rides this scale.
+			// Particle size, spread and cloud radius are authored in the same
+			// impact-plane units. Project all of them at the actual hit depth;
+			// projectile sprite base sizes use a different unit convention.
 			scale := float64(screenHeight) / (depth * fov)
 			screenX := float64(anchorX) + particle.OffsetX*scale
 			screenY := centerY + particle.OffsetY*scale
@@ -5364,29 +5306,23 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				continue
 			}
 
-			// Alpha/size from remaining lifetime; particles shrink as they fade
-			// but keep some body so they read as pixels, not dust.
-			lifeRatio := float64(particle.LifeTime) / float64(particle.MaxLife)
-			if lifeRatio < 0 {
-				lifeRatio = 0
-			}
-			size := spellParticleScreenSize(particle.Size, lifeRatio, scale)
-			if particle.Star {
-				// Twinkling 4-point star (impact_stars - plasma/energy bursts).
-				tw := 0.7 + 0.3*math.Sin(float64(r.game.frameCount)*0.45+float64(i*13+j))
-				r.drawSparkStar(screen, screenX, screenY, size*0.9,
-					particle.Color, mixColor(particle.Color, [3]int{255, 255, 255}, 0.6),
-					lifeRatio*tw, 1)
+			if particle.MaxLife <= 0 {
 				continue
 			}
-			// Square pixel particle (matches the impassable-aura / projectile look).
-			// Solid particles are MATTER, not light: additive brown over bright
-			// ground only washes to white, so dirt draws source-over.
-			blend := additiveGlowBlend
-			if particle.Solid {
-				blend = ebiten.BlendSourceOver
+			lifeRatio := math.Max(0, math.Min(1, float64(particle.LifeTime)/float64(particle.MaxLife)))
+			if particle.Star {
+				size := spellParticleScreenSize(particle.Size, lifeRatio, scale)
+				tw := 0.7 + 0.3*math.Sin(float64(r.game.frameCount)*0.45+float64(j))
+				r.drawSparkStar(screen, screenX, screenY, size*0.9,
+					particle.Color, mixColor(particle.Color, [3]int{255, 255, 255}, .6), lifeRatio*tw, 1)
+				continue
 			}
-			r.drawGlowRect(screen, screenX, screenY, size, particle.Color, lifeRatio, blend)
+			// Convert the projected full-face diameter to the shard mesh scale.
+			// drawWeaponShard expands by this same factor; it is not an extra
+			// distance reduction. Erosion keeps the face readable during fade.
+			size := spellParticleScreenSize(particle.Size, .72+.28*lifeRatio, scale) / weaponShardDiameter
+			seed := int(particle.X*31+particle.Y*19) + j*47 + particle.MaxLife*13
+			r.drawWeaponShard(screen, screenX, screenY, size, particle.Color, math.Sqrt(lifeRatio), 1-lifeRatio, seed, particle.Solid)
 		}
 	}
 }

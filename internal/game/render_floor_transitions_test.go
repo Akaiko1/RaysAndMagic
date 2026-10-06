@@ -59,6 +59,39 @@ func TestTerrainProfilesCoverShippedGroups(t *testing.T) {
 	}
 }
 
+// checkTerrainInput resolves one tile on a ground patch two tiles from water
+// and asserts its encoded profile and beach overlay; actors never alter it.
+func checkTerrainInput(t *testing.T, biome, tileKey, groundKey string, profile byte, wantShore bool) {
+	t.Helper()
+	r, _ := terrainTestRenderer(t, biome)
+	ground, tile := terrainTile(t, groundKey), terrainTile(t, tileKey)
+	for y := 9; y <= 11; y++ {
+		for x := 9; x <= 11; x++ {
+			r.game.world.Tiles[y][x] = ground
+		}
+	}
+	r.game.world.Tiles[10][10] = tile
+	r.game.world.Tiles[10][12] = terrainTile(t, "water")
+	_, indices, shore := r.prepareFloorMaps(r.game.world.Width, r.game.world.Height)
+	encoded := indices.RGBAAt(10, 10)
+	if encoded.B%8 != profile || (encoded.G != 0) != wantShore || encoded.R == 0 {
+		t.Fatalf("material=%v, want profile=%d shore=%v", encoded, profile, wantShore)
+	}
+	if wantShore && int(encoded.R) == r.floorTexGroups["beach"].start+1 {
+		t.Fatal("beach replaced underlying ground")
+	}
+	if shore.RGBAAt(12, 10).R != 0 || shore.RGBAAt(7, 10).R == 0 {
+		t.Fatal("distance field did not preserve the water edge")
+	}
+	before := append([]byte(nil), indices.Pix...)
+	r.game.world.Monsters = []*monster.Monster3D{{X: 10 * 64, Y: 10 * 64}}
+	r.game.world.Monsters[0].X += 64
+	_, again, _ := r.prepareFloorMaps(r.game.world.Width, r.game.world.Height)
+	if !bytes.Equal(before, again.Pix) || r.game.world.Tiles[10][10] != tile {
+		t.Fatal("moving actor changed terrain")
+	}
+}
+
 func TestTerrainResolvedInputs(t *testing.T) {
 	for _, tc := range []struct {
 		name, biome, tile, ground string
@@ -72,42 +105,67 @@ func TestTerrainResolvedInputs(t *testing.T) {
 		{"deep water", "forest", "deep_water", "empty", floorBlendWater, false},
 		{"stream", "forest", "forest_stream", "empty", floorBlendWater, false},
 		{"no beach biome", "highlands", "empty", "empty", floorBlendNatural, false},
-		{"authored garden shore", "sakura_garden", "empty", "empty", floorBlendHard, false},
-		{"cliff east", "dragon_cliffs", "dragon_cliffs_chasm_edge", "dragon_cliffs_floor", floorBlendCliffEast, false},
-		{"cliff west", "dragon_cliffs", "dragon_cliffs_chasm_edge_b", "dragon_cliffs_floor", floorBlendCliffWest, false},
-		{"void", "dragon_cliffs", "dragon_cliffs_chasm_floor", "dragon_cliffs_floor", floorBlendVoid, false},
-		{"void variant", "dragon_cliffs", "dragon_cliffs_chasm_floor_b", "dragon_cliffs_floor", floorBlendVoid, false},
-		{"bridge", "dragon_cliffs", "dragon_cliffs_bridge", "dragon_cliffs_floor", floorBlendHard, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r, _ := terrainTestRenderer(t, tc.biome)
-			ground, tile := terrainTile(t, tc.ground), terrainTile(t, tc.tile)
-			for y := 9; y <= 11; y++ {
-				for x := 9; x <= 11; x++ {
-					r.game.world.Tiles[y][x] = ground
-				}
-			}
-			r.game.world.Tiles[10][10] = tile
-			r.game.world.Tiles[10][12] = terrainTile(t, "water")
-			_, indices, shore := r.prepareFloorMaps(r.game.world.Width, r.game.world.Height)
-			encoded := indices.RGBAAt(10, 10)
-			if encoded.B%8 != tc.profile || (encoded.G != 0) != tc.shore || encoded.R == 0 {
-				t.Fatalf("material=%v, profile=%d shore=%v", encoded, tc.profile, tc.shore)
-			}
-			if tc.shore && int(encoded.R) == r.floorTexGroups["beach"].start+1 {
-				t.Fatal("beach replaced underlying ground")
-			}
-			if shore.RGBAAt(12, 10).R != 0 || shore.RGBAAt(7, 10).R == 0 {
-				t.Fatal("distance field did not preserve the water edge")
-			}
-			before := append([]byte(nil), indices.Pix...)
-			r.game.world.Monsters = []*monster.Monster3D{{X: 10 * 64, Y: 10 * 64}}
-			r.game.world.Monsters[0].X += 64
-			_, again, _ := r.prepareFloorMaps(r.game.world.Width, r.game.world.Height)
-			if !bytes.Equal(before, again.Pix) || r.game.world.Tiles[10][10] != tile {
-				t.Fatal("moving actor changed terrain")
-			}
+			checkTerrainInput(t, tc.biome, tc.tile, tc.ground, tc.profile, tc.shore)
 		})
+	}
+}
+
+// Every authored hard, directional-cliff and void group, in every biome,
+// encodes its shader profile with no beach overlay. The first tile carrying
+// the group (sorted by key) stands for it; "empty" stands for the default.
+func TestTerrainAuthoredProfilesEncode(t *testing.T) {
+	_, wm := terrainTestRenderer(t, "forest")
+	want := map[config.FloorTransition]byte{
+		config.FloorTransitionHard:      floorBlendHard,
+		config.FloorTransitionCliffEast: floorBlendCliffEast,
+		config.FloorTransitionCliffWest: floorBlendCliffWest,
+		config.FloorTransitionVoid:      floorBlendVoid,
+		config.FloorTransitionChasm:     floorBlendChasm,
+	}
+	tileKeys := world.GlobalTileManager.GetAllTileKeys()
+	sort.Strings(tileKeys)
+	firstTile := func(group string) string {
+		if group == defaultFloorTextureGroup {
+			return "empty"
+		}
+		for _, key := range tileKeys {
+			if data := world.GlobalTileManager.GetTileDataByKey(key); data != nil && data.FloorTextureGroup == group {
+				return key
+			}
+		}
+		return ""
+	}
+	biomes := make([]string, 0, len(wm.Biomes))
+	for key := range wm.Biomes {
+		biomes = append(biomes, key)
+	}
+	sort.Strings(biomes)
+	covered := map[config.FloorTransition]int{}
+	for _, biome := range biomes {
+		transitions := wm.Biomes[biome].FloorTransitions
+		groups := make([]string, 0, len(transitions))
+		for group := range transitions {
+			groups = append(groups, group)
+		}
+		sort.Strings(groups)
+		for _, group := range groups {
+			profile, ok := want[transitions[group]]
+			tileKey := firstTile(group)
+			if !ok || tileKey == "" {
+				continue
+			}
+			covered[transitions[group]]++
+			t.Run(biome+"/"+group+"/"+tileKey, func(t *testing.T) {
+				checkTerrainInput(t, biome, tileKey, "empty", profile, false)
+			})
+		}
+	}
+	for kind := range want {
+		if covered[kind] == 0 {
+			t.Errorf("no shipped tile carries a %q floor group: the profile is untested", kind)
+		}
 	}
 }
 
@@ -164,9 +222,12 @@ func TestTerrainOpenWorldRestoreAndQuestRebuild(t *testing.T) {
 			}
 		}
 	}
-	for _, key := range []string{"forest", "desert", "highlands", "dragon_cliffs", "deep_jungle", "japanese_castle", "sakura_garden"} {
-		if !seen[key] {
-			t.Errorf("region %s has no resolved textures", key)
+	if len(wm.OpenWorldRegions) == 0 {
+		t.Fatal("open world booted with no regions")
+	}
+	for _, region := range wm.OpenWorldRegions {
+		if !seen[region.MapKey] {
+			t.Errorf("region %s has no resolved textures", region.MapKey)
 		}
 	}
 	md, err := world.NewMapLoaderWithBiome(g.config, "forest").LoadMap("assets/forest.map")

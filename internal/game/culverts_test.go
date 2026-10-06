@@ -1,16 +1,19 @@
 package game
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 )
 
-// The "close 7 valves" interact-quest advances via OnInteract("valve") and
-// completes at 7/7 with the right progress string.
+// The valve interact-quest advances via OnInteract on its own tag and
+// completes exactly at its authored quota with the authored progress text.
 func TestCulvertsValveQuest_InteractProgresses(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	qm := loadTestQuestManager(t)
@@ -19,24 +22,44 @@ func TestCulvertsValveQuest_InteractProgresses(t *testing.T) {
 	if err := qm.ActivateQuest(qid); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
-	for i := 1; i <= 7; i++ {
-		advanced, completed := qm.OnInteract("valve")
-		q := qm.GetQuest(qid)
+	q := qm.GetQuest(qid)
+	quota, tag := q.Target(), q.Definition.TargetMonster
+	if quota <= 0 || tag == "" || q.Definition.ProgressText == "" {
+		t.Fatalf("%s lost its interact tag, quota or progress text: %+v", qid, q.Definition)
+	}
+	for i := 1; i <= quota; i++ {
+		advanced, completed := qm.OnInteract(tag)
 		if len(advanced) != 1 || advanced[0].ID != qid {
 			t.Fatalf("close %d advanced %d quests, want just %s", i, len(advanced), qid)
 		}
 		if q.CurrentCount != i {
 			t.Fatalf("after %d closes, count = %d", i, q.CurrentCount)
 		}
-		if i < 7 && len(completed) != 0 {
-			t.Errorf("quest completed early at %d/7", i)
+		if i < quota && len(completed) != 0 {
+			t.Errorf("quest completed early at %d/%d", i, quota)
 		}
-		if i == 7 && (len(completed) != 1 || !q.Completed) {
-			t.Errorf("quest should complete at 7/7 (completed=%v)", q.Completed)
+		if i == quota && (len(completed) != 1 || !q.Completed) {
+			t.Errorf("quest should complete at %d/%d (completed=%v)", quota, quota, q.Completed)
 		}
 	}
-	if got := qm.GetQuest(qid).GetProgressString(); got != "7/7 valves closed" {
-		t.Errorf("progress = %q, want \"7/7 valves closed\"", got)
+	if got, want := q.GetProgressString(), fmt.Sprintf("%d/%d %s", quota, quota, q.Definition.ProgressText); got != want {
+		t.Errorf("progress = %q, want %q", got, want)
+	}
+}
+
+// finishInteractQuest takes an interact quest and credits its own tag up to
+// the authored quota.
+func finishInteractQuest(t *testing.T, qm *quests.QuestManager, id string) {
+	t.Helper()
+	if err := qm.ActivateQuest(id); err != nil {
+		t.Fatalf("activate %s: %v", id, err)
+	}
+	q := qm.GetQuest(id)
+	for i := 0; i < q.Target(); i++ {
+		qm.OnInteract(q.Definition.TargetMonster)
+	}
+	if !q.Completed || q.Status != quests.QuestStatusCompleted {
+		t.Fatalf("%s not completed after %d interactions: %+v", id, q.Target(), q)
 	}
 }
 
@@ -72,7 +95,7 @@ func TestCloseValve_AdvancesOnceAndSticks(t *testing.T) {
 	ih.handleQuestPropInteract(qid, valveProp.Prop)
 
 	if c := g.questManager.GetQuest(qid).CurrentCount; c != 1 {
-		t.Errorf("one valve closed should be 1/7, got %d", c)
+		t.Errorf("one valve closed should count 1, got %d", c)
 	}
 	if !valve.Visited {
 		t.Errorf("closed valve should be Visited (stays shut)")
@@ -97,8 +120,8 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 
 	gtb := monster.NewMonster3DFromConfig(g.camera.X+500, g.camera.Y+500, "golden_thief_bug", g.config)
 	g.world.Monsters = append(g.world.Monsters, gtb)
-	if gtb.MaxHitPoints != 1200 || !gtb.IgnoresArmor || gtb.InfernoChance == 0 ||
-		gtb.TeleportAtHP != 300 || gtb.PassiveUntilQuest != "culverts_valves" {
+	if !gtb.IgnoresArmor || gtb.InfernoChance <= 0 || gtb.TeleportAtHP <= 0 ||
+		gtb.TeleportAtHP >= gtb.MaxHitPoints || gtb.PassiveUntilQuest != "culverts_valves" {
 		t.Fatalf("GTB flags not parsed: HP=%d ignoresArmor=%v inferno=%.2f teleAtHP=%d quest=%q",
 			gtb.MaxHitPoints, gtb.IgnoresArmor, gtb.InfernoChance, gtb.TeleportAtHP, gtb.PassiveUntilQuest)
 	}
@@ -121,10 +144,7 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 	}
 
 	// Complete the valve quest -> aggressive: now chases the party.
-	g.questManager.ActivateQuest("culverts_valves")
-	for i := 0; i < 7; i++ {
-		g.questManager.OnInteract("valve")
-	}
+	finishInteractQuest(t, g.questManager, "culverts_valves")
 	if cs.bossEvasive(gtb) {
 		t.Errorf("GTB should turn aggressive once the valve quest is complete")
 	}
@@ -182,19 +202,41 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 	}
 }
 
-// Armour-piercing attackers bypass the party's armor class; the flag is parsed
-// and mitigateCharacterDamage (the path the melee skips) does reduce.
-func TestIgnoresArmor_FlagAndArmorPath(t *testing.T) {
+// An armour-piercing melee hit skips the party's armor class: through the one
+// monster-hit choke point, the Golden Thief Bug's hit on an armoured member
+// lands as hard as an ordinary hit on the same member unarmoured, and harder
+// than an ordinary hit on the armoured member.
+func TestIgnoresArmor_MeleeHitSkipsPartyArmor(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	member := cs.game.party.Members[0]
-	reduced := cs.mitigateCharacterDamage(100, "physical", member, false)
-	if reduced > 100 {
-		t.Errorf("armor path should never increase damage")
-	}
+	member.Luck = 0
 	gtb := monster.NewMonster3DFromConfig(0, 0, "golden_thief_bug", cs.game.config)
 	if !gtb.IgnoresArmor {
-		t.Errorf("Golden Thief Bug must ignore armor (skips the reduction path)")
+		t.Fatal("golden_thief_bug no longer authors ignores_armor")
+	}
+	loss := func(armored, ignoresArmor bool) int {
+		t.Helper()
+		member.Equipment = map[items.EquipSlot]items.Item{}
+		if armored {
+			equipArmorPieces(t, member, "leather_armor")
+			if cs.armorMitigationPct(member, true) <= 0 {
+				t.Fatal("setup: the armour mitigates nothing")
+			}
+		}
+		if chance := cs.PerfectDodgeChance(member); chance != 0 {
+			t.Fatalf("setup: perfect dodge %d%%, want 0", chance)
+		}
+		member.MaxHitPoints, member.HitPoints = 10000, 10000
+		cs.monsterHitCharacter(gtb, member, gtb.Name, hitFromMonster(gtb, 100, "physical", ignoresArmor, 0, true, false))
+		return 10000 - member.HitPoints
+	}
+	piercing, armored, bare := loss(true, gtb.IgnoresArmor), loss(true, false), loss(false, false)
+	if piercing != bare {
+		t.Errorf("armour-piercing hit took %d, want the unarmoured %d", piercing, bare)
+	}
+	if armored >= bare {
+		t.Errorf("ordinary hit on armour took %d, want less than the unarmoured %d (positive control)", armored, bare)
 	}
 }
 
@@ -248,10 +290,7 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 		t.Fatalf("setup: golden_thief_bug must author inferno_range_tiles, got %.1f", gtb.InfernoRangeTiles)
 	}
 	// Aggressive (the quest gate is a separate concern) and guaranteed to roll.
-	g.questManager.ActivateQuest("culverts_valves")
-	for i := 0; i < 7; i++ {
-		g.questManager.OnInteract("valve")
-	}
+	finishInteractQuest(t, g.questManager, "culverts_valves")
 	gtb.InfernoChance = 1.0
 	gtb.TeleportAtHP = 0 // isolate the nova from the low-HP blink
 

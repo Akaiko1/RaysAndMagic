@@ -18,27 +18,37 @@ import (
 // legally stand on; a blocked landing refunds the SP and holds position. Like
 // any no-op cast the turn and RT cooldown are still spent.
 func (cs *CombatSystem) tryCastJump(def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
-	if def.JumpTiles <= 0 {
+	return cs.tryPartyJump(def.Name, def.JumpTiles, nil)
+}
+
+// Devices and spells share landing, arrival effects, quest credit and TB movement.
+// Commit instance state before arrivals can move bags, change maps or autosave.
+func (cs *CombatSystem) tryPartyJump(name string, tiles float64, onCommit func()) spellCastOutcome {
+	g := cs.game
+	if tiles <= 0 {
 		return castNotHandled
 	}
-	g := cs.game
 	if g.partyRooted() {
 		g.AddCombatMessage("The party is rooted in place.")
 		return castNoEffect
 	}
 	ts := float64(g.config.GetTileSize())
 	dx, dy := math.Cos(cs.partyAttackAngle()), math.Sin(cs.partyAttackAngle())
-	landX := g.camera.X + dx*def.JumpTiles*ts
-	landY := g.camera.Y + dy*def.JumpTiles*ts
+	landX := g.camera.X + dx*tiles*ts
+	landY := g.camera.Y + dy*tiles*ts
 
-	if g.collisionSystem == nil || !g.collisionSystem.CanMoveTo("player", landX, landY) {
+	if g.collisionSystem == nil || !g.canMovePartyTo(landX, landY) {
 		g.AddCombatMessage("There is no room to land.")
 		return castNoEffect
 	}
 	oldX, oldY := g.camera.X, g.camera.Y
+	if onCommit != nil {
+		onCommit()
+	}
 	g.setPartyPosition(landX, landY)
+	g.creditAdventureMovement("jump", oldX, oldY, landX, landY)
 	g.notifyPilgrimDisplacement(oldX, oldY)
-	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", def.Name))
+	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", name))
 	// Landing on a teleporter or in deep water must resolve like any other arrival.
 	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
 		g.gameLoop.inputHandler.applyLandingTileEffects()
@@ -172,6 +182,9 @@ func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *charac
 		cs.game.AddCombatMessage("There is no room to summon here.")
 		return castNoEffect
 	}
+	if caster != nil {
+		add.SummonerName = caster.Name
+	}
 	tier := casterSpellMasteryTier(caster, def)
 	if hp := masteryLadderValue(def.SummonHPByMastery, tier); hp > 0 {
 		add.MaxHitPoints, add.HitPoints = hp, hp
@@ -180,7 +193,7 @@ func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *charac
 		add.DamageMin, add.DamageMax = dmg, dmg
 	}
 	// spawnPartyAlly already registered it in the world and collision system.
-	cs.game.AddCombatMessage(fmt.Sprintf("%s answers the call! (%d HP, %d damage)", add.Name, add.MaxHitPoints, add.DamageMax))
+	cs.game.logCombat(logToneGood, "%s answers the call! (%d HP, %d damage)", logMonsterName(add), add.MaxHitPoints, add.DamageMax)
 	return castCommitted
 }
 

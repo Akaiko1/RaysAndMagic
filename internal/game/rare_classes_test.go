@@ -3,10 +3,13 @@ package game
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -55,6 +58,7 @@ func TestRarePurifyLifeStates(t *testing.T) {
 			victim.StunFramesRemaining = 100
 			victim.StunTurnsRemaining = 2
 			valid := life != character.ConditionDead && life != character.ConditionEradicated
+			cost := g.techniqueSPCost(c, config.Technique("purify"))
 			if got := g.useTechnique(0, "purify", false, false); got != valid {
 				t.Fatalf("cast=%v want %v", got, valid)
 			}
@@ -68,7 +72,7 @@ func TestRarePurifyLifeStates(t *testing.T) {
 				if life == character.ConditionUnconscious && !victim.HasCondition(life) {
 					t.Fatal("unconscious ally was awakened")
 				}
-				if c.SpellPoints != 88 || c.ActionsRemaining != 1 {
+				if c.SpellPoints != 100-cost || c.ActionsRemaining != 1 {
 					t.Fatalf("wrong cost: SP=%d AP=%d", c.SpellPoints, c.ActionsRemaining)
 				}
 				if g.useTechnique(0, "purify", false, false) {
@@ -83,12 +87,12 @@ func TestRarePurifyLifeStates(t *testing.T) {
 
 func TestRareCraftAllRecipesAndAtomicFailure(t *testing.T) {
 	g, c := rareClassGame(t, character.ClassAlchemist, false)
-	for _, recipe := range config.GlobalAlchemy.Recipes {
+	for ri, recipe := range config.GlobalAlchemy.Recipes {
 		for _, tier := range []character.SkillMastery{character.MasteryNovice, character.MasteryGrandMaster} {
 			t.Run(fmt.Sprintf("%s/%d", recipe.Key, tier), func(t *testing.T) {
 				c.Skills[character.SkillAlchemy] = &character.Skill{Mastery: tier}
 				g.party.Inventory = nil
-				choices := make([]int, len(recipe.Ingredients))
+				g.alchemy = AlchemyState{} // default selection: every group's first source
 				for _, group := range recipe.Ingredients {
 					a := group.Alternatives[0]
 					it, err := items.TryCreateItemFromYAML(a.Items[0])
@@ -99,19 +103,20 @@ func TestRareCraftAllRecipesAndAtomicFailure(t *testing.T) {
 					g.party.AddItem(it)
 				}
 				before := append([]items.Item(nil), g.party.Inventory...)
-				if _, _, err := g.party.Brew(c, &recipe, choices, 3); err == nil {
+				g.selectedRare, g.alchemyBatches, g.brewAnimation = ri, 3, nil
+				if g.brewSelectedRecipe() {
 					t.Fatal("short batch succeeded")
 				}
 				if !reflect.DeepEqual(before, g.party.Inventory) {
 					t.Fatal("failed batch consumed ingredients")
 				}
-				count, _, err := g.party.Brew(c, &recipe, choices, 2)
-				if err != nil {
-					t.Fatal(err)
+				g.alchemyBatches = 2
+				if !g.brewSelectedRecipe() {
+					t.Fatal(g.rareBookMessage)
 				}
 				want := 2 * character.AlchemyYield(int(tier), recipe.Family)
-				if count != want || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != want {
-					t.Fatalf("bad yield/inventory: %d %+v", count, g.party.Inventory)
+				if g.brewAnimation.Count != want || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != want {
+					t.Fatalf("bad yield/inventory: %d %+v", g.brewAnimation.Count, g.party.Inventory)
 				}
 				output, _ := config.GetItemDefinition(recipe.Output)
 				if g.party.Inventory[0].Name != output.Name || output.Value != 1 || !output.CraftedOnly {
@@ -121,29 +126,6 @@ func TestRareCraftAllRecipesAndAtomicFailure(t *testing.T) {
 					t.Fatal("crafted stock allowed into ordinary source")
 				}
 			})
-		}
-	}
-}
-
-func TestRareCraftMixedFishAndChosenAlternative(t *testing.T) {
-	g, c := rareClassGame(t, character.ClassAlchemist, false)
-	g.party.Inventory = nil
-	for key, count := range map[string]int{"dawnleaf": 1, "carp_scale": 2, "koi_scale": 1, "rainbow_salmon_scale": 1, "rabbit_pelt": 1} {
-		it, _ := items.TryCreateItemFromYAML(key)
-		it.Quantity = count
-		g.party.AddItem(it)
-	}
-	r := config.AlchemyRecipeByKey("health_potion")
-	if _, _, err := g.party.Brew(c, r, []int{0, 0}, 1); err != nil {
-		t.Fatal(err)
-	}
-	if g.party.CountItemsByName("Rabbit Pelt") != 1 {
-		t.Fatal("unselected alternative consumed")
-	}
-	for _, key := range []string{"carp_scale", "koi_scale", "rainbow_salmon_scale"} {
-		d, _ := config.GetItemDefinition(key)
-		if g.party.CountItemsByName(d.Name) != 0 {
-			t.Fatal("mixed fish not consumed")
 		}
 	}
 }
@@ -184,7 +166,7 @@ func TestRarePharmacologyCoherentSourceAndTooltip(t *testing.T) {
 	d, _ := config.GetItemDefinition("brewed_health_potion")
 	bonus := g.party.PotionSupport(recipient, d.HealBase, d.HealEnduranceDivisor, false)
 	want := character.ConsumableRestore(recipient, d.HealBase, d.HealEnduranceDivisor, false, bonus)
-	tooltip := buildSimpleItemTooltipWithParty(it, true, recipient, g.party)
+	tooltip := buildSimpleItemTooltipWithParty(it, true, recipient, g.party, g.combat)
 	if !strings.Contains(tooltip, fmt.Sprint(want)) || !strings.Contains(tooltip, "Master") {
 		t.Fatalf("tooltip diverged: %s", tooltip)
 	}
@@ -212,10 +194,11 @@ func TestRareTechniqueAutocastTransaction(t *testing.T) {
 					c.RareClass.AutoFrames = 100
 				}
 				ap, sp := c.ActionsRemaining, c.SpellPoints
+				cost := g.techniqueSPCost(c, config.Technique("purify"))
 				otherAP := g.party.Members[1].ActionsRemaining
 				(&GameLoop{game: g}).updateAutomaticTechniques()
 				if blocked == "none" {
-					if g.party.Members[1].Purifiable() || c.SpellPoints != sp-12 || c.RareClass.AutoFrames != 3*g.config.GetTPS() {
+					if g.party.Members[1].Purifiable() || c.SpellPoints != sp-cost || c.RareClass.AutoFrames != 3*g.config.GetTPS() {
 						t.Fatal("automatic cleanse not committed")
 					}
 					wantAP := ap
@@ -240,29 +223,38 @@ func TestRareTechniqueAutocastTransaction(t *testing.T) {
 }
 
 func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
-	for _, blocked := range []string{"none", "wall", "endpoint", "SP", "reuse", "enemyphase"} {
+	for _, blocked := range []string{"none", "wall", "endpoint", "SP", "reuse", "enemyphase", "rooted"} {
 		t.Run(blocked, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, true)
 			c.ActionsRemaining = 0
 			ts := float64(g.config.GetTileSize())
 			x, y := g.camera.X, g.camera.Y
+			fold := config.Technique("fold_step")
+			tier := c.SkillTier(character.SkillTranslocation)
+			reach := config.TierValue(fold.Range, tier)
 			switch blocked {
 			case "wall":
 				g.world.Tiles[10][9] = world.TileWall
 			case "endpoint":
-				m := zoneVictim(t, g)
-				m.X = x + 3*ts
-				m.Y = y
-				g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-				g.refreshMonsterCollisionState(m)
+				// Every legal landing is occupied.
+				for tiles := fold.MinRange; tiles <= reach; tiles++ {
+					m := zoneVictim(t, g)
+					m.X = x + float64(tiles)*ts
+					m.Y = y
+					g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+					g.refreshMonsterCollisionState(m)
+				}
 			case "SP":
 				c.SpellPoints = 0
 			case "reuse":
 				g.spatialReuseFrames = 1
 			case "enemyphase":
 				g.currentTurn = 1
+			case "rooted":
+				g.partyRoot = PartyRootState{Frames: 600, Turns: 2}
 			}
 			sp := c.SpellPoints
+			cost := g.techniqueSPCost(c, fold)
 			got := g.useTechnique(0, "fold_step", false, false)
 			if got != (blocked == "none") {
 				t.Fatalf("cast=%v reason=%s", got, g.techniqueRefusal(0, "fold_step"))
@@ -273,11 +265,11 @@ func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
 				}
 				return
 			}
-			distance := 3 * ts
-			if c.ActionsRemaining != 0 || c.RTCooldown != 0 || c.SpellPoints != sp-8 || math.Abs(g.camera.X-x-distance) > .01 {
+			distance := float64(reach) * ts
+			if c.ActionsRemaining != 0 || c.RTCooldown != 0 || c.SpellPoints != sp-cost || math.Abs(g.camera.X-x-distance) > .01 {
 				t.Fatal("spatial step paid AP or moved incorrectly")
 			}
-			if c.FlowingStaffCharges() == 0 || c.RareClass.Anchor.X != x || g.spatialReuseFrames != 3*g.config.GetTPS() {
+			if c.FlowingStaffCharges() == 0 || c.RareClass.Anchor.X != x || g.spatialReuseFrames != fold.ReuseSeconds*g.config.GetTPS() {
 				t.Fatal("step state missing")
 			}
 			if g.useTechnique(0, "return_step", false, false) {
@@ -291,12 +283,37 @@ func TestRareSpatialStepsFreeButTransactional(t *testing.T) {
 	}
 }
 
+// A rooted party cannot Return to its anchor either; once the root ends the
+// same step works.
+func TestRareReturnStepRespectsRoot(t *testing.T) {
+	g, c := rareClassGame(t, character.ClassWayfarer, true)
+	x, y := g.camera.X, g.camera.Y
+	if !g.useTechnique(0, "fold_step", false, false) {
+		t.Fatal("setup Fold rejected")
+	}
+	g.startPartyTurn()
+	g.spatialReuseFrames = 0
+	g.partyRoot = PartyRootState{Frames: 600, Turns: 2}
+	foldX, foldY, sp := g.camera.X, g.camera.Y, c.SpellPoints
+	if g.useTechnique(0, "return_step", false, false) || g.camera.X != foldX || g.camera.Y != foldY || c.SpellPoints != sp {
+		t.Fatal("a rooted party returned to its anchor")
+	}
+	g.partyRoot = PartyRootState{}
+	if !g.useTechnique(0, "return_step", false, false) || math.Abs(g.camera.X-x) > .01 || math.Abs(g.camera.Y-y) > .01 {
+		t.Fatal("Return Step failed once the root ended")
+	}
+}
+
 func TestRareCombatClocksAndPersistence(t *testing.T) {
 	g, c := rareClassGame(t, character.ClassWayfarer, true)
 	if !g.useTechnique(0, "quickening", false, false) {
 		t.Fatal("cast failed")
 	}
 	b, _ := g.combatBuffByID("quickening")
+	d, tier := config.Technique("quickening"), c.SkillTier(character.SkillTranslocation)
+	if b.RecoveryPct != config.TierValue(d.Power, tier) || b.ExtraActions != config.TierValue(d.TBPower, tier) || b.RecoveryPct <= 0 || b.ExtraActions <= 0 {
+		t.Fatalf("cast ignored the authored tier values: %+v", b)
+	}
 	frames := b.Frames
 	for i := 0; i < 120; i++ {
 		g.tickCombatBuffs()
@@ -305,11 +322,12 @@ func TestRareCombatClocksAndPersistence(t *testing.T) {
 	if b.Frames != frames {
 		t.Fatal("thinking time consumed new buff")
 	}
+	pre, _ := g.combatBuffByID("quickening")
 	saved := buildCombatBuffSaves(g.combatBuffs)
 	g.combatBuffs = restoreCombatBuffs(saved)
 	b, _ = g.combatBuffByID("quickening")
-	if b.RecoveryPct != 20 || b.ExtraActions != 1 || !b.DeferFirstTurnTick {
-		t.Fatalf("buff restore lost values: %+v", b)
+	if b.RecoveryPct != pre.RecoveryPct || b.ExtraActions != pre.ExtraActions || b.Frames != pre.Frames || !b.DeferFirstTurnTick {
+		t.Fatalf("buff restore lost values: %+v, saved %+v", b, pre)
 	}
 	g.tickCombatBuffsTurn(3 * g.config.GetTPS())
 	b, _ = g.combatBuffByID("quickening")
@@ -390,22 +408,35 @@ func TestRareFlaskStockShortcutAndAreaPacket(t *testing.T) {
 }
 
 func TestRareFirewallBandsAndSharedCadence(t *testing.T) {
-	for _, offset := range [][2]int{{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}, {2, 0}} {
+	rareClassGame(t, character.ClassAlchemist, false)
+	def, ok := config.GetSpellDefinition("firewall")
+	if !ok || def.ZoneEdgeTiles <= 0 || def.ZoneEdgeDamagePercent <= 0 || def.ZoneEdgeDamagePercent >= 100 {
+		t.Fatal("firewall must author a partial-damage edge band")
+	}
+	const tick = 15
+	reach := def.ZoneEdgeTiles
+	offsets := [][2]int{{reach + 1, 0}}
+	for dy := -reach; dy <= reach; dy++ {
+		for dx := -reach; dx <= reach; dx++ {
+			offsets = append(offsets, [2]int{dx, dy})
+		}
+	}
+	for _, offset := range offsets {
 		t.Run(fmt.Sprint(offset), func(t *testing.T) {
 			g, ts := summonTileWorld(t)
 			setTestWorldManager(t, nil)
 			x, y := TileCenterFromTile(10, 10, ts)
-			g.persistentDamageZones = []PersistentDamageZone{{SpellID: "firewall", FieldID: 1, X: x, Y: y, AxisY: 1, Radius: .55 * ts, TickDamage: 15, FramesLeft: 600, IntervalFrames: 60}}
+			g.persistentDamageZones = []PersistentDamageZone{{SpellID: "firewall", FieldID: 1, X: x, Y: y, AxisY: 1, Radius: .55 * ts, TickDamage: tick, FramesLeft: 600, IntervalFrames: 60}}
 			m := zoneVictim(t, g)
 			m.X = x + float64(offset[0])*ts
 			m.Y = y + float64(offset[1])*ts
 			g.refreshMonsterCollisionState(m)
 			tickZoneSpellOnce(g.combat, "firewall")
-			want := 7
+			want := tick * def.ZoneEdgeDamagePercent / 100
 			if offset == [2]int{0, 0} {
-				want = 15
+				want = tick
 			}
-			if offset == [2]int{2, 0} {
+			if offset[0] > reach {
 				want = 0
 			}
 			if got := m.MaxHitPoints - m.HitPoints; got != want {
@@ -430,7 +461,19 @@ func TestRareHarvestDawnSaveAndRoster(t *testing.T) {
 	if _, err := config.LoadAlchemySpawns("../../assets/alchemy_spawns.yaml"); err != nil {
 		t.Fatal(err)
 	}
-	for _, region := range []string{"forest", "highlands", "dragon_cliffs", "desert", "sakura_garden", "deep_jungle", "japanese_castle", "water"} {
+	// Every populated region, plus one region without a population.
+	regions := []string{}
+	for _, p := range config.GlobalAlchemySpawns.Populations {
+		if !slices.Contains(regions, p.Map) {
+			regions = append(regions, p.Map)
+		}
+	}
+	const unpopulated = "unpopulated_test_region"
+	if len(regions) == 0 || slices.Contains(regions, unpopulated) {
+		t.Fatalf("fixture needs populated regions and a free key, got %v", regions)
+	}
+	regions = append(regions, unpopulated)
+	for _, region := range regions {
 		t.Run(region, func(t *testing.T) {
 			wm := world.NewWorldManager(g.config)
 			wm.CurrentMapKey = region
@@ -442,10 +485,7 @@ func TestRareHarvestDawnSaveAndRoster(t *testing.T) {
 			g.calendarDay = 1
 			g.party.Members[0] = c
 			finishRareHarvest(t, g)
-			expected := 9
-			if region == "japanese_castle" || region == "water" {
-				expected = 0
-			}
+			expected := harvestPopulationTotal(region)
 			if len(g.world.NPCs) != expected {
 				t.Fatalf("nodes=%d want=%d", len(g.world.NPCs), expected)
 			}
@@ -468,7 +508,7 @@ func TestRareHarvestDawnSaveAndRoster(t *testing.T) {
 				t.Fatal("reachable node could not be gathered")
 			}
 			finishRareHarvest(t, g)
-			if len(g.world.NPCs) != 8 {
+			if len(g.world.NPCs) != expected-1 {
 				t.Fatal("same-day respawn")
 			}
 			data, err := json.Marshal(g.alchemy)
@@ -483,7 +523,7 @@ func TestRareHarvestDawnSaveAndRoster(t *testing.T) {
 			g.harvestRuntime = harvestRuntime{}
 			g.world.NPCs = nil
 			finishRareHarvest(t, g)
-			if len(g.world.NPCs) != 8 {
+			if len(g.world.NPCs) != expected-1 {
 				t.Fatal("reload rerolled depleted population")
 			}
 			g.party.Members[0] = character.CreateCharacter("Other", character.ClassKnight, g.config)
@@ -492,13 +532,13 @@ func TestRareHarvestDawnSaveAndRoster(t *testing.T) {
 			}
 			g.party.Members[0] = c
 			finishRareHarvest(t, g)
-			if len(g.world.NPCs) != 8 {
+			if len(g.world.NPCs) != expected-1 {
 				t.Fatal("class swap replenished stock")
 			}
 			survivor := g.world.NPCs[0].Key
 			g.advanceCalendarAtDawn()
 			finishRareHarvest(t, g)
-			if len(g.world.NPCs) != 9 {
+			if len(g.world.NPCs) != expected {
 				t.Fatal("dawn did not replenish deficit")
 			}
 			found := false
@@ -605,10 +645,8 @@ func TestRareMonsterBurnClockAndBossRule(t *testing.T) {
 						m.TickBurn()
 					}
 				}
-				want := 90
-				if boss {
-					want = 30
-				}
+				// One tick per second: the authored percent of max HP, floored at the minimum.
+				want := 3 * max(3, m.MaxHitPoints*config.BurnPercent(boss)/100)
 				if m.MaxHitPoints-m.HitPoints != want {
 					t.Fatalf("burn=%d want=%d", m.MaxHitPoints-m.HitPoints, want)
 				}
@@ -621,6 +659,13 @@ func TestRareSpatialNoExtraTurnBothOrdersAndMeditation(t *testing.T) {
 	for _, stepFirst := range []bool{false, true} {
 		g, c := rareClassGame(t, character.ClassWayfarer, true)
 		c.Skills[character.SkillMeditation] = &character.Skill{Mastery: character.MasteryGrandMaster}
+		tier := c.SkillTier(character.SkillTranslocation)
+		// The Grandmaster Meditation discount, rounded to nearest, on each technique.
+		want := c.SpellPoints
+		for _, key := range []string{"fold_step", "phase_veil"} {
+			base := config.TierValue(config.Technique(key).SPCost, tier)
+			want -= (base*(100-MeditationGMSpellCostReductionPct) + 50) / 100
+		}
 		step := func() {
 			if !g.useTechnique(0, "fold_step", false, false) {
 				t.Fatal("step failed")
@@ -638,18 +683,32 @@ func TestRareSpatialNoExtraTurnBothOrdersAndMeditation(t *testing.T) {
 			paid()
 			step()
 		}
-		if g.turnBasedExtraMonsterAction || c.SpellPoints != 88 {
-			t.Fatalf("unexpected monster turn or wrong Meditation discount: extra=%v SP=%d", g.turnBasedExtraMonsterAction, c.SpellPoints)
+		if g.turnBasedExtraMonsterAction || c.SpellPoints != want {
+			t.Fatalf("unexpected monster turn or wrong Meditation discount: extra=%v SP=%d want %d", g.turnBasedExtraMonsterAction, c.SpellPoints, want)
 		}
 	}
 }
 
+// Every brewed twin of a timed-buff consumable refreshes the ordinary effect
+// instead of stacking a second one, in either drinking order.
 func TestRareBrewedBuffRefreshesOrdinaryEffect(t *testing.T) {
-	for _, key := range []string{"flame_ward_draught", "storm_ward_draught", "gloom_ward_draught", "stoneskin_draught", "mirage_salt"} {
+	rareClassGame(t, character.ClassAlchemist, false)
+	twins := map[string]string{} // brewed key -> ordinary key
+	for _, brewed := range slices.Sorted(maps.Keys(config.GlobalItems.Items)) {
+		d := config.GlobalItems.Items[brewed]
+		if base, ok := config.GetItemDefinition(d.BrewedFrom); d.BrewedFrom != "" && ok && base.BuffDurationSeconds > 0 {
+			twins[brewed] = d.BrewedFrom
+		}
+	}
+	if len(twins) == 0 {
+		t.Fatal("no brewed timed-buff consumables in the catalog")
+	}
+	for _, brewed := range slices.Sorted(maps.Keys(twins)) {
+		key := twins[brewed]
 		for _, reverse := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/reverse=%v", key, reverse), func(t *testing.T) {
 				g, _ := rareClassGame(t, character.ClassAlchemist, false)
-				keys := []string{key, "brewed_" + key}
+				keys := []string{key, brewed}
 				if reverse {
 					keys[0], keys[1] = keys[1], keys[0]
 				}
@@ -735,7 +794,7 @@ func TestRareCraftedSourceProductionGuards(t *testing.T) {
 }
 
 func TestRareDisplayedAutocastCheckboxes(t *testing.T) {
-	for _, size := range [][2]int{{1024, 768}, {1920, 1080}} {
+	for _, size := range withInterfaceFrames(t, [][2]int{{1024, 768}, {1920, 1080}}) {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			h := newDisplayedModalHarness(t, size[0], size[1])
 			g := h.g
@@ -745,6 +804,7 @@ func TestRareDisplayedAutocastCheckboxes(t *testing.T) {
 			g.selectedChar = 0
 			g.menuOpen = true
 			g.currentTab = TabSpellbook
+			g.showPartyStats = true
 			content := computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content
 			l := computeRareBookLayout(content, false)
 			for i, d := range config.GlobalTechniques.Techniques {
@@ -771,6 +831,7 @@ func TestRareTechniqueQuickSlotAndBookCosts(t *testing.T) {
 			t.Run(fmt.Sprintf("tb=%v/%s", tb, route), func(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
 				it, _ := config.TechniqueItem("purify")
+				cost := g.techniqueSPCost(c, config.Technique("purify"))
 				g.party.Members[1].Conditions = []character.Condition{character.ConditionPoisoned}
 				if route == "book" {
 					g.menuOpen = true
@@ -786,7 +847,7 @@ func TestRareTechniqueQuickSlotAndBookCosts(t *testing.T) {
 				if tb {
 					wantAP = 1
 				}
-				if g.party.Members[1].Purifiable() || c.SpellPoints != 88 || c.ActionsRemaining != wantAP {
+				if g.party.Members[1].Purifiable() || c.SpellPoints != 100-cost || c.ActionsRemaining != wantAP {
 					t.Fatalf("route lost action: SP %d AP %d", c.SpellPoints, c.ActionsRemaining)
 				}
 				if route == "quickslot" && c.QuickSlots[0].Type != items.ItemTechnique {
@@ -900,6 +961,17 @@ func TestRareFlowChargeActualAttack(t *testing.T) {
 	}
 }
 
+// harvestPopulationTotal is the authored node count of every population in region.
+func harvestPopulationTotal(region string) int {
+	total := 0
+	for _, p := range config.GlobalAlchemySpawns.Populations {
+		if p.Map == region {
+			total += p.Count
+		}
+	}
+	return total
+}
+
 func finishRareHarvest(t *testing.T, g *MMGame) {
 	t.Helper()
 	for i := 0; i < g.world.Width*g.world.Height+1; i++ {
@@ -909,4 +981,71 @@ func finishRareHarvest(t *testing.T, g *MMGame) {
 		}
 	}
 	t.Fatal("harvest search did not finish")
+}
+
+// A technique card states its price and locks from the data and functions the
+// use path reads: the hero's SP cost and real recovery, and a reuse lock equal
+// to the one a real use sets. The catalog card (no hero) shows base values and
+// every tier, and no description repeats a lock number.
+func TestTechniqueCardsMatchTheirUse(t *testing.T) {
+	g0, _ := rareClassGame(t, character.ClassWayfarer, false)
+	tps := g0.config.GetTPS()
+	for _, d := range config.GlobalTechniques.Techniques {
+		d := d
+		item, ok := config.TechniqueItem(d.Key)
+		if !ok {
+			t.Fatalf("%s has no item", d.Key)
+		}
+		if d.ReuseSeconds > 0 && strings.Contains(d.Description, strconv.Itoa(d.ReuseSeconds)+" second") {
+			t.Errorf("%s description restates its reuse lock in prose", d.Key)
+		}
+		catalog := GetItemTooltip(item, nil, nil, true)
+		for _, want := range []string{fmt.Sprintf("Technique - Level %d", d.Level), fmt.Sprintf("Cost: %d SP", d.SPCost[0]), techniqueMagnitude(nil, &d, tps)} {
+			if !strings.Contains(catalog, want) {
+				t.Errorf("%s catalog card lacks %q:\n%s", d.Key, want, catalog)
+			}
+		}
+		for tier := 0; tier <= 3; tier++ {
+			for _, tb := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/tier%d/tb=%v", d.Key, tier, tb), func(t *testing.T) {
+					g, c := rareClassGame(t, character.ClassWayfarer, tb)
+					c.Skills[character.SkillTranslocation] = &character.Skill{Mastery: character.SkillMastery(tier)}
+					card := GetItemTooltip(item, c, g.combat, true)
+					if want := fmt.Sprintf("Cost: %d SP", g.techniqueSPCost(c, &d)); !strings.Contains(card, want) {
+						t.Fatalf("card lacks %q:\n%s", want, card)
+					}
+					if frames := g.techniqueCooldown(c, &d); frames > 0 && !strings.Contains(card, cooldownLine(g.combat, frames)) {
+						t.Fatalf("card lacks the real recovery %q:\n%s", cooldownLine(g.combat, frames), card)
+					}
+					if d.ReuseSeconds == 0 {
+						if strings.Contains(card, "Reuse:") {
+							t.Fatalf("a technique without a lock shows one:\n%s", card)
+						}
+						return
+					}
+					if !strings.Contains(card, fmt.Sprintf("Reuse: %ds", d.ReuseSeconds)) {
+						t.Fatalf("card lacks the %ds reuse lock:\n%s", d.ReuseSeconds, card)
+					}
+					g.party.Members[1].PoisonFramesRemaining = 100 // something for Purify to clear
+					if d.Key == "return_step" {
+						// Return needs the anchor a Fold leaves; then let space settle.
+						if !g.useTechnique(0, "fold_step", false, false) {
+							t.Fatal("fold failed")
+						}
+						g.spatialReuseFrames, g.spatialStepThisTurn = 0, false
+					}
+					if !g.useTechnique(0, d.Key, false, false) {
+						t.Fatal("use failed")
+					}
+					lock := c.RareClass.PurifyFrames
+					if d.FreeStep {
+						lock = g.spatialReuseFrames
+					}
+					if lock != d.ReuseSeconds*tps {
+						t.Fatalf("use set a %d-frame lock, the card says %ds", lock, d.ReuseSeconds)
+					}
+				})
+			}
+		}
+	}
 }

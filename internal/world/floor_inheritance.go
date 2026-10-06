@@ -20,8 +20,8 @@ func (floors FloorResolution) At(x, y int) (TileType3D, bool) {
 
 // CanSupplyUnderFloor applies to original floors and to the original floor
 // carried through another object. Never classify the intervening prop as ground.
-// Movement flags do not determine appearance: water and chasm bottoms can
-// supply ground, while directional edges opt out explicitly in the tile data.
+// Movement flags do not determine appearance. Donors opt out in tile data;
+// ordinary/deep water and directional edges require explicit placement.
 func (tm *TileManager) CanSupplyUnderFloor(tile TileType3D) bool {
 	d := tm.GetTileData(tile)
 	return d != nil && d.RenderType == config.TileRenderFloor &&

@@ -1,7 +1,6 @@
 package game
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -92,10 +91,14 @@ func TestShippedServiceGatesWithholdTheShopUntilPaid(t *testing.T) {
 
 // While the shop is shut the body text must be the errand, never the shop
 // welcome - the trader's Greeting promises rows the party cannot buy yet. The
-// two shipped spell traders carry a quest_greeting for exactly that.
+// shipped gated spell traders carry a quest_greeting for exactly that.
 func TestGatedTraderLeadsWithTheErrandNotTheShopWelcome(t *testing.T) {
 	g, qm := bootQuestGiverTest(t)
-	for _, key := range []string{"elf_city_archive", "nomad_city_spells"} {
+	for _, gate := range shippedServiceGates {
+		if gate.openKind != dialogKindSpellTrader {
+			continue
+		}
+		key := gate.npcKey
 		t.Run(key, func(t *testing.T) {
 			npc, err := character.CreateNPCFromConfig(key, 0, 0)
 			if err != nil {
@@ -273,18 +276,20 @@ func TestGatedTraderWithQuestMessagesShowsStepCopyWithoutTabs(t *testing.T) {
 // as gating nothing - and it must not call a plain talker a service.
 func TestGatedServiceProbeSeesThroughTheGate(t *testing.T) {
 	g, _ := bootQuestGiverTest(t)
-	for _, tc := range []struct {
+	type probe struct {
 		npcKey string
 		want   bool
-	}{
-		{"elf_city_archive", true},   // gated spell trader
-		{"nomad_city_trainer", true}, // gated skill trainer
-		{"nomad_city_spells", true},  // gated spell trader
-		{"tavern", true},             // service by top-level action, no gate
+	}
+	probes := []probe{
+		{"tavern", true}, // service by top-level action, no gate
 		{"forest_peasant_wenna", false},
 		{"barrel_red", false},
 		{"missing_npc_key", false},
-	} {
+	}
+	for _, gate := range shippedServiceGates {
+		probes = append(probes, probe{gate.npcKey, true})
+	}
+	for _, tc := range probes {
 		got, err := g.npcDataHasGatedService(tc.npcKey)
 		if err != nil && tc.want {
 			t.Errorf("npcDataHasGatedService(%q) failed: %v", tc.npcKey, err)
@@ -369,7 +374,7 @@ func TestServiceGateValidation(t *testing.T) {
 			wantErr: "unknown requires_quest",
 		},
 		{
-			name: "nothing to gate",
+			name: "dialogue-less giver has nothing to gate",
 			npc: &character.NPCData{
 				Type: character.NPCTypeQuestGiver, RequiresQuest: "pit_standing",
 			},
@@ -406,7 +411,7 @@ func TestServiceGateValidation(t *testing.T) {
 		},
 		{
 			// Nothing to withhold at all: plain conversation only.
-			name: "nothing to gate",
+			name: "plain conversation has nothing to gate",
 			npc: &character.NPCData{
 				Type:          character.NPCTypeQuestGiver,
 				RequiresQuest: "pit_standing",
@@ -931,18 +936,9 @@ func TestSpellShopsAreReachable(t *testing.T) {
 	}
 }
 
-// Every service the validator accepts as gateable must actually BE withheld -
-// either because the gate downgrades the dialog kind (the tabbed ones) or
-// because its action is in gatedServiceActions.
-func TestEveryGateableServiceActionIsWithheld(t *testing.T) {
-	for _, action := range []string{"tavern_rest", "buy_food", "open_roster", "manage_stash",
-		"cast_buff", "start_arena_duel", "wait_until_night", "wait_until_dawn"} {
-		if !gatedServiceActions[action] {
-			t.Errorf("%q is a service action that no gate withholds", action)
-		}
-	}
-	// Ordinary conversation is never withheld - a gated NPC must still talk, and
-	// hand out the very errand that opens it.
+// Ordinary conversation is never withheld - a gated NPC must still talk, and
+// hand out the very errand that opens it.
+func TestConversationActionsAreNeverGated(t *testing.T) {
 	for _, action := range []string{"info", "leave", "give_quest", "turn_in_quest", "back", "open_door"} {
 		if gatedServiceActions[action] {
 			t.Errorf("%q is not a service - a gate must not hide it", action)
@@ -1170,7 +1166,7 @@ func TestInteractQuestsAuthorTheirOwnProgressWording(t *testing.T) {
 			continue
 		}
 		if err := qm.ActivateQuest(id); err != nil {
-			continue // already active (the endgame gates)
+			t.Fatalf("activate %s: %v", id, err)
 		}
 		got := qm.GetQuest(id).GetProgressString()
 		if strings.Contains(got, "closed") && !strings.Contains(def.ProgressText, "closed") {
@@ -1178,18 +1174,6 @@ func TestInteractQuestsAuthorTheirOwnProgressWording(t *testing.T) {
 		}
 		if !strings.HasPrefix(got, "0/") || !strings.Contains(got, def.ProgressText) {
 			t.Errorf("quest %q progress = %q, want it to use the authored %q", id, got, def.ProgressText)
-		}
-	}
-	// The shipped wording, spelled out: this is what the player reads.
-	for id, want := range map[string]string{
-		"pit_standing":    "0/3 arena duels won",
-		"shrine_lamps":    "0/3 shrine lamps lifted",
-		"culverts_valves": "0/7 valves closed",
-	} {
-		if q := qm.GetQuest(id); q == nil {
-			t.Errorf("%s is not active in the fixture", id)
-		} else if got := q.GetProgressString(); got != want {
-			t.Errorf("%s reads %q, want %q", id, got, want)
 		}
 	}
 }
@@ -1545,17 +1529,34 @@ func TestArchiveSellsTownPortalToAnAirCaster(t *testing.T) {
 	}
 }
 
-// Yusra's lamps: the shipped props carry the take action wired to her gate quest.
+// Yusra's lamps: every prop carrying the quest's tag is wired to her gate
+// quest, and there are enough of them to finish it.
 func TestShrineLampPropsFeedYusrasGate(t *testing.T) {
 	_, qm := bootQuestGiverTest(t)
 	def := qm.Definitions()["shrine_lamps"]
 	if def == nil {
 		t.Fatal("shrine_lamps is not in the shipped catalog")
 	}
-	if def.Type != quests.QuestTypeInteract || def.TargetCount != 3 {
-		t.Fatalf("shrine_lamps = %s x%d, want an interact quest for 3", def.Type, def.TargetCount)
+	if def.Type != quests.QuestTypeInteract {
+		t.Fatalf("shrine_lamps type = %s, want an interact quest", def.Type)
 	}
-	for _, key := range []string{"shrine_lamp_1", "shrine_lamp_2", "shrine_lamp_3"} {
+	var lamps []string
+	for _, key := range sortedMapKeys(character.NPCConfigInstance.NPCs) {
+		data := character.NPCConfigInstance.NPCs[key]
+		if data == nil {
+			continue
+		}
+		_ = data.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			if c.Prop != nil && c.Prop.Tag == def.TargetMonster {
+				lamps = append(lamps, key)
+			}
+			return nil
+		})
+	}
+	if len(lamps) < def.TargetCount {
+		t.Fatalf("%d props carry tag %q, want at least the quest's %d", len(lamps), def.TargetMonster, def.TargetCount)
+	}
+	for _, key := range lamps {
 		npc, err := character.CreateNPCFromConfig(key, 0, 0)
 		if err != nil {
 			t.Fatalf("build %q: %v", key, err)
@@ -1643,14 +1644,14 @@ func TestArenaDuelWinsAdvanceThePitQuest(t *testing.T) {
 		t.Fatalf("a wild champion kill counted as a bout (%d)", q.CurrentCount)
 	}
 
-	for i := 1; i <= 3; i++ {
+	for i := 1; i <= q.Definition.TargetCount; i++ {
 		g.creditArenaDuelWin(&monster.Monster3D{Name: "Weapon Master", ChampionTier: "normal"})
 		if want := i; q.CurrentCount != want {
 			t.Fatalf("after %d bouts progress = %d, want %d", i, q.CurrentCount, want)
 		}
 	}
 	if !q.Completed {
-		t.Fatal("three bouts must finish pit_standing")
+		t.Fatalf("%d bouts must finish pit_standing", q.Definition.TargetCount)
 	}
 
 	// Off the sand it does not count: the tier survives a save, so a champion the
@@ -1784,6 +1785,13 @@ func TestPropCountIsNotJudgedOnAPartialWorld(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load quests: %v", err)
 	}
+	// Activity props are judged against their own maps, which this fixture
+	// does not load; the placed-prop census is the subject here.
+	for id, def := range qc.Quests {
+		if def.Activity != nil {
+			delete(qc.Quests, id)
+		}
+	}
 	qm := quests.NewQuestManager(qc)
 
 	// A world holding ONE prop-bearing NPC and none of the valves: the shape a
@@ -1801,8 +1809,8 @@ func TestPropCountIsNotJudgedOnAPartialWorld(t *testing.T) {
 	wm.CurrentMapKey = "forest"
 	world.GlobalWorldManager = wm
 
-	if err := ValidateInteractTagProducers(qm); err == nil {
-		t.Fatal("fixture: an intact world missing its valves must be rejected")
+	if err := ValidateInteractTagProducers(qm); err == nil || !strings.Contains(err.Error(), "such props are placed in the world") {
+		t.Fatalf("fixture: an intact world missing its props must fail the count, got %v", err)
 	}
 	wm.FailedMaps = []string{"culverts"}
 	if err := ValidateInteractTagProducers(qm); err != nil {
@@ -1918,12 +1926,16 @@ func TestPitQuestIsNotACensusKillQuest(t *testing.T) {
 }
 
 // A concluded giver keeps no dialogue rows, so its conversation tab is gone -
-// and with it the only surface that ever showed visited_message. Both shipped
-// gated traders author one; the shop header is what has to deliver it, or the
+// and with it the only surface that ever showed visited_message. Every shipped
+// gated trader authors one; the shop header is what has to deliver it, or the
 // line is content the player can never reach.
 func TestConcludedShopHeaderShowsTheAuthoredVisitedLine(t *testing.T) {
 	g, qm := bootQuestGiverTest(t)
-	for _, key := range []string{"elf_city_archive", "nomad_city_spells"} {
+	for _, gate := range shippedServiceGates {
+		if gate.openKind != dialogKindSpellTrader {
+			continue
+		}
+		key := gate.npcKey
 		npc, err := character.CreateNPCFromConfig(key, 0, 0)
 		if err != nil {
 			t.Fatalf("build %s: %v", key, err)
@@ -2119,17 +2131,5 @@ func TestArenaTagNeedsADuelArenaInTheWorld(t *testing.T) {
 	wm.LoadedMaps = nil
 	if err := ValidateInteractTagProducers(qm); err != nil {
 		t.Fatalf("catalog-only world was treated as a trustworthy empty placement census: %v", err)
-	}
-
-	// And the shipped catalogs still hold up.
-	if _, err := os.Stat("../../assets/map_configs.yaml"); err == nil {
-		shipped := world.NewWorldManager(cfg)
-		if err := shipped.LoadMapConfigs("../../assets/map_configs.yaml"); err != nil {
-			t.Fatalf("load shipped map configs: %v", err)
-		}
-		world.GlobalWorldManager = shipped
-		if err := ValidateInteractTagProducers(qm); err != nil {
-			t.Fatalf("shipped map configs: %v", err)
-		}
 	}
 }

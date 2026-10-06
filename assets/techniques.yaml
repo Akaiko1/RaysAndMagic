@@ -1,7 +1,7 @@
 techniques:
   - key: fold_step
     name: Fold Step
-    description: "Step forward at least 3 tiles. Cannot cross terrain, doors or transitions. Later Folds keep the first departure anchor and refresh its timer. No action cost or extra monster turn. Shares a 3-second / once-per-turn lock with Return."
+    description: "Step forward at least 3 tiles. Can cross open gaps, but needs solid footing to land. Cannot cross walls, doors or transitions. Later Folds keep the first departure anchor and refresh its timer. No action cost or extra monster turn. Shares its reuse lock with Return Step."
     icon: icon_technique_fold_step
     level: 1
     sp_cost: [8, 7, 6, 5]
@@ -9,10 +9,11 @@ techniques:
     min_range_tiles: 3
     duration_seconds: [12, 15, 18, 24]
     free_step: true
+    reuse_seconds: 3
   - key: phase_veil
     name: Phase Veil
     description: "Briefly increase the whole party's dodge chance. Costs one action in turn-based combat."
-    trigger: "Engaged and two enemies within 2 tiles, or a living ally below 35% HP."
+    trigger: "Engaged, and either two enemies within 2 tiles or a living ally below 35% HP."
     icon: icon_technique_phase_veil
     level: 1
     sp_cost: [8, 8, 8, 8]
@@ -22,16 +23,17 @@ techniques:
     automatic: true
   - key: purify
     name: Purify
-    description: "Remove all curable afflictions from living allies and release party root. Never wakes, heals or revives. Reuse: 6 seconds / 2 rounds."
+    description: "Remove all curable afflictions from living allies and release party root. Never rouses the unconscious, heals or revives."
     trigger: "A living ally has a removable affliction, or the party is rooted."
     icon: icon_technique_purify
     level: 2
     sp_cost: [12, 11, 10, 9]
     cooldown_seconds: 2
+    reuse_seconds: 6
     automatic: true
   - key: quickening
     name: Quickening
-    description: "RT: reduce future recovery. TB: add shared bonus actions from next turn, at most one extra per eligible hero."
+    description: "RT: reduce future recovery. TB: add shared bonus actions every round from the next one while it lasts, at most one extra per eligible hero."
     trigger: "Engaged, Quickening absent, and the party can benefit in the current mode."
     icon: icon_technique_quickening
     level: 4
@@ -48,3 +50,4 @@ techniques:
     level: 6
     sp_cost: [6, 5, 4, 3]
     free_step: true
+    reuse_seconds: 3

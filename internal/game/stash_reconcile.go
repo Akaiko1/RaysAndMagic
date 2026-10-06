@@ -79,7 +79,7 @@ func stashTransferCommittedInAnySave(journalID string) bool {
 	if journalID == "" {
 		return false
 	}
-	for row := 0; row <= saveRowCount; row++ {
+	for row := 0; row < saveRowCount; row++ {
 		save, err := ReadGameSave(saveRowPath(row))
 		if err == nil && save.StashTransferID == journalID {
 			return true

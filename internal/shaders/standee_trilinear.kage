@@ -1,0 +1,29 @@
+//include standee_sampling.kageinc
+func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+	p := srcPos
+	data := custom
+	if data.z < 0.0 {
+		// Wide strips carry affine reciprocal depth and U/depth, plus the
+		// projected top and height. Reconstruct perspective at the pixel centre.
+		projection := p - imageSrc0Origin()
+		u := clamp(data.y/data.x, 0.0, 1.0)
+		v := (dstPos.y-imageDstOrigin().y-projection.x)/projection.y
+		p = standeeSourcePosition(u, v)
+		packed := -data.z-1.0
+		layer := floor(packed/4.0)
+		filterData := packed-4.0*layer
+		filtered := floor(filterData/2.0)
+		blend := clamp((filterData-2.0*filtered-0.25)*2.0, 0.0, 1.0)
+		data = vec4(blend, layer, filtered, data.w)
+	}
+	// data.y selects near sticker, core, or far sticker. data.w carries
+	// the major-axis footprint (negative for vertical minification).
+	if data.y > 1.5 {
+		return stickerAt(p, data.x) * color
+	}
+	if data.y > 0.5 {
+		return sampleLinear3(p) * color
+	}
+	footprint := vec2(max(data.w, 0.0), max(-data.w, 0.0))
+	return nearStickerAt(p, data.z > 0.0, data.x, footprint) * color
+}

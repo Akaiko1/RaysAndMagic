@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -10,9 +11,20 @@ import (
 	"ugataima/internal/world"
 )
 
+// Each trainer teaches exactly its authored tiers at their authored price; a
+// trainer with requires_quest sells nothing until that quest is claimed, an
+// ungated one ignores the quest's state.
 func TestTrainerRegionalProgressionContract(t *testing.T) {
 	g, qm := bootQuestGiverTest(t)
 	ih := NewInputHandler(g)
+	gated, err := character.CreateNPCFromConfig("nomad_city_trainer", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateQuest := gated.RequiresQuest
+	if gateQuest == "" {
+		t.Fatal("nomad_city_trainer authors no requires_quest; the gate rows need one")
+	}
 	for _, key := range []string{"city_mastery_trainer", "nomad_city_trainer"} {
 		npc, err := character.CreateNPCFromConfig(key, 0, 0)
 		if err != nil {
@@ -25,14 +37,14 @@ func TestTrainerRegionalProgressionContract(t *testing.T) {
 						t.Run(fmt.Sprintf("%s/%s/mastery=%d/magic=%v/short=%v", key, state, mastery, magic, short), func(t *testing.T) {
 							qm.Reset()
 							if state != "untaken" {
-								if err := qm.ActivateQuest("pit_standing"); err != nil {
+								if err := qm.ActivateQuest(gateQuest); err != nil {
 									t.Fatal(err)
 								}
 								if state == "unclaimed" || state == "claimed" {
-									qm.MarkCompleted("pit_standing")
+									qm.MarkCompleted(gateQuest)
 								}
 								if state == "claimed" {
-									if _, err := qm.ClaimRewards("pit_standing"); err != nil {
+									if _, err := qm.ClaimRewards(gateQuest); err != nil {
 										t.Fatal(err)
 									}
 								}
@@ -47,16 +59,10 @@ func TestTrainerRegionalProgressionContract(t *testing.T) {
 									member.Skills[character.SkillSword] = &character.Skill{Mastery: character.SkillMastery(mastery)}
 								}
 							}
+							// The authored price of the next tier; 0 = not taught here.
 							cost := 0
-							if key == "city_mastery_trainer" {
-								if mastery == int(character.MasteryNovice) {
-									cost = 1000
-								}
-								if mastery == int(character.MasteryExpert) {
-									cost = 4000
-								}
-							} else if mastery == int(character.MasteryMaster) {
-								cost = 10000
+							if mastery >= 0 && mastery < int(character.MasteryGrandMaster) {
+								cost = npc.Training[strings.ToLower((character.SkillMastery(mastery) + 1).String())]
 							}
 							offers := trainerOptions(member, npc)
 							if (len(offers) == 1) != (cost > 0) {
@@ -77,7 +83,7 @@ func TestTrainerRegionalProgressionContract(t *testing.T) {
 							g.selectedCharIdx = 0
 							g.dialogSelectedSpell = 0
 							ih.purchaseSelectedTraining()
-							allowed := cost > 0 && !short && (key == "city_mastery_trainer" || state == "claimed")
+							allowed := cost > 0 && !short && (npc.RequiresQuest == "" || state == "claimed")
 							wantGold := gold
 							if allowed {
 								wantGold -= cost
@@ -209,6 +215,10 @@ func TestRebalancedProgressionSurvivesSaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	gmCost := npc.Training[strings.ToLower(character.MasteryGrandMaster.String())]
+	if npc.RequiresQuest == "" || gmCost <= 0 {
+		t.Fatal("nomad_city_trainer must gate a Grandmaster offer behind a quest for this case")
+	}
 	g.dialogNPC = npc
 	m := g.party.Members[0]
 	m.Skills = map[character.SkillType]*character.Skill{character.SkillSword: {Mastery: character.MasteryMaster}}
@@ -222,12 +232,12 @@ func TestRebalancedProgressionSurvivesSaveLoad(t *testing.T) {
 	for _, claimed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("claimed=%v", claimed), func(t *testing.T) {
 			qm.Reset()
-			if err := qm.ActivateQuest("pit_standing"); err != nil {
+			if err := qm.ActivateQuest(npc.RequiresQuest); err != nil {
 				t.Fatal(err)
 			}
-			qm.MarkCompleted("pit_standing")
+			qm.MarkCompleted(npc.RequiresQuest)
 			if claimed {
-				if _, err := qm.ClaimRewards("pit_standing"); err != nil {
+				if _, err := qm.ClaimRewards(npc.RequiresQuest); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -243,7 +253,7 @@ func TestRebalancedProgressionSurvivesSaveLoad(t *testing.T) {
 				t.Fatal("trainer quest gate changed after load")
 			}
 			options := trainerOptions(member, npc)
-			if len(options) != 1 || options[0].Next != character.MasteryGrandMaster || options[0].Cost != 10000 {
+			if len(options) != 1 || options[0].Next != character.MasteryGrandMaster || options[0].Cost != gmCost {
 				t.Fatalf("restored mastery offer=%v", options)
 			}
 		})
@@ -255,15 +265,29 @@ func TestRebalancedEncounterRewardsSurviveSaveLoad(t *testing.T) {
 	boot, qm := bootQuestGiverTest(t)
 	oldWM, oldQM := world.GlobalWorldManager, quests.GlobalQuestManager
 	t.Cleanup(func() { world.GlobalWorldManager, quests.GlobalQuestManager = oldWM, oldQM })
+	// oldXP is what an old save stored; a live encounter restores its authored
+	// reward, a retired one keeps the saved value.
 	for _, tc := range []struct {
-		id        string
-		oldXP, xp int
+		id      string
+		oldXP   int
+		retired bool
 	}{
-		{"shipwreck_bandits", 500, 250},
-		{"dragon_cliffs_bone_lair", 1500, 750},
-		{"dragon_cliffs_ember_lair", 1500, 750},
-		{"retired_legacy_encounter", 123, 123},
+		{"shipwreck_bandits", 500, false},
+		{"dragon_cliffs_bone_lair", 1500, false},
+		{"dragon_cliffs_ember_lair", 1500, false},
+		{"retired_legacy_encounter", 123, true},
 	} {
+		encounter := character.NPCConfigInstance.EncounterByQuestID(tc.id)
+		if (encounter == nil) != tc.retired {
+			t.Fatalf("%s: authored encounter present=%v, want %v", tc.id, encounter != nil, !tc.retired)
+		}
+		wantXP := tc.oldXP
+		if encounter != nil {
+			if encounter.Rewards == nil || encounter.Rewards.Experience == tc.oldXP {
+				t.Fatalf("%s: authored reward %+v must differ from the old save's %d XP", tc.id, encounter.Rewards, tc.oldXP)
+			}
+			wantXP = encounter.Rewards.Experience
+		}
 		for _, completed := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/completed=%v", tc.id, completed), func(t *testing.T) {
 				g := newTestGame(boot.config, newTestWorld(boot.config))
@@ -290,13 +314,12 @@ func TestRebalancedEncounterRewardsSurviveSaveLoad(t *testing.T) {
 					t.Fatal("encounter monster missing after load")
 				}
 				rewards := g.world.Monsters[0].EncounterRewards
-				if rewards == nil || rewards.Experience != tc.xp {
-					t.Fatalf("restored pending reward = %+v, want XP %d", rewards, tc.xp)
+				if rewards == nil || rewards.Experience != wantXP {
+					t.Fatalf("restored pending reward = %+v, want XP %d", rewards, wantXP)
 				}
-				encounter := character.NPCConfigInstance.EncounterByQuestID(tc.id)
 				if encounter != nil {
 					q := qm.GetQuest(tc.id)
-					if q == nil || q.Definition.Rewards.Experience != tc.xp || q.Definition.Name != encounter.QuestName || q.RewardsClaimed != completed {
+					if q == nil || q.Definition.Rewards.Experience != wantXP || q.Definition.Name != encounter.QuestName || q.RewardsClaimed != completed {
 						t.Fatalf("encounter quest not reconstructed from content/progress: %+v", q)
 					}
 					if completed {
@@ -311,8 +334,8 @@ func TestRebalancedEncounterRewardsSurviveSaveLoad(t *testing.T) {
 				m.Skills = map[character.SkillType]*character.Skill{}
 				before := earnedExperienceForCharacter(m.Level, m.Experience)
 				(&GameLoop{game: g}).awardEncounterRewards(rewards)
-				if earnedExperienceForCharacter(m.Level, m.Experience)-before != tc.xp {
-					t.Fatalf("awarded %d XP, want %d", earnedExperienceForCharacter(m.Level, m.Experience)-before, tc.xp)
+				if earnedExperienceForCharacter(m.Level, m.Experience)-before != wantXP {
+					t.Fatalf("awarded %d XP, want %d", earnedExperienceForCharacter(m.Level, m.Experience)-before, wantXP)
 				}
 			})
 		}
@@ -322,27 +345,26 @@ func TestRebalancedEncounterRewardsSurviveSaveLoad(t *testing.T) {
 func TestTowerRepeatAndRestoredMonstersKeepFullRebalancedXP(t *testing.T) {
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	cfg := loadTestConfig(t)
-	for _, tc := range []struct {
-		key string
-		xp  int
-	}{
-		{"alien", 660}, {"dust_slime", 680}, {"grandfather_clock", 960},
-		{"possessed_tome", 760}, {"alarm_clock", 1000},
-	} {
-		t.Run(tc.key, func(t *testing.T) {
+	for _, key := range []string{"alien", "dust_slime", "grandfather_clock", "possessed_tome", "alarm_clock"} {
+		t.Run(key, func(t *testing.T) {
+			def, err := monster.MonsterConfig.GetMonsterByKey(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantXP := def.Experience
 			g := newTestGame(cfg, newTestWorld(cfg))
-			g.world.MonsterSpawns = []world.MonsterSpawn{{X: 1, Y: 1, MonsterKey: tc.key}}
+			g.world.MonsterSpawns = []world.MonsterSpawn{{X: 1, Y: 1, MonsterKey: key}}
 			wm := world.NewWorldManager(cfg)
 			wm.CurrentMapKey = "tower"
 			wm.LoadedMaps = map[string]*world.World3D{"tower": g.world}
 			for clear := 0; clear < 3; clear++ {
 				g.world.RespawnAuthoredMonsters()
-				if len(g.world.Monsters) != 1 || g.world.Monsters[0].Experience != tc.xp {
+				if len(g.world.Monsters) != 1 || g.world.Monsters[0].Experience != wantXP {
 					t.Fatalf("clear %d changed full authored XP", clear)
 				}
 				saved := g.buildSave(wm)
 				g.restoreSavedMonsters(wm, &saved)
-				if len(g.world.Monsters) != 1 || g.world.Monsters[0].Experience != tc.xp {
+				if len(g.world.Monsters) != 1 || g.world.Monsters[0].Experience != wantXP {
 					t.Fatalf("clear %d save/load changed authored XP", clear)
 				}
 			}

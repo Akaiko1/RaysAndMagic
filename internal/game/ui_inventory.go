@@ -38,7 +38,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 
 	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_paperdoll_panel"), paperX, paperY, paperW, paperH)
 
-	var tooltip string
+	var tooltip character.CardRows
 	var tooltipItem items.Item
 	var tooltipHasItem bool
 	var tooltipX, tooltipY int
@@ -72,7 +72,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 			ui.handleEquippedItemClick(slotInfo.slot, x-3, y-3, x+w+3, y+h+3)
 			ui.equipSlotDragSource(ui.game.selectedChar, slotInfo.slot, item, x, y, w, h) // pick up equipped item
 			if isHovering {
-				tooltip = GetItemTooltip(item, currentChar, ui.game.combat, tooltipDetailHeld())
+				tooltip = GetItemTooltipRows(item, currentChar, ui.game.combat, tooltipDetailHeld())
 				tooltipItem = item
 				tooltipHasItem = true
 				tooltipX = mouseX + 16
@@ -91,8 +91,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	drawCenteredUIText(screen, "Quick slots", layout.quickSlots.x, layout.quickSlots.y-quickSlotTabLabelSpace, layout.quickSlots.w, quickSlotTabLabelH)
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w, !ui.modalLayerOwnsInput())
 
-	if tooltip != "" && tooltipHasItem {
-		lines := ui.appendCardArtHint(strings.Split(tooltip, "\n"), itemCardKey(tooltipItem))
+	if len(tooltip) > 0 && tooltipHasItem {
+		lines := ui.appendCardArtHintRows(tooltip, itemCardKey(tooltipItem))
 		ui.queueItemTooltip(lines, tooltipItem, currentChar, tooltipX, tooltipY)
 	}
 
@@ -108,17 +108,16 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 	if totalPages <= 1 {
 		return
 	}
-	const btnW, btnH = 30, 18
 	mouseX, mouseY := uiCursorPosition()
 
-	drawBtn := func(bx int, label string, enabled bool, step int) {
-		ui.drawButtonFrame(screen, bx, y, btnW, btnH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH))
+	drawBtn := func(r layoutRect, label string, enabled bool, step int) {
+		ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()))
 		if !enabled {
-			drawFilledRect(screen, bx+2, y+2, btnW-4, btnH-4, color.RGBA{0, 0, 0, 100})
+			drawFilledRect(screen, r.x+2, r.y+2, r.w-4, r.h-4, color.RGBA{0, 0, 0, 100})
 		}
-		drawCenteredUIText(screen, label, bx, y+2, btnW, btnH-2)
-		ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, btnW, btnH}, func() {
-			if enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH) {
+		drawCenteredUIText(screen, label, r.x, r.y+2, r.w, r.h-2)
+		ui.onDisplayedInput(uiCommandNavigation, r, func() {
+			if enabled && clickable && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
 				*page = max(0, min(totalPages-1, *page+step))
 				for _, change := range onChange {
 					change()
@@ -127,10 +126,17 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 		})
 	}
 
-	drawBtn(x, "<", *page > 0, -1)
-	drawBtn(x+w-btnW, ">", *page < totalPages-1, 1)
+	prev, next := pagerButtonRects(x, y, w)
+	drawBtn(prev, "<", *page > 0, -1)
+	drawBtn(next, ">", *page < totalPages-1, 1)
 
-	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, btnH-2)
+	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, pagerBtnH-2)
+}
+
+// pagerButtonRects are drawPager's Prev and Next buttons for a strip at (x,y)
+// spanning w.
+func pagerButtonRects(x, y, w int) (prev, next layoutRect) {
+	return layoutRect{x, y, pagerBtnW, pagerBtnH}, layoutRect{x + w - pagerBtnW, y, pagerBtnW, pagerBtnH}
 }
 
 const (
@@ -263,6 +269,9 @@ func (ui *UISystem) drawItemIcon(screen *ebiten.Image, item items.Item, x, y, w,
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{150, 110, 52, 220})
 		drawCenteredUIText(screen, spellInitials(item.Name), iconX, iconY, iconSize, iconSize)
 	}
+	if item.Type == items.ItemDevice {
+		drawDeviceCooldown(screen, item, iconX, iconY, iconSize)
+	}
 	if !enabled {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{60, 0, 0, 90})
 	}
@@ -358,7 +367,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		return
 	}
 	mouseX, mouseY := uiCursorPosition()
-	var tooltip string
+	var tooltip character.CardRows
 	var tooltipX, tooltipY int
 	textColor := color.RGBA{240, 240, 240, 255}
 	headingColor := color.RGBA{235, 200, 120, 255}
@@ -438,8 +447,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			}
 			drawUITextColored(screen, fmt.Sprintf(" (%+d)", delta), x+uiTextWidth(line), y, clr)
 		}
-		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, layout.attributes.right()-sectionTextInset, y+sectionRowH) {
-			tooltip = statTooltipText(stat.name)
+		if len(tooltip) == 0 && isMouseHoveringBox(mouseX, mouseY, x, y, layout.attributes.right()-sectionTextInset, y+sectionRowH) {
+			tooltip = statTooltipRows(stat.name)
 			tooltipX, tooltipY = mouseX+16, mouseY+8
 		}
 	}
@@ -464,8 +473,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			x := layout.magic.x + sectionTextInset + (i/rows)*colW
 			y := layout.magic.y + sectionBodyY + (i%rows)*sectionRowH
 			drawUITextColored(screen, clipUIText(school.text, colW-8), x, y, textColor)
-			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
-				tooltip = magicMasteryTooltipText(school.id)
+			if len(tooltip) == 0 && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
+				tooltip = magicMasteryTooltipRows(school.id)
 				tooltipX, tooltipY = mouseX+16, mouseY+8
 			}
 		}
@@ -495,8 +504,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			x := layout.skills.x + sectionTextInset + (i/rows)*colW
 			y := layout.skills.y + sectionBodyY + (i%rows)*sectionRowH
 			drawUITextColored(screen, clipUIText(skill.text, colW-8), x, y, textColor)
-			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
-				tooltip = masteryTooltipTextForSkill(skill.id)
+			if len(tooltip) == 0 && isMouseHoveringBox(mouseX, mouseY, x, y, x+colW-8, y+16) {
+				tooltip = masteryTooltipRowsForSkill(skill.id)
 				tooltipX, tooltipY = mouseX+16, mouseY+8
 			}
 		}
@@ -562,8 +571,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 	drawUITextColored(screen, clipUIText(fmt.Sprintf("Party resist buff: +%d%%", ui.game.combatBuffResistPct()), rightW), rightX, partyBuffY, headingColor)
 
 	drawCenteredUIText(screen, "Use the party strip or keys 1-4 to switch character", layout.instructions.x, layout.instructions.y, layout.instructions.w, layout.instructions.h)
-	if tooltip != "" {
-		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)
+	if len(tooltip) > 0 {
+		ui.queueCardTooltip(tooltip, nil, nil, nil, "", tooltipX, tooltipY)
 	}
 }
 
@@ -625,8 +634,8 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 		return
 	}
 
-	var spellTooltip string
-	var spellCompareTooltip string
+	var spellTooltip character.CardRows
+	var spellCompareTooltip character.CardRows
 	var spellTooltipID spells.SpellID
 	var tooltipX, tooltipY int
 
@@ -671,8 +680,8 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 			ui.drawSpellbookSpellCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, spellID, def, currentChar, selectedSchool, isSelected)
 
 			if isHovering {
-				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat, tooltipDetailHeld())
-				spellCompareTooltip = GetSpellComparisonTooltip(spellID, currentChar, ui.game.combat)
+				spellTooltip = GetSpellTooltipRows(spellID, currentChar, ui.game.combat, tooltipDetailHeld())
+				spellCompareTooltip = GetSpellComparisonTooltipRows(spellID, currentChar, ui.game.combat)
 				spellTooltipID = spellID
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
@@ -681,16 +690,16 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 	}
 
 	// Draw spell tooltip if hovering over a spell
-	if spellTooltip != "" {
-		lines := strings.Split(spellTooltip, "\n")
+	if len(spellTooltip) > 0 {
+		lines := spellTooltip
 		plate := color.Color(nil)
 		if def, err := spells.GetSpellDefinitionByID(spellTooltipID); err == nil {
 			plate = schoolPlateColor(def.School)
 		}
-		ui.queueTitledTooltipIcon(lines, nil, plate, nil, spellTooltipIconName(spellTooltipID), tooltipX, tooltipY)
-		if spellCompareTooltip != "" {
-			compareLines := strings.Split(spellCompareTooltip, "\n")
-			ui.queueTitledTooltipComparison(compareLines, nil, plate, nil)
+		ui.queueCardTooltip(lines, nil, plate, nil, spellTooltipIconName(spellTooltipID), tooltipX, tooltipY)
+		if len(spellCompareTooltip) > 0 {
+			compareLines := spellCompareTooltip
+			ui.queueCardComparison(compareLines, nil, plate, nil)
 		}
 	}
 
@@ -802,7 +811,9 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int, 
 				}
 			}
 
-			if item.Type == items.ItemConsumable {
+			if item.Type == items.ItemDevice {
+				ui.game.useDeviceFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
+			} else if item.Type == items.ItemConsumable {
 				// Use consumable item
 				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
 			} else if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {

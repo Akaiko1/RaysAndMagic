@@ -57,7 +57,7 @@ func scrollbarCases() []scrollbarCase {
 		},
 		track: func(h *displayedModalHarness) (layoutRect, int, int) {
 			a, r := alchemy(h)
-			return layoutRect{a.viewport.right() - 4, a.viewport.y, 3, a.viewport.h}, h.ui.alchemyScroll[r.Key], a.height
+			return a.track, h.ui.alchemyScroll[r.Key], a.height
 		},
 		contentRight: func(h *displayedModalHarness) int {
 			a, _ := alchemy(h)
@@ -86,8 +86,7 @@ func scrollbarCases() []scrollbarCase {
 			},
 			track: func(h *displayedModalHarness) (layoutRect, int, int) {
 				l := potion(h, row)
-				total := max(0, ((len(config.AutomaticPotionChoices(row == 1))+1)/2)*62-6)
-				return layoutRect{l.types.right() + 3, l.types.y, 3, l.types.h}, h.g.potionSettingsScroll[row], total
+				return l.track, h.g.potionSettingsScroll[row], l.typesHeight(len(config.AutomaticPotionChoices(row == 1)))
 			},
 			contentRight: func(h *displayedModalHarness) int { l := potion(h, row); return l.card(1, 0).right() },
 			unchanged:    func(h *displayedModalHarness) any { return fmt.Sprintf("%+v", *h.g.config.EnsurePotionPreferences()) },
@@ -99,11 +98,11 @@ func scrollbarCases() []scrollbarCase {
 			setup: profile(EntryMenuAchievements),
 			track: func(h *displayedModalHarness) (layoutRect, int, int) {
 				l := achievements(h)
-				return layoutRect{l.body.right() - 5, l.body.y, 3, l.body.h}, h.g.achievementsScroll, l.contentH
+				return l.track, h.g.achievementsScroll, l.contentH
 			},
 			contentRight: func(h *displayedModalHarness) int {
 				l := achievements(h)
-				return l.body.x + l.columns*l.columnW + (l.columns-1)*16
+				return l.card(l.columns-1, 0).right()
 			},
 			unchanged: func(h *displayedModalHarness) any { return h.g.entryMenuMode },
 		},
@@ -112,11 +111,11 @@ func scrollbarCases() []scrollbarCase {
 			setup: profile(EntryMenuStatistics),
 			track: func(h *displayedModalHarness) (layoutRect, int, int) {
 				l := stats(h)
-				return layoutRect{l.body.right() - 6, l.body.y, 4, l.body.h}, h.g.statisticsScroll, l.contentH
+				return l.track, h.g.statisticsScroll, l.contentH
 			},
 			contentRight: func(h *displayedModalHarness) int {
 				l := stats(h)
-				return max(l.body.x+l.columns*l.columnW+(l.columns-1)*14, l.body.x+l.counterColumns*l.counterW+(l.counterColumns-1)*14)
+				return max(l.rankingRect(l.columns-1, 0).right(), l.body.x+l.counterRect(l.counterColumns-1).right())
 			},
 			unchanged: func(h *displayedModalHarness) any { return h.g.statisticsTab },
 		},
@@ -126,7 +125,7 @@ func scrollbarCases() []scrollbarCase {
 			track: func(h *displayedModalHarness) (layoutRect, int, int) {
 				l := stats(h)
 				body := profileRankingBody(l.rankingRect(0, h.g.statisticsScroll))
-				return layoutRect{body.right() - 4, body.y, 3, body.h}, h.g.statisticsRankingScroll["classes"], 14 * profileRankingRowH
+				return profileRankingTrack(body), h.g.statisticsRankingScroll["classes"], 14 * profileRankingRowH
 			},
 			contentRight: func(h *displayedModalHarness) int {
 				return profileRankingBody(stats(h).rankingRect(0, h.g.statisticsScroll)).right() - 8

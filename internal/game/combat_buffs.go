@@ -1,6 +1,7 @@
 package game
 
 import (
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
@@ -22,6 +23,7 @@ type TimedCombatBuff struct {
 	SourceID      string // optional owner for system-granted cleanup
 	Frames        int    // frames remaining
 	OutBonus      int    // flat add to party outgoing damage
+	OutPercent    int    // strongest active draught per school; static item data
 	OutDamageType string // empty/"all" applies to all damage; "physical" applies only to physical attacks
 	InReduce      int    // flat reduction of incoming damage (after ResistPct)
 	ResistPct     int    // % reduction of incoming damage (applied before InReduce)
@@ -30,8 +32,10 @@ type TimedCombatBuff struct {
 	ResistSchool    string
 	ResistSchoolPct int
 	// ArmorBonus: flat party AC while active (stoneskin draught).
-	ArmorBonus int
-	DodgePct   int
+	ArmorBonus   int
+	DodgePct     int
+	HPRegenPct   int
+	ManaRegenPct int
 }
 
 func (b TimedCombatBuff) buffSpellID() string  { return b.SpellID }
@@ -53,12 +57,35 @@ func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, f
 		ResistSchoolPct: def.ResistBuffSchoolPct,
 		ArmorBonus:      def.BuffArmorClass,
 		DodgePct:        def.BuffDodgePct,
+		OutDamageType:   def.DamageBuffSchool,
+		OutPercent:      def.DamageBuffPct,
+		HPRegenPct:      def.BuffHPRegenPct,
+		ManaRegenPct:    def.BuffManaRegenPct,
 	}, true
+}
+
+// timedCombatBuffFromSpell is the one spell-definition -> runtime mapping for
+// party combat buffs: an ordinary cast (sourceID "") and a system grant such
+// as Celestial Providence. Magnitudes scale with the caster's mastery where
+// the spell authors a *_grandmaster cap.
+func timedCombatBuffFromSpell(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, frames int, sourceID string) TimedCombatBuff {
+	return TimedCombatBuff{
+		SpellID:         string(spellID),
+		SourceID:        sourceID,
+		Frames:          frames,
+		OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
+		OutDamageType:   def.OutgoingDamageType,
+		InReduce:        scaledIncomingDamageReduction(def, caster),
+		ResistPct:       scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
+		ResistSchool:    def.ResistBuffSchool,
+		ResistSchoolPct: def.ResistBuffSchoolPct,
+	}
 }
 
 // addCombatBuff activates a buff (same-spell recast refreshes).
 func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
 	g.combatBuffs = upsertBuff(g.combatBuffs, b)
+	g.applyPartyRegenBuffs()
 }
 
 // removeCombatBuff drops a combat buff by ownership id. Ordinary casts use the
@@ -66,7 +93,29 @@ func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
 func (g *MMGame) removeCombatBuff(buffID string) bool {
 	var removed bool
 	g.combatBuffs, removed = removeBuffByID(g, g.combatBuffs, buffID)
+	if removed {
+		g.applyPartyRegenBuffs()
+	}
 	return removed
+}
+
+// Draught regeneration uses the strongest active percentage per resource,
+// regardless of school. Card and natural regeneration remain independent.
+func (g *MMGame) applyPartyRegenBuffs() {
+	if g.party == nil {
+		return
+	}
+	hp, mana := 0, 0
+	for _, b := range g.combatBuffs {
+		if b.Frames > 0 {
+			hp, mana = max(hp, b.HPRegenPct), max(mana, b.ManaRegenPct)
+		}
+	}
+	for _, member := range g.party.Members {
+		if member != nil {
+			member.BuffHPRegenPct, member.BuffManaRegenPct = hp, mana
+		}
+	}
 }
 
 // combatBuffOutBonusForDamageType sums outgoing-damage bonuses that apply to
@@ -251,6 +300,10 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 				b.ResistSchoolPct = itemBuff.ResistSchoolPct
 				b.ArmorBonus = itemBuff.ArmorBonus
 				b.DodgePct = itemBuff.DodgePct
+				b.OutPercent = itemBuff.OutPercent
+				b.OutDamageType = itemBuff.OutDamageType
+				b.HPRegenPct = itemBuff.HPRegenPct
+				b.ManaRegenPct = itemBuff.ManaRegenPct
 			}
 		}
 		out[i] = b
@@ -291,7 +344,8 @@ func (g *MMGame) tickCombatBuffsTurn(frames int) {
 }
 
 func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
-	g.combatBuffs, _ = tickBuffList(g, g.combatBuffs, elapsed, func(b *TimedCombatBuff, frames int) int {
+	var expired bool
+	g.combatBuffs, expired = tickBuffList(g, g.combatBuffs, elapsed, func(b *TimedCombatBuff, frames int) int {
 		if round && b.DeferFirstTurnTick {
 			b.DeferFirstTurnTick = false
 		} else {
@@ -299,4 +353,7 @@ func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
 		}
 		return b.Frames
 	})
+	if expired {
+		g.applyPartyRegenBuffs()
+	}
 }

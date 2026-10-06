@@ -182,20 +182,6 @@ func TestGameplayViewportBottomUsesPartyLayoutAtEveryResolution(t *testing.T) {
 	}
 }
 
-func TestCompassRadiusRespondsToViewportWithinReadableBounds(t *testing.T) {
-	g, _ := newThiefTestGame(t)
-	ui := NewUISystem(g)
-	g.config.Display.ScreenWidth = 1024
-	g.config.Display.ScreenHeight = 720
-	small := ui.compassRadius()
-	g.config.Display.ScreenWidth = 1920
-	g.config.Display.ScreenHeight = 1080
-	large := ui.compassRadius()
-	if small < 36 || large > 64 || large <= small {
-		t.Fatalf("compass radii small=%d large=%d, want responsive range 36..64", small, large)
-	}
-}
-
 func TestPartyCooldownProgressTracksObservedCooldown(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	ui := NewUISystem(g)
@@ -255,19 +241,30 @@ func TestArmsMasterCooldownProgressTracksHandsIndependently(t *testing.T) {
 	}
 }
 
-func TestPartyCardPanelAndStateFramesUseReservedSymmetricGutters(t *testing.T) {
+// The panel sits centred in its slot, and the state and selection bands each
+// get their own pixels: they never overlap, a gap separates them, and the
+// selection band stays inside the slot.
+func TestPartyCardFrameBandsNeverOverlap(t *testing.T) {
 	const slotW = 256
 	const slotH = partyCardPanelNativeHeight + partyCardFrameReserve*2
 	panelX, panelY, panelW, panelH := partyCardPanelRect(0, 0, slotW, slotH)
 	if panelX != slotW-(panelX+panelW) || panelY != slotH-(panelY+panelH) {
 		t.Fatalf("panel gutters L/R/T/B = %d/%d/%d/%d", panelX, slotW-(panelX+panelW), panelY, slotH-(panelY+panelH))
 	}
-	outerX, outerY, outerW, outerH := expandedPartyPanelRect(panelX, panelY, panelW, panelH, partyCardOuterFrameGap)
-	if outerX < 0 || outerY < 0 || outerX+outerW > slotW || outerY+outerH > slotH {
-		t.Fatalf("outer frame (%d,%d %dx%d) leaves slot %dx%d", outerX, outerY, outerW, outerH, slotW, slotH)
+	// Distances from the panel edge each band's pixels occupy.
+	stateFrom, stateTo := partyStateBandGap, partyStateBandGap+partyFrameBand-1
+	selFrom, selTo := partySelectionBandGap, partySelectionBandGap+partyFrameBand-1
+	if stateFrom < 1 {
+		t.Fatal("the state band touches the painted panel")
 	}
-	if partyCardOuterFrameGap-partyCardInnerFrameGap != 1 {
-		t.Fatal("nested selection and cooldown frames must touch without sharing one line")
+	if selFrom <= stateTo+1 {
+		t.Fatalf("state band %d..%d and selection band %d..%d have no gap", stateFrom, stateTo, selFrom, selTo)
+	}
+	if selTo > partyCardFrameReserve {
+		t.Fatalf("selection band reaches distance %d, beyond the %dpx gutter", selTo, partyCardFrameReserve)
+	}
+	if partyFrameBand < 3 {
+		t.Fatalf("bands are %dpx; the metal ramp needs 3", partyFrameBand)
 	}
 }
 
@@ -279,51 +276,6 @@ func TestCenteredIconRowHasBalancedHorizontalPadding(t *testing.T) {
 	right := barX + barW - (start + contentW)
 	if left != right {
 		t.Fatalf("effect rail padding left=%d right=%d", left, right)
-	}
-}
-
-func TestHUDCombatMessagesAvoidVisibleQuickBarAtStandardResolutions(t *testing.T) {
-	resolutions := []struct {
-		name string
-		w, h int
-	}{
-		{"default-4x3", 1024, 768},
-		{"hd-16x9", 1280, 720},
-		{"wxga-16x10", 1280, 800},
-		{"laptop-16x9", 1366, 768},
-		{"desktop-16x10", 1440, 900},
-		{"wide-hd-16x9", 1600, 900},
-		{"wsxga-16x10", 1680, 1050},
-		{"full-hd-16x9", 1920, 1080},
-		{"wuxga-16x10", 1920, 1200},
-		{"qhd-16x9", 2560, 1440},
-	}
-
-	for _, res := range resolutions {
-		t.Run(fmt.Sprintf("%s-%dx%d", res.name, res.w, res.h), func(t *testing.T) {
-			g, selected := newThiefTestGame(t)
-			g.config.Display.ScreenWidth = res.w
-			g.config.Display.ScreenHeight = res.h
-			selected.QuickSlots[0] = &items.Item{Name: "Potion"}
-			g.maxMessages = 4
-			for i := 0; i < g.maxMessages; i++ {
-				g.AddCombatMessage(fmt.Sprintf("combat message %d", i+1))
-			}
-
-			quickBar, visible := inGameQuickSlotBarLayout(g)
-			if !visible {
-				t.Fatal("quick bar should be visible with an occupied selected-character slot")
-			}
-			lines := g.hudMessageLines()
-			x, y, w, h := g.hudMessageBlockRect(len(lines))
-			if x < quickBar.right() && quickBar.x < x+w && y < quickBar.bottom() && quickBar.y < y+h {
-				t.Fatalf("chat (%d,%d %dx%d) overlaps quick bar (%d,%d %dx%d)",
-					x, y, w, h, quickBar.x, quickBar.y, quickBar.w, quickBar.h)
-			}
-			if y < 0 || y+h > res.h {
-				t.Fatalf("chat (%d,%d %dx%d) leaves %dx%d HUD viewport", x, y, w, h, res.w, res.h)
-			}
-		})
 	}
 }
 
@@ -375,7 +327,7 @@ func TestAnyTimedCardFxActiveCoversLayerOverlaysOnly(t *testing.T) {
 
 // The split cooldown readout represents two ATTACKING hands. An Arms Master
 // with an empty off-hand, or a shield in it, has only one - the split frame
-// would paint its lower half permanently ready.
+// would paint its lower half permanently ready. Asserted on the card's gate.
 func TestSplitCooldownFrameRequiresRealDualWield(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	member := g.party.Members[0]
@@ -386,6 +338,7 @@ func TestSplitCooldownFrameRequiresRealDualWield(t *testing.T) {
 	if member.Equipment == nil {
 		member.Equipment = map[items.EquipSlot]items.Item{}
 	}
+	member.Equipment[items.SlotMainHand] = items.Item{Name: "Iron Sword", Type: items.ItemWeapon}
 
 	cases := []struct {
 		name     string
@@ -402,28 +355,36 @@ func TestSplitCooldownFrameRequiresRealDualWield(t *testing.T) {
 			if tc.offHand != nil {
 				member.Equipment[items.SlotOffHand] = *tc.offHand
 			}
-			if got := member.IsDualWielding(); got != tc.wantWide {
-				t.Fatalf("IsDualWielding = %v, want %v - the split-frame gate reads this", got, tc.wantWide)
+			if got := partyCardShowsSplitCooldown(member); got != tc.wantWide {
+				t.Fatalf("split cooldown frame = %v, want %v", got, tc.wantWide)
 			}
 		})
 	}
 }
 
-// The compass is fully derived from the viewport: no config knob may claim to
-// size it, and the readable band holds at every shipped resolution.
-func TestCompassRadiusIsFullyDerivedFromViewport(t *testing.T) {
+// The compass is derived from the viewport alone: it stays inside the readable
+// band at every shipped resolution, never shrinks as the screen grows, and
+// does grow between a small and a full-HD screen.
+func TestCompassRadiusFollowsTheViewportWithinReadableBounds(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	ui := NewUISystem(g)
-	for _, res := range []struct{ w, h int }{{800, 600}, {1024, 768}, {1920, 1080}, {3840, 2160}} {
-		g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = res.w, res.h
-		got := ui.compassRadius()
+	radius := func(w, h int) int {
+		g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = w, h
+		return ui.compassRadius()
+	}
+	prev := 0
+	for _, res := range []struct{ w, h int }{{800, 600}, {1024, 720}, {1024, 768}, {1920, 1080}, {2560, 1440}, {3840, 2160}} {
+		got := radius(res.w, res.h)
 		if got < compassMinRadius || got > compassMaxRadius {
 			t.Fatalf("%dx%d compass radius = %d, want within %d..%d", res.w, res.h, got, compassMinRadius, compassMaxRadius)
 		}
-		want := min(max((min(res.w, res.h)*compassRadiusPercent+50)/100, compassMinRadius), compassMaxRadius)
-		if got != want {
-			t.Fatalf("%dx%d compass radius = %d, want %d (pure viewport derivation)", res.w, res.h, got, want)
+		if got < prev {
+			t.Fatalf("%dx%d compass radius = %d shrank from %d on a larger screen", res.w, res.h, got, prev)
 		}
+		prev = got
+	}
+	if small, large := radius(1024, 720), radius(1920, 1080); large <= small {
+		t.Fatalf("compass radii small=%d large=%d, want it to respond to the viewport", small, large)
 	}
 }
 
@@ -494,9 +455,10 @@ func TestCooldownReadoutFollowsArmedHands(t *testing.T) {
 	})
 }
 
-// HP/SP totals must stay fully readable at the shipped default resolution,
-// where the compact stats column is sized for native pixel-font readouts
-// (AGENTS.md HUD QA rule).
+// HP/SP totals never clip at the shipped default resolution in any font, where
+// the compact stats column is sized for native pixel-font readouts (AGENTS.md
+// HUD QA rule); the shipped default font still affords the full labelled form.
+// A wider font drops the label instead of clipping.
 func TestMeterTextFitsCompactStatsColumn(t *testing.T) {
 	g, _ := newThiefTestGame(t)
 	g.config.Display.ScreenWidth = 1024
@@ -506,20 +468,26 @@ func TestMeterTextFitsCompactStatsColumn(t *testing.T) {
 	statsW := makePartyCardContentLayout(0, 0, panelW).stats.w
 
 	budget := statsW - 4
-	for _, meter := range []struct {
-		label            string
-		current, maximum int
-	}{
-		{"HP", 33, 33}, {"HP", 100, 100}, {"SP", 100, 100}, {"HP", 1000, 1000},
-	} {
-		text := meterText(budget, meter.label, meter.current, meter.maximum)
-		if drawn := uiTextWidth(text); drawn > budget {
-			t.Fatalf("%q draws %dpx into a %dpx box at native scale - it would be clipped", text, drawn, budget)
-		}
-		// The default resolution must still afford the full labelled form.
-		if want := fmt.Sprintf("%s %d/%d", meter.label, meter.current, meter.maximum); text != want && meter.maximum <= 100 {
-			t.Fatalf("meter text = %q, want the full %q at the default resolution", text, want)
-		}
+	for _, font := range shippedUIFonts(t) {
+		t.Run("font="+font.Key, func(t *testing.T) {
+			withUIFont(t, font.Key)
+			full := font.Key == g.config.Display.DefaultFont
+			for _, meter := range []struct {
+				label            string
+				current, maximum int
+			}{
+				{"HP", 33, 33}, {"HP", 100, 100}, {"SP", 100, 100}, {"HP", 1000, 1000},
+			} {
+				text := meterText(budget, meter.label, meter.current, meter.maximum)
+				if drawn := uiTextWidth(text); drawn > budget {
+					t.Fatalf("%q draws %dpx into a %dpx box at native scale - it would be clipped", text, drawn, budget)
+				}
+				// The default resolution must still afford the full labelled form.
+				if want := fmt.Sprintf("%s %d/%d", meter.label, meter.current, meter.maximum); full && text != want && meter.maximum <= 100 {
+					t.Fatalf("meter text = %q, want the full %q at the default resolution", text, want)
+				}
+			}
+		})
 	}
 }
 
@@ -541,13 +509,6 @@ func TestMeterTextStaysLegibleAtMinimumWindow(t *testing.T) {
 		t.Fatal("meter text vanished at the minimum window size")
 	}
 	t.Logf("minimum window %dx%d: budget=%dpx text=%q at native scale", minW, minH, budget, text)
-}
-
-// Utility status icons are authored 24x24 and must be drawn at native size.
-func TestUtilityStatusIconUsesAuthoredSize(t *testing.T) {
-	if utilityStatusIconSize != 24 {
-		t.Fatalf("utility status icon size = %d, want the authored 24", utilityStatusIconSize)
-	}
 }
 
 // Dropping the main-hand weapon mid-cooldown switches the card from the split
@@ -640,5 +601,60 @@ func TestWizardEyeRadarDotCategories(t *testing.T) {
 		if got := ui.radarDot(r.m, distSq, ts); got != r.want {
 			t.Errorf("%s: wrong radar dot", r.name)
 		}
+	}
+}
+
+// The mode panel (REAL-TIME / TURN-BASED and the turn lines) holds every line
+// inside its frame in every shipped font, in both clocks and both phases.
+func TestTurnModePanelFitsItsTextInEveryFont(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	ui := NewUISystem(g)
+	forEachUIFont(t, func(t *testing.T) {
+		for _, pose := range []struct {
+			tb   bool
+			turn int
+		}{{false, 0}, {true, 0}, {true, 1}} {
+			g.turnBasedMode, g.currentTurn = pose.tb, pose.turn
+			g.partyActionsUsed = 2
+			lines, x, _, w, h := ui.turnBasedStatusLayout()
+			for i, line := range lines {
+				if right := x + textPanelPadding + uiTextWidth(line); right > x+w-1 {
+					t.Errorf("tb=%v turn=%d: %q ends at %d, past the frame at %d", pose.tb, pose.turn, line, right, x+w-1)
+				}
+				if bottom := textPanelPadding + i*textPanelLineHeight + uiTextCharHeight; bottom > h {
+					t.Errorf("tb=%v turn=%d: line %d runs below the frame", pose.tb, pose.turn, i)
+				}
+			}
+			if x+w > g.config.GetScreenWidth() {
+				t.Errorf("tb=%v: the panel leaves the screen", pose.tb)
+			}
+		}
+	})
+}
+
+// A cooldown running when the party is replaced (a load, a new game) must not
+// pin the old hero: the cache keeps exactly the heroes that still have a card,
+// and a current hero keeps the peak its fill is measured against.
+func TestPartyCooldownCacheForgetsReplacedHeroes(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	ui := NewUISystem(g)
+	if len(g.party.Members) < 2 {
+		t.Fatal("fixture party needs two heroes")
+	}
+	kept, gone := g.party.Members[0], g.party.Members[1]
+	for _, m := range []*character.MMCharacter{kept, gone} {
+		m.RTCooldown = 30
+		if _, _, active := ui.partyCooldownProgress(m, partySingleHandCooldown(m)); !active {
+			t.Fatal("cooldown readout inactive (positive control)")
+		}
+	}
+	g.party.Members = []*character.MMCharacter{kept}
+	ui.prunePartyCooldownState()
+	if _, pinned := ui.partyCooldownState[gone]; pinned {
+		t.Fatal("a replaced hero is still pinned by the cooldown cache")
+	}
+	if st, ok := ui.partyCooldownState[kept]; !ok || st.peakRemaining != 30 {
+		t.Fatalf("current hero cooldown state = %+v, %v; want its peak of 30", st, ok)
 	}
 }

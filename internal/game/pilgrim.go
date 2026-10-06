@@ -31,6 +31,10 @@ func (g *MMGame) techniqueRefusal(idx int, key string) string {
 		return "There is no room to use a technique here."
 	}
 	if d.FreeStep {
+		// A step moves the party, and a rooted party cannot move (as with Jump).
+		if g.partyRooted() {
+			return "The party is rooted in place."
+		}
 		if g.turnBasedMode && g.currentTurn != 0 {
 			return "Wait for the party phase."
 		}
@@ -128,7 +132,8 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 				m.Purify()
 			}
 			g.partyRoot = PartyRootState{}
-			c.RareClass.PurifyFrames = 6 * tps
+			g.partyHinder.Slow = 0
+			c.RareClass.PurifyFrames = d.ReuseSeconds * tps
 		case "phase_veil", "quickening":
 			b := TimedCombatBuff{SpellID: key, Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, TechniqueTier: tier}
 			if key == "phase_veil" {
@@ -190,18 +195,27 @@ func (g *MMGame) useTechniqueFromBook(key string) bool {
 	return g.dispatchCharacterHubWorldAction(func() bool { return g.useTechnique(g.selectedChar, key, false, true) })
 }
 func (g *MMGame) quickenRecovery(c *character.MMCharacter, frames int) int {
-	if frames <= 0 {
+	pct := g.quickenRecoveryPct(c)
+	if g.isPartyMember(c) {
+		frames = g.hinderRecovery(frames)
+	}
+	if frames <= 0 || pct == 0 {
 		return frames
 	}
-	// Champion templates reuse these formulas but do not own party buffs.
+	return clampRTCooldown(frames * (100 - pct) / 100)
+}
+
+// quickenRecoveryPct is the recovery cut Quickening gives c right now (0 when
+// absent). Champion templates reuse these formulas but do not own party buffs.
+func (g *MMGame) quickenRecoveryPct(c *character.MMCharacter) int {
 	if !g.isPartyMember(c) {
-		return frames
+		return 0
 	}
 	b, ok := g.combatBuffByID("quickening")
 	if !ok {
-		return frames
+		return 0
 	}
-	return clampRTCooldown(frames * (100 - b.RecoveryPct) / 100)
+	return b.RecoveryPct
 }
 func (g *MMGame) tickRareClassClocks(frames int) {
 	g.spatialReuseFrames = max(0, g.spatialReuseFrames-frames)
@@ -231,8 +245,8 @@ func (g *MMGame) notifyPilgrimDisplacement(x, y float64) {
 		}
 	}
 }
-func canonicalPosition(x, y float64) (string, float64, float64) {
-	if wm := world.GlobalWorldManager; wm != nil {
+func (g *MMGame) canonicalPosition(x, y float64) (string, float64, float64) {
+	if wm := world.GlobalWorldManager; g.openWorldActive() {
 		if key, lx, ly, ok := wm.LocalizeWorldPos(x, y); ok {
 			return key, lx, ly
 		}
@@ -242,19 +256,29 @@ func canonicalPosition(x, y float64) (string, float64, float64) {
 
 type spatialTerrain struct {
 	*world.World3D
-	g         *MMGame
-	region    string
-	buildings map[[2]int]bool
+	g           *MMGame
+	region      string
+	buildings   map[[2]int]bool
+	passOpenAir bool // Transit only; never permits landing on an unwalkable floor.
 }
 
 func (t spatialTerrain) IsTileBlocking(x, y int) bool {
 	g := t.g
-	if g.world.IsTileBlockingTerrainAt(x, y) || t.buildings[[2]int{x, y}] {
+	if t.buildings[[2]int{x, y}] {
 		return true
+	}
+	if g.world.IsTileBlockingTerrainAt(x, y) {
+		if !t.passOpenAir || x < 0 || y < 0 || x >= g.world.Width || y >= g.world.Height || world.GlobalTileManager == nil {
+			return true
+		}
+		d := world.GlobalTileManager.GetTileData(g.world.Tiles[y][x])
+		if d == nil || !d.FlyOver {
+			return true
+		}
 	}
 	ts := float64(g.config.GetTileSize())
 	wx, wy := (float64(x)+0.5)*ts, (float64(y)+0.5)*ts
-	key, _, _ := canonicalPosition(wx, wy)
+	key, _, _ := g.canonicalPosition(wx, wy)
 	if key != t.region {
 		return true
 	}
@@ -282,9 +306,11 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 	}
 	ts := float64(g.config.GetTileSize())
 	oldX, oldY := g.camera.X, g.camera.Y
-	region, lx, ly := canonicalPosition(oldX, oldY)
+	region, lx, ly := g.canonicalPosition(oldX, oldY)
 	maxTiles := config.TierValue(fold.Range, tier)
 	terrain := spatialTerrain{World3D: g.world, g: g, region: region, buildings: g.buildingOccupiedTiles()}
+	pathTerrain := terrain
+	pathTerrain.passOpenAir = true
 	legalLanding := func(x, y float64) bool {
 		if terrain.IsTileBlocking(TileIndex(x, ts), TileIndex(y, ts)) {
 			return false
@@ -295,7 +321,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 				return false
 			}
 		}
-		return g.collisionSystem.CanMoveTo("player", x, y)
+		return g.canMovePartyTo(x, y)
 	}
 	var x, y float64
 	if key == "return_step" {
@@ -326,7 +352,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 		for tiles := maxTiles; tiles >= fold.MinRange; tiles-- {
 			x, y = originX+dx*float64(tiles)*ts, originY+dy*float64(tiles)*ts
 			if math.Hypot(x-oldX, y-oldY)+0.01 >= float64(fold.MinRange)*ts && legalLanding(x, y) &&
-				collision.CheckMovementLine(terrain, ts, oldX, oldY, x, y) && g.collisionSystem.CheckLineOfSight(oldX, oldY, x, y) {
+				collision.CheckMovementLine(pathTerrain, ts, oldX, oldY, x, y) && g.collisionSystem.CheckLineOfSight(oldX, oldY, x, y) {
 				found = true
 				break
 			}
@@ -336,6 +362,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 		}
 	}
 	g.setPartyPosition(x, y)
+	g.creditAdventureMovement("spatial", oldX, oldY, x, y)
 	g.notifyPilgrimDisplacement(oldX, oldY)
 	if key == "fold_step" {
 		// Keep the FIRST departure point across successive Folds; refreshing
@@ -347,7 +374,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 	} else {
 		c.RareClass.Anchor = character.SpatialAnchor{}
 	}
-	g.spatialReuseFrames = 3 * g.config.GetTPS()
+	g.spatialReuseFrames = config.Technique(key).ReuseSeconds * g.config.GetTPS()
 	if g.turnBasedMode {
 		g.spatialStepThisTurn = true
 	}
@@ -363,7 +390,7 @@ func (g *MMGame) automaticTechniqueTrigger(key string) bool {
 	engaged, near := false, 0
 	ts := float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
-		if m != nil && m.IsAlive() && !m.Bound && m.TargetsParty() {
+		if g.monsterPressesParty(m) {
 			engaged = true
 			if math.Hypot(m.X-g.camera.X, m.Y-g.camera.Y) <= 2*ts {
 				near++

@@ -14,7 +14,8 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
-	Arboreal *ArborealConfig `yaml:"arboreal,omitempty"`
+	Telegraph *TelegraphedAttack `yaml:"telegraphed_attack,omitempty"`
+	Arboreal  *ArborealConfig    `yaml:"arboreal,omitempty"`
 
 	Disposition  string   `yaml:"disposition,omitempty"`
 	Prey         []string `yaml:"prey,omitempty"`
@@ -139,9 +140,6 @@ type MonsterDefinition struct {
 	RootPartyTurns      int     `yaml:"root_party_turns,omitempty"`
 	RearBlinkChance     float64 `yaml:"rear_blink_chance,omitempty"`
 	RearBlinkRangeTiles float64 `yaml:"rear_blink_range_tiles,omitempty"`
-	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) - marks an elite
-	// or variant apart from a base mob that shares its sprite.
-	TintColor []float64 `yaml:"tint_color,omitempty"`
 
 	// Reject the former misleading key rather than silently losing terrain permissions.
 	DeprecatedHabitatPreferences yaml.Node `yaml:"habitat_preferences,omitempty"`
@@ -171,7 +169,17 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	biomeLetters := make(map[string]map[string][]string)
 	var conflicts []string
 
+	// Creature types gate immunities and revenge rallies by exact comparison,
+	// so they are canonical (lowercase, trimmed) from load on.
 	for key, monster := range config.Monsters {
+		monster.Type = CanonicalMonsterType(monster.Type)
+		monster.DeathRalliesType = CanonicalMonsterType(monster.DeathRalliesType)
+		config.Monsters[key] = monster
+	}
+	for key, monster := range config.Monsters {
+		if err := monster.Telegraph.validate(); err != nil {
+			conflicts = append(conflicts, fmt.Sprintf("monster %q: %v", key, err))
+		}
 		if monster.Arboreal != nil {
 			if err := monster.Arboreal.validate(); err != nil {
 				conflicts = append(conflicts, fmt.Sprintf("monster %q: %v", key, err))
@@ -252,11 +260,19 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.InfernoChance > 0 && monster.InfernoRangeTiles <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_range_tiles", key))
 		}
-		if monster.PiercingShotChance > 0 && monster.PiercingShotTargets < 0 {
-			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has negative piercing_shot_targets", key))
+		// Abilities name their own numbers: combat has no hidden fallbacks, so
+		// the monster card always shows what the ability does.
+		if monster.FireburstChance > 0 && (monster.FireburstDamageMin <= 0 || monster.FireburstDamageMax < monster.FireburstDamageMin) {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has fireburst_chance but no fireburst_damage_min/max (max >= min > 0)", key))
+		}
+		if monster.PiercingShotChance > 0 && monster.PiercingShotTargets <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has piercing_shot_chance but no piercing_shot_targets", key))
 		}
 		if monster.AllyHealChance > 0 && monster.AllyHealAmount <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has ally_heal_chance but no ally_heal_amount", key))
+		}
+		if monster.AllyHealChance > 0 && monster.AllyHealRadius <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has ally_heal_chance but no ally_heal_radius_tiles", key))
 		}
 		if monster.TeleportChance > 0 && monster.TeleportAtHP <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_chance but no teleport_at_hp", key))
@@ -339,9 +355,6 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.RallyMaxTargets > 0 && monster.RallyOnAggroTiles <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has rally_max_targets but no rally_on_aggro_tiles", key))
 		}
-		if len(monster.TintColor) != 0 && len(monster.TintColor) != 3 {
-			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' tint_color must be [r,g,b] (3 values), got %d", key, len(monster.TintColor)))
-		}
 	}
 	for letter, monsterKeys := range universalLetters {
 		if len(monsterKeys) > 1 {
@@ -406,6 +419,28 @@ func ValidateCatalogReferences(monsters *MonsterYAMLConfig, gameConfig *config.C
 						}
 					}
 				}
+			}
+		}
+	}
+	// Catalog entries that spawn a monster by key: a typo would otherwise panic
+	// in NewMonster3DFromConfig on the first summon, mid-fight.
+	if config.GlobalSpells != nil {
+		for id, spell := range config.GlobalSpells.Spells {
+			if spell == nil || spell.SummonMonster == "" {
+				continue
+			}
+			if _, known := monsters.Monsters[spell.SummonMonster]; !known {
+				return fmt.Errorf("spell %q summon_monster references unknown monster %q", id, spell.SummonMonster)
+			}
+		}
+	}
+	if config.GlobalItems != nil {
+		for key, item := range config.GlobalItems.Items {
+			if item == nil || item.CardSummonMonster == "" {
+				continue
+			}
+			if _, known := monsters.Monsters[item.CardSummonMonster]; !known {
+				return fmt.Errorf("item %q card_summon_monster references unknown monster %q", key, item.CardSummonMonster)
 			}
 		}
 	}
@@ -646,11 +681,6 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.BandGroup = def.BandGroup
 	m.RootPartyChance, m.RootPartySeconds, m.RootPartyTurns = def.RootPartyChance, def.RootPartySeconds, def.RootPartyTurns
 	m.RearBlinkChance, m.RearBlinkRangeTiles = def.RearBlinkChance, def.RearBlinkRangeTiles
-	if len(def.TintColor) == 3 {
-		m.TintR = float32(def.TintColor[0])
-		m.TintG = float32(def.TintColor[1])
-		m.TintB = float32(def.TintColor[2])
-	}
 
 	m.LightRadius = 0
 	m.LightIntensity = 0
