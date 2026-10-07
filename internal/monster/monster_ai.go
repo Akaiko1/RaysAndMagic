@@ -172,12 +172,14 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	m.TickSlowFrame()   // Tarn Trident silt decays regardless of stun/root state
 	m.TickWeakenFrame() // Scalebreaker roar decays regardless of stun/root state
 	m.TickSoakFrame()   // Champion Stone Skin uses the same rated dual-clock contract
+	m.TickRetaliation(false)
 	if !m.IsAlive() {
 		// Match the TB scheduler: a lethal autonomous tick ends this actor's
 		// action immediately. The game-level indirect-kill sweep awards and
 		// removes it after all parallel workers have completed.
 		return
 	}
+	m.LimitPlayerEngagement(partyX, partyY)
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
@@ -229,12 +231,17 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 
 	// Party detection always uses the actual party position. The pursuit target
 	// may be a bound ally, a charmed monster's foe, or the monster itself.
-	m.updatePlayerEngagementWithVision(collisionChecker, partyX, partyY, targetX, targetY)
+	m.UpdatePlayerEngagement(collisionChecker, partyX, partyY, targetX, targetY)
+	if x, y, returning := m.ReturnHomeTarget(); returning && collisionChecker != nil {
+		m.followPathToTile(collisionChecker, x, y)
+		m.ReturnHomeTarget()
+		return
+	}
 
 	// Loot-guard movement is a calm override prepared by the game on the main
 	// thread. Detection above still uses the actual party position; once the
 	// player is noticed, normal alert/pursuit logic resumes immediately.
-	if m.LootGuarding && !m.IsEngagingPlayer && !m.WasAttacked && m.AIFoe == nil &&
+	if m.LootGuarding && !m.IsEngagingPlayer && m.AIFoe == nil &&
 		(m.State == StateIdle || m.State == StatePatrolling) {
 		m.updateLootGuarding(collisionChecker)
 		return
@@ -301,11 +308,13 @@ func (m *Monster3D) pursueRelentlessly(checker CollisionChecker, targetX, target
 	}
 }
 
-// updatePlayerEngagementWithVision handles party detection with line-of-sight
-// checks. partyX/Y remain the real party position even when targetX/Y redirects
-// combat movement to another monster. Trees and other opaque obstacles reduce
-// detection radius.
-func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
+// UpdatePlayerEngagement owns perception and pursuit transitions in RT and TB.
+// The party position stays separate from a redirected movement target.
+func (m *Monster3D) UpdatePlayerEngagement(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
+	m.LimitPlayerEngagement(partyX, partyY)
+	if !m.partyScopeAllowsPursuit() && !m.IsPartyControlled() && (m.AIFoe == nil || m.AIFoe.IsPartyControlled()) {
+		return
+	}
 	switch m.CurrentAIBehavior() {
 	case AIBehaviorInert:
 		return
@@ -354,7 +363,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	}
 
 	if m.ShouldDisengageFromPlayer(partyX, partyY) {
-		// Stop engaging player - return to idle (only if not recently attacked).
+		// End the active chase without erasing provocation memory.
 		m.EndPlayerEngagement()
 	}
 }
@@ -363,7 +372,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 // Sight, a direct hit, and the explicit TB pack exception all use this state
 // transition so the alert state and attack cadence cannot drift by entry path.
 func (m *Monster3D) BeginPlayerEngagement() {
-	if m == nil {
+	if m == nil || !m.partyScopeAllowsPursuit() {
 		return
 	}
 	// A calm loot guard releases its post as soon as it sees the party. Keep
@@ -386,21 +395,25 @@ func (m *Monster3D) BeginCombatEngagement() {
 	}
 	m.ResetPathfinding()
 	m.IsEngagingPlayer = true
+	m.ReturningHome = false
 	m.State = StateAlert
 	m.StateTimer = 0
 	m.AttackCount = 0
 }
 
-// EndPlayerEngagement returns a non-sticky monster to its calm state. It also
-// clears the temporary guard-origin marker, so a later patrol uses ordinary
-// rules unless the game assigns a new loot-guard objective.
+// EndPlayerEngagement cancels active pursuit while retaining hostility memory.
+// A returning guard keeps its seven-tile sight until it reaches home.
 func (m *Monster3D) EndPlayerEngagement() {
 	if m == nil {
 		return
 	}
 	m.ResetPathfinding()
 	m.IsEngagingPlayer = false
-	m.LootGuardAlerted = false
+	m.ReturningHome = true
+	m.Retaliation = RetaliationState{}
+	m.BandHitPending = false
+	m.AIFoe = nil
+	m.Telegraph = TelegraphState{Cooldown: m.Telegraph.Cooldown}
 	m.State = StateIdle
 	m.StateTimer = 0
 	m.AttackCount = 0
@@ -430,7 +443,7 @@ func (m *Monster3D) StandDownFromCombat() {
 // map-wide-hostile monsters. WasAttacked is not excluded: Charm expiry leaves it
 // set while the next visible party contact must be allowed to re-enter combat.
 func (m *Monster3D) CanStartPlayerAggro() bool {
-	return m != nil && m.IsAlive() && !m.IsEngagingPlayer &&
+	return m != nil && m.IsAlive() && !m.IsEngagingPlayer && m.partyScopeAllowsPursuit() &&
 		m.CurrentAIBehavior() == AIBehaviorSeekParty
 }
 
@@ -442,7 +455,7 @@ func (m *Monster3D) HasLineOfSightToPlayer(collisionChecker CollisionChecker, pl
 }
 
 // SeesPlayerWithinAlertRadius applies this monster's authored alert radius,
-// fallback, tether expansion, or the exact seven-tile loot-guard rule. It is
+// fallback or the exact seven-tile loot-guard rule. It is
 // pure sight geometry: callers decide whether this sight may begin combat.
 func (m *Monster3D) SeesPlayerWithinAlertRadius(collisionChecker CollisionChecker, playerX, playerY float64) bool {
 	if m == nil {
@@ -460,69 +473,100 @@ func (m *Monster3D) CanStartPlayerEngagement(collisionChecker CollisionChecker, 
 	return m.CanStartPlayerAggro() && m.SeesPlayerWithinAlertRadius(collisionChecker, playerX, playerY)
 }
 
-// playerAlertRadii centralizes player engagement radii and pursuit hysteresis.
-// It intentionally has no line-of-sight check, so a monster that is already in
-// a sticky fight can keep pursuing through cover.
+// playerAlertRadii uses authored sight and one bounded pursuit rule in both clocks.
 func (m *Monster3D) playerAlertRadii() (float64, float64) {
-	if m.LootGuarding || m.LootGuardAlerted {
-		// Guard mode is deliberately exact: it does not inherit the ordinary
-		// monster's authored radius, tether expansion, or disengage hysteresis.
+	if (m.LootGuarding || m.LootGuardAlerted) && !m.WasAttacked {
 		return LootGuardAggroRadiusTiles * m.tileSize(), 1
 	}
-
-	// Detection tuning from config (monster_ai section), with code fallbacks for
-	// configless contexts (tests). Distances are in tiles.
-	defaultRadiusTiles, outsideTetherMult, disengageMult := 4.0, 2.0, 2.0
+	defaultRadius, multiplier := 4.0, 2.0
 	if m.config != nil {
-		ai := &m.config.MonsterAI
-		if ai.DefaultAlertRadiusTiles > 0 {
-			defaultRadiusTiles = ai.DefaultAlertRadiusTiles
+		if m.config.MonsterAI.DefaultAlertRadiusTiles > 0 {
+			defaultRadius = m.config.MonsterAI.DefaultAlertRadiusTiles
 		}
-		if ai.AlertOutsideTetherMultiplier > 0 {
-			outsideTetherMult = ai.AlertOutsideTetherMultiplier
-		}
-		if ai.DisengageDistanceMultiplier > 0 {
-			disengageMult = ai.DisengageDistanceMultiplier
+		if m.config.MonsterAI.DisengageDistanceMultiplier > 0 {
+			multiplier = m.config.MonsterAI.DisengageDistanceMultiplier
 		}
 	}
-
-	detectionRadius := m.AlertRadius
-	if detectionRadius <= 0 {
-		detectionRadius = defaultRadiusTiles * m.tileSize()
+	radius := m.AlertRadius
+	if radius <= 0 {
+		radius = defaultRadius * m.tileSize()
 	}
-	if !m.IsWithinTetherRadius() {
-		detectionRadius *= outsideTetherMult
-	}
-	return detectionRadius, disengageMult
+	return math.Min(radius, m.PursuitLimitTiles()*m.tileSize()), multiplier
 }
 
-// ShouldDisengageFromPlayer is the shared non-sticky pursuit exit rule. RT
-// applies it to every sight-only party encounter; TB applies it only to the
-// loot-guard objective, whose encounter deliberately returns to its post at
-// the exact seven-tile radius instead of becoming a sticky TB fight.
-func (m *Monster3D) ShouldDisengageFromPlayer(playerX, playerY float64) bool {
-	if m == nil || !m.IsEngagingPlayer || m.WasAttacked {
-		return false
-	}
-	return distance(m.X, m.Y, playerX, playerY) > m.PursuitLeashPixels()
-}
-
-// PursuitLeashPixels is the distance at which this monster drops a sight-only
-// chase: detection radius times the disengage hysteresis.
+// PursuitLeashPixels is finite even for provoked creatures. Map hunters bypass
+// this distance only for their party target in their own region.
 func (m *Monster3D) PursuitLeashPixels() float64 {
-	detectionRadius, disengageMult := m.playerAlertRadii()
-	return detectionRadius * disengageMult
+	if m.Retaliation.Frames > 0 {
+		return math.Max(m.PursuitLimitTiles(), m.Retaliation.RadiusTiles) * m.tileSize()
+	}
+	if m.WasAttacked {
+		return m.PursuitLimitTiles() * m.tileSize()
+	}
+	radius, multiplier := m.playerAlertRadii()
+	return math.Min(m.PursuitLimitTiles(), math.Ceil(radius/m.tileSize()*multiplier)) * m.tileSize()
 }
 
-// PressesParty reports a party-hostile monster close enough to press the
-// fight: within its pursuit leash or its attack reach. Sticky hostility keeps
-// the AI hunting from any distance, but a hunter stranded beyond both (another
-// region of the open world, no route) is not a fight the party is in.
-func (m *Monster3D) PressesParty(partyX, partyY float64) bool {
-	if !m.TargetsParty() {
-		return false
+func (m *Monster3D) CanPursueParty(playerX, playerY float64) bool {
+	return m != nil && m.partyScopeAllowsPursuit() &&
+		(m.relentlessHunter() || distance(m.X, m.Y, playerX, playerY) <= m.PursuitLeashPixels())
+}
+
+func (m *Monster3D) ShouldDisengageFromPlayer(playerX, playerY float64) bool {
+	return m != nil && m.IsEngagingPlayer && m.AIFoe == nil && !m.CanPursueParty(playerX, playerY)
+}
+
+// LimitPlayerEngagement runs before status/action gates as well as in the AI.
+// Provocation memory survives; neither a stun nor a saved flag can bypass scope.
+func (m *Monster3D) LimitPlayerEngagement(playerX, playerY float64) {
+	if m == nil || m.IsPartyControlled() || m.IsAmbient() {
+		return
 	}
-	return distance(m.X, m.Y, partyX, partyY) <= math.Max(m.PursuitLeashPixels(), m.PursuitReachPixels())
+	if m.AIFoe != nil && !m.AIFoe.IsPartyControlled() {
+		return
+	}
+	if !m.partyScopeAllowsPursuit() || (m.AIFoe == nil && !m.CanPursueParty(playerX, playerY)) {
+		if m.IsEngagingPlayer || m.AIFoe != nil || m.State == StateFleeing ||
+			m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking {
+			m.EndPlayerEngagement()
+		}
+	}
+}
+
+// PressesParty excludes remote map hunters from local party activities and UI.
+func (m *Monster3D) PressesParty(partyX, partyY float64) bool {
+	return m.TargetsParty() && m.CanPursueParty(partyX, partyY) &&
+		distance(m.X, m.Y, partyX, partyY) <= m.PursuitLimitTiles()*m.tileSize()
+}
+
+// ReturnHomeTarget is shared by continuous and turn movement. Only the explicit
+// disengagement objective moves a calm TB actor; ordinary TB patrol stays paused.
+func (m *Monster3D) ReturnHomeTarget() (int, int, bool) {
+	if !m.ReturningHome || m.IsEngagingPlayer || m.IsPartyControlled() || m.IsInertSetPiece() {
+		return 0, 0, false
+	}
+	x, y := m.worldToTile(m.SpawnX), m.worldToTile(m.SpawnY)
+	if m.isAtTile(x, y) {
+		m.ReturningHome = false
+		m.LootGuardAlerted = false
+		m.ResetPathfinding()
+		return 0, 0, false
+	}
+	m.State = StatePatrolling
+	return x, y, true
+}
+
+func (m *Monster3D) NextReturnHomeStep(checker CollisionChecker) (int, int, bool) {
+	x, y, ok := m.ReturnHomeTarget()
+	if !ok || checker == nil {
+		return 0, 0, false
+	}
+	path := m.findPathToTile(checker, x, y)
+	if len(path) < 2 {
+		m.recoverUnreachableHome(checker, x, y, true)
+		return 0, 0, false
+	}
+	return path[1].X, path[1].Y, true
 }
 
 func (m *Monster3D) updateIdle(playerX, playerY float64) {
@@ -1010,13 +1054,23 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 	// An unreachable patrol home must not pin this actor to a full A* search
 	// every tick. Adopt its current refuge; ordinary patrol can resume next tick.
 	// Only an actual failed search qualifies, never a blocked movement step.
-	if failedSearch && m.State == StatePatrolling && !m.MovementHeld(false) &&
-		m.isReturnHomeGoal(TileCoord{X: targetTileX, Y: targetTileY}) &&
-		len(m.findPathToTile(patrolTerrainChecker{collisionChecker}, targetTileX, targetTileY)) == 0 {
-		m.SpawnX, m.SpawnY = m.X, m.Y
-		m.ResetPathfinding()
+	if failedSearch {
+		m.recoverUnreachableHome(collisionChecker, targetTileX, targetTileY, false)
 	}
 	return moved
+}
+
+// Both movement clocks abandon a terrain-unreachable home, never a route that
+// is only occupied by a body or unavailable while this actor is held.
+func (m *Monster3D) recoverUnreachableHome(checker CollisionChecker, x, y int, turnBased bool) {
+	if m.State != StatePatrolling || m.MovementHeld(turnBased) ||
+		!m.isReturnHomeGoal(TileCoord{X: x, Y: y}) ||
+		len(m.findPathToTile(patrolTerrainChecker{checker}, x, y)) != 0 {
+		return
+	}
+	m.SpawnX, m.SpawnY = m.X, m.Y
+	m.ResetPathfinding()
+	m.ReturnHomeTarget()
 }
 
 // A body temporarily blocking a home route must not change the patrol origin.
@@ -1027,7 +1081,7 @@ func (c patrolTerrainChecker) CanMoveToWithTileOverrides(id string, x, y float64
 }
 
 func (m *Monster3D) isReturnHomeGoal(goal TileCoord) bool {
-	return !m.IsWithinTetherRadius() && goal == (TileCoord{X: m.worldToTile(m.SpawnX), Y: m.worldToTile(m.SpawnY)})
+	return (m.ReturningHome || !m.IsWithinTetherRadius()) && goal == (TileCoord{X: m.worldToTile(m.SpawnX), Y: m.worldToTile(m.SpawnY)})
 }
 
 // followPathStep advances one tick along m.PathTiles toward (targetTileX,
@@ -1683,7 +1737,7 @@ func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, 
 				fleeChance = ai.FleeAfterAttacksChance
 			}
 		}
-		if m.AttackCount >= fleeAfter && rand.Float64() < fleeChance {
+		if !m.IsBoss() && m.AttackCount >= fleeAfter && rand.Float64() < fleeChance {
 			// Start fleeing
 			m.State = StateFleeing
 			m.StateTimer = 0
@@ -1709,8 +1763,8 @@ func (m *Monster3D) fleeDurationFrames() int {
 }
 
 // finishFleeIfExpired owns the common RT/TB exit transition. Flee is the tail
-// of an existing encounter, so cover does not erase it: distance alone decides
-// whether the monster rejoins the fight or wanders home.
+// of an existing encounter, so cover does not erase it: current pursuit scope
+// and leash decide whether the monster rejoins the fight or wanders home.
 func (m *Monster3D) finishFleeIfExpired(playerX, playerY float64) bool {
 	if m.StateTimer < m.fleeDurationFrames() {
 		return false
@@ -1718,10 +1772,9 @@ func (m *Monster3D) finishFleeIfExpired(playerX, playerY float64) bool {
 	m.ResetPathfinding()
 	m.StateTimer = 0
 
-	// Reuse the same authored/tethered hysteresis radius without applying a
-	// fresh LoS gate, so cover cannot erase the fight that caused the flee.
-	detectionRadius, disengageMult := m.playerAlertRadii()
-	if distance(m.X, m.Y, playerX, playerY) <= detectionRadius*disengageMult {
+	// Reuse CanPursueParty's live scope and leash, including temporary retaliation,
+	// without a fresh LoS gate: cover alone does not end the existing encounter.
+	if m.CanPursueParty(playerX, playerY) {
 		m.BeginPlayerEngagement()
 	} else {
 		m.LootGuardAlerted = false

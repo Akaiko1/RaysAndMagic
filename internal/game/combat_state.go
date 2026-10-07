@@ -1,7 +1,5 @@
 package game
 
-import ()
-
 // clearTransientCombatState drops every in-flight transient tied to the
 // CURRENT world: projectiles, swings, VFX and pending deaths. Must run on any
 // world swap (map switch, save load) or leftovers keep updating against the
@@ -39,6 +37,7 @@ func (g *MMGame) clearTransientCombatState() {
 	// coordinates of the destination map.
 	g.pendingMortars = g.pendingMortars[:0]
 	g.slashEffects = g.slashEffects[:0]
+	g.trapBursts = g.trapBursts[:0]
 	g.elementalAttackEffects = nil
 	g.hitEffectsMu.Lock()
 	g.spellHitEffects = g.spellHitEffects[:0]

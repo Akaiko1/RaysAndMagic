@@ -21,7 +21,7 @@ import (
 )
 
 // Reusable content labels do not identify a placement. Sight retains the leash
-// in both modes and only actual hits turn this instance into sticky retaliation.
+// in both modes; actual hits rally only eligible peers in the same instance.
 func TestAuthoredGroupInstancesAndLeash(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, hit := range []bool{false, true} {
@@ -66,7 +66,7 @@ func TestAuthoredGroupInstancesAndLeash(t *testing.T) {
 				}
 				for i, m := range peers {
 					want := hit && i < 2
-					if m.IsEngagingPlayer != want || m.WasAttacked != want {
+					if m.IsEngagingPlayer || m.WasAttacked != want {
 						t.Fatalf("retreat state member%d: engaged%v attacked%v", i, m.IsEngagingPlayer, m.WasAttacked)
 					}
 				}

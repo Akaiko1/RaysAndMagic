@@ -290,6 +290,7 @@ type Renderer struct {
 	spellBoltOpts        ebiten.DrawTrianglesShaderOptions
 	spellBoltTime        [1]float32
 	spellVolumeFaces     []spellVolumeFace
+	trapMaterial         trapMaterialRenderer
 	weaponShardVertices  [3]ebiten.Vertex
 	// softGlowImg is a radial-gradient (opaque centre -> transparent edge) white
 	// texture for soft glows, halos and motion ribbons. Built lazily.
@@ -2845,30 +2846,6 @@ func (r *Renderer) drawGlowSprite(screen *ebiten.Image, x, y, size float64, rgb 
 	screen.DrawImage(src, opts)
 }
 
-// drawGlowSpriteStretched draws the soft round glow with independent width and
-// height - a vertically stretched glow is what separates a flame tongue from a
-// glowing puddle on the ground.
-func (r *Renderer) drawGlowSpriteStretched(screen *ebiten.Image, x, y, w, h float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
-	if w <= 0 || h <= 0 || alpha <= 0 {
-		return
-	}
-	src := r.ensureSoftGlow()
-	opts := &r.glowOpts
-	opts.GeoM.Reset()
-	opts.GeoM.Scale(w/float64(softGlowSize), h/float64(softGlowSize))
-	opts.GeoM.Translate(x-w/2, y-h/2)
-	opts.ColorScale.Reset()
-	opts.ColorScale.Scale(
-		float32(rgb[0])/255,
-		float32(rgb[1])/255,
-		float32(rgb[2])/255,
-		float32(alpha),
-	)
-	opts.Blend = blend
-	opts.Filter = ebiten.FilterLinear
-	screen.DrawImage(src, opts)
-}
-
 func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
 	if size <= 0 || alpha <= 0 {
 		return
@@ -3061,7 +3038,6 @@ const (
 	SpriteTypeMonsterCorpse
 	SpriteTypeZoneEffect
 	SpriteTypeTileCurtain
-	SpriteTypeArmedTrap
 )
 
 // UnifiedSpriteRenderData holds data for rendering any sprite type in a unified sorted pass
@@ -3678,6 +3654,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// Split crosses before curtains so the latter use individual arm depths.
 	sprites = r.splitCrossedTreesForPainterOrder(sprites, crossedTreeStart, crossedTreeEnd)
 	sprites = r.collectTileCurtains(sprites)
+	r.collectTrapModels()
 
 	// Sort all sprites by depth (back to front). slices.SortStableFunc: no
 	// reflect swaps and no closure alloc, unlike sort.Slice - this runs every
@@ -3708,6 +3685,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 	// Render all sprites in sorted order
 	for _, s := range sprites {
+		r.drawTrapFacesBefore(screen, s.depthPerp)
 		if s.spriteType == SpriteTypeTileCurtain {
 			r.appendAuraCurtain(screen, s)
 			continue
@@ -3743,10 +3721,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			r.drawMonsterCorpse(screen, s)
 		case SpriteTypeZoneEffect:
 			r.drawZoneVisual(screen, r.zoneVisuals[s.tileX])
-		case SpriteTypeArmedTrap:
-			r.drawArmedTrap(screen, s.tileX)
 		}
 	}
+	r.drawTrapFacesBefore(screen, math.Inf(-1))
 	r.flushAuraCurtains(screen)
 }
 

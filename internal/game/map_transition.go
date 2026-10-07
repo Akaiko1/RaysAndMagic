@@ -76,16 +76,6 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 		if v := g.adventure.Visits[originKey]; v != nil {
 			v.ArenaLocked = false
 		}
-		if old := g.worldByKey(originKey); old != nil {
-			for _, m := range old.Monsters {
-				if m != nil && m.Key == policy.Boss.Monster {
-					m.EndPlayerEngagement()
-					m.WasAttacked = false
-					m.BossAggro = false
-					m.AIFoe = nil
-				}
-			}
-		}
 	}
 	g.adventure.Occupied = ""
 	if a := g.adventureConfig(request.mapKey); a != nil && a.OpeningOwned {
@@ -150,6 +140,10 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 		return err
 	}
 
+	if oldWorld != g.worldByKey(targetMapKey) {
+		endWorldPursuit(oldWorld)
+	}
+
 	// Update world reference and collision system
 	g.world = g.GetCurrentWorld()
 
@@ -211,6 +205,7 @@ func (g *MMGame) finishMapArrival(x, y, angle float64) {
 	g.spawnQuestCompletionMonsters(true)
 	g.flushPendingQuestSpawns()
 	g.setPartyPosition(x, y)
+	g.reconcileRestoredPursuit(world.GlobalWorldManager)
 	g.relocateTravelAllies()
 	// Landmark solidity was registered against the OLD map's coordinates during
 	// the switch; re-derive it now that the arrival position is final.

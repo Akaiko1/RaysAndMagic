@@ -241,6 +241,9 @@ func TestChamberArenaLifecycle(t *testing.T) {
 				}
 				r, ts := a.Boss.Arena, float64(g.config.GetTileSize())
 				cx, cy := float64(r[0]+r[2]+1)*ts/2, float64(r[1]+r[3]+1)*ts/2
+				// Attack from just outside the arena, within the shared hit leash.
+				x, y = (float64(r[0])-.5)*ts, cy
+				g.setPartyPosition(x, y)
 				// Every packet in one area action must resolve at the original
 				// party position, even when the boss is the first victim.
 				seen := 0
@@ -349,6 +352,10 @@ func TestChamberArenaLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 				boss = g.adventureBoss(a)
+				if boss.TargetsParty() || !boss.WasAttacked {
+					t.Fatal("travel retained pursuit or erased provocation memory")
+				}
+				g.setPartyPosition(x, y)
 				boss.BeginPlayerEngagement()
 				g.refreshMonsterAIState()
 				if !g.adventureArenaBounds().Enabled {

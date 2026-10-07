@@ -587,7 +587,7 @@ func createTestMonster(x, y float64) *Monster3D {
 		SpawnY:           y,
 		TetherRadius:     192.0, // 3 tiles
 		Resistances:      make(map[DamageType]int),
-		config:           &config.Config{},
+		config:           &config.Config{MonsterAI: config.MonsterAIConfig{Pursuit: config.MonsterPursuitConfig{MaxRadiusTiles: 16}}},
 	}
 }
 
@@ -682,9 +682,7 @@ func TestDormantBossHoldsPosition(t *testing.T) {
 	}
 }
 
-// TestEngagementLeashAfterHits: a hit makes the fight sticky (any number of
-// hits, party at any range); a sight-only engagement drops once the party is
-// beyond the leash (AlertRadius 128 x disengage 2 = 256 px).
+// Hits extend pursuit to sixteen tiles; the memory survives disengagement.
 func TestEngagementLeashAfterHits(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
@@ -696,6 +694,8 @@ func TestEngagementLeashAfterHits(t *testing.T) {
 		{"one hit, party 15 tiles away", 1060, 1, 60, true},
 		{"two hits, party far away", 800, 2, 30, true},
 		{"never hit, party beyond leash", 500, 0, 1, false},
+		{"hit at sixteen-tile boundary", 1124, 1, 1, true},
+		{"hit beyond sixteen tiles", 1125, 1, 1, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := createTestMonster(100.0, 100.0)
@@ -715,10 +715,10 @@ func TestEngagementLeashAfterHits(t *testing.T) {
 					}
 				}
 				for i := 0; i < tc.updatesPerRound; i++ {
-					m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
+					m.UpdatePlayerEngagement(checker, playerX, playerY, playerX, playerY)
 				}
 			}
-			if m.IsEngagingPlayer != tc.wantEngaged || m.WasAttacked != tc.wantEngaged {
+			if m.IsEngagingPlayer != tc.wantEngaged || m.WasAttacked != (tc.hitRounds > 0) {
 				t.Fatalf("engaging=%v wasAttacked=%v, want %v", m.IsEngagingPlayer, m.WasAttacked, tc.wantEngaged)
 			}
 			if tc.wantEngaged && m.State == StateIdle {
@@ -897,7 +897,7 @@ func TestEngagedMonsterLeavesPatrolState(t *testing.T) {
 			AttackRadius: 128, AlertRadius: 320, Speed: 3.75,
 			SpawnX: 64 * 4, SpawnY: 64 * 4, TetherRadius: 64 * 20,
 		}
-		m.updatePlayerEngagementWithVision(checker, 64*6, 64*4, 64*6, 64*4) // player 2 tiles away
+		m.UpdatePlayerEngagement(checker, 64*6, 64*4, 64*6, 64*4) // player 2 tiles away
 		if m.State != StateAlert {
 			t.Errorf("engaged monster in %v should snap to StateAlert, got %v", start, m.State)
 		}
@@ -935,9 +935,9 @@ func TestCollectGoalTiles_RangedReachWiderThanMelee(t *testing.T) {
 	}
 }
 
-// After fleeing runs its course the monster RECONSIDERS: party still within
-// the engagement-hysteresis radius -> back to the fight; party gone -> wander
-// home. It must never stand dazed waiting to be hit.
+// After fleeing runs its course the monster reconsiders: pursuit still allowed
+// by CanPursueParty -> back to the fight; otherwise -> wander home. It must
+// never stand dazed waiting to be hit.
 func TestFleeEnds_ReengagesOrWanders(t *testing.T) {
 	checker := NewMockCollisionChecker(64.0)
 

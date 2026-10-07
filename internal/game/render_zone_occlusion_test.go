@@ -31,7 +31,7 @@ func TestWorldFieldOcclusionWithScenery(t *testing.T) {
 	g.handleResize(image.Pt(640, 480), image.Pt(640, 480))
 	p.clearTransient()
 	r.wallTorches = nil
-	for _, effectKind := range []string{"firewall", "trap-flames", "telegraph-warning", "telegraph-active", "impassable", "spawn"} {
+	for _, effectKind := range []string{"firewall", "trap-flames", "thief-trap", "telegraph-warning", "telegraph-active", "impassable", "spawn"} {
 		for _, key := range []string{"fern_patch", "tree"} {
 			t.Run(effectKind+"/"+key, func(t *testing.T) {
 				tile, ok := world.GlobalTileManager.GetTileTypeFromKey(key)
@@ -41,7 +41,7 @@ func TestWorldFieldOcclusionWithScenery(t *testing.T) {
 				data := world.GlobalTileManager.GetTileData(tile)
 				prop := TransparentSpriteData{tileX: 6, tileY: 8, worldX: 6.5 * 64, worldY: 8.5 * 64, tileType: tile, spriteName: data.Sprite}
 				runOnDrawFrame(func(_ *ebiten.Image) {
-					defer func() { g.persistentDamageZones = nil; g.bossFireTraps = nil; g.world.Monsters = nil }()
+					defer func() { g.persistentDamageZones = nil; g.bossFireTraps = nil; g.traps = nil; g.world.Monsters = nil }()
 					originalTiles := make([][]world.TileType3D, len(g.world.Tiles))
 					for y, row := range g.world.Tiles {
 						originalTiles[y] = append([]world.TileType3D(nil), row...)
@@ -70,6 +70,7 @@ func TestWorldFieldOcclusionWithScenery(t *testing.T) {
 						r.treeSpatial.rebuild(r.treeTilesCache, 64)
 						g.persistentDamageZones = nil
 						g.bossFireTraps = nil
+						g.traps = nil
 						g.world.Monsters = nil
 						g.world.StartX, g.world.StartY = -1, -1
 						for y, row := range originalTiles {
@@ -82,6 +83,8 @@ func TestWorldFieldOcclusionWithScenery(t *testing.T) {
 								g.persistentDamageZones = []PersistentDamageZone{{SpellID: "firewall", X: p.homeX + float64(depth)*64, Y: p.homeY, Radius: 35, FramesLeft: 100, AxisY: 1}}
 							case "trap-flames":
 								g.bossFireTraps = []bossFireTrap{{TX: tx, TY: ty}}
+							case "thief-trap":
+								g.traps = []PlacedTrap{{Key: "stasis_trap", MapKey: fxStageMapKey, TileX: tx, TileY: ty}}
 							case "telegraph-warning", "telegraph-active":
 								m := &monster.Monster3D{HitPoints: 1, Telegraph: monster.TelegraphState{Tiles: [][2]int{{tx, ty}}}}
 								if effectKind == "telegraph-warning" {
@@ -152,7 +155,10 @@ func TestWorldFieldOcclusionWithScenery(t *testing.T) {
 							}
 						}
 					}
-					if opaque < 10 || covered < 10 || frontChanges < 10 || (key == "tree" && openings == 0) {
+					// The small device fits wholly behind this trunk; unlike the
+					// wide fields, it must be fully hidden rather than peek through.
+					wantOpenings := key == "tree" && effectKind != "thief-trap"
+					if opaque < 10 || covered < 10 || frontChanges < 10 || (wantOpenings && openings == 0) {
 						t.Errorf("fixture lacks coverage: opaque=%d covered=%d front=%d openings=%d", opaque, covered, frontChanges, openings)
 					}
 					t.Logf("opaque=%d covered=%d front=%d openings=%d leaks=%d", opaque, covered, frontChanges, openings, leaks)

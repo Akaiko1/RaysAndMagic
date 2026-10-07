@@ -866,6 +866,7 @@ func TestRareAutomaticSupportTriggers(t *testing.T) {
 				c.RareClass.Automatic = map[string]bool{"phase_veil": true, "quickening": true}
 				if state != "peace" {
 					m := zoneVictim(t, g)
+					m.WasAttacked = true
 					m.IsEngagingPlayer = true
 					m.X += 10 * float64(g.config.GetTileSize())
 				}

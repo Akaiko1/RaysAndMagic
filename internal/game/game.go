@@ -444,6 +444,7 @@ type MMGame struct {
 	// Persistent damage zones (Hot Steam) - see combat_zones.go.
 	persistentDamageZones           []PersistentDamageZone
 	nextPersistentDamageZoneFieldID uint64
+	trapBursts                      []trapBurst
 	traps                           []PlacedTrap // armed thief traps (map-scoped, persisted)
 	selectedTrap                    int          // trap-book browse index (selection != equipped quick trap)
 
@@ -2356,11 +2357,9 @@ func (g *MMGame) refreshMonsterAIState() {
 		// until the quest unseals it. An evasive boss WITH an evade radius still
 		// skitters and blinks, so it is excluded.
 		m.BossDormant = evasive && m.EvadeRadiusTiles == 0
-		// Relentless chase (ignores detection range). Most bosses go relentless only
-		// AFTER normal aggro - within their alert radius or once the party has hit
-		// them. AggroWholeMap is the unique opt-in that chases from anywhere.
-		m.BossAggro = m.IsBoss() && !evasive && !m.BossWarded &&
-			(m.AggroWholeMap || m.IsEngagingPlayer || m.WasAttacked)
+		// Bind live scope for actors imported directly by world loading too.
+		g.stampMonsterHome(g.world, m)
+		m.BossAggro = m.IsBoss() && m.AggroWholeMap && !m.BossDormant && !m.BossEvasive && !m.BossWarded
 	}
 
 	for _, m := range g.world.Monsters {
@@ -2377,6 +2376,7 @@ func (g *MMGame) refreshMonsterAIState() {
 			continue
 		}
 		g.combat.refreshMonsterAITarget(m)
+		m.LimitPlayerEngagement(g.camera.X, g.camera.Y)
 	}
 	g.updateAdventureArena()
 	g.ejectPartyTargetingMonsters()

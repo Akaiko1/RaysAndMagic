@@ -497,8 +497,12 @@ monster_ai:
   path_check_frequency: 30      # Check for blocked paths every N frames
 
   # Detection (distances in tiles, the rest are multipliers)
+  pursuit:
+    max_radius_tiles: 16
+    retaliation_seconds: 10
+    retaliation_turns: 4
+    retaliation_margin_tiles: 2  # extra reach beyond the incoming shot distance
   default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
-  alert_outside_tether_multiplier: 2.0 # wider detection when lured away from spawn
   # No detection without line of sight: an unaware monster never aggros through
   # walls/trees (hard rule in PlayerDetectionRange, not a multiplier).
   disengage_distance_multiplier: 2.0   # lose engagement at detection x this (hysteresis)

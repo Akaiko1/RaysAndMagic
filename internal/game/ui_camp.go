@@ -71,15 +71,14 @@ func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
 		uiDrawImageScaledEdgeGlow(screen, sprite, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
 	}
 	drawImageScaled(screen, sprite, r.x, r.y, r.w, r.h)
-	// A native-size number on an opaque inset badge stays readable over the
-	// transparent artwork and the world behind it.
+	// Keep the number directly on the artwork; only the glyph shadow supplies
+	// contrast against the world behind the transparent tent icon.
 	text := strconv.Itoa(max(0, g.party.Food))
 	if uiTextWidth(text) > r.w-8 {
 		text = "9999+"
 	}
 	w := uiTextWidth(text) + 6
 	badge := layoutRect{r.right() - w - 3, r.bottom() - uiTextCharHeight - 4, w, uiTextCharHeight + 1}
-	drawFilledRect(screen, badge.x, badge.y, badge.w, badge.h, color.RGBA{5, 6, 8, 245})
 	ink := color.RGBA{245, 220, 157, 255}
 	if g.party.Food < CampFoodCost {
 		ink = color.RGBA{236, 111, 95, 255}

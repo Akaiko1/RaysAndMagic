@@ -154,6 +154,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if !m.IsAlive() {
 			continue
 		}
+
+		m.LimitPlayerEngagement(playerX, playerY)
 		if gl.game.turnBasedMonsterStunned[m] {
 			gl.game.refreshMonsterCollisionState(m)
 			continue
@@ -162,6 +164,16 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// CurrentAIBehavior is the mode-independent owner of high-level precedence.
 		// Keep every mode explicit here: adding a behavior to the policy without a TB
 		// branch must not silently fall through into ordinary party combat.
+		m.UpdatePlayerEngagement(gl.game.collisionSystem, playerX, playerY, m.AITargetX, m.AITargetY)
+		if _, _, returning := m.ReturnHomeTarget(); returning {
+			if nx, ny, move := m.NextReturnHomeStep(gl.game.collisionSystem); move && gl.monsterCanStepTB(m) {
+				wx, wy := TileCenterFromTile(nx, ny, tileSize)
+				gl.commitMonsterMoveTB(m, wx, wy)
+			}
+			m.ReturnHomeTarget()
+			gl.game.refreshMonsterCollisionState(m)
+			continue
+		}
 		behavior := m.CurrentAIBehavior()
 		switch behavior {
 		case monster.AIBehaviorAmbient:
@@ -230,34 +242,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		case monster.AIBehaviorRelentlessParty, monster.AIBehaviorSeekParty:
 			// These modes continue through the shared combat scheduler below.
 		}
-		// A sight-only loot guard has one exact seven-tile combat radius in both
-		// modes. Ordinary fights intentionally remain sticky in TB, but this
-		// objective-specific encounter returns to its prop when the party leaves.
-		if m.LootGuardAlerted && m.IsEngagingPlayer && !m.WasAttacked {
-			if m.ShouldDisengageFromPlayer(playerX, playerY) {
-				m.EndPlayerEngagement()
-				gl.game.refreshMonsterCollisionState(m)
-				continue
-			}
-		}
 		gl.game.refreshMonsterCollisionState(m)
-
-		// TB does not run Monster3D.Update, so it invokes the exact same normal
-		// sight gate as RT. Loot guards receive their exact seven-tile objective
-		// range inside that shared rule, but never patrol during TB. Sticky hostility and
-		// a bound-ally foe deliberately bypass first sight: a monster already
-		// committed to a fight must keep taking turns after cover or a retreat.
-		if m.CanStartPlayerEngagement(gl.game.collisionSystem, playerX, playerY) {
-			m.BeginPlayerEngagement()
-		}
-		if m.AIFoe == nil && !m.IsEngagingPlayer && !m.WasAttacked && !m.BossAggro && !m.Relentless {
+		if m.AIFoe == nil && !m.TargetsParty() {
 			continue
 		}
-
-		// A bound-ally foe is combat too, even though its target is not the party.
-		// Preserve the existing combat marker so bands scatter rather than remain a
-		// calm stack while fighting summons. Normal party entries already used the
-		// shared BeginPlayerEngagement transition above.
 		if !m.IsEngagingPlayer {
 			m.BeginCombatEngagement()
 		}
@@ -310,9 +298,6 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
 		// tile and strike. Brief turn cooldown.
 		if m.CanPounce() {
-			if tickTurnStatuses {
-				m.TickPounceCooldownTurn()
-			}
 			if gl.game.combat.monsterPouncePointInReachTB(m, playerX, playerY, m.PounceCDTurns) {
 				if gl.game.combat.executePounce(m, playerX, playerY) {
 					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
@@ -729,6 +714,8 @@ func (gl *GameLoop) attackTargetTile(m *monster.Monster3D) *monster.TileCoord {
 // It returns whether stun or the slow cadence consumed this actor's turn.
 func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses bool) bool {
 	if tickTurnStatuses {
+		m.TickRetaliation(true)
+		m.TickPounceCooldownTurn()
 		m.TickPoisonTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
 		m.TickBurnTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS()))   // Drakefang ignite; stacks with poison
 		m.TickArmorShredTurn()                                             // Pit Labrys shred decays regardless of stun

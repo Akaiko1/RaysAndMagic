@@ -267,6 +267,13 @@ type GroundContainerSave struct {
 	SizeTiles float64      `json:"size_tiles"`
 }
 
+type MonsterAggroSave struct {
+	Retaliation    monster.RetaliationState `json:"retaliation,omitzero"`
+	BandHitPending bool                     `json:"band_hit_pending,omitempty"`
+	Engaged        bool                     `json:"engaged,omitempty"`
+	ReturningHome  bool                     `json:"returning_home,omitempty"`
+}
+
 type MonsterSave struct {
 	Telegraph         monster.TelegraphState `json:"telegraph,omitzero"`
 	BandInstance      string                 `json:"band_instance,omitempty"`
@@ -295,9 +302,10 @@ type MonsterSave struct {
 	PacifiedFramesRemaining int                      `json:"pacified_frames_remaining,omitempty"`
 	CharmedByParty          bool                     `json:"charmed_by_party,omitempty"`
 	WasAttacked             bool                     `json:"was_attacked,omitempty"`
-	// Normal sight engagement is sticky in TB but non-sticky in RT. Only the TB
-	// semantic case is saved, never the raw runtime flag.
-	TurnBasedSightEngaged bool `json:"turn_based_sight_engaged,omitempty"`
+	// Aggro distinguishes active pursuit from permanent provocation. Nil means
+	// a legacy save whose old flags must be reconciled against the current scope.
+	Aggro                 *MonsterAggroSave `json:"aggro,omitempty"`
+	TurnBasedSightEngaged bool              `json:"turn_based_sight_engaged,omitempty"` // legacy read only
 	// A calm guard reservation is gameplay state: without it, a reload can make
 	// a patrolling mob forget the crate/lectern it was already posted at.
 	LootGuarding         bool   `json:"loot_guarding,omitempty"`

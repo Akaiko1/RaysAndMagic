@@ -800,6 +800,8 @@ type SpellDefinitionConfig struct {
 }
 
 type MonsterAIConfig struct {
+	Pursuit MonsterPursuitConfig `yaml:"pursuit"`
+
 	// AI behavior timers in engine update ticks (see engine.tps).
 	IdlePatrolTimer int `yaml:"idle_patrol_timer"`
 	PatrolIdleTimer int `yaml:"patrol_idle_timer"`
@@ -820,10 +822,9 @@ type MonsterAIConfig struct {
 	PathCheckFrequency int `yaml:"path_check_frequency"`
 
 	// Detection tuning. Distances are in tiles; the rest are multipliers.
-	DefaultAlertRadiusTiles      float64 `yaml:"default_alert_radius_tiles"`      // fallback when a monster omits alert_radius
-	AlertOutsideTetherMultiplier float64 `yaml:"alert_outside_tether_multiplier"` // wider detection when lured away from spawn
-	DisengageDistanceMultiplier  float64 `yaml:"disengage_distance_multiplier"`   // lose engagement at detection x this (hysteresis)
-	AttackEnterRangeFraction     float64 `yaml:"attack_enter_range_fraction"`     // enter attack at <= range x this (exit at > range)
+	DefaultAlertRadiusTiles     float64 `yaml:"default_alert_radius_tiles"`    // fallback when a monster omits alert_radius
+	DisengageDistanceMultiplier float64 `yaml:"disengage_distance_multiplier"` // lose engagement at detection x this (hysteresis)
+	AttackEnterRangeFraction    float64 `yaml:"attack_enter_range_fraction"`   // enter attack at <= range x this (exit at > range)
 
 	// Flee cycle: after this many consecutive attacks, roll this chance to flee
 	FleeAfterAttacks       int     `yaml:"flee_after_attacks"`
@@ -1626,6 +1627,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
+		return nil, err
+	}
+	if err := config.MonsterAI.Pursuit.validate(); err != nil {
 		return nil, err
 	}
 	if err := config.Display.validateInterfaceSizes(); err != nil {

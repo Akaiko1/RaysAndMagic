@@ -28,6 +28,7 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 	g.deadMonsterIDs = append(g.deadMonsterIDs, "monster_1")
 	g.bossFireTraps = []bossFireTrap{{TX: 1, TY: 2}}
 	g.bossFireTrapsOwner = "monster_1"
+	g.trapBursts = []trapBurst{{key: "bear_trap", tx: 1, ty: 2}}
 	g.party.Members[0].ScaleStacks = 5
 	g.turnBasedTurnSuspended = true
 
@@ -46,6 +47,9 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 	}
 	if len(g.bossFireTraps) != 0 || g.bossFireTrapsOwner != "" {
 		t.Fatalf("boss fire field not cleared: %v owner=%q", g.bossFireTraps, g.bossFireTrapsOwner)
+	}
+	if len(g.trapBursts) != 0 {
+		t.Fatal("trap activation from the previous world survived the transition")
 	}
 	if g.party.Members[0].ScaleStacks != 0 {
 		t.Fatalf("scale stacks not cleared: %d", g.party.Members[0].ScaleStacks)

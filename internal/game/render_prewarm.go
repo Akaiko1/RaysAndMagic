@@ -2392,9 +2392,10 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 	_, _ = r.ensureFloorShader()
 	_, _ = r.ensureAuraCurtainShader()
 	_ = r.ensureWeaponMaterialShaders()
+	_ = r.ensureTrapMaterial()
 	_, _ = r.game.ensureSkyShader()
 	p.stats.uploadImages = len(p.uploads)
-	if !r.auraCurtainWarmed || !r.weaponMaterialWarmed || p.shaderStickerMips != nil && p.shaderCoreMips != nil {
+	if !r.auraCurtainWarmed || !r.weaponMaterialWarmed || !r.trapMaterial.warmed || p.shaderStickerMips != nil && p.shaderCoreMips != nil {
 		r.mapRenderShaderWarmTasks = append(r.mapRenderShaderWarmTasks, task)
 	}
 }
@@ -2606,6 +2607,7 @@ func (r *Renderer) drawMapRenderShaderWarm(screen *ebiten.Image) {
 		}
 		r.drawAuraCurtainShaderWarm(screen)
 		r.drawWeaponMaterialWarm(screen)
+		r.drawTrapMaterialWarm(screen)
 		r.drawMapRenderStandeeShaderWarm(screen, task)
 		return
 	}

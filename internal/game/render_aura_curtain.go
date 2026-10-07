@@ -104,7 +104,6 @@ func (r *Renderer) collectAuraSegmentUV(x0, y0, x1, y1, u0, u1, ts, riseFraction
 func (r *Renderer) collectTileCurtains(sprites []UnifiedSpriteRenderData) []UnifiedSpriteRenderData {
 	r.auraCurtainEdges = r.auraCurtainEdges[:0]
 	r.collectImpassableTileAura()
-	sprites = r.collectTrapTileBorders(sprites)
 	r.collectEnvironmentEffects()
 	r.collectSpawnTileBorder()
 	r.collectClosedValveAuroras()

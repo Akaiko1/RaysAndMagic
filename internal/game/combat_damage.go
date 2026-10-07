@@ -99,6 +99,8 @@ func (cs *CombatSystem) applyMonsterDamagePacket(target *monsterPkg.Monster3D, p
 			ResistPiercePct: component.ResistPiercePct,
 		})
 	}
+	// Input may cross a region seam and hit before the serial AI pre-pass.
+
 	dealt := target.TakeDamagePacket(components)
 	if target.BandGroup != "" {
 		cs.game.rallyAuthoredBandHit(target)

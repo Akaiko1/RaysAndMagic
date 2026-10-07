@@ -140,6 +140,7 @@ func TestMonkEncounterGroup(t *testing.T) {
 					placePlayerAtTile(g, 14, 10, tile)
 					b.AlertRadius = 0 // only the guardian can acquire first sight
 				case "hit", "lethal", "controlled":
+					placePlayerAtTile(g, 20, 10, tile)
 					if trigger == "controlled" {
 						b.Pacified = true
 					}

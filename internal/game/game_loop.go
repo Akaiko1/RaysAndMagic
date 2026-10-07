@@ -954,7 +954,7 @@ func (g *MMGame) advanceControlledMonsters(elapsed int) {
 			m.BoundFramesRemaining = max(0, m.BoundFramesRemaining-elapsed)
 			if m.BoundFramesRemaining == 0 {
 				m.Bound = false
-				m.WasAttacked = true // sticky: a freed undead immediately turns hostile
+				m.WasAttacked = true // Freed undead remember provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
 				g.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
 			}
@@ -963,7 +963,7 @@ func (g *MMGame) advanceControlledMonsters(elapsed int) {
 			m.PacifiedFramesRemaining = max(0, m.PacifiedFramesRemaining-elapsed)
 			if m.PacifiedFramesRemaining == 0 {
 				m.Pacified = false
-				m.WasAttacked = true // sticky: Charm expiry restores hostility immediately
+				m.WasAttacked = true // Charm expiry restores provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
 				g.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
 			}

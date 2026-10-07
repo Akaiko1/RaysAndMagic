@@ -547,9 +547,9 @@ func (r *Renderer) drawAdditionalMonsterStatusFX(screen *ebiten.Image, s Unified
 	if v == 0 || s.spriteSize <= 0 {
 		return
 	}
-	// Share trap geometry's per-piece depth test, slightly ahead of the actor's
+	// Use a per-piece depth test, slightly ahead of the actor's
 	// own stamp. Nearby walls and other actors must still hide the particles.
-	anchor := trapAnchor{depth: math.Nextafter(s.depthPerp, math.Inf(-1))}
+	depth := math.Nextafter(s.depthPerp, math.Inf(-1))
 	size := float64(s.spriteSize)
 	viewBottom := worldViewportBottom(r.game)
 	// As with stun stars, keep a melee-range actor's status readable when its
@@ -562,6 +562,39 @@ func (r *Renderer) drawAdditionalMonsterStatusFX(screen *ebiten.Image, s Unified
 	width := min(size*.64, (bottom-top)*1.1)
 	c := statusCanvas{dst: screen, x: float64(s.screenX) - width/2, y: top, w: width, h: bottom - top,
 		clock:   float64(r.game.frameCount) + float64(monsterBurnSalt(s.monster.ID)),
-		visible: func(x, w float64) bool { return r.trapFxSpanVisible(anchor, x, w) }}
+		visible: func(x, w float64) bool { return r.statusFxSpanVisible(depth, x, w) }}
 	c.draw(v)
+}
+
+// statusFxSpanVisible conservatively depth-tests the complete horizontal span of
+// one status primitive against wall/actor columns already drawn. The painter
+// pass handles nearer sprite silhouettes. Culling a small primitive when any
+// column is hidden avoids painting its edge through a wall beside its centre.
+func (r *Renderer) statusFxSpanVisible(depth float64, centerX, width float64) bool {
+	if r == nil || r.game == nil || width <= 0 {
+		return false
+	}
+	left := int(math.Floor(centerX - width/2))
+	// Glow quads occupy a half-open destination span. Convert its exclusive
+	// right edge to the final covered depth-buffer column before the inclusive
+	// scan below, otherwise a wall immediately beside the glow makes it pop out.
+	right := int(math.Ceil(centerX+width/2)) - 1
+	bufferWidth := max(len(r.game.depthBuffer), len(r.game.actorDepthBuffer))
+	if bufferWidth == 0 {
+		return true // synthetic gallery anchors have no world depth buffers
+	}
+	if right < 0 || left >= bufferWidth {
+		return false
+	}
+	left = max(0, left)
+	right = min(bufferWidth-1, right)
+	for x := left; x <= right; x++ {
+		if x < len(r.game.actorDepthBuffer) && depth >= r.game.actorDepthBuffer[x] {
+			return false
+		}
+		if x < len(r.game.depthBuffer) && depth >= r.game.depthBuffer[x] {
+			return false
+		}
+	}
+	return true
 }

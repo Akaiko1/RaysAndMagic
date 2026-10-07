@@ -75,44 +75,48 @@ func (g *MMGame) indexAuthoredBands() map[string][]*monster.Monster3D {
 	return groups
 }
 
-// Sight shares a normal leashed engagement. Only a real attack creates sticky
-// retaliation, and a charmed/bound peer remains outside either transition.
+// Sight shares a normal leashed engagement. Only a real attack records lasting
+// provocation; a charmed/bound peer remains outside either transition.
 func (g *MMGame) updateAuthoredBandAggro() {
 	if g.camera == nil {
 		return
 	}
 	for _, peers := range g.indexAuthoredBands() {
-		sight, hit := false, false
+		sight := false
 		for _, m := range peers {
 			if m.IsPartyControlled() {
 				continue
 			}
-			hit = hit || m.WasAttacked
 			if !m.IsAlive() || m.AIFoe != nil {
 				continue
 			}
 			sight = sight || (m.IsEngagingPlayer && !m.ShouldDisengageFromPlayer(g.camera.X, g.camera.Y)) || m.CanStartPlayerEngagement(g.collisionSystem, g.camera.X, g.camera.Y)
 		}
 		for _, m := range peers {
-			answerBandAlarm(m, hit, hit || sight)
+			g.answerBandAlarm(m, false, sight)
 		}
 	}
 }
 
-// answerBandAlarm hands one peer its authored band's state. Every free peer
-// remembers the party's hit; only a peer whose mode answers the band (not a
-// fleeing or relentless one, not one busy with a foe) is roused or calmed.
-func answerBandAlarm(m *monster.Monster3D, hit, alarm bool) {
+// answerBandAlarm records provocation only for a peer that can actually answer.
+// Passive peers may answer a hit; old damage memory never becomes a fresh alarm.
+func (g *MMGame) answerBandAlarm(m *monster.Monster3D, hit, alarm bool) {
 	if !m.IsAlive() || m.IsPartyControlled() {
 		return
 	}
-	if hit {
-		m.WasAttacked = true
-	}
-	if !m.CurrentAIBehavior().Caps().AnswersBand {
+	behavior := m.CurrentAIBehavior()
+	if !behavior.Caps().AnswersBand && !(hit && behavior == monster.AIBehaviorPassive) {
 		return
 	}
-	if alarm {
+	allowed := m.CanPursueParty(g.camera.X, g.camera.Y)
+	// A witness may use the provoked leash without first mutating its saved state.
+	if hit && m.Retaliation.Frames <= 0 && !m.PartyOutsideHome() {
+		allowed = Distance(m.X, m.Y, g.camera.X, g.camera.Y) <= m.PursuitLimitTiles()*g.config.GetTileSize()
+	}
+	if alarm && allowed {
+		if hit {
+			m.WasAttacked = true
+		}
 		if !m.IsEngagingPlayer {
 			m.BeginPlayerEngagement()
 		}
@@ -131,7 +135,7 @@ func (g *MMGame) rallyAuthoredBandHit(target *monster.Monster3D) {
 		g.indexAuthoredBands()
 	}
 	for _, peer := range target.BandPeers {
-		answerBandAlarm(peer, true, true)
+		g.answerBandAlarm(peer, true, true)
 	}
 }
 

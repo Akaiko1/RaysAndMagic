@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"math"
 
 	"ugataima/internal/config"
 )
@@ -55,6 +54,3 @@ func validateProjectileFxStyles() {
 		}
 	}
 }
-
-// frac returns the fractional part - the loop clock for cycling particles.
-func frac(v float64) float64 { return v - math.Floor(v) }

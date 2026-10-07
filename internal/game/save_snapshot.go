@@ -183,7 +183,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				CharmedByParty:          mon.CharmedByParty,
 				WasAttacked:             mon.WasAttacked,
 				BandInstance:            mon.BandInstance,
-				TurnBasedSightEngaged:   g.turnBasedMode && w == g.world && mon.IsEngagingPlayer && !mon.WasAttacked && !mon.LootGuardAlerted && mon.CurrentAIBehavior() == monster.AIBehaviorSeekParty,
+				Aggro:                   &MonsterAggroSave{Engaged: mon.TargetsParty(), ReturningHome: mon.ReturningHome, Retaliation: mon.Retaliation, BandHitPending: mon.BandHitPending},
 				LootGuarding:            mon.LootGuarding,
 				LootGuardTargetKey:      mon.LootGuardTargetKey,
 				LootGuardTargetTileX:    mon.LootGuardTargetTileX,

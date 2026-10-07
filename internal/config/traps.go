@@ -21,15 +21,15 @@ type TrapDefinitionConfig struct {
 	SPCost          int     `yaml:"sp_cost"`            // spell points to place
 	CooldownSeconds float64 `yaml:"cooldown_seconds"`   // RT cooldown after placing
 	LifetimeSeconds int     `yaml:"lifetime_seconds"`   // armed trap despawns after this
-	Element         string  `yaml:"element"`            // particle colour/shape family
-	ArmedFx         string  `yaml:"armed_fx,omitempty"` // bespoke armed-tile renderer (trapFxStyleDraw); empty = edge glow
+	Element         string  `yaml:"element"`            // gameplay damage school
+	ArmedFx         string  `yaml:"armed_fx,omitempty"` // shader model and activation style
 	DamageBase      int     `yaml:"damage_base,omitempty"`
 	AoeRadiusTiles  float64 `yaml:"aoe_radius_tiles,omitempty"`
 	StunTurns       int     `yaml:"stun_turns,omitempty"`
 	StunSeconds     int     `yaml:"stun_seconds,omitempty"`
 	RootTurns       int     `yaml:"root_turns,omitempty"`
 	RootSeconds     int     `yaml:"root_seconds,omitempty"`
-	BorderColor     [3]int  `yaml:"border_color"` // armed-tile edge glow
+	BorderColor     [3]int  `yaml:"border_color"` // model accent / energy colour
 }
 
 // TrapSystemConfig is the full traps.yaml document.

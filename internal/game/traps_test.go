@@ -140,6 +140,17 @@ func TestTrap_PlacedUnderMonsterFiresImmediately(t *testing.T) {
 	if len(g.traps) != 0 {
 		t.Errorf("traps are one-shot: %d remain", len(g.traps))
 	}
+	if len(g.trapBursts) != 1 || g.trapBursts[0].key != key || g.trapBursts[0].tx != 3 || g.trapBursts[0].ty != 1 {
+		t.Fatalf("trigger must retain its consumed device at the victim's real tile: %+v", g.trapBursts)
+	}
+	// The consumed trap no longer exists, but its finite animation must still
+	// be retired while the party is thinking in turn-based mode.
+	g.turnBasedMode = true
+	g.frameCount += int64(trapBurstSeconds*float64(g.config.GetTPS())) + 1
+	(&GameLoop{game: g}).updateTraps()
+	if len(g.trapBursts) != 0 {
+		t.Fatal("consumed trap animation survived its presentation lifetime")
+	}
 	if thief.SpellPoints >= startSP {
 		t.Errorf("trap must cost SP: %d -> %d", startSP, thief.SpellPoints)
 	}

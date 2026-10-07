@@ -538,15 +538,15 @@ func TestMonsterTurnBased_GorillaDoesNotFreezeDuringTwentyBackAndForthMoves(t *t
 	t.Logf("gorilla stayed active during 20 back/forth TB moves; visited=%v", visited)
 }
 
-func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageAtLongRange(t *testing.T) {
+func TestMonsterTurnBased_ProvokedBossReacquiresWithinSight(t *testing.T) {
 	g, gl, gorilla, tile := gorillaTBGame(t, 12, 14, [2]int{5, 3}, [2]int{8, 10}, nil)
-	gorilla.IsEngagingPlayer = false // corrupt transient live state; save/load restores this from WasAttacked.
+	gorilla.EndPlayerEngagement() // memory alone does not restart combat; current sight does.
 	g.world.Monsters = []*monsterPkg.Monster3D{gorilla}
 	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
 	refreshTBMonsterCollisionState(g)
-	if !gorilla.BossAggro {
-		t.Fatal("setup failed: WasAttacked gorilla should recompute BossAggro")
+	if gorilla.BossAggro {
+		t.Fatal("ordinary boss gained map-wide pursuit")
 	}
 	const longRangeTiles = 7.0
 	if Distance(g.camera.X, g.camera.Y, gorilla.X, gorilla.Y) <= tile*longRangeTiles {
@@ -557,7 +557,7 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageAtLongRange(
 	runOneMonsterTurn(g, gl)
 	end := [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
 	if end == start {
-		t.Fatalf("WasAttacked/BossAggro gorilla outside vision was skipped after transient de-aggro; tile=%v", end)
+		t.Fatalf("provoked gorilla within authored sight failed to reacquire the party; tile=%v", end)
 	}
 	if !gorilla.IsEngagingPlayer {
 		t.Fatal("gorilla should re-enter IsEngagingPlayer after acting in TB")

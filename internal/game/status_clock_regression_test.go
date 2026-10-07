@@ -115,9 +115,6 @@ func TestStatusClockControlsAndTraps(t *testing.T) {
 				if charm.PacifiedFramesRemaining != remaining || bind.BoundFramesRemaining != remaining || g.traps[0].FramesLeft != remaining {
 					t.Fatal("TB initial/idle spent gameplay lifetime")
 				}
-				if len(g.spellHitEffects) == 0 {
-					t.Fatal("TB trap presentation froze with gameplay clock")
-				}
 				if persist {
 					saved := auditSaveJSON(t, g.buildSave(wm))
 					g.restoreSavedMonsters(wm, &saved)

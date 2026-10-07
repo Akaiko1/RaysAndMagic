@@ -103,11 +103,13 @@ type TreasureChestReward struct {
 var PartyTraits = map[string]bool{}
 
 // relentlessHunter reports whether this monster pursues the party MAP-WIDE: a boss
-// turned aggressive (BossAggro) or a non-boss rallied for revenge (Relentless,
+// authored to hunt its home region (BossAggro), or a revenge hunter (Relentless,
 // e.g. Amazons after their Warlord dies). Both ignore detection/LoS AND must get
 // the widened A* window + node budget, or they'd stay on a normal mob's reach and
 // fail to path across a large/maze map despite being "hostile from anywhere".
-func (m *Monster3D) relentlessHunter() bool { return m.BossAggro || m.Relentless }
+func (m *Monster3D) relentlessHunter() bool {
+	return m.partyInHome() && (m.BossAggro || m.Relentless)
+}
 
 // HatesActiveTrait reports whether any of this monster's hated party traits is
 // currently active - i.e. whether a passive monster should turn hostile on sight.
@@ -180,10 +182,10 @@ func (m *Monster3D) IsPartyControlled() bool {
 
 // TargetsParty reports whether this monster currently owns a combat target on
 // the party. It is intentionally narrower than CurrentAIBehavior: an ordinary
-// monster still needs an active engagement, hit, relentless state, or combat
+// monster still needs an active engagement, relentless state, or combat
 // state before it blocks interaction or is ejected from the party tile.
 func (m *Monster3D) TargetsParty() bool {
-	if m == nil {
+	if m == nil || !m.partyScopeAllowsPursuit() {
 		return false
 	}
 	switch m.CurrentAIBehavior() {
@@ -193,7 +195,7 @@ func (m *Monster3D) TargetsParty() bool {
 	case AIBehaviorRelentlessParty:
 		return true
 	}
-	return m.IsEngagingPlayer || m.WasAttacked ||
+	return m.IsEngagingPlayer ||
 		m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking
 }
 
@@ -213,7 +215,7 @@ func (m *Monster3D) IsInCombat() bool {
 	case AIBehaviorFightFoe, AIBehaviorRelentlessParty:
 		return true
 	}
-	return m.IsEngagingPlayer || m.WasAttacked ||
+	return m.IsEngagingPlayer ||
 		m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking
 }
 
@@ -222,7 +224,7 @@ func (m *Monster3D) IsInCombat() bool {
 // monsters may still do so while calm; controlled, redirected, scripted,
 // fleeing, and already-hostile monsters may not.
 func (m *Monster3D) IsCalmForSocialBehavior() bool {
-	if m == nil || !m.IsAlive() || m.IsEngagingPlayer || m.WasAttacked {
+	if m == nil || !m.IsAlive() || m.IsEngagingPlayer || m.ReturningHome {
 		return false
 	}
 	switch m.CurrentAIBehavior() {
@@ -346,10 +348,14 @@ type Monster3D struct {
 	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
-	SpawnX, SpawnY      float64 // Original spawn position
-	TetherRadius        float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
-	IsEngagingPlayer    bool    // True when actively pursuing/fighting player
-	WasAttacked         bool    // True when monster was hit - prevents disengagement
+	SpawnX, SpawnY      float64           // Original spawn position
+	TetherRadius        float64           // Maximum distance from spawn point (default 4 tiles = 256 pixels)
+	IsEngagingPlayer    bool              // True when actively pursuing/fighting player
+	WasAttacked         bool              // Persistent provocation memory, not an active fight.
+	AggroContext        PartyAggroContext // Live world/region ownership, bound at registration.
+	Retaliation         RetaliationState
+	BandHitPending      bool    // Fresh damage event, consumed by social scatter.
+	ReturningHome       bool    // Disengaged actor walks home without healing or teleporting.
 	HitTintFrames       int     // Frames remaining for red hit tint
 	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
 	StandeeYaw          float64 // Render-only: displayed token yaw (eases toward heading)
@@ -521,7 +527,7 @@ type Monster3D struct {
 	EvadeRadiusTiles          float64 // evasive phase: blink when the party is within this many tiles
 	BossCooldownSecs          float64 // RT cooldown between evasive blinks (seconds)
 	BossCD                    int     // RT cooldown (frames) between boss special actions (evasive blink)
-	BossAggro                 bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshMonsterAIState)
+	BossAggro                 bool    // transient (per-frame): an authored map hunter active in its home region (set by refreshMonsterAIState)
 	BossEvasive               bool    // transient (per-frame): a quest-gated boss that keeps patrolling but only blinks away; never acquires a combat target (set by refreshMonsterAIState)
 	BossDormant               bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
@@ -534,7 +540,7 @@ type Monster3D struct {
 	// RallyDone is persisted. It is consumed either by ringing or by being
 	// woken by another bell, so an alarm relay can never cascade across a map.
 	RallyDone                            bool
-	AggroWholeMap                        bool         // static: UNIQUE boss trait - once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
+	AggroWholeMap                        bool         // static: UNIQUE boss trait - once active, hunts throughout its home map/region. Ordinary bosses retain finite pursuit.
 	DeathRalliesType                     string       // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
 	Banding                              bool         // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
 	BandGroup                            string       // static authored mixed party; shares aggro even after scattering
@@ -771,8 +777,9 @@ func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Pa
 		m.HitPoints = 0
 	}
 
-	// Mark as attacked - prevents AI from disengaging due to distance
+	// Remember provocation; active pursuit still obeys distance and home scope.
 	m.WasAttacked = true
+	m.BandHitPending = true
 	// Caravans keep their current route and path when hit. Combat engagement
 	// resets pathfinding, so repeated attacks used to interrupt their travel.
 	if m.IsCaravan() {

@@ -388,6 +388,7 @@ func TestFlowShieldRequiresCombat(t *testing.T) {
 				g.refreshMonsterAIState()
 				switch engagement {
 				case "party":
+					m.WasAttacked = true
 					m.BeginPlayerEngagement()
 				case "foe":
 					foe := spawnSpecialsMonster(g, "goblin", 8, 9)

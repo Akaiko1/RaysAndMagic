@@ -330,6 +330,7 @@ func (p *FxPreview) clearTransient() {
 	g.persistentDamageZones = g.persistentDamageZones[:0]
 	g.pendingMortars = g.pendingMortars[:0]
 	g.traps = g.traps[:0]
+	g.trapBursts = g.trapBursts[:0]
 	g.buffFxAnims = g.buffFxAnims[:0]
 	g.elementalAttackEffects = g.elementalAttackEffects[:0]
 	g.screenShake = 0
@@ -408,13 +409,14 @@ func (p *FxPreview) spawn() {
 		}
 	case FxTrap:
 		if def, ok := config.GetTrapDefinition(p.sel.Key); ok && def != nil {
+			g.traps = g.traps[:0]
 			ts := float64(g.config.GetTileSize())
 			tx, ty := TileIndex(p.stageX, ts), TileIndex(p.stageY, ts)
 			g.traps = append(g.traps, PlacedTrap{
 				Key: p.sel.Key, MapKey: fxStageMapKey,
 				TileX: tx, TileY: ty,
 				X: (float64(tx) + 0.5) * ts, Y: (float64(ty) + 0.5) * ts,
-				Owner: m, FramesLeft: fxRespawnTicks + 30,
+				Owner: m, FramesLeft: 3 * g.config.GetTPS(),
 			})
 		}
 	case FxTile:
@@ -551,7 +553,19 @@ func (p *FxPreview) Step() {
 	p.resolveStageImpacts()
 
 	p.tick++
-	if p.tick >= fxRespawnTicks {
+	interval := fxRespawnTicks
+	if p.sel.Kind == FxTrap {
+		// Show the armed device, then its actual activation and complete fade.
+		armedTicks := g.config.GetTPS() * 3 / 2
+		if p.tick == armedTicks {
+			for _, trap := range g.traps {
+				g.startTrapBurst(trap)
+			}
+			g.traps = g.traps[:0]
+		}
+		interval = armedTicks + int(math.Ceil(trapBurstSeconds*float64(g.config.GetTPS()))) + 15
+	}
+	if p.tick >= interval {
 		if (p.sel.Kind == FxSpell || p.sel.Kind == FxWeapon) && p.attackVisualsActive() {
 			return
 		}

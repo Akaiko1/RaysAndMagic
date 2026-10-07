@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -231,5 +232,31 @@ func TestValidateCratesRequiresReadablePercentageWeights(t *testing.T) {
 	cfg.Crates["bad_total"].RollSources[1].Weight = 40
 	if err := validateCrates(cfg); err != nil {
 		t.Fatalf("percentage crate weights rejected: %v", err)
+	}
+}
+
+// Pursuit is required authored gameplay data, not a silent code fallback.
+func TestMonsterPursuitValidation(t *testing.T) {
+	valid := MonsterPursuitConfig{MaxRadiusTiles: 16, RetaliationSeconds: 10, RetaliationTurns: 4, RetaliationMarginTiles: 2}
+	if err := valid.validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(*MonsterPursuitConfig)
+	}{
+		{"missing leash", func(c *MonsterPursuitConfig) { c.MaxRadiusTiles = 0 }},
+		{"infinite leash", func(c *MonsterPursuitConfig) { c.MaxRadiusTiles = math.Inf(1) }},
+		{"invalid time", func(c *MonsterPursuitConfig) { c.RetaliationSeconds = math.NaN() }},
+		{"missing turns", func(c *MonsterPursuitConfig) { c.RetaliationTurns = 0 }},
+		{"negative margin", func(c *MonsterPursuitConfig) { c.RetaliationMarginTiles = -1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := valid
+			tc.change(&c)
+			if c.validate() == nil {
+				t.Fatal("invalid pursuit configuration accepted")
+			}
+		})
 	}
 }

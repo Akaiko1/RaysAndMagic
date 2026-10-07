@@ -165,7 +165,7 @@ func (gl *GameLoop) dissolveLootGuardBand(members []*monster.Monster3D) {
 }
 
 // scatterLootGuardBand preserves ordinary band response semantics: a direct
-// hit makes both guards sticky-hostile, while sight only engages guards with
+// fresh hit rouses eligible guards for a leashed fight, while sight only engages guards with
 // their own direct LoS. It is separate from normal banding because guard pairs
 // may mix monster keys and may contain monsters whose YAML banding flag is
 // false.
@@ -180,7 +180,7 @@ func (gl *GameLoop) scatterLootGuardBand(members []*monster.Monster3D, forceHit 
 		if m == nil || !m.IsAlive() {
 			continue
 		}
-		wasHit = wasHit || m.WasAttacked
+		wasHit = wasHit || m.BandHitPending
 		live = append(live, m)
 	}
 	// Check sight before clearing LootGuarding: that flag supplies the guard's
@@ -217,7 +217,7 @@ func (gl *GameLoop) scatterLootGuardBand(members []*monster.Monster3D, forceHit 
 	// same crate, but has not physically stacked yet, so dissolve it without
 	// pulling either mob across the map merely to perform a visual band scatter.
 	for _, m := range live {
-		engageBandMemberOnScatter(m, wasHit, sawParty[m])
+		gl.engageBandMemberOnScatter(m, wasHit, sawParty[m])
 		m.ResetPathfinding()
 	}
 }

@@ -724,6 +724,7 @@ func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 
 	provoked := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
 	provoked.WasAttacked = true
+	provoked.BeginPlayerEngagement()
 	calm := monster.NewMonster3DFromConfig(128, 64, "bandit", cfg)
 	chestBound := monster.NewMonster3DFromConfig(64, 128, "bandit", cfg)
 	chestBound.IsEncounterMonster = true
@@ -770,7 +771,7 @@ func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 	}
 }
 
-func TestSaveLoad_PreservesTurnBasedSightEngagementOnly(t *testing.T) {
+func TestSaveLoad_PreservesActiveSightEngagement(t *testing.T) {
 	for _, turnBased := range []bool{false, true} {
 		mode := "RT"
 		if turnBased {
@@ -788,8 +789,8 @@ func TestSaveLoad_PreservesTurnBasedSightEngagementOnly(t *testing.T) {
 			sighted.IsEngagingPlayer = true
 			worldSave.Monsters = []*monster.Monster3D{sighted}
 			save := game.buildSave(wmSave)
-			if got := save.MapMonsters["forest"][0].TurnBasedSightEngaged; got != turnBased {
-				t.Fatalf("serialized sight engagement = %v, want %v", got, turnBased)
+			if got := save.MapMonsters["forest"][0].Aggro; got == nil || !got.Engaged {
+				t.Fatalf("serialized active sight engagement = %+v", got)
 			}
 
 			wmLoad := world.NewWorldManager(cfg)
@@ -803,8 +804,8 @@ func TestSaveLoad_PreservesTurnBasedSightEngagementOnly(t *testing.T) {
 			if err := loaded.applySave(wmLoad, &save); err != nil {
 				t.Fatalf("apply save: %v", err)
 			}
-			if len(worldLoad.Monsters) != 1 || worldLoad.Monsters[0].IsEngagingPlayer != turnBased {
-				t.Fatalf("restored sight engagement = monsters:%d engaging:%v, want %v", len(worldLoad.Monsters), len(worldLoad.Monsters) == 1 && worldLoad.Monsters[0].IsEngagingPlayer, turnBased)
+			if len(worldLoad.Monsters) != 1 || !worldLoad.Monsters[0].IsEngagingPlayer {
+				t.Fatalf("restored sight engagement = monsters:%d engaging:%v, want %v", len(worldLoad.Monsters), len(worldLoad.Monsters) == 1 && worldLoad.Monsters[0].IsEngagingPlayer, true)
 			}
 		})
 	}

@@ -50,21 +50,27 @@ func (cs *CombatSystem) runBossSpecials(m *monsterPkg.Monster3D, attackTick, tur
 	if cs.runAdventureBossAction(m, attackTick) {
 		return true
 	}
-	ready := m.BossCD == 0
+	ready, infernoRollDue := tickBossRecovery(m, turnBased)
+	cs.tryBossTrapVolley(m, turnBased)
+	return cs.updateBoss(m, ready, attackTick, infernoRollDue)
+}
+
+// Recovery keeps elapsing for calm bosses without running any boss action.
+func tickBossRecovery(m *monsterPkg.Monster3D, turnBased bool) (ready, infernoRollDue bool) {
+	ready = m.BossCD == 0
 	if m.BossCD > 0 {
 		m.BossCD--
 	}
 	// TB gets one at-range nova roll per monster pass; RT rolls when the
 	// per-monster cooldown elapses.
-	infernoRollDue := true
+	infernoRollDue = true
 	if !turnBased {
 		if m.InfernoCDFrames > 0 {
 			m.InfernoCDFrames--
 		}
 		infernoRollDue = m.InfernoCDFrames == 0
 	}
-	cs.tryBossTrapVolley(m, turnBased)
-	return cs.updateBoss(m, ready, attackTick, infernoRollDue)
+	return ready, infernoRollDue
 }
 
 // bossActionTick is the boss's RT once-per-attack moment against whatever it

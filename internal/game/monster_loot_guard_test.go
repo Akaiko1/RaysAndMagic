@@ -96,6 +96,9 @@ func TestLootGuardsReserveMixedPairThenStackAtPost(t *testing.T) {
 	game, loop, tile := newLootGuardTestGame(t, false)
 	target := addLootGuardTarget(game, "guarded_lectern", character.NPCTypeSpellLectern, 10, 10, tile)
 	first := addLootGuardTestMonster(t, game, "a-goblin", "goblin", 6, 10, tile)
+	// This guard has finished an earlier pursuit and is calm at home. Remembering
+	// the hit must not prevent it from accepting and walking to its new post.
+	first.WasAttacked, first.State = true, monster.StateIdle
 	second := addLootGuardTestMonster(t, game, "b-rat", "rat", 6, 11, tile)
 	third := addLootGuardTestMonster(t, game, "c-wolf", "wolf", 6, 9, tile)
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
@@ -115,6 +118,12 @@ func TestLootGuardsReserveMixedPairThenStackAtPost(t *testing.T) {
 		t.Fatal("third nearby mob joined a full two-slot guard band")
 	}
 	postX, postY := first.LootGuardMoveTileX, first.LootGuardMoveTileY
+	px, py := TileCenterFromTile(postX, postY, tile)
+	before := Distance(first.X, first.Y, px, py)
+	runLootGuardRealTimeStep(game, loop)
+	if Distance(first.X, first.Y, px, py) >= before || !first.WasAttacked {
+		t.Fatal("calm provoked guard failed to resume its post or lost its memory")
+	}
 	if second.LootGuardMoveTileX != postX || second.LootGuardMoveTileY != postY {
 		t.Fatalf("reserved pair received different posts: (%d,%d) vs (%d,%d)",
 			postX, postY, second.LootGuardMoveTileX, second.LootGuardMoveTileY)
@@ -438,6 +447,7 @@ func TestPendingLootGuardSightScatterRequiresEachGuardOwnLoS(t *testing.T) {
 		t.Fatal("setup: wall must hide the second guard from the party")
 	}
 
+	first.WasAttacked = true // A returned, formerly wounded guard now sees the party.
 	first.BeginPlayerEngagement()
 	loop.reconcileLootPropGuardBands()
 
@@ -744,7 +754,7 @@ func TestLootGuardDeathScattersSurvivor(t *testing.T) {
 		t.Fatalf("survivor stayed in guard band after partner death: guard=%v band=%d", second.LootGuarding, second.BandID)
 	}
 	if !second.IsEngagingPlayer || !second.WasAttacked {
-		t.Fatalf("survivor did not become sticky-hostile: engaging=%v hit=%v", second.IsEngagingPlayer, second.WasAttacked)
+		t.Fatalf("survivor did not join the provoked fight: engaging=%v hit=%v", second.IsEngagingPlayer, second.WasAttacked)
 	}
 }
 
@@ -815,6 +825,7 @@ func TestSaveLoadPreservesActiveLootGuardEncounter(t *testing.T) {
 	saveGame := newTestGame(cfg, wSave)
 	tile := float64(cfg.GetTileSize())
 	guard := addLootGuardTestMonster(t, saveGame, "sighted-guard", "goblin", 10, 10, tile)
+	placePlayerAtTile(saveGame, 12, 10, tile)
 	guard.IsEngagingPlayer = true
 	guard.LootGuardAlerted = true
 	guard.LootGuarding = false

@@ -31,7 +31,7 @@ func TestPlayerEngagement_LOSGate(t *testing.T) {
 			m := &Monster3D{X: sx, Y: sy, SpawnX: sx, SpawnY: sy, HitPoints: 1}
 			m.IsEngagingPlayer = tc.engaged
 			checker := &losGateChecker{NewMockCollisionChecker(defaultTileSize), tc.los}
-			m.updatePlayerEngagementWithVision(checker, px, py, px, py)
+			m.UpdatePlayerEngagement(checker, px, py, px, py)
 			if m.IsEngagingPlayer != tc.wantEngaged {
 				t.Fatalf("engaging = %v, want %v", m.IsEngagingPlayer, tc.wantEngaged)
 			}

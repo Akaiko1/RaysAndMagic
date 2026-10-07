@@ -1496,7 +1496,7 @@ func weaponAoeRadius(def *config.WeaponDefinitionConfig) float64 {
 // shared sight-agro rule. Only in TB, a party-caused hit may alert nearby
 // same-key monsters, but each neighbour must still have direct LoS to the
 // party. It is intentionally not an RT mechanic and it never behaves like an
-// alarm through walls.
+// alarm through walls. Witnessing the hit uses the shared provocation leash.
 func (cs *CombatSystem) engageTurnBasedSameKindPackOnPartyHit(hit *monsterPkg.Monster3D) {
 	if cs == nil || cs.game == nil || cs.game.world == nil || !cs.game.turnBasedMode || hit == nil {
 		return
@@ -1508,12 +1508,15 @@ func (cs *CombatSystem) engageTurnBasedSameKindPackOnPartyHit(hit *monsterPkg.Mo
 
 	for _, m := range cs.game.world.Monsters {
 		if m == nil || !m.IsAlive() || m.Key != hitKey ||
-			Distance(hit.X, hit.Y, m.X, m.Y) > radius ||
-			!m.CanStartPlayerAggro() ||
+			Distance(hit.X, hit.Y, m.X, m.Y) > radius {
+			continue
+		}
+
+		if !m.CanStartPlayerAggro() ||
 			!m.HasLineOfSightToPlayer(cs.game.collisionSystem, cs.game.camera.X, cs.game.camera.Y) {
 			continue
 		}
-		m.BeginPlayerEngagement()
+		cs.game.answerBandAlarm(m, true, true)
 	}
 }
 
@@ -1562,7 +1565,28 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	if !monster.IsAlive() {
 		return
 	}
+
+	// Tick the persistent attack cooldown every frame, BEFORE any state checks,
+	// so it counts down even while the monster is pursuing/alert. This is what
+	// stops a kiting player (stepping in and out of range) from resetting the
+	// attack cadence: the AI state can churn, but the cooldown can't be skipped.
+	if monster.AttackCDFrames > 0 {
+		monster.AttackCDFrames--
+	}
+	if monster.OffHandCDFrames > 0 {
+		monster.OffHandCDFrames--
+	}
+
+	monster.TickPounceCooldownFrame()
+	monster.LimitPlayerEngagement(cs.game.camera.X, cs.game.camera.Y)
 	behavior := monster.CurrentAIBehavior()
+	if !monster.IsInCombat() && behavior != monsterPkg.AIBehaviorEvasive {
+		if monster.IsBoss() {
+			tickBossRecovery(monster, false)
+			monster.TickTrapVolleyCooldownFrame()
+		}
+		return
+	}
 	// Movement AI and TB already hold scripted inactive encounter pieces.
 	// RT crossfire is a separate action path, so it must enforce the same gate
 	// before a precomputed bound-ally foe can trigger an attack.
@@ -1575,17 +1599,6 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	// the stun counter; here we just suppress the action.
 	if monster.StunFramesRemaining > 0 {
 		return
-	}
-
-	// Tick the persistent attack cooldown every frame, BEFORE any state checks,
-	// so it counts down even while the monster is pursuing/alert. This is what
-	// stops a kiting player (stepping in and out of range) from resetting the
-	// attack cadence: the AI state can churn, but the cooldown can't be skipped.
-	if monster.AttackCDFrames > 0 {
-		monster.AttackCDFrames--
-	}
-	if monster.OffHandCDFrames > 0 {
-		monster.OffHandCDFrames--
 	}
 
 	// Modes that may not attack own no RT attack action: stale StateAttacking,
@@ -1648,7 +1661,6 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	// Pounce (real-time): from within pounce range but beyond melee, leap
 	// to melee contact and strike immediately, then go on cooldown.
 	if monster.CanPounce() {
-		monster.TickPounceCooldownFrame()
 		if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
 			cs.monsterCanPounceParty(monster) {
 			if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
@@ -2503,9 +2515,9 @@ func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *charac
 	return dealt
 }
 
-// anyMonsterEngagingParty reports a live monster actively engaging and
-// pressing the party - the Drakehide shed condition (wider than
-// partyInCombat's interaction radius: a ranged boss presses from its reach).
+// anyMonsterEngagingParty is the Drakehide shed condition: a live monster must
+// actively target the party, satisfy CanPursueParty, and be within the configured
+// local pursuit cap. Attack reach does not extend this pressure range.
 func (g *MMGame) anyMonsterEngagingParty() bool {
 	if g.world == nil {
 		return false
@@ -3067,6 +3079,8 @@ func (cs *CombatSystem) tryCardPoisonProc(monster *monsterPkg.Monster3D) {
 func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
 	m.HitTintFrames = MonsterHitFlashFrames
 	cs.breakPacifyOnHit(m)
+	m.RetaliateAgainstParty(cs.game.camera.X, cs.game.camera.Y)
+	cs.game.rallyAuthoredBandHit(m)
 	cs.engageTurnBasedSameKindPackOnPartyHit(m)
 }
 
@@ -3154,7 +3168,7 @@ func (cs *CombatSystem) scatterBandOnMemberDeath(victim *monsterPkg.Monster3D) {
 		if cs.game.gameLoop != nil {
 			members := cs.game.gameLoop.lootGuardBandMembers(victim)
 			// A death is the same hostile event as a direct hit: surviving guards
-			// scatter, become sticky-hostile, and never resume their post.
+			// scatter and join a leashed fight; they can resume guard duty on return.
 			cs.game.gameLoop.scatterLootGuardBand(members, true)
 		}
 		return
@@ -3237,11 +3251,11 @@ func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
 	}
 	rallied := 0
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || m == dead || !m.IsAlive() || m.Relentless || m.MonsterType != dead.DeathRalliesType {
+		if m == nil || m == dead || !m.IsAlive() || m.Relentless || m.MonsterType != dead.DeathRalliesType || !cs.game.monsterIsFrom(cs.game.world, m, cs.game.monsterHomeMap(cs.game.world, dead)) {
 			continue
 		}
 		m.Relentless = true
-		m.WasAttacked = true // sticky hostility, persisted
+		m.WasAttacked = true // Saved provocation memory; Relentless grants home-region pursuit.
 		m.BeginPlayerEngagement()
 		rallied++
 	}
@@ -3702,7 +3716,7 @@ func (cs *CombatSystem) boundAllyCanDamageMonster(candidate *monsterPkg.Monster3
 // (CanStartPlayerEngagement): nothing aggros through a wall, summons included.
 // A NEW target must be in line of sight; the one already being fought is kept
 // regardless, so a chase does not drop every time the quarry rounds a corner -
-// exactly the sticky-once-engaged rule party pursuit uses. A nil collision
+// independently of the finite party-pursuit leash. A nil collision
 // system (isolated AI tests) means unobstructed sight, as everywhere else.
 func (cs *CombatSystem) canAcquireCrossfireFoe(m, candidate *monsterPkg.Monster3D) bool {
 	if m == nil || candidate == nil {
@@ -3749,6 +3763,9 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 		return nil
 	case behavior == monsterPkg.AIBehaviorBoundAlly:
 		return cs.nearestEnemyMonster(m, cs.boundAllySeekRadius())
+	}
+	if m.PartyOutsideHome() {
+		return nil
 	}
 	// Normal monster: only bother if any bound undead exist this frame.
 	if len(cs.game.boundAllies) == 0 {

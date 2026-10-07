@@ -335,8 +335,8 @@ func currencyItemName(currency string) (string, bool) {
 // alert radius; only the bell's subsequent sound may cross walls. It wakes up
 // to its authored number of calm neighbours once per life. A bell woken by
 // another bell joins the fight but consumes its own ring, preventing relay
-// chains. Woken monsters receive the STICKY WasAttacked signal so mode/AI
-// transitions cannot lull them back.
+// chains. Woken monsters remember the alarm as provocation and pursue within
+// the shared hit leash; changing mode cannot extend that pursuit.
 func (g *MMGame) rallyAggroedAlarms() {
 	if g == nil || g.world == nil || g.config == nil || g.camera == nil {
 		return
@@ -357,17 +357,21 @@ func (g *MMGame) rallyAggroedAlarms() {
 			}
 			// PassiveUntilAttacked keeps its authored contract: the bell never
 			// force-hostiles a monster that only fights when struck (WasAttacked
-			// is sticky, so waking it here would be permanent). The shared normal
+			// remembers provocation, so an alarm would change future sight behavior). The shared normal
 			// eligibility gate also excludes controlled, redirected, inert, and
 			// already-engaged targets.
-			if o == m || o == nil || o.PassiveUntilAttacked || !o.CanStartPlayerAggro() {
+			if o == m || o == nil || o.PassiveUntilAttacked {
 				continue
 			}
 			if math.Hypot(o.X-m.X, o.Y-m.Y) > r {
 				continue
 			}
-			o.BeginPlayerEngagement()
+
+			if !o.CanStartPlayerAggro() || math.Hypot(o.X-g.camera.X, o.Y-g.camera.Y) > g.config.MonsterAI.Pursuit.MaxRadiusTiles*ts {
+				continue
+			}
 			o.WasAttacked = true
+			o.BeginPlayerEngagement()
 			// Reuse the persisted one-ring marker for a bell roused by this one.
 			// It remains hostile, but cannot relay an alarm now or after save/load.
 			if o.RallyOnAggroTiles > 0 {

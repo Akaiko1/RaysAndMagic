@@ -1,7 +1,7 @@
 # Trap definitions (thief trap book). Damage traps scale with the owner's
 # Intellect+Accuracy and Trapper mastery; duration traps gain turns/seconds
-# from Trapper mastery. element picks the particle colour/shape family;
-# border_color tints the armed tile's edge glow.
+# from Trapper mastery. element is the damage school; armed_fx chooses the
+# grounded shader model, and border_color supplies its metal/energy accent.
 traps:
   cleave_trap:
     name: "Cleave Trap"
@@ -43,7 +43,7 @@ traps:
     armed_fx: "stasis_rings"
     stun_turns: 1
     stun_seconds: 2
-    border_color: [175, 110, 225]
+    border_color: [59, 209, 247]
 
   blast_trap:
     name: "Blast Trap"

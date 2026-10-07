@@ -116,7 +116,7 @@ func TestCampStatusCardMatchesTryCamp(t *testing.T) {
 				case "enemy_near":
 					g.world.Monsters = []*monster.Monster3D{{ID: "camp_near", Name: "Goblin", X: g.camera.X + tile, Y: g.camera.Y, HitPoints: 10, MaxHitPoints: 10}}
 				case "engaged_far":
-					g.world.Monsters = []*monster.Monster3D{{ID: "camp_engaged", Name: "Goblin", X: g.camera.X + 9*tile, Y: g.camera.Y, HitPoints: 10, MaxHitPoints: 10, IsEngagingPlayer: true}}
+					g.world.Monsters = []*monster.Monster3D{{ID: "camp_engaged", Name: "Goblin", X: g.camera.X + 9*tile, Y: g.camera.Y, HitPoints: 10, MaxHitPoints: 10, IsEngagingPlayer: true, WasAttacked: true}}
 				}
 				food := g.party.Food
 				l, visible := inGameActionBarLayout(g)

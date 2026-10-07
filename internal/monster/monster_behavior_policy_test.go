@@ -95,7 +95,7 @@ func TestIsCalmForSocialBehavior(t *testing.T) {
 		{name: "redirected foe fight", mob: Monster3D{HitPoints: 1, State: StateIdle, AIFoe: foe}, want: false},
 		{name: "fleeing monster", mob: Monster3D{HitPoints: 1, State: StateFleeing}, want: false},
 		{name: "engaged monster", mob: Monster3D{HitPoints: 1, State: StateIdle, IsEngagingPlayer: true}, want: false},
-		{name: "hit monster", mob: Monster3D{HitPoints: 1, State: StateIdle, WasAttacked: true}, want: false},
+		{name: "remembered hit after returning", mob: Monster3D{HitPoints: 1, State: StateIdle, WasAttacked: true}, want: true},
 		{name: "inert set piece", mob: Monster3D{HitPoints: 1, State: StateIdle, BossDormant: true}, want: false},
 	}
 
@@ -117,7 +117,7 @@ func TestPartyTargetPolicy(t *testing.T) {
 	}{
 		{name: "ordinary idle", mob: Monster3D{HitPoints: 1, State: StateIdle}, want: false},
 		{name: "sight engagement", mob: Monster3D{HitPoints: 1, IsEngagingPlayer: true, State: StateAlert}, want: true},
-		{name: "direct hit", mob: Monster3D{HitPoints: 1, WasAttacked: true, State: StateIdle}, want: true},
+		{name: "remembered hit", mob: Monster3D{HitPoints: 1, WasAttacked: true, State: StateIdle}, want: false},
 		{name: "relentless hunter", mob: Monster3D{HitPoints: 1, BossAggro: true, State: StateIdle}, want: true},
 		{name: "fleeing hit mob", mob: Monster3D{HitPoints: 1, WasAttacked: true, State: StateFleeing}, want: false},
 		{name: "passive stale engagement", mob: Monster3D{HitPoints: 1, PassiveUntilAttacked: true, IsEngagingPlayer: true}, want: false},
@@ -146,7 +146,7 @@ func TestActiveCombatPolicy(t *testing.T) {
 	}{
 		{name: "calm idle", mob: Monster3D{HitPoints: 1, State: StateIdle}, want: false},
 		{name: "party fight", mob: Monster3D{HitPoints: 1, IsEngagingPlayer: true, State: StateAlert}, want: true},
-		{name: "sticky party hostility", mob: Monster3D{HitPoints: 1, WasAttacked: true, State: StateIdle}, want: true},
+		{name: "remembered hostility", mob: Monster3D{HitPoints: 1, WasAttacked: true, State: StateIdle}, want: false},
 		{name: "crossfire fight", mob: Monster3D{HitPoints: 1, AIFoe: foe, State: StatePursuing}, want: true},
 		{name: "bound follower", mob: Monster3D{HitPoints: 1, Bound: true, State: StatePursuing}, want: false},
 		{name: "bound crossfire", mob: Monster3D{HitPoints: 1, Bound: true, AIFoe: foe, State: StatePursuing}, want: true},

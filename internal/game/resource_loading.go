@@ -450,7 +450,7 @@ func (gl *GameLoop) prepareLiveCombatResources() {
 			continue
 		}
 		behavior := mon.CurrentAIBehavior()
-		needed := mon.IsEngagingPlayer || mon.WasAttacked || behavior == monster.AIBehaviorBoundAlly || behavior == monster.AIBehaviorFightFoe
+		needed := mon.IsEngagingPlayer || mon.ReturningHome || behavior == monster.AIBehaviorBoundAlly || behavior == monster.AIBehaviorFightFoe
 		for _, scope := range scopes {
 			needed = needed || scope.containsWorld(mon.X, mon.Y)
 		}
