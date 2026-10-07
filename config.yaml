@@ -95,6 +95,9 @@ camera:
 ui:
   spell_input_cooldown: 10
   damage_blink_frames: 3    # Number of frames to blink red when taking damage
+  turn_based_mouse_hold:
+    delay_seconds: 0.6     # Wait after pressing before automatic attacks start.
+    repeat_seconds: 0.35   # Gap between automatic attacks; manual input stays responsive.
 
 # Character stats and progression
 characters:

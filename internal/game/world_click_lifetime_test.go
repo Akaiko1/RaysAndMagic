@@ -194,7 +194,7 @@ func TestEmptyWorldPressArmsDynamicMonsterHold(t *testing.T) {
 			}
 			fp.hold()
 			r.monsterPick.hits = []monsterPickHit{{monster: m, left: 250, top: 150, size: 140, depth: 64}}
-			for range rtHoldRepeatDelay + 1 {
+			for range mouseHoldRepeatTicks(g) {
 				if err := g.gameLoop.Update(); err != nil {
 					t.Fatal(err)
 				}

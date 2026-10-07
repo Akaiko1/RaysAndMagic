@@ -260,3 +260,30 @@ func TestMonsterPursuitValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestTurnBasedMouseHoldValidation(t *testing.T) {
+	valid := MouseHoldTimingConfig{DelaySeconds: .6, RepeatSeconds: .35}
+	if err := valid.validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		value float64
+	}{
+		{"missing", 0}, {"negative", -1}, {"infinite", math.Inf(1)}, {"NaN", math.NaN()},
+	} {
+		for _, delay := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/delay=%v", tc.name, delay), func(t *testing.T) {
+				c := valid
+				if delay {
+					c.DelaySeconds = tc.value
+				} else {
+					c.RepeatSeconds = tc.value
+				}
+				if c.validate() == nil {
+					t.Fatal("invalid mouse hold timing accepted")
+				}
+			})
+		}
+	}
+}

@@ -508,8 +508,23 @@ type CameraConfig struct {
 }
 
 type UIConfig struct {
-	SpellInputCooldown int `yaml:"spell_input_cooldown"`
-	DamageBlinkFrames  int `yaml:"damage_blink_frames"`
+	SpellInputCooldown int                   `yaml:"spell_input_cooldown"`
+	DamageBlinkFrames  int                   `yaml:"damage_blink_frames"`
+	TurnBasedMouseHold MouseHoldTimingConfig `yaml:"turn_based_mouse_hold"`
+}
+
+type MouseHoldTimingConfig struct {
+	DelaySeconds  float64 `yaml:"delay_seconds"`
+	RepeatSeconds float64 `yaml:"repeat_seconds"`
+}
+
+func (c MouseHoldTimingConfig) validate() error {
+	for key, value := range map[string]float64{"delay_seconds": c.DelaySeconds, "repeat_seconds": c.RepeatSeconds} {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+			return fmt.Errorf("ui.turn_based_mouse_hold.%s must be finite and positive", key)
+		}
+	}
+	return nil
 }
 
 type CharacterConfig struct {
@@ -1630,6 +1645,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := config.MonsterAI.Pursuit.validate(); err != nil {
+		return nil, err
+	}
+	if err := config.UI.TurnBasedMouseHold.validate(); err != nil {
 		return nil, err
 	}
 	if err := config.Display.validateInterfaceSizes(); err != nil {

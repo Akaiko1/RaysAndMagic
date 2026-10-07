@@ -68,6 +68,15 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	return g, ih, fp, m, tick
 }
 
+// mouseHoldRepeatTicks is a hold long enough for the first automatic repeat in
+// the current clock: the RT frame delay or the authored TB delay.
+func mouseHoldRepeatTicks(g *MMGame) int {
+	if g.turnBasedMode {
+		return int(math.Ceil(g.config.UI.TurnBasedMouseHold.DelaySeconds*float64(g.config.GetTPS()))) + 1
+	}
+	return rtHoldRepeatDelay + 1
+}
+
 // partySummonKinds lists every pure-summon source the party can own: card
 // allies, the druid's Animal Bonding bear and spell summons.
 func partySummonKinds(g *MMGame) []struct{ kind, owner string } {
@@ -102,7 +111,7 @@ func TestMouseSmartAttackTapHoldAndRelease(t *testing.T) {
 				t.Fatal("pointer attack turned the view")
 			}
 			fp.hold()
-			for i := 1; i < rtHoldRepeatDelay-1; i++ {
+			for i := 1; i < mouseHoldRepeatTicks(g)-2; i++ {
 				tick()
 			}
 			if len(g.slashEffects) != 1 {
@@ -127,6 +136,121 @@ func TestMouseSmartAttackTapHoldAndRelease(t *testing.T) {
 			if len(g.mouseLeftClicks) != 0 {
 				t.Fatal("combat click leaked to world interactions")
 			}
+		})
+	}
+}
+
+// TB automatic requests share one cadence across action types and targets.
+// Manual input keeps its ordinary debounce; turns and lost focus cannot queue
+// catch-up actions. The gesture is transient and existing cancellation tests
+// cover release, mode/world changes and claimed UI presses.
+func TestMouseSmartAttackTBCadence(t *testing.T) {
+	for _, tc := range []struct {
+		name, action       string
+		tps, delay, repeat int
+		custom             bool
+	}{
+		{"weapon", "weapon", 120, 72, 42, false},
+		{"spell at 60 TPS", "spell", 60, 36, 21, false},
+		{"flask", "flask", 120, 72, 42, false},
+		{"authored timing", "weapon", 120, 30, 24, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, ih, fp, first, tick := mouseCombatHarness(t, true)
+			g.config.Engine.TPS = tc.tps
+			if tc.custom {
+				g.config.UI.TurnBasedMouseHold.DelaySeconds = .25
+				g.config.UI.TurnBasedMouseHold.RepeatSeconds = .2
+			}
+			g.party.Members = g.party.Members[:1]
+			hero := g.party.Members[0]
+			hero.ActionsRemaining = 20
+			switch tc.action {
+			case "spell":
+				hero.LearnSpell("fireball")
+				hero.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+				hero.SpellPoints, hero.MaxSpellPoints = 1000, 1000
+			case "flask":
+				hero.Skills[character.SkillBombThrowing] = &character.Skill{Mastery: character.MasteryNovice}
+				bottles, err := items.TryCreateItemFromYAML("harm_flask")
+				if err != nil {
+					t.Fatal(err)
+				}
+				bottles.Quantity = 20
+				g.party.AddItem(bottles)
+				if !g.equipFlask(0, "harm_flask") {
+					t.Fatal("could not equip test flask")
+				}
+			}
+			advance := func(frames int) {
+				for range frames {
+					tick()
+				}
+			}
+			assertActions := func(want int) {
+				t.Helper()
+				shots := len(g.slashEffects)
+				if tc.action != "weapon" {
+					shots = len(g.magicProjectiles)
+				}
+				if shots != want || hero.ActionsRemaining != 20-want {
+					t.Fatalf("tick %d: shots=%d actions=%d, want shots=%d actions=%d", g.frameCount, shots, hero.ActionsRemaining, want, 20-want)
+				}
+				if tc.action == "flask" && g.flaskStock(hero, "harm_flask") != 20-want {
+					t.Fatal("repeat spent the wrong number of flasks")
+				}
+			}
+			fp.press()
+			tick()
+			assertActions(1)
+			fp.hold()
+			advance(tc.delay - 1)
+			assertActions(1)
+			tick()
+			assertActions(2)
+
+			second := *first
+			second.ID = "repeat-second-target"
+			g.world.Monsters = append(g.world.Monsters, &second)
+			g.gameLoop.renderer.monsterPick.hits = append(g.gameLoop.renderer.monsterPick.hits,
+				monsterPickHit{monster: &second, left: 410, top: 150, size: 140, depth: 64})
+			fp.moveTo(480, 220)
+			advance(tc.repeat - 1)
+			assertActions(2)
+			tick()
+			assertActions(3)
+			if ih.mouseAttackTarget != &second {
+				t.Fatal("held input did not retarget")
+			}
+
+			g.currentTurn = 1
+			advance(tc.repeat * 2)
+			assertActions(3)
+			g.currentTurn = 0
+			tick()
+			assertActions(4)
+			advance(tc.repeat - 1)
+			assertActions(4)
+			tick()
+			assertActions(5)
+
+			// Fresh click and Space need only the ordinary 10-tick debounce,
+			// even when the next automatic request is still further away.
+			fp.release()
+			advance(10)
+			fp.press()
+			tick()
+			assertActions(6)
+			fp.release()
+			advance(10)
+			pressed := true
+			ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == ebiten.KeySpace })
+			ih.heldKeys = heldOnly(ebiten.KeySpace)
+			tick()
+			assertActions(7)
+			pressed = false
+			advance(tc.delay + tc.repeat)
+			assertActions(7)
 		})
 	}
 }
@@ -315,7 +439,7 @@ func TestMouseSmartAttackStickyDisplayedPose(t *testing.T) {
 					r.monsterPick.hits[0] = after
 					if tb {
 						g.currentTurn = 1
-						for range rtHoldRepeatDelay + 1 {
+						for range mouseHoldRepeatTicks(g) {
 							tick()
 						}
 						if ih.mouseAttackTarget != m || m.HitPoints != hp {
@@ -560,7 +684,7 @@ func TestMouseSmartAttackSpellAndSharedInput(t *testing.T) {
 						t.Fatal("initial press bypassed cooldown")
 					}
 					fp.hold()
-					for i := 0; i < rtHoldRepeatDelay+1; i++ {
+					for range mouseHoldRepeatTicks(g) {
 						tick()
 					}
 					if len(g.slashEffects) != 1 {
@@ -971,7 +1095,12 @@ func TestMouseHoldDisplayedPartyCycle(t *testing.T) {
 				}
 				fp.moveTo(320, 220)
 				acted := make([]bool, len(g.party.Members))
-				for frame := 0; frame < 180; frame++ {
+				frames := 180
+				if tb {
+					timing := g.config.UI.TurnBasedMouseHold
+					frames = int(math.Ceil((timing.DelaySeconds+timing.RepeatSeconds*float64(2*len(g.party.Members)))*float64(g.config.GetTPS()))) + 1
+				}
+				for frame := 0; frame < frames; frame++ {
 					// Two ticks per displayed frame reproduce the game's 120 TPS / 60 FPS.
 					if frame%2 == 0 {
 						draw()

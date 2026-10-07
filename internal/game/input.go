@@ -41,6 +41,7 @@ type InputHandler struct {
 	mouseAttackTarget     *monster.Monster3D
 	mouseAttackWorld      *world.World3D
 	mouseAttackHoldFrames int
+	mouseAttackRepeatAt   int64 // TB automatic input deadline; never delays manual input.
 	mouseAttackTurnBased  bool
 	mouseAttackBlocked    bool // a claimed press cannot become combat until release
 }
