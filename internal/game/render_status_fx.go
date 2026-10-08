@@ -581,10 +581,7 @@ func (r *Renderer) drawAdditionalMonsterStatusFX(screen *ebiten.Image, s Unified
 	depth := math.Nextafter(s.depthPerp, math.Inf(-1))
 	size := float64(s.spriteSize)
 	viewBottom := worldViewportBottom(r.game)
-	// As with stun stars, keep a melee-range actor's status readable when its
-	// head/feet project beyond the viewport. Never put the cue under the HUD.
-	top := max(4, float64(screenY))
-	bottom := min(float64(viewBottom-4), float64(screenY)+size)
+	top, bottom := statusCueSpan(worldProjectionOf(screen), float64(s.screenX), float64(screenY), size, float64(viewBottom))
 	if bottom <= top {
 		return
 	}
@@ -594,6 +591,14 @@ func (r *Renderer) drawAdditionalMonsterStatusFX(screen *ebiten.Image, s Unified
 		clock:   float64(r.game.frameCount) + float64(monsterBurnSalt(s.monster.ID)),
 		visible: func(x, w float64) bool { return r.statusFxSpanVisible(depth, x, w) }}
 	c.draw(v)
+}
+
+// statusCueSpan keeps a melee-range actor's status readable when its head or
+// feet project beyond the viewport, and never puts the cue under the HUD. Both
+// edges hold where the cue is finally shown.
+func statusCueSpan(proj paniniProjection, x, headY, size, viewBottom float64) (top, bottom float64) {
+	left, right := x-size*.32, x+size*.32
+	return max(proj.sourceEdgeY(left, right, 4), headY), min(proj.sourceEdgeY(left, right, viewBottom-4), headY+size)
 }
 
 // statusFxSpanVisible conservatively depth-tests the complete horizontal span of

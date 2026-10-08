@@ -93,6 +93,14 @@ func worldRaster(dst *ebiten.Image) *paniniRasterizer {
 	return nil
 }
 
+// worldProjectionOf is the projection a world draw onto dst goes through.
+func worldProjectionOf(dst *ebiten.Image) paniniProjection {
+	if p := worldRaster(dst); p != nil {
+		return p.projection
+	}
+	return paniniProjection{}
+}
+
 func vertexBetween(a, b ebiten.Vertex, t float32) ebiten.Vertex {
 	return ebiten.Vertex{
 		DstX: a.DstX + (b.DstX-a.DstX)*t, DstY: a.DstY + (b.DstY-a.DstY)*t,

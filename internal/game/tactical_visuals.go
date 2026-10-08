@@ -105,12 +105,19 @@ func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRe
 		width += 2*b.radius + gap
 		tallest = max(tallest, b.radius)
 	}
-	y := max(tallest+3, float32(screenY)-tallest-5)
 	x := float32(s.screenX) - (width-gap)/2
+	y := headBadgeRowY(worldProjectionOf(screen), x, width-gap, tallest, float32(screenY))
 	for _, b := range row {
 		r.drawWorldHeadBadge(screen, b.key, x+b.radius, y, b.radius, b.draw)
 		x += 2*b.radius + gap
 	}
+}
+
+// headBadgeRowY sits the row above the head, but never above the top edge of
+// the frame where the row is finally shown.
+func headBadgeRowY(proj paniniProjection, left, width, tallest, headY float32) float32 {
+	top := float32(proj.sourceEdgeY(float64(left), float64(left+width), 3))
+	return max(top+tallest, headY-tallest-5)
 }
 
 // Head markers reuse the UI motif, rasterized once at a fixed small size.

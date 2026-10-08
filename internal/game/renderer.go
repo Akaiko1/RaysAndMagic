@@ -4232,11 +4232,11 @@ func monsterBurnSalt(id string) int {
 // stunStarRingGeometry places the stun ring above the monster's head. A
 // point-blank monster is raised above the HUD bar, pushing its head (and this
 // ring) past the top of the screen - the clamp keeps the ring in view so a
-// stunned melee-range monster still shows its stars.
-func stunStarRingGeometry(topY, spriteSize float64) (cy, rx, ry float64) {
+// stunned melee-range monster still shows its stars where they are finally shown.
+func stunStarRingGeometry(proj paniniProjection, centerX, topY, spriteSize float64) (cy, rx, ry float64) {
 	rx, ry = spriteSize*0.30, spriteSize*0.12
 	cy = topY - spriteSize*0.08
-	if minCy := ry + spriteSize*0.05; cy < minCy {
+	if minCy := proj.sourceEdgeY(centerX-rx, centerX+rx, 0) + ry + spriteSize*0.05; cy < minCy {
 		cy = minCy
 	}
 	return cy, rx, ry
@@ -4251,7 +4251,7 @@ func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spr
 	defer r.statusGlyphs.flush(screen)
 	f := float64(r.game.frameCount)
 	cx := centerX
-	cy, rx, ry := stunStarRingGeometry(topY, spriteSize)
+	cy, rx, ry := stunStarRingGeometry(worldProjectionOf(screen), cx, topY, spriteSize)
 	const n = 5
 	for k := 0; k < n; k++ {
 		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)

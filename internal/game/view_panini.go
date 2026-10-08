@@ -67,6 +67,17 @@ func (p paniniProjection) presentedPoint(x, y float64) (float64, float64) {
 	return p.center + (x-p.center)*s, p.horizon + (y-p.horizon)*s
 }
 
+// sourceEdgeY is the perspective Y that every source column in [left, right]
+// presents at displayY or further inside the frame. Panini moves points away
+// from the horizon, most in the column nearest the centre, so a world overlay
+// held at a screen edge has to clamp against this rather than the edge.
+func (p paniniProjection) sourceEdgeY(left, right, displayY float64) float64 {
+	if p.distance == 0 {
+		return displayY
+	}
+	return p.horizon + (displayY-p.horizon)/p.columnMagnification(min(max(p.center, left), right))
+}
+
 // columnMagnification owns the forward Panini scale used by geometry, cached
 // columns and held-target visibility. The inverse also lives in panini.kageinc.
 func (p paniniProjection) columnMagnification(x float64) float64 {
