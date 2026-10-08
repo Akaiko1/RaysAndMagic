@@ -753,11 +753,12 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 	if ui.game.combat != nil {
 		cost = ui.game.combat.effectiveSpellCost(currentChar, def.SpellPointsCost)
 	}
-	drawCenteredUIText(screen, name, x+4, nameY, w-8, uiTextCharHeight)
-	drawCenteredUIText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, uiTextCharHeight)
+	// The selection glow extends below the icon; labels draw over it.
 	quick, equipped := currentChar.Equipment[items.SlotSpell]
 	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},
 		selected, equipped && string(quick.SpellEffect) == string(spellID), false, currentChar.SpellPoints >= cost, SchoolColor(school.String()))
+	drawCenteredUIText(screen, name, x+4, nameY, w-8, uiTextCharHeight)
+	drawCenteredUIText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, uiTextCharHeight)
 }
 
 func spellInitials(name string) string {

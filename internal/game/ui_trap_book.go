@@ -95,13 +95,14 @@ func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int,
 	if ui.game.combat != nil {
 		cost = ui.game.combat.effectiveSpellCost(char, def.SPCost)
 	}
-	nameY := y + iconSize + 8
-	drawCenteredUIText(screen, def.Name, x+4, nameY, w-8, uiTextCharHeight)
-	drawCenteredUIText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, nameY+uiTextCharHeight+2, w-8, uiTextCharHeight)
-
+	// The selection glow extends below the icon; labels draw over it.
 	armed, equipped := equippedTrapKey(char)
 	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},
 		selected, equipped && armed == key, char.Level < def.Level, char.SpellPoints >= cost, SchoolColor(def.Element))
+
+	nameY := y + iconSize + 8
+	drawCenteredUIText(screen, def.Name, x+4, nameY, w-8, uiTextCharHeight)
+	drawCenteredUIText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, nameY+uiTextCharHeight+2, w-8, uiTextCharHeight)
 }
 
 // trapTooltip renders the unified template card for a trap (the same builder
