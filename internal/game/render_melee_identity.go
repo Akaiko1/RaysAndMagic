@@ -21,7 +21,7 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 		col = [3]int{185, 211, 228}
 	}
 	count := 1
-	if style == "kage_kunai" || style == "agility_katar" || style == "arena_cesti" || kind == "punch" {
+	if style == "kage_kunai" || style == "agility_katar" {
 		count = 2
 	}
 	for i := 0; i < count; i++ {
@@ -40,7 +40,7 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 			side = -1
 		}
 		path := func(t float64) (float64, float64) {
-			if kind == "stab" || kind == "punch" || kind == "lunge" {
+			if kind == "stab" || kind == "lunge" {
 				reach := .34
 				if kind == "lunge" {
 					reach = .46
@@ -70,9 +70,6 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 		if kind == "lunge" {
 			width = h * .009
 		}
-		if kind == "punch" {
-			width = h * .021
-		}
 		r.drawDissolveStroke(dst, dissolveStroke{path: path, width: func(t float64) float64 { return width * math.Sin(math.Pi*t) }, color: func(float64) [3]int { return col }, alpha: func(float64) float64 { return .36 }, length: h * .5, seed: seedFromID(s.ID), salt: 811 + i, blend: additiveGlowBlend}, ld, local)
 		x, y := path(ld)
 		angle := tangentAt(path, ld)
@@ -86,9 +83,6 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 		}
 		if kind == "lunge" {
 			size = h * .067
-		}
-		if kind == "punch" {
-			size = h * (.045 + .035*ld)
 		}
 		if style == "war_fan" {
 			size = h * .062

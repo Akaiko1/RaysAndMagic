@@ -292,9 +292,9 @@ func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectile
 func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY float64, isSpell, isRanged bool, damageTypeStr string, monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, damage int) {
 	if isSpell {
 		if mp, ok := projectile.(*MagicProjectile); ok {
-			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
+			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType, monster)
 		} else {
-			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
+			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize, monster)
 		}
 	} else if isRanged {
 		cs.spawnRangedHitEffect(monster, weaponDef, damage)

@@ -51,7 +51,7 @@ func (r *Renderer) drawSpellMaterialProjected(dst *ebiten.Image, x, y, size floa
 		return
 	}
 	if isFacetedBolt(kind) || kind == spellHarm {
-		r.drawSpellVolume(dst, x, y, size*math.Sqrt(crit), projection.axis, rgb, alpha, kind)
+		r.drawLitVolume(dst, x, y, size*math.Sqrt(crit), projection.axis, rgb, alpha, kind, 1)
 		return
 	}
 	dx, dy, head := projection.dx, projection.dy, projection.head

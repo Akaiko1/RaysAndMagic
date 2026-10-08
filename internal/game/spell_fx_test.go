@@ -5,6 +5,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/monster"
 )
 
 // TestEveryMagicSchoolHasImpactColor: every magic school must have an explosion
@@ -51,7 +52,7 @@ func TestFireboltParticleSize_ShrinksWithDistance(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 
 	// Firebolt's actual per-particle base size (damage/radius-derived).
-	cs.game.CreateSpellHitEffectFromSpell(0, 0, "firebolt")
+	cs.game.CreateSpellHitEffectFromSpell(0, 0, "firebolt", nil)
 	if len(cs.game.spellHitEffects) == 0 || len(cs.game.spellHitEffects[0].Particles) == 0 {
 		t.Fatal("firebolt produced no hit particles")
 	}
@@ -109,7 +110,7 @@ func TestCreateSpellHitEffect_StyleMotion(t *testing.T) {
 
 	check := func(element string, wantSign int) {
 		g.spellHitEffects = nil
-		g.CreateSpellHitEffect(100, 100, element, 12, 4)
+		g.CreateSpellHitEffect(100, 100, element, 12, 4, nil)
 		if len(g.spellHitEffects) != 1 || len(g.spellHitEffects[0].Particles) == 0 {
 			t.Fatalf("%s: expected one effect with particles", element)
 		}
@@ -132,6 +133,19 @@ func TestCreateSpellHitEffect_StyleMotion(t *testing.T) {
 	check("earth", 1)
 	check("spirit", -1)
 	check("physical", 0)
+
+	// The copied trail remains in its parent's body frame after a killing hit.
+	m := monster.NewMonster3DFromConfig(100, 100, "rat", cfg)
+	g.spellHitEffects = nil
+	g.CreateSpellHitEffect(100, 100, "fire", 1, 4, m)
+	anchor := g.spellHitEffects[0].Anchor
+	g.spellHitEffects[0].Particles[0].Trail = true
+	g.spellHitEffects[0].Particles[0].LifeTime = 4
+	m.HitPoints = 0
+	g.UpdateHitEffects()
+	if anchor.sizeTiles <= 0 || len(g.spellHitEffects) != 2 || g.spellHitEffects[1].Anchor != anchor {
+		t.Fatal("particle trail lost its body anchor")
+	}
 }
 
 // Spell impacts now flash the world: CreateSpellHitEffect must leave a decaying
@@ -140,7 +154,7 @@ func TestCreateSpellHitEffect_ImpactLightAndShake(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
 
-	g.CreateSpellHitEffect(100, 200, "fire", 20, 4)
+	g.CreateSpellHitEffect(100, 200, "fire", 20, 4, nil)
 	if len(g.impactLights) != 1 {
 		t.Fatalf("expected one impact light, got %d", len(g.impactLights))
 	}
@@ -150,7 +164,7 @@ func TestCreateSpellHitEffect_ImpactLightAndShake(t *testing.T) {
 	}
 
 	g.screenShake = 0
-	g.CreateSpellHitEffectFromSpell(100, 200, "fireball")
+	g.CreateSpellHitEffectFromSpell(100, 200, "fireball", nil)
 	if g.screenShake <= 0 {
 		t.Errorf("a fireball impact should set screen shake, got %v", g.screenShake)
 	}

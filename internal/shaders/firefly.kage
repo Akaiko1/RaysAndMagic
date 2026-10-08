@@ -1,0 +1,17 @@
+//kage:unit pixels
+package main
+
+// A tiny lantern abdomen, thorax and translucent wings share one soft halo.
+// Palette and wing phase arrive per mote, so a whole swarm can batch.
+func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
+	r2 := dot(p, p)
+	edge := 1.0-smoothstep(.65, 1.0, r2)
+	halo := exp(-r2*7.0)*.21 + exp(-r2*28.0)*.20
+	abdomen := exp(-dot(p/vec2(.105, .16), p/vec2(.105, .16))*2.0)
+	head := exp(-dot((p-vec2(0, -.16))/vec2(.055, .05), (p-vec2(0, -.16))/vec2(.055, .05))*2.0)*.35
+	flutter := .08 + .035*sin(c.w)
+	w := vec2(abs(p.x)-flutter, p.y+.06)
+	wings := exp(-dot(w/vec2(.07, .025), w/vec2(.07, .025)))*.12
+	light := color.rgb*halo + c.rgb*(abdomen+head+wings)
+	return vec4(light*edge*color.a, 0)
+}

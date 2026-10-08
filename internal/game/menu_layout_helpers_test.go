@@ -72,14 +72,13 @@ func settingsLayoutBoxes(screenW, screenH int, ornate bool, tab settingsTabKind)
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("tab-%d", tab), settingsTabRect(px, py, panelW, settingsTabKind(tab))))
 	}
 	if tab == settingsTabCombat {
+		for _, wide := range []bool{false, true} {
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("view-%v", wide), viewChoiceRect(px, py, panelW, wide)))
+		}
 		for i, text := range combatSettingsTextLayout(px, py, panelW) {
 			b := text.box
 			name := fmt.Sprintf("text-%d", i)
-			if text.centered {
-				boxes = append(boxes, centeredTextBox(name, text.label, b.x, b.y, b.w, b.h))
-			} else {
-				boxes = append(boxes, textLineBox(name, text.label, b.x, b.y))
-			}
+			boxes = append(boxes, textLineBox(name, text.label, b.x, b.y))
 		}
 		for _, enabled := range []bool{false, true} {
 			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("choice-%v", enabled), combatOverlayChoiceRect(px, py, panelW, enabled)))

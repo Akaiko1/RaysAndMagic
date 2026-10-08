@@ -142,7 +142,7 @@ func audioHintPosition(px, py, panelW, panelH, contentInset int) (string, int, i
 func settingsHintPosition(tab settingsTabKind, saveError string, px, py, panelW, panelH, inset int) (string, int, int) {
 	hint, _, y := audioHintPosition(px, py, panelW, panelH, inset)
 	if tab == settingsTabCombat {
-		hint = "Left: off | Right: on | Changes saved automatically"
+		hint = "Up/Down: row | Left/Right: choose | Auto-save"
 	}
 	if saveError != "" {
 		hint = saveError
@@ -151,7 +151,7 @@ func settingsHintPosition(tab settingsTabKind, saveError string, px, py, panelW,
 	width := px + panelW - inset - (back.x2 + 16)
 	if uiTextWidth(hint) > width && saveError == "" {
 		if tab == settingsTabCombat {
-			hint = "Left: off | Right: on | Auto-save"
+			hint = "Arrows: choose | Auto-save"
 		} else {
 			hint = "Changes saved automatically"
 		}
@@ -172,7 +172,11 @@ func audioPercentX(px, panelW, contentInset int, label string) int {
 func (g *MMGame) setSelectedAudioVolume(delta float64) {
 	switch g.settingsTab {
 	case settingsTabCombat:
-		g.setCombatOverlay(delta > 0)
+		if g.audioSettingsSelection == gameplayRowView {
+			g.setWideView(delta > 0)
+		} else {
+			g.setCombatOverlay(delta > 0)
+		}
 		return
 	case settingsTabPotions:
 		mana := g.audioSettingsSelection == 1

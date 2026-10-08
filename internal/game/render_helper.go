@@ -68,7 +68,7 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeightF(distance, heightMu
 	}
 
 	// Calculate base wall height on screen
-	baseHeight := float64(rh.game.worldHeight()) / distance * rh.game.config.GetTileSize()
+	baseHeight := rh.game.viewFocal() / distance * rh.game.config.GetTileSize()
 
 	// Apply height multiplier
 	wallHeight = baseHeight * heightMultiplier
@@ -92,16 +92,16 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeightF(distance, heightMu
 //
 // This is the inverse of the floor rendering formula used in drawSimpleFloorCeiling:
 //
-//	rowDistance = (0.5 * screenHeight * tileSize) / p
+//	rowDistance = (0.5 * focalLength * tileSize) / p
 //
 // Where:
 //   - rowDistance is the perpendicular distance from camera to floor point
 //   - p is the vertical offset from the horizon line (screen pixels)
-//   - screenHeight/2 is the horizon line position
+//   - viewHorizon() is the horizon line position
 //
 // Solving for screen Y:
 //
-//	p = (0.5 * screenHeight * tileSize) / rowDistance
+//	p = (0.5 * focalLength * tileSize) / rowDistance
 //	screenY = horizon + p
 //
 // This ensures sprites are anchored to the floor at their correct distance,
@@ -112,14 +112,14 @@ func (rh *RenderingHelper) calculateFloorScreenY(perpDist float64) int {
 }
 
 func (rh *RenderingHelper) calculateFloorScreenYF(perpDist float64) float64 {
-	screenHeight := float64(rh.game.worldHeight())
+	focalLength := rh.game.viewFocal()
 	tileSize := rh.game.config.GetTileSize()
-	horizon := screenHeight / 2
+	horizon := rh.game.viewHorizon()
 
 	if perpDist <= 0 {
 		perpDist = 1 // Avoid division by zero
 	}
-	return horizon + (0.5*screenHeight*tileSize)/perpDist
+	return horizon + (0.5*focalLength*tileSize)/perpDist
 }
 
 // projectToScreenX converts a world position into screen X using the camera plane.
@@ -153,17 +153,11 @@ func (rh *RenderingHelper) cameraSpaceXY(entityX, entityY float64) (tx, ty float
 	cam := rh.game.camera
 	dx := entityX - cam.X
 	dy := entityY - cam.Y
-	dirX := math.Cos(cam.Angle)
-	dirY := math.Sin(cam.Angle)
-	planeScale := math.Tan(cam.FOV / 2)
-	planeX := -dirY * planeScale
-	planeY := dirX * planeScale
-	det := planeX*dirY - dirX*planeY
-	if math.Abs(det) < 1e-9 {
+	b := rh.game.cameraBasis()
+	if b.halfFovTan < 1e-9 {
 		return 0, 0, false
 	}
-	invDet := 1.0 / det
-	return invDet * (dirY*dx - dirX*dy), invDet * (-planeY*dx + planeX*dy), true
+	return (-b.dirY*dx + b.dirX*dy) / b.halfFovTan, b.dirX*dx + b.dirY*dy, true
 }
 
 // projectSegmentSpanX projects a world segment's on-screen column span. Unlike
@@ -595,7 +589,7 @@ func (rh *RenderingHelper) projectSpriteMetricsF(entityX, entityY, distance, min
 		return 0, 0, 0, false
 	}
 
-	sizeF = float64(rh.game.worldHeight()) / perpDist * rh.game.config.GetTileSize() * heightMultiplier
+	sizeF = rh.game.viewFocal() / perpDist * rh.game.config.GetTileSize() * heightMultiplier
 	if maxS := float64(rh.game.worldHeight() * 64); sizeF > maxS {
 		sizeF = maxS
 	}
@@ -614,7 +608,7 @@ func (rh *RenderingHelper) projectSpriteMetricsF(entityX, entityY, distance, min
 // calculateSpriteSizeWithHeightMultiplier returns a sprite height using the
 // same scaling model as environment sprites (e.g., moss rocks).
 func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier float64) int {
-	return int(float64(rh.game.worldHeight()) / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
+	return int(rh.game.viewFocal() / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
 }
 
 // RenderSkyBackground draws the panorama or its solid-color fallback. The
@@ -623,6 +617,7 @@ func (rh *RenderingHelper) RenderSkyBackground(screen *ebiten.Image) {
 	if !rh.drawSkyPanorama(screen) {
 		// Draw cached solid-color sky fallback.
 		skyOpts := &ebiten.DrawImageOptions{}
+		skyOpts.GeoM.Scale(1, rh.game.viewHorizon()/float64(rh.game.skyImg.Bounds().Dy()))
 		screen.DrawImage(rh.game.skyImg, skyOpts)
 	}
 }
@@ -632,7 +627,8 @@ func (rh *RenderingHelper) RenderSkyBackground(screen *ebiten.Image) {
 // a redundant half-screen source draw and fill cost.
 func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 	groundOpts := &ebiten.DrawImageOptions{}
-	groundOpts.GeoM.Translate(0, float64(rh.game.worldHeight()/2))
+	groundOpts.GeoM.Scale(1, (float64(rh.game.worldHeight())-rh.game.viewHorizon())/float64(rh.game.groundImg.Bounds().Dy()))
+	groundOpts.GeoM.Translate(0, rh.game.viewHorizon())
 	screen.DrawImage(rh.game.groundImg, groundOpts)
 }
 
@@ -684,7 +680,7 @@ func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.I
 	}
 
 	screenWidth := rh.game.worldWidth()
-	skyHeight := rh.game.worldHeight() / 2
+	skyHeight := int(math.Ceil(rh.game.viewHorizon()))
 	if screenWidth <= 0 || skyHeight <= 0 {
 		return false
 	}
@@ -702,7 +698,7 @@ func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.I
 		return false
 	}
 
-	pixelsPerRadian := srcSpan / rh.game.camera.FOV
+	pixelsPerRadian := srcSpan / rh.game.viewFOV()
 	bx := float64(bounds.Min.X)
 	by := float64(bounds.Min.Y)
 	centerOffset := wrapPanoramaOffset(rh.game.camera.Angle*pixelsPerRadian, srcW)

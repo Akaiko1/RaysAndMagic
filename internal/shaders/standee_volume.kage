@@ -1,4 +1,6 @@
 //include standee_sampling.kageinc
+
+var Horizon float
 // The crossed-standee volume shader composites the exact shell stack in one
 // fragment invocation. It receives all per-slab data through vertices so
 // successive trees with the same texture remain batchable:
@@ -16,7 +18,7 @@ func sourcePosition(dstY float, depth float, u float, heightScale float, bottomS
 		return vec2(0), false
 	}
 	height := heightScale / depth
-	bottom := imageDstSize().y/2.0 + bottomScale/depth
+	bottom := Horizon + bottomScale/depth
 	v := (dstY - (bottom - height)) / height
 	if v < 0.0 || v > 1.0 {
 		return vec2(0), false

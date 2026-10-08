@@ -25,7 +25,7 @@ var settingsTabLabels = [...]string{
 	settingsTabSound:   "Sound",
 	settingsTabPotions: "Auto-potions",
 	settingsTabDisplay: "Display",
-	settingsTabCombat:  "Combat",
+	settingsTabCombat:  "Gameplay",
 }
 
 // settingsTabRows is how many keyboard-selectable rows a tab has.
@@ -36,7 +36,7 @@ func settingsTabRows(tab settingsTabKind) int {
 	case settingsTabDisplay:
 		return displayRows
 	case settingsTabCombat:
-		return 1
+		return 2
 	default:
 		return len(audioSettingDefinitions)
 	}
@@ -81,7 +81,9 @@ func (ui *UISystem) drawSettingsHeader(screen *ebiten.Image, px, py, panelW int)
 // drawSettingsChoice draws one option of a Settings choice row (a tab, an
 // interface size); the chosen one carries the gold underline.
 func (ui *UISystem) drawSettingsChoice(screen *ebiten.Image, label string, r layoutRect, chosen bool) {
-	ui.drawMenuButton(screen, label, r.x, r.y, r.w, r.h, chosen)
+	mx, my := uiCursorPosition()
+	hover := ui.audioSettingsOwnsInput() && isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom())
+	ui.drawMenuButton(screen, label, r.x, r.y, r.w, r.h, chosen || hover)
 	if chosen {
 		drawFilledRect(screen, r.x+4, r.bottom()-4, r.w-8, 2, color.RGBA{202, 174, 104, 255})
 	}

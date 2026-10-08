@@ -68,7 +68,7 @@ func (r *Renderer) drawFacadeCrystalShimmer(screen *ebiten.Image, npc *character
 	}
 	lo, hi := max(slab.minX, clipMin), min(slab.maxX, clipMax)
 	cam, basis := r.game.camera, r.cameraBasis()
-	horizon := float64(r.game.worldHeight()) / 2
+	horizon := r.game.viewHorizon()
 	bounds := sf.img.Bounds()
 	tw, th := float32(bounds.Dx()), float32(bounds.Dy())
 	verts, indices := r.standeeVerts[:0], r.standeeMaterialIdx[:0]

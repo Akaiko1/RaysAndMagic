@@ -218,7 +218,7 @@ func (r *Renderer) zoneHeatVisible(x, y, margin float64) bool {
 	}
 	forward := dx*math.Cos(cam.Angle) + dy*math.Sin(cam.Angle)
 	side := -dx*math.Sin(cam.Angle) + dy*math.Cos(cam.Angle)
-	return forward+margin > 0 && math.Abs(side) <= max(0, forward)*math.Tan(cam.FOV/2)+margin
+	return forward+margin > 0 && math.Abs(side) <= max(0, forward)*math.Tan(r.game.viewFOV()/2)+margin
 }
 
 // emitSteamColumn draws one rising bubble at a sampled point inside a steam-zone

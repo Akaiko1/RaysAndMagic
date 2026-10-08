@@ -2,10 +2,13 @@ package game
 
 import (
 	"github.com/hajimehoshi/ebiten/v2"
+	"image/color"
 	"math"
+	"os"
 	"testing"
 
 	"ugataima/internal/config"
+	"ugataima/internal/monster"
 )
 
 // Bespoke FX are wired YAML->renderer by name. Shipped content must pass the
@@ -419,6 +422,117 @@ func TestEveryRegisteredWeaponFxStyleIsAuthored(t *testing.T) {
 	for style := range weaponProjectileFxStyles {
 		if !projectile[style] {
 			t.Errorf("weapon projectile fx style %q has a renderer but no weapon authors projectile_fx: %s", style, style)
+		}
+	}
+}
+
+// Check the projection actually consumed by the arrow pass, including its
+// previous shaft sample. Flight physics remain fixed when the view changes.
+func TestProjectilePresentationAnchors(t *testing.T) {
+	g, _, _, _, _ := mouseCombatHarness(t, false)
+	g.renderHelper = NewRenderingHelper(g)
+	g.showPartyStats = true
+	g.camera.Angle, g.camera.ViewDist = 0, 5000
+	r := g.gameLoop.renderer
+	r.whiteImg = ebiten.NewImage(1, 1)
+	r.whiteImg.Fill(color.White)
+	defer r.whiteImg.Deallocate()
+	dst := ebiten.NewImage(g.worldWidth(), g.worldHeight())
+	defer dst.Deallocate()
+	ts := g.config.GetTileSize()
+	from := monster.NewMonster3DFromConfig(g.camera.X+2*ts, g.camera.Y-.5*ts, "rat", g.config)
+	to := monster.NewMonster3DFromConfig(g.camera.X+4*ts, g.camera.Y+.5*ts, "rat", g.config)
+	g.world.Monsters = []*monster.Monster3D{from, to}
+	def := lookupWeaponConfigByKey("hunting_bow")
+	for _, wide := range []bool{false, true} {
+		g.combatPreferences.WideView = wide
+		launch := g.combat.continuationLaunch(from, to)
+		vx, vy := launch.dx*4, launch.dy*4
+		sample := func(x, y float64) projectileProjection {
+			p, _, ok := r.projectLaunchedEntity(launch, x, y, vx, vy, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
+			if !ok {
+				t.Fatal("fixture sample not visible")
+			}
+			return p
+		}
+		for _, m := range []*monster.Monster3D{from, to} {
+			p := sample(m.X, m.Y)
+			a := visualAnchorFor(m)
+			sx, ground, size, _ := g.renderHelper.CalculateMonsterSpriteMetricsF(m.X, m.Y, math.Hypot(m.X-g.camera.X, m.Y-g.camera.Y), a.sizeTiles)
+			depth := m.X - g.camera.X
+			want := a.bottom(g, depth, ground, size) - size/2
+			if math.Abs(float64(p.screenY)+float64(p.size)/2-want) > 2 || math.Abs(float64(p.screenX)-sx) > 1 {
+				t.Fatalf("wide=%v: projectile missed body at source/target", wide)
+			}
+		}
+		// A short continuation must finish shedding its source offset by the
+		// destination, even when that destination is less than one tile away.
+		tx, ty := to.X, to.Y
+		to.X, to.Y = from.X+ts/4, from.Y
+		short := g.combat.continuationLaunch(from, to)
+		wantOffset := visualAnchorFor(to).centerOffset(g, to.X-g.camera.X)
+		if math.Abs(short.screenOffsetY(g, to.X, to.Y)-wantOffset) > 1e-6 {
+			t.Fatal("short continuation retained its departure anchor at the target")
+		}
+		to.X, to.Y = tx, ty
+		x, y := from.X+launch.dx*ts*.5, from.Y+launch.dy*ts*.5
+		now, prev := sample(x, y), sample(x-vx*3, y-vy*3)
+		wantAngle := math.Atan2(float64(now.screenY-prev.screenY)+float64(now.size-prev.size)/2, float64(now.screenX-prev.screenX))
+		g.arrows = []Arrow{{Active: true, X: x, Y: y, VelX: vx, VelY: vy, BowKey: "hunting_bow", Launch: launch, LifeTime: def.Physics.GetLifetimeFrames(), Owner: ProjectileOwnerPlayer}}
+		r.drawArrows(dst)
+		if !g.arrows[0].RenderAngleSet || math.Abs(g.arrows[0].RenderAngle-wantAngle) > 1e-6 {
+			t.Fatalf("wide=%v: shaft diverged from anchored flight: got %g want %g", wide, g.arrows[0].RenderAngle, wantAngle)
+		}
+		original := sample(to.X, to.Y)
+		pierced := launch.piercing(g.combat, to)
+		for _, state := range []string{"dead", "moved"} {
+			hp, tx := to.HitPoints, to.X
+			if state == "dead" {
+				to.HitPoints = 0
+			} else {
+				to.X += ts
+			}
+			p := sample(launch.aimX, launch.aimY)
+			base, _ := r.projectMovingEntity(launch.aimX, launch.aimY, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
+			if p != base {
+				t.Fatalf("%s target still bends flight", state)
+			}
+			to.HitPoints, to.X = hp, tx
+		}
+		to.HitPoints = 0
+		launch = pierced
+		if got := sample(launch.aimX, launch.aimY); got != original {
+			t.Fatal("piercing kill lost its body anchor")
+		}
+		x, y = launch.aimX+launch.dx*2*ts, launch.aimY+launch.dy*2*ts
+		base, _ := r.projectMovingEntity(x, y, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
+		if got := sample(x, y); got != base {
+			t.Fatal("pierce did not return to its physical ray")
+		}
+		to.HitPoints = to.MaxHitPoints
+		if os.Getenv("RAM_DEBUG_SIM") != "" {
+			launch = g.combat.continuationLaunch(from, to)
+			g.magicProjectiles = []MagicProjectile{{Active: true, X: from.X + launch.dx*ts*.5, Y: from.Y + launch.dy*ts*.5, VelX: launch.dx * 2, VelY: launch.dy * 2, SpellType: "firebolt", Launch: launch, Owner: ProjectileOwnerPlayer}}
+			pixels := make([]byte, dst.Bounds().Dx()*dst.Bounds().Dy()*4)
+			runOnDrawFrame(func(_ *ebiten.Image) { dst.Clear(); r.drawMagicProjectiles(dst); dst.ReadPixels(pixels) })
+			lit := 0
+			for i := 3; i < len(pixels); i += 4 {
+				if pixels[i] > 0 {
+					lit++
+				}
+			}
+			if lit == 0 {
+				t.Fatal("spell presentation fixture did not draw")
+			}
+			// Every anchored sample is below this strip. Detached ghosts leave
+			// glow here, even if a single tiny ghost rounds to zero alpha.
+			for y := int(g.viewHorizon()) - 12; y <= int(g.viewHorizon())+12; y++ {
+				for x := 0; x < dst.Bounds().Dx(); x++ {
+					if pixels[(y*dst.Bounds().Dx()+x)*4+3] > 0 {
+						t.Fatalf("wide=%v: ghost detached to the horizon", wide)
+					}
+				}
+			}
 		}
 	}
 }

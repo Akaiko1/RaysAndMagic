@@ -158,7 +158,7 @@ func (r *Renderer) requiredLoadingRegions() []string {
 				tileSize, mapRenderLoadMarginInTiles*tileSize)...)
 		} else {
 			keys = append(keys, visibleOpenWorldMapKeys(world.GlobalWorldManager, r.game.camera,
-				tileSize, mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles*tileSize)...)
+				tileSize, mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles*tileSize, r.game.viewFOV())...)
 		}
 	}
 	return keys

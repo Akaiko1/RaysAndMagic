@@ -11,8 +11,7 @@ type standeeProjection struct {
 	horizon, heightScale, bottomScale float64
 }
 
-func (slab standeeSlab) projection(screenHeight int) standeeProjection {
-	horizon := float64(screenHeight) / 2
+func (slab standeeSlab) projection(horizon float64) standeeProjection {
 	return standeeProjection{horizon, slab.centerSize * slab.centerDepth, (slab.bottomY - horizon) * slab.centerDepth}
 }
 
@@ -49,7 +48,7 @@ func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices [
 	width := float64(maxX + 1 - minX)
 	inv0, uq0 := 1/d0, u0/d0
 	invStep, uqStep := (1/d1-inv0)/width, (u1/d1-uq0)/width
-	projection := slab.projection(h)
+	projection := slab.projection(r.game.viewHorizon())
 	depths, tops := r.game.depthBuffer, r.game.wallTopBuffer
 	occlusion := r.standeeWallOcclusion
 	unclipped := float32(math.Inf(1))

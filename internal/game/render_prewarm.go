@@ -544,7 +544,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 	mapKey := scope.mapKey
 	streamScoreAt := func(x, y float64) float64 {
 		if cam := r.game.camera; cam != nil {
-			return mapRenderStreamScore(cam.X, cam.Y, cam.Angle, cam.FOV, x, y)
+			return mapRenderStreamScore(cam.X, cam.Y, cam.Angle, r.game.viewFOV(), x, y)
 		}
 		return math.Inf(1)
 	}
@@ -1448,15 +1448,16 @@ func mapRenderRegionIntersectsView(region *world.OpenWorldRegion, tileSize, came
 	return false
 }
 
-func visibleOpenWorldMapKeys(wm *world.WorldManager, camera *FirstPersonCamera, tileSize, fovMargin, distanceMargin float64) []string {
+func visibleOpenWorldMapKeys(wm *world.WorldManager, camera *FirstPersonCamera, tileSize, fovMargin, distanceMargin float64, viewFOV float64) []string {
 	if wm == nil || camera == nil || tileSize <= 0 {
 		return nil
 	}
+	fov := viewFOV
 	keys := make([]string, 0, len(wm.OpenWorldRegions))
 	for i := range wm.OpenWorldRegions {
 		region := &wm.OpenWorldRegions[i]
 		if mapRenderRegionIntersectsView(region, tileSize, camera.X, camera.Y, camera.Angle,
-			camera.FOV+fovMargin, camera.ViewDist+distanceMargin) {
+			fov+fovMargin, camera.ViewDist+distanceMargin) {
 			keys = append(keys, region.MapKey)
 		}
 	}
@@ -2655,7 +2656,9 @@ func (r *Renderer) drawMapRenderStandeeShaderWarm(target *ebiten.Image, task *ma
 			vertices[i].Custom2 = 0.25
 			vertices[i].Custom3 = 0.5
 		}
-		target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, shaderOpts())
+		opts := shaderOpts()
+		opts.Uniforms = map[string]any{"Horizon": float32(target.Bounds().Dy()) / 2}
+		target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, opts)
 	}
 }
 

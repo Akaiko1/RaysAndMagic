@@ -847,6 +847,7 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
+	View               ViewRenderConfig        `yaml:"view"`
 	ElementalAttack    ElementalAttackFXConfig `yaml:"elemental_attack"`
 	RaysPerScreenWidth int                     `yaml:"rays_per_screen_width"`
 	Colors             ColorsConfig            `yaml:"colors"`
@@ -884,6 +885,13 @@ type GraphicsConfig struct {
 
 	// NightMotes controls the moving motes emitted by authored tree tiles at night.
 	NightMotes NightMoteRenderConfig `yaml:"night_motes"`
+}
+
+type ViewRenderConfig struct {
+	WideFocalRatio   float64 `yaml:"wide_focal_ratio"`
+	WideHorizonRatio float64 `yaml:"wide_horizon_ratio"`
+	LiftFadeTiles    float64 `yaml:"lift_fade_tiles"`
+	LiftFullTiles    float64 `yaml:"lift_full_tiles"`
 }
 
 // NightMoteRenderConfig controls the shared runtime budget and timing for
@@ -1700,6 +1708,19 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if config.Graphics.RemovedSprite != nil {
 		return nil, fmt.Errorf("graphics.sprite is removed - flat billboard scale comes from the tile size_class and the source texture aspect")
+	}
+	v := config.Graphics.View
+	if !(v.WideFocalRatio > 0 && v.WideFocalRatio <= 1) {
+		return nil, fmt.Errorf("graphics.view.wide_focal_ratio must be in (0, 1], got %g", v.WideFocalRatio)
+	}
+	if !(v.WideHorizonRatio > 0 && v.WideHorizonRatio < 1) {
+		return nil, fmt.Errorf("graphics.view.wide_horizon_ratio must be in (0, 1), got %g", v.WideHorizonRatio)
+	}
+	if !(v.LiftFadeTiles > 0 && v.LiftFadeTiles < 2) {
+		return nil, fmt.Errorf("graphics.view.lift_fade_tiles must be in (0, 2), got %g", v.LiftFadeTiles)
+	}
+	if !(v.LiftFullTiles > v.LiftFadeTiles && v.LiftFullTiles <= 2) {
+		return nil, fmt.Errorf("graphics.view.lift_full_tiles must exceed lift_fade_tiles (%g) and be <= 2, got %g", v.LiftFadeTiles, v.LiftFullTiles)
 	}
 	for class, value := range config.Graphics.SizeClasses {
 		if class == "" || value <= 0 {

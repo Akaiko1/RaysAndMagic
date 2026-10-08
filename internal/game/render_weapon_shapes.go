@@ -19,8 +19,6 @@ func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind, style string, x
 			model = 41
 		case "chop":
 			model = 60
-		case "punch":
-			model = 52
 		}
 		switch style {
 		case "katana":

@@ -10,16 +10,17 @@ func isFacetedBolt(kind int) bool {
 	return kind == spellIce || kind == spellVoidNeedle || kind == spellShadow || kind == spellFireDart
 }
 
-type spellVolumePoint struct{ x, y, z, u, v float64 }
-type spellVolumeFace struct {
-	p      [3]spellVolumePoint
+type litVolumePoint struct{ x, y, z, u, v float64 }
+type litVolumeFace struct {
+	p      [3]litVolumePoint
 	normal [3]float64
 	depth  float64
+	rgb    [3]int
 }
 
 // All directional volumes share this projection: their visible faces turn with
 // the flight axis and hand convergence. Each triangle receives shader lighting.
-func (r *Renderer) drawSpellVolume(dst *ebiten.Image, x, y, size float64, axis [3]float64, rgb [3]int, alpha float64, kind int) {
+func (r *Renderer) drawLitVolume(dst *ebiten.Image, x, y, size float64, axis [3]float64, rgb [3]int, alpha float64, kind int, handedness float64) {
 	if size <= 0 || alpha <= 0 || r.ensureWeaponMaterialShaders() != nil {
 		return
 	}
@@ -37,15 +38,17 @@ func (r *Renderer) drawSpellVolume(dst *ebiten.Image, x, y, size float64, axis [
 	}
 	bx, by, bz = bx/bl, by/bl, bz/bl
 	cx, cy, cz := ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx
-	point := func(p [3]float64) spellVolumePoint {
-		return spellVolumePoint{ax*p[0] + bx*p[1] + cx*p[2], ay*p[0] + by*p[1] + cy*p[2], az*p[0] + bz*p[1] + cz*p[2], p[0], p[1]}
+	point := func(p [3]float64) litVolumePoint {
+		p[1] *= handedness
+		return litVolumePoint{ax*p[0] + bx*p[1] + cx*p[2], ay*p[0] + by*p[1] + cy*p[2], az*p[0] + bz*p[1] + cz*p[2], p[0], p[1]}
 	}
 	halfW, halfH := float64(dst.Bounds().Dx())*.5, float64(dst.Bounds().Dy())*.5
 	focal := halfW
 	if r.game != nil && r.game.camera != nil {
-		focal = halfW / math.Tan(r.game.camera.FOV*.5)
+		focal = r.game.viewFocal()
+		halfH = r.game.viewHorizon()
 	}
-	faces := r.spellVolumeFaces[:0]
+	faces := r.litVolumeFaces[:0]
 	face := func(va, vb, vc, origin [3]float64) {
 		a, b, c, o := point(va), point(vb), point(vc), point(origin)
 		ux, uy, uz := b.x-a.x, b.y-a.y, b.z-a.z
@@ -66,13 +69,18 @@ func (r *Renderer) drawSpellVolume(dst *ebiten.Image, x, y, size float64, axis [
 		if 1+math.Min(a.z, math.Min(b.z, c.z))*size/focal <= .02 {
 			return
 		}
-		faces = append(faces, spellVolumeFace{[3]spellVolumePoint{a, b, c}, [3]float64{nx, ny, nz}, mz})
+		faces = append(faces, litVolumeFace{[3]litVolumePoint{a, b, c}, [3]float64{nx, ny, nz}, mz, rgb})
 	}
-	if kind == spellHarm {
+	if mesh, ok := gauntletModels[kind]; ok {
+		for _, f := range mesh {
+			rgb = f.rgb
+			face(f.a, f.b, f.c, f.origin)
+		}
+	} else if kind == spellHarm {
 		// Chamfered solids form a clenched hand: palm, four folded fingers, a thumb
 		// crossing their lower joints, and a short wrist behind the knuckles.
 		addBox := func(center, half [3]float64, bevel, roll float64) {
-			spellFistBox(center, half, bevel, roll, face)
+			beveledBoxFaces(center, half, bevel, roll, face)
 		}
 		addBox([3]float64{-.60, 0, .02}, [3]float64{.42, .61, .35}, .13, 0)
 		addBox([3]float64{-1.10, 0, .04}, [3]float64{.23, .40, .27}, .10, 0)
@@ -111,7 +119,7 @@ func (r *Renderer) drawSpellVolume(dst *ebiten.Image, x, y, size float64, axis [
 	}
 	// Ebitengine's 2D target has no depth buffer. Sorting the visible triangles
 	// keeps the thumb and finger joints in front of the palm at every angle.
-	slices.SortFunc(faces, func(a, b spellVolumeFace) int {
+	slices.SortFunc(faces, func(a, b litVolumeFace) int {
 		if a.depth > b.depth {
 			return -1
 		}
@@ -125,7 +133,7 @@ func (r *Renderer) drawSpellVolume(dst *ebiten.Image, x, y, size float64, axis [
 		base := uint16(len(verts))
 		for _, p := range f.p {
 			perspective := 1 / (1 + p.z*size/focal)
-			v := weaponMaterialVertex(halfW+(x-halfW+p.x*size)*perspective, halfH+(y-halfH+p.y*size)*perspective, p.u, p.v, rgb, alpha)
+			v := weaponMaterialVertex(halfW+(x-halfW+p.x*size)*perspective, halfH+(y-halfH+p.y*size)*perspective, p.u, p.v, f.rgb, alpha)
 			v.Custom0, v.Custom1, v.Custom2, v.Custom3 = float32(f.normal[0]), float32(f.normal[1]), float32(f.normal[2]), float32(kind)+.25
 			verts = append(verts, v)
 		}
@@ -139,12 +147,12 @@ func (r *Renderer) drawSpellVolume(dst *ebiten.Image, x, y, size float64, axis [
 		r.spellBoltOpts.Blend = ebiten.BlendSourceOver
 		dst.DrawTrianglesShader(verts, indices, r.spellBoltShader, &r.spellBoltOpts)
 	}
-	r.standeeVerts, r.standeeIdx, r.spellVolumeFaces = verts[:0], indices[:0], faces[:0]
+	r.standeeVerts, r.standeeIdx, r.litVolumeFaces = verts[:0], indices[:0], faces[:0]
 }
 
 // Six inset faces, twelve bevel strips and eight corner triangles. The
 // same topology is used for each joint; only its proportions and pose differ.
-func spellFistBox(center, half [3]float64, bevel, roll float64, face func([3]float64, [3]float64, [3]float64, [3]float64)) {
+func beveledBoxFaces(center, half [3]float64, bevel, roll float64, face func([3]float64, [3]float64, [3]float64, [3]float64)) {
 	transform := func(p [3]float64) [3]float64 {
 		return [3]float64{center[0] + p[0], center[1] + p[1]*math.Cos(roll) - p[2]*math.Sin(roll), center[2] + p[1]*math.Sin(roll) + p[2]*math.Cos(roll)}
 	}

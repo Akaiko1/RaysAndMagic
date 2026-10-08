@@ -214,7 +214,8 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 			}
 			ally.ApplySoak(max(1, (m.DamageMin+m.DamageMax)/4), int(a.DurationSeconds*float64(g.config.GetTPS())), a.DurationRounds)
 			g.AddCombatMessage(m.Name + " shields " + ally.Name + " with circulating water.")
-			g.createElementalAbilityImpact(ally.X, ally.Y, "water")
+			vx, vy := g.combat.monsterVisualPos(ally)
+			g.createElementalAbilityImpact(vx, vy, "water", ally)
 		}
 		return
 	}

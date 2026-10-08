@@ -8,14 +8,25 @@ type renderCameraBasis struct {
 	angle, fov, halfFovTan     float64
 	dirX, dirY, planeX, planeY float64
 	valid                      bool
+	wide                       bool
+	width                      int
+	focal                      float64
 }
 
 func (r *Renderer) cameraBasis() renderCameraBasis {
-	cam := r.game.camera
-	b := &r.renderBasis
-	if !b.valid || b.angle != cam.Angle || b.fov != cam.FOV {
-		*b = renderCameraBasis{angle: cam.Angle, fov: cam.FOV, valid: true}
-		b.halfFovTan = math.Tan(cam.FOV / 2)
+	return r.game.cameraBasis()
+}
+
+func (g *MMGame) cameraBasis() renderCameraBasis {
+	b := &g.renderBasis
+	cam, wide, width, focal := g.camera, g.combatPreferences.WideView, g.worldWidth(), g.viewFocal()
+	if !b.valid || b.angle != cam.Angle || b.fov != cam.FOV || b.wide != wide || b.width != width || b.focal != focal {
+		*b = renderCameraBasis{angle: cam.Angle, fov: cam.FOV, valid: true, wide: wide, width: width, focal: focal}
+		if wide {
+			b.halfFovTan = float64(width) / (2 * focal)
+		} else {
+			b.halfFovTan = math.Tan(cam.FOV / 2)
+		}
 		b.dirX, b.dirY = math.Cos(cam.Angle), math.Sin(cam.Angle)
 		b.planeX = math.Cos(cam.Angle+math.Pi/2) * b.halfFovTan
 		b.planeY = math.Sin(cam.Angle+math.Pi/2) * b.halfFovTan

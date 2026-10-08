@@ -12,7 +12,11 @@ func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
 	fresnel := pow(1.0-abs(n.z), 3.0)
 	vein := pow(.5+.5*sin(p.x*13+p.y*5-Time*3), 10)
 	tint := color.rgb*(.28+.65*light) + vec3(.40, .65, .8)*fresnel*.3
-	if kind == 2.0 {
+	if kind == 50.0 || kind == 52.0 {
+		// Opaque metal and leather: stable face lighting, no magical veins.
+		spec := pow(max(0.0, dot(n, normalize(vec3(-.3,-.45,-1)))), 18.0)
+		tint = color.rgb*(.38+.62*light) + vec3(.25,.23,.19)*spec
+	} else if kind == 2.0 {
 		tint = color.rgb*(.30+.70*light) + vec3(.68, 1.0, .48)*fresnel*.22
 		tint += color.rgb * vein * .055
 	} else if kind == 10.0 {

@@ -517,6 +517,13 @@ monster_ai:
 
 # Graphics and rendering
 graphics:
+  view:
+    # Ratios of the usable world viewport above the party panel.
+    wide_focal_ratio: 0.637
+    wide_horizon_ratio: 0.645
+    # Classic HUD clearance fades out before a creature crosses the camera.
+    lift_fade_tiles: 0.5
+    lift_full_tiles: 1.0
   elemental_attack:
     duration_seconds: 0.48
     radius_tiles: 0.35

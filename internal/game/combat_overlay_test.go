@@ -19,6 +19,15 @@ func TestCombatOverlaySettings(t *testing.T) {
 			for _, entry := range []bool{false, true} {
 				r, b := settingsLayoutBoxes(size[0], size[1], entry, settingsTabCombat)
 				assertNoCollisions(t, fmt.Sprintf("combat/%dx%d/entry=%v", size[0], size[1], entry), r, b)
+				layout := makeAudioSettingsPanelLayout(size[0], size[1], entry)
+				for _, wide := range []bool{false, true} {
+					card := viewChoiceRect(layout.px, layout.py, layout.panelW, wide)
+					var textBoxes []uiBox
+					for i, text := range viewChoiceTextLayout(card, wide) {
+						textBoxes = append(textBoxes, textLineBox(fmt.Sprint(i), text.label, text.box.x, text.box.y))
+					}
+					assertNoCollisions(t, "view choice", namedLayoutBox("view choice", card), textBoxes)
+				}
 			}
 		}
 	})
@@ -59,6 +68,23 @@ func TestCombatOverlaySettings(t *testing.T) {
 			h.loop.inputHandler.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
 			click(combatOverlayChoiceRect(layout.px, layout.py, layout.panelW, false))
 			check(false)
+			click(viewChoiceRect(layout.px, layout.py, layout.panelW, true))
+			restored := &MMGame{}
+			restored.loadCombatPreferences()
+			if !g.combatPreferences.WideView || !restored.combatPreferences.WideView {
+				t.Fatal("wide view choice was not saved")
+			}
+			if g.audioSettingsSelection != gameplayRowView {
+				t.Fatal("clicking a view option did not select its keyboard row")
+			}
+			presentInputScreen(h)
+			h.loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == ebiten.KeyLeft })
+			updateInputScreen(h)
+			restored.loadCombatPreferences()
+			if g.combatPreferences.WideView || restored.combatPreferences.WideView {
+				t.Fatal("keyboard did not select and save Classic")
+			}
+			h.loop.inputHandler.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
 			if err := os.WriteFile(combatPreferencesPath(), []byte(`{"turn_based_overlay":`), 0600); err != nil {
 				t.Fatal(err)
 			}

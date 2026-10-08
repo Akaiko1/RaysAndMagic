@@ -179,4 +179,28 @@ func TestRenderCameraBasisInvalidatesOnInputs(t *testing.T) {
 			t.Fatal("stale camera basis")
 		}
 	}
+	g.renderHelper = NewRenderingHelper(g)
+	for _, wide := range []bool{true, false, true} {
+		g.combatPreferences.WideView = wide
+		for _, hud := range []bool{true, false} {
+			g.showPartyStats = hud
+			for _, ratio := range []float64{.5, .7} {
+				g.config.Graphics.View.WideFocalRatio = ratio
+				b := r.cameraBasis()
+				want := math.Tan(g.camera.FOV / 2)
+				if wide {
+					want = float64(g.worldWidth()) / (2 * float64(worldViewportBottom(g)) * ratio)
+				}
+				if math.Abs(b.halfFovTan-want) > 1e-9 {
+					t.Fatal("stale view/HUD/authored focal ratio")
+				}
+				x, y := g.camera.X+100*b.dirX-25*b.dirY, g.camera.Y+100*b.dirY+25*b.dirX
+				side, depth, ok := g.renderHelper.cameraSpaceXY(x, y)
+				if !ok || math.Abs(side-25/want) > 1e-8 || math.Abs(depth-100) > 1e-8 {
+					t.Fatal("point projection disagrees with cached basis")
+				}
+			}
+		}
+	}
+
 }

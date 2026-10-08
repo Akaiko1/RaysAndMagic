@@ -169,6 +169,7 @@ type SpellHitParticle struct {
 
 // SpellHitEffect represents a burst of particles from a spell impact
 type SpellHitEffect struct {
+	Anchor              monsterVisualAnchor
 	BurstAge, BurstLife int
 	BurstRadius         float64
 	BurstColor          [3]int
@@ -568,6 +569,7 @@ type MMGame struct {
 
 	// Rendering helper
 	renderHelper *RenderingHelper
+	renderBasis  renderCameraBasis
 
 	// Depth buffer for proper 3D rendering (distance per screen column)
 	depthBuffer []float64
@@ -1293,7 +1295,7 @@ func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey float64, x, y int) 
 			occluded := standeeColumnOccluded(depth, g.depthBuffer[screenX], occlusion.depthAllowance)
 			if occluded && occlusion.hasBackingWall {
 				dirX, dirY := math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
-				halfFovTan := math.Tan(g.camera.FOV / 2)
+				halfFovTan := math.Tan(g.viewFOV() / 2)
 				planeX, planeY := -dirY*halfFovTan, dirX*halfFovTan
 				rayX, rayY := standeeRayAtScreenX(float64(screenX)+0.5, g.worldWidth(), dirX, dirY, planeX, planeY)
 				if occlusion.matchesBackingWall(g.camera.X, g.camera.Y, rayX, rayY, g.depthBuffer[screenX]) {
@@ -1717,7 +1719,7 @@ func (g *MMGame) turnBlurPixels(screenWidth int) float64 {
 		return 0
 	}
 	stepRad := (math.Pi / 2) / float64(g.turnViewFrames()) // per-frame yaw step
-	panPx := stepRad / g.camera.FOV * float64(screenWidth)
+	panPx := stepRad / g.viewFOV() * float64(screenWidth)
 	if blur := panPx * turnBlurStrength; blur < turnBlurMaxPixels {
 		return blur
 	}
@@ -3557,7 +3559,7 @@ func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
 		mpw.game.combat.detonateFlask(mpw.MagicProjectile, mpw.impactX, mpw.impactY)
 		return
 	}
-	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType)
+	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType, nil)
 	if mpw.game.combat != nil {
 		mpw.game.combat.burstSpellShot(mpw.MagicProjectile, mpw.impactX, mpw.impactY, nil)
 	}
@@ -3639,7 +3641,7 @@ func (aw *ArrowWrapper) ApplyCollisionEffects() {
 	// Staff/book bolt -> magical burst on wall/terrain impact, not an arrow puff
 	// (shares the monster-hit decision so the staff never "explodes like an arrow").
 	def, _ := config.GetWeaponDefinition(aw.Arrow.BowKey)
-	aw.game.spawnWeaponBoltImpact(aw.impactX, aw.impactY, def, SpellParticleCount, SpellParticleSize)
+	aw.game.spawnWeaponBoltImpact(aw.impactX, aw.impactY, def, SpellParticleCount, SpellParticleSize, nil)
 }
 
 func (aw *ArrowWrapper) GetLifetime() int {

@@ -1347,7 +1347,7 @@ func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, fl
 // and party-nova victims so both anchor on the sprite, not the raw tile.
 func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element string) {
 	x, y := cs.monsterVisualPos(m)
-	cs.game.CreateSpellHitEffect(x, y, element, SpellParticleCount, SpellParticleSize)
+	cs.game.CreateSpellHitEffect(x, y, element, SpellParticleCount, SpellParticleSize, m)
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
@@ -2633,7 +2633,7 @@ func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weap
 	}
 	size := SpellParticleSize + damage/8
 	vx, vy := cs.monsterVisualPos(monster) // burst where the monster is drawn (pulled slot in TB)
-	cs.game.spawnWeaponBoltImpact(vx, vy, weaponDef, count, size)
+	cs.game.spawnWeaponBoltImpact(vx, vy, weaponDef, count, size, monster)
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
@@ -3511,11 +3511,11 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 	}
 	switch {
 	case m.BossDormant:
-		cs.game.spawnImpactSparks(m.X, m.Y)
+		cs.spawnHitSparks(m)
 		cs.game.logCombat(logToneNone, "The seal holds - %s is impervious.", logMonsterName(m))
 		return true
 	case m.BossWarded:
-		cs.game.spawnImpactSparks(m.X, m.Y)
+		cs.spawnHitSparks(m)
 		cs.game.logCombat(logToneNone, "The idols' ward holds - %s is impervious. Shatter the idols!", logMonsterName(m))
 		return true
 	}

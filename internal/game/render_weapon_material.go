@@ -64,13 +64,13 @@ func (r *Renderer) weaponMaterialClock() float64 {
 }
 
 func (r *Renderer) ensureWeaponMaterialShaders() error {
-	if r.spellBoltShader != nil && r.weaponRibbonShader != nil && r.impactMaterialShader != nil && r.weaponOrbShader != nil && r.spellBodyShader != nil && r.zonePlumeShader != nil && r.weaponBodyShader != nil && r.bubbleShader != nil {
+	if r.fireflyShader != nil && r.spellBoltShader != nil && r.weaponRibbonShader != nil && r.impactMaterialShader != nil && r.weaponOrbShader != nil && r.spellBodyShader != nil && r.zonePlumeShader != nil && r.weaponBodyShader != nil && r.bubbleShader != nil {
 		return nil
 	}
 	for _, entry := range []struct {
 		dst **ebiten.Shader
 		src string
-	}{{&r.spellBoltShader, spellBoltShaderSrc}, {&r.weaponRibbonShader, weaponRibbonShaderSrc}, {&r.impactMaterialShader, impactMaterialShaderSrc}, {&r.weaponOrbShader, weaponOrbShaderSrc}, {&r.spellBodyShader, spellBodyShaderSrc}, {&r.zonePlumeShader, zonePlumeShaderSrc}, {&r.weaponBodyShader, weaponBodyShaderSrc}, {&r.bubbleShader, bubbleShaderSrc}} {
+	}{{&r.fireflyShader, fireflyShaderSrc}, {&r.spellBoltShader, spellBoltShaderSrc}, {&r.weaponRibbonShader, weaponRibbonShaderSrc}, {&r.impactMaterialShader, impactMaterialShaderSrc}, {&r.weaponOrbShader, weaponOrbShaderSrc}, {&r.spellBodyShader, spellBodyShaderSrc}, {&r.zonePlumeShader, zonePlumeShaderSrc}, {&r.weaponBodyShader, weaponBodyShaderSrc}, {&r.bubbleShader, bubbleShaderSrc}} {
 		if *entry.dst != nil {
 			continue
 		}
@@ -257,7 +257,7 @@ func (r *Renderer) drawWeaponMaterialWarm(dst *ebiten.Image) {
 	for i, p := range [4][2]float64{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
 		r.weaponMaterialQuad[i] = weaponMaterialVertex(p[0], p[1], p[0], p[1], [3]int{}, 0)
 	}
-	for _, shader := range []*ebiten.Shader{r.weaponRibbonShader, r.impactMaterialShader, r.weaponOrbShader, r.spellBodyShader, r.zonePlumeShader, r.bubbleShader, r.weaponBodyShader, r.spellBoltShader} {
+	for _, shader := range []*ebiten.Shader{r.fireflyShader, r.weaponRibbonShader, r.impactMaterialShader, r.weaponOrbShader, r.spellBodyShader, r.zonePlumeShader, r.bubbleShader, r.weaponBodyShader, r.spellBoltShader} {
 		if shader == r.zonePlumeShader {
 			r.weaponMaterialOpts.Images[0] = r.ensureFireNoise()
 		}

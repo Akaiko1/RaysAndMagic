@@ -350,12 +350,12 @@ func (b *trapModelBuilder) projectTriangle(face *trapModelTriangle) {
 			n++
 		}
 	}
-	w, h := float64(b.r.game.worldWidth()), float64(b.r.game.worldHeight())
+	w, h := float64(b.r.game.worldWidth()), b.r.game.viewFocal()
 	for k := 1; k+1 < n; k++ {
 		f := trapFace{}
 		for j, p := range [3]trapClipPoint{clipped[0], clipped[k], clipped[k+1]} {
 			q := 1 / p.z
-			sx, sy := w*.5*(1+p.x*q), h*.5+h*(.5*b.ts-p.height)*q
+			sx, sy := w*.5*(1+p.x*q), b.r.game.viewHorizon()+h*(.5*b.ts-p.height)*q
 			// Pixel-unit shaders add the source atlas origin. Keep coordinates
 			// large enough to retain precision before the shader subtracts it.
 			vertex := weaponMaterialVertex(sx, sy, p.u*q*1024, p.v*q*1024, face.rgb, face.alpha*b.alpha)

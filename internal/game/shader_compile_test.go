@@ -217,7 +217,8 @@ func TestStandeeVolumeShaderPreservesLayersAndWallClip(t *testing.T) {
 	stickerNextMip.Fill(color.RGBA{R: 0xff, A: 0xff})
 	core.Fill(color.RGBA{G: 0xff, A: 0xff})
 
-	// At near depth 8 these invariants produce a face from y=0 through y=8.
+	// Horizon 2 deliberately differs from half the destination height. At
+	// near depth 8 these invariants produce a face from y=-2 through y=6.
 	// Far depth 10 is slightly smaller, just like a real thick slab.
 	const heightScale = 64
 	const bottomScale = 32
@@ -228,7 +229,7 @@ func TestStandeeVolumeShaderPreservesLayersAndWallClip(t *testing.T) {
 		{DstX: 8, DstY: 8, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 0.1, Custom1: 0.125, Custom2: 0.1, Custom3: 0.125},
 	}
 	indices := []uint16{0, 1, 2, 1, 3, 2}
-	opts := &ebiten.DrawTrianglesShaderOptions{}
+	opts := &ebiten.DrawTrianglesShaderOptions{Uniforms: map[string]any{"Horizon": float32(2)}}
 	opts.Images[0] = sticker
 	opts.Images[1] = stickerMip
 	opts.Images[2] = stickerNextMip
@@ -248,6 +249,9 @@ func TestStandeeVolumeShaderPreservesLayersAndWallClip(t *testing.T) {
 	}
 
 	pixels := draw()
+	if got := pixel(pixels, 4, 7); got.A != 0 {
+		t.Fatalf("face ignored the authored horizon: bottom pixel = %#v", got)
+	}
 	if got := pixel(pixels, 4, 4); got.R < 250 || got.G != 0 || got.A < 250 {
 		t.Fatalf("near sticker = %#v, want opaque red front face", got)
 	}

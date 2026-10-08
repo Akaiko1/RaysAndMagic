@@ -248,5 +248,5 @@ func (r *Renderer) drawMeleeFxArenaLion(screen *ebiten.Image, s SlashEffect, cx,
 
 // Bronze Cesti alternate two staggered punches with their plated fist models.
 func (r *Renderer) drawMeleeFxArenaCesti(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	r.drawIdentityStrike(screen, s, cx, cy, screenH, "arena_cesti", "punch")
+	r.drawGauntletStrike(screen, s, cx, cy, screenH)
 }

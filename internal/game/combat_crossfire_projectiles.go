@@ -46,7 +46,7 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 		parts = damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
 		damageTypeStr = spellDamageTypeStr(mp.SpellType)
 		fxX, fxY := cs.monsterVisualPos(target)
-		cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
+		cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType, target)
 	case "arrow":
 		ar, ok := projectile.(*Arrow)
 		if !ok || !ar.Active || ar.LifeTime <= 0 || ar.Owner != ProjectileOwnerReflected {
@@ -144,7 +144,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	}
 	if spellFx != "" {
 		tx, ty := cs.monsterVisualPos(target) // banded/pulled: burst where the mob is DRAWN
-		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx)
+		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx, target)
 	}
 
 	// kill finalizes a slain crossfire target through the same kill choke point as

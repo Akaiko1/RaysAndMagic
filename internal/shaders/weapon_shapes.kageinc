@@ -514,28 +514,6 @@ func heavyBody(p vec2, id, t, aa float) vec4 {
 	}
 	return out
 }
-func fistBody(p vec2, id, t, aa float, tint vec3) vec4 {
-	gold := vec3(.76, .50, .20)
-	plate := gold
-	if id == 52.0 {
-		plate = vec3(.27, .36, .42)
-	}
-	out := coat(vec4(0), box(p-vec2(-1.10, 0), vec2(.35, .48))-.08, vec3(.31, .045, .055), p, aa)
-	out = ring(out, p*vec2(1.6, 1), vec2(-2.12, 0), .39, .065, gold, aa)
-	out = coat(out, box(p-vec2(-.55, 0), vec2(.44, .43))-.10, metal(p, plate), p, aa)
-	for k := 0; k < 4; k++ {
-		f := float(k)
-		q := p - vec2(-.08-.045*abs(f-1.5), -.33+f*.22)
-		d := box(q, vec2(.19, .068)) - .045
-		out = coat(out, d, plate*(.86+.42*exp(-q.y*q.y*160)), p, aa)
-		out = coat(out, max(d, abs(q.x+.055)-.015), plate*.45, p, aa)
-	}
-	// A folded thumb crosses the fingers; its joint is distinct from the cuff.
-	out = coat(out, capsule(p, vec2(-.62, .40), vec2(-.16, .27), .12), plate*.92, p, aa)
-	out = coat(out, length(p-vec2(-.67, -.05))-.16, gold, p, aa)
-	out = coat(out, length(p-vec2(-.67, -.05))-.09, plate*.5, p, aa)
-	return out
-}
 func polygon16(p vec2, points [16]vec2) float {
 	d := 100.0
 	inside := false

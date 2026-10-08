@@ -134,7 +134,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 		return
 	}
 	if s.Kind == "punch" {
-		r.drawIdentityStrike(screen, s, cx, cy, screenH, "", "punch")
+		r.drawGauntletStrike(screen, s, cx, cy, screenH)
 		return
 	}
 	_, fade, sweepT, lead := meleeFxTiming(s)

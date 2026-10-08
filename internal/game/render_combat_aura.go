@@ -116,6 +116,6 @@ func (r *Renderer) collectCombatAurora() {
 func (r *Renderer) combatAuraTileVisible(tx, ty int, ts float64) bool {
 	x, y := TileCenterFromTile(tx, ty, ts)
 	side, depth, ok := r.game.renderHelper.cameraSpaceXY(x, y)
-	margin := ts / math.Tan(r.game.camera.FOV/2)
+	margin := ts / math.Tan(r.game.viewFOV()/2)
 	return ok && depth+ts > auraMinDepth && depth-ts < r.game.camera.ViewDist && math.Abs(side) <= depth+margin+ts
 }

@@ -35,7 +35,7 @@ type bubbleColumnFx struct {
 // the actor and wall depth buffers, then draws perColumn rising
 // glows that fade in at the floor and out at the top.
 func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
-	horizon := float64(r.game.worldHeight()) / 2
+	horizon := r.game.viewHorizon()
 
 	screenX, depth, ok := r.game.renderHelper.projectToScreenX(c.wx, c.wy)
 	if !ok || depth < auraMinDepth || depth > c.maxDepth {

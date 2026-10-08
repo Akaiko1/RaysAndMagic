@@ -1012,7 +1012,7 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		rayX, rayY := standeeRayAtScreenX(screenX, screenW, dirX, dirY, planeX, planeY)
 		return standeeColumnIntersection(cam.X, cam.Y, rayX, rayY, surface.p0x, surface.p0y, surface.dx, surface.dy)
 	}
-	projection := slab.projection(screenH)
+	projection := slab.projection(r.game.viewHorizon())
 	geometryAt := func(depth float64) (top, bottom float32) {
 		top, bottom, _ = projection.atInverseDepth(1 / depth)
 		return
@@ -1129,6 +1129,10 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	}
 
 	opts := &r.standeeVolumeOpts
+	if opts.Uniforms == nil {
+		opts.Uniforms = map[string]any{"Horizon": make([]float32, 1)}
+	}
+	opts.Uniforms["Horizon"].([]float32)[0] = float32(r.game.viewHorizon())
 	opts.Blend = ebiten.BlendSourceOver
 	opts.Images[0] = stickerMips.levels[0]
 	opts.Images[1] = stickerMips.levels[mipLevel]
@@ -1161,7 +1165,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	}
 
 	screenW := r.game.worldWidth()
-	projection := slab.projection(r.game.worldHeight())
+	projection := slab.projection(r.game.viewHorizon())
 	cam := r.game.camera
 	basis := r.cameraBasis()
 	camDirX, camDirY := basis.dirX, basis.dirY
@@ -1704,7 +1708,7 @@ func (g *MMGame) wallStickPose(npcX, npcY float64) (x, y, yaw float64, ok bool) 
 // so a cross's intersection axis lands on the texture centre). Falls back to
 // the tile diagonal when the projection degenerates.
 func (r *Renderer) spriteFootprintWorld(spriteSizePx, depthPerp float64) float64 {
-	halfFovTan := math.Tan(r.game.camera.FOV / 2)
+	halfFovTan := math.Tan(r.game.viewFOV() / 2)
 	footprint := spriteSizePx * 2 * halfFovTan * depthPerp / float64(r.game.worldWidth())
 	if footprint <= 0 {
 		footprint = float64(r.game.config.GetTileSize()) * math.Sqrt2

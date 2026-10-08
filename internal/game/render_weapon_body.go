@@ -48,7 +48,7 @@ func (r *Renderer) drawWeaponBody(dst *ebiten.Image, x, y, angle, size, alpha fl
 	case 4, 6, 17, 30, 60: // Katana, Muramasa, Transfer Blade, Naginata, Steel Axe.
 		mirror = -1
 	}
-	if (model == 50 || model == 52 || model == 53) && r.weaponMaterialState.hand == 1 {
+	if model == 53 && r.weaponMaterialState.hand == 1 {
 		mirror = -1
 	}
 	for i, p := range [4][2]float64{{left, -half}, {right, -half}, {left, half}, {right, half}} {

@@ -20,8 +20,7 @@ func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
 		out = poleBody(p, id, c.x, aa)
 	} else if id < 50.0 {
 		out = heavyBody(p, id, c.x, aa)
-	} else if id < 53.0 {
-		out = fistBody(p, id, c.x, aa, color.rgb)
+
 	} else if id == 53.0 {
 		// Three curved claws sprout from the long purple grip shown in the icon.
 		out = haft(out, p, -2.5, -1.15, .115, vec3(.31, .12, .40), aa)

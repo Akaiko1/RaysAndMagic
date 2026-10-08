@@ -21,6 +21,7 @@ type monsterPickHit struct {
 type monsterPickFrame struct {
 	world                                  *world.World3D
 	width, height                          int
+	horizon                                float64
 	camX, camY, dirX, dirY, planeX, planeY float64
 	hits                                   []monsterPickHit
 }
@@ -30,9 +31,10 @@ func (r *Renderer) beginMonsterPickFrame() {
 	g := r.game
 	f.world = g.world
 	f.width, f.height = g.worldWidth(), g.worldHeight()
+	f.horizon = g.viewHorizon()
 	f.camX, f.camY = g.camera.X, g.camera.Y
 	f.dirX, f.dirY = math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
-	f.planeX, f.planeY = -f.dirY*math.Tan(g.camera.FOV/2), f.dirX*math.Tan(g.camera.FOV/2)
+	f.planeX, f.planeY = -f.dirY*math.Tan(g.viewFOV()/2), f.dirX*math.Tan(g.viewFOV()/2)
 	f.hits = f.hits[:0]
 }
 func (r *Renderer) selectMonsterHover() {
@@ -131,7 +133,7 @@ func (f *monsterPickFrame) column(h monsterPickHit, x int) (depth, top, bottom, 
 		if !hit {
 			return 0, 0, 0, 0, false
 		}
-		horizon := float64(f.height) / 2
+		horizon := f.horizon
 		bottom = horizon + (h.bottom-horizon)*h.depth/t
 		return t, bottom - h.size*h.depth/t, bottom, columnU, true
 	}
