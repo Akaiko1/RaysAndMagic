@@ -939,6 +939,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 			AnimationFrame: 0,
 			MaxFrames:      maxFrames,
 			SweepFrames:    sweepFrames,
+			AnchorLift:     graphicsConfig.SlashLiftRatio,
 			Active:         true,
 			Kind:           meleeFxKind(weaponDef),
 			Style:          graphicsConfig.SlashFx,

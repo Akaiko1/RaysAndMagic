@@ -76,7 +76,7 @@ func (r *Renderer) drawSpellMaterialProjected(dst *ebiten.Image, x, y, size floa
 		r.weaponMaterialQuad[i] = v
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.spellBodyShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.spellBodyShader, &r.weaponMaterialOpts)
 }
 
 // The broad impact face expands quickly, then rolls apart into smoke and grit.
@@ -94,5 +94,5 @@ func (r *Renderer) drawImpactCloud(dst *ebiten.Image, x, y, rx, ry, age float64,
 		r.weaponMaterialQuad[i] = v
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.impactMaterialShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.impactMaterialShader, &r.weaponMaterialOpts)
 }

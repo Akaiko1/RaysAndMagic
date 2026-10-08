@@ -82,20 +82,21 @@ func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRe
 	radius := float32(min(14, max(9, s.spriteSize/12)))
 	type headBadge struct {
 		radius float32
-		draw   func(x, y, radius float32)
+		key    worldBadgeKey
+		draw   func(dst *ebiten.Image, x, y, radius float32)
 	}
 	var row []headBadge
 	if designated {
-		row = append(row, headBadge{radius, func(x, y, r float32) { drawTacticalReticle(screen, x, y, r) }})
+		row = append(row, headBadge{radius, worldBadgeKey{kind: "designation"}, drawTacticalReticle})
 	}
 	if summoner != nil {
 		// A face needs more pixels than a motif to read.
 		portrait := r.game.sprites.GetSprite(r.game.portraitSpriteName(summoner))
-		row = append(row, headBadge{radius * 4 / 3, func(x, y, r float32) { drawSummonerBadge(screen, portrait, x, y, r) }})
+		row = append(row, headBadge{radius * 4 / 3, worldBadgeKey{kind: "summoner", portrait: portrait}, func(dst *ebiten.Image, x, y, radius float32) { drawSummonerBadge(dst, portrait, x, y, radius) }})
 	}
 	for _, e := range statusVisualCatalog {
 		if badges&e.flag != 0 {
-			row = append(row, headBadge{radius, func(x, y, r float32) { statusBadgeRenderers[e.flag](screen, x, y, r) }})
+			row = append(row, headBadge{radius, worldBadgeKey{kind: e.key}, statusBadgeRenderers[e.flag]})
 		}
 	}
 	const gap = 4
@@ -107,7 +108,32 @@ func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRe
 	y := max(tallest+3, float32(screenY)-tallest-5)
 	x := float32(s.screenX) - (width-gap)/2
 	for _, b := range row {
-		b.draw(x+b.radius, y, b.radius)
+		r.drawWorldHeadBadge(screen, b.key, x+b.radius, y, b.radius, b.draw)
 		x += 2*b.radius + gap
 	}
+}
+
+// Head markers reuse the UI motif, rasterized once at a fixed small size.
+// The world submission owns placement and Panini; UI scale never reaches it.
+type worldBadgeKey struct {
+	kind     string
+	portrait *ebiten.Image
+}
+
+func (r *Renderer) drawWorldHeadBadge(dst *ebiten.Image, key worldBadgeKey, x, y, radius float32, draw func(*ebiten.Image, float32, float32, float32)) {
+	if r.worldBadgeImages == nil {
+		r.worldBadgeImages = make(map[worldBadgeKey]*ebiten.Image)
+	}
+	badge := r.worldBadgeImages[key]
+	if badge == nil {
+		badge = ebiten.NewImage(64, 64)
+		draw(badge, 32, 32, 28)
+		r.worldBadgeImages[key] = badge
+	}
+	scale := float64(radius) / 28
+	var op ebiten.DrawImageOptions
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(float64(x)-32*scale, float64(y)-32*scale)
+	op.Filter = ebiten.FilterLinear
+	worldDrawImage(dst, badge, &op)
 }

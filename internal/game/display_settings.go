@@ -11,17 +11,20 @@ func displayPreferencesPath() string { return storage.AppSavePath("display_setti
 type displayPreferences struct {
 	InterfaceSize string `json:"interface_size"`
 	Font          string `json:"font,omitempty"`
+	Props3D       *bool  `json:"props_3d,omitempty"`
 }
 
-// loadDisplayPreferences restores the saved interface size and font. A
+// loadDisplayPreferences restores interface and prop presentation choices. A
 // missing, unreadable or unknown choice falls back to the configured default.
 func (g *MMGame) loadDisplayPreferences() {
 	g.config.PlayerInterfaceSize = g.config.Display.DefaultInterfaceSize
 	g.config.PlayerFont = g.config.Display.DefaultFont
+	g.config.PlayerProps3D = nil
 	prefs, ok := loadSettingsJSON[displayPreferences](displayPreferencesPath(), "display")
 	if !ok {
 		return
 	}
+	g.config.PlayerProps3D = prefs.Props3D
 	if _, ok := g.config.Display.InterfaceSize(prefs.InterfaceSize); ok {
 		g.config.PlayerInterfaceSize = prefs.InterfaceSize
 	} else {
@@ -38,7 +41,24 @@ func (g *MMGame) saveDisplayPreferences() {
 	if !g.displaySettingsDirty || g.config == nil {
 		return
 	}
-	g.saveSettingsJSON(displayPreferencesPath(), "display", displayPreferences{InterfaceSize: g.interfaceSizeKey(), Font: g.uiFontKey()}, &g.displaySettingsDirty)
+	g.saveSettingsJSON(displayPreferencesPath(), "display", displayPreferences{
+		InterfaceSize: g.interfaceSizeKey(), Font: g.uiFontKey(), Props3D: g.config.PlayerProps3D,
+	}, &g.displaySettingsDirty)
+}
+
+func (g *MMGame) props3DEnabled() bool {
+	if g.config.PlayerProps3D != nil {
+		return *g.config.PlayerProps3D
+	}
+	return g.config.Graphics.Props3D
+}
+
+func (g *MMGame) setProps3D(enabled bool) {
+	if g.props3DEnabled() != enabled {
+		g.config.PlayerProps3D = &enabled
+		g.displaySettingsDirty = true
+	}
+	g.saveDisplayPreferences()
 }
 
 // interfaceSizeKey is the active preset: the player's choice, else the default.

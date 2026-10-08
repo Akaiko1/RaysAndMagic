@@ -103,7 +103,7 @@ func (r *Renderer) drawFacadeCrystalShimmer(screen *ebiten.Image, npc *character
 		indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 	}
 	if len(indices) > 0 {
-		screen.DrawTrianglesShader32(verts, indices, shader, opts)
+		worldDrawTrianglesShader32(screen, verts, indices, shader, opts)
 	}
 	r.standeeVerts, r.standeeMaterialIdx = verts[:0], indices[:0]
 }
@@ -119,5 +119,5 @@ func (r *Renderer) drawBillboardCrystalShimmer(screen *ebiten.Image, npc *charac
 		{DstX: float32(left + size), DstY: float32(top), SrcX: float32(b.Max.X), SrcY: float32(b.Min.Y)},
 		{DstX: float32(left), DstY: float32(top + size), SrcX: float32(b.Min.X), SrcY: float32(b.Max.Y)},
 		{DstX: float32(left + size), DstY: float32(top + size), SrcX: float32(b.Max.X), SrcY: float32(b.Max.Y)}}
-	screen.DrawTrianglesShader(vertices, []uint16{0, 1, 2, 1, 3, 2}, shader, opts)
+	worldDrawTrianglesShader(screen, vertices, []uint16{0, 1, 2, 1, 3, 2}, shader, opts)
 }

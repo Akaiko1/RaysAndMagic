@@ -1138,7 +1138,7 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	opts.Images[1] = stickerMips.levels[mipLevel]
 	opts.Images[2] = stickerMips.levels[nextMipLevel]
 	opts.Images[3] = coreMips.levels[coreMipLevel]
-	screen.DrawTrianglesShader32(vertices, indices, shader, opts)
+	worldDrawColumnShader32(screen, vertices, indices, shader, opts)
 	r.statStandeeCalls++
 	r.statStandeeVertices += len(vertices)
 	r.standeeVerts = vertices[:0]
@@ -1215,6 +1215,9 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	if stickerMips == nil || coreMips == nil {
 		return
 	}
+	gx, gy := worldPixelScale(screen, float64(minX+maxX)*.5, slab.bottomY-slab.centerSize*.5)
+	projectedWidth *= gx
+	projectedHeight *= gy
 	filtered := standeeUsesMinificationSampling(projectedWidth, projectedHeight, texW, texH)
 	mipLevel, mipBlend := 0, float32(0)
 	if filtered {
@@ -1353,7 +1356,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		}
 	}
 	if len(idx) > 0 {
-		screen.DrawTrianglesShader32(verts, idx, shader, opts)
+		worldDrawColumnShader32(screen, verts, idx, shader, opts)
 		r.statStandeeCalls++
 		r.statStandeeVertices += len(verts)
 	}

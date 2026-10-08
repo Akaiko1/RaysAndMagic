@@ -36,7 +36,7 @@ func settingsTabRows(tab settingsTabKind) int {
 	case settingsTabDisplay:
 		return displayRows
 	case settingsTabCombat:
-		return 2
+		return gameplayRows
 	default:
 		return len(audioSettingDefinitions)
 	}

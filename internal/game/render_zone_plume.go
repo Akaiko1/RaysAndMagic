@@ -54,7 +54,7 @@ func (r *Renderer) drawFirePlume(dst *ebiten.Image, wx, wy, width, height, maxDe
 	if len(indices) > 0 {
 		r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
 		r.weaponMaterialOpts.Images[0] = r.ensureFireNoise()
-		dst.DrawTrianglesShader(verts, indices, r.zonePlumeShader, &r.weaponMaterialOpts)
+		worldDrawTrianglesShader(dst, verts, indices, r.zonePlumeShader, &r.weaponMaterialOpts)
 		r.weaponMaterialOpts.Images[0] = nil
 	}
 	r.standeeVerts, r.standeeIdx = verts[:0], indices[:0]

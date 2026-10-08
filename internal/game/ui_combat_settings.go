@@ -8,7 +8,9 @@ import (
 
 const (
 	gameplayRowView = iota
+	gameplayRowPanini
 	gameplayRowAurora
+	gameplayRows
 )
 
 // The same warm ink and bronze used by the other Settings tabs. Gold marks
@@ -56,14 +58,18 @@ func viewChoiceRect(px, py, panelW int, wide bool) layoutRect {
 func viewChoiceTextLayout(r layoutRect, wide bool) []combatSettingsText {
 	labels := [4]string{"Classic", "Original perspective", "Small creatures stay above", "the party panel."}
 	if wide {
-		labels = [4]string{"Wide", "Broader perspective", "Nearby large creatures fit", "inside the view."}
+		labels = [4]string{"Wide", "Broader perspective", "", ""}
 	}
-	return []combatSettingsText{
+	texts := []combatSettingsText{
 		{labels[0], layoutRect{r.x + 16, r.y + 16, 0, 0}, gameplayInk.heading},
 		{labels[1], layoutRect{r.x + 16, r.y + 48, 0, 0}, gameplayInk.text},
 		{labels[2], layoutRect{r.x + 16, r.y + 76, 0, 0}, gameplayInk.muted},
 		{labels[3], layoutRect{r.x + 16, r.y + 96, 0, 0}, gameplayInk.muted},
 	}
+	if wide {
+		return texts[:2]
+	}
+	return texts
 }
 
 func combatOverlayChoiceRect(px, py, panelW int, enabled bool) layoutRect {
@@ -83,7 +89,7 @@ func (ui *UISystem) drawCombatSettings(screen *ebiten.Image, px, py, panelW int)
 		{px + 28, py + 296, panelW - 56, 136},
 	} {
 		edge := gameplayInk.edge
-		if g.audioSettingsSelection == row {
+		if g.audioSettingsSelection == []int{gameplayRowView, gameplayRowAurora}[row] || row == 0 && g.audioSettingsSelection == gameplayRowPanini {
 			edge = gameplayInk.focus
 		}
 		drawRectBorder(screen, box.x, box.y, box.w, box.h, 1, edge)
@@ -111,6 +117,10 @@ func (ui *UISystem) drawCombatSettings(screen *ebiten.Image, px, py, panelW int)
 		uiStrokeCircle(screen, cx, cy, 6, 1, ink, true)
 		if chosen {
 			uiFillCircle(screen, cx, cy, 3, gameplayInk.heading, true)
+		}
+		if wide {
+			ui.drawPaniniChoice(screen, r)
+			r.h = 72
 		}
 		ui.settingsClick(r, func() {
 			g.audioSettingsSelection = gameplayRowView
@@ -144,4 +154,32 @@ func (ui *UISystem) drawCombatSettings(screen *ebiten.Image, px, py, panelW int)
 			drawFilledRect(screen, x+11, y+11, 2, 2, gameplayInk.muted)
 		}
 	}
+}
+
+func paniniChoiceRect(card layoutRect) layoutRect {
+	return layoutRect{card.x + 16, card.y + 78, card.w - 32, 34}
+}
+
+func (ui *UISystem) drawPaniniChoice(screen *ebiten.Image, card layoutRect) {
+	g := ui.game
+	r := paniniChoiceRect(card)
+	enabled := !g.combatPreferences.PaniniDisabled
+	ink := gameplayInk.text
+	if !g.combatPreferences.WideView {
+		ink = gameplayInk.muted
+	}
+	if g.audioSettingsSelection == gameplayRowPanini {
+		drawRectBorder(screen, r.x-4, r.y-2, r.w+8, r.h+4, 1, gameplayInk.focus)
+	}
+	x, y := r.x+2, r.y+(r.h-18)/2
+	drawRectBorder(screen, x, y, 18, 18, 1, ink)
+	if enabled {
+		uiStrokeLine(screen, float32(x+4), float32(y+9), float32(x+8), float32(y+13), 2, ink, true)
+		uiStrokeLine(screen, float32(x+8), float32(y+13), float32(x+15), float32(y+5), 2, ink, true)
+	}
+	drawUITextColored(screen, "Panini", x+30, r.y+(r.h-uiTextCharHeight)/2, ink)
+	ui.settingsClick(r, func() {
+		g.audioSettingsSelection = gameplayRowPanini
+		g.setPanini(!enabled)
+	})
 }

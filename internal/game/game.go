@@ -108,6 +108,7 @@ type SlashEffect struct {
 	AnimationFrame int     // Current animation frame
 	MaxFrames      int     // Total animation frames
 	SweepFrames    int     // Initial motion duration; the remaining time is cosmetic decay
+	AnchorLift     float64 // Authored view-height fraction, shared by body, trail and sparks.
 	Active         bool
 	Kind           string // per-weapon FX flavor: slash/chop/smash/stab/lunge
 	Style          string // bespoke legendary flourish (graphics.slash_fx); overrides Kind
@@ -1260,6 +1261,9 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 // against the wall depth buffer at the sprite's centre column.
 func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey float64, x, y int) bool {
 	defer g.beginPresentedCameraSwap()()
+	if g.usesPropModel(npc) {
+		return g.propModelHitTest(npc, x, y)
+	}
 	distance := Distance(g.camera.X, g.camera.Y, ex, ey)
 	screenX, screenY, spriteSize, visible := g.renderHelper.NPCSpriteMetrics(npc, ex, ey, distance)
 	if !visible || spriteSize <= 0 {
@@ -1934,14 +1938,10 @@ func (g *MMGame) worldHeight() int {
 	return g.config.GetScreenHeight()
 }
 
-// uiToWorldPoint maps a point in UI units onto the 3D view pixel under it:
-// both frames cover the same screen area.
+// uiToWorldPoint maps a UI pixel center into the perspective coordinates used
+// by visibility, undoing the displayed projection. All world picking shares it.
 func (g *MMGame) uiToWorldPoint(x, y int) (int, int) {
-	if g.worldFrame == (image.Point{}) {
-		return x, y
-	}
-	return int((float64(x) + 0.5) * float64(g.worldFrame.X) / float64(g.config.GetScreenWidth())),
-		int((float64(y) + 0.5) * float64(g.worldFrame.Y) / float64(g.config.GetScreenHeight()))
+	return g.uiToScenePoint(x, y)
 }
 
 // worldCursorPosition is the pointer in the 3D view's pixels.

@@ -12,5 +12,5 @@ func (r *Renderer) drawShaderBubble(dst *ebiten.Image, x, y, size float64, rgb [
 		r.weaponMaterialQuad[i] = v
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.bubbleShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.bubbleShader, &r.weaponMaterialOpts)
 }

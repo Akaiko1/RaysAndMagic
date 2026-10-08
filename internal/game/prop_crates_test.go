@@ -1,12 +1,14 @@
 package game
 
 import (
+	"math"
 	"strings"
 	"testing"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/world"
 )
 
 // The 2026-07-14 roadside props: a campfire (one-time free rest + gold cache),
@@ -351,5 +353,82 @@ func TestCrateBlockedAfterPartyBreaksCharm(t *testing.T) {
 	g.useLootCrate(fire)
 	if fire.Visited {
 		t.Fatal("a crate must stay locked after the party breaks Charm")
+	}
+}
+
+// These are presentation states of the existing one-shot interaction, not a
+// second inventory or reward lifecycle. Loading must settle an in-flight pose.
+func TestPropUsePresentationLifecycle(t *testing.T) {
+	g := crateTestGame(t)
+	for _, key := range []string{"pile_of_old_boxes", "campfire"} {
+		t.Run(key, func(t *testing.T) {
+			n := spawnCrate(t, g, key, g.camera.X+64, g.camera.Y)
+			g.frameCount = 20
+			g.useLootCrate(n)
+			if !n.Visited || n.PropUseStarted != 21 || g.propUseProgress(n) != 0 {
+				t.Fatal("successful use must start the presentation exactly once")
+			}
+			started := n.PropUseStarted
+			g.frameCount += int64(float64(g.config.GetTPS()) * n.PropModel.UseSeconds / 2)
+			if p := g.propUseProgress(n); p <= 0 || p >= 1 {
+				t.Fatalf("mid-animation progress = %g", p)
+			}
+			g.useLootCrate(n)
+			if n.PropUseStarted != started {
+				t.Fatal("empty interaction restarted the animation")
+			}
+			wm := &world.WorldManager{LoadedMaps: map[string]*world.World3D{"test": g.world}}
+			g.restoreSavedNPCs(wm, &GameSave{NPCStates: []NPCSave{{MapKey: "test", Name: n.Name, X: n.X, Y: n.Y, Visited: true}}})
+			if !n.Visited || g.propUseProgress(n) != 1 {
+				t.Fatal("loaded used prop must show the settled pose")
+			}
+			n.Visited = false
+			if g.propUseProgress(n) != 0 {
+				t.Fatal("world reset must restore the closed/active appearance")
+			}
+		})
+	}
+}
+
+func TestPropModelPickingRespectsWallClip(t *testing.T) {
+	g := crateTestGame(t)
+	setTestWorldManager(t, nil)
+	g.renderHelper = NewRenderingHelper(g)
+	g.camera.Angle = .6
+	g.camera.ViewDist = 1024
+	g.depthBuffer = make([]float64, g.worldWidth())
+	g.wallTopBuffer = make([]int, g.worldWidth())
+	for _, key := range []string{"pile_of_old_boxes", "campfire"} {
+		n := spawnCrate(t, g, key, g.camera.X+90*math.Cos(.6), g.camera.Y+90*math.Sin(.6))
+		for _, used := range []bool{false, true} {
+			n.Visited = used
+			n.PropUseStarted = 0
+			for i := range g.depthBuffer {
+				g.depthBuffer[i] = 1024
+				g.wallTopBuffer[i] = 0
+			}
+			hx, hy := -1, -1
+			// Find an actual solid surface through the same public NPC picking path
+			// used by hover and mouse presses, then independently change its cover.
+			for y := g.worldHeight() / 3; y < g.worldHeight() && hx < 0; y += 6 {
+				for x := g.worldWidth() / 3; x < g.worldWidth()*2/3; x += 6 {
+					if g.npcScreenHitTest(n, n.X, n.Y, x, y) {
+						hx, hy = x, y
+						break
+					}
+				}
+			}
+			if hx < 0 {
+				t.Fatalf("%s used=%v has no selectable solid surface", key, used)
+			}
+			g.depthBuffer[hx] = 32
+			if g.npcScreenHitTest(n, n.X, n.Y, hx, hy) {
+				t.Fatalf("%s selectable through a foreground wall", key)
+			}
+			g.wallTopBuffer[hx] = hy + 1
+			if !g.npcScreenHitTest(n, n.X, n.Y, hx, hy) {
+				t.Fatalf("%s lost its visible surface above a low wall", key)
+			}
+		}
 	}
 }

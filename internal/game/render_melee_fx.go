@@ -121,6 +121,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	if s.MaxFrames <= 0 {
 		return
 	}
+	cy -= screenH * s.AnchorLift
 	progress, _, _, _ := meleeFxTiming(s)
 	previous := r.weaponMaterialState
 	r.weaponMaterialState = weaponMaterialState{

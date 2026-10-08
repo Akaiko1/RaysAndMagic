@@ -23,14 +23,14 @@ display:
     - {key: largest, label: "Largest", scale: 1.5}
   default_interface_size: normal
   # Settings > Display fonts. A file is a pixel font drawn at its design size
-  # (size_px, whole pixels only); no file is the built-in classic face. The
-  # credit is shown in Settings > Display. Keys are saved; keep them stable.
+  # (size_px, whole pixels only); no file is the built-in classic face.
+  # Keys are saved; keep them stable.
   fonts:
-    - {key: classic, label: "Classic", credit: ""}
-    - {key: romulus, label: "Romulus", file: assets/fonts/romulus/Romulus.ttf, size_px: 16, credit: "Romulus by Hewett Tsoi"}
-    - {key: alagard, label: "Alagard", file: assets/fonts/alagard/Alagard.ttf, size_px: 16, credit: "Alagard by Hewett Tsoi"}
-    - {key: fine_fantasy, label: "Fine Fantasy", file: assets/fonts/tinyrpg/TinyRPG-FineFantasyStrategies.ttf, size_px: 12, credit: "Fine Fantasy Strategies by tiopalada"}
-    - {key: brilliant, label: "Brilliant Strength", file: assets/fonts/tinyrpg/TinyRPG-BrilliantStrength.ttf, size_px: 14, credit: "Brilliant Strength by tiopalada"}
+    - {key: classic, label: "Classic"}
+    - {key: romulus, label: "Romulus", file: assets/fonts/romulus/Romulus.ttf, size_px: 16}
+    - {key: alagard, label: "Alagard", file: assets/fonts/alagard/Alagard.ttf, size_px: 16}
+    - {key: fine_fantasy, label: "Fine Fantasy", file: assets/fonts/tinyrpg/TinyRPG-FineFantasyStrategies.ttf, size_px: 12}
+    - {key: brilliant, label: "Brilliant Strength", file: assets/fonts/tinyrpg/TinyRPG-BrilliantStrength.ttf, size_px: 14}
   default_font: classic
   # Keep Metal presentation paced. An unsynced loop can count Draw calls while
   # skipping displayed frames under GPU load (especially long tree corridors).
@@ -517,10 +517,15 @@ monster_ai:
 
 # Graphics and rendering
 graphics:
+  # Default for Settings > Display. A saved player preference takes precedence.
+  props_3d: true
   view:
     # Ratios of the usable world viewport above the party panel.
     wide_focal_ratio: 0.637
     wide_horizon_ratio: 0.645
+    # Panini distance: 0 = perspective, 1 = full correction. Keeps side FOV;
+    # magnifies the center and bends horizontal lines away from the horizon.
+    wide_panini_distance: 1.0
     # Equipment keeps the authored 1024x768 framing (652/768 usable height),
     # independent of resolution, HUD visibility and interface size in Wide view.
     wide_weapon_viewport_ratio: 0.8489583333333334

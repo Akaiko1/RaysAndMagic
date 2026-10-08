@@ -122,7 +122,7 @@ func (r *Renderer) weaponFxSegment(dst *ebiten.Image, x1, y1, x2, y2, thick floa
 		r.weaponMaterialQuad[i] = v
 	}
 	r.weaponMaterialOpts.Blend = weaponShaderBlend(blend)
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.weaponRibbonShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.weaponRibbonShader, &r.weaponMaterialOpts)
 }
 
 // drawWeaponShard keeps one stable face per fragment. Rotation and apparent
@@ -164,7 +164,7 @@ func (r *Renderer) drawWeaponShardBlended(dst *ebiten.Image, x, y, size float64,
 		r.weaponShardVertices[i] = v
 	}
 	r.weaponMaterialOpts.Blend = weaponShaderBlend(blend)
-	dst.DrawTrianglesShader(r.weaponShardVertices[:], weaponTriangleIndices, r.impactMaterialShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponShardVertices[:], weaponTriangleIndices, r.impactMaterialShader, &r.weaponMaterialOpts)
 }
 
 // weaponFxAccent gives fixed motif details a bevel. These are NOT debris:
@@ -250,7 +250,7 @@ func (r *Renderer) drawWeaponCharge(dst *ebiten.Image, x, y, size, dx, dy float6
 		r.weaponMaterialQuad[i] = v
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendLighter
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.weaponOrbShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.weaponOrbShader, &r.weaponMaterialOpts)
 }
 
 func (r *Renderer) drawWeaponMaterialWarm(dst *ebiten.Image) {
@@ -271,7 +271,7 @@ func (r *Renderer) drawWeaponMaterialWarm(dst *ebiten.Image) {
 		}
 		for _, blend := range []ebiten.Blend{ebiten.BlendSourceOver, ebiten.BlendLighter} {
 			r.weaponMaterialOpts.Blend = blend
-			dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, shader, &r.weaponMaterialOpts)
+			worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, shader, &r.weaponMaterialOpts)
 		}
 		r.weaponMaterialOpts.Images[0] = nil
 	}
@@ -297,7 +297,7 @@ func (r *Renderer) drawWeaponFacets(dst *ebiten.Image, verts []ebiten.Vertex, in
 		v.Custom2, v.Custom3 = float32(r.weaponMaterialClock()*.7)+float32(i/3), .7
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
-	dst.DrawTrianglesShader(verts, indices, r.impactMaterialShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, verts, indices, r.impactMaterialShader, &r.weaponMaterialOpts)
 }
 
 // Blasters retain their rigid energy rod and compact head-on muzzle shape.

@@ -150,6 +150,11 @@ func (g *MMGame) monsterPickHitVisible(f *monsterPickFrame, h monsterPickHit) bo
 	}
 	for x := x0; x < x1; x++ {
 		depth, top, bottom, _, ok := f.column(h, x)
+		if g.gameLoop != nil {
+			p := g.gameLoop.worldProjection
+			top = p.presentedY(float64(x)+0.5, top)
+			bottom = p.presentedY(float64(x)+0.5, bottom)
+		}
 		if !ok || bottom <= 0 || top >= float64(f.height) {
 			continue
 		}

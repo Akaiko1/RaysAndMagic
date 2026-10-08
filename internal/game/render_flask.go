@@ -56,5 +56,5 @@ func (r *Renderer) drawFlaskProjectile(screen *ebiten.Image, p MagicProjectile) 
 	op.GeoM.Scale(pose.size/float64(b.Dx()), pose.size/float64(b.Dy()))
 	op.GeoM.Rotate(pose.angle)
 	op.GeoM.Translate(pose.x, pose.y)
-	screen.DrawImage(sprite, op)
+	worldDrawImage(screen, sprite, op)
 }

@@ -7,9 +7,11 @@ var trapSteel = [3]int{195, 211, 225}
 var trapBrass = [3]int{180, 120, 53}
 var trapCyan = [3]int{59, 209, 247}
 
-func polarTrap(r, a, z float64) trapPoint { return trapPoint{r * math.Cos(a), r * math.Sin(a), z} }
-func (b *trapModelBuilder) ring(radius, width, z, height, start, span float64, n int, col [3]int, mat int, transform func(trapPoint) trapPoint) {
-	point := func(r, a, h float64) trapPoint {
+func polarTrap(r, a, z float64) worldModelPoint {
+	return worldModelPoint{r * math.Cos(a), r * math.Sin(a), z}
+}
+func (b *worldModelBuilder) ring(radius, width, z, height, start, span float64, n int, col [3]int, mat int, transform func(worldModelPoint) worldModelPoint) {
+	point := func(r, a, h float64) worldModelPoint {
 		p := polarTrap(r, a, h)
 		if transform != nil {
 			return transform(p)
@@ -37,7 +39,7 @@ func (b *trapModelBuilder) ring(radius, width, z, height, start, span float64, n
 		}
 	}
 }
-func (b *trapModelBuilder) disc(x, y, r, z, h float64, col [3]int, mat int) {
+func (b *worldModelBuilder) disc(x, y, r, z, h float64, col [3]int, mat int) {
 	// Small rivets need only a few facets, not the hub's full tessellation.
 	n := 8
 	if r > .14 {
@@ -47,8 +49,10 @@ func (b *trapModelBuilder) disc(x, y, r, z, h float64, col [3]int, mat int) {
 	} else if r > .025 {
 		n = 10
 	}
-	point := func(a, height float64) trapPoint { return trapPoint{x + r*math.Cos(a), y + r*math.Sin(a), height} }
-	center := trapPoint{x, y, z + h}
+	point := func(a, height float64) worldModelPoint {
+		return worldModelPoint{x + r*math.Cos(a), y + r*math.Sin(a), height}
+	}
+	center := worldModelPoint{x, y, z + h}
 	for i := 0; i < n; i++ {
 		a, c := float64(i)*2*math.Pi/float64(n), float64(i+1)*2*math.Pi/float64(n)
 		aa, cc := point(a, z+h), point(c, z+h)
@@ -56,9 +60,9 @@ func (b *trapModelBuilder) disc(x, y, r, z, h float64, col [3]int, mat int) {
 		b.quad(point(a, z), point(c, z), cc, aa, col, mat, 1)
 	}
 }
-func (b *trapModelBuilder) box(x, y, z, rx, ry, h, angle float64, col [3]int, mat int) {
-	p := func(a, c, d float64) trapPoint {
-		return trapPoint{x + a*math.Cos(angle) - c*math.Sin(angle), y + a*math.Sin(angle) + c*math.Cos(angle), z + d}
+func (b *worldModelBuilder) box(x, y, z, rx, ry, h, angle float64, col [3]int, mat int) {
+	p := func(a, c, d float64) worldModelPoint {
+		return worldModelPoint{x + a*math.Cos(angle) - c*math.Sin(angle), y + a*math.Sin(angle) + c*math.Cos(angle), z + d}
 	}
 	a, c, d, e := p(-rx, -ry, 0), p(rx, -ry, 0), p(rx, ry, 0), p(-rx, ry, 0)
 	aa, cc, dd, ee := p(-rx, -ry, h), p(rx, -ry, h), p(rx, ry, h), p(-rx, ry, h)
@@ -68,17 +72,17 @@ func (b *trapModelBuilder) box(x, y, z, rx, ry, h, angle float64, col [3]int, ma
 	b.quad(e, d, dd, ee, col, mat, 1)
 	b.quad(a, e, ee, aa, col, mat, 1)
 }
-func (b *trapModelBuilder) cone(x, y, r0, r1, z0, z1 float64, col [3]int, mat int) {
+func (b *worldModelBuilder) cone(x, y, r0, r1, z0, z1 float64, col [3]int, mat int) {
 	for i := 0; i < 20; i++ {
 		a, c := float64(i)*math.Pi/10, float64(i+1)*math.Pi/10
-		p := func(r, t, z float64) trapPoint { return trapPoint{x + r*math.Cos(t), y + r*math.Sin(t), z} }
+		p := func(r, t, z float64) worldModelPoint { return worldModelPoint{x + r*math.Cos(t), y + r*math.Sin(t), z} }
 		b.quad(p(r0, a, z0), p(r0, c, z0), p(r1, c, z1), p(r1, a, z1), col, mat, 1)
 	}
 }
 
 // Open jaws share two fixed hinge pins. Closing rotates each jaw as one rigid
 // piece, including its teeth; the pan and springs remain planted on the tile.
-func (b *trapModelBuilder) bear() {
+func (b *worldModelBuilder) bear() {
 	b.ring(.245, .026, .018, .025, 0, 2*math.Pi, 24, trapIron, 0, nil)
 	b.box(0, 0, .023, .24, .035, .024, 0, trapIron, 0)
 	b.disc(0, 0, .11, .047, .014, b.accent, 1)
@@ -92,8 +96,8 @@ func (b *trapModelBuilder) bear() {
 		if b.progress >= 0 {
 			close += 1.3 * math.Min(1, b.progress*8)
 		}
-		transform := func(p trapPoint) trapPoint {
-			return trapPoint{p.x, p.y*math.Cos(close) - side*p.z*math.Sin(close), .04 + side*p.y*math.Sin(close) + p.z*math.Cos(close)}
+		transform := func(p worldModelPoint) worldModelPoint {
+			return worldModelPoint{p.x, p.y*math.Cos(close) - side*p.z*math.Sin(close), .04 + side*p.y*math.Sin(close) + p.z*math.Cos(close)}
 		}
 		start := 0.0
 		if side < 0 {
@@ -115,13 +119,13 @@ func (b *trapModelBuilder) bear() {
 	// Short, solid oval chain links lie beside the frame, not floating motes.
 	for i := 0; i < 3; i++ {
 		off := .30 + float64(i)*.055
-		b.ring(.036, .009, .012, .014, 0, math.Pi*2, 10, trapIron, 0, func(p trapPoint) trapPoint { p.y = p.y*.62 + off; p.x += .09; return p })
+		b.ring(.036, .009, .012, .014, 0, math.Pi*2, 10, trapIron, 0, func(p worldModelPoint) worldModelPoint { p.y = p.y*.62 + off; p.x += .09; return p })
 	}
 }
 
 // Three hooked scythes are bolted to one rotor. Their raised spine, flat face
 // and sharpened bevel remain distinct even at the floor's grazing angle.
-func (b *trapModelBuilder) cleave() {
+func (b *worldModelBuilder) cleave() {
 	b.disc(0, 0, .18, .014, .032, trapIron, 0)
 	b.ring(.173, .023, .046, .01, 0, 2*math.Pi, 24, trapBrass, 1, nil)
 	rotation := 0.0
@@ -135,7 +139,7 @@ func (b *trapModelBuilder) cleave() {
 	for i := 0; i < 3; i++ {
 		root := rotation + float64(i)*math.Pi*2/3
 		for j := 0; j < 9; j++ {
-			point := func(k int, edge float64, z float64) trapPoint {
+			point := func(k int, edge float64, z float64) worldModelPoint {
 				t := float64(k) / 9
 				r := .105 + .285*t
 				// A tapering hooked ribbon, not a straight radial spoke.
@@ -157,7 +161,7 @@ func (b *trapModelBuilder) cleave() {
 	b.box(0, 0, .107, .025, .005, .001, rotation, trapIron, 0)
 }
 
-func (b *trapModelBuilder) stasis() {
+func (b *worldModelBuilder) stasis() {
 	b.disc(0, 0, .245, .012, .024, trapIron, 0)
 	b.ring(.238, .016, .036, .005, 0, 2*math.Pi, 32, trapBrass, 1, nil)
 	b.ring(.20, .004, .038, .003, 0, 2*math.Pi, 32, b.accent, 5, nil)
@@ -190,7 +194,7 @@ func (b *trapModelBuilder) stasis() {
 	}
 }
 
-func (b *trapModelBuilder) blast() {
+func (b *worldModelBuilder) blast() {
 	b.disc(0, 0, .265, .012, .027, trapIron, 0)
 	b.cone(0, 0, .26, .215, .039, .085, trapBrass, 1)
 	b.disc(0, 0, .211, .071, .013, b.accent, 6)
@@ -202,7 +206,7 @@ func (b *trapModelBuilder) blast() {
 	// Radial vents leave the hot chamber visible between solid lid sectors.
 	for i := 0; i < 10; i++ {
 		a := float64(i) * math.Pi / 5
-		shift := func(p trapPoint) trapPoint {
+		shift := func(p worldModelPoint) worldModelPoint {
 			p.x += open * math.Cos(a+.2)
 			p.y += open * math.Sin(a+.2)
 			p.z += open
@@ -221,7 +225,7 @@ func (b *trapModelBuilder) blast() {
 		for i := 0; i < 3; i++ {
 			a := float64(i) * math.Pi / 3
 			x, y := .33*math.Cos(a), .33*math.Sin(a)
-			b.quad(trapPoint{-x, -y, .10}, trapPoint{x, y, .10}, trapPoint{x * .45, y * .45, height}, trapPoint{-x * .45, -y * .45, height}, b.accent, 7, .86)
+			b.quad(worldModelPoint{-x, -y, .10}, worldModelPoint{x, y, .10}, worldModelPoint{x * .45, y * .45, height}, worldModelPoint{-x * .45, -y * .45, height}, b.accent, 7, .86)
 		}
 	}
 }

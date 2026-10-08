@@ -1,29 +1,42 @@
 package game
 
 import (
-	"fmt"
 	"image/color"
-	"math"
-	"strings"
+	"slices"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // The Display tab reuses the Sound tab's rows: a framed box with a label, and
 // across the slider track one button per interface size preset (row 0) or
-// the font list (row 1).
+// the font list (row 1), followed by the 3D props toggle (row 2).
 
 const (
 	displayRowSize = iota
 	displayRowFont
+	displayRowProps
 	displayRows
 )
 
 // displayFontItemH is one entry of the open font list.
 const displayFontItemH = 26
+const displayRowPitch = 76
+
+func displaySliderRect(px, py, panelW, row int) pagerRect {
+	r := audioSliderRect(px, py, panelW, row)
+	dy := row * (audioSettingsRowPitch - displayRowPitch)
+	r.y1 -= dy
+	r.y2 -= dy
+	return r
+}
+
+func displaySelectionRect(px, py, panelW, inset, row int) pagerRect {
+	r := displaySliderRect(px, py, panelW, row)
+	return pagerRect{px + inset, r.y1 - 24, px + panelW - inset, r.y2 + 24}
+}
 
 func displaySizeButtonRect(px, py, panelW, index, count int) layoutRect {
-	track := audioSliderRect(px, py, panelW, displayRowSize)
+	track := displaySliderRect(px, py, panelW, displayRowSize)
 	const gap = 8
 	w := (track.x2 - track.x1 - gap*(count-1)) / max(1, count)
 	return layoutRect{track.x1 + index*(w+gap), track.y1 - 6, w, track.y2 - track.y1 + 12}
@@ -31,7 +44,7 @@ func displaySizeButtonRect(px, py, panelW, index, count int) layoutRect {
 
 // displayFontFieldRect is the closed font list: the chosen font's name.
 func displayFontFieldRect(px, py, panelW int) layoutRect {
-	track := audioSliderRect(px, py, panelW, displayRowFont)
+	track := displaySliderRect(px, py, panelW, displayRowFont)
 	return layoutRect{track.x1, track.y1 - 6, track.x2 - track.x1, track.y2 - track.y1 + 12}
 }
 
@@ -41,15 +54,16 @@ func displayFontItemRect(px, py, panelW, i int) layoutRect {
 	return layoutRect{field.x, field.bottom() + 2 + i*displayFontItemH, field.w, displayFontItemH}
 }
 
-func displayInfoY(py int) int {
-	return py + audioSettingsRowTop + displayRowFont*audioSettingsRowPitch + 56
+func displayPropsToggleRect(px, py, panelW int) layoutRect {
+	r := displaySliderRect(px, py, panelW, displayRowProps)
+	return layoutRect{r.x2 - 104, r.y1 - 10, 104, 40}
 }
 
 func (ui *UISystem) drawDisplaySettings(screen *ebiten.Image, px, py, panelW, contentInset int) {
 	g := ui.game
-	drawCenteredUIText(screen, "Make the text and panels larger", px+32, py+100, panelW-64, 18)
+	drawCenteredUIText(screen, "Interface and world appearance", px+32, py+100, panelW-64, 18)
 	for row := 0; row < displayRows; row++ {
-		box := audioSelectionRect(px, py, panelW, contentInset, row)
+		box := displaySelectionRect(px, py, panelW, contentInset, row)
 		border := color.RGBA{68, 65, 55, 255}
 		if row == g.audioSettingsSelection {
 			border = color.RGBA{177, 149, 89, 255}
@@ -57,8 +71,8 @@ func (ui *UISystem) drawDisplaySettings(screen *ebiten.Image, px, py, panelW, co
 		drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{24, 27, 30, 255})
 		drawRectBorder(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, 1, border)
 	}
-	box := audioSelectionRect(px, py, panelW, contentInset, displayRowSize)
-	r := audioSliderRect(px, py, panelW, displayRowSize)
+	box := displaySelectionRect(px, py, panelW, contentInset, displayRowSize)
+	r := displaySliderRect(px, py, panelW, displayRowSize)
 
 	sizes := g.config.Display.InterfaceSizes
 	active := g.interfaceSizeKey()
@@ -96,8 +110,8 @@ func (ui *UISystem) drawDisplaySettings(screen *ebiten.Image, px, py, panelW, co
 		})
 	}
 
-	fontBox := audioSelectionRect(px, py, panelW, contentInset, displayRowFont)
-	fr := audioSliderRect(px, py, panelW, displayRowFont)
+	fontBox := displaySelectionRect(px, py, panelW, contentInset, displayRowFont)
+	fr := displaySliderRect(px, py, panelW, displayRowFont)
 	drawUITextColored(screen, "Aa", fontBox.x1+16, fr.y1+4, color.RGBA{209, 174, 93, 255})
 	drawUITextColored(screen, "Font", fontBox.x1+50, fr.y1-6, color.RGBA{230, 213, 172, 255})
 	drawUITextColored(screen, "Letters everywhere", fontBox.x1+50, fr.y1+14, color.RGBA{156, 158, 158, 255})
@@ -112,15 +126,34 @@ func (ui *UISystem) drawDisplaySettings(screen *ebiten.Image, px, py, panelW, co
 		g.fontListOpen = !g.fontListOpen
 	})
 
-	y := displayInfoY(py)
-	for i, line := range displaySizeStatus(g) {
-		drawCenteredUIText(screen, line, px+32, y+i*22, panelW-64, 18)
+	propBox := displaySelectionRect(px, py, panelW, contentInset, displayRowProps)
+	pr := displaySliderRect(px, py, panelW, displayRowProps)
+	drawUITextColored(screen, "3D", propBox.x1+12, pr.y1+4, gameplayInk.focus)
+	drawUITextColored(screen, "3D props", propBox.x1+50, pr.y1-6, gameplayInk.heading)
+	drawUITextColored(screen, "Off restores original sprites", propBox.x1+50, pr.y1+14, gameplayInk.muted)
+	toggle := displayPropsToggleRect(px, py, panelW)
+	enabled := g.props3DEnabled()
+	mx, my := uiCursorPosition()
+	hover := ui.audioSettingsOwnsInput() && isMouseHoveringBox(mx, my, toggle.x, toggle.y, toggle.right(), toggle.bottom())
+	ui.drawButtonFrame(screen, toggle.x, toggle.y, toggle.w, toggle.h, enabled || hover)
+	ink := gameplayInk.muted
+	label := "OFF"
+	if enabled {
+		ink, label = gameplayInk.heading, "ON"
 	}
-	credit := color.RGBA{138, 134, 120, 255}
-	for i, line := range wrapUIText(displayFontCredits(g), panelW-64) {
-		w := uiTextWidth(line)
-		drawUITextColored(screen, line, px+(panelW-w)/2, y+4*22+i*18, credit)
+	cx, cy := toggle.x+14, toggle.y+11
+	drawRectBorder(screen, cx, cy, 18, 18, 1, ink)
+	if enabled {
+		uiStrokeLine(screen, float32(cx+4), float32(cy+9), float32(cx+8), float32(cy+13), 2, ink, true)
+		uiStrokeLine(screen, float32(cx+8), float32(cy+13), float32(cx+15), float32(cy+5), 2, ink, true)
 	}
+	drawUITextColored(screen, label, toggle.x+46, toggle.y+(toggle.h-uiTextCharHeight)/2, ink)
+	ui.settingsClick(toggle, func() {
+		g.audioSettingsSelection = displayRowProps
+		g.fontListOpen = false
+		g.setProps3D(!g.props3DEnabled())
+	})
+
 	if g.fontListOpen {
 		ui.drawFontList(screen, px, py, panelW)
 	}
@@ -129,6 +162,17 @@ func (ui *UISystem) drawDisplaySettings(screen *ebiten.Image, px, py, panelW, co
 // drawFontList draws the open list over the tab, every name in its own font.
 // A click on an entry chooses it; a click anywhere else only closes the list.
 func (ui *UISystem) drawFontList(screen *ebiten.Image, px, py, panelW int) {
+	// Popup hits precede every underlying control, including the header. Its
+	// final outside-click handler consumes the gesture without click-through.
+	firstCommand := len(ui.displayedInput.commands)
+	defer func() {
+		if ui.displayedInput.building {
+			commands := ui.displayedInput.commands
+			slices.Reverse(commands[:firstCommand])
+			slices.Reverse(commands[firstCommand:])
+			slices.Reverse(commands)
+		}
+	}()
 	g := ui.game
 	fonts := g.config.Display.Fonts
 	first, last := displayFontItemRect(px, py, panelW, 0), displayFontItemRect(px, py, panelW, len(fonts)-1)
@@ -158,41 +202,4 @@ func (ui *UISystem) drawFontList(screen *ebiten.Image, px, py, panelW int) {
 	ui.settingsClick(layoutRect{0, 0, g.config.GetScreenWidth(), g.config.GetScreenHeight()}, func() {
 		g.fontListOpen = false
 	})
-}
-
-// displayFontCredits names the authors of every shipped font.
-func displayFontCredits(g *MMGame) string {
-	var credits []string
-	for _, f := range g.config.Display.Fonts {
-		if f.Credit != "" {
-			credits = append(credits, f.Credit)
-		}
-	}
-	if len(credits) == 0 {
-		return ""
-	}
-	return "Fonts: " + strings.Join(credits, ", ")
-}
-
-// displaySizeStatus explains what the active preset does on this screen.
-func displaySizeStatus(g *MMGame) []string {
-	lines := []string{fmt.Sprintf("Interface %d x %d, 3D view %d x %d",
-		g.config.GetScreenWidth(), g.config.GetScreenHeight(), g.worldWidth(), g.worldHeight())}
-	i := g.interfaceSizeIndex()
-	if i >= len(g.interfaceFrames) {
-		return lines
-	}
-	frame := g.interfaceFrames[i]
-	switch {
-	case frame.sharp:
-		lines = append(lines, fmt.Sprintf("Sharp: text pixels scale x%d", int(math.Round(frame.scale))))
-	default:
-		lines = append(lines, "Text slightly soft: this screen has no sharp step here")
-	}
-	if frame.same {
-		lines = append(lines, "This screen has no larger size than the one before")
-	} else if i+1 < len(g.interfaceFrames) && g.interfaceFrames[i+1].same && i > 0 {
-		lines = append(lines, "The largest size this screen allows")
-	}
-	return lines
 }

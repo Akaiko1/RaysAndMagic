@@ -79,5 +79,5 @@ func (r *Renderer) drawMonsterCorpse(screen *ebiten.Image, s UnifiedSpriteRender
 	opts := r.scaledWorldSpriteOpts(sx, sy)
 	opts.GeoM.Translate(left, s.bottomF-s.sizeF)
 	opts.ColorScale.Scale(rr, gg, bb, alpha)
-	screen.DrawImage(s.sprite, opts)
+	worldDrawImage(screen, s.sprite, opts)
 }

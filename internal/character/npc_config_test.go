@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
+
 	"ugataima/internal/config"
 )
 
@@ -312,5 +315,43 @@ func TestCreateNPCFromConfig_EncounterMessages(t *testing.T) {
 	}
 	if npc.EncounterData == nil || npc.EncounterData.StartMessage == "" {
 		t.Fatalf("expected start_message to be set for shipwreck encounter")
+	}
+}
+
+func TestNPCPropModelRequiresAuthoredColors(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, trim string
+		valid            bool
+	}{
+		{"both", "[12,23,34]", "[45,56,67]", true},
+		{"black", "[0,0,0]", "[0,0,0]", true},
+		{"missing body", "", "[45,56,67]", false},
+		{"missing trim", "[12,23,34]", "", false},
+		{"null", "null", "[45,56,67]", false},
+		{"short", "[12,23]", "[45,56,67]", false},
+		{"long", "[12,23,34,45]", "[45,56,67]", false},
+		{"non-numeric", "[12,23,blue]", "[45,56,67]", false},
+		{"outside range", "[12,23,256]", "[45,56,67]", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := "npcs:\n  fixture:\n    type: loot_crate\n    render_category: scenery\n    prop_model:\n      shape: crates\n      use_seconds: 1\n"
+			if tc.body != "" {
+				source += "      body: " + tc.body + "\n"
+			}
+			if tc.trim != "" {
+				source += "      trim: " + tc.trim + "\n"
+			}
+			var cfg NPCConfig
+			err := yaml.Unmarshal([]byte(source), &cfg)
+			if err == nil {
+				err = validateNPCPropModel("fixture", cfg.NPCs["fixture"])
+			}
+			if (err == nil) != tc.valid {
+				t.Fatalf("authored colors accepted=%v: %v", err == nil, err)
+			}
+			if err != nil && !strings.Contains(err.Error(), `NPC "fixture"`) {
+				t.Fatalf("color error does not identify its NPC: %v", err)
+			}
+		})
 	}
 }

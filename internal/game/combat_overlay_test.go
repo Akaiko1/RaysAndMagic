@@ -26,6 +26,9 @@ func TestCombatOverlaySettings(t *testing.T) {
 					for i, text := range viewChoiceTextLayout(card, wide) {
 						textBoxes = append(textBoxes, textLineBox(fmt.Sprint(i), text.label, text.box.x, text.box.y))
 					}
+					if wide {
+						textBoxes = append(textBoxes, namedLayoutBox("Panini checkbox", paniniChoiceRect(card)))
+					}
 					assertNoCollisions(t, "view choice", namedLayoutBox("view choice", card), textBoxes)
 				}
 			}
@@ -36,8 +39,8 @@ func TestCombatOverlaySettings(t *testing.T) {
 			h, _ := audioGestureHarness(t, entry, 0)
 			g, fp := h.g, installFakePointer(t)
 			g.loadCombatPreferences()
-			if g.combatPreferences.TurnBasedOverlay {
-				t.Fatal("missing preference must default to off")
+			if g.combatPreferences.TurnBasedOverlay || g.combatPreferences.PaniniDisabled {
+				t.Fatal("missing preferences must default to aurora off and Panini on")
 			}
 			layout := makeAudioSettingsPanelLayout(1024, 768, entry)
 			click := func(r layoutRect) {
@@ -74,6 +77,23 @@ func TestCombatOverlaySettings(t *testing.T) {
 			if !g.combatPreferences.WideView || !restored.combatPreferences.WideView {
 				t.Fatal("wide view choice was not saved")
 			}
+			panini := paniniChoiceRect(viewChoiceRect(layout.px, layout.py, layout.panelW, true))
+			for _, off := range []bool{true, false} {
+				click(panini)
+				restored.loadCombatPreferences()
+				if g.combatPreferences.PaniniDisabled != off || restored.combatPreferences.PaniniDisabled != off || !g.combatPreferences.WideView {
+					t.Fatalf("nested Panini checkbox changed Wide or failed to save: runtime=%+v saved=%+v", g.combatPreferences, restored.combatPreferences)
+				}
+			}
+			// Turning Panini off survives switching to Classic and back.
+			g.setPanini(false)
+			g.setWideView(false)
+			g.setWideView(true)
+			restored.loadCombatPreferences()
+			if !restored.combatPreferences.PaniniDisabled {
+				t.Fatal("switching view forgot the Panini preference")
+			}
+			click(viewChoiceRect(layout.px, layout.py, layout.panelW, true))
 			if g.audioSettingsSelection != gameplayRowView {
 				t.Fatal("clicking a view option did not select its keyboard row")
 			}
@@ -85,6 +105,13 @@ func TestCombatOverlaySettings(t *testing.T) {
 				t.Fatal("keyboard did not select and save Classic")
 			}
 			h.loop.inputHandler.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
+			if err := os.WriteFile(combatPreferencesPath(), []byte(`{"wide_view":true,"turn_based_overlay":true}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			g.loadCombatPreferences()
+			if g.combatPreferences.PaniniDisabled || !g.combatPreferences.WideView || !g.combatPreferences.TurnBasedOverlay {
+				t.Fatal("legacy preferences lost their values or disabled default Panini")
+			}
 			if err := os.WriteFile(combatPreferencesPath(), []byte(`{"turn_based_overlay":`), 0600); err != nil {
 				t.Fatal(err)
 			}

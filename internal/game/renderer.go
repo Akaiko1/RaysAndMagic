@@ -19,7 +19,6 @@ import (
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // TransparentSpriteData holds cached data for transparent environment sprites
@@ -62,6 +61,8 @@ type standeeKeyNameParts struct {
 
 // Renderer handles all 3D rendering functionality
 type Renderer struct {
+	statusGlyphs     worldStatusBatch
+	worldBadgeImages map[worldBadgeKey]*ebiten.Image
 	floorPreparation *floorPreparation
 
 	game                     *MMGame
@@ -298,7 +299,7 @@ type Renderer struct {
 	volumeQuad           [4]ebiten.Vertex
 	volumeClearOpts      ebiten.DrawImageOptions
 	volumeCompositeOpts  ebiten.DrawTrianglesOptions
-	trapMaterial         trapMaterialRenderer
+	worldMesh            worldMeshRenderer
 	weaponShardVertices  [3]ebiten.Vertex
 	// softGlowImg is a radial-gradient (opaque centre -> transparent edge) white
 	// texture for soft glows, halos and motion ribbons. Built lazily.
@@ -318,6 +319,7 @@ func NewRenderer(game *MMGame) *Renderer {
 	// Create a 1x1 white image for DrawTriangles
 	r.whiteImg = ebiten.NewImage(1, 1)
 	r.whiteImg.Fill(color.White)
+	_ = r.statusGlyphs.ensureShader()
 
 	screenWidth := game.worldWidth()
 
@@ -694,6 +696,8 @@ func (r *Renderer) updateActiveLights() {
 			}
 		}
 	}
+
+	r.collectPropLights()
 
 	if r.game.torchLightActive && r.game.torchLightRadius > 0 {
 		// torchLightRadius is stored in TILES (TorchLightRadiusTiles); light
@@ -2077,7 +2081,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	op.Images[1] = texAtlas
 	op.Images[2] = r.floorTextureIndexMap
 	op.Images[3] = r.floorShoreMap
-	screen.DrawTrianglesShader(vertices[:], indices[:], shader, op)
+	worldDrawFloorShader(screen, vertices[:], indices[:], shader, op)
 }
 
 func (r *Renderer) ensureFloorShader() (*ebiten.Shader, error) {
@@ -2136,7 +2140,7 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	// Use composite mode to ensure opaque rendering (no blending with background)
 	opts.Blend = ebiten.BlendSourceOver
 
-	screen.DrawImage(sprite, opts)
+	worldDrawImage(screen, sprite, opts)
 }
 
 func (r *Renderer) flatTreeFallbackSize(distance, widthTiles float64, sprite *ebiten.Image) (int, int) {
@@ -2329,7 +2333,7 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	// Use composite mode to ensure opaque rendering
 	opts.Blend = ebiten.BlendSourceOver
 
-	screen.DrawImage(sprite, opts)
+	worldDrawImage(screen, sprite, opts)
 }
 
 // drawEnvironmentSpriteOnce draws environment sprites only once per frame per tile location
@@ -2426,7 +2430,7 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	drawOptions.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
 	r.flushMipmappedWallBatch(screen)
-	screen.DrawImage(wallSliceImage, drawOptions)
+	worldDrawImage(screen, wallSliceImage, drawOptions)
 }
 
 // drawSpriteTexturedWallSlice keeps close pixel-art walls on the original
@@ -2464,7 +2468,7 @@ func (r *Renderer) drawSpriteWallLayer(screen *ebiten.Image, sprite *ebiten.Imag
 	if hasWallGridLine {
 		leftU, rightU, ok := r.wallTextureCoordsAtSliceBoundaries(screenX, wallSide, wallGridLine)
 		if ok {
-			if wallTextureUsesMipmappedSlice(spriteWidth, spriteHeight, width, leftU, rightU, wallHeightF) {
+			if worldRaster(screen) != nil || wallTextureUsesMipmappedSlice(spriteWidth, spriteHeight, width, leftU, rightU, wallHeightF) {
 				if queueMipmapped && r.queueMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
 					wallTopF, wallHeightF, leftU, rightU) {
 					return
@@ -2478,8 +2482,8 @@ func (r *Renderer) drawSpriteWallLayer(screen *ebiten.Image, sprite *ebiten.Imag
 		}
 	}
 
-	// Close walls deliberately retain the former nearest-column behavior: it
-	// keeps their authored pixel art sharp and avoids changing their look.
+	// Perspective close walls retain nearest-column sampling. Direct Panini
+	// uses continuous surface UVs above; an unavailable ripmap falls back here.
 	wallHeight := int(wallHeightF)
 	wallTop := int(wallTopF+wallHeightF) - wallHeight
 	if wallHeightF < 0 {
@@ -2558,7 +2562,7 @@ func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebit
 	opts.GeoM.Scale(xScale, yScale)
 	opts.GeoM.Translate(float64(screenX), float64(wallTop))
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
-	screen.DrawImage(src, opts)
+	worldDrawImage(screen, src, opts)
 }
 
 // spriteColumn returns the cached 1px-wide column SubImage of a wall sprite.
@@ -2854,7 +2858,7 @@ func (r *Renderer) drawGlowSprite(screen *ebiten.Image, x, y, size float64, rgb 
 	)
 	opts.Blend = blend
 	opts.Filter = ebiten.FilterLinear
-	screen.DrawImage(src, opts)
+	worldDrawImage(screen, src, opts)
 }
 
 func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
@@ -2874,7 +2878,7 @@ func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3
 	)
 	opts.Blend = blend
 	opts.Filter = ebiten.FilterNearest // 1x1 quad: pin it so glowOpts cannot inherit a filter
-	screen.DrawImage(r.whiteImg, opts)
+	worldDrawImage(screen, r.whiteImg, opts)
 }
 
 func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
@@ -3501,6 +3505,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 	// 4. Collect NPCs
 	for _, npc := range r.game.GetCurrentWorld().NPCs {
+		if r.game.usesPropModel(npc) {
+			continue // solid props enter the shared world-mesh painter
+		}
 		// Spriteless NPCs (e.g. invisible portal gates) render nothing - they
 		// exist only as an interaction anchor; their tile shows through instead.
 		if npc.Sprite == "" || npc.Sprite == "none" {
@@ -3662,7 +3669,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// Split crosses before curtains so the latter use individual arm depths.
 	sprites = r.splitCrossedTreesForPainterOrder(sprites, crossedTreeStart, crossedTreeEnd)
 	sprites = r.collectTileCurtains(sprites)
-	r.collectTrapModels()
+	r.collectWorldModels()
 
 	// Sort all sprites by depth (back to front). slices.SortStableFunc: no
 	// reflect swaps and no closure alloc, unlike sort.Slice - this runs every
@@ -3693,7 +3700,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 	// Render all sprites in sorted order
 	for _, s := range sprites {
-		r.drawTrapFacesBefore(screen, s.depthPerp)
+		r.drawWorldFacesBefore(screen, s.depthPerp)
 		if s.spriteType == SpriteTypeTileCurtain {
 			r.appendAuraCurtain(screen, s)
 			continue
@@ -3731,7 +3738,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			r.drawZoneVisual(screen, r.zoneVisuals[s.tileX])
 		}
 	}
-	r.drawTrapFacesBefore(screen, math.Inf(-1))
+	r.drawWorldFacesBefore(screen, math.Inf(-1))
 	r.flushAuraCurtains(screen)
 }
 
@@ -3814,7 +3821,7 @@ func (r *Renderer) drawTintedSpriteF(screen *ebiten.Image, sprite *ebiten.Image,
 	opts.GeoM.Translate(drawLeft, screenY)
 	opts.ColorScale.Scale(tintR, tintG, tintB, tintA)
 	opts.Blend = ebiten.BlendSourceOver
-	screen.DrawImage(sprite, opts)
+	worldDrawImage(screen, sprite, opts)
 }
 
 // hoverHighlightTint is the soft yellow overlay drawn on pickup-range
@@ -4143,7 +4150,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		opts.GeoM.Translate(left, screenYF)
 		opts.ColorScale.Scale(rr, gg, bb, 1)
 		opts.Blend = ebiten.BlendSourceOver
-		screen.DrawImage(h.sprite, opts)
+		worldDrawImage(screen, h.sprite, opts)
 	}
 	r.drawMonsterStatusFX(screen, s, screenY)
 }
@@ -4174,6 +4181,8 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 // poisoned monster - the world-space sibling of the character HUD's
 // drawCardPoisonBubbles (ui_hud.go).
 func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY, spriteSize float64) {
+	r.statusGlyphs.reset()
+	defer r.statusGlyphs.flush(screen)
 	f := int(r.game.frameCount)
 	const n = 6
 	const period = 72
@@ -4188,7 +4197,7 @@ func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY,
 			continue
 		}
 		rad := float32(spriteSize * (0.015 + 0.02*phase)) // swells as it rises
-		vector.FillCircle(screen, float32(bx), float32(by), rad, color.RGBA{70, 210, 90, a}, true)
+		r.statusGlyphs.circle(bx, by, float64(rad), color.RGBA{70, 210, 90, a})
 	}
 }
 
@@ -4238,25 +4247,27 @@ func stunStarRingGeometry(topY, spriteSize float64) (cy, rx, ry float64) {
 // drawCardStunStars (ui_hud.go), same visual, anchored over a monster sprite
 // instead of a portrait card.
 func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spriteSize float64) {
+	r.statusGlyphs.reset()
+	defer r.statusGlyphs.flush(screen)
 	f := float64(r.game.frameCount)
 	cx := centerX
 	cy, rx, ry := stunStarRingGeometry(topY, spriteSize)
 	const n = 5
 	for k := 0; k < n; k++ {
 		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)
-		sx := float32(cx + math.Cos(ang)*rx)
-		sy := float32(cy + math.Sin(ang)*ry)
+		sx := cx + math.Cos(ang)*rx
+		sy := cy + math.Sin(ang)*ry
 		tw := 0.5 + 0.5*math.Sin(f*0.25+float64(k)*1.7) // twinkle
 		a := uint8(120 + 135*tw)
-		arm := float32(spriteSize*0.02 + spriteSize*0.03*tw)
+		arm := spriteSize*0.02 + spriteSize*0.03*tw
 		col := color.RGBA{255, 240, 120, a}
-		vector.StrokeLine(screen, sx-arm, sy, sx+arm, sy, 1.5, col, true)
-		vector.StrokeLine(screen, sx, sy-arm, sx, sy+arm, 1.5, col, true)
+		r.statusGlyphs.line(sx-arm, sy, sx+arm, sy, 1.5, col)
+		r.statusGlyphs.line(sx, sy-arm, sx, sy+arm, 1.5, col)
 		d := arm * 0.6
 		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
-		vector.StrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
-		vector.StrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
-		vector.FillCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
+		r.statusGlyphs.line(sx-d, sy-d, sx+d, sy+d, 1, spark)
+		r.statusGlyphs.line(sx-d, sy+d, sx+d, sy-d, 1, spark)
+		r.statusGlyphs.circle(sx, sy, 1.2, color.RGBA{255, 255, 230, a})
 	}
 }
 
@@ -4478,7 +4489,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	opts.ColorScale.Scale(br, br, br, 1.0)
 	opts.Blend = ebiten.BlendSourceOver
 
-	screen.DrawImage(sprite, opts)
+	worldDrawImage(screen, sprite, opts)
 	r.drawBillboardCrystalShimmer(screen, s.npc, sprite, float64(drawLeft), float64(s.screenY), float64(s.spriteSize))
 }
 
@@ -4684,7 +4695,7 @@ func (r *Renderer) drawProjectileCollisionBox(screen *ebiten.Image, screenX, scr
 		float32(boxColor.B)/255,
 		float32(boxColor.A)/255*0.5,
 	)
-	screen.DrawImage(r.whiteImg, boxOpts)
+	worldDrawImage(screen, r.whiteImg, boxOpts)
 }
 
 func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
@@ -5145,6 +5156,11 @@ func (r *Renderer) drawArrowQuadForeshortened(screen *ebiten.Image, cx, cy, size
 
 // drawSlashEffects draws slash animations for melee weapons
 func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
+	// Held equipment and its complete trail share one camera-local frame.
+	// Panini changes world rays, not the party's weapon size or swing path.
+	previous := activeWorldRaster
+	activeWorldRaster = nil
+	defer func() { activeWorldRaster = previous }()
 	if len(r.game.slashEffects) == 0 {
 		return
 	}

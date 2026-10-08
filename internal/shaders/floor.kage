@@ -242,7 +242,8 @@ func floorSurface(q vec2,mip,texelsPerPixel,maskFootprint float,noise vec2) vec3
 	return floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x*detail)
 }
 
-func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
+	dstPos := vec4(paniniSourcePoint(rawDstPos.xy-imageDstOrigin())+imageDstOrigin(),rawDstPos.zw)
 	// Per-pixel sampling. (A legacy 2x2 block quantization matched the old CPU
 	// floor loop; the floor is GPU-only now, so the half-resolution cost bought
 	// nothing.)
@@ -265,7 +266,16 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	ray := vec2(DirCos,DirSin)+vec2(PlaneCos,PlaneSin)*s
 	texelScale := TexTileSize/TileSize
 	horizontal := vec2(PlaneCos,PlaneSin)*(rowDist*2.0/ScreenSize.x)*texelScale
-	vertical := ray*(rowDist*rowDist/RowDistFactor)*texelScale
+ vertical := ray*(rowDist*rowDist/RowDistFactor)*texelScale
+ tapStep := 1.0
+ if WorldPanini.x > 0 {
+  // Native Panini pixels follow curved rays. Perspective retains its smooth
+  // analytical footprint rather than finite differences across 2x2 quads.
+  worldPos := vec2(floorX, floorY)
+  horizontal = dfdx(worldPos)*texelScale
+  vertical = dfdy(worldPos)*texelScale
+  tapStep = dfdy(samplePx.y)
+ }
 	texelsPerPixel := max(length(horizontal),0.0001)
 	foot := max(texelsPerPixel,length(vertical)/float(tapCount))
 	mip := clamp(log2(max(foot,1.0)),0.0,MaxMip)
@@ -278,7 +288,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	var rgb vec3
 	for tap:=0;tap<tapCount;tap++ {
 		offset := (float(tap)+0.5)/float(tapCount)-0.5
-		tapDist := RowDistFactor/(p+offset)
+		tapDist := RowDistFactor/(p+offset*tapStep)
 		rgb += floorSurface((CamPos+tapDist*ray)/TileSize,mip,texelsPerPixel,maskFootprint,noise)
 	}
 	rgb /= float(tapCount)
@@ -318,3 +328,5 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 
 	return vec4(rgb*brightness, 1.0)
 }
+
+//include panini.kageinc

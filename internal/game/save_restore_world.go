@@ -32,6 +32,7 @@ func (g *MMGame) restoreSavedNPCs(wm *world.WorldManager, save *GameSave) {
 					continue
 				}
 				npc.Visited = ns.Visited
+				npc.PropUseStarted = 0 // restore the settled prop pose, never replay consumption
 				npc.DoorAttempts = ns.DoorAttempts
 				npc.DoorLockBroken = ns.DoorLockBroken
 				// Stock restores by item NAME (order is presentation-only and can

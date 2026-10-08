@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"testing"
+	"ugataima/internal/monster"
 	"ugataima/internal/shaders"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -281,4 +282,160 @@ func TestStandeeVolumeShaderPreservesLayersAndWallClip(t *testing.T) {
 	if got := pixel(pixels, 4, 6); got.A != 0 {
 		t.Fatalf("slab below wall top = %#v, want transparent clipped pixel", got)
 	}
+}
+
+// Tall surfaces need curved-diagonal subdivision as well as horizontal strips.
+// This catches a visible texture-to-picking mismatch without a golden image.
+func TestDirectPaniniMaterialCoordinatesMatchPicking(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("GPU")
+	}
+	source, err := os.ReadFile("../shaders/testdata/panini_coordinates.kage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var worst float64
+	var problem error
+	runOnDrawFrame(func(_ *ebiten.Image) {
+		dst := ebiten.NewImage(1280, 720)
+		defer dst.Deallocate()
+		projection := paniniProjection{640, 390, 640 / math.Tan(54*math.Pi/180), 1, 1 + 1/math.Cos(54*math.Pi/180)}
+		var raster paniniRasterizer
+		raster.configure(dst, projection)
+		shader, err := ebiten.NewShader(source)
+		if err != nil {
+			problem = err
+			return
+		}
+		defer shader.Deallocate()
+		vertices := []ebiten.Vertex{{DstX: 0, DstY: 0, SrcX: 0, SrcY: 0}, {DstX: 1280, DstY: 0, SrcX: 1280, SrcY: 0}, {DstX: 0, DstY: 720, SrcX: 0, SrcY: 720}, {DstX: 1280, DstY: 720, SrcX: 1280, SrcY: 720}}
+		previous := activeWorldRaster
+		defer func() { activeWorldRaster = previous }()
+		activeWorldRaster = &raster
+		worldDrawTrianglesShader(dst, vertices, weaponQuadIndices, shader, nil)
+		activeWorldRaster = previous
+		px := make([]byte, 1280*720*4)
+		dst.ReadPixels(px)
+		worst = 0.0
+		for y := 2; y < 718; y += 3 {
+			for x := 2; x < 1278; x += 3 {
+				sx, sy := projection.sourcePoint(float64(x)+.5, float64(y)+.5)
+				i := (y*1280 + x) * 4
+				for c, v := range []float64{sx, sy} {
+					delta := math.Abs(float64(px[i+c])*16/255 - math.Mod(v, 16))
+					delta = math.Min(delta, 16-delta)
+					worst = max(worst, delta)
+				}
+			}
+		}
+
+	})
+	if problem != nil {
+		t.Fatal(problem)
+	}
+	if worst > .2 {
+		t.Fatalf("rendered material differs from picking coordinates by %.3f pixels", worst)
+	}
+}
+
+// A world target can also be the registered UI screen. Its status effects must
+// stay in world pixels in either projection, including shared head-badge art.
+func TestWorldStatusIgnoresInterfaceScale(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("requires live GPU readback")
+	}
+	keepUIScreenScale(t)
+	cfg := setupPreviewSandboxTest(t)
+	t.Chdir("../..")
+	p, err := NewFxPreview(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.g.Shutdown()
+	g, r := p.g, p.g.gameLoop.renderer
+	g.handleResize(image.Pt(1280, 720), image.Pt(1280, 720))
+	clearWorldDepth(g)
+	for i := range g.actorDepthBuffer {
+		g.actorDepthBuffer[i] = math.Inf(1)
+	}
+	mon := monster.NewMonster3DFromConfig(400, 400, "wolf", cfg)
+	mon.Bound = true
+	sprite := UnifiedSpriteRenderData{monster: mon, screenX: 440, spriteSize: 160, depthPerp: 100}
+	for _, panini := range []bool{false, true} {
+		g.combatPreferences.WideView = panini
+		runOnDrawFrame(func(_ *ebiten.Image) {
+			dst := ebiten.NewImage(1280, 720)
+			defer dst.Deallocate()
+			previous := activeWorldRaster
+			defer func() { activeWorldRaster = previous }()
+			if panini {
+				g.gameLoop.paniniRaster.configure(dst, g.widePaniniProjection())
+				activeWorldRaster = &g.gameLoop.paniniRaster
+			}
+			for name, draw := range map[string]func(){
+				"stun":   func() { r.drawMonsterStunStars(dst, 440, 210, 160) },
+				"poison": func() { r.drawMonsterPoisonBubbles(dst, 440, 210, 160) },
+				"status": func() { r.drawAdditionalMonsterStatusFX(dst, sprite, 210, visualRoot|visualSlow) },
+				"badge":  func() { r.drawMonsterHeadBadges(dst, sprite, 210, visualBind) },
+			} {
+				var reference []byte
+				for _, scale := range []float64{1, 1.25, 1.5} {
+					beginUIFrame(dst, scale)
+					dst.Clear()
+					draw()
+					pixels := make([]byte, 1280*720*4)
+					dst.ReadPixels(pixels)
+					if scale == 1 {
+						lit := 0
+						for i := 3; i < len(pixels); i += 4 {
+							if pixels[i] > 0 {
+								lit++
+							}
+						}
+						if lit == 0 {
+							t.Errorf("%s/Panini=%v rendered no pixels", name, panini)
+						}
+						reference = pixels
+						continue
+					}
+					for i, v := range pixels {
+						if d := int(v) - int(reference[i]); d < -1 || d > 1 {
+							t.Errorf("%s/Panini=%v moved or changed at UI scale %g", name, panini, scale)
+							break
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestPaniniDefersBlurWarmupUntilPerspectiveDraw(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("requires live GPU draw")
+	}
+	cfg := setupPreviewSandboxTest(t)
+	t.Chdir("../..")
+	p, err := NewFxPreview(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.g.Shutdown()
+	g := p.g
+	runOnDrawFrame(func(_ *ebiten.Image) {
+		g.handleResize(image.Pt(1280, 720), image.Pt(1280, 720))
+		dst := ebiten.NewImage(1280, 720)
+		defer dst.Deallocate()
+		g.combatPreferences.WideView = true
+		g.turnBlurWarm = false
+		g.gameLoop.drawExplorationScene(dst)
+		if g.turnBlurWarm {
+			t.Error("Panini consumed perspective blur warm-up")
+		}
+		g.combatPreferences.PaniniDisabled = true
+		g.gameLoop.drawExplorationScene(dst)
+		if !g.turnBlurWarm || g.blurShader == nil || g.turnBlurUniform == nil {
+			t.Error("first idle perspective frame did not submit blur pipeline")
+		}
+	})
 }

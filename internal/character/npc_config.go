@@ -17,6 +17,30 @@ type NPCConfig struct {
 	NPCs map[string]*NPCData `yaml:"npcs"`
 }
 
+// Decode each definition with its catalog key so nested YAML errors identify
+// the NPC even when they occur before keyed validation can run.
+func (nc *NPCConfig) UnmarshalYAML(node *yaml.Node) error {
+	var source struct {
+		NPCs map[string]yaml.Node `yaml:"npcs"`
+	}
+	if err := node.Decode(&source); err != nil {
+		return err
+	}
+	var npcs map[string]*NPCData
+	if source.NPCs != nil {
+		npcs = make(map[string]*NPCData, len(source.NPCs))
+	}
+	for key, definition := range source.NPCs {
+		var npc *NPCData
+		if err := definition.Decode(&npc); err != nil {
+			return fmt.Errorf("NPC %q: %w", key, err)
+		}
+		npcs[key] = npc
+	}
+	nc.NPCs = npcs
+	return nil
+}
+
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
 	// EditorOwnerMap identifies local definitions whose last placement can be deleted.
@@ -24,13 +48,14 @@ type NPCData struct {
 
 	ShopDialogue bool `yaml:"shop_dialogue,omitempty"`
 	// Empty biome scope keeps the NPC available in every editor palette.
-	Biomes        []string `yaml:"biomes,omitempty"`
-	Name          string   `yaml:"name"`
-	Type          string   `yaml:"type"`
-	Description   string   `yaml:"description"`
-	Sprite        string   `yaml:"sprite"`
-	VisitedSprite string   `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
-	NoSpin        bool     `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
+	Biomes        []string      `yaml:"biomes,omitempty"`
+	Name          string        `yaml:"name"`
+	Type          string        `yaml:"type"`
+	Description   string        `yaml:"description"`
+	Sprite        string        `yaml:"sprite"`
+	PropModel     *NPCPropModel `yaml:"prop_model,omitempty"`
+	VisitedSprite string        `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
+	NoSpin        bool          `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
 	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
 	// Its span and sprite aspect are its complete visual-size contract, so it is
 	// mutually exclusive with size_class and no_spin.
@@ -387,6 +412,9 @@ func validateLoadedNPCConfig(cfg *NPCConfig) error {
 		return err
 	}
 	for key, npc := range cfg.NPCs {
+		if err := validateNPCPropModel(key, npc); err != nil {
+			return err
+		}
 		if npc != nil && npc.RemovedSizeTiles != nil {
 			return fmt.Errorf("NPC %q uses removed size_tiles - use size_class", key)
 		}
@@ -586,6 +614,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Type:             data.Type,
 		Description:      data.Description,
 		Sprite:           data.Sprite,
+		PropModel:        data.PropModel,
 		RenderCategory:   data.RenderCategory,
 		PromptVerb:       data.PromptVerb,
 		Transparent:      data.Transparent,

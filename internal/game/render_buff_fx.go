@@ -90,6 +90,8 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 		opts.GeoM.Scale(scale, scale)
 		opts.GeoM.Translate(sw/2-float64(fw)*scale/2, sh*0.42-float64(fh)*scale/2)
 		opts.ColorScale.ScaleAlpha(float32(alpha))
+		// This overlay is authored in the camera's frame, like the complete
+		// melee swing. Submit it directly so world Panini cannot resize it.
 		screen.DrawImage(img, opts)
 	}
 }

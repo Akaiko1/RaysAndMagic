@@ -92,7 +92,7 @@ func TestUIFontsValidation(t *testing.T) {
 		return DisplayConfig{
 			Fonts: []UIFont{
 				{Key: "classic", Label: "Classic"},
-				{Key: "romulus", Label: "Romulus", File: "assets/fonts/romulus/Romulus.ttf", SizePx: 16, Credit: "Romulus by Hewett Tsoi"},
+				{Key: "romulus", Label: "Romulus", File: "assets/fonts/romulus/Romulus.ttf", SizePx: 16},
 			},
 			DefaultFont: "classic",
 		}
@@ -108,7 +108,6 @@ func TestUIFontsValidation(t *testing.T) {
 		{"duplicate key", func(d *DisplayConfig) { d.Fonts[1].Key = "classic" }, `duplicate key "classic"`},
 		{"empty label", func(d *DisplayConfig) { d.Fonts[1].Label = "" }, "label is required"},
 		{"non-ASCII label", func(d *DisplayConfig) { d.Fonts[1].Label = "Römulus" }, "must be ASCII"},
-		{"non-ASCII credit", func(d *DisplayConfig) { d.Fonts[1].Credit = "by Tsöi" }, "must be ASCII"},
 		{"size on built-in", func(d *DisplayConfig) { d.Fonts[0].SizePx = 16 }, "font file only"},
 		{"file without size", func(d *DisplayConfig) { d.Fonts[1].SizePx = 0 }, "must be within 6..16"},
 		{"taller than a line", func(d *DisplayConfig) { d.Fonts[1].SizePx = 18 }, "must be within 6..16"},

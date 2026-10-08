@@ -18,6 +18,7 @@ type RenderingHelper struct {
 	game                    *MMGame
 	textureCache            map[string]*ebiten.Image // Cache for procedural textures
 	visibleHeightScaleCache map[visibleHeightScaleKey]float64
+	skyOpts                 ebiten.DrawTrianglesShaderOptions
 }
 
 type visibleHeightScaleKey struct {
@@ -629,7 +630,7 @@ func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 	groundOpts := &ebiten.DrawImageOptions{}
 	groundOpts.GeoM.Scale(1, (float64(rh.game.worldHeight())-rh.game.viewHorizon())/float64(rh.game.groundImg.Bounds().Dy()))
 	groundOpts.GeoM.Translate(0, rh.game.viewHorizon())
-	screen.DrawImage(rh.game.groundImg, groundOpts)
+	worldDrawImage(screen, rh.game.groundImg, groundOpts)
 }
 
 // wrapPanoramaOffset keeps source coordinates near the panorama's own width
@@ -717,8 +718,7 @@ func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.I
 		{DstX: dx1, DstY: dy1, SrcX: float32(sx1), SrcY: float32(sy1), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
 	}
 	indices := [6]uint16{0, 1, 2, 1, 3, 2}
-	op := &ebiten.DrawTrianglesShaderOptions{}
-	op.Images[0] = panorama
-	screen.DrawTrianglesShader(vertices[:], indices[:], shader, op)
+	rh.skyOpts.Images[0] = panorama
+	screen.DrawTrianglesShader(vertices[:], indices[:], shader, &rh.skyOpts)
 	return true
 }

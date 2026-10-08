@@ -18,7 +18,7 @@ func (r *Renderer) drawFirefly(dst *ebiten.Image, x, y, radius, alpha, phase flo
 		r.weaponMaterialQuad[i] = v
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendLighter
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.fireflyShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.fireflyShader, &r.weaponMaterialOpts)
 }
 
 const fireflyPulseFloor = .12

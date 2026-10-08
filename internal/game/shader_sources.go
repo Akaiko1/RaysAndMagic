@@ -5,7 +5,7 @@ import "ugataima/internal/shaders"
 // Runtime compilation and shadergen read the same embedded Kage sources.
 var (
 	fireflyShaderSrc           = shaders.Source("firefly.kage")
-	trapMaterialShaderSrc      = shaders.Source("trap_material.kage")
+	worldMaterialShaderSrc     = shaders.Source("world_material.kage")
 	floorShaderSrc             = shaders.Source("floor.kage")
 	turnBlurShaderSrc          = shaders.Source("turn_blur.kage")
 	skyShaderSrc               = shaders.Source("sky.kage")

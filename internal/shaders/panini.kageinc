@@ -1,0 +1,14 @@
+// Direct geometry projection keeps the existing material's perspective-space
+// inputs, but evaluates it once per final pixel. Zero distance is identity.
+// Keep this analytic inverse in sync with view_panini.go.
+var WorldPanini vec4
+var WorldCenter float
+
+func paniniSourcePoint(point vec2) vec2 {
+ if WorldPanini.x <= 0 { return point }
+ anchor := vec2(WorldCenter,WorldPanini.w)
+ v := (point.x-anchor.x)/(WorldPanini.z*WorldPanini.y)
+ d2 := WorldPanini.x*WorldPanini.x
+ s := (1+WorldPanini.x*sqrt(1+(1-d2)*v*v))/(WorldPanini.y*(1-d2*v*v))
+ return anchor+(point-anchor)*s
+}

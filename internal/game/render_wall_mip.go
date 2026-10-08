@@ -495,7 +495,8 @@ func (r *Renderer) drawMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *eb
 	if !ok {
 		return false
 	}
-	sel := wallMipSelect(rm, leftU, rightU, tileWidth, width, textureHeight, wallHeight)
+	gx, gy := worldPixelScale(screen, float64(screenX)+float64(width)*.5, wallTop+wallHeight*.5)
+	sel := wallMipSelect(rm, leftU, rightU, tileWidth/gx, width, textureHeight/gy, wallHeight)
 	brightness := r.wallSliceBrightness(screenX, distance, wallSide)
 	r.drawWallMipQuad(screen, rm.levels[sel.ly][sel.lx], sel.lx, sel.ly, tileWidth, textureHeight,
 		screenX, width, wallTop, wallHeight, leftU, rightU, brightness, 1)
@@ -529,7 +530,8 @@ func (r *Renderer) queueMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *e
 	if !ok {
 		return false
 	}
-	sel := wallMipSelect(rm, leftU, rightU, tileWidth, width, textureHeight, wallHeight)
+	gx, gy := worldPixelScale(screen, float64(screenX)+float64(width)*.5, wallTop+wallHeight*.5)
+	sel := wallMipSelect(rm, leftU, rightU, tileWidth/gx, width, textureHeight/gy, wallHeight)
 	brightness := r.wallSliceBrightness(screenX, distance, wallSide)
 
 	r.queueWallMipQuad(screen, wallMipSlotBase, rm.levels[sel.ly][sel.lx], sel.lx, sel.ly, tileWidth, textureHeight,
@@ -662,5 +664,8 @@ func wallMipTriangleOptions() ebiten.DrawTrianglesOptions {
 
 func (r *Renderer) drawMipmappedWallTriangles(screen *ebiten.Image, vertices []ebiten.Vertex, indices []uint16, source *ebiten.Image) {
 	r.wallSliceTriOpts = wallMipTriangleOptions()
-	screen.DrawTriangles(vertices, indices, source, &r.wallSliceTriOpts)
+	if worldRaster(screen) != nil {
+		r.wallSliceTriOpts.Filter = ebiten.FilterPixelated
+	}
+	worldDrawTriangles(screen, vertices, indices, source, &r.wallSliceTriOpts)
 }

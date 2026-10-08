@@ -229,6 +229,8 @@ type Config struct {
 	PlayerInterfaceSize string `yaml:"-" json:"-"`
 	// PlayerFont is the saved interface font key ("" until loaded).
 	PlayerFont string `yaml:"-" json:"-"`
+	// PlayerProps3D overrides the authored default when a preference is saved.
+	PlayerProps3D *bool `yaml:"-" json:"-"`
 }
 
 type CampingConfig struct {
@@ -491,11 +493,12 @@ type MeleeAttackConfig struct {
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
-	SlashColor   [3]int `yaml:"slash_color"`             // RGB color for slash effect
-	SlashWidth   int    `yaml:"slash_width"`             // Width of slash line
-	SlashLength  int    `yaml:"slash_length"`            // Length of slash line
-	SlashFx      string `yaml:"slash_fx,omitempty"`      // bespoke swing style; empty = category default
-	ProjectileFx string `yaml:"projectile_fx,omitempty"` // bespoke accent for a weapon projectile; empty = category default
+	SlashLiftRatio float64 `yaml:"slash_lift_ratio,omitempty"` // Lift the complete swing by a fraction of view height.
+	SlashColor     [3]int  `yaml:"slash_color"`                // RGB color for slash effect
+	SlashWidth     int     `yaml:"slash_width"`                // Width of slash line
+	SlashLength    int     `yaml:"slash_length"`               // Length of slash line
+	SlashFx        string  `yaml:"slash_fx,omitempty"`         // bespoke swing style; empty = category default
+	ProjectileFx   string  `yaml:"projectile_fx,omitempty"`    // bespoke accent for a weapon projectile; empty = category default
 
 	MaxSize  int    `yaml:"max_size"`
 	MinSize  int    `yaml:"min_size"`
@@ -847,6 +850,7 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
+	Props3D            bool                    `yaml:"props_3d"`
 	View               ViewRenderConfig        `yaml:"view"`
 	ElementalAttack    ElementalAttackFXConfig `yaml:"elemental_attack"`
 	RaysPerScreenWidth int                     `yaml:"rays_per_screen_width"`
@@ -890,6 +894,7 @@ type GraphicsConfig struct {
 type ViewRenderConfig struct {
 	WideFocalRatio          float64 `yaml:"wide_focal_ratio"`
 	WideHorizonRatio        float64 `yaml:"wide_horizon_ratio"`
+	WidePaniniDistance      float64 `yaml:"wide_panini_distance"`
 	WideWeaponViewportRatio float64 `yaml:"wide_weapon_viewport_ratio"`
 	LiftFadeTiles           float64 `yaml:"lift_fade_tiles"`
 	LiftFullTiles           float64 `yaml:"lift_full_tiles"`
@@ -1639,6 +1644,7 @@ func LoadConfig(filename string) (*Config, error) {
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
+	config.Graphics.Props3D = true
 	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to one plane (shipped config.yaml sets 25)
 	config.Graphics.Standee.CoreTint = 1.0   // sprite-average standee core by default
 	config.Graphics.NightMotes = NightMoteRenderConfig{
@@ -1711,6 +1717,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, fmt.Errorf("graphics.sprite is removed - flat billboard scale comes from the tile size_class and the source texture aspect")
 	}
 	v := config.Graphics.View
+	if !(v.WidePaniniDistance >= 0 && v.WidePaniniDistance <= 1) {
+		return nil, fmt.Errorf("graphics.view.wide_panini_distance must be in [0, 1], got %g", v.WidePaniniDistance)
+	}
 	if !(v.WideFocalRatio > 0 && v.WideFocalRatio <= 1) {
 		return nil, fmt.Errorf("graphics.view.wide_focal_ratio must be in (0, 1], got %g", v.WideFocalRatio)
 	}
@@ -2139,6 +2148,12 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		}
 		if projectileCategory(def) && !def.IsRanged() {
 			return fmt.Errorf("weapon '%s' (category %q) has range %d; a projectile weapon needs range >= %d", key, def.Category, def.Range, RangedWeaponMinRangeTiles)
+		}
+		if def.Graphics != nil {
+			lift := def.Graphics.SlashLiftRatio
+			if math.IsNaN(lift) || math.IsInf(lift, 0) || lift < 0 || lift > .5 || (def.IsRanged() && lift != 0) {
+				return fmt.Errorf("weapon '%s': slash_lift_ratio must be finite in [0,0.5] and melee-only", key)
+			}
 		}
 		if def.IsRanged() {
 			if def.Physics == nil {

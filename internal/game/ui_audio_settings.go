@@ -141,7 +141,7 @@ func audioHintPosition(px, py, panelW, panelH, contentInset int) (string, int, i
 // The live tab and layout checks share the exact footer text and width fitting.
 func settingsHintPosition(tab settingsTabKind, saveError string, px, py, panelW, panelH, inset int) (string, int, int) {
 	hint, _, y := audioHintPosition(px, py, panelW, panelH, inset)
-	if tab == settingsTabCombat {
+	if tab == settingsTabCombat || tab == settingsTabDisplay {
 		hint = "Up/Down: row | Left/Right: choose | Auto-save"
 	}
 	if saveError != "" {
@@ -150,7 +150,7 @@ func settingsHintPosition(tab settingsTabKind, saveError string, px, py, panelW,
 	back := audioBackRect(px, py, panelH, inset)
 	width := px + panelW - inset - (back.x2 + 16)
 	if uiTextWidth(hint) > width && saveError == "" {
-		if tab == settingsTabCombat {
+		if tab == settingsTabCombat || tab == settingsTabDisplay {
 			hint = "Arrows: choose | Auto-save"
 		} else {
 			hint = "Changes saved automatically"
@@ -174,6 +174,8 @@ func (g *MMGame) setSelectedAudioVolume(delta float64) {
 	case settingsTabCombat:
 		if g.audioSettingsSelection == gameplayRowView {
 			g.setWideView(delta > 0)
+		} else if g.audioSettingsSelection == gameplayRowPanini {
+			g.setPanini(delta > 0)
 		} else {
 			g.setCombatOverlay(delta > 0)
 		}
@@ -189,9 +191,12 @@ func (g *MMGame) setSelectedAudioVolume(delta float64) {
 			dir = -1
 		}
 		g.fontListOpen = false
-		if g.audioSettingsSelection == displayRowFont {
+		switch g.audioSettingsSelection {
+		case displayRowProps:
+			g.setProps3D(delta > 0)
+		case displayRowFont:
 			g.stepUIFont(dir)
-		} else {
+		case displayRowSize:
 			g.stepInterfaceSize(dir)
 		}
 		return

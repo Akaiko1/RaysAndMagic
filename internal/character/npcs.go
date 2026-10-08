@@ -9,14 +9,16 @@ type NPC struct {
 
 	QuestPropOwner string // transient owner; reconstructed from quest YAML/state
 
-	X, Y          float64
-	Key           string // npcs.yaml key this NPC was created from
-	Name          string
-	Type          string
-	Description   string
-	Sprite        string
-	VisitedSprite string // optional art swap once Visited (an emptied barrel closes)
-	NoSpin        bool   // pin a non-person token to a fixed pose
+	X, Y           float64
+	Key            string // npcs.yaml key this NPC was created from
+	Name           string
+	Type           string
+	Description    string
+	Sprite         string
+	PropModel      *NPCPropModel
+	PropUseStarted int64  // transient presentation tick + 1; saved Visited restores the final pose
+	VisitedSprite  string // optional art swap once Visited (an emptied barrel closes)
+	NoSpin         bool   // pin a non-person token to a fixed pose
 	// GridSpanTiles >=2: render a fixed grid-aligned facade spanning this many
 	// tiles. Its span and sprite aspect set its visual geometry; normal size and
 	// spin settings are invalid for this mode.

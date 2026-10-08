@@ -2676,6 +2676,12 @@ npcs:
     type: "loot_crate"
     description: "Splintered crates heaped into a leaning tower - something might have been left inside"
     sprite: "pile_of_old_boxes"
+    prop_model:
+      shape: crates
+      body: [133, 88, 48]
+      trim: [80, 79, 75]
+      yaw_degrees: 45
+      use_seconds: 1.2
     render_category: scenery
     no_spin: true
     prompt_verb: search
@@ -2687,6 +2693,14 @@ npcs:
     type: "loot_crate"
     description: "A neat ring of stones around live embers - the owner left in a hurry"
     sprite: "campfire"
+    prop_model:
+      shape: campfire
+      body: [83, 46, 24]
+      trim: [106, 99, 88]
+      yaw_degrees: 20
+      use_seconds: 1.2
+      light_radius_tiles: 2
+      light_intensity: 0.8
     render_category: scenery
     prompt_verb: rest at
     transparent: true

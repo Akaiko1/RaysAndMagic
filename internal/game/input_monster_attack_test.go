@@ -914,12 +914,17 @@ func TestEnsureTBActorUsesActionCapability(t *testing.T) {
 func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, standee := range []bool{false, true} {
-			for _, pose := range []string{"above", "below", "side", "wall", "partly visible"} {
+			for _, pose := range []string{"above", "below", "side", "wall", "partly visible", "panini clipped"} {
 				t.Run(fmt.Sprintf("TB=%v/standee=%v/%s", tb, standee, pose), func(t *testing.T) {
 					g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 					g.camera.Angle = 0
 					g.camera.FOV = squareProjectionFOV(640, 480)
 					g.config.Graphics.Standee.Enabled = standee
+					if pose == "panini clipped" {
+						g.combatPreferences.WideView = true
+						g.config.Graphics.View.WidePaniniDistance = 1
+						g.gameLoop.worldProjection = g.widePaniniProjection()
+					}
 					g.depthBuffer = make([]float64, 640)
 					for x := range g.depthBuffer {
 						g.depthBuffer[x] = math.Inf(1)
@@ -954,7 +959,7 @@ func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 						for x := range g.depthBuffer {
 							g.depthBuffer[x] = 1
 						}
-					case "partly visible":
+					case "partly visible", "panini clipped":
 						moved.top, moved.bottom = -120, 20
 					}
 					if moved.standee {
@@ -967,6 +972,12 @@ func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 							moved.bottom = 5000
 						}
 						moved.top = moved.bottom - moved.size
+						if pose == "panini clipped" {
+							// A front-facing slab keeps the partially cropped source
+							// silhouette at the same depth across every column.
+							moved.p0x, moved.p0y = g.camera.X+hit.depth, g.camera.Y-ts/2
+							moved.dx, moved.dy = 0, ts
+						}
 					}
 					r.monsterPick.hits = []monsterPickHit{moved}
 					hp := m.HitPoints

@@ -69,6 +69,7 @@ weapons:
       arc_type: 2
       animation_frames: 8
     graphics:
+      slash_lift_ratio: 0.067
       slash_fx: "solstice_anchor"
       slash_color: [140, 155, 80]
       slash_width: 32
@@ -184,6 +185,7 @@ weapons:
 
     # Visual effects for slash animation
     graphics:
+      slash_lift_ratio: 0.114
       slash_color: [255, 255, 100]  # Holy golden flash
       slash_width: 40
       slash_length: 56
@@ -208,6 +210,7 @@ weapons:
 
     # Visual effects for slash animation
     graphics:
+      slash_lift_ratio: 0.114
       slash_color: [200, 200, 200]  # Steel flash
       slash_width: 40
       slash_length: 56
@@ -868,6 +871,7 @@ weapons:
       arc_type: 2
       animation_frames: 11
     graphics:
+      slash_lift_ratio: 0.086
       slash_color: [170, 150, 120]
       slash_width: 42
       slash_length: 56
@@ -974,6 +978,7 @@ weapons:
       arc_type: 2
       animation_frames: 10
     graphics:
+      slash_lift_ratio: 0.114
       slash_color: [210, 200, 170]
       slash_width: 40
       slash_length: 52
@@ -1040,6 +1045,7 @@ weapons:
       arc_type: 3
       animation_frames: 12
     graphics:
+      slash_lift_ratio: 0.156
       slash_color: [220, 180, 90]
       slash_width: 46
       slash_length: 58
@@ -1365,6 +1371,7 @@ weapons:
       arc_type: 2
       animation_frames: 11
     graphics:
+      slash_lift_ratio: 0.074
       slash_color: [235, 215, 160]
       slash_fx: "clock_chime"
       slash_width: 44

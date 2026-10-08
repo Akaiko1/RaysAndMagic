@@ -168,7 +168,7 @@ func (r *Renderer) drawDissolveStroke(screen *ebiten.Image, st dissolveStroke, l
 	}
 	if len(idx) > 0 {
 		r.weaponMaterialOpts.Blend = weaponShaderBlend(st.blend)
-		screen.DrawTrianglesShader(verts, idx, r.weaponRibbonShader, &r.weaponMaterialOpts)
+		worldDrawTrianglesShader(screen, verts, idx, r.weaponRibbonShader, &r.weaponMaterialOpts)
 	}
 	r.standeeVerts, r.standeeIdx = verts[:0], idx[:0]
 }

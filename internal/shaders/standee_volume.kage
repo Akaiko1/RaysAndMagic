@@ -34,7 +34,8 @@ func addFront(acc vec4, c vec4) vec4 {
 	return acc + c*(1.0-acc.a)
 }
 
-func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+	dstPos := vec4(paniniSourcePoint(rawDstPos.xy-imageDstOrigin())+imageDstOrigin(),rawDstPos.zw)
 	farDepth := 1.0/custom.x
 	nearDepth := 1.0/custom.y
 	farU := custom.z*farDepth
@@ -89,3 +90,5 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	}
 	return acc
 }
+
+//include panini.kageinc

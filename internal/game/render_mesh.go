@@ -229,9 +229,15 @@ func (r *Renderer) drawCameraVolume(dst *ebiten.Image, x, y, size, alpha float64
 	}
 	opts.Blend = ebiten.BlendSourceOver
 	if !equipment {
-		dst.DrawTrianglesShader(verts, indices, shader, opts)
+		worldDrawTrianglesShader(dst, verts, indices, shader, opts)
 		return
 	}
+	drawResolvedEquipment(r, dst, verts, indices, bounds, alpha, shader, opts)
+}
+
+// Resolve camera-local equipment once, preserving supersampled edges and
+// applying its fade after opaque faces. World Panini does not change this frame.
+func drawResolvedEquipment(r *Renderer, dst *ebiten.Image, verts []ebiten.Vertex, indices []uint16, bounds image.Rectangle, alpha float64, shader *ebiten.Shader, opts *ebiten.DrawTrianglesShaderOptions) {
 	r.resizeVolumeLayer(dst.Bounds().Size())
 	layer := r.ensureVolumeLayer(bounds.Size())
 	w, h := float64(bounds.Dx()*volumeSampleScale), float64(bounds.Dy()*volumeSampleScale)
@@ -245,7 +251,8 @@ func (r *Renderer) drawCameraVolume(dst *ebiten.Image, x, y, size, alpha float64
 		verts[i].DstX = (verts[i].DstX - float32(bounds.Min.X)) * volumeSampleScale
 		verts[i].DstY = (verts[i].DstY - float32(bounds.Min.Y)) * volumeSampleScale
 	}
-	layer.DrawTrianglesShader(verts, indices, shader, opts)
+	o := worldShaderOptions(nil, opts)
+	layer.DrawTrianglesShader(verts, indices, shader, &o)
 	for i, p := range [4][2]float64{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
 		r.volumeQuad[i] = ebiten.Vertex{DstX: float32(float64(bounds.Min.X) + p[0]*float64(bounds.Dx())), DstY: float32(float64(bounds.Min.Y) + p[1]*float64(bounds.Dy())), SrcX: float32(p[0] * w), SrcY: float32(p[1] * h), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: float32(alpha)}
 	}
