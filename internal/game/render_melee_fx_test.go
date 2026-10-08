@@ -27,8 +27,17 @@ func TestShippedFxStylesResolve(t *testing.T) {
 	// The procedural catalog must stay attached to real items, and every
 	// shipped melee weapon must retain its own authored body selection.
 	t.Run("weapon bodies", func(t *testing.T) {
-		for key := range weaponBodyModels {
-			if def, ok := config.GlobalWeapons.Weapons[key]; !ok || def == nil || def.Graphics == nil {
+		for key, model := range weaponBodyModels {
+			var mesh *volumeMesh
+			if isGauntletModel(model) {
+				mesh = gauntletModels.get(model, buildGauntlet)
+			} else {
+				mesh = meleeWeaponMeshes.get(model, buildMeleeWeaponMesh)
+			}
+			if len(mesh.faces) == 0 {
+				t.Errorf("melee weapon %q has no 3D geometry", key)
+			}
+			if def, ok := config.GlobalWeapons.Weapons[key]; !ok || def == nil || def.Graphics == nil || def.Melee == nil {
 				t.Errorf("procedural body %q has no drawable weapon definition", key)
 			}
 		}

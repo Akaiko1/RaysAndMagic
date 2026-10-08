@@ -3,7 +3,6 @@ package game
 import (
 	"math"
 	"sort"
-	"ugataima/internal/config"
 
 	"ugataima/internal/monster"
 )
@@ -110,9 +109,10 @@ func combatStackParticipant(g *MMGame, m *monster.Monster3D) bool {
 	}
 }
 
-// updateCombatTransitVisualStacks fans every live monster on a tile occupied by
-// an active combatant without inventing a BandID. It is strictly render state:
-// combat reads logical attack posts, and AoE continues to read actual positions.
+// updateCombatTransitVisualStacks assigns the same compact stack slots as calm
+// bands to occupants of a combat tile, without inventing a BandID. It never
+// recentres actors on a moving group centroid. Only the compact fan eases in
+// and out, always clipped to the current tile. Combat uses physical positions.
 func (gl *GameLoop) updateCombatTransitVisualStacks() {
 	if gl == nil || gl.game == nil || gl.game.world == nil || gl.game.config == nil {
 		return
@@ -170,51 +170,48 @@ func (gl *GameLoop) updateCombatTransitVisualStacks() {
 			last++
 		}
 		if count := last - first; count > 1 {
-			var centerX, centerY float64
-			for _, m := range stacks[first:last] {
-				centerX += m.X
-				centerY += m.Y
-			}
-			centerX /= float64(count)
-			centerY /= float64(count)
 			for index, m := range stacks[first:last] {
 				m.TransitStackIndex = index
 				m.TransitStackCount = count
-				fanX, fanY := bandFanOffset(index, count, tileSize)
-				gl.easeTransitStackOffset(m, centerX+fanX-m.X, centerY+fanY-m.Y)
 			}
 		}
 		first = last
 	}
 	for _, m := range gl.game.world.Monsters {
-		if m != nil && m.TransitStackCount <= 1 {
-			gl.easeTransitStackOffset(m, 0, 0)
+		if m == nil {
+			continue
+		}
+		if !m.IsAlive() {
+			m.TransitStackActive = false
+			m.TransitStackOffsetX, m.TransitStackOffsetY = 0, 0
+			continue
+		}
+		var targetX, targetY float64
+		if m.TransitStackCount > 1 {
+			if !m.TransitStackActive {
+				// Continue from the calm band's fan when it becomes a combat stack.
+				m.TransitStackOffsetX, m.TransitStackOffsetY = bandFanOffset(m.BandStackIndex, m.BandStackCount, tileSize)
+				m.TransitStackActive = true
+			}
+			targetX, targetY = bandFanOffset(m.TransitStackIndex, m.TransitStackCount, tileSize)
+		} else {
+			targetX, targetY = bandFanOffset(m.BandStackIndex, m.BandStackCount, tileSize)
+		}
+		if m.TransitStackActive {
+			// Exponential response is independent of TPS and settles in about
+			// 0.15 seconds. This is presentation interpolation, not a move.
+			blend := 1 - math.Exp(-20/float64(gl.game.config.GetTPS()))
+			m.TransitStackOffsetX += (targetX - m.TransitStackOffsetX) * blend
+			m.TransitStackOffsetY += (targetY - m.TransitStackOffsetY) * blend
+			if math.Hypot(targetX-m.TransitStackOffsetX, targetY-m.TransitStackOffsetY) < .01 {
+				m.TransitStackOffsetX, m.TransitStackOffsetY = targetX, targetY
+				if m.TransitStackCount <= 1 {
+					m.TransitStackActive = false
+				}
+			}
 		}
 	}
 	gl.combatTransitStackBuf = stacks
-}
-
-// easeTransitStackOffset smooths only the render anchor. At 120 TPS the
-// response settles in roughly 0.15s, fast enough to read as one temporary
-// stack but slow enough that crossing a tile edge cannot jump a sprite by the
-// full fan radius in one frame.
-func (gl *GameLoop) easeTransitStackOffset(m *monster.Monster3D, targetX, targetY float64) {
-	if m == nil {
-		return
-	}
-	tps := config.DefaultTPS
-	if gl != nil && gl.game != nil && gl.game.config != nil && gl.game.config.GetTPS() > 0 {
-		tps = gl.game.config.GetTPS()
-	}
-	blend := 1 - math.Exp(-20/float64(tps))
-	m.TransitStackOffsetX += (targetX - m.TransitStackOffsetX) * blend
-	m.TransitStackOffsetY += (targetY - m.TransitStackOffsetY) * blend
-	if math.Abs(targetX-m.TransitStackOffsetX) < 0.01 {
-		m.TransitStackOffsetX = targetX
-	}
-	if math.Abs(targetY-m.TransitStackOffsetY) < 0.01 {
-		m.TransitStackOffsetY = targetY
-	}
 }
 
 // monsterStackFanOffset returns the one render offset used for a normal calm
@@ -224,14 +221,13 @@ func monsterStackFanOffset(m *monster.Monster3D, tileSize float64) (float64, flo
 	if m == nil {
 		return 0, 0
 	}
-	if m.TransitStackCount > 1 {
+	if m.TransitStackActive {
 		return m.TransitStackOffsetX, m.TransitStackOffsetY
 	}
 	if m.BandStackCount > 1 {
 		return bandFanOffset(m.BandStackIndex, m.BandStackCount, tileSize)
 	}
-	// Let a dissolved transit stack ease back to the monster's real position.
-	return m.TransitStackOffsetX, m.TransitStackOffsetY
+	return 0, 0
 }
 
 // monsterVisualStackOffset preserves lateral separation without moving the
@@ -247,6 +243,24 @@ func (g *MMGame) monsterVisualStackOffset(m *monster.Monster3D, x, y float64) (f
 		if inward := (ox*dx + oy*dy) / lengthSq; inward < 0 {
 			ox, oy = ox-inward*dx, oy-inward*dy
 		}
+	}
+	if m != nil && m.TransitStackActive {
+		// A walking actor can be at a tile edge in RT. Shorten the compact fan
+		// along its existing direction so it cannot suggest a neighbouring tile.
+		// Use the presented base point to preserve the shared TB diagonal slot.
+		tile := g.config.GetTileSize()
+		limit := func(position, offset float64) float64 {
+			lo := float64(TileIndex(position, tile)) * tile
+			if offset > 0 {
+				return (math.Nextafter(lo+tile, lo) - position) / offset
+			}
+			if offset < 0 {
+				return (lo - position) / offset
+			}
+			return 1
+		}
+		scale := max(0, min(1, limit(x, ox), limit(y, oy)))
+		ox, oy = ox*scale, oy*scale
 	}
 	return ox, oy
 }

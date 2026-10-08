@@ -1966,6 +1966,10 @@ func (g *MMGame) uiPixelScale() float64 {
 // the threading components' own idempotency - call once on game exit.
 func (g *MMGame) Shutdown() {
 	g.cancelCampPresentation()
+	if g.gameLoop != nil && g.gameLoop.renderer != nil && g.gameLoop.renderer.litVolumeLayer != nil {
+		g.gameLoop.renderer.litVolumeLayer.Deallocate()
+		g.gameLoop.renderer.litVolumeLayer = nil
+	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil && g.gameLoop.ui.profileViewport != nil {
 		uiReleaseLayer(g.gameLoop.ui.profileViewport)
 		g.gameLoop.ui.profileViewport = nil

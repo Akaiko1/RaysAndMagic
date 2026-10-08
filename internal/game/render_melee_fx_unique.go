@@ -131,7 +131,10 @@ func (r *Renderer) drawDissolveStroke(screen *ebiten.Image, st dissolveStroke, l
 		w := st.width(t) * 1.1
 		col, a := st.color(t), st.alpha(t)
 		if taper {
-			w = math.Min(w*profile.widthScale, profile.widthLimit)
+			// A narrow translucent wake supports the solid model instead of
+			// replacing it with a broad opaque stroke.
+			w = math.Min(w*profile.widthScale*.55, profile.widthLimit*.55)
+			a *= .58
 			tail := math.Min(1, t/math.Min(profile.tail, lead*.45))
 			tip := math.Min(1, (lead-t)/math.Min(profile.tip, lead*.45))
 			if profile.angular {
@@ -410,7 +413,7 @@ func (r *Renderer) drawMeleeFxIdolBreaker(screen *ebiten.Image, s SlashEffect, c
 
 	if progress < .65 {
 		tipAngle := thetaStart + (thetaEnd-thetaStart)*lead
-		r.drawHammerHead(screen, pivotX+math.Cos(tipAngle)*R, pivotY+math.Sin(tipAngle)*R, h*.075, tipAngle+math.Pi, stone, fade)
+		r.drawHammerHead(screen, pivotX+math.Cos(tipAngle)*R, pivotY+math.Sin(tipAngle)*R, h*.075, tipAngle+math.Pi, fade)
 	}
 
 	if sweepT < 1 {

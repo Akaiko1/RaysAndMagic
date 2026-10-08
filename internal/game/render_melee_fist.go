@@ -6,23 +6,20 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-type gauntletFace struct {
-	a, b, c, origin [3]float64
-	rgb             [3]int
-}
-
 // Build each rigid model once. Animation transforms whole solids; fingers and
 // fittings never change shape between poses. Local +X is the striking axis.
-var gauntletModels = map[int][]gauntletFace{50: buildGauntlet(50), 52: buildGauntlet(52)}
+var gauntletModels volumeMeshCache
 
-func buildGauntlet(model int) []gauntletFace {
-	var mesh []gauntletFace
+func isGauntletModel(model int) bool { return model == 50 || model == 52 }
+
+func buildGauntlet(model int) []modelFace {
+	var mesh []modelFace
 	metal, gold, leather, seam := [3]int{120, 133, 144}, [3]int{196, 141, 57}, [3]int{116, 28, 23}, [3]int{49, 43, 36}
 	if model == 50 {
 		metal = [3]int{180, 112, 42}
 	}
 	box := func(c, h [3]float64, bevel, roll float64, rgb [3]int) {
-		beveledBoxFaces(c, h, bevel, roll, func(a, b, d, o [3]float64) { mesh = append(mesh, gauntletFace{a, b, d, o, rgb}) })
+		beveledBoxFaces(c, h, bevel, roll, func(a, b, d, o [3]float64) { mesh = append(mesh, modelFace{a, b, d, o, rgb, 0}) })
 	}
 
 	// Elliptical sections form rounded finger joints and an open flared cuff.
@@ -30,7 +27,7 @@ func buildGauntlet(model int) []gauntletFace {
 	tube := func(sections []section, cy, cz float64, rgb [3]int) {
 		const sides = 12
 		emit := func(a, b, c [3]float64) {
-			mesh = append(mesh, gauntletFace{a, b, c, [3]float64{(a[0] + b[0] + c[0]) / 3, cy, cz}, rgb})
+			mesh = append(mesh, modelFace{a, b, c, [3]float64{(a[0] + b[0] + c[0]) / 3, cy, cz}, rgb, 0})
 		}
 		for i := 0; i < len(sections)-1; i++ {
 			p, q := sections[i], sections[i+1]
@@ -94,8 +91,9 @@ func buildGauntlet(model int) []gauntletFace {
 }
 
 func (r *Renderer) drawGauntletStrike(dst *ebiten.Image, s SlashEffect, cx, cy, height float64) {
+	r.weaponMaterialState.bodyHandled = true
 	model, ok := weaponBodyModels[s.WeaponKey]
-	if !ok || gauntletModels[model] == nil {
+	if !ok || !isGauntletModel(model) {
 		return
 	}
 	p, _, _, _ := meleeFxTiming(s)

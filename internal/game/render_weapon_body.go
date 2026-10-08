@@ -1,15 +1,16 @@
 package game
 
 import (
-	"github.com/hajimehoshi/ebiten/v2"
 	"math"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Model numbers select procedural shapes, never item icon textures.
 var weaponBodyModels = map[string]int{
 	"iron_sword": 0, "silver_sword": 1, "gold_sword": 2, "gladius": 3,
 	"katana": 4, "wakizashi": 5, "muramasa": 6, "jungle_machete": 7,
-	"magic_dagger": 8, "parry_dagger": 9, "throwing_knife": 10, "kage_kunai": 11,
+	"magic_dagger": 8, "parry_dagger": 9, "kage_kunai": 11,
 	"serpent_fang": 12, "widow_hairpin": 13, "hatchling_fang": 14,
 	"drakefang_blade": 15, "vibro_blade": 16, "solstice_transfer_blade": 17,
 	"iron_spear": 20, "culvert_pike": 21, "hasta": 22, "yari": 23,
@@ -30,33 +31,46 @@ func tangentAt(path func(float64) (float64, float64), t float64) float64 {
 	return math.Atan2(by-ay, bx-ax)
 }
 
-// The tip is local x=0; the complete grip extends backwards along the same axis.
-// One bounded shader quad draws the material, bevel, fittings and ornament.
-func (r *Renderer) drawWeaponBody(dst *ebiten.Image, x, y, angle, size, alpha float64, model int, tint [3]int) {
-	if size <= 0 || alpha <= 0 || r.ensureWeaponMaterialShaders() != nil {
+// A rigid camera-space model turns around its authored striking point. The
+// tip stays on the stroke path while the shaft, bevels and fittings turn in
+// depth. That preserves the exact contact/ribbon anchor through perspective.
+func (r *Renderer) drawWeaponBody(dst *ebiten.Image, x, y, angle, size, alpha float64, kind string, model int) {
+	r.weaponMaterialState.bodyHandled = true
+	if size <= 0 || alpha <= 0 || isGauntletModel(model) || r.ensureWeaponMaterialShaders() != nil {
 		return
 	}
-	left, right, half := -5.2, .45, 1.4
-	if model >= 50 && model < 60 {
-		left, right, half = -2.5, 1, 2
+	mesh := meleeWeaponMeshes.get(model, buildMeleeWeaponMesh)
+	if len(mesh.faces) == 0 {
+		return
 	}
-	ca, sa := math.Cos(angle), math.Sin(angle)
+	progress := r.weaponMaterialState.progress
+	sweep := math.Min(1, progress/meleeSweepFrac)
+	lead := 1 - (1-sweep)*(1-sweep)
+	pitch, roll := .10+.64*math.Sin(lead*math.Pi), -.62+1.24*lead
+	if kind == "stab" || kind == "lunge" {
+		pitch = .70 + .28*math.Sin(lead*math.Pi)
+		roll = -.18 + .36*lead
+	}
+	if kind == "smash" {
+		pitch = .18 + .50*lead
+		roll = -.3 + .60*lead
+	}
+	// Recovery is a rigid retreat of the whole object. The spent wake and
+	// sparks stay at contact, rather than following the returning handle.
+	recovery := math.Min(1, math.Max(0, (progress-meleeSweepFrac)/.30))
+	y += size * .65 * recovery * recovery
+	size *= 1 - .16*recovery
 	mirror := 1.0
-	// These single-edged models were authored with the edge on local -Y.
-	// A slash/chop moves toward local +Y, so reflect across the shaft.
-	switch model {
-	case 4, 6, 17, 30, 60: // Katana, Muramasa, Transfer Blade, Naginata, Steel Axe.
+	// Single-edged models are authored with their cutting side at local +Y,
+	// which leads a slash whose shaft angle is tangent - pi/2.
+	if (model == 53 && r.weaponMaterialState.hand == 1) || (model == 62 && r.weaponMaterialState.hand == 0) {
 		mirror = -1
 	}
-	if model == 53 && r.weaponMaterialState.hand == 1 {
-		mirror = -1
-	}
-	for i, p := range [4][2]float64{{left, -half}, {right, -half}, {left, half}, {right, half}} {
-		ly := p[1] * mirror
-		v := weaponMaterialVertex(x+(p[0]*ca-ly*sa)*size, y+(p[0]*sa+ly*ca)*size, p[0], p[1], tint, alpha)
-		v.Custom0, v.Custom1, v.Custom2, v.Custom3 = float32(r.weaponMaterialClock()), float32(model)+.25, float32(1/math.Max(1, size)), 0
-		r.weaponMaterialQuad[i] = v
-	}
-	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.weaponBodyShader, &r.weaponMaterialOpts)
+	ca, sa, cp, sp, cr, sr := math.Cos(angle), math.Sin(angle), math.Cos(pitch), math.Sin(pitch), math.Cos(roll), math.Sin(roll)
+	transform := volumeTransform{rotation: [3][3]float64{
+		{cp * ca, -mirror*sr*sp*ca - mirror*cr*sa, -cr*sp*ca + sr*sa},
+		{cp * sa, -mirror*sr*sp*sa + mirror*cr*ca, -cr*sp*sa - sr*ca},
+		{sp, mirror * sr * cp, cr * cp},
+	}, uvY: 1}
+	r.drawCameraVolume(dst, x, y, size, alpha, transform, r.weaponBodyShader, &r.weaponMaterialOpts, mesh, [3]int{255, 255, 255}, 0, true)
 }

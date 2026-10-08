@@ -6,8 +6,8 @@ import (
 )
 
 // Every shipped melee item has its own procedural model. Synthetic effects
-// without a source weapon retain a shader-rendered category fallback.
-func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind, style string, x, y, angle, size float64, tint [3]int, alpha float64) {
+// without a source weapon retain a procedural category model.
+func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind, style string, x, y, angle, size, alpha float64) {
 	model, ok := weaponBodyModels[r.weaponMaterialState.weaponKey]
 	if !ok {
 		switch kind {
@@ -42,5 +42,5 @@ func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind, style string, x
 	if kind == "smash" {
 		angle -= math.Pi / 2
 	}
-	r.drawWeaponBody(dst, x, y, angle, size, alpha, model, tint)
+	r.drawWeaponBody(dst, x, y, angle, size, alpha, kind, model)
 }

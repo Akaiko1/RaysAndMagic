@@ -23,7 +23,7 @@ func (r *Renderer) drawMeleeFxSolsticeThermal(screen *ebiten.Image, s SlashEffec
 	tipX, tipY := path(lead)
 	r.drawSpellMaterialFade(screen, tipX, tipY, h*.065, -.4, -.9165, solsticeFire, 1, seedFromID(s.ID), spellFireDart, fade)
 	if p < .65 {
-		r.drawWeaponHead(screen, "lunge", tipX, tipY, -1.98, h*.036, clockBrass, fade)
+		r.drawWeaponHead(screen, "lunge", tipX, tipY, tangentAt(path, lead), h*.067, fade)
 	}
 
 	if p > .30 {
@@ -48,7 +48,7 @@ func (r *Renderer) drawMeleeFxSolsticeAnchor(screen *ebiten.Image, s SlashEffect
 		color: func(t float64) [3]int { return mixColor(clockCopper, solsticeEarth, t) },
 		alpha: func(t float64) float64 { return .25 + .45*t }, length: h * .46, seed: seedFromID(s.ID), salt: 715, blend: ebiten.BlendSourceOver,
 	}, lead, p)
-	r.drawHammerHead(screen, cx, y, h*.085, math.Pi-.35+lead*.5, mixColor(solsticeEarth, [3]int{36, 147, 116}, .6), fade)
+	r.drawHammerHead(screen, cx, y, h*.085, math.Pi-.35+lead*.5, fade)
 
 	if p > .28 {
 		u := (p - .28) / .72

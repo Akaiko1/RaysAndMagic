@@ -1,64 +1,20 @@
 //kage:unit pixels
 package main
 
-//include weapon_shapes.kageinc
-//include weapon_serpent.kageinc
-//include weapon_clock.kageinc
-
+// Actual projected faces carry camera-space normals and a surface class. All
+// ornament is rigid geometry; shading never stretches a flat weapon picture.
 func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
-	id := floor(c.y)
-	aa := max(0.004, c.z*0.7)
-	out := vec4(0)
-	steel, gold := vec3(0.57, 0.68, 0.74), vec3(0.73, 0.49, 0.16)
-	if id >= 70.0 {
-		out = clockBody(p, id, c.x, aa)
-	} else if id == 12.0 {
-		out = serpentFangBody(p, aa)
-	} else if id < 20.0 {
-		out = swordBody(p, id, c.x, aa)
-	} else if id < 40.0 {
-		out = poleBody(p, id, c.x, aa)
-	} else if id < 50.0 {
-		out = heavyBody(p, id, c.x, aa)
-
-	} else if id == 53.0 {
-		// Three curved claws sprout from the long purple grip shown in the icon.
-		out = haft(out, p, -2.5, -1.15, .115, vec3(.31, .12, .40), aa)
-		for k := 0; k < 2; k++ {
-			out = coat(out, box(p-vec2(-2.42+float(k)*1.16, 0), vec2(.07, .16)), gold, p, aa)
-		}
-		out = ring(out, p, vec2(-2.65, 0), .13, .034, steel, aa)
-		for k := 0; k < 3; k++ {
-			f := float(k) - 1.0
-			u := clamp((p.x+1.4)/1.52, 0, 1)
-			center := f*.30 + .22*u*u - f*.11*u
-			q := p - vec2(0, center)
-			d := max(abs(q.y)-.095*(1-u), max(-1.4-q.x, q.x-.12))
-			out = coat(out, d, steel*mix(.5, 1.6, step(q.y, 0)), p, aa)
-			out = coat(out, curvedFitting(p, vec2(-1.35, 0), vec2(-1.2, f*.55), vec2(-1.0, f*.31), .026), gold, p, aa)
-		}
-	} else if id == 54.0 {
-		// Hinged fan: scalloped red-black panels, silver ribs and gold pivot.
-		q := p - vec2(-1.5, 0)
-		a := atan2(q.y, q.x)
-		rad := length(q)
-		sector := floor((a + 1.15) / .23)
-		d := max(abs(a)-1.15, rad-(2.05-.035*cos(a*27)))
-		out = coat(out, d, vec3(.025, .045, .065)*(1.0+.5*sin(sector)), p, aa)
-		pattern := abs(sin(rad*12+a*7+.8*sin(a*11))) - .16
-		if rad > 1.1 {
-			out = coat(out, max(d+.05, pattern*.06), vec3(.61, .09, .07), p, aa)
-		}
-		rib := abs(sin((a+1.15)*13.66))*rad - .015
-		out = coat(out, max(d, rib), steel, p, aa)
-		// Pale wind spiral over black fabric and red scrolls at both outer corners.
-		scroll := length(q - vec2(1.38, 0))
-		theta := atan2(q.y, q.x-1.38)
-		swirl := abs(sin(scroll*19-theta*2)) - .17
-		out = coat(out, max(scroll-.39, swirl*.032), vec3(.48, .78, .87), p, aa)
-		out = coat(out, length(q)-.095, gold, p, aa)
-	} else {
-		out = axeBody(p, id, c.x, aa)
-	}
-	return out * min(1.0, color.a)
+ n := normalize(c.xyz)
+ light := max(0.0, dot(n, normalize(vec3(-.4,-.7,-.6))))
+ spec := pow(max(0.0, dot(n, normalize(vec3(-.3,-.45,-1)))), 22.0)
+ material := floor(c.w)
+ tint := color.rgb * (.38+.62*light)
+ if material == 0.0 {
+  tint += vec3(.28,.27,.24)*spec
+ } else if material == 2.0 {
+  tint += color.rgb*.14 + vec3(.17,.22,.23)*spec
+ } else if material == 3.0 {
+  tint = color.rgb*(.85+.15*light)
+ }
+ return vec4(tint*color.a,color.a)
 }

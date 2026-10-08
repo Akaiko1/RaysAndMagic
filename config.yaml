@@ -521,6 +521,9 @@ graphics:
     # Ratios of the usable world viewport above the party panel.
     wide_focal_ratio: 0.637
     wide_horizon_ratio: 0.645
+    # Equipment keeps the authored 1024x768 framing (652/768 usable height),
+    # independent of resolution, HUD visibility and interface size in Wide view.
+    wide_weapon_viewport_ratio: 0.8489583333333334
     # Classic HUD clearance fades out before a creature crosses the camera.
     lift_fade_tiles: 0.5
     lift_full_tiles: 1.0

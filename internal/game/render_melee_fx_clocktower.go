@@ -259,6 +259,10 @@ func (r *Renderer) drawMeleeFxClockMainspring(screen *ebiten.Image, s SlashEffec
 		alpha:  func(t float64) float64 { return 0.75 + 0.25*t },
 		length: reach * 1.5, seed: seed, salt: 372, blend: additiveGlowBlend,
 	}, 1, progress)
+	// The energy coil unwinds around the rigid pike. Its final helix tangent
+	// must not turn the haft sideways: the point advances along the thrust.
+	tipX, tipY := helix(1)
+	r.weaponMaterialState.pose = weaponStrokePose{tipX, tipY, -math.Pi / 2, true}
 
 	// Tension glints: short STREAKS thrown tangentially off the unwinding coil.
 	if sweepT < 1 {

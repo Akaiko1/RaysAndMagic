@@ -290,6 +290,14 @@ type Renderer struct {
 	spellBoltOpts        ebiten.DrawTrianglesShaderOptions
 	spellBoltTime        [1]float32
 	litVolumeFaces       []litVolumeFace
+	litVolumePoints      []projectedVolumePoint
+	litVolumeOrder       []volumeFaceOrder
+	litVolumeLayer       *ebiten.Image
+	volumeLayerView      image.Point
+	volumeLayerExtent    [2]float64
+	volumeQuad           [4]ebiten.Vertex
+	volumeClearOpts      ebiten.DrawImageOptions
+	volumeCompositeOpts  ebiten.DrawTrianglesOptions
 	trapMaterial         trapMaterialRenderer
 	weaponShardVertices  [3]ebiten.Vertex
 	// softGlowImg is a radial-gradient (opaque centre -> transparent edge) white
@@ -347,6 +355,9 @@ func (r *Renderer) ensureRayHitBuffers(numRays int) {
 func (r *Renderer) handleResize(screenWidth, screenHeight int) {
 	if screenWidth <= 0 || screenHeight <= 0 {
 		return
+	}
+	if r.litVolumeLayer != nil {
+		r.resizeVolumeLayer(image.Pt(screenWidth, screenHeight))
 	}
 
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth

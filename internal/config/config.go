@@ -888,10 +888,11 @@ type GraphicsConfig struct {
 }
 
 type ViewRenderConfig struct {
-	WideFocalRatio   float64 `yaml:"wide_focal_ratio"`
-	WideHorizonRatio float64 `yaml:"wide_horizon_ratio"`
-	LiftFadeTiles    float64 `yaml:"lift_fade_tiles"`
-	LiftFullTiles    float64 `yaml:"lift_full_tiles"`
+	WideFocalRatio          float64 `yaml:"wide_focal_ratio"`
+	WideHorizonRatio        float64 `yaml:"wide_horizon_ratio"`
+	WideWeaponViewportRatio float64 `yaml:"wide_weapon_viewport_ratio"`
+	LiftFadeTiles           float64 `yaml:"lift_fade_tiles"`
+	LiftFullTiles           float64 `yaml:"lift_full_tiles"`
 }
 
 // NightMoteRenderConfig controls the shared runtime budget and timing for
@@ -1715,6 +1716,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if !(v.WideHorizonRatio > 0 && v.WideHorizonRatio < 1) {
 		return nil, fmt.Errorf("graphics.view.wide_horizon_ratio must be in (0, 1), got %g", v.WideHorizonRatio)
+	}
+	if !(v.WideWeaponViewportRatio > 0 && v.WideWeaponViewportRatio <= 1) {
+		return nil, fmt.Errorf("graphics.view.wide_weapon_viewport_ratio must be in (0, 1], got %g", v.WideWeaponViewportRatio)
 	}
 	if !(v.LiftFadeTiles > 0 && v.LiftFadeTiles < 2) {
 		return nil, fmt.Errorf("graphics.view.lift_fade_tiles must be in (0, 2), got %g", v.LiftFadeTiles)

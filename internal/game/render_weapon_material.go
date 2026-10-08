@@ -1,6 +1,7 @@
 package game
 
 import (
+	"image"
 	"math"
 	"strings"
 
@@ -22,13 +23,15 @@ const (
 )
 
 type weaponMaterialState struct {
-	weaponKey string
-	hand      int
-	material  int
-	phase     float64
-	seed      int
-	trail     meleeTrailProfile
-	pose      weaponStrokePose
+	weaponKey   string
+	progress    float64
+	hand        int
+	material    int
+	phase       float64
+	seed        int
+	trail       meleeTrailProfile
+	pose        weaponStrokePose
+	bodyHandled bool
 }
 
 func weaponMaterial(style string) int {
@@ -214,8 +217,8 @@ func (r *Renderer) weaponFxHalo(dst *ebiten.Image, x, y, rx, ry, width float64, 
 
 // The stock categories show a compact weapon silhouette at the moving edge.
 // Bespoke weapons keep the more specific heads already authored in their FX.
-func (r *Renderer) drawWeaponHead(dst *ebiten.Image, kind string, x, y, angle, size float64, col [3]int, alpha float64) {
-	r.drawWeaponSilhouette(dst, kind, "", x, y, angle, size, col, alpha)
+func (r *Renderer) drawWeaponHead(dst *ebiten.Image, kind string, x, y, angle, size, alpha float64) {
+	r.drawWeaponSilhouette(dst, kind, "", x, y, angle, size, alpha)
 }
 
 func (r *Renderer) drawWeaponCharge(dst *ebiten.Image, x, y, size, dx, dy float64, rgb [3]int, crit, alpha float64, seed int) {
@@ -254,6 +257,11 @@ func (r *Renderer) drawWeaponMaterialWarm(dst *ebiten.Image) {
 	if r.weaponMaterialWarmed || r.ensureWeaponMaterialShaders() != nil {
 		return
 	}
+	size := dst.Bounds().Size()
+	if r.game != nil && r.game.config != nil {
+		size = image.Pt(r.game.worldWidth(), r.game.worldHeight())
+	}
+	r.resizeVolumeLayer(size)
 	for i, p := range [4][2]float64{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
 		r.weaponMaterialQuad[i] = weaponMaterialVertex(p[0], p[1], p[0], p[1], [3]int{}, 0)
 	}
