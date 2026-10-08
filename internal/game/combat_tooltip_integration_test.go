@@ -85,7 +85,7 @@ func TestWeaponTooltipStrikeUnits(t *testing.T) {
 					if strings.Contains(text, "Damage shown per strike") != tc.wantSplit || strings.Contains(text, "Strikes per attack: 2") != tc.wantSplit {
 						t.Errorf("per-strike label does not match the attack kind:\n%s", text)
 					}
-					line := "Per strike: divide Normal formula total by 2, round up"
+					line := "Normal damage is divided between 2 strikes, rounded up per strike."
 					if strings.Contains(text, line) != (full && tc.wantSplit) {
 						t.Errorf("incorrect split stage in tooltip:\n%s", text)
 					}

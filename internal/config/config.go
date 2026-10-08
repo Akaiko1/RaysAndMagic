@@ -124,7 +124,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	if w.PierceCount > 0 {
 		lines = append(lines, uitext.Text("weapon.pierces_through_target_s_and_flies_on", w.PierceCount))
 	}
-	if w.DoubleStrike {
+	if includeStructured && w.DoubleStrike {
 		lines = append(lines, uitext.Text("weapon.pair_every_swing_strikes_twice_at_half"))
 	}
 	if w.EquipPersonalityMin > 0 {

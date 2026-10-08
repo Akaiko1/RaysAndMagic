@@ -818,7 +818,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 	}
 
-	greetingText := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.welcome_i_can_teach_you_powerful_spells"))
+	greetingText := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.spell_trader_prompt"))
 	ui.drawWrappedTextWithOverflow(screen, greetingText, layout.greeting, 2, dialogueLineHeight)
 
 	goldText := uitext.Text("dialog.party_gold", ui.game.party.Gold)
@@ -1158,7 +1158,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// The tabbed gladiator dialog keeps its (long) greeting on the Talk tab -
 	// the Shop tab goes straight to the grids or the text floods them.
 	if ui.game.npcDialogKindFor(ui.game.dialogNPC) != dialogKindArenaGladiator {
-		greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.bring_your_wares_i_pay_fair_coin"))
+		greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.merchant_prompt"))
 		greetingArea := layout.greeting
 		greetingArea.y += 2
 		ui.drawWrappedTextWithOverflow(screen, greeting, greetingArea, 2, dialogueLineHeight)
@@ -1444,7 +1444,7 @@ func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) 
 func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogHeight int) {
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, npcDialogWidth, dialogHeight}, false)
 	drawUIText(screen, clipUIText(uitext.Text("dialog.card_collector", ui.game.dialogNPC.Name), layout.title.w), layout.title.x, layout.title.y)
-	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.cards_is_it_hand_them_here_and"))
+	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.card_collection_prompt"))
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
 
 	mouseX, mouseY := uiCursorPosition()

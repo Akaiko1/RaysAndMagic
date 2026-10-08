@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
@@ -313,25 +314,22 @@ func (c CharacterClass) Key() string {
 func StatDescription(stat string) string {
 	switch strings.ToLower(stat) {
 	case "might":
-		return "Improves damage for weapons that scale from Might."
+		return uitext.Text("stat.might")
 	case "intellect":
-		return fmt.Sprintf("Drives elemental spell damage (Intellect/%d) and trap damage (+(Int+Acc)/%d); "+
-			"adds to max spell points. Improves damage for weapons that scale from Intellect.",
+		return uitext.Text("stat.intellect",
 			spells.SpellIntellectDivisor, TrapStatScalingDivisor)
 	case "personality":
-		return fmt.Sprintf("Drives self-magic (Body/Mind/Spirit) damage (Personality/%d) and ALL healing "+
-			"(Personality/%d); adds Personality/%d to max spell points and improves SP regen.",
+		return uitext.Text("stat.personality",
 			spells.SpellIntellectDivisor, spells.HealingPersonalityDivisor, MaxSPPersonalityDivisor)
 	case "endurance":
-		return "Increases max HP, armor-class scaling on equipped armor, and potion healing."
+		return uitext.Text("stat.endurance")
 	case "accuracy":
-		return fmt.Sprintf("Improves damage for weapons that scale from Accuracy; "+
-			"feeds trap damage (+(Int+Acc)/%d).", TrapStatScalingDivisor)
+		return uitext.Text("stat.accuracy", TrapStatScalingDivisor)
 	case "speed":
-		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode the fastest living party member grants party bonus actions (Speed >%d -> +1, >%d -> +2). Improves damage for weapons that scale from Speed.",
+		return uitext.Text("stat.speed",
 			SpeedBonusAction1Threshold, SpeedBonusAction2Threshold)
 	case "luck":
-		return "Improves critical chance and Perfect Dodge."
+		return uitext.Text("stat.luck")
 	default:
 		return ""
 	}
@@ -357,7 +355,7 @@ func WeaponCooldownMultiplier(def *config.WeaponDefinitionConfig) float64 {
 
 // ArmorPierceShotsLine is the one wording of the ranged armor pierce rule.
 func ArmorPierceShotsLine() string {
-	return fmt.Sprintf("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct)
+	return uitext.Text("weapon.armor_piercing_shots", ArmorPierceRangedChancePct)
 }
 
 // WeaponCombatLines lists combat traits governed by character rules.
@@ -377,13 +375,19 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 // the school in the contract prevents one tooltip from leaking unrelated
 // elemental/self-magic policies into every school row.
 func MagicMasteryDescription(school MagicSchoolID) string {
-	base := fmt.Sprintf("Standard spell damage/healing +0/%d/%d/%d; buff and field duration +0/%d/%d/%d%%. Buffs and summons also grow stronger with mastery.",
+	return MagicMasteryReference(school).String()
+}
+
+func MagicMasteryReference(school MagicSchoolID) MasteryReference {
+	r := MasteryReference{Effects: uitext.Text("skill.magic",
 		MasterySpellEffectPerLevel, 2*MasterySpellEffectPerLevel, 3*MasterySpellEffectPerLevel,
-		SpellMasteryDurationBonusPct, 2*SpellMasteryDurationBonusPct, 3*SpellMasteryDurationBonusPct)
+		SpellMasteryDurationBonusPct, 2*SpellMasteryDurationBonusPct, 3*SpellMasteryDurationBonusPct)}
 	if school.IsElemental() {
-		return fmt.Sprintf("%s\n\nGrandmaster:\nThe standard +%d damage becomes %s true damage.", base, int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school.DisplayName())
+		r.Grandmaster = uitext.Text("skill.elemental_magic_grandmaster", int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school.DisplayName())
+	} else {
+		r.Grandmaster = uitext.Text("skill.self_magic_grandmaster", SelfMagicGMResistPiercePct, school.DisplayName())
 	}
-	return fmt.Sprintf("%s\n\nGrandmaster:\nDamaging spells ignore %d%% of enemy %s Resistance.", base, SelfMagicGMResistPiercePct, school.DisplayName())
+	return r
 }
 
 // AllSkills is every skill in canonical (enum) order.
@@ -422,81 +426,123 @@ func masteryProgression(value func(int) int) string {
 	return masteryValues([4]int{value(0), value(1), value(2), value(3)})
 }
 
-// Description is the compact skill reference shared by the game and editor.
-// Quote mastery effects from combat values; controls and detailed action rules
-// belong on the relevant item, spell or technique card.
-func (s SkillType) Description() string {
+// MasteryReference keeps section identity independent of editable wording.
+type MasteryReference struct {
+	Effects     string
+	Grandmaster string
+}
+
+func (r MasteryReference) String() string {
+	if r.Grandmaster == "" {
+		return r.Effects
+	}
+	return r.Effects + "\n\n" + uitext.Text("reference.grandmaster_label") + "\n" + r.Grandmaster
+}
+
+// Description is the plain-text projection used by editor reference panels.
+func (s SkillType) Description() string { return s.Reference().String() }
+
+func (s SkillType) Reference() MasteryReference {
+	return MasteryReference{Effects: s.effectDescription(), Grandmaster: s.grandmasterDescription()}
+}
+
+func (s SkillType) grandmasterDescription() string {
+	switch s {
+	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster, SkillMartialArts:
+		return uitext.Text("skill.weapon_grandmaster", WeaponGMCritBonus)
+	case SkillLeather, SkillChain, SkillPlate:
+		return ArmorGMDodgeRule() + "."
+	case SkillShield:
+		return uitext.Text("skill.shield_grandmaster", ArmorGMDodgeBonus)
+	case SkillBodybuilding:
+		return uitext.Text("skill.bodybuilding_grandmaster", BodybuildingGMMaxHPPct)
+	case SkillMeditation:
+		return uitext.Text("skill.meditation_grandmaster", MeditationGMSpellCostReductionPct)
+	case SkillLearning:
+		return uitext.Text("skill.learning_grandmaster", LearningGMPartyXPPct)
+	case SkillArmsMaster:
+		return uitext.Text("skill.arms_master_grandmaster", ArmsMasterGMCritBonus)
+	case SkillIronBody:
+		return uitext.Text("skill.iron_body_grandmaster", IronBodyGMDodgeBonus)
+	case SkillPathfinding:
+		return uitext.Text("skill.pathfinding_grandmaster")
+	default:
+		return ""
+	}
+}
+
+func (s SkillType) effectDescription() string {
 	switch s {
 	case SkillAlchemy, SkillPharmacology, SkillBombThrowing, SkillTranslocation, SkillFlowingStaff, SkillPathfinding:
 		return rareSkillDescription(s)
 	case SkillOverwatch:
-		return fmt.Sprintf("While stationary with a clear shot, each tile an enemy advances toward the party in weapon range has a %s%% chance of a free bow/blaster shot. Enemy attacks trigger at half that chance. Ready after %.1fs in RT; in TB, moving or switching to turn-based turns it off until the next party round.", masteryProgression(OverwatchChancePct), OverwatchReadySeconds)
+		return uitext.Text("skill.overwatch", masteryProgression(OverwatchChancePct), OverwatchReadySeconds)
 	case SkillBallistics:
-		return fmt.Sprintf("Bow/blaster projectile speed +%s%%; range +%s tiles; critical chance +%s%%.", masteryProgression(BallisticsSpeedPct), masteryProgression(BallisticsRangeTiles), masteryProgression(BallisticsCritPct))
+		return uitext.Text("skill.ballistics", masteryProgression(BallisticsSpeedPct), masteryProgression(BallisticsRangeTiles), masteryProgression(BallisticsCritPct))
 	case SkillFieldMedicine:
-		return fmt.Sprintf("Consumable HP/SP recovery +%s%%; poison duration -%s%%. Revival unchanged.", masteryProgression(FieldMedicineRestorePct), masteryProgression(FieldMedicinePoisonReductionPct))
+		return uitext.Text("skill.field_medicine", masteryProgression(FieldMedicineRestorePct), masteryProgression(FieldMedicinePoisonReductionPct))
 	case SkillDesignateTarget:
-		return fmt.Sprintf("Ranged hits mark a target for %ss (TB: %s rounds, counting the marking round): party weapon crit +%s percentage points. One mark per user; strongest applies while the marker can act.", masteryProgression(DesignationSeconds), masteryProgression(func(tier int) int { return DesignationSeconds(tier) / TurnBasedTurnSeconds }), masteryProgression(DesignationCritPct))
+		return uitext.Text("skill.designate_target", masteryProgression(DesignationSeconds), masteryProgression(func(tier int) int { return DesignationSeconds(tier) / TurnBasedTurnSeconds }), masteryProgression(DesignationCritPct))
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster, SkillMartialArts:
-		lead := fmt.Sprintf("Allows wielding %ss.", weaponNoun(s))
+		lead := uitext.Text("skill.weapon_permission", weaponNoun(s))
 		if s == SkillMartialArts {
-			lead = "Unarmed combat proficiency."
+			lead = uitext.Text("skill.unarmed")
 		} else if WeaponCategorySkillOptional(weaponNoun(s)) {
-			lead = "Any hero with a weapon skill can fire one untrained."
+			lead = uitext.Text("skill.untrained_blaster")
 		}
-		return fmt.Sprintf("%s +0/%d/%d/%d true damage (resistance applies); it still lands when the target Perfect Dodges.\n\nGrandmaster:\n+%d%% crit; attacks ignore Perfect Dodge.", lead, MasteryWeaponTrueDamagePerTier, 2*MasteryWeaponTrueDamagePerTier, 3*MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
+		return uitext.Text("skill.weapon", lead, MasteryWeaponTrueDamagePerTier, 2*MasteryWeaponTrueDamagePerTier, 3*MasteryWeaponTrueDamagePerTier)
 	case SkillLeather, SkillChain, SkillPlate:
-		return fmt.Sprintf("Allows wearing %s armor. +0/%d/%d/%d AC per equipped piece.\n\nGrandmaster:\n%s.", weaponNoun(s), MasteryArmorACPerLevel, 2*MasteryArmorACPerLevel, 3*MasteryArmorACPerLevel, ArmorGMDodgeRule())
+		return uitext.Text("skill.armor", weaponNoun(s), MasteryArmorACPerLevel, 2*MasteryArmorACPerLevel, 3*MasteryArmorACPerLevel)
 	case SkillShield:
-		return fmt.Sprintf("Allows using a shield. Shield AC +0/%d/%d/%d.\n\nGrandmaster:\n+%d%% Perfect Dodge with a shield equipped.", MasteryArmorACPerLevel, 2*MasteryArmorACPerLevel, 3*MasteryArmorACPerLevel, ArmorGMDodgeBonus)
+		return uitext.Text("skill.shield", MasteryArmorACPerLevel, 2*MasteryArmorACPerLevel, 3*MasteryArmorACPerLevel)
 	case SkillBodybuilding:
-		return fmt.Sprintf("Max HP +0/%d/%d/%d.\n\nGrandmaster:\nAlso +%d%% of base max HP.", BodybuildingHPPerTier, 2*BodybuildingHPPerTier, 3*BodybuildingHPPerTier, BodybuildingGMMaxHPPct)
+		return uitext.Text("skill.bodybuilding", BodybuildingHPPerTier, 2*BodybuildingHPPerTier, 3*BodybuildingHPPerTier)
 	case SkillMeditation:
-		return fmt.Sprintf("SP regen +0/%d/%d/%d per regeneration tick (every %ds in real time, every %d rounds in turn-based).\n\nGrandmaster:\nSpells, traps and techniques cost %d%% less SP (rounded).", MeditationRegenPerTier, 2*MeditationRegenPerTier, 3*MeditationRegenPerTier, config.RegenerationIntervalFrames/config.DefaultTPS, config.RegenerationRounds, MeditationGMSpellCostReductionPct)
+		return uitext.Text("skill.meditation", MeditationRegenPerTier, 2*MeditationRegenPerTier, 3*MeditationRegenPerTier, config.RegenerationIntervalFrames/config.DefaultTPS, config.RegenerationRounds)
 	case SkillLearning:
-		return fmt.Sprintf("Personal XP +0/%d/%d/%d%%.\n\nGrandmaster:\nA living teacher grants +%d%% XP to all rosters; does not stack.", LearningXPPctPerTier, 2*LearningXPPctPerTier, 3*LearningXPPctPerTier, LearningGMPartyXPPct)
+		return uitext.Text("skill.learning", LearningXPPctPerTier, 2*LearningXPPctPerTier, 3*LearningXPPctPerTier)
 	case SkillArmsMaster:
-		return fmt.Sprintf("Normal weapon damage +0/%d/%d/%d.\n\nGrandmaster:\n+%d%% weapon crit.", ArmsMasterDamagePerTier, 2*ArmsMasterDamagePerTier, 3*ArmsMasterDamagePerTier, ArmsMasterGMCritBonus)
+		return uitext.Text("skill.arms_master", ArmsMasterDamagePerTier, 2*ArmsMasterDamagePerTier, 3*ArmsMasterDamagePerTier)
 	case SkillMerchant:
-		return fmt.Sprintf("Gold-shop buy prices -0/%d/%d/%d%%; sell prices +0/%d/%d/%d%%. Best active Merchant only.", MerchantPricePctPerTier, 2*MerchantPricePctPerTier, 3*MerchantPricePctPerTier, MerchantPricePctPerTier, 2*MerchantPricePctPerTier, 3*MerchantPricePctPerTier)
+		return uitext.Text("skill.merchant", MerchantPricePctPerTier, 2*MerchantPricePctPerTier, 3*MerchantPricePctPerTier, MerchantPricePctPerTier, 2*MerchantPricePctPerTier, 3*MerchantPricePctPerTier)
 	case SkillDisarmTrap:
-		return fmt.Sprintf("Chest disarm: %d/%d/%d/%d%% (best active user). Personal hit damage -0/%d/%d/%d after defenses; true damage and DoTs bypass it.", DisarmTrapAvoidBasePct, DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+3*DisarmTrapAvoidPerTierPct, DisarmTrapDamageReductionPerTier, 2*DisarmTrapDamageReductionPerTier, 3*DisarmTrapDamageReductionPerTier)
+		return uitext.Text("skill.disarm_trap", DisarmTrapAvoidBasePct, DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+3*DisarmTrapAvoidPerTierPct, DisarmTrapDamageReductionPerTier, 2*DisarmTrapDamageReductionPerTier, 3*DisarmTrapDamageReductionPerTier)
 	case SkillTrapper:
-		return fmt.Sprintf("Trap damage +0/%d/%d/%d + floor((Intellect + Accuracy)/%d). Control duration: +0/%d/%d/%ds RT; +%s turns TB.", TrapperDamagePerTier, 2*TrapperDamagePerTier, 3*TrapperDamagePerTier, TrapStatScalingDivisor, TrapperSecondsPerTier, 2*TrapperSecondsPerTier, 3*TrapperSecondsPerTier, masteryProgression(TrapperTurnBonus))
+		return uitext.Text("skill.trapper", TrapperDamagePerTier, 2*TrapperDamagePerTier, 3*TrapperDamagePerTier, TrapStatScalingDivisor, TrapperSecondsPerTier, 2*TrapperSecondsPerTier, 3*TrapperSecondsPerTier, masteryProgression(TrapperTurnBonus))
 	case SkillSleightOfHand:
-		return fmt.Sprintf("Melee hits: %d/%d/%d/%d%% pickpocket chance. One successful theft per surviving enemy: a roll of its loot table (the death drop still falls), or gold.", SleightChancePctPerTier, 2*SleightChancePctPerTier, 3*SleightChancePctPerTier, 4*SleightChancePctPerTier)
+		return uitext.Text("skill.sleight_of_hand", SleightChancePctPerTier, 2*SleightChancePctPerTier, 3*SleightChancePctPerTier, 4*SleightChancePctPerTier)
 	case SkillRepair, SkillIdentifyItem:
-		return "No effect yet."
+		return uitext.Text("skill.inactive")
 	case SkillDualWielding:
-		return fmt.Sprintf("Allows an off-hand weapon. RT weapon cooldown -0/%d/%d/%d%%. With a weapon in each hand: in RT each hand recovers on its own; in TB at least 2 actions per round, and weapon swings alternate main and off hand, starting each round on the main hand.", DualWieldingCDReductionPerTier, 2*DualWieldingCDReductionPerTier, 3*DualWieldingCDReductionPerTier)
+		return uitext.Text("skill.dual_wielding", DualWieldingCDReductionPerTier, 2*DualWieldingCDReductionPerTier, 3*DualWieldingCDReductionPerTier)
 	case SkillIronBody:
-		return fmt.Sprintf("Armor Class +%d/%d/%d/%d.\n\nGrandmaster:\n+%d%% Perfect Dodge.", IronBodyACPerTier, 2*IronBodyACPerTier, 3*IronBodyACPerTier, 4*IronBodyACPerTier, IronBodyGMDodgeBonus)
+		return uitext.Text("skill.iron_body", IronBodyACPerTier, 2*IronBodyACPerTier, 3*IronBodyACPerTier, 4*IronBodyACPerTier)
 	case SkillSpiritualTraining:
-		return fmt.Sprintf("Melee swings: %d/%d/%d/%d%% chance to cast the slotted offensive spell for free (no SP or extra action), even on a miss.", SpiritualTrainingProcPctPerTier, 2*SpiritualTrainingProcPctPerTier, 3*SpiritualTrainingProcPctPerTier, 4*SpiritualTrainingProcPctPerTier)
+		return uitext.Text("skill.spiritual_training", SpiritualTrainingProcPctPerTier, 2*SpiritualTrainingProcPctPerTier, 3*SpiritualTrainingProcPctPerTier, 4*SpiritualTrainingProcPctPerTier)
 	case SkillElementalMastery:
-		return fmt.Sprintf("%s spells ignore %s%% of matching resistance.", elementalMagicSchoolNames(), masteryProgression(ElementalMasteryPiercePct))
+		return uitext.Text("skill.elemental_mastery", elementalMagicSchoolNames(), masteryProgression(ElementalMasteryPiercePct))
 	case SkillAnimalBonding:
-		return fmt.Sprintf("Weapon attacks/spells: %s%% summon chance, up to %d living bears. Bear HP: %s%% of hero max HP; AC/damage: %s%% of hero stats.", masteryProgression(AnimalBondingProcPct), AnimalBondingSummonMax, masteryProgression(AnimalBondingHPPct), masteryProgression(AnimalBondingStatPct))
+		return uitext.Text("skill.animal_bonding", masteryProgression(AnimalBondingProcPct), AnimalBondingSummonMax, masteryProgression(AnimalBondingHPPct), masteryProgression(AnimalBondingStatPct))
 	case SkillSacrifice:
-		return fmt.Sprintf("Redirects %s%% of ally hit damage after defenses. Strongest living active protector only; no second mitigation or DoTs.", masteryProgression(SacrificeRedirectPct))
+		return uitext.Text("skill.sacrifice", masteryProgression(SacrificeRedirectPct))
 	case SkillImpenetrableDefense:
-		return fmt.Sprintf("Hit damage -%s after defenses. Does not reduce true damage or DoTs.", masteryProgression(ImpenetrableDefenseReduction))
+		return uitext.Text("skill.impenetrable_defense", masteryProgression(ImpenetrableDefenseReduction))
 	case SkillLockpicking:
-		return fmt.Sprintf("Locked-door success: %s%%. After %d failed non-key attempts the lock jams; a key still works.", masteryProgression(LockpickingChancePct), DoorMaxNonKeyAttempts)
+		return uitext.Text("skill.lockpicking", masteryProgression(LockpickingChancePct), DoorMaxNonKeyAttempts)
 	case SkillNaturalHealer:
-		return fmt.Sprintf("HP healed by healing spells +%s%%. Revival spells unchanged.", masteryProgression(NaturalHealerBonusPct))
+		return uitext.Text("skill.natural_healer", masteryProgression(NaturalHealerBonusPct))
 	case SkillCelestialProvidence:
-		return "Living active Celestial: random Master-tier party buff at dawn/dusk, lasting until the next phase. Does not stack."
+		return uitext.Text("skill.celestial_providence")
 	case SkillOrcishFury:
-		return fmt.Sprintf("Normal weapon damage +%s.", masteryProgression(OrcishFuryDamageBonus))
+		return uitext.Text("skill.orcish_fury", masteryProgression(OrcishFuryDamageBonus))
 	case SkillHalflingGuile:
-		return "Halves this hero's weight when enemies choose a random party target."
+		return uitext.Text("skill.halfling_guile")
 	case SkillDarkElfBinding:
-		return fmt.Sprintf("Weapon, spell and trap hits, including fields: %d%% chance to turn the target into an ally until the party leaves for another map (the open outdoor world counts as one). Replaces damage; excludes undead, bosses and invulnerable targets.", DarkElfBindingChancePct)
+		return uitext.Text("skill.dark_elf_binding", DarkElfBindingChancePct)
 	case SkillSpellAbsorption:
-		return fmt.Sprintf("%s%% chance to absorb a hostile spell hit. Restores its damage before defenses as both HP and SP instead.", masteryProgression(SpellAbsorbChancePct))
+		return uitext.Text("skill.spell_absorption", masteryProgression(SpellAbsorbChancePct))
 	case SkillStrongMagic:
-		return fmt.Sprintf("Damaging spell damage +%s%%. HP cost: %s%% of paid SP (rounded), capped to leave 1 HP. Spells that deal no damage (stuns, charms, binds) gain and cost nothing.", masteryProgression(StrongMagicPct), masteryProgression(StrongMagicPct))
+		return uitext.Text("skill.strong_magic", masteryProgression(StrongMagicPct), masteryProgression(StrongMagicPct))
 	default:
 		return ""
 	}
@@ -508,15 +554,15 @@ func SpellAbsorbChancePct(tier int) int {
 	return (tier + 1) * SpellAbsorbChancePctPerTier
 }
 
-// StrongMagicPct is the Strong Magic exchange rate at the given tier: the
-// percent of the spell's SP cost burned as HP, and the percent added to the
-// spell's damage - 25/50/75/100%.
 // ArmorGMDodgeRule is the armor Grandmaster dodge rule as the skill page and
 // every armor piece state it: the bonus counts once per armor type worn.
 func ArmorGMDodgeRule() string {
-	return fmt.Sprintf("+%d%% Perfect Dodge, once per armor type", ArmorGMDodgeBonus)
+	return uitext.Text("skill.armor_grandmaster", ArmorGMDodgeBonus)
 }
 
+// StrongMagicPct is the Strong Magic exchange rate at the given tier: the
+// percent of the spell's SP cost burned as HP, and the percent added to the
+// spell's damage - 25/50/75/100%.
 func StrongMagicPct(tier int) int {
 	return (tier + 1) * StrongMagicPctPerTier
 }

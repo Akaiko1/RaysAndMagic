@@ -2649,7 +2649,7 @@ func (r *Renderer) drawMapRenderStandeeShaderWarm(target *ebiten.Image, task *ma
 	if r.standeeVolumeShader != nil {
 		for i := range vertices {
 			vertices[i].SrcX = srcX + 1
-			vertices[i].ColorG = 100
+			vertices[i].ColorG = 1.0 / 100
 			vertices[i].ColorA = standeeVolumeMinShells + 0.0625
 			vertices[i].Custom0 = 0.5
 			vertices[i].Custom1 = 1

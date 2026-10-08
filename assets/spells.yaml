@@ -685,7 +685,7 @@ spells:
 
   charm:
     name: "Charm"
-    description: "Beguiles a living foe so it stops attacking. Breaks on any hit it takes. No effect on undead or bosses."
+    description: "Clouds a foe's mind with a moment of false friendship."
     school: "mind"
     spell_points_cost: 10
     cooldown_seconds: 2.0
@@ -769,7 +769,7 @@ spells:
 
   firewall:
     name: "Firewall"
-    description: "Raises a three-tile wall of fire. Adjacent open tiles take half damage. Both bands ignite victims for 3 seconds; overlapping flames hit once per tick."
+    description: "Raises a blazing barrier across the enemy's path."
     school: "fire"
     spell_points_cost: 25
     cooldown_seconds: 3.0

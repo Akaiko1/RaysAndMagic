@@ -74,7 +74,7 @@ func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardR
 // was cast with (mastery included), in the wording of the card that grants it.
 func (g *MMGame) activeBuffEffectLines(id string) []string {
 	if def, ok := config.GetItemDefinition(id); ok && def.HasTimedBuff() {
-		return def.ItemMechanicLines() // draughts are fixed by the item
+		return def.TimedBuffEffectLines() // the HUD owns the remaining duration
 	}
 	var out []string
 	if b, ok := g.statBuffByID(id); ok {

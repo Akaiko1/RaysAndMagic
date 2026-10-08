@@ -256,7 +256,7 @@ func (g *MMGame) propModelHitTest(npc *character.NPC, x, y int) bool {
 	if x < len(g.depthBuffer) && nearest*ts > g.depthBuffer[x]+.07 {
 		top := 0.0
 		if x < len(g.wallTopBuffer) {
-			top = float64(g.wallTopBuffer[x])
+			top = g.wallTopBuffer[x]
 		}
 		if float64(y)+.5 >= top {
 			return false

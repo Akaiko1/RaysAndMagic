@@ -505,7 +505,22 @@ npcs:
     dialogue:
       greeting: "Dry canvas shelters a small fire and a reliable clock."
       visited_message: "The work is recorded."
-      choices: [{"text": "Wait until dusk (250 gold).", "action": "wait_until_night", "cost": 250}, {"text": "Wait until dawn (250 gold).", "action": "wait_until_dawn", "cost": 250}, {"text": "Take the restored service lift to the threshold.", "action": "enter_map", "map": "solstice_vestibule", "arrival_tile": [12, 7], "requires_quest": "solstice_records"}, {"text": "Leave.", "action": "leave"}]
+      choices:
+        - text: "Wait until dusk (250 gold)."
+          action: "wait_until_night"
+          cost: 250
+          response: "You wait beneath the canvas as the campfire brightens against the gathering dusk (-{cost} gold)."
+        - text: "Wait until dawn (250 gold)."
+          action: "wait_until_dawn"
+          cost: 250
+          response: "You wait beneath the canvas until the first light reaches the camp (-{cost} gold)."
+        - text: "Take the restored service lift to the threshold."
+          action: "enter_map"
+          map: "solstice_vestibule"
+          arrival_tile: [12, 7]
+          requires_quest: "solstice_records"
+        - text: "Leave."
+          action: "leave"
   solstice_jungle_entrance:
     name: "Solstice Approach"
     type: "encounter"
@@ -893,6 +908,7 @@ npcs:
         - text: "Rest the night (25 gold)"
           action: "tavern_rest"
           cost: 25
+          response: "The party sleeps soundly (-{cost} gold). HP and spell points restored."
         - text: "Buy rations"
           action: "buy_food"
           cost: 250
@@ -916,6 +932,13 @@ npcs:
       completed_message: "The door shines white. 'The Lich King is defeated. Let one of you step forward to receive the Light and be raised to Archmage.'"
       visited_message: "The tower's wards part at your approach. One of your company now bears its Light."
       choice_prompt: "White fire outlines the open door."
+      quest_messages:
+        archmage_trial:
+          accepted: "Trial accepted: slay the Lich King, then return to the tower."
+          already_active: "The trial is already underway - return when the Lich King is slain."
+          not_completed: "The Lich King still draws breath. Return when the deed is done."
+          ineligible: "No one in your party can walk the Archmage's path."
+          rejected_undead: "The tower's wards reject the undead."
       choices:
         - text: "What trial does the tower offer?"
           action: "info"
@@ -2800,9 +2823,11 @@ npcs:
         - text: "Doze until nightfall (750 gold)"
           action: "wait_until_night"
           cost: 750
+          response: "You doze among the old bones until the stars come out (-{cost} gold)."
         - text: "Doze until dawn (750 gold)"
           action: "wait_until_dawn"
           cost: 750
+          response: "You doze among the old bones until first light (-{cost} gold)."
         - text: "Leave them be"
           action: "leave"
 

@@ -136,7 +136,7 @@ items:
   solstice_fire_ward:
     name: "Heat Draught"
     type: "consumable"
-    description: "Adds 30% fire damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
+    description: "A warm draught distilled from Solstice embers."
     damage_buff_school: "fire"
     damage_buff_pct: 30
     buff_hp_regen_pct: 3
@@ -157,7 +157,7 @@ items:
   solstice_fire_field_ward:
     name: "Field Heat Draught"
     type: "consumable"
-    description: "Adds 15% fire damage for 60 combat seconds."
+    description: "A warm draught distilled from Solstice embers."
     damage_buff_school: "fire"
     damage_buff_pct: 15
     buff_duration_seconds: 60
@@ -177,7 +177,7 @@ items:
   solstice_fire_advanced_ward:
     name: "Advanced Heat Draught"
     type: "consumable"
-    description: "Adds 40% fire damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
+    description: "A warm draught distilled from Solstice embers."
     damage_buff_school: "fire"
     damage_buff_pct: 40
     buff_hp_regen_pct: 5
@@ -234,7 +234,7 @@ items:
   solstice_water_ward:
     name: "Flow Draught"
     type: "consumable"
-    description: "Adds 30% water damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
+    description: "A cool draught distilled from Solstice currents."
     damage_buff_school: "water"
     damage_buff_pct: 30
     buff_hp_regen_pct: 3
@@ -255,7 +255,7 @@ items:
   solstice_water_field_ward:
     name: "Field Flow Draught"
     type: "consumable"
-    description: "Adds 15% water damage for 60 combat seconds."
+    description: "A cool draught distilled from Solstice currents."
     damage_buff_school: "water"
     damage_buff_pct: 15
     buff_duration_seconds: 60
@@ -275,7 +275,7 @@ items:
   solstice_water_advanced_ward:
     name: "Advanced Flow Draught"
     type: "consumable"
-    description: "Adds 40% water damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
+    description: "A cool draught distilled from Solstice currents."
     damage_buff_school: "water"
     damage_buff_pct: 40
     buff_hp_regen_pct: 5
@@ -332,7 +332,7 @@ items:
   solstice_earth_ward:
     name: "Anchor Draught"
     type: "consumable"
-    description: "Adds 30% earth damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
+    description: "A mineral draught distilled from Solstice stone."
     damage_buff_school: "earth"
     damage_buff_pct: 30
     buff_hp_regen_pct: 3
@@ -353,7 +353,7 @@ items:
   solstice_earth_field_ward:
     name: "Field Anchor Draught"
     type: "consumable"
-    description: "Adds 15% earth damage for 60 combat seconds."
+    description: "A mineral draught distilled from Solstice stone."
     damage_buff_school: "earth"
     damage_buff_pct: 15
     buff_duration_seconds: 60
@@ -373,7 +373,7 @@ items:
   solstice_earth_advanced_ward:
     name: "Advanced Anchor Draught"
     type: "consumable"
-    description: "Adds 40% earth damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
+    description: "A mineral draught distilled from Solstice stone."
     damage_buff_school: "earth"
     damage_buff_pct: 40
     buff_hp_regen_pct: 5
@@ -430,7 +430,7 @@ items:
   solstice_air_ward:
     name: "Vector Draught"
     type: "consumable"
-    description: "Adds 30% air damage and regenerates 3% max HP per regeneration tick for 60 combat seconds."
+    description: "A sharp draught distilled from Solstice winds."
     damage_buff_school: "air"
     damage_buff_pct: 30
     buff_hp_regen_pct: 3
@@ -451,7 +451,7 @@ items:
   solstice_air_field_ward:
     name: "Field Vector Draught"
     type: "consumable"
-    description: "Adds 15% air damage for 60 combat seconds."
+    description: "A sharp draught distilled from Solstice winds."
     damage_buff_school: "air"
     damage_buff_pct: 15
     buff_duration_seconds: 60
@@ -471,7 +471,7 @@ items:
   solstice_air_advanced_ward:
     name: "Advanced Vector Draught"
     type: "consumable"
-    description: "Adds 40% air damage and regenerates 5% max HP and 5% max mana per regeneration tick for 60 combat seconds."
+    description: "A sharp draught distilled from Solstice winds."
     damage_buff_school: "air"
     damage_buff_pct: 40
     buff_hp_regen_pct: 5
@@ -3057,7 +3057,7 @@ items:
     brew_color: [169, 74, 222]
     name: Harm Flask
     type: consumable
-    description: Select as a quick action to throw. Requires Bomb Throwing.
+    description: A sealed flask prepared for throwing.
     rarity: common
     value: 1
     crafted_only: true
@@ -3082,7 +3082,7 @@ items:
     brew_color: [113, 222, 49]
     name: Venom Flask
     type: consumable
-    description: Select as a quick action to throw. Requires Bomb Throwing.
+    description: A sealed flask prepared for throwing.
     rarity: common
     value: 1
     crafted_only: true
@@ -3107,7 +3107,7 @@ items:
     brew_color: [249, 116, 33]
     name: Fire Flask
     type: consumable
-    description: Select as a quick action to throw. Requires Bomb Throwing.
+    description: A sealed flask prepared for throwing.
     rarity: common
     value: 1
     crafted_only: true

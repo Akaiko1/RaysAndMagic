@@ -277,6 +277,35 @@ func TestValidatePricedChoicesWalksNestedDialogue(t *testing.T) {
 	}
 }
 
+func TestPaidServiceResponseValidation(t *testing.T) {
+	previous := NPCConfigInstance
+	t.Cleanup(func() { NPCConfigInstance = previous })
+	for _, action := range []string{"tavern_rest", "wait_until_night", "wait_until_dawn"} {
+		for _, tc := range []struct {
+			response string
+			valid    bool
+		}{
+			{"", false}, {"  ", false}, {"You wait by the fire", true},
+			{"100% sheltered (-{cost} gold).", true}, {"Cost: {price}", false},
+			{"Cost: {cost", false},
+		} {
+			t.Run(action+"/"+tc.response, func(t *testing.T) {
+				NPCConfigInstance = &NPCConfig{NPCs: map[string]*NPCData{
+					"camp": {Dialogue: &NPCDialogue{Choices: []*NPCDialogueChoice{
+						{Action: "info", Choices: []*NPCDialogueChoice{
+							{Action: action, Cost: 10, Response: tc.response},
+						}},
+					}}},
+				}}
+				err := validatePricedChoices()
+				if (err == nil) != tc.valid {
+					t.Fatalf("response %q: validation error = %v", tc.response, err)
+				}
+			})
+		}
+	}
+}
+
 func TestNPCDialogueHasActionWalksNestedChoices(t *testing.T) {
 	dialogue := &NPCDialogue{Choices: []*NPCDialogueChoice{
 		{

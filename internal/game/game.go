@@ -580,9 +580,9 @@ type MMGame struct {
 	// distant field paints over a nearer creature.
 	actorDepthBuffer []float64
 	// wallTopBuffer is the screen-Y of the nearest solid wall's TOP per column
-	// (parallel to depthBuffer). Lets tall sprites (tree standees) render the
-	// part that rises ABOVE a shorter wall instead of being culled whole-column.
-	wallTopBuffer []int
+	// (parallel to depthBuffer). Preserve the wall geometry's fractional edge
+	// so tall sprites above it neither leave a sky gap nor overdraw the wall.
+	wallTopBuffer []float64
 
 	// Systems
 	gameLoop             *GameLoop
@@ -953,7 +953,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		// Initialize depth buffers for proper 3D rendering.
 		depthBuffer:      make([]float64, cfg.GetScreenWidth()),
 		actorDepthBuffer: make([]float64, cfg.GetScreenWidth()),
-		wallTopBuffer:    make([]int, cfg.GetScreenWidth()),
+		wallTopBuffer:    make([]float64, cfg.GetScreenWidth()),
 
 		// Pre-allocate reusable slices to reduce GC pressure
 		reusableMonsterWrappers:     make([]entities.MonsterUpdateInterface, 0, 64),
@@ -1911,7 +1911,7 @@ func (g *MMGame) handleResize(ui, world image.Point) {
 
 	g.depthBuffer = make([]float64, world.X)
 	g.actorDepthBuffer = make([]float64, world.X)
-	g.wallTopBuffer = make([]int, world.X)
+	g.wallTopBuffer = make([]float64, world.X)
 	g.skyImg = ebiten.NewImage(world.X, world.Y/2)
 	g.groundImg = ebiten.NewImage(world.X, world.Y/2)
 	g.UpdateSkyAndGroundColors()

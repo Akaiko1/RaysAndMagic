@@ -182,8 +182,8 @@ func TestBuffStatusCardNamesNonSpellSources(t *testing.T) {
 			if card[0] != def.Name || card[1] != uitext.Text("buff.source_draught") {
 				t.Fatalf("draught card header = %q", card[:2])
 			}
-			// The same lines as the draught's own item card.
-			for _, want := range def.ItemMechanicLines() {
+			// Effect magnitudes match the item; the HUD only shows time remaining.
+			for _, want := range def.TimedBuffEffectLines() {
 				if !slices.Contains(card, want) {
 					t.Fatalf("draught card lacks its item line %q:\n%s", want, text)
 				}

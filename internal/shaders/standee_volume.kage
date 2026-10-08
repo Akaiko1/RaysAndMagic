@@ -8,7 +8,7 @@ var Horizon float
 //	custom.xy  far/near reciprocal perpendicular depth
 //	custom.zw  far/near source U divided by depth
 //	srcPos.xy  height/bottom projection invariants
-//	color      brightness, wall depth, wall top, shell count
+//	color      brightness, reciprocal wall depth, wall top, shell count
 //
 // Geometry covers the projected union of both outer faces. Every virtual
 // layer reconstructs the same perspective height, source coordinate, wall
@@ -42,7 +42,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	nearU := custom.w*nearDepth
 	projection := srcPos - imageSrc0Origin()
 	dstY := dstPos.y - imageDstOrigin().y
-	wallDepth := color.g
+	wallDepth := 1.0/color.g
 	wallTop := color.b
 	packed := color.a
 	shellCount := floor(packed)

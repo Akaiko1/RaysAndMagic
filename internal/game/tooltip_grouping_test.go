@@ -114,7 +114,7 @@ func TestTooltipResultsAndExceptionsStayTogether(t *testing.T) {
 	for _, tc := range []struct {
 		kind, key, group, result, detail, exception string
 	}{
-		{"item", "golden_armor", "DEFENSE", "Item Armor Class:", "Base Armor Class:", "Typed true damage"},
+		{"item", "golden_armor", "DEFENSE", "Item Armor Class:", "Base Armor Class:", "True damage"},
 		{"item", "health_potion", "RECOVERY", "Current recovery:", "Base recovery:", "Field Medicine:"},
 		{"spell", "fireball", "DAMAGE", "Total Damage:", "Base (", "Reduced by target Armor"},
 		{"spell", "fireball", "CRITICAL", "Chance:", "Luck:", "Critical Damage:"},
@@ -166,7 +166,6 @@ func TestReferenceTooltipsKeepCanonicalDescriptions(t *testing.T) {
 				}
 			}
 			// Section labels become headings; every gameplay fact remains unchanged.
-			description = strings.ReplaceAll(description, "Grandmaster:\n", "")
 			if strings.Join(strings.Fields(strings.Join(body, " ")), " ") != strings.Join(strings.Fields(description), " ") {
 				t.Fatal("reference formatting changed the canonical facts")
 			}
@@ -179,10 +178,12 @@ func TestReferenceTooltipsKeepCanonicalDescriptions(t *testing.T) {
 		check(stat, character.StatDescription(stat), statTooltipRows(stat))
 	}
 	for _, skill := range character.AllSkills {
-		check(skill.String(), skill.Description(), masteryTooltipRowsForSkill(skill))
+		ref := skill.Reference()
+		check(skill.String(), ref.Effects+" "+ref.Grandmaster, masteryTooltipRowsForSkill(skill))
 	}
 	for _, school := range character.AllMagicSchools {
-		check(school.DisplayName(), character.MagicMasteryDescription(school), magicMasteryTooltipRows(school))
+		ref := character.MagicMasteryReference(school)
+		check(school.DisplayName(), ref.Effects+" "+ref.Grandmaster, magicMasteryTooltipRows(school))
 	}
 }
 

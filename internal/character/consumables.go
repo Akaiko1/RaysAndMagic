@@ -35,7 +35,7 @@ func ConsumableRestore(c *MMCharacter, base, divisor int, mana bool, support ...
 	return amount*(100+pct)/100 + flat
 }
 
-// AddConsumableDetails explains only the restoration actually applied to this bearer.
+// AddConsumableDetails explains restoration and its scaling for this bearer.
 func AddConsumableDetails(section *CardSection, def *config.ItemDefinitionConfig, bearer *MMCharacter, support ...PotionSupport) {
 	if def == nil {
 		return
@@ -59,7 +59,11 @@ func AddConsumableDetails(section *CardSection, def *config.ItemDefinitionConfig
 		}
 		section.AddDetail("Base recovery: %d %s", resource.base, resource.name)
 		if resource.div > 0 {
-			section.AddDetail("%s (%d / %d): +%d %s", resource.stat, resource.value, resource.div, resource.value/resource.div, resource.name)
+			if resource.value/resource.div == 0 {
+				section.AddDetail("%s", uitext.Text("stat.scaling", resource.stat, resource.div))
+			} else {
+				section.AddDetail("%s (%d / %d): +%d %s", resource.stat, resource.value, resource.div, resource.value/resource.div, resource.name)
+			}
 		}
 		if bearer.HasSkill(SkillFieldMedicine) {
 			section.AddDetail("Field Medicine: +%d%% %s recovery", FieldMedicineRestorePct(bearer.SkillTier(SkillFieldMedicine)), resource.name)
@@ -74,7 +78,11 @@ func AddConsumableDetails(section *CardSection, def *config.ItemDefinitionConfig
 				pct, flat = bonus.SPPct, 0
 			}
 			if pct > 0 {
-				section.AddDetail("Pharmacology (%s): +%d%% and +%d %s", bonus.Source, pct, flat, resource.name)
+				if flat > 0 {
+					section.AddDetail("%s", uitext.Text("item.pharmacology_flat", bonus.Source, pct, flat, resource.name))
+				} else {
+					section.AddDetail("%s", uitext.Text("item.pharmacology", bonus.Source, pct, resource.name))
+				}
 			}
 		}
 		selected := support

@@ -424,7 +424,7 @@ func TestStampActorDepth_MarksTheCentralBandWithTheNearest(t *testing.T) {
 	// A same-size Layout pass must repair a missing auxiliary buffer instead of
 	// returning solely because the primary depth buffer already matches.
 	g.depthBuffer = make([]float64, wantWidth)
-	g.wallTopBuffer = make([]int, wantWidth)
+	g.wallTopBuffer = make([]float64, wantWidth)
 	g.actorDepthBuffer = nil
 	g.handleResize(image.Pt(g.config.GetScreenWidth(), g.config.GetScreenHeight()), image.Pt(g.config.GetScreenWidth(), g.config.GetScreenHeight()))
 	if got := len(g.actorDepthBuffer); got != wantWidth {

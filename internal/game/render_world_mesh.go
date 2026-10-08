@@ -103,7 +103,7 @@ func (r *Renderer) prepareWorldMaterial() {
 		code := uint16(math.Round(math.Min(1, math.Max(0, d/scale)) * 65535))
 		top := 0.0
 		if x < len(r.game.wallTopBuffer) {
-			top = float64(r.game.wallTopBuffer[x])
+			top = r.game.wallTopBuffer[x]
 		}
 		m.pixels[x*4], m.pixels[x*4+1] = byte(code>>8), byte(code)
 		m.pixels[x*4+2], m.pixels[x*4+3] = 0, 255

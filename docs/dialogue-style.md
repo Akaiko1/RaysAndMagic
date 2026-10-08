@@ -4,6 +4,24 @@ NPC dialogue and quest prose use a literary adventure style inspired by
 Might and Magic III, IV, and V. These rules apply to trainers, shops, quest
 reminders, and rewards.
 
+## Text ownership
+
+- Author NPC voices and location-specific messages in `assets/npcs.yaml`, not
+  the shared UI catalog. `quest_messages.<quest_id>` holds both conversation
+  bodies (`offer`, `active`, `completed`) and optional action replies
+  (`accepted`, `already_active`, `not_completed`, `ineligible`, `rejected_undead`).
+  Missing optional replies use neutral UI feedback; they never change gates.
+- Paid wait and tavern-rest choices require a complete `response`. Use `{cost}`
+  for the choice's price; other placeholders are rejected. Percent signs in
+  these messages are literal, not printf directives.
+- `assets/text/*.yaml` owns shared UI labels, controls and neutral status
+  templates. NPC shop headers use authored greetings, with neutral UI prompts
+  only when no greeting is provided.
+- UI format signatures are derived from the bundled YAML at startup. Do not
+  maintain a second registry in Go or another YAML. External wording must keep
+  the bundled keys and printf argument types/order; catalog tests also verify
+  the production call sites against that contract.
+
 ## Writing rules
 
 - Write the person before the instruction: a trade, grievance, desire, habit,

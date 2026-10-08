@@ -439,6 +439,17 @@ func (g *MMGame) npcShopHeaderLine(npc *character.NPC, stock string) string {
 	return stock
 }
 
+// npcQuestReply selects optional NPC prose; otherwise the caller supplies
+// neutral UI feedback. The NPC must be captured before closing its dialog.
+func npcQuestReply(npc *character.NPC, questID string, pick func(character.NPCQuestMessages) string, fallback string) string {
+	if npc != nil && npc.DialogueData != nil {
+		if line := pick(npc.DialogueData.QuestMessages[questID]); line != "" {
+			return line
+		}
+	}
+	return fallback
+}
+
 // npcIsCardCollector reports whether the NPC runs the monster-card collection UI.
 func npcIsCardCollector(npc *character.NPC) bool {
 	return npc != nil && npc.Type == character.NPCTypeCardCollector
@@ -525,10 +536,10 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 		ih.handleTavernRest(c)
 	},
 	"wait_until_night": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
-		ih.handleArenaWait(c, true)
+		ih.handlePaidWait(c, true)
 	},
 	"wait_until_dawn": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
-		ih.handleArenaWait(c, false)
+		ih.handlePaidWait(c, false)
 	},
 	"buy_food": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleBuyFood(c)
@@ -564,7 +575,7 @@ var gatedServiceActions = map[string]bool{
 	"manage_stash":       true,
 	"cast_buff":          true,
 	"start_arena_duel":   true,
-	"wait_until_night":   true, // the arena's paid rest (750g in npcs.yaml)
+	"wait_until_night":   true, // paid waiting, priced in npcs.yaml
 	"wait_until_dawn":    true,
 }
 

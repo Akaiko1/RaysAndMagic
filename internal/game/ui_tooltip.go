@@ -26,16 +26,18 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 
 // GetItemTooltipRows retains the producer's row roles for game and editor rendering.
 func GetItemTooltipRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) character.CardRows {
-	return itemTooltipWithUsageRows(item, char, combatSystem, full)
+	return itemTooltipWithUsageRows(item, char, combatSystem, full, itemUsage{})
 }
 
-// itemTooltipWithUsage is GetItemTooltip with context hints appended to the
-// card's USAGE section (the Card Collector names its double-click action).
-func itemTooltipWithUsage(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage ...string) string {
-	return itemTooltipWithUsageRows(item, char, combatSystem, full, usage...).String()
+// itemUsage controls authored action hints only. Consumable eligibility and
+// flask combat rules still appear in USAGE regardless of the view's action.
+// ReplaceDefaultHints with no Hints describes a passive collection view.
+type itemUsage struct {
+	ReplaceDefaultHints bool
+	Hints               []string
 }
 
-func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage ...string) character.CardRows {
+func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage itemUsage) character.CardRows {
 	if char == nil {
 		combatSystem = nil
 	}
@@ -83,7 +85,7 @@ func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, comb
 		if combatSystem != nil && combatSystem.game != nil {
 			party = combatSystem.game.party
 		}
-		core = buildSimpleItemTooltipWithPartyRows(item, full, char, party, combatSystem, usage...)
+		core = buildSimpleItemTooltipWithPartyRows(item, full, char, party, combatSystem, usage)
 	}
 	if len(core) == 0 {
 		core.Add(character.CardRowTitle, item.Name)

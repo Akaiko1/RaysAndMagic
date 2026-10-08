@@ -796,8 +796,8 @@ func (g *MMGame) hasCardWalkOnWater() bool {
 	return false
 }
 
-// cardItemTooltipLines is the shared card for a monster card, plus the view's
-// own action hint (the collector's double-click).
+// cardItemTooltipLines serves collection views. Their local action replaces
+// inventory instructions; a slotted card needs no activation tutorial.
 func cardItemTooltipLines(key string, usage ...string) []string {
 	return cardItemTooltipRows(key, usage...).Lines()
 }
@@ -807,7 +807,7 @@ func cardItemTooltipRows(key string, usage ...string) character.CardRows {
 	if err != nil {
 		return nil
 	}
-	return itemTooltipWithUsageRows(it, nil, nil, false, usage...)
+	return itemTooltipWithUsageRows(it, nil, nil, false, itemUsage{ReplaceDefaultHints: true, Hints: usage})
 }
 
 // firstFreeCardSlot returns the first empty collection slot, or -1 if full.

@@ -425,7 +425,7 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 	case "buy_food":
 		out = append(out, overlayInt("Gold price", &c.Cost, "Must be positive."), overlayInt("Food amount", &c.Amount, "Must be positive."))
 	case "tavern_rest", "wait_until_night", "wait_until_dawn":
-		out = append(out, overlayInt("Gold price", &c.Cost, "Must be positive."))
+		out = append(out, overlayInt("Gold price", &c.Cost, "Must be positive."), overlayString("Reply", &c.Response, "Required. Shown after resting or waiting."))
 	case "start_arena_duel":
 		tiers := []string{}
 		if config.GlobalChampionConfig != nil {

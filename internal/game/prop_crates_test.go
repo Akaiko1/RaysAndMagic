@@ -397,7 +397,7 @@ func TestPropModelPickingRespectsWallClip(t *testing.T) {
 	g.camera.Angle = .6
 	g.camera.ViewDist = 1024
 	g.depthBuffer = make([]float64, g.worldWidth())
-	g.wallTopBuffer = make([]int, g.worldWidth())
+	g.wallTopBuffer = make([]float64, g.worldWidth())
 	for _, key := range []string{"pile_of_old_boxes", "campfire"} {
 		n := spawnCrate(t, g, key, g.camera.X+90*math.Cos(.6), g.camera.Y+90*math.Sin(.6))
 		for _, used := range []bool{false, true} {
@@ -425,7 +425,11 @@ func TestPropModelPickingRespectsWallClip(t *testing.T) {
 			if g.npcScreenHitTest(n, n.X, n.Y, hx, hy) {
 				t.Fatalf("%s selectable through a foreground wall", key)
 			}
-			g.wallTopBuffer[hx] = hy + 1
+			g.wallTopBuffer[hx] = float64(hy) + 0.25
+			if g.npcScreenHitTest(n, n.X, n.Y, hx, hy) {
+				t.Fatalf("%s selectable below a fractional wall edge", key)
+			}
+			g.wallTopBuffer[hx] = float64(hy) + 0.75
 			if !g.npcScreenHitTest(n, n.X, n.Y, hx, hy) {
 				t.Fatalf("%s lost its visible surface above a low wall", key)
 			}

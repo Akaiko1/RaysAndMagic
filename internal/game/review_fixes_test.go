@@ -441,11 +441,11 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 	potion := &config.ItemDefinitionConfig{
 		ResistBuffSchool: "fire", ResistBuffSchoolPct: 50, BuffDurationSeconds: 60,
 	}
-	if joined := strings.Join(potion.CoreEffectLines(), "\n"); !strings.Contains(joined, "Fire resistance +50% for 60s") {
+	if joined := strings.Join(potion.CoreEffectLines(), "\n"); !strings.Contains(joined, "Fire resistance +50%") || !strings.Contains(joined, "Duration: 60s") {
 		t.Fatalf("draught CoreEffectLines missing ward line in:\n%s", joined)
 	}
 	stone := &config.ItemDefinitionConfig{BuffArmorClass: 15, BuffDurationSeconds: 60}
-	if joined := strings.Join(stone.CoreEffectLines(), "\n"); !strings.Contains(joined, "stoneskin: armor class +15 for 60s") {
+	if joined := strings.Join(stone.CoreEffectLines(), "\n"); !strings.Contains(joined, "stoneskin: armor class +15") || !strings.Contains(joined, "Duration: 60s") {
 		t.Fatalf("stoneskin CoreEffectLines missing line in:\n%s", joined)
 	}
 

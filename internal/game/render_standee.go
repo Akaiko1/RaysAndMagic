@@ -1045,12 +1045,12 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 	depthBuffer := r.game.depthBuffer
 	wallTopBuffer := r.game.wallTopBuffer
 	sourceOrigin := stickerMips.levels[0].Bounds().Min
-	// Ignore walls wholly behind both faces, then coalesce identical shader
+	// Ignore walls wholly behind both faces, then coalesce affine shader
 	// clipping inputs. Reciprocal depth is affine across the screen, so its
 	// endpoint minimum conservatively bounds every layer throughout a column.
 	// A small margin keeps floating-point ties on the original clipping path.
-	wallAt := func(x int) (depth, top float32) {
-		depth = float32(viewDistance)
+	wallAt := func(x int) (clip standeeClipSample) {
+		clip = standeeClipSample{state: standeeClipClear, inverseDepth: 1 / viewDistance}
 		if x >= 0 && x < len(depthBuffer) {
 			if d := depthBuffer[x]; d > 0 && d < viewDistance {
 				offset := float64(x - minX)
@@ -1059,24 +1059,15 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 				if float64(float32(d))*minInv > 1.00001 {
 					return
 				}
-				depth = float32(d)
+				clip.state, clip.inverseDepth = standeeClipWall, 1/d
 				if x < len(wallTopBuffer) {
-					top = float32(min(max(wallTopBuffer[x], 0), screenH))
+					clip.top = min(max(wallTopBuffer[x], 0), float64(screenH))
 				}
 			}
 		}
 		return
 	}
-	for x := minX; x <= maxX; {
-		wallDepth, wallTop := wallAt(x)
-		end := x + 1
-		for end <= maxX {
-			d, top := wallAt(end)
-			if d != wallDepth || top != wallTop {
-				break
-			}
-			end++
-		}
+	emit := func(x, end int, leftClip, rightClip standeeClipSample) bool {
 		f1Depth, f1U, fok1 := intersection(far, float64(end))
 		n1Depth, n1U, nok1 := intersection(near, float64(end))
 		if !fok1 || !nok1 {
@@ -1087,8 +1078,7 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		if math.Max(math.Max(f0U, f1U), math.Max(n0U, n1U)) < 0 ||
 			math.Min(math.Min(f0U, f1U), math.Min(n0U, n1U)) > 1 {
 			f0Depth, f0U, n0Depth, n0U = f1Depth, f1U, n1Depth, n1U
-			x = end
-			continue
+			return true
 		}
 
 		// Each projected edge is linear. The endpoint union conservatively
@@ -1106,13 +1096,13 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 			DstX: x0, SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
 			Custom0: float32(1 / f0Depth), Custom1: float32(1 / n0Depth),
 			Custom2: float32(mirrorU(f0U) / f0Depth), Custom3: float32(mirrorU(n0U) / n0Depth),
-			ColorR: slab.rr, ColorG: float32(wallDepth), ColorB: float32(wallTop), ColorA: packedShells,
+			ColorR: slab.rr, ColorG: float32(leftClip.inverseDepth), ColorB: float32(leftClip.top), ColorA: packedShells,
 		}
 		right := ebiten.Vertex{
 			DstX: x1, SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
 			Custom0: float32(1 / f1Depth), Custom1: float32(1 / n1Depth),
 			Custom2: float32(mirrorU(f1U) / f1Depth), Custom3: float32(mirrorU(n1U) / n1Depth),
-			ColorR: slab.rr, ColorG: float32(wallDepth), ColorB: float32(wallTop), ColorA: packedShells,
+			ColorR: slab.rr, ColorG: float32(rightClip.inverseDepth), ColorB: float32(rightClip.top), ColorA: packedShells,
 		}
 		left.DstY, right.DstY = top0, top1
 		vertices = append(vertices, left, right)
@@ -1120,7 +1110,23 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		vertices = append(vertices, left, right)
 		indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		f0Depth, f0U, n0Depth, n0U = f1Depth, f1U, n1Depth, n1U
-		x = end
+		return true
+	}
+	run := standeeClipRun{start: minX, first: wallAt(minX)}
+	for x := minX + 1; x <= maxX; x++ {
+		clip := wallAt(x)
+		if clip.state != standeeClipWall && clip.state == run.first.state {
+			continue
+		}
+		if !run.extend(x, clip) {
+			if !run.emit(x, emit) {
+				return false
+			}
+			run = standeeClipRun{start: x, first: clip}
+		}
+	}
+	if !run.emit(maxX+1, emit) {
+		return false
 	}
 	if len(indices) == 0 {
 		r.standeeVerts = vertices[:0]

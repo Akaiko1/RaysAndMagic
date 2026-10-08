@@ -58,6 +58,15 @@ func TestTooltipWordingDoesNotControlEffectSelection(t *testing.T) {
 				add("trap", key, buildTrapTooltipUnified(key, def, ch, cs, full), buildTrapTooltipUnified(key, def, nil, nil, full))
 			}
 		}
+		for _, skill := range character.AllSkills {
+			result["skill/"+skill.String()] = masteryTooltipTextForSkill(skill)
+		}
+		for _, school := range character.AllMagicSchools {
+			result["school/"+school.String()] = magicMasteryTooltipText(school)
+		}
+		for _, stat := range []string{"Might", "Intellect", "Personality", "Endurance", "Accuracy", "Speed", "Luck"} {
+			result["stat/"+stat] = statTooltipText(stat)
+		}
 		return result
 	}
 	before := render()
@@ -76,6 +85,9 @@ func TestTooltipWordingDoesNotControlEffectSelection(t *testing.T) {
 			t.Fatal(err)
 		}
 		for key, line := range entries {
+			if key == "reference.grandmaster_label" {
+				line = "Veteran bonus:"
+			}
 			entries[key] = "Edited " + line
 		}
 		data, err = yaml.Marshal(entries)

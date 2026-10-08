@@ -1815,7 +1815,8 @@ type treeHitData struct {
 // opaque wall's occlusion is recorded - keeping both writes together prevents
 // the buffers from drifting out of sync.
 func (r *Renderer) writeWallColumns(screenX, width int, distance float64, tileType world.TileType3D) {
-	_, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, world.GetTileHeight(tileType))
+	height, bottom := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, world.GetTileHeight(tileType))
+	wallTop := bottom - height
 	for dx := 0; dx < width; dx++ {
 		x := screenX + dx
 		if x >= 0 && x < len(r.game.depthBuffer) {
@@ -2404,9 +2405,9 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 
 	// Cached path for procedural / color-only walls. Discrete TileType + integer
 	// width/height/side/wallX make cache hits useful here.
-	wallHeight, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, heightMultiplier)
+	wallHeight, wallBottom := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
 	cacheKey := rendering.WallSliceKey{
-		Height:   wallHeight,
+		Height:   int(wallHeight),
 		Width:    width,
 		TileType: int(tileType),
 		Side:     wallSide,
@@ -2418,11 +2419,11 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 
 	drawOptions := r.sharedDrawOpts()
 	cachedHeight := wallSliceImage.Bounds().Dy()
-	if cachedHeight > 0 && wallHeight != cachedHeight {
-		scaleY := float64(wallHeight) / float64(cachedHeight)
+	if cachedHeight > 0 && wallHeight != float64(cachedHeight) {
+		scaleY := wallHeight / float64(cachedHeight)
 		drawOptions.GeoM.Scale(1.0, scaleY)
 	}
-	drawOptions.GeoM.Translate(float64(screenX), float64(wallTop))
+	drawOptions.GeoM.Translate(float64(screenX), wallBottom-wallHeight)
 
 	// Distance-based shading at draw time (cache stays brightness-agnostic),
 	// light-aware so torches land on walls - vital on dark (ambient_light) maps.
@@ -2484,14 +2485,9 @@ func (r *Renderer) drawSpriteWallLayer(screen *ebiten.Image, sprite *ebiten.Imag
 
 	// Perspective close walls retain nearest-column sampling. Direct Panini
 	// uses continuous surface UVs above; an unavailable ripmap falls back here.
-	wallHeight := int(wallHeightF)
-	wallTop := int(wallTopF+wallHeightF) - wallHeight
-	if wallHeightF < 0 {
-		// Use the lower layer's exact integer seam, even at fractional zoom.
-		wallTop = int(wallTopF-wallHeightF) + wallHeight
-	}
+	// Sampling can be nearest without rounding the shared geometric boundary.
 	r.flushMipmappedWallBatch(screen)
-	r.drawNearestSpriteWallSlice(screen, sprite, screenX, wallTop, wallHeight, width, wallSide, textureCoord, distance)
+	r.drawNearestSpriteWallSlice(screen, sprite, screenX, width, wallSide, wallTopF, wallHeightF, textureCoord, distance)
 }
 
 // wallTextureCoordsAtSliceBoundaries reconstructs the two ray directions for
@@ -2533,7 +2529,7 @@ func (r *Renderer) wallTextureCoordsAtSliceBoundaries(screenX, wallSide int, wal
 
 // drawNearestSpriteWallSlice is the original close-range path: one source
 // column per ray, stretched across that ray's logical screen width.
-func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, wallTop, wallHeight, width, wallSide int, textureCoord, distance float64) {
+func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, wallTop, wallHeight, textureCoord, distance float64) {
 	spriteBounds := sprite.Bounds()
 	spriteWidth := spriteBounds.Dx()
 	spriteHeight := spriteBounds.Dy()
@@ -2550,7 +2546,7 @@ func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebit
 	}
 
 	xScale := float64(width)
-	yScale := float64(wallHeight) / float64(spriteHeight)
+	yScale := wallHeight / float64(spriteHeight)
 
 	brightness := r.wallPointBrightness(screenX, distance)
 	if wallSide == 1 {
@@ -2560,7 +2556,7 @@ func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebit
 	src := r.spriteColumn(sprite, textureX, spriteWidth, spriteHeight)
 	opts := r.sharedDrawOpts()
 	opts.GeoM.Scale(xScale, yScale)
-	opts.GeoM.Translate(float64(screenX), float64(wallTop))
+	opts.GeoM.Translate(float64(screenX), wallTop)
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 	worldDrawImage(screen, src, opts)
 }
@@ -4363,7 +4359,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				// away from it) and drop still-visible segments. The clamp is
 				// safe - the column formula uses only the size*depth product,
 				// which is depth-invariant - but its floor must clear the
-				// height-sanity cap in CalculateWallDimensionsWithHeight: below
+				// height-sanity cap in CalculateWallDimensionsWithHeightF: below
 				// ~span*aspect world units the capped height squashes the whole
 				// facade by that factor. One tile is comfortably above it (and
 				// keeps the volumetric shell count sane).
@@ -4373,7 +4369,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				if centerDepth < ts {
 					centerDepth = ts
 				}
-				// Float twin: whole-pixel height/bottom quantization makes the
+				// Whole-pixel height/bottom quantization would make the
 				// facade bob 1px up and down while the camera approaches.
 				bhF, bBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(centerDepth, heightTiles)
 				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, bhF, bBottomF, sb, sb, sb, true, false, span, r.standeeSurfaces[:0])

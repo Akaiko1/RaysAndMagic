@@ -143,13 +143,20 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 		}
 	}
 
-	// One card for every view: the bag/shop card and the collector's card are
-	// the same text, the collector only adding its double-click hint, and both
-	// list each collection effect on its own line.
+	// Collection views keep the same effects but use only the local action.
 	bag := GetItemTooltip(items.CreateItemFromYAML("ocelot_card"), nil, nil, false)
-	collector := strings.Join(cardItemTooltipLines("ocelot_card", "Double-click to remove"), "\n")
-	if !strings.Contains(bag, fmt.Sprintf("EFFECTS\n%+d Speed", speed)) || strings.Replace(collector, "\nDouble-click to remove", "", 1) != bag {
-		t.Errorf("card views differ:\nbag:\n%s\ncollector:\n%s", bag, collector)
+	if !strings.Contains(bag, "Bring to a Card Collector") {
+		t.Fatal("inventory card lost its activation hint")
+	}
+	for _, hint := range []string{"", "Double-click to remove", "Double-click to add to collection"} {
+		var usage []string
+		if hint != "" {
+			usage = []string{hint}
+		}
+		collector := strings.Join(cardItemTooltipLines("ocelot_card", usage...), "\n")
+		if !strings.Contains(collector, fmt.Sprintf("EFFECTS\n%+d Speed", speed)) || !strings.Contains(collector, hint) || strings.Contains(collector, "Bring to a Card Collector") {
+			t.Errorf("wrong collection context:\n%s", collector)
+		}
 	}
 	// A card whose effect is not built yet says so in every view.
 	stub := &config.ItemDefinitionConfig{Type: "card"}

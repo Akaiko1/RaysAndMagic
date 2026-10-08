@@ -1281,7 +1281,7 @@ weapons:
 
   bronze_cesti:
     name: "Bronze Cesti"
-    description: "Paired bronze-plated battle gloves - every swing lands twice"
+    description: "Paired bronze-plated battle gloves"
     category: "dagger"
     damage: 10
     range: 1

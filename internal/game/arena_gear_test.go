@@ -2,6 +2,7 @@ package game
 
 import (
 	"sort"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -17,22 +18,23 @@ import (
 func TestArenaUniqueWeaponData(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
 	checks := []struct {
-		key string
-		ok  func(*config.WeaponDefinitionConfig) bool
+		key     string
+		tooltip string
+		ok      func(*config.WeaponDefinitionConfig) bool
 	}{
-		{"gladius", func(w *config.WeaponDefinitionConfig) bool { return w.BonusVsStunned > 1 }},
-		{"arena_labrys", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorShredPct > 0 && w.ArmorShredSeconds > 0 }},
-		{"morningstar", func(w *config.WeaponDefinitionConfig) bool { return w.StunChance > 0 && w.StunTurns > 0 }},
-		{"hasta", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorClassBonus > 0 }},
-		{"trident", func(w *config.WeaponDefinitionConfig) bool { return w.RootChance > 0 && w.RootSeconds > 0 }},
-		{"parry_dagger", func(w *config.WeaponDefinitionConfig) bool { return w.ThornsPct > 0 }},
-		{"lion_warhammer", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorPiercePct > 0 }},
-		{"arena_shortbow", func(w *config.WeaponDefinitionConfig) bool {
+		{"gladius", "Bonus vs stunned targets:", func(w *config.WeaponDefinitionConfig) bool { return w.BonusVsStunned > 1 }},
+		{"arena_labrys", "Sunder:", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorShredPct > 0 && w.ArmorShredSeconds > 0 }},
+		{"morningstar", "Stun Chance:", func(w *config.WeaponDefinitionConfig) bool { return w.StunChance > 0 && w.StunTurns > 0 }},
+		{"hasta", "Armor Class", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorClassBonus > 0 }},
+		{"trident", "Root Chance:", func(w *config.WeaponDefinitionConfig) bool { return w.RootChance > 0 && w.RootSeconds > 0 }},
+		{"parry_dagger", "Riposte:", func(w *config.WeaponDefinitionConfig) bool { return w.ThornsPct > 0 }},
+		{"lion_warhammer", "of the target's armor", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorPiercePct > 0 }},
+		{"arena_shortbow", "Base weapon cooldown:", func(w *config.WeaponDefinitionConfig) bool {
 			return w.CooldownMultiplier > 0 && w.CooldownMultiplier < 1.2
 		}},
-		{"arbalest", func(w *config.WeaponDefinitionConfig) bool { return w.PierceCount > 0 }},
-		{"lanista_scepter", func(w *config.WeaponDefinitionConfig) bool { return w.EquipPersonalityMin > 0 }},
-		{"bronze_cesti", func(w *config.WeaponDefinitionConfig) bool { return w.DoubleStrike }},
+		{"arbalest", "Pierces through", func(w *config.WeaponDefinitionConfig) bool { return w.PierceCount > 0 }},
+		{"lanista_scepter", "Personality", func(w *config.WeaponDefinitionConfig) bool { return w.EquipPersonalityMin > 0 }},
+		{"bronze_cesti", "Strikes per attack: 2", func(w *config.WeaponDefinitionConfig) bool { return w.DoubleStrike }},
 	}
 	for _, c := range checks {
 		def, ok := config.GetWeaponDefinition(c.key)
@@ -45,10 +47,11 @@ func TestArenaUniqueWeaponData(t *testing.T) {
 		if !c.ok(def) {
 			t.Errorf("%s lost its signature rider", c.key)
 		}
-		// The shortbow's whole identity is its cadence, which renders via
-		// the structured attack cooldown rather than the EFFECTS rows.
-		if c.key != "arena_shortbow" && len(def.CoreEffectLines()) == 0 {
-			t.Errorf("%s has no tooltip effect lines", c.key)
+		// Signatures can live in DAMAGE, ATTACK or EFFECTS. Check the card
+		// the player sees instead of requiring one particular section.
+		card := GetItemTooltip(items.CreateWeaponFromYAML(c.key), nil, nil, true)
+		if !strings.Contains(card, c.tooltip) {
+			t.Errorf("%s lost its tooltip signature %q: %s", c.key, c.tooltip, card)
 		}
 	}
 }

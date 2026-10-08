@@ -55,13 +55,13 @@ func TestTooltip_SpellCardRules(t *testing.T) {
 		{name: "disintegrate notes universal immunity", spell: "disintegrate", want: []string{"undead and dragons immune"}},
 		{
 			name: "AoE projectile splash inherits crit and meets Perfect Dodge", spell: "fireball",
-			want:   []string{character.SplashCritRule, "Perfect Dodge"},
+			want:   []string{character.SplashCritRule(), "Perfect Dodge"},
 			absent: []string{"Hitbox:"},
 		},
 		{
 			name: "mortar uses bloom rules", spell: "stone_blossom",
-			want:   []string{"One critical roll boosts the entire bloom", "The bloom cannot be evaded by Perfect Dodge"},
-			absent: []string{character.SplashCritRule, "Hitbox:"},
+			want:   []string{"A critical hit boosts the whole explosion", "The bloom cannot be evaded by Perfect Dodge"},
+			absent: []string{character.SplashCritRule(), "Hitbox:"},
 		},
 		{
 			name: "GM Meditation breaks down the cost", spell: "fireball",

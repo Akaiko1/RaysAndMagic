@@ -83,7 +83,7 @@ func (r *Renderer) drawFacadeCrystalShimmer(screen *ebiten.Image, npc *character
 		top := bottom - height
 		drawBottom := bottom
 		if x < len(r.game.depthBuffer) && standeeColumnOccluded(depth, r.game.depthBuffer[x], 0) {
-			drawBottom = math.Min(drawBottom, float64(r.game.wallTopBuffer[x]))
+			drawBottom = math.Min(drawBottom, r.game.wallTopBuffer[x])
 		}
 		if drawBottom <= top {
 			continue

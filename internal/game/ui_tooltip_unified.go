@@ -116,10 +116,14 @@ func spellMasteryTier(char *character.MMCharacter, def spells.SpellDefinition) (
 }
 
 // statContribDetail renders "Accuracy (30 / 3): +10" into the full-only tier -
-// the stat VALUE and the divisor the formula actually uses. A zero
-// contribution still names the scaling stat (what to raise).
+// the stat value and divisor the formula actually uses. A zero contribution
+// keeps the scaling source visible without a misleading bonus row.
 func statContribDetail(sec *ttSection, statName string, statValue, divisor int) {
 	if statName == "" || divisor <= 0 {
+		return
+	}
+	if statValue/divisor == 0 {
+		sec.AddDetail("%s", uitext.Text("stat.scaling", statName, divisor))
 		return
 	}
 	sec.AddDetail("%s (%d / %d): +%d", statName, statValue, divisor, statValue/divisor)
@@ -127,8 +131,8 @@ func statContribDetail(sec *ttSection, statName string, statValue, divisor int) 
 
 func statBreakdownDetails(sec *ttSection, result stats.Breakdown, char *character.MMCharacter) {
 	for _, term := range result.Terms {
-		if char == nil {
-			sec.AddDetail("Scales with %s / %d", term.Stat, term.Divisor)
+		if char == nil || term.Bonus == 0 {
+			sec.AddDetail("%s", uitext.Text("stat.scaling", term.Stat, term.Divisor))
 			continue
 		}
 		sec.AddDetail("%s (%d / %d): +%d", term.Stat, term.Value, term.Divisor, term.Bonus)
@@ -207,11 +211,13 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 		statBreakdownDetails(&dmg, breakdown.Breakdown, char)
 	} else {
 		for i, term := range formula.Terms {
-			label := "Scales with"
-			if i > 0 {
-				label = "Also scales with"
+			var line string
+			if i == 0 {
+				line = uitext.Text("stat.scaling", term.Stat, term.Divisor)
+			} else {
+				line = uitext.Text("stat.secondary_scaling", term.Stat, term.Divisor)
 			}
-			dmg.AddDetail("%s %s / %d", label, term.Stat, term.Divisor)
+			dmg.AddDetail("%s", line)
 		}
 	}
 	if armsBonus > 0 {
@@ -258,7 +264,7 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 	armorInteractionRules(&dmg, def.DamageType, def.Physics != nil, preview.True > 0)
 	if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
 		if tier, _ := masteryTier(char, skill); tier >= int(character.MasteryGrandMaster) {
-			dmg.AddDetail("Grandmaster: this strike ignores Perfect Dodge")
+			dmg.AddDetail("%s", uitext.Text("weapon.grandmaster_dodge"))
 		}
 	}
 	totalCrit := def.CritChance
@@ -274,7 +280,10 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 		} else if char != nil {
 			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(item, char)
 			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
-			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
+			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit)}
+			if luck > 0 {
+				parts = append(parts, fmt.Sprintf("Luck: +%d%%", luck))
+			}
 			if cardCrit > 0 {
 				parts = append(parts, fmt.Sprintf("Cards: +%d%%", cardCrit))
 			}
@@ -300,11 +309,11 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 			}
 		}
 		if preview.True > 0 || preview.OutgoingBuff > 0 {
-			crit.AddDetail("Critical hits double normal damage before party buffs; True damage is not doubled")
+			crit.AddDetail("%s", uitext.Text("weapon.critical_damage_rule"))
 		}
 	}
 	if def.AoeRadiusTiles > 0 {
-		crit.AddDetail("%s", character.WeaponSplashCritRule)
+		crit.AddDetail("%s", character.WeaponSplashCritRule())
 	}
 
 	effects := ttSection{Title: "EFFECTS"}
@@ -341,7 +350,7 @@ func buildArmorTooltipUnifiedRows(item items.Item, char *character.MMCharacter, 
 			statContribDetail(&defense, "Endurance", char.GetEffectiveEndurance(), enduranceDiv)
 		}
 		if div, ok := armorEnduranceScalingDivisor(item); char == nil && ok {
-			defense.AddDetail("Scales with Endurance / %d", div)
+			defense.AddDetail("%s", uitext.Text("stat.scaling", "Endurance", div))
 		}
 		if cat, catOK := armorMasterySkill(item); catOK && char != nil {
 			if tier, tierName := masteryTier(char, cat); tier > 0 {
@@ -358,7 +367,7 @@ func buildArmorTooltipUnifiedRows(item items.Item, char *character.MMCharacter, 
 
 	requirements := ttSection{Title: "REQUIREMENTS"}
 	if ok && def != nil && (def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0) {
-		defense.AddDetail("Typed true damage and damage over time bypass Armor Class")
+		defense.AddDetail("%s", uitext.Text("armor.bypass"))
 	}
 	if cat, catOK := armorMasterySkill(item); catOK {
 		if line := getArmorRequirementLine(item, char); line != "" {
@@ -570,7 +579,10 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		crit.Add("Critical Damage: %d", criticalDamage)
 		if char != nil {
 			luck, cardCrit, setCrit := cs.CriticalChanceBreakdown(char)
-			parts := []string{fmt.Sprintf("Luck: +%d%%", luck)}
+			var parts []string
+			if luck > 0 {
+				parts = append(parts, fmt.Sprintf("Luck: +%d%%", luck))
+			}
 			if cardCrit > 0 {
 				parts = append(parts, fmt.Sprintf("Cards: +%d%%", cardCrit))
 			}
@@ -653,9 +665,9 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 				section = &effects
 			}
 			if spellParts.True > 0 {
-				section.AddDetail("Perfect Dodge avoids normal damage; typed true damage still lands")
+				section.AddDetail("%s", uitext.Text("spell.true_dodge"))
 			} else {
-				section.AddDetail("Can be evaded by Perfect Dodge")
+				section.AddDetail("%s", uitext.Text("spell.normal_dodge"))
 			}
 		case character.SpellRuleDamage:
 			dmg.AddDetail("%s", rule.Text)
@@ -708,7 +720,7 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 				char.GetEffectiveIntellect(), char.GetEffectiveAccuracy(),
 				character.TrapStatScalingDivisor, intAcc/character.TrapStatScalingDivisor)
 		} else {
-			dmg.AddDetail("Scales with (Intellect + Accuracy) / %d", character.TrapStatScalingDivisor)
+			dmg.AddDetail("%s", uitext.Text("stat.scaling", "(Intellect + Accuracy)", character.TrapStatScalingDivisor))
 		}
 		if tier > 0 {
 			dmg.AddDetail("Trapper - %s: +%d", tierName, tier*character.TrapperDamagePerTier)
@@ -838,11 +850,11 @@ func techniqueStepNames() []string {
 
 // -------------------------------------------------- misc item categories ----
 
-func buildSimpleItemTooltipWithParty(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party, cs *CombatSystem, usage ...string) string {
-	return buildSimpleItemTooltipWithPartyRows(item, full, bearer, party, cs, usage...).String()
+func buildSimpleItemTooltipWithParty(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party, cs *CombatSystem) string {
+	return buildSimpleItemTooltipWithPartyRows(item, full, bearer, party, cs, itemUsage{}).String()
 }
 
-func buildSimpleItemTooltipWithPartyRows(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party, cs *CombatSystem, usage ...string) character.CardRows {
+func buildSimpleItemTooltipWithPartyRows(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party, cs *CombatSystem, usage itemUsage) character.CardRows {
 	def, itemKey, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := item.DisplayKind()
 	if ok && def != nil && def.Rarity != "" {
@@ -866,14 +878,14 @@ func buildSimpleItemTooltipWithPartyRows(item items.Item, full bool, bearer *cha
 			addFlaskSections(&dmg, &effect, &use, itemKey, f, bearer, cs)
 		}
 		character.AddConsumableUsage(&use, def)
-		for _, ln := range def.TooltipUsageLines() {
-			use.Add("%s", ln)
+		if !usage.ReplaceDefaultHints {
+			usage.Hints = def.TooltipUsageLines()
 		}
 	}
 	if item.Type == items.ItemDevice && item.DeviceCooldownFrames > 0 {
 		recovery.Add("%s", uitext.Text("item.device_cooldown", float64(item.DeviceCooldownFrames)/float64(config.GetTargetTPS()), deviceCooldownTurns(item)))
 	}
-	for _, ln := range usage {
+	for _, ln := range usage.Hints {
 		use.Add("%s", ln)
 	}
 	return renderTooltipRows(item.Name, subtitle, []ttSection{recovery, dmg, effect, use}, full)
@@ -888,7 +900,7 @@ func addFlaskSections(dmg, effect, use *ttSection, key string, f *config.FlaskDe
 	if bearer != nil {
 		dmg.AddDetail("Base (Bomb Throwing - %s): %d", tierName, config.TierValue(f.Damage, tier))
 		intellect := bearer.GetEffectiveIntellect()
-		dmg.AddDetail("Intellect (%d / %d): +%d", intellect, character.BombThrowingIntellectDivisor, intellect/character.BombThrowingIntellectDivisor)
+		statContribDetail(dmg, "Intellect", intellect, character.BombThrowingIntellectDivisor)
 		dmg.Add("Total Damage: %d to each victim", flaskDamage(bearer, f))
 	} else {
 		dmg.Add("Damage: %s + Intellect / %d to each victim", tierLadder(f.Damage), character.BombThrowingIntellectDivisor)

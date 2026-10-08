@@ -46,17 +46,9 @@ func NewRenderingHelper(game *MMGame) *RenderingHelper {
 	}
 }
 
-// CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
-func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
-	wallHeightF, floorBottomF := rh.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
-	wallHeight = int(wallHeightF)
-	return wallHeight, int(floorBottomF) - wallHeight
-}
-
 // CalculateWallDimensionsWithHeightF is the float-precision projection shared
-// by textured wall meshes. The integer wrapper remains for cache keys and the
-// wall-top occlusion buffer, while visible distant sprite walls keep their
-// subpixel top/bottom instead of stepping a whole pixel between frames.
+// by every wall draw path and the wall-top occlusion buffer. Only texture cache
+// dimensions may be rounded; drawing and clipping must meet at the same edge.
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeightF(distance, heightMultiplier float64) (wallHeight, floorBottom float64) {
 	// Division guard only - collision keeps the camera farther away than this.
 	// The wall's vanish-at-point-blank bug came from CAPPING the height while

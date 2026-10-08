@@ -29,6 +29,7 @@ func TestStandeeVolumeMatchesMaterialPath(t *testing.T) {
 	g, _, cfg := bootOpenWorldGame(t, false)
 	r := g.gameLoop.renderer
 	w, h := cfg.GetScreenWidth(), cfg.GetScreenHeight()
+	g.depthBuffer, g.wallTopBuffer = make([]float64, w), make([]float64, w)
 	tile := float64(cfg.GetTileSize())
 
 	sprite := g.sprites.GetSprite("tree")
@@ -70,11 +71,17 @@ func TestStandeeVolumeMatchesMaterialPath(t *testing.T) {
 		t.Fatal("no tested distance engaged the volume path - the threshold or shell math changed")
 	}
 
-	draw := func(volume bool) []byte {
+	draw := func(volume, walls bool) []byte {
 		img := ebiten.NewImage(w, h)
+		defer img.Deallocate()
 		runOnDrawFrame(func(_ *ebiten.Image) {
 			for i := range g.depthBuffer {
-				g.depthBuffer[i] = g.camera.ViewDist
+				g.depthBuffer[i], g.wallTopBuffer[i] = g.camera.ViewDist, 0
+				if walls {
+					offset := float64(i-w/2) + 0.5
+					g.depthBuffer[i] = 1 / (1/(depth*0.6) + offset*1e-6)
+					g.wallTopBuffer[i] = bottomF - heightF*0.5 + offset*0.12
+				}
 			}
 			img.Clear()
 			r.drawCrossedSlabs(img, sprite, key, worldX, worldY, yawA, yawB,
@@ -85,41 +92,55 @@ func TestStandeeVolumeMatchesMaterialPath(t *testing.T) {
 		return pix
 	}
 
-	volumePix := draw(true)
-	materialPix := draw(false)
+	clearCovered := 0
+	for _, walls := range []bool{false, true} {
+		name := "clear"
+		if walls {
+			name = "sloped foreground wall"
+		}
+		t.Run(name, func(t *testing.T) {
+			volumePix := draw(true, walls)
+			materialPix := draw(false, walls)
 
-	var volumeCovered, materialCovered, both, diffSum int
-	for i := 0; i < len(volumePix); i += 4 {
-		va, ma := volumePix[i+3], materialPix[i+3]
-		if va > 8 {
-			volumeCovered++
-		}
-		if ma > 8 {
-			materialCovered++
-		}
-		if va > 8 && ma > 8 {
-			both++
-			for c := 0; c < 3; c++ {
-				d := int(volumePix[i+c]) - int(materialPix[i+c])
-				if d < 0 {
-					d = -d
+			var volumeCovered, materialCovered, both, diffSum int
+			for i := 0; i < len(volumePix); i += 4 {
+				va, ma := volumePix[i+3], materialPix[i+3]
+				if va > 8 {
+					volumeCovered++
 				}
-				diffSum += d
+				if ma > 8 {
+					materialCovered++
+				}
+				if va > 8 && ma > 8 {
+					both++
+					for c := 0; c < 3; c++ {
+						d := int(volumePix[i+c]) - int(materialPix[i+c])
+						if d < 0 {
+							d = -d
+						}
+						diffSum += d
+					}
+				}
 			}
-		}
-	}
-	if volumeCovered == 0 || materialCovered == 0 {
-		t.Fatalf("setup drew nothing: volume=%d material=%d covered pixels", volumeCovered, materialCovered)
-	}
-	coverage := float64(both) / math.Max(float64(volumeCovered), float64(materialCovered))
-	meanDiff := float64(diffSum) / float64(both*3)
-	t.Logf("volume=%d material=%d shared=%d pixels; silhouette overlap %.3f; mean RGB delta %.2f/255",
-		volumeCovered, materialCovered, both, coverage, meanDiff)
+			if volumeCovered == 0 || materialCovered == 0 {
+				t.Fatalf("setup drew nothing: volume=%d material=%d covered pixels", volumeCovered, materialCovered)
+			}
+			if !walls {
+				clearCovered = volumeCovered
+			} else if volumeCovered >= clearCovered*9/10 {
+				t.Fatalf("wall fixture did not hide enough of the tree: clear=%d clipped=%d", clearCovered, volumeCovered)
+			}
+			coverage := float64(both) / math.Max(float64(volumeCovered), float64(materialCovered))
+			meanDiff := float64(diffSum) / float64(both*3)
+			t.Logf("volume=%d material=%d shared=%d pixels; silhouette overlap %.3f; mean RGB delta %.2f/255",
+				volumeCovered, materialCovered, both, coverage, meanDiff)
 
-	if coverage < 0.97 {
-		t.Errorf("silhouette overlap %.3f - the volume path draws a different shape", coverage)
-	}
-	if meanDiff > 6 {
-		t.Errorf("mean RGB delta %.2f - the volume path shades the stack differently", meanDiff)
+			if coverage < 0.97 {
+				t.Errorf("silhouette overlap %.3f - the volume path draws a different shape", coverage)
+			}
+			if meanDiff > 6 {
+				t.Errorf("mean RGB delta %.2f - the volume path shades the stack differently", meanDiff)
+			}
+		})
 	}
 }

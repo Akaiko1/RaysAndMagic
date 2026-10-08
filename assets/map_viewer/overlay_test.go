@@ -365,6 +365,31 @@ func TestOverlayInspectorNavigationAndPersistence(t *testing.T) {
 	if !fields[v.overlay.fieldFocus].interactive() {
 		t.Fatal("keyboard focus stopped on information")
 	}
+	// Paid replies are editable at either dialogue depth. Keep root rest on
+	// its own tavern NPC, since that fixed surface cannot draw other actions.
+	var paidKeys []string
+	for _, nested := range []bool{false, true} {
+		for _, action := range []string{"tavern_rest", "wait_until_dawn", "wait_until_night"} {
+			v.overlay.pendingNPC = ""
+			if err := v.overlayPlaceObject(d, overlayEmptyCell(t, v, d)); err != nil {
+				t.Fatal(err)
+			}
+			objectKey := d.state.Data.NPCSpawns[v.overlay.selected].NPCKey
+			paidKeys = append(paidKeys, objectKey)
+			var parent []int
+			if nested {
+				parent = []int{0} // The new object's existing info branch.
+			} else {
+				d.editNPC(objectKey).Dialogue.Choices = nil
+			}
+			v.overlayAddChoice(d, parent)
+			if err := v.overlay.modal.apply(action); err != nil {
+				t.Fatal(err)
+			}
+			v.overlay.modal = nil
+			edit("Reply", "Finished "+action+".")
+		}
+	}
 	if err := v.saveOverlay(d); err != nil {
 		t.Fatal(err)
 	}
@@ -374,6 +399,25 @@ func TestOverlayInspectorNavigationAndPersistence(t *testing.T) {
 	if !overlaySame(reloaded.state.Adventure, want.Adventure) || !overlaySame(reloaded.state.Mechanics, want.Mechanics) {
 		t.Fatal("inspector edits did not survive save and reload")
 	}
+	count := 0
+	for _, objectKey := range paidKeys {
+		if err := reloaded.npc(objectKey).Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			switch c.Action {
+			case "tavern_rest", "wait_until_dawn", "wait_until_night":
+				count++
+				if c.Response != "Finished "+c.Action+"." || c.Cost <= 0 {
+					t.Fatalf("paid reply lost after save/reload: %+v", c)
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if count != 6 {
+		t.Fatalf("saved %d paid choices, want 6", count)
+	}
+
 }
 func TestOverlayReferencesAndValidation(t *testing.T) {
 	v := overlayTestViewer(t)

@@ -1370,24 +1370,25 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 // Text APIs project the same canonical reference card used by live hovers.
 func statTooltipText(stat string) string { return statTooltipRows(stat).String() }
 func statTooltipRows(stat string) character.CardRows {
-	return referenceTooltipRows(config.TitleWords(stat), "EFFECTS", character.StatDescription(stat))
+	return referenceTooltipRows(config.TitleWords(stat), "EFFECTS", character.StatDescription(stat), "")
 }
 func masteryTooltipTextForSkill(skill character.SkillType) string {
 	return masteryTooltipRowsForSkill(skill).String()
 }
 func masteryTooltipRowsForSkill(skill character.SkillType) character.CardRows {
-	return referenceTooltipRows(skill.String(), "EFFECTS", skill.Description())
+	ref := skill.Reference()
+	return referenceTooltipRows(skill.String(), "EFFECTS", ref.Effects, ref.Grandmaster)
 }
 func magicMasteryTooltipText(school character.MagicSchoolID) string {
 	return magicMasteryTooltipRows(school).String()
 }
 func magicMasteryTooltipRows(school character.MagicSchoolID) character.CardRows {
-	return referenceTooltipRows(school.DisplayName()+" Magic", "MASTERY", character.MagicMasteryDescription(school))
+	ref := character.MagicMasteryReference(school)
+	return referenceTooltipRows(school.DisplayName()+" Magic", "MASTERY", ref.Effects, ref.Grandmaster)
 }
 
-// Reference prose stays canonical. Only its authored paragraph boundaries and
-// Grandmaster block are formatted; renderers never inspect those strings.
-func referenceTooltipRows(title, section, description string) character.CardRows {
+// Section identity comes from reference data, independently of editable prose.
+func referenceTooltipRows(title, section, description, grandmaster string) character.CardRows {
 	if description == "" {
 		return nil
 	}
@@ -1395,12 +1396,11 @@ func referenceTooltipRows(title, section, description string) character.CardRows
 	rows.Add(character.CardRowTitle, title)
 	rows.Add(character.CardRowSpacer, "")
 	rows.Add(character.CardRowSection, section)
-	for i, block := range strings.Split(description, "\n\nGrandmaster:\n") {
-		if i > 0 {
-			rows.Add(character.CardRowSpacer, "")
-			rows.Add(character.CardRowSection, "GRANDMASTER")
-		}
-		rows.Add(character.CardRowBody, strings.ReplaceAll(block, ". ", ".\n"))
+	rows.Add(character.CardRowBody, strings.ReplaceAll(description, ". ", ".\n"))
+	if grandmaster != "" {
+		rows.Add(character.CardRowSpacer, "")
+		rows.Add(character.CardRowSection, "GRANDMASTER")
+		rows.Add(character.CardRowBody, strings.ReplaceAll(grandmaster, ". ", ".\n"))
 	}
 	return rows
 }

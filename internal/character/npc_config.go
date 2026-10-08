@@ -163,12 +163,19 @@ type NPCDialogue struct {
 	Choices       []*NPCDialogueChoice `yaml:"choices,omitempty"`
 }
 
-// NPCQuestMessages is the dialogue body for one quest in a giver's chain.
-// The quest's lifecycle state selects Offer, Active or Completed.
+// NPCQuestMessages holds bodies and optional action replies for one quest.
+// Lifecycle state selects Offer, Active or Completed; action replies override
+// neutral feedback only, never eligibility or completion rules.
 type NPCQuestMessages struct {
 	Offer     string `yaml:"offer,omitempty"`
 	Active    string `yaml:"active,omitempty"`
 	Completed string `yaml:"completed,omitempty"`
+	// Action replies override neutral UI feedback without changing quest gates.
+	Accepted       string `yaml:"accepted,omitempty"`
+	AlreadyActive  string `yaml:"already_active,omitempty"`
+	NotCompleted   string `yaml:"not_completed,omitempty"`
+	Ineligible     string `yaml:"ineligible,omitempty"`
+	RejectedUndead string `yaml:"rejected_undead,omitempty"`
 }
 
 // NPCDialogueChoice represents a dialogue choice option
@@ -203,6 +210,8 @@ type NPCDialogueChoice struct {
 	// does NOT close - it shows Response as the NPC's reply and Choices as the
 	// follow-up options, so "ask about X" actually answers and can lead deeper
 	// or on to a give_quest. Nest freely; "back" pops one level.
+	// Paid wait and tavern_rest actions require a complete success Response;
+	// {cost} is substituted from the choice's authored price.
 	Response string               `yaml:"response,omitempty"`
 	Choices  []*NPCDialogueChoice `yaml:"choices,omitempty"`
 	// Cost/Amount parameterize purchase-style actions: tavern_rest charges Cost
@@ -510,13 +519,15 @@ func validatePricedChoices() error {
 						return fmt.Errorf("NPC %q: invalid exchange cost", npcKey)
 					}
 				}
-			case "tavern_rest":
-				if c.Cost <= 0 {
-					return fmt.Errorf("npc %q: tavern_rest choice requires cost > 0", npcKey)
-				}
-			case "wait_until_night", "wait_until_dawn":
+			case "tavern_rest", "wait_until_night", "wait_until_dawn":
 				if c.Cost <= 0 {
 					return fmt.Errorf("npc %q: %s choice requires cost > 0", npcKey, c.Action)
+				}
+				if strings.TrimSpace(c.Response) == "" {
+					return fmt.Errorf("npc %q: %s choice requires response", npcKey, c.Action)
+				}
+				if strings.ContainsAny(strings.ReplaceAll(c.Response, "{cost}", ""), "{}") {
+					return fmt.Errorf("npc %q: %s response supports only the {cost} placeholder", npcKey, c.Action)
 				}
 			case "buy_food":
 				if c.Cost <= 0 || c.Amount <= 0 {
