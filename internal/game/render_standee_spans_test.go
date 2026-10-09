@@ -88,7 +88,7 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 				g.camera.FOV = 108 * math.Pi / 180
 			}
 			bottom := float64(h)/2 + tc.size/2
-			slab, ok := r.prepareStandeeSlab(sprite, key, tc.depth, 0, tc.yaw, tc.depth, tc.size, bottom, 1, 0.7, 0.4, false, tc.mirror, 0, nil)
+			slab, ok := r.prepareStandeeSlab(sprite, key, tc.depth, 0, tc.yaw, tc.depth, tc.size, bottom, 1, 0.7, 0.4, false, tc.mirror, 0, nil, -1)
 			if !ok {
 				t.Fatal("fixture did not project")
 			}

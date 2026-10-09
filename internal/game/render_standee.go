@@ -22,7 +22,7 @@ import (
 const (
 	standeeCoreShade    = 0.92 // token rim sits just out of the light vs the face
 	standeeCoreShadeFar = 0.75 // the slab's far edge is in its own shadow
-	standeeMaxShells    = 16   // cap on core shell layers (perf guard at point-blank range)
+	standeeMaxShells    = config.MaxStandeeCoreLayers
 	// Shell spacing is authored in 1920-wide screen pixels; above that width it
 	// scales with the resolution (constant ANGULAR density), so 4K pays the same
 	// layer count as 1080p instead of double.
@@ -770,7 +770,7 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 	if sprite == nil || centerDepth <= 0 || centerSize <= 0 {
 		return false
 	}
-	slab, ok := r.prepareStandeeSlab(sprite, coreKey, entX, entY, yaw, centerDepth, centerSize, bottomY, rr, gg, bb, mirrorBySide, mirroredIn, worldLengthOverride, r.standeeSurfaces[:0])
+	slab, ok := r.prepareStandeeSlab(sprite, coreKey, entX, entY, yaw, centerDepth, centerSize, bottomY, rr, gg, bb, mirrorBySide, mirroredIn, worldLengthOverride, r.standeeSurfaces[:0], -1)
 	if ok {
 		r.drawStandeeSlabColumns(screen, slab, -1, -1)
 	}
@@ -806,7 +806,8 @@ func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, cent
 // projects fully off-screen (nothing to draw). The returned slab's `surfaces`
 // aliases dst (grown), so the caller reclaims it after drawing. See
 // drawStandeeSprite's doc for the parameter meanings.
-func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, dst []standeeSurface) (standeeSlab, bool) {
+// coreLayers < 0 keeps projected-thickness sampling; zero keeps outer faces only.
+func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, dst []standeeSurface, coreLayers int) (standeeSlab, bool) {
 	sprite = r.boundedStandeeRenderSource(coreKey, sprite)
 	if sprite == nil {
 		return standeeSlab{}, false
@@ -856,7 +857,10 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	// The wood between the stickers is a real volume: a dense stack of
 	// silhouette shells (shell texturing) at constant angular spacing, so at
 	// any viewing angle the rim reads as solid die-cut wood, not a plane.
-	shells := standeeShellCount(h, screenW, halfFovTan, centerDepth)
+	shells := coreLayers
+	if shells < 0 {
+		shells = standeeShellCount(h, screenW, halfFovTan, centerDepth)
+	}
 	// Painter's order per column is fixed for parallel surfaces: build far -> near.
 	surfaces := dst[:0]
 	surfaces = append(surfaces, surface(-h*camSide, sprite, standeeMipSticker, standeeCoreShadeFar)) // far sticker (its edge sliver)
@@ -970,6 +974,9 @@ func standeeAxisFootprints(projectedWidth, projectedHeight, textureWidth, textur
 }
 
 func canUseStandeeVolume(slab standeeSlab) bool {
+	// Zero/one core layer intentionally keeps the material path. Fewer draw
+	// calls alone do not prove the volume shader cheaper for such small stacks;
+	// change this threshold only after a dense-scene GPU comparison.
 	return slab.volumeComposite &&
 		slab.firstSurface == 0 && slab.sideFade == 0 && slab.fade == 0 &&
 		len(slab.surfaces)-2 >= standeeVolumeMinShells
@@ -1370,18 +1377,9 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	r.standeeMaterialIdx = idx[:0]
 }
 
-// drawCrossedTreeStandees renders a tree tile as two normal standees crossed
-// along the tile's DIAGONALS (an "X" from above, corner to corner), with the
-// usual standee thickness. Both are two-sided and share the tile's billboard
-// metrics (depth/size/floor anchor), so they stay grounded. The texture is the
-// TILE's own configured sprite (data-driven), so each tree tile keeps its art.
-func treeIsBillboardLOD(distance, tileSize, lodTiles float64) bool {
-	return tileSize > 0 && lodTiles > 0 && distance > lodTiles*tileSize
-}
-
 // tileIsNaturalCross reports whether a crossed tile is the natural cross
 // (render_type crossed_standee: trees, rocks, dunes). Only these author frame
-// WIDTH, take the distant billboard LOD, canopy shade, earthquake toppling and
+// WIDTH, take the distance/lane interior budget, canopy shade, earthquake toppling and
 // the foliage depth shading; a crossed_prop is a static built object that
 // authors visible height like the flat standee it replaced.
 func tileIsNaturalCross(tileType world.TileType3D) bool {
@@ -1480,6 +1478,8 @@ func (r *Renderer) reserveStandeeBuffers() {
 	}
 }
 
+// drawCrossedTreeStandees keeps both planes at every distance. Split arms and
+// the whole-cross fallback share the same centre-based interior budget.
 func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	if s.treeArmOnly {
 		if s.treeArmLo > s.treeArmHi {
@@ -1502,8 +1502,20 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	}
 	tileSize := float64(r.game.config.GetTileSize())
 	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
-	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
+	dx, dy := worldX-r.game.camera.X, worldY-r.game.camera.Y
+	distance := math.Hypot(dx, dy)
 	isTree := tileIsNaturalCross(s.tileType)
+	coreLayers := -1
+	if isTree {
+		// Budget is a logical-world decision, not a projection decision: camera
+		// interpolation and screen shake must not toggle shells at a boundary.
+		pose := r.game.logicalCameraPose()
+		budgetDX, budgetDY := worldX-pose.x, worldY-pose.y
+		// Unlike cameraSpaceXY, use the logical pose and world-space lateral
+		// distance without FOV scaling. The corridor keeps its authored tile width.
+		lateral := (-budgetDX*math.Sin(pose.angle) + budgetDY*math.Cos(pose.angle)) / tileSize
+		coreLayers = r.game.config.Graphics.Standee.CrossedStandeeLayers.LayerCount(math.Hypot(budgetDX, budgetDY)/tileSize, lateral)
+	}
 
 	// Foliage depth shading is for trees; a boiler lights like the flat standee
 	// it replaced.
@@ -1557,7 +1569,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		}
 		slab, ok := r.prepareStandeeSlab(
 			sprite, key, worldX, worldY, yaw, centerDepth, heightF, bottomF,
-			b, b, b, true, false, footprint, surfaces,
+			b, b, b, true, false, footprint, surfaces, coreLayers,
 		)
 		slab.volumeComposite = true
 		if cacheable {
@@ -1572,16 +1584,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		return
 	}
 
-	// Far crossed parallax is sub-pixel, so one camera-facing thick standee
-	// retains the silhouette at a fraction of the cost. Trees only: a prop cross
-	// turning to face the party is the one thing the conversion exists to stop.
-	if isTree && treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
-		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
-		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightF, bottomF, b, b, b, true, false, footprint)
-		return
-	}
-
-	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, yawA, yawB, footprint, s.depthPerp, heightF, bottomF, b, true)
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, yawA, yawB, footprint, s.depthPerp, heightF, bottomF, b, true, coreLayers)
 }
 
 // drawCrossedSlabs renders two perpendicular standee planes (yawA, yawB) crossing
@@ -1600,11 +1603,11 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 // continuous and batched. Both arms of a plane share one slab, so each yaw's slab
 // is prepared ONCE and reused; the two slabs stay live together for the
 // interleaved draw, hence two reused buffers (A/B).
-func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY, yawA, yawB, footprint, depthPerp float64, heightF, bottomF float64, b float32, volumeComposite bool) {
+func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY, yawA, yawB, footprint, depthPerp float64, heightF, bottomF float64, b float32, volumeComposite bool, coreLayers int) {
 	slabs := [2]standeeSlab{}
 	slabOK := [2]bool{}
-	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, depthPerp, heightF, bottomF, b, b, b, true, false, footprint, r.standeeSurfaces[:0])
-	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, depthPerp, heightF, bottomF, b, b, b, true, false, footprint, r.standeeSurfacesB[:0])
+	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, depthPerp, heightF, bottomF, b, b, b, true, false, footprint, r.standeeSurfaces[:0], coreLayers)
+	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, depthPerp, heightF, bottomF, b, b, b, true, false, footprint, r.standeeSurfacesB[:0], coreLayers)
 	slabs[0].volumeComposite = volumeComposite
 	slabs[1].volumeComposite = volumeComposite
 
@@ -1738,7 +1741,7 @@ func (r *Renderer) drawLandmarkStandee(screen, sprite *ebiten.Image, keyName str
 	heightF := standeeHeightForWidth(sizeF, sprite.Bounds().Dx(), sprite.Bounds().Dy())
 	key := makeStandeeCoreKey(keyName, sprite, true)
 	footprint := r.spriteFootprintWorld(sizeF, depthPerp)
-	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightF, bottomF, b, false)
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightF, bottomF, b, false, -1)
 	return true
 }
 

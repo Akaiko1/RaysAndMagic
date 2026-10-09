@@ -857,10 +857,12 @@ type GraphicsConfig struct {
 	Colors             ColorsConfig            `yaml:"colors"`
 	// RemovedSprite catches the retired graphics.sprite block so a stale config
 	// fails loudly instead of authoring scale nothing reads. See SpriteConfig.
-	RemovedSprite *SpriteConfig       `yaml:"sprite,omitempty"`
-	BrightnessMin float64             `yaml:"brightness_min"`
-	Monster       MonsterRenderConfig `yaml:"monster"`
-	NPC           NPCRenderConfig     `yaml:"npc"`
+	RemovedSprite *SpriteConfig `yaml:"sprite,omitempty"`
+	// RemovedTreeStandeeLOD rejects the retired distance-to-billboard switch.
+	RemovedTreeStandeeLOD *float64            `yaml:"tree_standee_lod_tiles,omitempty"`
+	BrightnessMin         float64             `yaml:"brightness_min"`
+	Monster               MonsterRenderConfig `yaml:"monster"`
+	NPC                   NPCRenderConfig     `yaml:"npc"`
 	// SizeClasses is the single quantized visual-scale table for world sprites.
 	// Actor classes set frame height; prop/landmark classes set visible alpha
 	// height; tree sprites interpret their selected class as frame width and keep
@@ -881,11 +883,6 @@ type GraphicsConfig struct {
 	// draw. Each screen ray that crosses either center-plane of a tree tile
 	// draws a textured vertical slice; see drawTreeBillboardSlice.
 	TreesAsBillboards bool `yaml:"trees_as_billboards"`
-
-	// TreeStandeeLODTiles is the distance (in tiles) beyond which a crossed-tree
-	// standee degrades to a single (non-crossed) standee plane. <=0 disables the
-	// distant LOD. Close trees always retain the full slab.
-	TreeStandeeLODTiles float64 `yaml:"tree_standee_lod_tiles"`
 
 	// NightMotes controls the moving motes emitted by authored tree tiles at night.
 	NightMotes NightMoteRenderConfig `yaml:"night_motes"`
@@ -936,6 +933,8 @@ func validateNightMoteRenderConfig(nightMotes NightMoteRenderConfig) error {
 // StandeeConfig tunes the board-game standee rendering mode.
 type StandeeConfig struct {
 	Enabled bool `yaml:"enabled"`
+	// CrossedStandeeLayers budgets natural-cross interiors, never outer faces.
+	CrossedStandeeLayers CrossedStandeeLayersConfig `yaml:"crossed_standee_layers"`
 	// ThicknessTiles is the token slab's thickness in tiles: the gap between
 	// the front and back sticker faces, with the core layer visible between
 	// them at viewing angles.
@@ -1182,9 +1181,8 @@ const (
 	TileRenderStandee = "standee"
 	// TileRenderCrossedStandee is the natural crossed volume: trees, rocks,
 	// dunes. size_class is the projected frame WIDTH (tree = the standard 2.0;
-	// a smaller class makes a narrower tree). Degrades to one camera-facing
-	// plane past graphics.tree_standee_lod_tiles and is the class canopy shade
-	// and earthquake toppling act on.
+	// a smaller class makes a narrower tree). Retains both crossed planes at
+	// every distance; canopy shade and earthquake toppling act on this class.
 	TileRenderCrossedStandee = "crossed_standee"
 	// TileRenderCrossedProp is the built crossed volume: boilers, crates,
 	// screens, logs. Same two-plane geometry, but size_class is the VISIBLE
@@ -1208,7 +1206,7 @@ var tileRenderTypes = [...]string{
 
 // IsCrossedRenderType reports whether a render type draws two perpendicular
 // planes. Geometry dispatchers (tile cache, raycast skip, prewarm, opacity)
-// treat both crossed classes alike; the tree MECHANICS - billboard LOD, canopy
+// treat both crossed classes alike; the tree MECHANICS - interior budget, canopy
 // shade, earthquake toppling - stay keyed to TileRenderCrossedStandee.
 func IsCrossedRenderType(renderType string) bool {
 	return renderType == TileRenderCrossedStandee || renderType == TileRenderCrossedProp
@@ -1645,8 +1643,7 @@ func LoadConfig(filename string) (*Config, error) {
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
 	config.Graphics.Props3D = true
-	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to one plane (shipped config.yaml sets 25)
-	config.Graphics.Standee.CoreTint = 1.0   // sprite-average standee core by default
+	config.Graphics.Standee.CoreTint = 1.0 // sprite-average standee core by default
 	config.Graphics.NightMotes = NightMoteRenderConfig{
 		EmissionRadiusTiles:     10,
 		EmissionIntervalSeconds: 2,
@@ -1716,6 +1713,9 @@ func LoadConfig(filename string) (*Config, error) {
 	if config.Graphics.RemovedSprite != nil {
 		return nil, fmt.Errorf("graphics.sprite is removed - flat billboard scale comes from the tile size_class and the source texture aspect")
 	}
+	if config.Graphics.RemovedTreeStandeeLOD != nil {
+		return nil, fmt.Errorf("graphics.tree_standee_lod_tiles is removed - natural crosses retain both planes; use graphics.standee.crossed_standee_layers for interior budgets")
+	}
 	v := config.Graphics.View
 	if !(v.WidePaniniDistance >= 0 && v.WidePaniniDistance <= 1) {
 		return nil, fmt.Errorf("graphics.view.wide_panini_distance must be in [0, 1], got %g", v.WidePaniniDistance)
@@ -1778,6 +1778,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
+		return nil, err
+	}
+	if err := config.Graphics.Standee.CrossedStandeeLayers.Validate(); err != nil {
 		return nil, err
 	}
 

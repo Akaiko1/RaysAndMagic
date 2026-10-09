@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"testing"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/shaders"
 
@@ -266,6 +267,19 @@ func TestStandeeVolumeShaderPreservesLayersAndWallClip(t *testing.T) {
 	if got := pixel(pixels, 4, 4); got.G < 150 || got.R != 0 || got.A < 250 {
 		t.Fatalf("core shell = %#v, want visible opaque green volume", got)
 	}
+
+	// Exercise the full Go-validated capacity with translucent shells: opaque
+	// shells would hide a shortened shader loop after its first iteration.
+	core.Fill(color.RGBA{G: 16, A: 16})
+	for i := range vertices {
+		vertices[i].ColorA = float32(config.MaxStandeeCoreLayers)
+	}
+	pixels = draw()
+	wantAlpha := 255 * (1 - math.Pow(1-16.0/255, config.MaxStandeeCoreLayers))
+	if got := pixel(pixels, 4, 4); math.Abs(float64(got.A)-wantAlpha) > 1 {
+		t.Fatalf("volume shader must composite all %d core layers: alpha=%d, want %.1f", config.MaxStandeeCoreLayers, got.A, wantAlpha)
+	}
+	core.Fill(color.RGBA{G: 0xff, A: 0xff})
 
 	// A wall at depth 7 is in front of every slab layer. Its top at y=4 keeps
 	// the canopy visible above it and clips the lower half, matching the general

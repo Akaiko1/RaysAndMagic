@@ -546,11 +546,9 @@ graphics:
     ground: [34, 139, 34]     # Green
     forest_bg: [34, 139, 34]  # Forest background
 
-  # Distance (in tiles) beyond which a crossed-tree standee degrades to a single
-  # camera-facing plane. Trees only; close trees always retain full slab depth.
-  # <=0 disables the distant LOD.
+  # Draw natural crosses in the sorted sprite pass instead of the flat raycast
+  # fallback. Both crossed planes remain at every distance; no billboard LOD.
   trees_as_billboards: true
-  tree_standee_lod_tiles: 25
 
   # Moving motes emitted by authored tree tiles at night. They are local
   # visual effects rather than world lights, so dense forests stay cheap.
@@ -572,6 +570,21 @@ graphics:
     enabled: true
     thickness_tiles: 0.02       # wooden slab thickness (front sticker <-> back sticker)
     core_tint: 1.0              # 0 = wood core, 1 = sprite-average core color
+    crossed_standee_layers:
+      # Natural crosses keep both outer faces of both planes at every distance.
+      # Bands start at distance_tiles, measured to the tile centre in world space.
+      # Counts are intentional world-distance budgets, independent of FOV,
+      # resolution and thickness; built props keep projected-thickness sampling.
+      distance_bands:
+        - {distance_tiles: 0, layers: 16}
+        - {distance_tiles: 1, layers: 8}
+        - {distance_tiles: 2, layers: 4}
+        - {distance_tiles: 3, layers: 2}
+        - {distance_tiles: 5, layers: 0}
+      forward_half_width_tiles: 1.5 # three tile-wide lanes around the view axis
+      # With a 1.5-tile half-width every outside point is already >1 tile away.
+      # This cutoff matters independently for narrower lanes or a larger reach.
+      off_axis_max_distance_tiles: 1
     turn_speed_deg_per_sec: 270 # how fast monster tokens swivel toward their heading
     npc_spin_deg_per_sec: 12    # showcase spin of non-person NPC props (0 = off); terrain sprites use env_face instead
     env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)

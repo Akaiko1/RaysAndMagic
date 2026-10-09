@@ -9,9 +9,137 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
+	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
+
+// Drive the actual split and whole-cross paths without GPU readback. Inspect
+// their prepared surface stacks; pixel parity remains in the live GPU suite.
+func TestNaturalCrossBudgetLogicalCamera(t *testing.T) {
+	previousConfig := config.GlobalConfig
+	t.Cleanup(func() { config.GlobalConfig = previousConfig })
+	cfg := loadTestConfig(t)
+	t.Chdir("../..")
+	previous := world.GlobalTileManager
+	t.Cleanup(func() { world.GlobalTileManager = previous })
+	tm := world.NewTileManager(cfg.Graphics.SizeClasses)
+	if err := tm.LoadTileConfig("assets/tiles.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	world.GlobalTileManager = tm
+	g := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
+	g.sprites = graphics.NewSpriteManager()
+	g.renderHelper = NewRenderingHelper(g)
+	g.camera.ViewDist = cfg.GetViewDistance()
+	g.depthBuffer = make([]float64, g.worldWidth())
+	g.wallTopBuffer = make([]float64, g.worldWidth())
+	r := &Renderer{game: g}
+	// Seed CPU-backed geometry textures; normal CI has no live GPU readback.
+	sprite := g.sprites.GetSprite("tree")
+	cpu := image.NewRGBA(sprite.Bounds())
+	draw.Draw(cpu, cpu.Bounds(), image.White, image.Point{}, draw.Src)
+	r.standeeCoreSilhouetteFromCPU(makeStandeeCoreKey(r.prefixedStandeeKeyName("tree", "tree"), sprite, true), sprite, cpu)
+	dst := ebiten.NewImage(g.worldWidth(), g.worldHeight())
+	defer dst.Deallocate()
+	cfg.Graphics.Standee.CrossedStandeeLayers = config.CrossedStandeeLayersConfig{
+		DistanceBands: []config.StandeeLayerBand{
+			{DistanceTiles: 0, Layers: 16}, {DistanceTiles: 1, Layers: 8},
+			{DistanceTiles: 2, Layers: 4}, {DistanceTiles: 3, Layers: 2}, {DistanceTiles: 5, Layers: 0},
+		},
+		ForwardHalfWidthTiles: 1.5, OffAxisMaxDistanceTiles: 1,
+	}
+	// Use the same source art for both classifications so only dispatch differs.
+	tile := tm.GetTileData(world.TileTree)
+	if tile == nil || tile.RenderType != config.TileRenderCrossedStandee {
+		t.Fatal("fixture needs a natural tree tile")
+	}
+	ts := float64(cfg.GetTileSize())
+	x, y := TileCenterFromTile(10, 10, ts)
+	for _, tc := range []struct {
+		name                    string
+		forward, lateral, angle float64
+		want                    int
+		presented, prop         bool
+	}{
+		{name: "near", forward: .5, want: 16},
+		{name: "one", forward: 1.25, want: 8},
+		{name: "two", forward: 2.25, want: 4},
+		{name: "three", forward: 3.25, want: 2},
+		{name: "four", forward: 4.25, want: 2},
+		{name: "far retains cross", forward: 30, want: 0},
+		{name: "inside positive", forward: 3, lateral: 1.49, want: 2},
+		{name: "outside negative", forward: 3, lateral: -1.51, want: 0},
+		{name: "rotated inside", forward: 2.1, lateral: -1.2, angle: .7, want: 4},
+		{name: "rotated outside", forward: 2.1, lateral: 1.6, angle: .7, want: 0},
+		{name: "interpolation", forward: 2.99, want: 4, presented: true},
+		{name: "built prop", forward: 3, lateral: 1.51, prop: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tile.RenderType = config.TileRenderCrossedStandee
+			if tc.prop {
+				tile.RenderType = config.TileRenderCrossedProp
+			}
+			cs, sn := math.Cos(tc.angle), math.Sin(tc.angle)
+			g.camera.X, g.camera.Y = x-ts*(tc.forward*cs-tc.lateral*sn), y-ts*(tc.forward*sn+tc.lateral*cs)
+			g.camera.Angle = tc.angle
+			if tc.presented {
+				restore := g.swapCameraPose(cameraPose{g.camera.X - ts, g.camera.Y, g.camera.Angle + .2})
+				defer restore()
+			}
+			// Opposite shake phases cross the lane boundary in both directions.
+			g.screenShake = .1 * ts
+			for _, phase := range []int64{0, 1} {
+				g.frameCount = phase
+				restore := g.beginScreenShakeSwap()
+				depth := tc.forward * ts
+				size := 2 * ts * g.viewFocal() / depth
+				entry := UnifiedSpriteRenderData{spriteType: SpriteTypeTree, tileType: world.TileTree, tileX: 10, tileY: 10, spriteName: "tree", sizeF: size, bottomF: g.renderHelper.calculateFloorScreenYF(depth), depthPerp: depth}
+				check := func(surfaces []standeeSurface) {
+					t.Helper()
+					// Whole-cross scratch is reclaimed to length zero after drawing;
+					// its second sticker still delimits the prepared stack.
+					stack := surfaces[:cap(surfaces)]
+					for i := 1; i < len(stack); i++ {
+						if stack[i].mipKey.layer != standeeMipSticker {
+							continue
+						}
+						got := i - 1
+						if tc.prop {
+							if got < 1 {
+								t.Fatal("built prop incorrectly received the natural off-axis budget")
+							}
+						} else if got != tc.want {
+							t.Fatalf("shake phase %d: got %d interiors, want %d", phase, got, tc.want)
+						}
+						return
+					}
+					t.Fatal("missing outer faces")
+				}
+				r.crossedGeometry.begin()
+				parts := r.splitCrossedTreesForPainterOrder([]UnifiedSpriteRenderData{entry}, 0, 1)
+				if len(parts) != 4 {
+					t.Fatalf("got %d arms, want four", len(parts))
+				}
+				for _, part := range parts {
+					r.drawCrossedTreeStandees(dst, part)
+				}
+				if r.crossedGeometry.used != 2 {
+					t.Fatalf("prepared %d slabs, want two", r.crossedGeometry.used)
+				}
+				for i := 0; i < r.crossedGeometry.used; i++ {
+					check(r.crossedGeometry.slabs[i].slab.surfaces)
+				}
+				r.crossedGeometry.end()
+				r.drawCrossedTreeStandees(dst, entry)
+				check(r.standeeSurfaces)
+				check(r.standeeSurfacesB)
+				restore()
+			}
+		})
+	}
+}
 
 func TestCommitPreparedStandeeKeepsLazyLoadedWinner(t *testing.T) {
 	key := standeeCoreKey{name: "mob:test"}
@@ -133,19 +261,6 @@ func TestStandeeUsesMinificationSampling(t *testing.T) {
 	}
 	if !standeeUsesMinificationSampling(511.9, 512, 512, 512) {
 		t.Fatal("any horizontal shrink must use stable linear sampling")
-	}
-}
-
-func TestTreeIsBillboardLOD(t *testing.T) {
-	const tileSize = 64.0
-	if treeIsBillboardLOD(25*tileSize, tileSize, 25) {
-		t.Fatal("tree at the boundary must retain crossed slabs")
-	}
-	if !treeIsBillboardLOD(25.01*tileSize, tileSize, 25) {
-		t.Fatal("tree beyond the boundary must use the distant single-plane LOD")
-	}
-	if treeIsBillboardLOD(tileSize, tileSize, 0) {
-		t.Fatal("zero threshold must disable the distant LOD")
 	}
 }
 

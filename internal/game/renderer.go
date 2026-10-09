@@ -3075,8 +3075,8 @@ type UnifiedSpriteRenderData struct {
 	tileX    int
 	tileY    int
 	tileType world.TileType3D
-	// Every crossed tree expands into four arm entries unless it uses billboard
-	// LOD. The painter pass can place other objects between the far/near arms.
+	// Every crossed tree expands into four arm entries at every distance.
+	// The painter pass can place other objects between the far/near arms.
 	// treeCenterDepth remains the projection depth used to build every arm;
 	// depthPerp becomes only that arm's global sort key.
 	treeArmOnly     bool
@@ -3245,12 +3245,6 @@ func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRende
 	for i := start; i < end; i++ {
 		tree := sprites[i]
 		if tree.spriteType != SpriteTypeTree {
-			continue
-		}
-		// A prop-class cross keeps both planes at every distance, so it always
-		// needs the arm split; only a tree can already have collapsed to one.
-		if tileIsNaturalCross(tree.tileType) &&
-			treeIsBillboardLOD(tree.distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 			continue
 		}
 		worldX, worldY := TileCenterFromTile(tree.tileX, tree.tileY, tileSize)
@@ -4372,7 +4366,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				// Whole-pixel height/bottom quantization would make the
 				// facade bob 1px up and down while the camera approaches.
 				bhF, bBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(centerDepth, heightTiles)
-				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, bhF, bBottomF, sb, sb, sb, true, false, span, r.standeeSurfaces[:0])
+				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, bhF, bBottomF, sb, sb, sb, true, false, span, r.standeeSurfaces[:0], -1)
 				if okSlab {
 					// Column-clip the shared slab to THIS entry's footprint tile
 					// (the painter sort placed the segment at its own tile depth).

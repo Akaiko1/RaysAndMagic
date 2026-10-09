@@ -59,7 +59,7 @@ func (r *Renderer) drawMonsterCorpse(screen *ebiten.Image, s UnifiedSpriteRender
 	if r.game.config.Graphics.Standee.Enabled {
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", c.key), s.sprite, true)
 		slab, ok := r.prepareStandeeSlab(s.sprite, key, c.x, c.y, c.yaw, s.depthPerp, s.sizeF, s.bottomF,
-			rr, gg, bb, false, c.mirror, 0, r.standeeSurfaces[:0])
+			rr, gg, bb, false, c.mirror, 0, r.standeeSurfaces[:0], -1)
 		if ok {
 			// Fade a single visible face: translucent wood shells would accumulate
 			// alpha and keep the body opaque until the last instant.
