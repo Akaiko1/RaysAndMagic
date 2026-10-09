@@ -140,7 +140,7 @@ YAML behaviors; a new behavior still needs runtime support.
 | --- | --- | --- |
 | Weapons | `assets/weapons.yaml` | [Weapons](how_to_add_a_new_weapon.md) |
 | Spells | `assets/spells.yaml` | [Spells](how_to_add_a_new_spell.md) |
-| Monsters and wildlife | `assets/monsters.yaml`, `assets/ecology.yaml` | [Monsters](how_to_add_a_new_monster.md), [Monster design](docs/monster-design.md) |
+| Monsters and wildlife | `assets/monsters.yaml`, `assets/ecology.yaml` | [Monsters](how_to_add_a_new_monster.md), [Monster design](docs/monster-design.md), [Spawns over time](docs/monster-spawns.md) |
 | Items, sets, and drops | `assets/items.yaml`, `assets/loots.yaml` | [Items and loot](docs/adding-items-and-loot.md) |
 | Alchemy and gathering | `assets/alchemy_recipes.yaml`, `assets/alchemy_spawns.yaml`, `assets/items.yaml` | [Shipped recipes](assets/alchemy_recipes.yaml), [Harvest populations](assets/alchemy_spawns.yaml) |
 | Pilgrim techniques | `assets/techniques.yaml` | [Shipped techniques](assets/techniques.yaml) |

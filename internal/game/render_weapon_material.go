@@ -38,13 +38,13 @@ func weaponMaterial(style string) int {
 	switch style {
 	case "solstice_thermal", "dragon_ember_egg", "dragon_fang", "fire":
 		return weaponHeat
-	case "solstice_flow", "dragon_tarn", "serpent_fang", "muramasa", "water":
+	case "rainfang", "solstice_flow", "dragon_tarn", "serpent_fang", "muramasa", "water":
 		return weaponLiquid
 	case "solstice_anchor", "idol_breaker", "dragon_roar", "earth":
 		return weaponStone
 	case "kage_kunai", "dragon_hatchling", "dark":
 		return weaponVeil
-	case "solstice_transfer":
+	case "duskneedle", "solstice_transfer":
 		return weaponWind
 	case "tonbogiri", "agility_katar", "air", "arcane":
 		return weaponEnergy

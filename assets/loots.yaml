@@ -20,10 +20,25 @@ loots:
   solstice_gale_elemental: [{"type": "item", "key": "solstice_bound_breath", "chance": 0.4}]
   solstice_storm_kite: [{"type": "item", "key": "solstice_charged_quill", "chance": 0.4}]
   solstice_transfer_automaton: [{"type": "item", "key": "solstice_resonance_coil", "chance": 0.4}]
-  solstice_sunscarab: [{"type": "harvest", "key": "solstice_sun_resin", "chance": 0.45}]
-  solstice_rain_serpent: [{"type": "harvest", "key": "solstice_rain_pearl", "chance": 0.45}]
+  solstice_sunscarab:
+    - {type: harvest, key: solstice_sun_resin, chance: 0.23}
+    - {type: item, key: scarab_amber_marrow, chance: 0.23}
+    - {type: item, key: scarab_serrated_chitin, chance: 0.23}
+    - {type: weapon, key: shellknocker, chance: 0.04}
+    - {type: item, key: sunscarab_card, chance: 0.01}
+  solstice_rain_serpent:
+    - {type: harvest, key: solstice_rain_pearl, chance: 0.23}
+    - {type: item, key: serpent_restorative_mucus, chance: 0.23}
+    - {type: item, key: serpent_crystal_fang, chance: 0.23}
+    - {type: weapon, key: rainfang, chance: 0.04}
+    - {type: item, key: rain_serpent_card, chance: 0.01}
   solstice_rootbound_sentinel: [{"type": "harvest", "key": "solstice_calendar_jade", "chance": 0.45}]
-  solstice_dusk_moth: [{"type": "harvest", "key": "solstice_whisper_silk", "chance": 0.45}]
+  solstice_dusk_moth:
+    - {type: harvest, key: solstice_whisper_silk, chance: 0.23}
+    - {type: item, key: moth_velvet_down, chance: 0.23}
+    - {type: item, key: moth_wing_dust, chance: 0.23}
+    - {type: weapon, key: duskneedle, chance: 0.04}
+    - {type: item, key: dusk_moth_card, chance: 0.01}
 
   common_carp:
     - {type: item, key: carp_scale, chance: 1}

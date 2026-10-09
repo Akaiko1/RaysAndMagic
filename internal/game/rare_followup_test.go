@@ -431,7 +431,9 @@ func TestRareAlchemyMaterialVariety(t *testing.T) {
 				keys[k] = true
 			}
 		}
-		if len(keys) < 4 || r.Family == "common" && (len(keys) < 8 || len(keys) > 12) {
+		// New drop families may add alternatives; variety is a minimum, not a
+		// ceiling that silently forbids new crafting ingredients.
+		if len(keys) < 4 || r.Family == "common" && len(keys) < 8 {
 			t.Errorf("%s has %d material alternatives", r.Key, len(keys))
 		}
 	}

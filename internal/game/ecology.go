@@ -4,6 +4,7 @@ import (
 	"maps"
 	"math"
 	"math/rand"
+	"slices"
 	"sort"
 	uitext "ugataima/assets/text"
 
@@ -109,7 +110,7 @@ func (g *MMGame) addEcologyActor(w *world.World3D, m *monster.Monster3D) {
 // Entering a map or reloading must never refill a depleted same-phase population.
 func (g *MMGame) replenishWildlife() {
 	c := config.GlobalEcology
-	if c == nil || g.config == nil {
+	if c == nil || g.config == nil || world.GlobalTileManager == nil {
 		return
 	}
 	if g.ecology.PopulationPhases == nil {
@@ -120,7 +121,7 @@ func (g *MMGame) replenishWildlife() {
 		if (p.Phase == "night") != g.dayNightIsNight {
 			continue
 		}
-		key := p.Map + ":" + p.Monster
+		key := p.Identity()
 		if phase, ok := g.ecology.PopulationPhases[key]; ok && phase == g.dayNightDay {
 			continue
 		}
@@ -136,7 +137,7 @@ func (g *MMGame) replenishWildlife() {
 				continue
 			}
 			occupied[[2]int{int(m.X / tile), int(m.Y / tile)}] = true
-			if m.Population == key {
+			if m.Population == key || (p.Hostile && m.HomeMap == p.Map && m.Population == "" && slices.Contains(p.Species(), m.Key) && !isPurePartySummon(m)) {
 				n++
 			}
 		}
@@ -157,7 +158,9 @@ func (g *MMGame) replenishWildlife() {
 		for y := minY; y < maxY; y++ {
 			for x := minX; x < maxX; x++ {
 				wx, wy := (float64(x)+.5)*tile, (float64(y)+.5)*tile
-				if occupied[[2]int{x, y}] || w.IsTileBlockingForMonster(x, y, nil, false) {
+				// Bare ground only: walkable grass and ferns also line the void
+				// outside a region's walls, where nothing can reach the spawn.
+				if occupied[[2]int{x, y}] || w.IsTileBlockingForMonster(x, y, nil, false) || !world.GlobalTileManager.IsBareFloor(w.Tiles[y][x]) {
 					continue
 				}
 				if w == g.world && g.camera != nil && Distance(wx, wy, g.camera.X, g.camera.Y) < 4*tile {
@@ -169,7 +172,9 @@ func (g *MMGame) replenishWildlife() {
 		rand.Shuffle(len(free), func(i, j int) { free[i], free[j] = free[j], free[i] })
 		for i := 0; n < p.Count && i < len(free); i++ {
 			xy := free[i]
-			m := monster.NewMonster3DFromConfig((float64(xy[0])+.5)*tile, (float64(xy[1])+.5)*tile, p.Monster, g.config)
+			species := p.Species()
+			kind := species[rand.Intn(len(species))]
+			m := monster.NewMonster3DFromConfig((float64(xy[0])+.5)*tile, (float64(xy[1])+.5)*tile, kind, g.config)
 			m.Population = key
 			g.addEcologyActor(w, m)
 			n++
@@ -405,7 +410,11 @@ func (g *MMGame) updateEcology() {
 		g.addEcologyActor(next, m)
 		w = next
 	}
-	if math.Hypot(m.X-x, m.Y-y) > tile*.12 {
+	// Credit arrival when movement considers the leg done. A rebuilt path skips
+	// the tile it starts in, so a stop short of the centre (a reload, a blocked
+	// last step) must still count or the caravan waits there forever.
+	inTile := TileIndex(m.X, tile) == TileIndex(x, tile) && TileIndex(m.Y, tile) == TileIndex(y, tile)
+	if math.Hypot(m.X-x, m.Y-y) > tile*.12 && !(inTile && m.PathIndex >= len(m.PathTiles)) {
 		return
 	}
 	m.X, m.Y = x, y
@@ -503,7 +512,7 @@ func (g *MMGame) setWildlifeBounds(m *monster.Monster3D) {
 		return
 	}
 	for _, p := range config.GlobalEcology.Populations {
-		if m.Population != p.Map+":"+p.Monster {
+		if m.Population != p.Identity() {
 			continue
 		}
 		w := ecologyWorld(p.Map)

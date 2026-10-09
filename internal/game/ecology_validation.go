@@ -51,8 +51,14 @@ func ValidateEcologyContent(cfg *config.Config, qm *quests.QuestManager) error {
 		}
 	}
 	for _, p := range c.Populations {
-		if err := checkActor(p.Monster, monster.DispositionWildlife); err != nil {
-			return err
+		disposition := monster.DispositionWildlife
+		if p.Hostile {
+			disposition = ""
+		}
+		for _, species := range p.Species() {
+			if err := checkActor(species, disposition); err != nil {
+				return err
+			}
 		}
 		if ecologyWorld(p.Map) == nil {
 			return fmt.Errorf("ecology population map %q is missing", p.Map)

@@ -183,6 +183,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m.StunRate = cs.StunRate
 	m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames = cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames
 	m.ActionsRemaining = cs.ActionsRemaining
+	m.ReactiveCombat = cs.ReactiveCombat
 	m.TBRoundActionFloor = cs.TBRoundActionFloor
 	if m.TBRoundActionFloor <= 0 && m.ActionsRemaining > 0 {
 		// Legacy saves predate the credited-floor field. Recover the floor
@@ -198,6 +199,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 // buildCharacterSave serializes one character (active or reserve).
 func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs := CharacterSave{
+		ReactiveCombat:   m.ReactiveCombat,
 		Name:             m.Name,
 		AdventureXP:      maps.Clone(m.AdventureXP),
 		Inventory:        append([]items.Item(nil), m.Inventory...),

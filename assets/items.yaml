@@ -72,6 +72,65 @@ item_sets:
     bonus_endurance: 20
 
 items:
+  moth_velvet_down:
+    name: "Velvet Down"
+    type: "trinket"
+    description: "Soft moth down used as restorative stock in healing potions"
+    rarity: "uncommon"
+    value: 45
+  moth_wing_dust:
+    name: "Abrasive Wing Dust"
+    type: "trinket"
+    description: "Sharp wing scales used as the secondary material in Harm Flasks"
+    rarity: "uncommon"
+    value: 45
+  scarab_amber_marrow:
+    name: "Amber Marrow"
+    type: "trinket"
+    description: "Golden scarab marrow used as restorative stock in healing potions"
+    rarity: "uncommon"
+    value: 45
+  scarab_serrated_chitin:
+    name: "Serrated Chitin"
+    type: "trinket"
+    description: "Jagged shell fragments used as the secondary material in Harm Flasks"
+    rarity: "uncommon"
+    value: 45
+  serpent_restorative_mucus:
+    name: "Restorative Mucus"
+    type: "trinket"
+    description: "Cool serpent mucus used as restorative stock in healing potions"
+    rarity: "uncommon"
+    value: 45
+  serpent_crystal_fang:
+    name: "Crystal Fang"
+    type: "trinket"
+    description: "A brittle rain-serpent fang used as the secondary material in Harm Flasks"
+    rarity: "uncommon"
+    value: 45
+  dusk_moth_card:
+    name: "Dusk Moth Card"
+    type: "card"
+    description: "Afterimage"
+    card_dodge_charge_pct: 25
+    card_dodge_charge_limit: 4
+    rarity: "legendary"
+    value: 500
+  sunscarab_card:
+    name: "Sunscarab Card"
+    type: "card"
+    description: "Hardened Shell"
+    card_repeated_hit_reduction_pct: 5
+    card_repeated_hit_reduction_cap: 30
+    rarity: "legendary"
+    value: 500
+  rain_serpent_card:
+    name: "Rain Serpent Card"
+    type: "card"
+    description: "Shedding"
+    card_healing_cleanse: true
+    rarity: "legendary"
+    value: 500
   translocator:
     name: "Translocator"
     type: "device"

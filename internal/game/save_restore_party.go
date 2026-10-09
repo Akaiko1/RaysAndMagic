@@ -45,6 +45,7 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	restoreRoster(&g.party.Members, save.Party.Members)
 	restoreRoster(&g.party.Reserve, save.Party.Reserve)
 	restoreRoster(&g.party.Captive, save.Party.Captive)
+	g.normalizeReactiveCards()
 	g.ensureAdditionalRecruits()
 	if save.TotalExperienceEarned > 0 {
 		g.totalExperienceEarned = save.TotalExperienceEarned

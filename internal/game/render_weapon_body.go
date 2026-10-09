@@ -8,6 +8,7 @@ import (
 
 // Model numbers select procedural shapes, never item icon textures.
 var weaponBodyModels = map[string]int{
+	"rainfang": meleeBodyRainfang, "shellknocker": meleeBodyShellknocker,
 	"iron_sword": 0, "silver_sword": 1, "gold_sword": 2, "gladius": 3,
 	"katana": 4, "wakizashi": 5, "muramasa": 6, "jungle_machete": 7,
 	"magic_dagger": 8, "parry_dagger": 9, "kage_kunai": 11,

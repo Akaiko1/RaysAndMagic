@@ -75,13 +75,14 @@ type AdventureExperience struct {
 }
 
 type MMCharacter struct {
-	AdventureXP map[string]AdventureExperience
-	Inventory   []items.Item // Personal bag; travels with this hero through roster changes.
-	RareClass   RareClassState
-	Name        string
-	Class       CharacterClass
-	Promotion   Promotion // elite status (Archmage/Lich); PromotionNone by default
-	Race        string    // config.yaml race key; persisted because racial traits are gameplay state
+	ReactiveCombat ReactiveCombatState
+	AdventureXP    map[string]AdventureExperience
+	Inventory      []items.Item // Personal bag; travels with this hero through roster changes.
+	RareClass      RareClassState
+	Name           string
+	Class          CharacterClass
+	Promotion      Promotion // elite status (Archmage/Lich); PromotionNone by default
+	Race           string    // config.yaml race key; persisted because racial traits are gameplay state
 
 	// Core stats
 	Level          int
@@ -926,6 +927,7 @@ func (c *MMCharacter) CureRestConditions() {
 // Eradicate ends the hero outright: 0 HP, Eradicated as the only state, and no
 // poison, burn or stun left running to resurface after Resurrect.
 func (c *MMCharacter) Eradicate() {
+	c.ReactiveCombat = ReactiveCombatState{}
 	c.clearRestState()
 	c.HitPoints = 0
 	c.Conditions = []Condition{ConditionEradicated}

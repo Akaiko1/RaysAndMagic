@@ -6,6 +6,18 @@ frames:
   asian: assets/sprites/interface/icon_frames/icon_frame_asian.png
   boss: assets/sprites/interface/icon_frames/icon_frame_boss.png
 icons:
+  icon_weapon_duskneedle: basic
+  icon_weapon_shellknocker: basic
+  icon_weapon_rainfang: basic
+  icon_item_moth_velvet_down: basic
+  icon_item_moth_wing_dust: basic
+  icon_item_scarab_amber_marrow: basic
+  icon_item_scarab_serrated_chitin: basic
+  icon_item_serpent_restorative_mucus: basic
+  icon_item_serpent_crystal_fang: basic
+  icon_item_dusk_moth_card: basic
+  icon_item_sunscarab_card: basic
+  icon_item_rain_serpent_card: basic
   icon_item_translocator: basic
   icon_item_wolf_pelt: basic
   icon_item_spider_silk: basic

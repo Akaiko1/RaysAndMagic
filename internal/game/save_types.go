@@ -136,6 +136,7 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
+	ReactiveCombat     character.ReactiveCombatState            `json:"reactive_combat,omitempty"`
 	AdventureXP        map[string]character.AdventureExperience `json:"adventure_xp,omitempty"`
 	Inventory          []items.Item                             `json:"inventory,omitempty"`
 	RareClass          character.RareClassState                 `json:"rare_class,omitempty"`

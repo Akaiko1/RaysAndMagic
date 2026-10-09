@@ -719,6 +719,9 @@ day_night:
   panorama_fade_seconds: 3
   days_per_week: 7
   days_per_month: 28
+  # Phase-only packs: each dusk/dawn removes the outgoing phase's pack and spawns
+  # the incoming one. Groups that should persist belong in assets/ecology.yaml
+  # populations instead. Guide: docs/monster-spawns.md.
   # Counts are caps: packs use vacant authored monster spawn points only.
   packs:
     - map: forest

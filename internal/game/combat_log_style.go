@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
@@ -167,16 +168,54 @@ func logSchoolWord(school, text string) logPart { return logStyled{text, logScho
 // logItemName is an item in its rarity color.
 func logItemName(it items.Item) logPart { return logStyled{it.Name, rarityColor(itemRarity(it))} }
 
-// logKillXP is " +480 XP (120 each)" after a kill: what it gives the party
-// and each hero's share. A kill worth nothing shows none.
-func (g *MMGame) logKillXP(xp int) logPart {
+// logKillXP shows the base reward/share, before personal Learning bonuses.
+// The same format applies in chambers until a cap reduces active rewards.
+func (g *MMGame) logKillXP(xp int) string {
+	return formatKillXP(xp, g.xpShare(xp), g.party != nil && len(g.party.Members) >= 2)
+}
+
+func formatKillXP(xp, share int, multiple bool) string {
 	switch {
 	case xp <= 0:
-		return logStyled{"", combatMessageGold}
-	case g.party == nil || len(g.party.Members) < 2:
-		return logStyled{fmt.Sprintf(" +%d XP", xp), combatMessageGold}
+		return ""
+	case !multiple:
+		return uitext.Text("combat.kill_xp", xp)
 	}
-	return logStyled{fmt.Sprintf(" +%d XP (%d each)", xp, g.xpShare(xp)), combatMessageGold}
+	return uitext.Text("combat.kill_xp_each", xp, share)
+}
+
+func (g *MMGame) logMonsterKillXP(m *monsterPkg.Monster3D, xp int) logPart {
+	suffix := g.logKillXP(xp)
+	preview := g.adventureKillExperience(m, xp)
+	if !preview.chamber {
+		return logStyled{suffix, combatMessageGold}
+	}
+	if preview.activeLimited {
+		// Near the cap, nominal "each" would advertise XP some heroes cannot
+		// receive. Show actual active shares, not the sum over every roster.
+		total, same, share := 0, true, 0
+		parts := make([]string, 0, len(preview.activeShares))
+		for i, award := range preview.activeShares {
+			if i == 0 {
+				share = award.amount
+			}
+			same = same && award.amount == share
+			total += award.amount
+			parts = append(parts, uitext.Text("combat.kill_xp_hero", award.hero.Name, award.amount))
+		}
+		suffix = formatKillXP(total, share, len(parts) >= 2)
+		if total > 0 && !same {
+			suffix = uitext.Text("combat.kill_xp_partial", total, strings.Join(parts, ", "))
+		}
+	}
+	if preview.atLimit > 0 {
+		if preview.atLimit == preview.recipients {
+			suffix += uitext.Text("adventure.xp_limit")
+		} else {
+			suffix += uitext.Text("adventure.xp_limit_some")
+		}
+	}
+	return logStyled{suffix, combatMessageGold}
 }
 
 // logCrit is the critical-hit prefix, empty for a normal hit.

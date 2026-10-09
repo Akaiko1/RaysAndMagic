@@ -47,7 +47,7 @@ func TestWindowsCenteredOnEveryInterfaceFrame(t *testing.T) {
 				{"stack split", fromRect(stackSplitPickerRect(w, hh)), frame},
 				{"level-up choice", layoutRect{lx, ly, lw, lh}, frame},
 				{"npc dialog", layoutRect{npc.x, npc.y, npc.w, npc.h}, frame},
-				{"map overlay", computeMapOverlayLayout(w, hh).panel, frame},
+				{"map overlay", computeMapOverlayLayout(w, viewport.h).panel, viewport},
 				{"tabbed menu", computeTabbedMenuLayout(w, viewport.h).panel, viewport},
 			}
 			for mode := MenuMain; mode <= MenuControlTips; mode++ {

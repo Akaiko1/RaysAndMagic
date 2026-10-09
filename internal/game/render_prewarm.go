@@ -796,9 +796,14 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 			}
 		}
 		for _, population := range ecology.Populations {
-			if population.Map == mapKey && len(monsterSpecialAnimations(population.Monster)) > 0 {
-				observeMinScore(decodeMonsterKeys, population.Monster, math.Inf(1))
-				observeMinScore(monsterKeys, population.Monster, math.Inf(1))
+			if population.Map != mapKey {
+				continue
+			}
+			for _, species := range population.Species() {
+				if len(monsterSpecialAnimations(species)) > 0 {
+					observeMinScore(decodeMonsterKeys, species, math.Inf(1))
+					observeMinScore(monsterKeys, species, math.Inf(1))
+				}
 			}
 		}
 	}

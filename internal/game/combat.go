@@ -61,6 +61,7 @@ func (cs *CombatSystem) knockOut(target *character.MMCharacter) {
 		return
 	}
 	target.AddCondition(character.ConditionUnconscious)
+	target.ReactiveCombat = character.ReactiveCombatState{}
 	cs.game.logCombat(logToneBad, "%s %s!", logHeroName(target), logColored("falls unconscious", logDyingHP))
 }
 
@@ -725,6 +726,7 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, explicitAim bool) 
 	// Card procs only fire on an attack that actually happened (gated above), so a
 	// capped ranged weapon can't be spammed for free Ningyo/Orc Warlord procs.
 	if acted {
+		cs.tryAttackZoneProc(weaponDef, attacker)
 		if weaponDef.Category == "staff" && !summonRolled {
 			attacker.ConsumeFlowingStaffCharge()
 		}
@@ -1433,7 +1435,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// The immutable packet is reused by every AoE victim. Each target resolves
 	// its own armor, bonus-vs and resistances; the packet pays flat soak once.
-	hit := cs.applyPartyMonsterAttack(monster, attack)
+	hit := cs.applyPartyMonsterAttack(monster, cs.consumeDodgeCharge(attack))
 	finalDamage, isCrit := hit.Total(), hit.Critical
 	cs.markMonsterHit(monster)
 	cs.game.logCombat(logToneGood, "%s%s hits %s for %s damage! %s", logCrit(isCrit), logHeroText(attackerName),
@@ -1452,6 +1454,9 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 // the target.
 func (cs *CombatSystem) settlePartyHit(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig,
 	attacker *character.MMCharacter, attackerName string, shot *Arrow, riders func()) (executed bool) {
+	if weaponDef != nil && attacker != nil && weaponDef.HitShellAbsorption > 0 {
+		attacker.ReactiveCombat.Shell = weaponDef.HitShellAbsorption
+	}
 	cs.applyElementalWeaponAbility(monster, weaponDef, attacker, shot)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
@@ -1983,6 +1988,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	// IgnoresDodge (champion GM weapon mastery) pierces the dodge entirely -
 	// the same rule a GM party member enjoys against monsters.
 	if dodged, _ := cs.RollPerfectDodge(target); dodged && !hit.IgnoresDodge {
+		cs.game.gainDodgeCharge(target)
 		trueDealt := cs.mitigateCharacterDamageParts(
 			damagecalc.Parts{True: hit.Parts.True},
 			hit.DamageType,
@@ -1993,7 +1999,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 			cs.game.logCombat(logToneNone, "Perfect Dodge! %s evades %s's attack!", logHeroName(target), logMonsterAs(monster, sourceName))
 			return
 		}
-		trueDealt = cs.redirectDamageThroughSacrifice(target, trueDealt)
+		trueDealt = cs.resolveHeroHitDamage(monster, target, trueDealt)
 		cs.takeHeroHP(target, trueDealt, sourceName)
 		cs.game.logCombat(logToneBad, "%s dodges %s but still takes %s! %s",
 			logHeroName(target), logMonsterAs(monster, sourceName), logTrueDamage(trueDealt), logHP(target.HitPoints, target.MaxHitPoints))
@@ -2022,7 +2028,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		hit.ArmorPiercePct,
 	)
 	finalDamage := dealt.Total()
-	finalDamage = cs.redirectDamageThroughSacrifice(target, finalDamage)
+	finalDamage = cs.resolveHeroHitDamage(monster, target, finalDamage)
 	cs.takeHeroHP(target, finalDamage, sourceName)
 	cs.game.logCombat(logToneBad, "%s hits %s for %s damage! %s", logMonsterAs(monster, sourceName),
 		logHeroName(target), logDamage(finalDamage, hit.DamageType), logHP(target.HitPoints, target.MaxHitPoints))
@@ -2501,7 +2507,7 @@ func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *charac
 		return 0
 	}
 	dealt := cs.mitigateCharacterDamageParts(parts, school, member, false).Total()
-	dealt = cs.redirectDamageThroughSacrifice(member, dealt)
+	dealt = cs.resolveHeroHitDamage(source, member, dealt)
 	hostile := ""
 	if source != nil {
 		hostile = source.Name
@@ -3125,15 +3131,7 @@ func (cs *CombatSystem) announceKill(m *monsterPkg.Monster3D, xp int) {
 		tone = logToneBad
 	}
 	owner := cs.game.rewardOwner()
-	if actual, capped := owner.adventureKillExperience(m, xp); capped {
-		suffix := ""
-		if actual > 0 {
-			suffix = fmt.Sprintf(" +%d XP total", actual)
-		}
-		cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), logStyled{suffix, combatMessageGold})
-		return
-	}
-	cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), owner.logKillXP(xp))
+	cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), owner.logMonsterKillXP(m, xp))
 }
 
 // killExperience is what a kill is worth to the party: nothing for its own
@@ -3211,7 +3209,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 
 	recipient.recordProfileKill(monster)
 	xpAwarded := cs.killExperience(monster)
-	reportedXP, _ := recipient.adventureKillExperience(monster, xpAwarded)
+	reportedXP := recipient.adventureKillExperience(monster, xpAwarded).total
 
 	// Each living hero - active, reserve, or captive - gets the per-member share.
 	if xpAwarded > 0 {
@@ -3345,7 +3343,7 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
 func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, char *character.MMCharacter) (int, int, int) {
-	result := character.WeaponDamageBreakdown(lookupWeaponConfigByName(weapon.Name), char)
+	result := character.WeaponDamageAtNight(lookupWeaponConfigByName(weapon.Name), char, cs != nil && cs.game != nil && cs.game.dayNightIsNight)
 	return result.Base + result.ArmsMaster + result.OrcishFury + result.FlowingStaff, result.StatBonus, result.Total
 }
 

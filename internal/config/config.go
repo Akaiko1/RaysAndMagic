@@ -59,6 +59,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	}
 	var lines []string
 	lines = append(lines, w.ElementalAbility.Lines()...)
+	lines = append(lines, w.reactiveEffectLines()...)
 	if damageType, err := damagecalc.ParseType(w.DamageType); includeStructured && err == nil && damageType != damagecalc.Physical {
 		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
 	}
@@ -1069,10 +1070,11 @@ type TileNightMoteConfig struct {
 	CoreColor [3]int `yaml:"core_color"`
 }
 
-// ValidTileTypes is the closed set of authored tile `type` values: a purely
-// organizational taxonomy the map editor groups its palette by. REQUIRED on
-// every tiles.yaml entry (special_tiles.yaml has its own palette section and
-// is exempt); validated fail-fast at load. No render code reads it.
+// ValidTileTypes is the closed set of authored tile `type` values: the
+// taxonomy the map editor groups its palette by. REQUIRED on every tiles.yaml
+// entry (special_tiles.yaml has its own palette section and is exempt);
+// validated fail-fast at load. No render code reads it; the one gameplay
+// reader is ecology spawning, which uses only `floor` tiles.
 var ValidTileTypes = map[string]bool{
 	"floor": true, "water": true, "marker": true, "wall": true,
 	"wall_decor": true, "nature": true, "rock": true, "structure": true, "prop": true,
@@ -1395,7 +1397,10 @@ func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
 type WeaponDefinitionConfig struct {
-	ElementalAbility *ElementalWeaponAbility `yaml:"elemental_ability,omitempty"`
+	NightBaseDamageMultiplier int                     `yaml:"night_base_damage_multiplier,omitempty"`
+	HitShellAbsorption        int                     `yaml:"hit_shell_absorption,omitempty"`
+	AttackZoneProc            *AttackZoneProcConfig   `yaml:"attack_zone_proc,omitempty"`
+	ElementalAbility          *ElementalWeaponAbility `yaml:"elemental_ability,omitempty"`
 	// Basic weapon properties
 	Name               string  `yaml:"name"`
 	Description        string  `yaml:"description"`
@@ -2101,6 +2106,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if err := def.ElementalAbility.validate(def); err != nil {
 			return fmt.Errorf("weapon %q: %w", key, err)
 		}
+		if err := def.validateReactiveEffects(); err != nil {
+			return fmt.Errorf("weapon %q: %w", key, err)
+		}
 		if IsMagicRangedWeapon(def) {
 			school, err := canonicalMagicSchool(def.ProjectileSchool)
 			if err != nil {
@@ -2380,45 +2388,50 @@ type ItemDefinitionConfig struct {
 	// the passive party-wide mechanic and the derived effect text (single source).
 	// Int fields STACK additively across the collection; CardWalkOnWater is a
 	// capability (present-or-not).
-	CardMoveSpeedPct      int                `yaml:"card_move_speed_pct,omitempty"`      // +N% party movement speed
-	CardBonusActions      int                `yaml:"card_bonus_actions,omitempty"`       // +N party actions per turn-based round
-	CardStatBonuses       map[string]int     `yaml:"card_stat_bonuses,omitempty"`        // flat party-wide stat bonuses (e.g. {speed: 15}); reuses StatBonusesFromMap
-	CardRangedDmgPct      int                `yaml:"card_ranged_dmg_pct,omitempty"`      // +N% ranged weapon damage
-	CardMeleeTrueDmg      int                `yaml:"card_melee_true_dmg,omitempty"`      // +N flat true damage on melee hits
-	CardPhysToFirePct     int                `yaml:"card_phys_to_fire_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as fire instead
-	CardHealOnAtkPct      int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on a weapon attack
-	CardHealAmount        int                `yaml:"card_heal_amount,omitempty"`         // HP restored by the self-heal-on-attack proc
-	CardLethalSavePct     int                `yaml:"card_lethal_save_pct,omitempty"`     // N% chance a lethal hit leaves the member at half HP+SP
-	CardMoveAoePct        int                `yaml:"card_move_aoe_pct,omitempty"`        // N% chance, on party move, to burst nearby foes
-	CardMoveAoeDmg        int                `yaml:"card_move_aoe_dmg,omitempty"`        // physical true damage dealt by the move-burst
-	CardWalkOnWater       bool               `yaml:"card_walk_on_water,omitempty"`       // permanent walk-on-water while collected
-	CardSummonChance      int                `yaml:"card_summon_chance,omitempty"`       // N% chance, on any party action, to summon allied adds
-	CardSummonLimit       int                `yaml:"card_summon_limit,omitempty"`        // max live allied summons from one copy of this card
-	CardSummonMonster     string             `yaml:"card_summon_monster,omitempty"`      // monster key summoned as a party ally
-	CardSummonCDSeconds   int                `yaml:"card_summon_cd_seconds,omitempty"`   // proc cooldown: the CARD can't fire again for N seconds (never gates the character)
-	CardDisintegratePct   int                `yaml:"card_disintegrate_pct,omitempty"`    // N% chance any hit instantly disintegrates the monster
-	CardRegenPct          int                `yaml:"card_regen_pct,omitempty"`           // % of maxHP regenerated per regen tick
-	CardDoubleAttackPct   int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee attack strikes again immediately
-	CardSpellProcPct      int                `yaml:"card_spell_proc_pct,omitempty"`      // N% chance a melee swing casts a fire bolt instead (Intellect-scaled)
-	CardDodgeBonusPct     int                `yaml:"card_dodge_bonus_pct,omitempty"`     // +N Perfect Dodge chance
-	CardArmorBonus        int                `yaml:"card_armor_bonus,omitempty"`         // +N flat party Armor Class
-	CardThornsPct         int                `yaml:"card_thorns_pct,omitempty"`          // N% of incoming monster damage reflected back to it
-	CardPhysToDarkPct     int                `yaml:"card_phys_to_dark_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as dark instead
-	CardPhysToLightPct    int                `yaml:"card_phys_to_light_pct,omitempty"`   // N% of physical damage (melee/ranged/trap) dealt as light instead
-	CardPoisonProcPct     int                `yaml:"card_poison_proc_pct,omitempty"`     // N% chance on hit to poison the monster
-	CardPoisonDurationSec int                `yaml:"card_poison_duration_sec,omitempty"` // duration of the on-hit poison proc
-	CardMeleeDmgPct       int                `yaml:"card_melee_dmg_pct,omitempty"`       // +N% melee weapon damage
-	CardMaxHPBonus        int                `yaml:"card_max_hp_bonus,omitempty"`        // +N flat party max HP
-	CardResistBonus       map[string]int     `yaml:"card_resist_bonus,omitempty"`        // flat party elemental resist, e.g. {fire: 50}
-	CardGoldFindPct       int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
-	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on a weapon attack to also fire a bonus bolt (Accuracy/3 dmg)
-	CardBonusBoltLabel    string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
-	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a ranged weapon attack fires one extra projectile
-	CardStunOnHitPct      int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
-	CardPoisonResistPct   int                `yaml:"card_poison_resist_pct,omitempty"`   // N% chance to resist an incoming monster poison proc
-	CardCritBonusPct      int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
-	CardBonusVs           map[string]float64 `yaml:"card_bonus_vs,omitempty"`            // dmg multiplier vs monster Name/Key/Type, mirrors weapon bonus_vs
-	CardArmorPiercePct    int                `yaml:"card_armor_pierce_pct,omitempty"`    // N% chance a melee hit ignores the target's armor entirely
+	CardMoveSpeedPct            int                `yaml:"card_move_speed_pct,omitempty"`      // +N% party movement speed
+	CardBonusActions            int                `yaml:"card_bonus_actions,omitempty"`       // +N party actions per turn-based round
+	CardStatBonuses             map[string]int     `yaml:"card_stat_bonuses,omitempty"`        // flat party-wide stat bonuses (e.g. {speed: 15}); reuses StatBonusesFromMap
+	CardRangedDmgPct            int                `yaml:"card_ranged_dmg_pct,omitempty"`      // +N% ranged weapon damage
+	CardMeleeTrueDmg            int                `yaml:"card_melee_true_dmg,omitempty"`      // +N flat true damage on melee hits
+	CardPhysToFirePct           int                `yaml:"card_phys_to_fire_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as fire instead
+	CardHealOnAtkPct            int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on a weapon attack
+	CardHealAmount              int                `yaml:"card_heal_amount,omitempty"`         // HP restored by the self-heal-on-attack proc
+	CardLethalSavePct           int                `yaml:"card_lethal_save_pct,omitempty"`     // N% chance a lethal hit leaves the member at half HP+SP
+	CardMoveAoePct              int                `yaml:"card_move_aoe_pct,omitempty"`        // N% chance, on party move, to burst nearby foes
+	CardMoveAoeDmg              int                `yaml:"card_move_aoe_dmg,omitempty"`        // physical true damage dealt by the move-burst
+	CardWalkOnWater             bool               `yaml:"card_walk_on_water,omitempty"`       // permanent walk-on-water while collected
+	CardSummonChance            int                `yaml:"card_summon_chance,omitempty"`       // N% chance, on any party action, to summon allied adds
+	CardSummonLimit             int                `yaml:"card_summon_limit,omitempty"`        // max live allied summons from one copy of this card
+	CardSummonMonster           string             `yaml:"card_summon_monster,omitempty"`      // monster key summoned as a party ally
+	CardSummonCDSeconds         int                `yaml:"card_summon_cd_seconds,omitempty"`   // proc cooldown: the CARD can't fire again for N seconds (never gates the character)
+	CardDisintegratePct         int                `yaml:"card_disintegrate_pct,omitempty"`    // N% chance any hit instantly disintegrates the monster
+	CardRegenPct                int                `yaml:"card_regen_pct,omitempty"`           // % of maxHP regenerated per regen tick
+	CardDoubleAttackPct         int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee attack strikes again immediately
+	CardSpellProcPct            int                `yaml:"card_spell_proc_pct,omitempty"`      // N% chance a melee swing casts a fire bolt instead (Intellect-scaled)
+	CardDodgeBonusPct           int                `yaml:"card_dodge_bonus_pct,omitempty"`     // +N Perfect Dodge chance
+	CardArmorBonus              int                `yaml:"card_armor_bonus,omitempty"`         // +N flat party Armor Class
+	CardThornsPct               int                `yaml:"card_thorns_pct,omitempty"`          // N% of incoming monster damage reflected back to it
+	CardPhysToDarkPct           int                `yaml:"card_phys_to_dark_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as dark instead
+	CardPhysToLightPct          int                `yaml:"card_phys_to_light_pct,omitempty"`   // N% of physical damage (melee/ranged/trap) dealt as light instead
+	CardPoisonProcPct           int                `yaml:"card_poison_proc_pct,omitempty"`     // N% chance on hit to poison the monster
+	CardPoisonDurationSec       int                `yaml:"card_poison_duration_sec,omitempty"` // duration of the on-hit poison proc
+	CardMeleeDmgPct             int                `yaml:"card_melee_dmg_pct,omitempty"`       // +N% melee weapon damage
+	CardMaxHPBonus              int                `yaml:"card_max_hp_bonus,omitempty"`        // +N flat party max HP
+	CardResistBonus             map[string]int     `yaml:"card_resist_bonus,omitempty"`        // flat party elemental resist, e.g. {fire: 50}
+	CardGoldFindPct             int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
+	CardBonusBoltPct            int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on a weapon attack to also fire a bonus bolt (Accuracy/3 dmg)
+	CardBonusBoltLabel          string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
+	CardVolleyBonusPct          int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a ranged weapon attack fires one extra projectile
+	CardStunOnHitPct            int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
+	CardPoisonResistPct         int                `yaml:"card_poison_resist_pct,omitempty"`   // N% chance to resist an incoming monster poison proc
+	CardCritBonusPct            int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
+	CardBonusVs                 map[string]float64 `yaml:"card_bonus_vs,omitempty"`            // dmg multiplier vs monster Name/Key/Type, mirrors weapon bonus_vs
+	CardArmorPiercePct          int                `yaml:"card_armor_pierce_pct,omitempty"`    // N% chance a melee hit ignores the target's armor entirely
+	CardDodgeChargePct          int                `yaml:"card_dodge_charge_pct,omitempty"`
+	CardDodgeChargeLimit        int                `yaml:"card_dodge_charge_limit,omitempty"`
+	CardRepeatedHitReductionPct int                `yaml:"card_repeated_hit_reduction_pct,omitempty"`
+	CardRepeatedHitReductionCap int                `yaml:"card_repeated_hit_reduction_cap,omitempty"`
+	CardHealingCleanse          bool               `yaml:"card_healing_cleanse,omitempty"`
 
 	// Duplicate cards use the largest movement-burst radius, not its sum.
 	CardMoveAoeRadiusTiles float64 `yaml:"card_move_aoe_radius_tiles,omitempty"`
@@ -2551,6 +2564,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		}
 		if err := validateDeviceDefinition(key, def); err != nil {
 			return err
+		}
+		if err := def.validateReactiveCard(); err != nil {
+			return fmt.Errorf("item %q: %w", key, err)
 		}
 		if err := validateCraftedItem(key, def); err != nil {
 			return err

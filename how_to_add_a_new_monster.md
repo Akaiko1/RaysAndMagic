@@ -183,17 +183,14 @@ monsters:
 
 ### Population and respawn
 
-[assets/ecology.yaml](assets/ecology.yaml) owns persistent wildlife populations.
-Each `populations` entry names `map`, `monster`, target `count`, and replenishment
-`phase` (`day` or `night`). Survivors remain; the phase replenishes deficits.
-The shipped jungle targets are 10 ring-tailed and 10 red ruffed lemurs at the day
-phase. This is a target population, not 10 additional animals every dawn.
+Three mechanisms add monsters after a map loads. Pick one per intended group;
+[monster spawns over time](docs/monster-spawns.md) compares them in full.
 
-`config.yaml day_night.packs` instead defines phase-swapping packs, including
-mixed `day_monsters`/`night_monsters` lists. Pack members normally do not advance
-kill quests; opt in with `quest_progress` where intended. An authored map's
-`respawn_days` is a third mechanism, checked on arrival; see [maps](docs/adding-maps.md).
-Do not register the same intended population in more than one mechanism.
+- `config.yaml day_night.packs`: the group exists only during its phase and is
+  swapped at every dusk and dawn.
+- `assets/ecology.yaml populations`: the group lives permanently; when its
+  phase begins, only the missing count is added (wildlife, or `hostile: true`).
+- `respawn_days` on a map: the authored roster returns on arrival after N days.
 
 ## Testing checklist
 - Run the [shared validation checklist](docs/content-authoring.md#verification).

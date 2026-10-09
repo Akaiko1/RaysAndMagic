@@ -356,6 +356,15 @@ func EquipmentSetLines(setKey string) []string {
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string
+	if d.CardDodgeChargePct > 0 {
+		p = append(p, uitext.Text("item.dodge_charge", d.CardDodgeChargePct, d.CardDodgeChargeLimit))
+	}
+	if d.CardRepeatedHitReductionPct > 0 {
+		p = append(p, uitext.Text("item.repeated_hit_reduction", d.CardRepeatedHitReductionPct, d.CardRepeatedHitReductionCap))
+	}
+	if d.CardHealingCleanse {
+		p = append(p, uitext.Text("item.healing_cleanse"))
+	}
 	if d.CardMoveSpeedPct != 0 {
 		p = append(p, uitext.Text("item.move_speed", d.CardMoveSpeedPct))
 	}

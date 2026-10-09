@@ -522,6 +522,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
+	if arrow, ok := projectile.(*Arrow); !ok || !arrow.Continuation {
+		attack = cs.consumeDodgeCharge(attack)
+	}
 	hit := cs.applyPartyMonsterAttack(monster, attack)
 	actualDamage, isCrit := hit.Total(), hit.Critical
 	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, hit.SourceNormal)
@@ -628,6 +631,7 @@ func (cs *CombatSystem) applyAoeSplashAt(x, y float64, attack partyMonsterAttack
 }
 
 func (cs *CombatSystem) spawnArrowContinuation(cont Arrow, weaponDef *config.WeaponDefinitionConfig) {
+	cont.Continuation = true
 	if weaponDef == nil || weaponDef.Physics == nil {
 		return
 	}

@@ -19,6 +19,11 @@ type NPCPropModel struct {
 	UseSeconds       float64 `yaml:"use_seconds"`
 }
 
+// IsNPCPropShape is the shared vocabulary for procedural props and their UI.
+func IsNPCPropShape(shape string) bool {
+	return shape == "crates" || shape == "campfire"
+}
+
 func validateNPCPropModel(key string, npc *NPCData) error {
 	if npc == nil || npc.PropModel == nil {
 		return nil
@@ -27,9 +32,7 @@ func validateNPCPropModel(key string, npc *NPCData) error {
 	if npc.Type != NPCTypeLootCrate || npc.RenderCategory != "scenery" || npc.HideWhenVisited || npc.GridSpanTiles != 0 {
 		return fmt.Errorf("NPC %q: prop_model requires visible scenery of type loot_crate in both visit states", key)
 	}
-	switch p.Shape {
-	case "crates", "campfire":
-	default:
+	if !IsNPCPropShape(p.Shape) {
 		return fmt.Errorf("NPC %q: unknown prop_model.shape %q", key, p.Shape)
 	}
 	if math.IsNaN(p.UseSeconds) || math.IsInf(p.UseSeconds, 0) || p.UseSeconds <= 0 {

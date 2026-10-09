@@ -109,6 +109,7 @@ func (g *MMGame) setCardCollectionSlot(slot int, it items.Item) bool {
 		return false
 	}
 	g.cardSlots[slot] = resolved
+	g.normalizeReactiveCards()
 	return true
 }
 
@@ -128,6 +129,7 @@ func (g *MMGame) clearCardCollectionSlot(slot int) {
 		return
 	}
 	g.cardSlots[slot] = cardSlot{}
+	g.normalizeReactiveCards()
 }
 
 func (g *MMGame) cardCollectionItem(slot int) items.Item {
@@ -331,6 +333,7 @@ func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionCon
 	if agg.CardPoisonResistPct > 100 {
 		agg.CardPoisonResistPct = 100
 	}
+	agg.CardDodgeChargePct, agg.CardDodgeChargeLimit, agg.CardRepeatedHitReductionPct, agg.CardRepeatedHitReductionCap = reactiveCardRules(defs)
 	return agg
 }
 
@@ -756,6 +759,7 @@ func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 // effects (move speed, actions, stat bonuses, walk-on-water, summons...).
 func (g *MMGame) resetCardCollection() {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.normalizeReactiveCards()
 	g.cardBurstTileX, g.cardBurstTileY = 0, 0
 	g.cardSummonCooldowns = nil // survives map switches/loads, so a NEW game must clear it here
 	g.recomputeStatBonuses()

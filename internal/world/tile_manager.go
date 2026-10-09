@@ -467,6 +467,13 @@ func (tm *TileManager) CanFlyOver(tileType TileType3D) bool {
 	return data != nil && (data.FlyOver || (data.Solid && data.Transparent))
 }
 
+// IsBareFloor reports plain ground (type floor): no vegetation, props, water
+// or markers. Ecology populations spawn only here.
+func (tm *TileManager) IsBareFloor(tileType TileType3D) bool {
+	data := tm.GetTileData(tileType)
+	return data != nil && data.Type == "floor"
+}
+
 // IsOpaque returns whether a tile type blocks sight
 func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	data := tm.GetTileData(tileType)

@@ -184,12 +184,19 @@ func questsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 }
 
 func mapOverlayLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	l := computeMapOverlayLayout(screenW, screenH)
-	return namedLayoutBox("map-panel", l.panel), []uiBox{
+	l := computeMapOverlayLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
+	boxes := []uiBox{
 		namedLayoutBox("title", l.title),
 		namedLayoutBox("close", l.close),
 		namedLayoutBox("map", l.body),
+		namedLayoutBox("subtitle", l.subtitle),
+		namedLayoutBox("legend", l.legend),
+		namedLayoutBox("overview", l.overview),
 	}
+	if l.index.w > 0 {
+		boxes = append(boxes, namedLayoutBox("index", l.index))
+	}
+	return namedLayoutBox("map-panel", l.panel), boxes
 }
 
 func npcDialogRegion(screenW, screenH int) (layoutRect, npcDialogSectionLayout) {

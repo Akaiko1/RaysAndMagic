@@ -17,6 +17,10 @@ ui.overwatch_chances: "Enemy approach: %d%% per tile; attack: %.0f%% (in range a
 
 combat.overwatch_fires: "%s fires Overwatch at %s!"
 combat.overwatch_source: "%s (Overwatch)"
+combat.kill_xp: " +%d XP"
+combat.kill_xp_each: " +%d XP (%d each)"
+combat.kill_xp_hero: "%s +%d"
+combat.kill_xp_partial: " +%d XP (active party: %s)"
 
 ui.camp: "Camp"
 ui.camp_food: "Food remaining: %d"
@@ -41,6 +45,8 @@ npc.unlock_party_level: "Permanently available at average party level %d"
 
 adventure.arena_barrier: "The arena is sealed until the boss falls. Only Town Portal can carry you out."
 adventure.arena_pull: "The regulator draws the party into its arena. Defeat it or escape with Town Portal."
+adventure.xp_limit: " XP limit reached in this chamber."
+adventure.xp_limit_some: " XP limit reached in this chamber for some heroes."
 
 item.device_recharging: "%s is recharging."
 item.device_cooldown: "Ready in %.1f seconds / %d rounds"

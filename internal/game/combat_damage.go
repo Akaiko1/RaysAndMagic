@@ -323,7 +323,8 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 	if def == nil {
 		return weaponDamagePreview{}
 	}
-	normal := def.Damage
+	night := cs != nil && cs.game != nil && cs.game.dayNightIsNight
+	normal := character.WeaponDamageAtNight(def, nil, night).Base
 	if char != nil && cs != nil && cs.game != nil {
 		_, _, normal = cs.CalculateWeaponDamage(item, char)
 	}

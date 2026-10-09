@@ -23,6 +23,7 @@ type weaponProjectileFxStyle struct {
 // normal arrow or spell orb. The base projectile remains intact, preserving
 // the readable silhouette shared by all ranged attacks.
 var weaponProjectileFxStyles = map[string]weaponProjectileFxStyle{
+	"duskneedle":    {side: (*Renderer).drawWeaponProjectileFxDuskneedle, headOn: (*Renderer).drawWeaponProjectileFxDuskneedleHeadOn, incoming: (*Renderer).drawWeaponProjectileFxDuskneedleIncoming},
 	"solstice_flow": {side: (*Renderer).drawWeaponProjectileFxSolsticeFlow, headOn: (*Renderer).drawWeaponProjectileFxSolsticeFlowHeadOn},
 	"arena_recurve": {
 		side:     (*Renderer).drawWeaponProjectileFxArenaRecurve,

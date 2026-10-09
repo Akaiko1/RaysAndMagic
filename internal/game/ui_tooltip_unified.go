@@ -194,7 +194,7 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 
 	dmg := ttSection{Title: "DAMAGE"}
 	formula := character.WeaponDamageFormula(def)
-	breakdown := character.WeaponDamageBreakdown(def, char)
+	breakdown := character.WeaponDamageAtNight(def, char, cs != nil && cs.game != nil && cs.game.dayNightIsNight)
 	armsBonus, furyBonus := breakdown.ArmsMaster, breakdown.OrcishFury
 	if breakdown.FlowingStaff > 0 {
 		dmg.AddDetail("Flowing Staff: +%d (%d charges)", breakdown.FlowingStaff, char.FlowingStaffCharges())

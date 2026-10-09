@@ -82,8 +82,8 @@ named `loot_table`; see [items and loot](adding-items-and-loot.md).
 
 `respawn_days > 0` refreshes the authored monster roster on arrival after the
 configured calendar interval. Arena maps use `duel` staging geometry. Neither
-kind may be merged into the open world. Wildlife replenishment and phase-swapped
-combat packs have separate schedules; see [monsters](../how_to_add_a_new_monster.md#population-and-respawn).
+kind may be merged into the open world. Ecology populations and day/night packs
+have separate schedules; see [monster spawns over time](monster-spawns.md).
 
 ## Open-world stitching
 

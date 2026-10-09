@@ -22,6 +22,8 @@ const meleeFxStyledLingerFrames = 44 // ~0.37s at 120 TPS
 // meleeFxStyleDraw maps graphics.slash_fx to its bespoke renderer
 // (legendaries here, rares + naginata in render_melee_fx_rare.go).
 var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, float64, float64, float64){
+	"shellknocker":      (*Renderer).drawMeleeFxShellknocker,
+	"rainfang":          (*Renderer).drawMeleeFxRainfang,
 	"war_fan":           (*Renderer).drawMeleeFxWarFan,
 	"katana":            (*Renderer).drawMeleeFxKatana,
 	"solstice_thermal":  (*Renderer).drawMeleeFxSolsticeThermal,

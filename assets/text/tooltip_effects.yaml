@@ -1,4 +1,10 @@
 # Shared presentation text. Keep printf argument types/order; %% is a literal percent.
+weapon.night_base_multiplier: "At night: base weapon damage x%d (stat bonuses unchanged)"
+weapon.hit_shell: "Landed direct hits grant a %d-damage shell for the next damaging enemy hit; refreshes, never stacks"
+weapon.attack_zone_proc: "%d%% per weapon attack to cast %s, with fixed %d Intellect and no mastery or SP cost"
+item.dodge_charge: "Each dodge grants +%d%% to the next landed direct weapon hit; up to %d stacks per hero, consumed on hit"
+item.repeated_hit_reduction: "Consecutive hits from the same foe grant %d%% damage reduction per stack, up to %d%%; another attacker resets it"
+item.healing_cleanse: "Healing potions also remove all harmful conditions from their recipient; no resurrection"
 item.a_melee_swing_casts_a_fire_bolt: "%d%% a melee swing casts a Fire Bolt instead"
 item.card_armor_bonus: "+%d Armor Class"
 item.card_not_implemented: "Currently not implemented"

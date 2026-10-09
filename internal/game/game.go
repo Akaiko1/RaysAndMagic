@@ -116,6 +116,7 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
+	Continuation           bool             // Runtime-only; secondary legs cannot spend fresh attack charges.
 	Launch                 projectileLaunch // Runtime-only; save/load discards projectiles.
 	ElementalAbilityDamage int              // Effective-stat scaling snapshotted at launch.
 	Backwash               *backwashCharge  // Secondary charge; never triggers ordinary hit riders.
@@ -218,6 +219,7 @@ type MMGame struct {
 	partyRoot                PartyRootState
 	partyHinder              PartyHinderState
 	terrainChanges           []TerrainChange
+	atlasStyle               worldAtlasStyle
 	editorPreview            *editorPreviewState
 	fishWorlds               map[*world.World3D]struct{} // Only worlds with transient live fish.
 	ecology                  EcologyState
@@ -907,6 +909,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		editorPreview = &editorPreviewState{}
 	}
 	game := &MMGame{
+		atlasStyle:       loadedAtlasStyle,
 		editorPreview:    editorPreview,
 		menuState:        newMenuState(),
 		dialogState:      newDialogState(),
@@ -1975,6 +1978,7 @@ func (g *MMGame) Shutdown() {
 		g.gameLoop.ui.profileViewport = nil
 	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		g.gameLoop.ui.atlas.release()
 		g.gameLoop.ui.releaseCompassFrame()
 		g.gameLoop.ui.profileArt.close()
 		g.gameLoop.ui.profileArt = nil

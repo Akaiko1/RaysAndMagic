@@ -37,6 +37,8 @@ type uiDisplayIdentity struct {
 	questManager *quests.QuestManager
 	questState   uint64
 	rosterSwap   *rosterSwapRequest
+	atlasRegion  string
+	atlasPage    int
 }
 
 // Screen ownership is shared by the display barrier and raw pointer gestures.
@@ -94,6 +96,7 @@ func (ui *UISystem) cancelScreenPointerGestures() {
 
 func (ui *UISystem) cancelWidgetPointerGestures() {
 	g := ui.game
+	ui.atlas.dragging, ui.atlas.pointerReady = false, false
 	g.entryMenuRootPressArmed = false
 	if g.partyCreate != nil {
 		g.partyCreate.clearPending()
@@ -109,6 +112,9 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	g := ui.game
 	id := uiDisplayIdentity{world: g.world, party: g.party, partyCreate: g.partyCreate, modal: ui.topModalSnapshot(), screen: ui.inputScreenIdentity()}
 	id.rosterSwap = g.pendingRosterSwap
+	if g.mapOverlayOpen {
+		id.atlasRegion, id.atlasPage = ui.atlas.region, ui.atlas.page
+	}
 	id.state = [16]int{g.savePage,
 		boolInt(g.menuOpen), int(g.currentTab), g.selectedChar, ui.inventoryPage, ui.inventoryTab, ui.spellPage, ui.questPage,
 		boolInt(ui.inventoryContextOpen), ui.inventoryContextIndex, g.selectedSchool, g.selectedSpell, g.statisticsTab, g.statisticsRevision, g.achievementsScroll, g.statisticsScroll}

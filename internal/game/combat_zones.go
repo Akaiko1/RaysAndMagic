@@ -73,6 +73,10 @@ func (g *MMGame) reseedPersistentDamageZoneFieldIDs() {
 // tryCastPersistentDamageZone handles every persistent-zone spell. It creates
 // one radial cell or a fixed wall of cells and snapshots the caster identity.
 func (cs *CombatSystem) tryCastPersistentDamageZone(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
+	return cs.castPersistentDamageZone(spellID, def, caster, false)
+}
+
+func (cs *CombatSystem) castPersistentDamageZone(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, automatic bool) spellCastOutcome {
 	if def.ZoneRadiusTiles <= 0 {
 		return castNotHandled
 	}
@@ -106,7 +110,7 @@ func (cs *CombatSystem) tryCastPersistentDamageZone(spellID spells.SpellID, def 
 		cs.game.AddCombatMessage(fmt.Sprintf("There is no open ground for %s.", def.Name))
 		return castNoEffect
 	}
-	cs.mergeZoneCast(cells)
+	cs.mergeZoneCastWithPolicy(cells, automatic)
 	cs.game.AddCombatMessage(spellCastMessage(def))
 	cs.game.setUtilityStatus(spellID, frames)
 	return castCommitted
@@ -173,6 +177,10 @@ func (cs *CombatSystem) zoneCastCells(proto PersistentDamageZone, def spells.Spe
 // must not refresh the old edge tile. Cells compare by WORLD, since two region
 // keys share one map on the unified world.
 func (cs *CombatSystem) mergeZoneCast(cells []PersistentDamageZone) {
+	cs.mergeZoneCastWithPolicy(cells, false)
+}
+
+func (cs *CombatSystem) mergeZoneCastWithPolicy(cells []PersistentDamageZone, automatic bool) {
 	if len(cells) == 0 {
 		return
 	}
@@ -196,9 +204,14 @@ func (cs *CombatSystem) mergeZoneCast(cells []PersistentDamageZone) {
 				continue
 			}
 			if sameTile(*z, cell) {
+				matched = true
+				// An involuntary proc cannot downgrade an active cast or reset
+				// its cadence/entry stamps. Manual recasts still replace cells.
+				if automatic && z.FramesLeft > 0 && (z.TickDamage > cell.TickDamage || z.TrueTickDamage > cell.TrueTickDamage || z.ResistPierce > cell.ResistPierce || z.FramesLeft > cell.FramesLeft) {
+					continue
+				}
 				cell.tickCounter, cell.entered = 0, nil // relaid: fresh cadence
 				*z = cell
-				matched = true
 			}
 		}
 		if !matched {

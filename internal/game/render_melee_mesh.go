@@ -143,6 +143,10 @@ var meleeWeaponMeshes volumeMeshCache
 func buildMeleeWeaponMesh(id int) []modelFace {
 	var m weaponMeshBuilder
 	switch {
+	case id == meleeBodyRainfang:
+		m.rainfang()
+	case id == meleeBodyShellknocker:
+		m.shellknocker()
 	case id < 20:
 		m.sword(id)
 	case id < 40:
@@ -162,6 +166,8 @@ func buildMeleeWeaponMesh(id int) []modelFace {
 	// The same point is used by the slash ribbon and contact debris.
 	contact := [3]float64{}
 	switch {
+	case id == meleeBodyShellknocker:
+		contact = [3]float64{-.55, 1.16, 0}
 	case id >= 40 && id <= 49:
 		contact = [3]float64{-.45, .70, 0}
 		if id == 43 {
