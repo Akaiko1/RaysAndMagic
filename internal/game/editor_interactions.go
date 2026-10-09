@@ -114,7 +114,7 @@ func ValidateEditorNPCs(defs map[string]*character.NPCData, classes map[string]f
 	defer func() { character.NPCConfigInstance = previous }()
 	character.NPCConfigInstance = &character.NPCConfig{NPCs: defs}
 	g := &MMGame{}
-	for _, check := range []func() error{g.validateDialogueActionsAreDispatched, g.validateDialogueRowsAreDrawable, g.validateNPCCastBuffs} {
+	for _, check := range []func() error{g.validateDialogueActionsAreDispatched, g.validateDialogueRowsAreDrawable, g.validateServicesAreReachable, g.validateNPCCastBuffs} {
 		if err := check(); err != nil {
 			return err
 		}

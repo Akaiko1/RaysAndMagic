@@ -60,8 +60,9 @@ Save files and `player_profile.json` normally live in these locations:
 
 On Windows, copy the `saves/` folder when moving to a newly extracted release.
 macOS apps share their writable content under
-`~/Library/Application Support/RaysAndMagic/`. Updates refresh bundled YAML and
-sprites. Local map edits survive only while the shipped version of that map is
+`~/Library/Application Support/RaysAndMagic/`. Updates refresh bundled YAML,
+sprites and sounds, and remove files the new version no longer ships; only maps
+are kept as local content. Local map edits survive only while the shipped version of that map is
 unchanged; an updated shipped map replaces the edited copy. Use the repository
 build for content editing. See [Player profile](docs/player-profile.md) for
 achievements and statistics.

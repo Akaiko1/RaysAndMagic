@@ -110,6 +110,8 @@ type Renderer struct {
 	// "npc:"+key, etc. for every visible object every frame showed up as
 	// allocator churn; the identity set is tiny and immutable after load.
 	standeeKeyNames map[standeeKeyNameParts]string
+	// Mob standee key names whose core uses the silhouette-edge colour.
+	standeeEdgeCores map[string]bool
 	// Standee mip chains are immutable, normalized copies of immutable sprite
 	// frames. Adjacent levels are blended by the trilinear shader so Ebitengine's
 	// integer mip selection cannot make a whole token flash sharp/soft at range.
@@ -262,7 +264,9 @@ type Renderer struct {
 	monsterPick    monsterPickFrame
 	hoveredMonster *monster.Monster3D
 	unifiedSprites []UnifiedSpriteRenderData
-	zoneVisuals    []zoneVisual
+	// Scenery props drawn this frame, for paintMonstersOverSceneryProps.
+	sceneryPropFronts []sceneryPropFront
+	zoneVisuals       []zoneVisual
 	// Cached average texture colour per tile type, used to tint the impassable
 	// aura curtains to match the rock/cliff sprite they rise from. Computed lazily.
 	auraTileColorCache map[world.TileType3D][3]int
@@ -3066,8 +3070,11 @@ type UnifiedSpriteRenderData struct {
 	sizeF     float64
 	bottomF   float64
 	depthPerp float64 // Camera-space perpendicular depth (for z-buffer comparison)
-	distance  float64
-	sprite    *ebiten.Image
+	// paintAhead moves only the painter key toward the camera (paintDepth);
+	// geometry and occlusion keep depthPerp.
+	paintAhead float64
+	distance   float64
+	sprite     *ebiten.Image
 	// Resolved authored variant from the map cache. Keeping this beside sprite
 	// prevents the draw path from rediscovering the same variant every frame.
 	spriteName string
@@ -3277,7 +3284,16 @@ func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRende
 	return sprites
 }
 
+// paintDepth is the painter sort key; see paintAhead.
+func (s *UnifiedSpriteRenderData) paintDepth() float64 {
+	return s.depthPerp - s.paintAhead
+}
+
 func compareUnifiedSprites(a, b UnifiedSpriteRenderData) int {
+	if c := cmp.Compare(b.paintDepth(), a.paintDepth()); c != 0 {
+		return c
+	}
+	// Monsters pulled onto one key keep their own depth order.
 	if c := cmp.Compare(b.depthPerp, a.depthPerp); c != 0 {
 		return c
 	}
@@ -3301,6 +3317,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// Reuse pre-allocated buffer
 	r.beginMonsterPickFrame()
 	sprites := r.unifiedSprites[:0]
+	r.sceneryPropFronts = r.sceneryPropFronts[:0]
 
 	// Camera properties for frustum culling
 	camX := r.game.camera.X
@@ -3597,6 +3614,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			sprite:     sprite,
 			npc:        npc,
 		})
+		if npcIsSceneryProp(npc) {
+			r.sceneryPropFronts = append(r.sceneryPropFronts, sceneryPropFront{npc: npc, depth: depthPerp})
+		}
 	}
 
 	// 5. Collect ground containers (loot bags + treasure chests)
@@ -3656,10 +3676,14 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	sprites = r.collectPersistentDamageZoneEffects(sprites)
 	sprites = r.collectBossFireTrapBorders(sprites)
 
+	// Models first: their faces are scenery-prop fronts too. Curtains then
+	// split at the resolved paint keys.
+	r.collectWorldModels()
+	r.paintMonstersOverSceneryProps(sprites)
+
 	// Split crosses before curtains so the latter use individual arm depths.
 	sprites = r.splitCrossedTreesForPainterOrder(sprites, crossedTreeStart, crossedTreeEnd)
 	sprites = r.collectTileCurtains(sprites)
-	r.collectWorldModels()
 
 	// Sort all sprites by depth (back to front). slices.SortStableFunc: no
 	// reflect swaps and no closure alloc, unlike sort.Slice - this runs every
@@ -3690,7 +3714,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 	// Render all sprites in sorted order
 	for _, s := range sprites {
-		r.drawWorldFacesBefore(screen, s.depthPerp)
+		r.drawWorldFacesBefore(screen, s.paintDepth())
 		if s.spriteType == SpriteTypeTileCurtain {
 			r.appendAuraCurtain(screen, s)
 			continue

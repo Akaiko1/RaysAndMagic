@@ -407,6 +407,11 @@ func (k npcDialogKind) isGatedService() bool {
 	return k != dialogKindGeneric && k != dialogKindChoices
 }
 
+// drawsShop reports whether this dialog kind shows the NPC's shop grids.
+func (k npcDialogKind) drawsShop() bool {
+	return k == dialogKindMerchant || k == dialogKindArenaGladiator
+}
+
 // drawsDialogueRows reports whether this dialog kind has a surface for GENERIC
 // authored rows - the encounter choice body, or a conversation tab that hosts it.
 // The other kinds draw a fixed layout (a mastery grid, a card grid, a shop grid)

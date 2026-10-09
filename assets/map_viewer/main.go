@@ -76,6 +76,9 @@ type mapInfo struct {
 }
 
 type viewer struct {
+	browser         editorBrowser
+	viewportW       int
+	viewportH       int
 	overlay         overlayPage
 	page            int
 	cfg             *config.Config
@@ -124,7 +127,8 @@ type viewer struct {
 	// Content page state: per-page card lists and independent scroll offsets.
 	pageCards     map[int][]contentCard
 	pageScroll    map[int]int
-	charDetails   []charDetail // Characters page (custom full-detail renderer)
+	charDetails   []charDetail // Characters page rows, wrapped to charCols (see characterDetails)
+	charCols      int
 	iconImages    *graphics.AsyncImageCache
 	mapThumbnails map[string]*ebiten.Image
 }
@@ -273,7 +277,6 @@ func main() {
 			pageSkills: groupCardsBySection(buildSkillCards()),
 		},
 		pageScroll:  map[int]int{},
-		charDetails: buildCharacterDetails(cfg),
 		iconImages:  graphics.NewAsyncImageCache(64 << 20),
 		gameSprites: graphics.NewSpriteManager(),
 	}
@@ -316,6 +319,16 @@ func (v *viewer) Update() error {
 	v.iconImages.Advance(256 << 10)
 	if v.saveDialogOpen {
 		v.handleSaveDialogInput()
+		return nil
+	}
+	if (v.page == pageMaps || v.page == pageMobs || v.page == pageFX) && v.updateCatalogControls() {
+		// Text editing owns keyboard commands, not the live preview clock.
+		if v.page == pageMobs && mobsPage.preview != nil {
+			mobsPage.preview.Step()
+		}
+		if v.page == pageFX && fxPage.preview != nil && !v.browser.fxPaused {
+			fxPage.preview.Step()
+		}
 		return nil
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) && v.page != pageOverlay {
@@ -416,6 +429,9 @@ func (v *viewer) Update() error {
 	}
 
 	// Maps page below.
+	if !v.catalogMapReady() {
+		return nil
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
 		if v.sidebarTab == tabInfo {
 			v.sidebarTab = tabLegend
@@ -434,21 +450,10 @@ func (v *viewer) Update() error {
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) {
-		if len(v.maps) > 0 {
-			v.mapIndex = (v.mapIndex + 1) % len(v.maps)
-			v.resetMapView()
-			v.refreshLegend()
-		}
+		v.stepCatalogMap(1)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyA) {
-		if len(v.maps) > 0 {
-			v.mapIndex--
-			if v.mapIndex < 0 {
-				v.mapIndex = len(v.maps) - 1
-			}
-			v.resetMapView()
-			v.refreshLegend()
-		}
+		v.stepCatalogMap(-1)
 	}
 
 	// Wheel: zoom when over the map panel, scroll when over the legend.
@@ -481,19 +486,19 @@ func (v *viewer) Update() error {
 	if v.sidebarTab == tabLegend {
 		_, wheelY := ebiten.Wheel()
 		if wheelY != 0 && !wheelOverMap {
-			v.legendScroll -= int(wheelY * 14)
+			v.legendScroll -= int(wheelY * catalogRowHeight)
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyPageDown) {
-			v.legendScroll += 14 * 8
+			v.legendScroll += catalogRowHeight * 8
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyPageUp) {
-			v.legendScroll -= 14 * 8
+			v.legendScroll -= catalogRowHeight * 8
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
-			v.legendScroll += 14
+			v.legendScroll += catalogRowHeight
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyUp) {
-			v.legendScroll -= 14
+			v.legendScroll -= catalogRowHeight
 		}
 		maxScroll := v.maxLegendScroll()
 		if v.legendScroll < 0 {
@@ -503,9 +508,39 @@ func (v *viewer) Update() error {
 			v.legendScroll = maxScroll
 		}
 	}
+	if v.sidebarTab == tabInfo && len(v.maps) > 0 {
+		mx, my := ebiten.CursorPosition()
+		l := v.computeLayout(v.maps[v.mapIndex])
+		if pointInRect(mx, my, l.legendX, l.legendY, l.legendW, l.legendH) {
+			_, wheel := ebiten.Wheel()
+			v.browser.infoScroll = max(0, v.browser.infoScroll-int(wheel*36))
+		}
+	}
 
+	if v.updateSidebarScrollDrag() {
+		return nil // the scrollbar owns the left button, not the map or legend
+	}
 	v.updateMapDrag()
 	return nil
+}
+
+// updateSidebarScrollDrag drags the visible Maps sidebar tab's scrollbar.
+func (v *viewer) updateSidebarScrollDrag() bool {
+	if !v.catalogMapReady() {
+		return false
+	}
+	m := v.maps[v.mapIndex]
+	l := v.computeLayout(m)
+	r := rect{l.legendX, l.legendY, l.legendW, l.legendH}
+	in := readCatalogListInput()
+	var dragging bool
+	switch v.sidebarTab {
+	case tabLegend:
+		v.legendScroll, dragging = v.dragCatalogScroll("maps:legend", r, v.legendScroll, len(v.legendLines)*catalogRowHeight, in)
+	case tabInfo:
+		v.browser.infoScroll, dragging = v.dragCatalogScroll("maps:info", r, v.browser.infoScroll, len(v.mapDetailRows(m, r.w))*22, in)
+	}
+	return dragging
 }
 
 // updateMapDrag owns the left button over the map: a press on an object grabs
@@ -620,8 +655,16 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	}
 
 	m := v.maps[v.mapIndex]
+	// Recovery navigation stays visible even when this map cannot be loaded.
+	if !v.catalogMapReady() {
+		v.drawCatalogControls(screen)
+	}
 	if m.Err != nil {
-		game.DrawPlainText(screen, fmt.Sprintf("map %s failed to load: %v", m.Key, m.Err), 16, pageBarHeight+16)
+		game.DrawPlainText(screen, fmt.Sprintf("map %s failed to load: %v", m.Key, m.Err), 16, pageBarHeight+64)
+		return
+	}
+	if m.Data == nil {
+		game.DrawPlainText(screen, "No map data available.", 16, pageBarHeight+64)
 		return
 	}
 
@@ -630,11 +673,13 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	drawMapPanel(screen, m, lay, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 	v.drawOpenWorldHighlights(screen, m, lay)
 	drawToolbar(screen, lay, v.brush)
-	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
+	v.drawCatalogSidebar(screen, m, lay)
+	v.drawCatalogControls(screen)
 
 	if !v.saveDialogOpen {
 		v.drawDragGhost(screen, lay)
 		v.drawMapHoverTooltip(screen, m, lay)
+		v.drawLegendHoverTooltip(screen, lay)
 		v.drawShiftSpritePopup(screen, m, lay)
 	}
 
@@ -872,8 +917,8 @@ func (v *viewer) drawShiftSpritePopup(screen *ebiten.Image, m mapInfo, lay layou
 	// Native size, scaled down (never up) to fit a window-bounded box.
 	const capPx = 512
 	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
-	maxW := clampInt(capPx, 1, windowWidth-32)
-	maxH := clampInt(capPx, 1, windowHeight-48)
+	maxW := clampInt(capPx, 1, screen.Bounds().Dx()-32)
+	maxH := clampInt(capPx, 1, screen.Bounds().Dy()-48)
 	scale := 1.0
 	if s := float64(maxW) / float64(iw); s < scale {
 		scale = s
@@ -888,8 +933,8 @@ func (v *viewer) drawShiftSpritePopup(screen *ebiten.Image, m mapInfo, lay layou
 	const captionH = 16
 	boxW := drawW + 16
 	boxH := drawH + captionH + 16
-	boxX := clampInt(mouseX+18, 4, windowWidth-boxW-4)
-	boxY := clampInt(mouseY-boxH-8, 4, windowHeight-boxH-4)
+	boxX := clampInt(mouseX+18, 4, screen.Bounds().Dx()-boxW-4)
+	boxY := clampInt(mouseY-boxH-8, 4, screen.Bounds().Dy()-boxH-4)
 
 	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 250})
 	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{120, 170, 220, 255})
@@ -925,14 +970,14 @@ func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
 	}
 	boxX := mouseX + 16
 	boxY := mouseY + 12
-	if boxX+boxW > windowWidth-4 {
+	if boxX+boxW > screen.Bounds().Dx()-4 {
 		boxX = mouseX - boxW - 8
 	}
 	if boxX < 4 {
 		boxX = 4
 	}
-	if boxY+boxH > windowHeight-4 {
-		boxY = windowHeight - boxH - 4
+	if boxY+boxH > screen.Bounds().Dy()-4 {
+		boxY = screen.Bounds().Dy() - boxH - 4
 	}
 	if boxY < 4 {
 		boxY = 4
@@ -955,16 +1000,22 @@ func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
 	}
 }
 
-func (v *viewer) Layout(_, _ int) (int, int) {
-	return windowWidth, windowHeight
+func (v *viewer) Layout(outsideWidth, outsideHeight int) (int, int) {
+	// Every page reflows to the window. A window smaller than the authored
+	// 1200x800 is scaled down instead, so layouts only ever grow.
+	scale := max(1.0, max(float64(windowWidth)/float64(max(1, outsideWidth)), float64(windowHeight)/float64(max(1, outsideHeight))))
+	v.viewportW, v.viewportH = int(float64(outsideWidth)*scale), int(float64(outsideHeight)*scale)
+	return v.viewportW, v.viewportH
 }
 
 func (v *viewer) computeLayout(m mapInfo) layout {
 	padding := 16
 	toolbarH := 36
-	topOffset := pageBarHeight + padding // leave room for the top page-tab bar
-	mapAreaW := windowWidth - sidebarWidth - padding*3
-	mapAreaH := windowHeight - topOffset - padding - toolbarH - padding
+	width, height := v.canvasSize()
+	sideWidth := v.catalogSidebarWidth()
+	topOffset := pageBarHeight + 60
+	mapAreaW := width - sideWidth - padding*3
+	mapAreaH := height - topOffset - padding - toolbarH - padding
 	mapAreaX := padding
 	mapAreaY := topOffset
 	toolbarX := mapAreaX
@@ -976,7 +1027,10 @@ func (v *viewer) computeLayout(m mapInfo) layout {
 
 	legendX := sidebarX
 	legendY := sidebarY + tabHeight + 12
-	legendW := sidebarWidth
+	legendW := sideWidth
+	if v.sidebarTab == tabLegend {
+		legendY += 76
+	}
 	legendH := mapAreaH + toolbarH + padding - (legendY - sidebarY) - 12
 
 	originX := mapAreaX
@@ -1100,12 +1154,12 @@ func (v *viewer) handleMouseClick() {
 	lay := v.computeLayout(m)
 
 	mouseX, mouseY := ebiten.CursorPosition()
-	tabW := sidebarWidth / 2
+	tabW := lay.legendW / 2
 	if pointInRect(mouseX, mouseY, lay.sidebarX, lay.sidebarY, tabW, lay.tabHeight) {
 		v.sidebarTab = tabInfo
 		return
 	}
-	if pointInRect(mouseX, mouseY, lay.sidebarX+tabW, lay.sidebarY, sidebarWidth-tabW, lay.tabHeight) {
+	if pointInRect(mouseX, mouseY, lay.sidebarX+tabW, lay.sidebarY, lay.legendW-tabW, lay.tabHeight) {
 		v.sidebarTab = tabLegend
 		return
 	}
@@ -1148,7 +1202,7 @@ func (v *viewer) legendEntryAt(lay layout, mouseX, mouseY int) *legendEntry {
 	if v.sidebarTab != tabLegend || !pointInRect(mouseX, mouseY, lay.legendX, lay.legendY, lay.legendW, lay.legendH) {
 		return nil
 	}
-	const lineHeight = 14
+	const lineHeight = catalogRowHeight
 	index := (mouseY - lay.legendY + v.legendScroll) / lineHeight
 	if index < 0 || index >= len(v.legendLines) {
 		return nil
@@ -1157,7 +1211,7 @@ func (v *viewer) legendEntryAt(lay layout, mouseX, mouseY int) *legendEntry {
 }
 
 func (v *viewer) maxLegendScroll() int {
-	lineHeight := 14
+	lineHeight := catalogRowHeight
 	contentHeight := lineHeight
 	if len(v.maps) > 0 {
 		lay := v.computeLayout(v.maps[v.mapIndex])
@@ -1316,38 +1370,6 @@ func drawOverlays(screen *ebiten.Image, m mapInfo, originX, originY, tileSize in
 	}
 }
 
-func drawSidebar(screen *ebiten.Image, m mapInfo, x, y, w, h int, tab int, legendLines []legendEntry, scroll int, currentBrush brush, tm *world.TileManager, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
-	drawFilledRect(screen, x, y, w, h, color.RGBA{18, 18, 26, 255})
-	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{70, 70, 90, 255})
-
-	tabHeight := 24
-	drawSidebarTabs(screen, x, y, w, tabHeight, tab)
-	row := y + tabHeight + 12
-
-	if tab == tabLegend {
-		drawLegendList(screen, x, row, w, h-(row-y)-12, legendLines, scroll, currentBrush, tileDataByKey, effectiveFloorColor(m, tm, tileDataByKey), thumb)
-		return
-	}
-
-	if m.Data == nil {
-		return
-	}
-
-	for _, line := range buildMapInfoLines(m, currentBrush) {
-		if line.header {
-			drawHeaderBandForTextRow(screen, x+8, row, w-16, 16)
-			game.DrawShadedText(screen, line.text, x+12, row, viewerHeaderTextColor)
-		} else {
-			game.DrawShadedText(screen, clipText(line.text, w-24), x+12, row, line.col)
-		}
-		row += 16
-		if row > y+h-18 {
-			game.DrawShadedText(screen, "...", x+12, row-16, mobStatHeader)
-			break
-		}
-	}
-}
-
 func buildMapInfoLines(m mapInfo, currentBrush brush) []infoLine {
 	var out []infoLine
 	add := func(format string, args ...any) {
@@ -1393,7 +1415,7 @@ func buildMapInfoLines(m mapInfo, currentBrush brush) []infoLine {
 			add("Town Portal destination")
 		}
 		if m.Config.RespawnDays > 0 {
-			add("Respawn: %d phase changes", m.Config.RespawnDays)
+			add("Respawn: every %d days", m.Config.RespawnDays)
 		}
 		if m.Config.ClearEncounter != nil {
 			add("Clear encounter: map-wide")
@@ -1471,14 +1493,14 @@ func legendEntrySprite(entry legendEntry, tileDataByKey map[string]*config.TileD
 }
 
 func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, scroll int, currentBrush brush, tileDataByKey map[string]*config.TileData, floorColor color.RGBA, thumb func(sprite string) *ebiten.Image) {
-	lineHeight := 14
+	lineHeight := catalogRowHeight
 	startY := y - scroll
 	for i, entry := range lines {
 		drawY := startY + i*lineHeight
 		if drawY < y-lineHeight {
 			continue
 		}
-		if drawY > y+h-lineHeight {
+		if drawY >= y+h {
 			break
 		}
 		if brushMatchesEntry(currentBrush, entry) {
@@ -1489,21 +1511,21 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 		if entry.Section {
 			drawHeaderBandForTextRow(screen, x+4, drawY, w-8, lineHeight)
 			avail := (x + w) - (x + 10) - 8
-			game.DrawShadedText(screen, clipText(entry.Text, avail), x+10, drawY, viewerHeaderTextColor)
+			game.DrawShadedText(screen, clipText(entry.Text, avail), x+10, drawY+7, overlayAccent)
 			continue
 		}
 		// Preview showing how the tile/monster looks on the map, so the
 		// letter isn't the only cue: a sprite thumbnail for tiles that have
 		// one (objects), otherwise a color swatch matching the map grid.
 		// Floors have no sprite, so they stay color-only (no atlas overload).
-		const sw = 12
+		const sw = 20
 		textX := x + 10
 		if entry.Continuation {
 			// Wrapped tail of the entry above: no swatch, indented to align under
 			// the parent's text column (swatch x + swatch width + gap).
 			textX = x + 8 + sw + 6
 		} else if !entry.IsHeader {
-			sx, sy := x+8, drawY
+			sx, sy := x+8, drawY+4
 			drawn := false
 			// Sprite thumbnail (first frame) for anything that HAS a sprite: tiles
 			// + general decorations (tile sprite), monsters, NPCs. Falls back to a
@@ -1529,7 +1551,7 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 		}
 		// Clip text so long names don't run off the panel.
 		avail := (x + w) - textX - 8
-		game.DrawPlainText(screen, clipText(entry.Text, avail), textX, drawY)
+		game.DrawShadedText(screen, clipText(entry.Text, avail), textX, drawY+7, overlayText)
 	}
 }
 
@@ -2425,6 +2447,9 @@ func (v *viewer) currentBiome() string {
 // refreshLegend rebuilds the (biome-scoped) tile/monster palette for the
 // current map. Call after any change to mapIndex.
 func (v *viewer) refreshLegend() {
+	// Also called after content reload and publishing Overlay changes. Derived
+	// inspectors must not retain pre-edit configuration or encounter text.
+	v.browser.revision++
 	// Rebuild eligibility from content, independently of collapsed sections.
 	v.brushPalette = nil
 	if !v.brushAvailable(v.brush, v.currentBiome()) {
@@ -2450,7 +2475,7 @@ func (v *viewer) brushAvailable(b brush, biome string) bool {
 }
 
 func (v *viewer) rebuildLegend(resetScroll bool) {
-	v.legendLines = buildLegendEntries(v.tileManager, v.monsterCfg, v.currentBiome(), v.legendCollapsed)
+	v.legendLines = v.filteredLegend()
 	if resetScroll {
 		v.legendScroll = 0
 		return

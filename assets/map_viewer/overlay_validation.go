@@ -82,9 +82,8 @@ func (v *viewer) validateOverlayObjects(d *overlayDocument) error {
 				if group == nil {
 					return fmt.Errorf("%s: empty monster group", key)
 				}
-				m, ok := v.monsterCfg.Monsters[group.Type]
-				if !ok || m.Disposition == "fish" || group.CountMin < 1 || group.CountMax < group.CountMin {
-					return fmt.Errorf("%s: invalid encounter monster or count", key)
+				if !slices.Contains(v.overlayEncounterMonsters(), group.Type) || group.CountMin < 1 || group.CountMax < group.CountMin {
+					return fmt.Errorf("%s: invalid encounter monster or count (fish and arena champions cannot be fight groups)", key)
 				}
 			}
 			if e.Rewards != nil && (e.Rewards.Gold < 0 || e.Rewards.Experience < 0) {
@@ -93,6 +92,11 @@ func (v *viewer) validateOverlayObjects(d *overlayDocument) error {
 		}
 		if n.Dialogue == nil {
 			continue
+		}
+		for _, root := range n.Dialogue.Choices {
+			if c := overlayNestedAction(root, "enter_schedule"); c != nil {
+				return fmt.Errorf("%s / %s: put the schedule entrance on the first dialogue level so the greeting can show it", key, c.Text)
+			}
 		}
 		if err := n.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
 			fail := func(msg string) error { return fmt.Errorf("%s / %s: %s", key, c.Text, msg) }
@@ -126,6 +130,9 @@ func (v *viewer) validateOverlayObjects(d *overlayDocument) error {
 					return fail("select an existing destination map")
 				}
 			case "combat":
+				if n.Type != character.NPCTypeEncounter {
+					return fail("only objects of type encounter can start a fight")
+				}
 				if n.Encounter == nil || len(n.Encounter.Monsters) == 0 {
 					return fail("configure this object's encounter monster groups")
 				}
@@ -137,14 +144,19 @@ func (v *viewer) validateOverlayObjects(d *overlayDocument) error {
 				if config.GlobalChampionConfig == nil || config.GlobalChampionConfig.Tiers[c.Tier] == nil {
 					return fail("select an existing champion tier")
 				}
+				if mc := v.overlayMapConfig(d.key); mc == nil || mc.Duel == nil {
+					return fail("this map has no duel arena; add a duel: block to its map_configs.yaml entry first")
+				}
 			}
 			for _, q := range []string{c.RequiresQuest, c.QuestStep} {
 				if q != "" && !slices.Contains(v.overlayCatalog("quests", "quests"), q) {
 					return fail("unknown quest condition")
 				}
 			}
-			if c.Prop != nil && c.Action != "prop" || c.Action == "prop" && (c.Prop == nil || c.Prop.Tag == "" || c.Prop.Token == "") {
-				return fail("quest activity requires an action, tag and token")
+			// Activity tokens, loot and the quest's tag are checked by the game's
+			// own quest validation below.
+			if c.Prop != nil && c.Action != "prop" || c.Action == "prop" && (c.Prop == nil || c.Prop.Tag == "") {
+				return fail("a quest object needs the prop action and its quest's tag")
 			}
 			return nil
 		}); err != nil {
@@ -152,4 +164,29 @@ func (v *viewer) validateOverlayObjects(d *overlayDocument) error {
 		}
 	}
 	return game.ValidateEditorQuestLinks(defs, "assets/quests.yaml")
+}
+
+func (v *viewer) overlayMapConfig(key string) *config.MapConfig {
+	for _, m := range v.maps {
+		if m.Key == key {
+			return m.Config
+		}
+	}
+	return nil
+}
+
+// overlayNestedAction finds action below (not at) a first-level choice.
+func overlayNestedAction(root *character.NPCDialogueChoice, action string) *character.NPCDialogueChoice {
+	if root == nil {
+		return nil
+	}
+	for _, c := range root.Choices {
+		if c != nil && c.Action == action {
+			return c
+		}
+		if found := overlayNestedAction(c, action); found != nil {
+			return found
+		}
+	}
+	return nil
 }

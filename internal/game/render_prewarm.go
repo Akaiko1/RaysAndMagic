@@ -111,6 +111,8 @@ type mapRenderStandeeJob struct {
 	key    standeeCoreKey
 	source *ebiten.Image
 	cpu    *image.RGBA
+	// Resolved on the main thread; workers never read renderer state.
+	silhouetteEdge bool
 }
 
 type mapRenderPreparedStandee struct {
@@ -1137,7 +1139,7 @@ func (p *mapRenderPrewarmer) standee(prefix, name string, img *ebiten.Image, sta
 	p.resources.standees[key] = struct{}{}
 	cpu := p.cpuImage(img)
 	if cpu != nil && p.task != nil {
-		p.task.standeeJobs = append(p.task.standeeJobs, mapRenderStandeeJob{key: key, source: img, cpu: cpu})
+		p.task.standeeJobs = append(p.task.standeeJobs, mapRenderStandeeJob{key: key, source: img, cpu: cpu, silhouetteEdge: p.renderer.standeeCoreFromEdge(key.name)})
 		p.stats.standeeFrames++
 		return true
 	}
@@ -1196,7 +1198,7 @@ func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, t
 				lease:    lease,
 				key:      job.key,
 				source:   job.source,
-				prepared: prepareStandeePixels(job.cpu, tint, true),
+				prepared: prepareStandeePixels(job.cpu, tint, true, job.silhouetteEdge),
 			}
 			lease.ReleaseOnCancel(ctx)
 			jobs[i] = mapRenderStandeeJob{}

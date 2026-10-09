@@ -122,13 +122,8 @@ func (g *MMGame) buffRemainingText(frames int) string {
 	return cardDurationText(strconv.Itoa(seconds), pluralizeCount(tbRoundsForSeconds(seconds), "round", "rounds"))
 }
 
-// campStatusCard is the camp button's hover card. Its last line says whether
+// campStatusCardRows is the camp button's hover card. Its last line says whether
 // the party can camp now, from the same rule TryCamp enforces.
-func (g *MMGame) campStatusCard() ([]string, []color.Color) {
-	rows, colors := g.campStatusCardRows()
-	return rows.Lines(), colors
-}
-
 func (g *MMGame) campStatusCardRows() (character.CardRows, []color.Color) {
 	effects := ttSection{Title: "EFFECTS"}
 	effects.Add("%s", uitext.Text("ui.camp_restores"))

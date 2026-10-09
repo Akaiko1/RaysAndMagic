@@ -848,10 +848,6 @@ func (ui *UISystem) offerClippedTextTooltip(fullLines []string, clipped bool, x,
 	ui.queueTooltip(fullLines, mouseX+12, mouseY+8)
 }
 
-func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
-	ui.queueCardTooltip(character.PlainCardRows(lines), nil, nil, nil, icon, x, y)
-}
-
 func (ui *UISystem) validTooltipIcon(icon string) string {
 	if icon == "" || ui == nil || ui.game == nil || ui.game.sprites == nil {
 		return ""
@@ -1306,7 +1302,6 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.Color) {
 var (
 	raritySilver   = config.RaritySilver
 	rarityGold     = config.RarityGold
-	rarityFire     = config.RarityLegendary
 	rarityEmerald  = config.RarityUnique
 	focusModeMetal = color.RGBA{70, 155, 235, 255}  // focus-mode blue steel
 	itemCountMetal = color.RGBA{240, 240, 240, 255} // neutral white metal

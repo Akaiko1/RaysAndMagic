@@ -113,8 +113,8 @@ func (r *Renderer) collectTileCurtains(sprites []UnifiedSpriteRenderData) []Unif
 		return sprites
 	}
 	depths := r.auraSceneDepths[:0]
-	for _, s := range sprites {
-		depths = append(depths, s.depthPerp)
+	for i := range sprites {
+		depths = append(depths, sprites[i].paintDepth())
 	}
 	slices.Sort(depths)
 	depths = slices.Compact(depths)

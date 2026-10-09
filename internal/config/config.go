@@ -967,6 +967,9 @@ type ColorKeyConfig struct {
 	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent -> magenta (255,0,255)
 	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
 	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
+	// DespillExclusions disables despill for entire sprite animation families,
+	// including edges. Key-colour transparency is independent and still applies.
+	DespillExclusions []string `yaml:"despill_exclusions,omitempty"`
 	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
 	// "<name>_<animType>") whose interior magenta is intentional art. Naming a
 	// directional sheet or its base covers the entire animation family. For these,
@@ -1382,6 +1385,15 @@ type WeaponSystemConfig struct {
 	// noun (sword/dagger/axe/spear/bow/mace/staff/blaster). Types not listed default to
 	// 1.0. A single weapon may override via its own `cooldown_multiplier`.
 	WeaponCooldownMultipliers map[string]float64 `yaml:"weapon_cooldown_multipliers"`
+	// WeaponClassMinimums is the least reach a weapon category may author, keyed
+	// by category. Classes have no maximums; a weapon below its floor fails the load.
+	WeaponClassMinimums map[string]WeaponClassMinimum `yaml:"weapon_class_minimums,omitempty"`
+}
+
+// WeaponClassMinimum is one category's floor; a zero field sets none.
+type WeaponClassMinimum struct {
+	Range   int `yaml:"range,omitempty"`
+	ArcType int `yaml:"arc_type,omitempty"`
 }
 
 // WeaponCooldownMultiplierForSkill returns the attack-cooldown multiplier for a
@@ -2085,6 +2097,9 @@ var validWeaponBonusStats = func() map[string]bool {
 }()
 
 func validateWeaponConfig(cfg *WeaponSystemConfig) error {
+	if err := validateClassMinimums(cfg); err != nil {
+		return err
+	}
 	for key, def := range cfg.Weapons {
 		if def == nil {
 			return fmt.Errorf("weapon '%s' has empty definition", key)
@@ -2160,6 +2175,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if projectileCategory(def) && !def.IsRanged() {
 			return fmt.Errorf("weapon '%s' (category %q) has range %d; a projectile weapon needs range >= %d", key, def.Category, def.Range, RangedWeaponMinRangeTiles)
 		}
+		if err := cfg.checkClassMinimum(key, def); err != nil {
+			return err
+		}
 		if def.Graphics != nil {
 			lift := def.Graphics.SlashLiftRatio
 			if math.IsNaN(lift) || math.IsInf(lift, 0) || lift < 0 || lift > .5 || (def.IsRanged() && lift != 0) {
@@ -2195,6 +2213,47 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			if def.Graphics == nil || def.Graphics.SlashWidth <= 0 || def.Graphics.SlashLength <= 0 {
 				return fmt.Errorf("melee weapon '%s' missing melee graphics configuration", key)
 			}
+		}
+	}
+	return nil
+}
+
+// checkClassMinimum enforces the weapon's category floor from
+// weapon_class_minimums.
+func (cfg *WeaponSystemConfig) checkClassMinimum(key string, def *WeaponDefinitionConfig) error {
+	category := strings.ToLower(strings.TrimSpace(def.Category))
+	floor, ok := cfg.WeaponClassMinimums[category]
+	if !ok {
+		return nil
+	}
+	if def.Range < floor.Range {
+		return fmt.Errorf("weapon '%s' (category %q) has range %d; the class minimum is %d", key, category, def.Range, floor.Range)
+	}
+	arc := 0
+	if def.Melee != nil {
+		arc = def.Melee.ArcType
+	}
+	if arc < floor.ArcType {
+		return fmt.Errorf("weapon '%s' (category %q) has arc_type %d; the class minimum is %d", key, category, arc, floor.ArcType)
+	}
+	return nil
+}
+
+// validateClassMinimums rejects floors for categories no weapon uses (typos)
+// and arc floors outside the 1-4 swing shapes.
+func validateClassMinimums(cfg *WeaponSystemConfig) error {
+	used := make(map[string]bool, len(cfg.Weapons))
+	for _, def := range cfg.Weapons {
+		if def != nil {
+			used[strings.ToLower(strings.TrimSpace(def.Category))] = true
+		}
+	}
+	for category, floor := range cfg.WeaponClassMinimums {
+		if !used[category] {
+			return fmt.Errorf("weapon_class_minimums names category %q, which no weapon uses", category)
+		}
+		if floor.Range < 0 || floor.ArcType < 0 || floor.ArcType > 4 {
+			return fmt.Errorf("weapon_class_minimums %q: range must be >= 0 and arc_type 0-4", category)
 		}
 	}
 	return nil

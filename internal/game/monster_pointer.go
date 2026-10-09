@@ -17,6 +17,8 @@ type monsterPickHit struct {
 	left, top, size, depth, bottom float64
 	p0x, p0y, dx, dy               float64
 	standee                        bool
+	// Drawn tile; scenery props there yield (sceneryPropUnderMonster).
+	tileX, tileY int
 }
 type monsterPickFrame struct {
 	world                                  *world.World3D
@@ -55,6 +57,7 @@ func (r *Renderer) selectMonsterHover() {
 
 func (r *Renderer) makeMonsterPick(s UnifiedSpriteRenderData, x, y, yaw, left, top float64, standee bool) monsterPickHit {
 	h := monsterPickHit{sprite: s.sprite, flipped: s.monsterFlip, monster: s.monster, left: left, top: top, size: s.sizeF, depth: s.depthPerp, bottom: s.bottomF, standee: standee}
+	h.tileX, h.tileY = s.monsterTile(float64(r.game.config.GetTileSize()))
 	if standee {
 		h.flipped = s.monster.StandeeMirror
 		length := r.spriteFootprintWorld(s.sizeF, s.depthPerp)
@@ -64,14 +67,15 @@ func (r *Renderer) makeMonsterPick(s UnifiedSpriteRenderData, x, y, yaw, left, t
 	return h
 }
 func (g *MMGame) monsterAtScreen(x, y int) *monster.Monster3D {
-	m, depth := g.pickMonsterAtScreen(x, y)
-	if m == nil {
+	hit, depth := g.pickMonsterAtScreen(x, y)
+	if hit == nil {
 		return nil
 	}
 	// A background door/NPC must not steal a foreground monster's press.
 	// Keep the same visible-depth priority for hover and click; range is still
-	// checked by the winning object's interaction or attack dispatcher.
-	if npc, _ := g.findNPCAtScreen(x, y); npc != nil {
+	// checked by the winning object's interaction or attack dispatcher. A
+	// scenery prop on the monster's tile is painted behind it.
+	if npc, _ := g.findNPCAtScreen(x, y); npc != nil && !g.sceneryPropUnderMonster(npc, hit.tileX, hit.tileY) {
 		f := &g.gameLoop.renderer.monsterPick
 		nx, ny := g.npcEffectivePos(npc)
 		npcDepth := (nx-f.camX)*f.dirX + (ny-f.camY)*f.dirY
@@ -79,7 +83,7 @@ func (g *MMGame) monsterAtScreen(x, y int) *monster.Monster3D {
 			return nil
 		}
 	}
-	return m
+	return hit.monster
 }
 
 // monsterPointerFrameAllowed shares the displayed UI and viewport gates between
@@ -167,20 +171,21 @@ func (g *MMGame) monsterPickHitVisible(f *monsterPickFrame, h monsterPickHit) bo
 }
 
 // pickMonsterAtScreen tests the point (UI units) against the displayed frame.
-func (g *MMGame) pickMonsterAtScreen(x, y int) (*monster.Monster3D, float64) {
+func (g *MMGame) pickMonsterAtScreen(x, y int) (*monsterPickHit, float64) {
 	if !g.monsterPointerFrameAllowed(x, y) {
 		return nil, 0
 	}
 	x, y = g.uiToWorldPoint(x, y)
 	f := &g.gameLoop.renderer.monsterPick
-	var best *monster.Monster3D
+	var best *monsterPickHit
 	nearest := math.Inf(1)
-	for _, h := range f.hits {
+	for i := range f.hits {
+		h := &f.hits[i]
 		m := h.monster
 		if !pointerAttackable(m) {
 			continue
 		}
-		depth, top, bottom, u, ok := f.column(h, x)
+		depth, top, bottom, u, ok := f.column(*h, x)
 		if !ok {
 			continue
 		}
@@ -204,7 +209,7 @@ func (g *MMGame) pickMonsterAtScreen(x, y int) (*monster.Monster3D, float64) {
 		if !g.monsterPointerInSight(m) {
 			continue
 		}
-		nearest, best = depth, m
+		nearest, best = depth, h
 	}
 	return best, nearest
 }

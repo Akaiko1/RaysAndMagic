@@ -34,3 +34,26 @@ func TestRangedWeaponRuleIsOnePredicate(t *testing.T) {
 		}
 	}
 }
+
+// The loader rejects a weapon below its class floor and a floor naming no
+// authored category. At-floor weapons pass by loading the shipped catalog above.
+func TestWeaponClassMinimums(t *testing.T) {
+	melee := func(category string, rangeTiles, arc int) *WeaponDefinitionConfig {
+		return &WeaponDefinitionConfig{Category: category, Range: rangeTiles, Melee: &MeleeAttackConfig{ArcType: arc},
+			Graphics: &WeaponGraphicsConfig{SlashWidth: 1, SlashLength: 1}}
+	}
+	for _, tc := range []struct {
+		def    *WeaponDefinitionConfig
+		floors map[string]WeaponClassMinimum
+		want   string
+	}{
+		{melee("spear", 1, 2), map[string]WeaponClassMinimum{"spear": {Range: 2}}, "range 1; the class minimum is 2"},
+		{melee("mace", 1, 1), map[string]WeaponClassMinimum{"mace": {ArcType: 2}}, "arc_type 1; the class minimum is 2"},
+		{melee("spear", 2, 1), map[string]WeaponClassMinimum{"spaer": {Range: 2}}, `"spaer"`},
+	} {
+		sys := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{"w": tc.def}, WeaponClassMinimums: tc.floors}
+		if err := validateWeaponConfig(sys); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("err = %v, want %q", err, tc.want)
+		}
+	}
+}

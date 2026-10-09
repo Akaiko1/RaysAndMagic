@@ -327,10 +327,6 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 
 // ----------------------------------------------------------------- armor ----
 
-func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	return buildArmorTooltipUnifiedRows(item, char, cs, full).String()
-}
-
 func buildArmorTooltipUnifiedRows(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := item.DisplayKind()
@@ -780,13 +776,9 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 
 // ------------------------------------------------------------- techniques ---
 
-// buildTechniqueTooltipUnified is a Pilgrim technique card. With a hero it
+// buildTechniqueTooltipUnifiedRows is a Pilgrim technique card. With a hero it
 // shows that hero's cost, real recovery and magnitude; without one (catalog,
 // editor) the base values and every tier.
-func buildTechniqueTooltipUnified(d *config.TechniqueDefinition, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	return buildTechniqueTooltipUnifiedRows(d, char, cs, full).String()
-}
-
 func buildTechniqueTooltipUnifiedRows(d *config.TechniqueDefinition, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
 	if char == nil {
 		cs = nil

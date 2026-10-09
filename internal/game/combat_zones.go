@@ -171,15 +171,11 @@ func (cs *CombatSystem) zoneCastCells(proto PersistentDamageZone, def spells.Spe
 	return cells
 }
 
-// mergeZoneCast lays a cast's cells in by TILE. A cell on ground the same spell
-// already covers replaces that cell (refresh, never extend); a cell on fresh
-// ground is appended. Tiles the cast does NOT lay are untouched - a shifted wall
-// must not refresh the old edge tile. Cells compare by WORLD, since two region
-// keys share one map on the unified world.
-func (cs *CombatSystem) mergeZoneCast(cells []PersistentDamageZone) {
-	cs.mergeZoneCastWithPolicy(cells, false)
-}
-
+// mergeZoneCastWithPolicy lays a cast's cells in by TILE. A cell on ground the
+// same spell already covers replaces that cell (refresh, never extend); a cell
+// on fresh ground is appended. Tiles the cast does NOT lay are untouched - a
+// shifted wall must not refresh the old edge tile. Cells compare by WORLD, since
+// two region keys share one map on the unified world.
 func (cs *CombatSystem) mergeZoneCastWithPolicy(cells []PersistentDamageZone, automatic bool) {
 	if len(cells) == 0 {
 		return

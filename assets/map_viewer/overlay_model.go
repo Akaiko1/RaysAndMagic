@@ -10,6 +10,8 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/world"
+
+	"gopkg.in/yaml.v3"
 )
 
 // A document is isolated from the Maps brush and runtime catalogs until Save.
@@ -23,11 +25,13 @@ type overlayState struct {
 }
 type overlayDocument struct {
 	originalNPCs                 map[string]*character.NPCData
+	authoredNPCs                 map[string]*character.NPCData // npcs.yaml as written, before load-time backfill
 	key                          string
 	state                        overlayState
 	saved                        overlayState
 	undo, redo                   []overlayState
 	configBase, npcBase, mapBase []byte
+	questsBase                   []byte
 	mechanicsBase                []byte
 	status                       string
 	err                          string
@@ -134,6 +138,19 @@ func (d *overlayDocument) npc(key string) *character.NPCData {
 		return n
 	}
 	if n := d.originalNPCs[key]; n != nil {
+		return n
+	}
+	// Edit what the author wrote: the loader backfills derived fields (trader
+	// spell names) that must never be written back into npcs.yaml.
+	if d.authoredNPCs == nil {
+		var cfg character.NPCConfig
+		if err := yaml.Unmarshal(d.npcBase, &cfg); err == nil && cfg.NPCs != nil {
+			d.authoredNPCs = cfg.NPCs
+		} else {
+			d.authoredNPCs = map[string]*character.NPCData{}
+		}
+	}
+	if n, ok := d.authoredNPCs[key]; ok {
 		return n
 	}
 	if character.NPCConfigInstance != nil {
@@ -373,6 +390,31 @@ func (v *viewer) validateOverlay(d *overlayDocument) error {
 	if err := configs.ValidateAdventures(); err != nil {
 		return err
 	}
+	if d.state.RespawnDays > 0 && v.overlayInOpenWorld(d.key) {
+		return fmt.Errorf("Maps merged into the open world cannot respawn; set Respawn every (days) to 0")
+	}
+	if s := d.state.Adventure.Schedule; s != nil {
+		if !slices.Contains(v.overlayCatalog("quests", "quests"), s.RequiresQuest) {
+			return fmt.Errorf("Entrance schedule: unknown required quest %q", s.RequiresQuest)
+		}
+		if !slices.Contains(v.overlayCatalog("spells", "spells"), s.RequiresSpell) {
+			return fmt.Errorf("Entrance schedule: unknown required spell %q", s.RequiresSpell)
+		}
+	}
+	// A clear reward binds monsters placed on this map; a missing one loses it.
+	// A changed boss carries its reward along on save.
+	oldBoss, newBoss := d.bossRename()
+	for _, enc := range mc.ClearEncounters {
+		for _, group := range enc.Monsters {
+			want := group.Type
+			if oldBoss != "" && want == oldBoss {
+				want = newBoss
+			}
+			if !slices.ContainsFunc(d.state.Data.MonsterSpawns, func(s world.MonsterSpawn) bool { return s.MonsterKey == want }) {
+				return fmt.Errorf("Clear reward in map_configs.yaml expects %s on this map, but none is placed", want)
+			}
+		}
+	}
 	a := &d.state.Adventure
 	data := d.state.Data
 	inside := func(x, y int) bool { return x >= 0 && y >= 0 && x < data.Width && y < data.Height }
@@ -496,4 +538,22 @@ func (d *overlayDocument) changeKind(index int, kind string) error {
 		e.Destination = [2]int{min(d.state.Data.Width-1, e.Rect[2]+1), e.Rect[1]}
 	}
 	return nil
+}
+
+// overlayInOpenWorld reports a map stitched into the unified open world.
+func (v *viewer) overlayInOpenWorld(key string) bool {
+	if v.owc == nil {
+		return false
+	}
+	_, merged := v.owc.Placements[key]
+	return merged
+}
+
+// bossRename reports a boss archetype changed since the last save.
+func (d *overlayDocument) bossRename() (old, next string) {
+	a, b := d.saved.Adventure.Boss, d.state.Adventure.Boss
+	if a == nil || b == nil || a.Monster == b.Monster {
+		return "", ""
+	}
+	return a.Monster, b.Monster
 }

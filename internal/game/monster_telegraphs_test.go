@@ -176,6 +176,7 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 					}
 					var ally *monster.Monster3D
 					if a.Kind == "shield" {
+						m.DamageMin, m.DamageMax = 60, 80
 						ally = spawnSpecialsMonster(g, "goblin", 8, 7)
 						ally.AttackCDFrames = 99999
 						ally.Speed = 0
@@ -232,6 +233,9 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 					if ally != nil {
 						if (ally.SoakDamage > 0) != (outcome == "hit") {
 							t.Fatalf("shield=%d", ally.SoakDamage)
+						}
+						if outcome == "hit" && ally.SoakDamage != 35 {
+							t.Fatalf("shield absorption = %d, want 35 from staged attack stats", ally.SoakDamage)
 						}
 					} else {
 						hit := partyHPSum(g) < before

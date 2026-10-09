@@ -17,8 +17,32 @@ var overlayButton = color.RGBA{42, 57, 70, 255}
 var overlayDanger = color.RGBA{224, 147, 137, 255}
 var overlayBossColor = color.RGBA{187, 144, 244, 255}
 
-const overlayInspectorTop = 150
-const overlayInspectorHeight = 554
+// overlayGeometry places the Overlay page on the current canvas: the scene tree
+// and the inspector hold the side columns, the map and its toolbars take the
+// middle, and every panel runs down to the help lines. The authored 1200x800
+// canvas yields the original fixed layout.
+type overlayGeometry struct {
+	tree, inspector rect // side panel backgrounds
+	treeTrack       rect // scene tree rows viewport and scroll track
+	fields          rect // inspector rows viewport and scroll track
+	mapArea         rect
+	width, height   int
+}
+
+func (v *viewer) overlayGeometry() overlayGeometry {
+	w, h := v.canvasSize()
+	insp := rect{0, 78, min(520, w*3/10), h - 164}
+	insp.x = w - 8 - insp.w
+	return overlayGeometry{
+		tree:      rect{8, 78, 222, h - 164},
+		inspector: insp,
+		treeTrack: rect{8, 90, 223, h - 184},
+		fields:    rect{insp.x + 6, 150, insp.w - 10, h - 246},
+		mapArea:   rect{242, 150, insp.x - 12 - 242, h - 242},
+		width:     w,
+		height:    h,
+	}
+}
 
 func overlayHeading(label string) overlayField { return overlayField{label: label, kind: "heading"} }
 func overlayNote(text string) overlayField     { return overlayField{value: text, kind: "note"} }
@@ -45,9 +69,10 @@ type overlayInspectorRow struct {
 }
 
 // One measured layout owns scrolling, painting, focus and mouse hit targets.
-func overlayInspectorRows(fields []overlayField, scroll int) ([]overlayInspectorRow, int) {
+func (v *viewer) overlayInspectorRows(fields []overlayField, scroll int) ([]overlayInspectorRow, int) {
+	view := v.overlayGeometry().fields
 	rows := make([]overlayInspectorRow, 0, len(fields))
-	y := overlayInspectorTop
+	y := view.y
 	for i, f := range fields {
 		height := 60
 		switch f.presentation() {
@@ -58,20 +83,20 @@ func overlayInspectorRows(fields []overlayField, scroll int) ([]overlayInspector
 		case "navigation":
 			height = 64
 		case "note":
-			height = len(wrapTooltipLines(f.value, game.ShadedTextColumns(322-f.depth*16)))*16 + 16
+			height = len(wrapTooltipLines(f.value, game.ShadedTextColumns(view.w-28-f.depth*16)))*16 + 16
 		case "info":
 			height = 52
 		}
-		rows = append(rows, overlayInspectorRow{i, rect{844 + f.depth*16, y - scroll, 332 - f.depth*16, height}})
+		rows = append(rows, overlayInspectorRow{i, rect{view.x + 6 + f.depth*16, y - scroll, view.w - 18 - f.depth*16, height}})
 		y += height
 	}
-	return rows, max(0, y-overlayInspectorTop-overlayInspectorHeight)
+	return rows, max(0, y-view.y-view.h)
 }
-func overlayInspectorHit(fields []overlayField, scroll, x, y int) int {
-	if !pointInRect(x, y, 838, overlayInspectorTop, 350, overlayInspectorHeight) {
+func (v *viewer) overlayInspectorHit(fields []overlayField, scroll, x, y int) int {
+	if view := v.overlayGeometry().fields; !pointInRect(x, y, view.x, view.y, view.w, view.h) {
 		return -1
 	}
-	rows, _ := overlayInspectorRows(fields, scroll)
+	rows, _ := v.overlayInspectorRows(fields, scroll)
 	for _, row := range rows {
 		if fields[row.index].interactive() && pointInRect(x, y, row.r.x, row.r.y, row.r.w, row.r.h-6) {
 			return row.index
@@ -100,21 +125,23 @@ func (v *viewer) overlayInspectorTitle(d *overlayDocument) (string, string) {
 	return crumb, title
 }
 func (v *viewer) drawOverlayInspector(screen *ebiten.Image, d *overlayDocument, mx, my int, help string) string {
+	g := v.overlayGeometry()
+	view := g.fields
 	crumb, title := v.overlayInspectorTitle(d)
-	game.DrawShadedText(screen, crumb, 844, 88, overlayMuted)
-	game.DrawShadedText(screen, clipText(title, 330), 844, 111, overlayText)
-	drawFilledRect(screen, 844, 138, 332, 1, overlayBorder)
+	game.DrawShadedText(screen, crumb, g.inspector.x+12, 88, overlayMuted)
+	game.DrawShadedText(screen, clipText(title, g.inspector.w-30), g.inspector.x+12, 111, overlayText)
+	drawFilledRect(screen, g.inspector.x+12, 138, g.inspector.w-28, 1, overlayBorder)
 	fields := v.overlayFields(d)
-	_, maxScroll := overlayInspectorRows(fields, 0)
+	_, maxScroll := v.overlayInspectorRows(fields, 0)
 	v.overlay.fieldScroll = clampInt(v.overlay.fieldScroll, 0, maxScroll)
-	rows, _ := overlayInspectorRows(fields, v.overlay.fieldScroll)
-	clip := screen.SubImage(image.Rect(838, overlayInspectorTop, 1188, overlayInspectorTop+overlayInspectorHeight)).(*ebiten.Image)
+	rows, _ := v.overlayInspectorRows(fields, v.overlay.fieldScroll)
+	clip := screen.SubImage(image.Rect(view.x, view.y, view.x+view.w, view.y+view.h)).(*ebiten.Image)
 	for _, row := range rows {
 		f, r := fields[row.index], row.r
-		if r.y+r.h <= overlayInspectorTop || r.y >= overlayInspectorTop+overlayInspectorHeight {
+		if r.y+r.h <= view.y || r.y >= view.y+view.h {
 			continue
 		}
-		hover := my >= overlayInspectorTop && my < overlayInspectorTop+overlayInspectorHeight && pointInRect(mx, my, r.x, r.y, r.w, r.h-6)
+		hover := my >= view.y && my < view.y+view.h && pointInRect(mx, my, r.x, r.y, r.w, r.h-6)
 		if hover && f.help != "" {
 			help = f.help
 		}
@@ -173,10 +200,8 @@ func (v *viewer) drawOverlayInspector(screen *ebiten.Image, d *overlayDocument, 
 			game.DrawShadedText(clip, mark, r.x+r.w-40, r.y+29, overlayMuted)
 		}
 	}
-	if maxScroll > 0 {
-		h := max(24, overlayInspectorHeight*overlayInspectorHeight/(maxScroll+overlayInspectorHeight))
-		y := overlayInspectorTop + (overlayInspectorHeight-h)*v.overlay.fieldScroll/maxScroll
-		drawFilledRect(screen, 1184, y, 3, h, overlayAccent)
+	if y, h, ok := catalogScrollThumb(view, v.overlay.fieldScroll, maxScroll+view.h); ok {
+		drawFilledRect(screen, view.x+view.w-4, y, 3, h, overlayAccent)
 	}
 	return help
 }

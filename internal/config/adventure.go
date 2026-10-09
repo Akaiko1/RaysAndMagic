@@ -165,6 +165,9 @@ func (c *MapConfigs) ValidateAdventures() error {
 				}
 			}
 		}
+		if len(a.JumpLinks) > 0 && !a.OpeningOwned {
+			return fail("jump_links only work on opening-owned maps")
+		}
 		for _, link := range a.JumpLinks {
 			dx, dy := math.Abs(float64(link[2]-link[0])), math.Abs(float64(link[3]-link[1]))
 			if link[0] < 0 || link[1] < 0 || link[2] < 0 || link[3] < 0 || !((dx == 2 && dy == 0) || (dx == 0 && dy == 2)) {
@@ -202,6 +205,11 @@ func (c *MapConfigs) ValidateAdventures() error {
 			}
 			if e.BossBelowPercent < 0 || e.BossBelowPercent > 100 {
 				return fail("invalid HP threshold")
+			}
+			// An HP-gated effect charges through its warning; a zero clock never
+			// counts down, so the effect would wait forever.
+			if e.BossBelowPercent > 0 && (a.Boss == nil || e.WarningSeconds <= 0 || e.WarningRounds < 1) {
+				return fail("boss HP threshold on " + e.ID + " requires a boss and RT and TB warning")
 			}
 		}
 		controls := map[string]bool{}
@@ -256,7 +264,7 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if b.Arena != nil && (!a.OpeningOwned || b.Arena[0] < 0 || b.Arena[1] < 0 || b.Arena[2] < b.Arena[0] || b.Arena[3] < b.Arena[1]) {
 				return fail("boss arena requires an opening-owned map and a valid rectangle")
 			}
-			if b.Monster == "" || b.EveryActions < 2 || b.HealPercent < 0 || b.HealCapPercent < 0 || b.HealCapPercent > 100 {
+			if b.Monster == "" || b.EveryActions < 2 || b.HealPercent < 0 || b.HealCapPercent < 0 || b.HealCapPercent > 100 || b.ArmorFloor < 0 {
 				return fail("invalid boss policy")
 			}
 			if b.LowHealthRange < 0 || math.IsNaN(b.LowHealthRange) || math.IsInf(b.LowHealthRange, 0) {

@@ -3,15 +3,19 @@ package main
 import (
 	"bytes"
 	"errors"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"ugataima/internal/boot"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/monster"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
@@ -95,11 +99,81 @@ func TestOverlayYAMLPatchesPreserveNeighbors(t *testing.T) {
 			}
 		})
 	}
-	// An empty mapping is valid YAML but cannot be safely spliced by line.
-	if _, err := overlayPatch([]byte("npcs: {}\n"), []string{"npcs", "new"}, "value"); err == nil {
-		t.Fatal("flow mapping must not be corrupted")
+	// An empty `{}` parent grows into a block mapping instead of a broken splice.
+	for _, raw := range []string{"npcs: {}\n", "npcs:\n"} {
+		got, err := overlayPatch([]byte(raw), []string{"npcs", "new"}, "value")
+		if err != nil || string(got) != "npcs:\n  new: value\n" {
+			t.Fatalf("insert into %q: %q, %v", raw, got, err)
+		}
 	}
 }
+
+// A save writes what the game decodes: an optional value set to zero and a map
+// key are present, while zero fields and empty blocks add no text.
+func TestOverlayPatchKeepsDecodedPresence(t *testing.T) {
+	const gate = "npcs:\n  gate:\n    name: Gate\n    dialogue:\n      choices:\n        - text: Enter\n          action: enter_schedule\n          map: arena\n"
+	const placed = "npcs:\n  gate:\n    name: Gate\n    dialogue:\n      choices:\n        - text: Enter\n          action: enter_schedule\n          map: arena\n          arrival_tile: [0, 0]\n"
+	const fight = "npcs:\n  pit:\n    name: Pit\n    type: encounter\n    encounter:\n      monsters:\n        - type: wolf\n          count_min: 1\n          count_max: 1\n"
+	const lane = "maps:\n  m:\n    adventure:\n      effects:\n        - id: lane_1\n          kind: lane\n          damage: 5\n"
+	npc := func(raw, key string, change func(*character.NPCData)) *character.NPCData {
+		var doc struct {
+			NPCs map[string]*character.NPCData `yaml:"npcs"`
+		}
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+			t.Fatal(err)
+		}
+		change(doc.NPCs[key])
+		return doc.NPCs[key]
+	}
+	zero := [2]int{}
+	for _, tc := range []struct {
+		name      string
+		raw       string
+		path      []string
+		value     any
+		unchanged bool
+	}{
+		{"zero arrival tile is written", gate, []string{"npcs", "gate"}, npc(gate, "gate", func(n *character.NPCData) { n.Dialogue.Choices[0].ArrivalTile = &zero }), false},
+		{"cleared zero arrival tile is removed", placed, []string{"npcs", "gate"}, npc(placed, "gate", func(n *character.NPCData) { n.Dialogue.Choices[0].ArrivalTile = nil }), false},
+		{"map key with a zero value is written", gate, []string{"npcs", "gate"}, npc(gate, "gate", func(n *character.NPCData) { n.Spells = map[string]*character.NPCSpell{"heal": {}} }), false},
+		{"empty blocks add nothing", fight, []string{"npcs", "pit"}, npc(fight, "pit", func(n *character.NPCData) {
+			n.Encounter.Rewards = &monster.EncounterRewards{}
+			n.Dialogue = &character.NPCDialogue{}
+		}), true},
+		{"zero fixed array adds nothing", lane, []string{"maps", "m", "adventure"}, func() config.AdventureConfig {
+			var doc struct {
+				Maps map[string]config.MapConfig `yaml:"maps"`
+			}
+			if err := yaml.Unmarshal([]byte(lane), &doc); err != nil {
+				t.Fatal(err)
+			}
+			return *doc.Maps["m"].Adventure
+		}(), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := overlayPatch([]byte(tc.raw), tc.path, tc.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.unchanged {
+				if string(out) != tc.raw {
+					t.Fatalf("zero values changed the text:\n%s", out)
+				}
+				return
+			}
+			var doc struct {
+				NPCs map[string]*character.NPCData `yaml:"npcs"`
+			}
+			if err := yaml.Unmarshal(out, &doc); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(doc.NPCs[tc.path[1]], tc.value) {
+				t.Fatalf("reload differs from the saved value:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestOverlayPublishRollsBackAndRejectsConflicts(t *testing.T) {
 	dir := t.TempDir()
 	var files []overlayWrite
@@ -265,15 +339,15 @@ func TestOverlayInspectorNavigationAndPersistence(t *testing.T) {
 	activate := func(label string) {
 		t.Helper()
 		fields := v.overlayFields(d)
-		rows, maxScroll := overlayInspectorRows(fields, 0)
+		rows, maxScroll := v.overlayInspectorRows(fields, 0)
 		for i, f := range fields {
 			if f.label != label {
 				continue
 			}
-			v.overlay.fieldScroll = clampInt(rows[i].r.y-overlayInspectorTop, 0, maxScroll)
-			rows, _ = overlayInspectorRows(fields, v.overlay.fieldScroll)
+			v.overlay.fieldScroll = clampInt(rows[i].r.y-v.overlayGeometry().fields.y, 0, maxScroll)
+			rows, _ = v.overlayInspectorRows(fields, v.overlay.fieldScroll)
 			r := rows[i].r
-			hit := overlayInspectorHit(fields, v.overlay.fieldScroll, r.x+12, r.y+12)
+			hit := v.overlayInspectorHit(fields, v.overlay.fieldScroll, r.x+12, r.y+12)
 			if hit != i {
 				t.Fatalf("%s: hit %d, want %d", label, hit, i)
 			}
@@ -300,8 +374,8 @@ func TestOverlayInspectorNavigationAndPersistence(t *testing.T) {
 	if d.state.Adventure.Boss.HealPercent == 0 || v.overlay.modal != nil {
 		t.Fatal("inline toggle did not enable healing")
 	}
-	edit("HP restored per tick (%)", "9")
-	edit("Total healing budget (%)", "40")
+	edit("HP restored each time (%)", "9")
+	edit("Total healing per visit (%)", "40")
 	id := d.state.Adventure.Controls[0].ID
 	edit("Switches that stop healing", id)
 	if !d.state.Adventure.Controls[0].StopHealing {
@@ -351,13 +425,13 @@ func TestOverlayInspectorNavigationAndPersistence(t *testing.T) {
 	// Focus and hit testing skip informational rows and section headings.
 	v.overlaySelect("mechanics", 0)
 	fields := v.overlayFields(d)
-	rows, _ := overlayInspectorRows(fields, 0)
+	rows, _ := v.overlayInspectorRows(fields, 0)
 	for i, f := range fields {
 		if f.interactive() {
 			continue
 		}
 		r := rows[i].r
-		if overlayInspectorHit(fields, 0, r.x+12, r.y+12) != -1 {
+		if v.overlayInspectorHit(fields, 0, r.x+12, r.y+12) != -1 {
 			t.Fatal("read-only row is clickable")
 		}
 	}
@@ -599,6 +673,58 @@ func TestOverlayUndoAcrossSaveRestoresNPCWiring(t *testing.T) {
 	}
 }
 
+// Editing one object never changes another through a shared YAML anchor: the
+// shared text moves, unchanged, to its next user (copy-on-write).
+func TestOverlayPatchSharedAnchors(t *testing.T) {
+	raw := "npcs:\n  a:\n    name: A\n    dialogue: &talk\n      greeting: Hi # shared\n  b:\n    name: B\n    dialogue: *talk\n  door: &door\n    name: Door\n    type: door\n  gate:\n    <<: *door\n    name: Gate\n"
+	decode := func(data []byte) map[string]map[string]any {
+		var doc struct {
+			NPCs map[string]map[string]any `yaml:"npcs"`
+		}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			t.Fatal(err)
+		}
+		return doc.NPCs
+	}
+	before := decode([]byte(raw))
+	edited := func(key string, change func(map[string]any)) map[string]any {
+		v := overlayClone(before[key])
+		change(v)
+		return v
+	}
+	for _, tc := range []struct {
+		name  string
+		key   string
+		value any
+	}{
+		{"owner edits the shared dialogue", "a", edited("a", func(v map[string]any) { v["dialogue"] = map[string]any{"greeting": "Bye"} })},
+		{"user edits its own copy", "b", edited("b", func(v map[string]any) { v["dialogue"] = map[string]any{"greeting": "Own"} })},
+		{"owner of a merged mapping is renamed", "door", edited("door", func(v map[string]any) { v["name"] = "Heavy door" })},
+		{"owner is removed", "a", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := overlayPatch([]byte(raw), []string{"npcs", tc.key}, tc.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after := decode(out)
+			for key, want := range before {
+				if key == tc.key {
+					if !overlaySame(after[key], tc.value) && !(tc.value == nil && after[key] == nil) {
+						t.Fatalf("%s = %v, want %v", key, after[key], tc.value)
+					}
+					continue
+				}
+				if !overlaySame(after[key], want) {
+					t.Fatalf("%s changed through the shared anchor: %v", key, after[key])
+				}
+			}
+			if strings.Count(string(out), "# shared") < 1 {
+				t.Fatal("comment on the shared text was lost")
+			}
+		})
+	}
+}
 func TestOverlayIndentlessSequenceSplices(t *testing.T) {
 	for _, eol := range []string{"\n", "\r\n"} {
 		for _, suffix := range []string{"", "  other: keep\n# footer\n"} {
@@ -884,5 +1010,80 @@ func TestOverlayMoveCarriesPlacementGround(t *testing.T) {
 				t.Fatal("undoing the draft changed the saved map")
 			}
 		})
+	}
+}
+
+// The editor must be able to save every shipped map as it is; a validation
+// rule stricter than the game's blocks saving the whole map. Edits start from
+// what npcs.yaml says, never from load-time backfill.
+func TestOverlayEveryMapValidatesUntouched(t *testing.T) {
+	v := overlayTestViewer(t)
+	for i, m := range v.maps {
+		v.mapIndex = i
+		d := v.overlayDoc()
+		if err := v.validateOverlay(d); err != nil {
+			t.Errorf("%s: %v", m.Key, err)
+		}
+	}
+	d := v.overlayDoc()
+	for key, n := range character.NPCConfigInstance.NPCs {
+		for id, sp := range n.Spells {
+			if authored := d.npc(key).Spells[id]; sp.Name != "" && authored != nil && authored.Name != "" {
+				t.Fatalf("%s/%s: editor starts from backfilled spell names", key, id)
+			}
+		}
+	}
+}
+
+// Changing the boss archetype keeps the map's clear reward and the quest
+// objective that waits for this boss; other maps keep theirs.
+func TestOverlayBossChangeCarriesRewardAndQuests(t *testing.T) {
+	v := overlayTestViewer(t)
+	overlaySandbox(t, v)
+	d := v.overlayDoc()
+	old := d.state.Adventure.Boss.Monster
+	next := ""
+	for _, key := range slices.Sorted(maps.Keys(v.monsterCfg.Monsters)) {
+		if v.monsterCfg.Monsters[key].Boss && !strings.HasPrefix(key, "solstice_") {
+			next = key
+			break
+		}
+	}
+	if next == "" {
+		t.Fatal("fixture needs a boss outside the solstice set")
+	}
+	v.overlayBossPicker(d)
+	if err := v.overlay.modal.apply(next); err != nil {
+		t.Fatal(err)
+	}
+	v.overlay.modal = nil
+	if err := v.saveOverlay(d); err != nil {
+		t.Fatal(err)
+	}
+	var cfg config.MapConfigs
+	raw, _ := os.ReadFile(overlayConfigPath)
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	rewards := map[string][]string{}
+	for key, mc := range cfg.Maps {
+		for _, enc := range mc.ClearEncounters {
+			for _, g := range enc.Monsters {
+				rewards[key] = append(rewards[key], g.Type)
+			}
+		}
+	}
+	if !slices.Contains(rewards[d.key], next) || slices.Contains(rewards[d.key], old) {
+		t.Fatalf("clear reward types %v, want %s instead of %s", rewards[d.key], next, old)
+	}
+	quests, _ := os.ReadFile("assets/quests.yaml")
+	text := string(quests)
+	if !strings.Contains(text, `"map": "`+d.key+`", "event": "interact", "requires_boss": "`+next+`"`) || strings.Contains(text, `"requires_boss": "`+old+`"`) {
+		t.Fatal("quest objective for this map does not wait for the new boss")
+	}
+	for key, types := range rewards {
+		if key != d.key && slices.Contains(types, next) {
+			t.Fatalf("%s reward was rewritten too", key)
+		}
 	}
 }

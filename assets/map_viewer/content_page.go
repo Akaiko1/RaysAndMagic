@@ -48,7 +48,7 @@ func pageTabLayout() []pageTabRect {
 
 // drawPageBar draws every top-level tab defined by pageTabDefs.
 func (v *viewer) drawPageBar(screen *ebiten.Image) {
-	drawFilledRect(screen, 0, 0, windowWidth, pageBarHeight, color.RGBA{24, 24, 36, 255})
+	drawFilledRect(screen, 0, 0, screen.Bounds().Dx(), pageBarHeight, color.RGBA{24, 24, 36, 255})
 	rects := pageTabLayout()
 	mouseX, mouseY := ebiten.CursorPosition()
 	for i, r := range rects {
@@ -85,6 +85,13 @@ func (v *viewer) handlePageBarClick() {
 	}
 }
 
+// contentArea is the scrollable region of the card and character pages.
+func (v *viewer) contentArea() (x, y, w, h int) {
+	cw, ch := v.canvasSize()
+	x, y = contentPad, pageBarHeight+contentPad
+	return x, y, cw - 2*contentPad, ch - y - contentPad
+}
+
 // drawContentPage renders the scrollable grid of cards.
 func (v *viewer) drawContentPage(screen *ebiten.Image) {
 	cards := v.pageCards[v.page]
@@ -94,10 +101,7 @@ func (v *viewer) drawContentPage(screen *ebiten.Image) {
 		return
 	}
 
-	areaX := contentPad
-	areaY := pageBarHeight + contentPad
-	areaW := windowWidth - 2*contentPad
-	areaH := windowHeight - areaY - contentPad
+	areaX, areaY, areaW, areaH := v.contentArea()
 
 	clip := screen.SubImage(image.Rect(areaX, areaY, areaX+areaW, areaY+areaH)).(*ebiten.Image)
 	clip.Fill(color.RGBA{20, 20, 30, 255})
@@ -160,12 +164,11 @@ func (v *viewer) maxContentScroll() int {
 	if len(v.pageCards[v.page]) == 0 {
 		return 0
 	}
-	areaW := windowWidth - 2*contentPad
+	_, _, areaW, areaH := v.contentArea()
 	cardsPerRow := (areaW + contentCardGap) / (contentCardW + contentCardGap)
 	if cardsPerRow < 1 {
 		cardsPerRow = 1
 	}
-	areaH := windowHeight - (pageBarHeight + contentPad) - contentPad
 
 	total := 0
 	prevSection := ""
@@ -359,8 +362,8 @@ func drawCardTooltip(screen *ebiten.Image, c *contentCard, mouseX, mouseY, areaX
 	if boxX < 4 {
 		boxX = 4
 	}
-	if boxY+boxH > windowHeight-4 {
-		boxY = windowHeight - boxH - 4
+	if bottom := screen.Bounds().Dy() - 4; boxY+boxH > bottom {
+		boxY = bottom - boxH
 	}
 	if boxY < pageBarHeight+4 {
 		boxY = pageBarHeight + 4

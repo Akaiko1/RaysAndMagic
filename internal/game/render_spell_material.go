@@ -34,10 +34,6 @@ type spellProjection struct {
 	axis                [3]float64
 }
 
-func (r *Renderer) drawSpellMaterial(dst *ebiten.Image, x, y, size, dx, dy float64, rgb [3]int, crit float64, seed, kind int) {
-	r.drawSpellMaterialFade(dst, x, y, size, dx, dy, rgb, crit, seed, kind, 1)
-}
-
 func (r *Renderer) drawSpellMaterialFade(dst *ebiten.Image, x, y, size, dx, dy float64, rgb [3]int, crit float64, seed, kind int, alpha float64) {
 	projection := spellProjection{dx: dx, dy: dy, axial: 1, axis: [3]float64{dx, dy, 0}}
 	if math.Hypot(dx, dy) < .01 {

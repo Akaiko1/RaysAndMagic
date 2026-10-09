@@ -41,6 +41,25 @@ func (d MonsterDefinition) CombatEffectLines(contexts ...CombatEffectContext) []
 		out = append(out, EffectLine{Text: text, School: normalizeEffectSchool(school)})
 	}
 
+	if a := d.Telegraph; a != nil {
+		addSchool(a.School, fmt.Sprintf("%s: %s, %s, range %d tiles", a.Name, a.Kind, a.Shape, a.Range))
+		addSchool(a.School, fmt.Sprintf("  Warning: %gs / %d rounds; cooldown: %gs / %d rounds", a.WarningSeconds, a.WarningRounds, a.CooldownSeconds, a.CooldownRounds))
+		if a.Kind == "shield" {
+			addSchool(a.School, fmt.Sprintf("  Ally shield: absorbs %d damage per hit", TelegraphShieldAbsorption(d.DamageMin, d.DamageMax)))
+		} else if a.DamagePercent > 0 {
+			addSchool(a.School, fmt.Sprintf("  Damage: %d%% of attack", a.DamagePercent))
+		}
+		if a.DurationSeconds > 0 {
+			text := fmt.Sprintf("  Duration: %gs / %d rounds", a.DurationSeconds, a.DurationRounds)
+			if a.Kind != "shield" && a.SustainDamage > 0 {
+				text += fmt.Sprintf("; sustained damage: %d", a.SustainDamage)
+			}
+			addSchool(a.School, text)
+		}
+		if a.BelowHPPercent > 0 {
+			add(fmt.Sprintf("  Available below %d%% HP", a.BelowHPPercent))
+		}
+	}
 	if d.RootPartyChance > 0 {
 		add(fmt.Sprintf("Party root: %.0f%% per attack, %ds / %d turn(s)", d.RootPartyChance*100, d.RootPartySeconds, d.RootPartyTurns))
 	}

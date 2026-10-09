@@ -843,7 +843,8 @@ type FirstPersonCamera struct {
 // ApplySpriteColorKey wires the config's load-time color key into a sprite
 // manager: stray magenta (from imperfect sprite background removal) turns
 // transparent; edge-only sprites despill just their rims. Shared by the game
-// and the map editor so both render sprites identically.
+// and the map editor so both render sprites identically. Excluded families
+// preserve their original colours, including rims.
 func ApplySpriteColorKey(sprites *graphics.SpriteManager, cfg *config.Config) {
 	ck := cfg.Graphics.ColorKey
 	if !ck.Enabled {
@@ -855,6 +856,16 @@ func ApplySpriteColorKey(sprites *graphics.SpriteManager, cfg *config.Config) {
 	}
 	sprites.SetColorKey(true, r, g, b, ck.Tolerance, ck.Despill)
 	sprites.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
+	// Headless fixtures may have no asset tree. Real loads validate references
+	// before preparing any resources, so a typo cannot silently recolour art.
+	if _, err := os.Stat("assets/sprites"); err == nil {
+		for _, name := range ck.DespillExclusions {
+			if !sprites.HasSprite(name) {
+				panic(fmt.Sprintf("graphics.color_key.despill_exclusions: sprite %q not found", name))
+			}
+		}
+	}
+	sprites.SetDespillExclusions(ck.DespillExclusions)
 }
 
 func NewMMGame(cfg *config.Config) *MMGame {
@@ -1020,8 +1031,8 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	if err := game.validateNPCCastBuffs(); err != nil {
 		panic(err)
 	}
-	// Spell rows only sell if the kind dispatch resolves to the trader dialog.
-	if err := game.validateSpellShopsAreReachable(); err != nil {
+	// A service only sells if the kind dispatch resolves to the dialog that draws it.
+	if err := game.validateServicesAreReachable(); err != nil {
 		panic(err)
 	}
 	// The same hazard for ordinary rows: a fixed-layout dialog draws none.
@@ -1031,6 +1042,11 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	// And an action name nothing dispatches draws a row that does nothing.
 	if err := game.validateDialogueActionsAreDispatched(); err != nil {
 		panic(err)
+	}
+	if character.NPCConfigInstance != nil && world.GlobalWorldManager != nil {
+		if err := ValidateRewardChestIDs(character.NPCConfigInstance.NPCs, world.GlobalWorldManager.MapConfigs); err != nil {
+			panic(err)
+		}
 	}
 	// Every interact quest must be finishable: its tag credited by something, and
 	// enough of those props actually standing. Runs HERE, with its siblings, so

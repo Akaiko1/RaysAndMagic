@@ -43,6 +43,10 @@ type MonsterDefinition struct {
 	// SizeClass (small/medium/person/large/huge) picks the sprite height from
 	// config graphics.size_classes and the collision body from world.monster_bodies.
 	SizeClass string `yaml:"size_class"`
+	// StandeeCore picks the standee slab's core colour: empty uses the
+	// chroma-weighted art average; silhouette_edge uses the mean colour of the
+	// silhouette border, for art whose small saturated accents tint the side.
+	StandeeCore string `yaml:"standee_core,omitempty"`
 	// Champion, when set, names a champions.yaml build (a real character on the
 	// monster AI). game.mirrorChampionStats mirrors that character's weapon
 	// damage, attack cadence, HP and armor onto this monster at spawn. Its melee
@@ -156,6 +160,9 @@ type MonsterYAMLConfig struct {
 	Monsters map[string]MonsterDefinition `yaml:"monsters"`
 }
 
+// StandeeCoreSilhouetteEdge is the one non-default standee_core value.
+const StandeeCoreSilhouetteEdge = "silhouette_edge"
+
 // Global monster configuration
 var MonsterConfig *MonsterYAMLConfig
 
@@ -245,6 +252,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.DeprecatedBoxW != 0 || monster.DeprecatedBoxH != 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed keys box_w/box_h - the collision body comes from size_class (config world.monster_bodies)", key))
+		}
+		if monster.StandeeCore != "" && monster.StandeeCore != StandeeCoreSilhouetteEdge {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has invalid standee_core %q - want %s or omit it", key, monster.StandeeCore, StandeeCoreSilhouetteEdge))
 		}
 		if !ValidSizeClasses[monster.SizeClass] {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has invalid size_class %q - want one of small/medium/person/large/huge", key, monster.SizeClass))

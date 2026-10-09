@@ -11,7 +11,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
-	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/world"
 )
 
@@ -168,146 +168,17 @@ func (v *viewer) overlayPlaceObject(d *overlayDocument, tile [2]int) error {
 	} else if d.originalNPCs[key] == nil {
 		d.originalNPCs[key] = overlayClone(d.npc(key))
 	}
-	d.state.Data.NPCSpawns = append(d.state.Data.NPCSpawns, world.NPCSpawn{X: tile[0], Y: tile[1], NPCKey: key, GroundTile: v.tileManager.GetTileKey(d.state.Data.Tiles[tile[1]][tile[0]])})
+	ground := v.tileManager.GetTileKey(d.state.Data.Tiles[tile[1]][tile[0]])
+	if def := d.npc(key); def != nil && def.GroundTile != "" {
+		ground = "" // the definition's own ground (a portal's stream) applies
+	}
+	d.state.Data.NPCSpawns = append(d.state.Data.NPCSpawns, world.NPCSpawn{X: tile[0], Y: tile[1], NPCKey: key, GroundTile: ground})
 	v.overlaySelect("object", len(d.state.Data.NPCSpawns)-1)
 	return nil
 }
-func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
-	p := &v.overlay
-	if p.selected < 0 || p.selected >= len(d.state.Data.NPCSpawns) {
-		return nil
-	}
-	spawn := d.state.Data.NPCSpawns[p.selected]
-	key := spawn.NPCKey
-	n := overlayClone(d.npc(key))
-	if n == nil {
-		return nil
-	}
-	fields := []overlayField{
-		overlayString("Name", &n.Name, "Name shown during interaction."),
-		overlayInfo("Position", fmt.Sprintf("Column %d, row %d", spawn.X, spawn.Y), "Click Move object to place it elsewhere."),
-		overlayAction("Move object", "Click empty walkable ground.", func() { p.tool = "object-move" }),
-	}
-	if n.Dialogue == nil {
-		n.Dialogue = &character.NPCDialogue{}
-	}
-	fields = append(fields, overlayHeading("Dialogue"), overlayString("Greeting", &n.Dialogue.Greeting, "Text shown when the object is examined."), overlayAction("+ Add dialogue action", "Choose what an interaction does. Each action exposes its own targets and parameters.", func() { v.overlayAddChoice(d, nil) }))
-	for i, c := range n.Dialogue.Choices {
-		if c == nil {
-			continue
-		}
-		path := []int{i}
-		f := overlayNavigate(c.Text, "Action: "+c.Action, "Edit this dialogue action and its parameters.", func() { v.overlaySelect("choice", p.selected); p.choicePath = path })
-		f.depth = 1
-		fields = append(fields, f)
-	}
-	fields = append(fields, overlayHeading("Identity and appearance"), overlayInfo("Object key", key, "This definition may be shared by several placements."), overlayInfo("Interaction type", n.Type, "The object library includes merchants, doors and encounters."), overlayAction("Make local copy", "Copies this object's definition for this placement. Catalog-backed crates must keep their original key.", func() {
-		if n.Type == character.NPCTypeLootCrate {
-			d.err = "Loot crates use their catalog key. Choose another crate from the library."
-			return
-		}
-		d.checkpoint()
-		newKey := d.newObjectKey()
-		d.state.NPCs[newKey] = overlayClone(n)
-		d.state.NPCs[newKey].EditorOwnerMap = d.key
-		if e := d.state.NPCs[newKey].Encounter; e != nil && e.QuestID != "" {
-			e.QuestID = newKey + "_encounter"
-		}
-		d.state.Data.NPCSpawns[p.selected].NPCKey = newKey
-		v.overlayRemoveUnusedLocalNPC(d, key)
-	}))
-	sprites := []string{}
-	for _, def := range character.NPCConfigInstance.NPCs {
-		if def != nil && def.Sprite != "" && !slices.Contains(sprites, def.Sprite) {
-			sprites = append(sprites, def.Sprite)
-		}
-	}
-	sort.Strings(sprites)
-	fields = append(fields, overlayString("Sprite", &n.Sprite, "Choose an existing object or NPC sprite.", sprites...), overlayString("Prompt verb", &n.PromptVerb, "Examples: examine, use, enter. Empty uses the object's default."), overlayHeading("Availability"), overlayInt("Minimum party level", &n.MinPartyLevel, "0 means no level requirement."), overlayBool("Night only", &n.NightOnly, "Visible and available only at night."), overlayBool("Hide after visit", &n.HideWhenVisited, "Use only when the object's action records a visited state."), overlayBool("Fixed facing", &n.NoSpin, "Keep the object from rotating with the party."))
-	if n.Type == character.NPCTypeDoor {
-		fields = append(fields, overlayString("Door behavior", &n.DoorBehavior, "Locked doors expose key and stat unlock options in the game.", "locked", "champion_portcullis"), overlayString("Lock label", &n.LockLabel, "Description of the lock."), overlayList("Accepted keys", &n.DoorKeyItemKeys, "Any listed item can unlock the door.", v.overlayCatalog("items", "items")))
-	}
-	if n.Lectern != nil {
-		fields = append(fields, overlayString("Teaching spell", &n.Lectern.Spell, "Spell taught by this book.", append([]string{""}, v.overlayCatalog("spells", "spells")...)...), overlayList("Random spell pool", &n.Lectern.Pool, "Used instead of a fixed spell.", v.overlayCatalog("spells", "spells")))
-	}
-
-	if n.GridSpanTiles == 0 && n.Type != character.NPCTypeDoor {
-		f := overlayString("Presentation", &n.RenderCategory, "Wall mounted objects attach to an adjacent wall; scenery rests on the floor.", "npc", "wall_mounted", "scenery", "landmark")
-		apply := f.apply
-		f.apply = func(s string) error {
-			if err := apply(s); err != nil {
-				return err
-			}
-			if s == "npc" {
-				n.SizeClass = "person"
-			} else if n.SizeClass == "person" {
-				n.SizeClass = "full_tile"
-			}
-			return nil
-		}
-		fields = append(fields, f)
-	}
-	sizes := []string{}
-	for size := range v.cfg.Graphics.SizeClasses {
-		if config.IsPropSizeClass(size) || size == "person" {
-			sizes = append(sizes, size)
-		}
-	}
-	sort.Strings(sizes)
-	fields = append(fields, overlayString("Size class", &n.SizeClass, "full_tile is exactly one tile high.", sizes...))
-	fields = append(fields, overlayHeading("Combat encounter"))
-	fields = append(fields, v.overlayEncounterFields(d, n)...)
-	// Field reads stay pure: commit the private copy only after a successful edit.
-	for i := range fields {
-		if apply := fields[i].apply; apply != nil {
-			fields[i].apply = func(s string) error {
-				if err := apply(s); err != nil {
-					return err
-				}
-				d.state.NPCs[key] = n
-				return nil
-			}
-		}
-	}
-	return fields
-}
-func (v *viewer) overlayEncounterFields(d *overlayDocument, n *character.NPCData) []overlayField {
-	key := d.state.Data.NPCSpawns[v.overlay.selected].NPCKey
-	if n.Encounter == nil {
-		return []overlayField{overlayAction("Add combat encounter", "Configure monsters and rewards, then add a combat action.", func() {
-			d.checkpoint()
-			d.editNPC(key).Encounter = &character.NPCEncounter{Type: "combat", QuestID: key + "_encounter", FirstVisitOnly: true, Rewards: &monster.EncounterRewards{}}
-		})}
-	}
-	e := n.Encounter
-	out := []overlayField{overlayBool("Encounter once", &e.FirstVisitOnly, "Prevents repeating the authored encounter after a win."), overlayString("Encounter quest ID", &e.QuestID, "Unique save identity for this encounter."), overlayString("Encounter title", &e.QuestName, "Name in the quest log."), overlayString("Encounter description", &e.QuestDescription, "Objective text in the quest log."), overlayString("Combat announcement", &e.StartMessage, "Message when the encounter begins.")}
-	keys := []string{}
-	for k, m := range v.monsterCfg.Monsters {
-		if m.Disposition != "fish" {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	for i, m := range e.Monsters {
-		if m == nil {
-			continue
-		}
-		out = append(out, overlayString(fmt.Sprintf("Group %d monster", i+1), &m.Type, "Archetype to spawn.", keys...), overlayInt(fmt.Sprintf("Group %d minimum", i+1), &m.CountMin, "Minimum count."), overlayInt(fmt.Sprintf("Group %d maximum", i+1), &m.CountMax, "Maximum count."), overlayAction(fmt.Sprintf("Remove group %d", i+1), "Remove this encounter group.", func() { d.checkpoint(); x := d.editNPC(key).Encounter; x.Monsters = slices.Delete(x.Monsters, i, i+1) }))
-	}
-	out = append(out, overlayAction("Add monster group", "Adds one monster; select its archetype and count.", func() {
-		d.checkpoint()
-		x := d.editNPC(key).Encounter
-		x.Monsters = append(x.Monsters, &character.EncounterMonster{Type: keys[0], CountMin: 1, CountMax: 1})
-	}))
-	if e.Rewards == nil {
-		e.Rewards = &monster.EncounterRewards{}
-	}
-	out = append(out, overlayInt("Reward gold", &e.Rewards.Gold, "Gold awarded on victory."), overlayInt("Reward experience", &e.Rewards.Experience, "Experience awarded on victory."), overlayString("Victory message", &e.Rewards.CompletionMessage, "Message after every encounter monster is defeated."))
-	return out
-}
 func (v *viewer) overlayAddChoice(d *overlayDocument, parent []int) {
 	index := v.overlay.selected
-	v.overlayChoose("Choose an action", "Actions are taken from the game's actual dialogue dispatcher. Select one to configure its target.", game.EditorDialogueActions(), func(action string) error {
+	v.overlayChoose("Choose an action", "Actions come from the game's dialogue dispatcher. tavern_rest on the first level turns the object into a tavern dialog, which shows only its tavern rows.", game.EditorDialogueActions(), func(action string) error {
 		d.checkpoint()
 		n := d.editNPC(d.state.Data.NPCSpawns[index].NPCKey)
 		if n.Dialogue == nil {
@@ -336,6 +207,8 @@ func (v *viewer) overlayAddChoice(d *overlayDocument, parent []int) {
 			c.Prop = &character.NPCPropCopy{}
 		case "info":
 			c.Response = "There is more to discover."
+		case "enter_schedule":
+			c.Map = d.key
 		}
 		*list = append(*list, c)
 		v.overlaySelect("choice", index)
@@ -374,8 +247,8 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 		return nil
 	}
 	path := slices.Clone(p.choicePath)
-	out := []overlayField{overlayNavigate("Back to object", n.Name, "Edit the object, its conditions and other actions.", func() { v.overlaySelect("object", p.selected) }), overlayInfo("Action", c.Action, "Triggered when the player selects this dialogue option."), overlayString("Choice text", &c.Text, "Clickable text in the game's dialogue."), overlayHeading("Conditions"), overlayString("Requires completed quest", &c.RequiresQuest, "Optional: quest must be finished and its rewards claimed.", append([]string{""}, v.overlayCatalog("quests", "quests")...)...), overlayString("Quest step visibility", &c.QuestStep, "Optional: keep this choice with one quest step.", append([]string{""}, v.overlayCatalog("quests", "quests")...)...)}
-	quests := append([]string{""}, v.overlayCatalog("quests", "quests")...)
+	out := []overlayField{overlayNavigate("Back to object", n.Name, "Edit the object, its conditions and other actions.", func() { v.overlaySelect("object", p.selected) }), overlayInfo("Action", c.Action, "Triggered when the player selects this dialogue option."), overlayString("Choice text", &c.Text, "Clickable text in the game's dialogue."), overlayHeading("Conditions"), overlayString("Requires completed quest", &c.RequiresQuest, "Optional: shown only after this quest is finished and its rewards claimed.", append([]string{""}, v.overlayCatalog("quests", "quests")...)...), overlayString("Show only during quest", &c.QuestStep, "Optional: shown only while this quest, offered or taken in by this object, is in progress.", overlayOwnQuests(n)...)}
+	questIDs := append([]string{""}, v.overlayCatalog("quests", "quests")...)
 	maps := []string{}
 	for _, m := range v.maps {
 		maps = append(maps, m.Key)
@@ -401,7 +274,8 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 			out = append(out, overlayInt("Arrival column", &c.ArrivalTile[0], "Coordinates local to the destination map."), overlayInt("Arrival row", &c.ArrivalTile[1], "Must be walkable and in bounds."), overlayAction("Use default arrival", "Remove the explicit arrival override.", func() { d.checkpoint(); overlayChoiceAt(d.editNPC(key), path).ArrivalTile = nil }))
 		}
 	case "enter_schedule":
-		out = append(out, overlayString("Schedule source map", &c.Map, "Must be this object's map and have an entrance schedule.", maps...))
+		c.Map = d.key
+		out = append(out, overlayInfo("Schedule", d.key, "Uses this map's entrance schedule (Map rules). Keep the action on the first level so the greeting shows today's destination."))
 	case "adventure_control", "disarm_environment":
 		targets := []string{}
 		if c.Action == "adventure_control" {
@@ -417,7 +291,7 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 		}
 		out = append(out, overlayString("Target", &c.Control, "Choose a mechanism or trap from this map.", targets...))
 	case "give_quest", "turn_in_quest":
-		out = append(out, overlayString("Quest", &c.QuestID, "Existing quest definition. Quest objectives remain owned by quests.yaml.", quests...))
+		out = append(out, overlayString("Quest", &c.QuestID, "Existing quest definition. Quest objectives remain owned by quests.yaml.", questIDs...))
 	case "teach_spell":
 		out = append(out, overlayString("Spell", &c.Spell, "The spell to teach.", v.overlayCatalog("spells", "spells")...), overlayInt("Gold price", &c.Cost, "Must be positive."))
 	case "cast_buff":
@@ -434,9 +308,9 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 			}
 		}
 		sort.Strings(tiers)
-		out = append(out, overlayString("Champion tier", &c.Tier, "Uses the configured arena map and champion tier.", tiers...))
+		out = append(out, overlayString("Champion tier", &c.Tier, "The duel runs on this map's duel arena (duel: in map_configs.yaml) against a champion of this tier.", tiers...))
 	case "combat":
-		out = append(out, overlayInfo("Encounter source", key, "Edit monster groups and rewards under the object's Combat encounter settings."))
+		out = append(out, overlayInfo("Fight source", key, "Edit monster groups and rewards under the object's Combat encounter section. Only encounter objects can fight."))
 	case "exchange":
 		if c.Exchange == nil {
 			c.Exchange = &character.NPCExchange{Costs: map[string]int{}}
@@ -481,7 +355,41 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 			c.Prop = &character.NPCPropCopy{}
 		}
 		q := c.Prop
-		out = append(out, overlayString("Quest", &c.QuestID, "Quest whose activity this object advances.", quests...), overlayString("Activity tag", &q.Tag, "Must match the quest's authored activity target."), overlayString("Object token", &q.Token, "Unique token used by the quest's activity definition."), overlayString("Activity step", &q.Step, "Optional authored objective step."), overlayString("Not active message", &q.NotYet, "Shown before the quest needs this object."), overlayString("Interaction message", &q.Took, "Shown when the interaction is credited."), overlayString("Completion message", &q.Completed, "Shown when the final objective completes."), overlayString("Loot table", &q.LootTable, "Optional existing loot table."), overlayString("Loot message", &q.LootLine, "Required when awarding a loot table."), overlayBool("Hide map marker", &q.HideMapMarker, "Hide the quest marker for this prop."), overlayString("Dormant sprite", &q.DormantSprite, "Optional sprite while this quest prop is dormant."))
+		defs := v.overlayQuestDefs()
+		interact := []string{}
+		for id, def := range defs {
+			if def != nil && def.Type == quests.QuestTypeInteract && def.TargetMonster != "" {
+				interact = append(interact, id)
+			}
+		}
+		sort.Strings(interact)
+		questField := overlayString("Quest", &c.QuestID, "An interact quest. Using this object counts toward it.", interact...)
+		applyQuest := questField.apply
+		questField.apply = func(s string) error {
+			if err := applyQuest(s); err != nil {
+				return err
+			}
+			if def := defs[s]; def != nil {
+				q.Tag = def.TargetMonster
+				if def.Activity == nil {
+					q.Token, q.Step, q.DormantSprite = "", "", ""
+				} else {
+					q.LootTable, q.LootLine = "", ""
+				}
+			}
+			return nil
+		}
+		out = append(out, questField, overlayInfo("Object tag", q.Tag, "Copied from the quest's target; the quest counts this tag."))
+		if def := defs[c.QuestID]; def != nil && def.Activity != nil {
+			out = append(out, overlayString("Activity objective", &q.Token, "Which objective of the quest's activity this object completes.", overlayActivityTokens(def.Activity)...))
+			if o := def.Activity.Objective(q.Token); o != nil && len(o.Sequence) > 0 {
+				out = append(out, overlayString("Alignment step", &q.Step, "This object's step in the objective's sequence.", slices.Compact(slices.Sorted(slices.Values(o.Sequence)))...))
+			}
+			out = append(out, overlayString("Sprite while dormant", &q.DormantSprite, "Optional art while the quest does not need this object yet.", append([]string{""}, v.overlaySprites()...)...))
+		} else if def != nil {
+			out = append(out, overlayString("Loot table", &q.LootTable, "Optional loot rolled on use. Needs the loot message too.", append([]string{""}, v.overlayCatalog("loots", "loot_tables")...)...), overlayString("Loot message", &q.LootLine, "Shown with the loot. Required with a loot table."))
+		}
+		out = append(out, overlayString("Before the quest needs it", &q.NotYet, "Shown while the quest does not need this object yet."), overlayString("When it counts", &q.Took, "Shown when using the object is credited."), overlayString("When the quest completes", &q.Completed, "Shown when this completes the quest."), overlayBool("Hide map marker", &q.HideMapMarker, "Do not mark this object on the world map."), overlayNote("A quest object must hide after use or have a Message after use (object settings)."))
 	case "back", "leave", "open_roster", "manage_stash":
 		out = append(out, overlayInfo("Parameters", "No additional parameters", "This action uses the game's shared conversation or party service."))
 	}
@@ -553,4 +461,54 @@ func (v *viewer) overlayRemoveUnusedLocalNPC(d *overlayDocument, key string) {
 		}
 	}
 	d.state.NPCs[key] = nil
+}
+
+// overlayOwnQuests lists the quests this object offers or takes in: the only
+// ones a choice may follow with quest_step.
+func overlayOwnQuests(n *character.NPCData) []string {
+	out := []string{""}
+	if n != nil && n.Dialogue != nil {
+		_ = n.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			if (c.Action == "give_quest" || c.Action == "turn_in_quest") && c.QuestID != "" && !slices.Contains(out, c.QuestID) {
+				out = append(out, c.QuestID)
+			}
+			return nil
+		})
+	}
+	sort.Strings(out[1:])
+	return out
+}
+
+// overlayActivityTokens lists every token the game accepts for an activity:
+// objectives, sequence steps and forage groups.
+func overlayActivityTokens(a *quests.ActivityDefinition) []string {
+	out := []string{}
+	addToken := func(t string) {
+		if t != "" && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	for _, o := range a.Objectives {
+		addToken(o.Token)
+	}
+	for _, t := range a.Sequence {
+		addToken(t)
+	}
+	for _, g := range a.Forage {
+		for _, t := range g.Tokens {
+			addToken(t)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (v *viewer) overlayQuestDefs() map[string]*quests.QuestDefinition {
+	if v.overlay.questDefs == nil {
+		v.overlay.questDefs = map[string]*quests.QuestDefinition{}
+		if cfg, err := quests.LoadQuestConfig("assets/quests.yaml"); err == nil {
+			v.overlay.questDefs = cfg.Quests
+		}
+	}
+	return v.overlay.questDefs
 }

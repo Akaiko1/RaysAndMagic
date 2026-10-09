@@ -42,21 +42,35 @@ type charDetail struct {
 	rows        []panelRow
 }
 
-// charTextCols is how many characters fit in the panel's right text column.
-func charTextCols() int {
-	w := windowWidth - 2*contentPad - charPortraitSz - 16 - 8
-	c := game.ShadedTextColumns(w)
+// charTextWidth is the panel's right text column; drawCharPanel lays out the
+// same span.
+func charTextWidth(panelW int) int {
+	return panelW - (charPanelPad + charPortraitSz + 16) - charPanelPad
+}
+
+// charTextCols is how many characters fit in that column on a canvas this wide.
+func charTextCols(canvasW int) int {
+	c := game.ShadedTextColumns(charTextWidth(canvasW - 2*contentPad))
 	if c < 16 {
 		c = 16
 	}
 	return c
 }
 
-func buildCharacterDetails(cfg *config.Config) []charDetail {
+// characterDetails returns the Characters page rows wrapped for the current
+// canvas width, rebuilding them when the window width changes.
+func (v *viewer) characterDetails() []charDetail {
+	w, _ := v.canvasSize()
+	if cols := charTextCols(w); v.charDetails == nil || cols != v.charCols {
+		v.charDetails, v.charCols = buildCharacterDetails(v.cfg, cols), cols
+	}
+	return v.charDetails
+}
+
+func buildCharacterDetails(cfg *config.Config, cols int) []charDetail {
 	if cfg == nil {
 		return nil
 	}
-	cols := charTextCols()
 	var out []charDetail
 	// One card per SHIPPED hero (starting party, captives, tavern recruits),
 	// built through the SAME roster path the game uses (class kit + race
@@ -214,18 +228,16 @@ func (v *viewer) charPanelHeight(d *charDetail) int {
 }
 
 func (v *viewer) drawCharactersPage(screen *ebiten.Image) {
-	areaX := contentPad
-	areaY := pageBarHeight + contentPad
-	areaW := windowWidth - 2*contentPad
-	areaH := windowHeight - areaY - contentPad
+	areaX, areaY, areaW, areaH := v.contentArea()
 
 	clip := screen.SubImage(image.Rect(areaX, areaY, areaX+areaW, areaY+areaH)).(*ebiten.Image)
 	clip.Fill(color.RGBA{20, 20, 30, 255})
 
 	y := areaY - v.pageScroll[pageChars]
 	var hovered *contentCard
-	for i := range v.charDetails {
-		d := &v.charDetails[i]
+	details := v.characterDetails()
+	for i := range details {
+		d := &details[i]
 		h := v.charPanelHeight(d)
 		if y+h >= areaY && y < areaY+areaH {
 			if card := v.drawCharPanel(clip, d, areaX, y, areaW, h); card != nil {
@@ -255,8 +267,8 @@ func (v *viewer) drawCharPanel(dst *ebiten.Image, d *charDetail, x, y, w, h int)
 	}
 
 	rx := x + charPanelPad + charPortraitSz + 16
-	rw := w - (charPanelPad + charPortraitSz + 16) - charPanelPad
-	cols := charTextCols()
+	rw := charTextWidth(w)
+	cols := v.charCols
 	ry := y + charPanelPad
 	mouseX, mouseY := ebiten.CursorPosition()
 	var hovered *contentCard
@@ -301,11 +313,11 @@ func (v *viewer) cardForKindKey(kind contentKind, key string) *contentCard {
 
 // maxCharactersScroll mirrors maxContentScroll for the custom Characters page.
 func (v *viewer) maxCharactersScroll() int {
-	areaY := pageBarHeight + contentPad
-	areaH := windowHeight - areaY - contentPad
+	_, _, _, areaH := v.contentArea()
 	total := 0
-	for i := range v.charDetails {
-		total += v.charPanelHeight(&v.charDetails[i]) + charPanelGap
+	details := v.characterDetails()
+	for i := range details {
+		total += v.charPanelHeight(&details[i]) + charPanelGap
 	}
 	if total <= areaH {
 		return 0

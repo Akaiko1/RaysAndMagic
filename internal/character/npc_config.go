@@ -467,8 +467,8 @@ func validateCratesAndLecterns(cfg *NPCConfig) error {
 			}
 		case NPCTypeSpellLectern:
 			l := npc.Lectern
-			if l == nil || (l.Spell == "" && len(l.Pool) == 0) {
-				return fmt.Errorf("NPC %q: type spell_lectern requires lectern.spell or lectern.pool", key)
+			if l == nil || (l.Spell == "") == (len(l.Pool) == 0) {
+				return fmt.Errorf("NPC %q: type spell_lectern requires exactly one of lectern.spell or lectern.pool", key)
 			}
 			for _, id := range append([]string{l.Spell}, l.Pool...) {
 				if id == "" {
@@ -616,7 +616,11 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 	if !exists {
 		return nil, fmt.Errorf("NPC data not found for key: %s", key)
 	}
+	return NewNPCFromData(key, data, x, y), nil
+}
 
+// NewNPCFromData builds a runtime NPC from one authored definition.
+func NewNPCFromData(key string, data *NPCData, x, y float64) *NPC {
 	npc := &NPC{
 		X:                x,
 		Y:                y,
@@ -653,6 +657,8 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		LockLabel:        data.LockLabel,
 		DoorKeyItemKeys:  data.DoorKeyItemKeys,
 		DoorStatReqs:     data.DoorStatReqs,
+		ArenaBoard:       data.ArenaBoard,
+		ShopDialogue:     data.ShopDialogue,
 	}
 
 	// Shop stock is capability-driven, not type-driven: ANY NPC that authors an
@@ -661,8 +667,6 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 	if len(data.Inventory) > 0 || data.StockWeaponsRarity != "" {
 		npc.MerchantStock = buildMerchantStock(data.Inventory)
 		npc.Currency = data.Currency
-		npc.ArenaBoard = data.ArenaBoard
-		npc.ShopDialogue = data.ShopDialogue
 		if data.StockWeaponsRarity != "" {
 			npc.MerchantStock = append(npc.MerchantStock,
 				buildRarityWeaponStock(data.StockWeaponsRarity, data.StockWeaponsCost)...)
@@ -680,7 +684,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		npc.EncounterData = data.Encounter
 	}
 
-	return npc, nil
+	return npc
 }
 
 func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {

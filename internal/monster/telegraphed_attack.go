@@ -24,6 +24,12 @@ type TelegraphedAttack struct {
 	BelowHPPercent  int     `yaml:"below_hp_percent,omitempty"`
 }
 
+// TelegraphShieldAbsorption is the flat per-hit soak granted to an ally by a
+// shield telegraph. Preview descriptions and combat use the same staged stats.
+func TelegraphShieldAbsorption(damageMin, damageMax int) int {
+	return max(1, (damageMin+damageMax)/4)
+}
+
 func (a *TelegraphedAttack) validate() error {
 	if a == nil {
 		return nil

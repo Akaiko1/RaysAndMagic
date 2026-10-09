@@ -51,7 +51,7 @@ weapons:
     description: "The obsidian point drives heat into its target; the bronze collar vents on the third strike."
     category: "spear"
     damage: 32
-    range: 1
+    range: 2
     bonus_stat: "Might"
     damage_type: "fire"
     crit_chance: 10
@@ -1584,7 +1584,7 @@ weapons:
     no_loot: true
     flavor: "Hatch, little one."
     melee:
-      arc_type: 1
+      arc_type: 2
       animation_frames: 12
     graphics:
       slash_color: [255, 140, 40]
@@ -1677,7 +1677,7 @@ weapons:
     no_loot: true
     flavor: "The roar breaks what the steel forgives."
     melee:
-      arc_type: 1
+      arc_type: 2
       animation_frames: 13
     graphics:
       slash_color: [200, 170, 120]
@@ -1869,3 +1869,11 @@ weapon_cooldown_multipliers:
   mace: 1.15
   bow: 1.2
   axe: 1.35
+
+# Minimum reach per weapon class (category), checked at load. A weapon may go
+# above its class floor - classes have no maximums - but never below it.
+#   range    - reach in tiles
+#   arc_type - melee swing shape: 1 single, 2 front+flank, 3 three, 4 five
+weapon_class_minimums:
+  spear: {range: 2}
+  mace: {arc_type: 2}

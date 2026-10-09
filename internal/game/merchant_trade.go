@@ -209,12 +209,7 @@ func (g *MMGame) merchantDragOpen() bool {
 	if !g.dialogActive || g.dialogNPC == nil {
 		return false
 	}
-	switch g.npcDialogKindFor(g.dialogNPC) {
-	case dialogKindMerchant, dialogKindArenaGladiator:
-		return true
-	default:
-		return false
-	}
+	return g.npcDialogKindFor(g.dialogNPC).drawsShop()
 }
 
 // Item-for-item traders can show active heroes' possessions as payment stock.

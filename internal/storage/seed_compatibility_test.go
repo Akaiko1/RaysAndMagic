@@ -99,12 +99,13 @@ func TestSeedMixedVersionCompatibility(t *testing.T) {
 							want["assets/sprites/retained.png"] = "changed sprite"
 							if reader.name == "current" {
 								want["assets/retired.map"] = ""
-								if writer.name == "current" {
-									want["assets/sprites/retired.png"] = ""
-								}
+								want["assets/sprites/retired.png"] = ""
 							}
 						} else if migration {
 							want["config.yaml"] = "original config"
+						}
+						if reader.name == "current" && (update || migration) {
+							want["assets/sprites/custom.png"] = "" // unshipped non-map files are retired
 						}
 						buildStamp = strconv.Itoa(stamp)
 						if err := reader.run(next, user); err != nil {
@@ -164,6 +165,7 @@ func TestSeedRepairsInterimState(t *testing.T) {
 					want["assets/sprites/retained.png"] = "changed sprite"
 					want["assets/retired.map"] = ""
 					want["assets/sprites/retired.png"] = ""
+					want["assets/sprites/custom.png"] = ""
 				}
 				buildStamp = strconv.Itoa(stamp)
 				if err := seedUserData(next, user); err != nil {
@@ -227,6 +229,7 @@ func TestSeedManifestMarkerRecovery(t *testing.T) {
 				}
 			}
 			want := seedCompatibilityEdits(t, user)
+			want["assets/sprites/custom.png"] = "" // every mode reseeds
 			if mode == "legacy_manifest_write" {
 				want["assets/legacy_only.map"] = ""
 			}
@@ -276,6 +279,7 @@ func TestSeedManifestMarkerWriteRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	want["config.yaml"] = "original config"
+	want["assets/sprites/custom.png"] = ""
 	assertSeedCompatibilityFiles(t, user, want)
 }
 

@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"ugataima/internal/config"
+	"ugataima/internal/monster"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -249,9 +250,68 @@ func (r *Renderer) standeeCoreSilhouetteFromCPU(key standeeCoreKey, src *ebiten.
 	if src == nil || cpu == nil {
 		return nil
 	}
-	prepared := prepareStandeePixels(cpu, r.game.config.Graphics.Standee.CoreTint, false)
+	prepared := prepareStandeePixels(cpu, r.game.config.Graphics.Standee.CoreTint, false, r.standeeCoreFromEdge(key.name))
 	_, core := r.commitPreparedStandeePixels(key, src, prepared)
 	return core
+}
+
+// standeeCoreFromEdge reports whether a mob's core takes the silhouette-edge
+// colour (monsters.yaml standee_core). Corpses share the mob key name.
+func (r *Renderer) standeeCoreFromEdge(name string) bool {
+	if r.standeeEdgeCores == nil {
+		r.standeeEdgeCores = map[string]bool{}
+		if cfg := monster.MonsterConfig; cfg != nil {
+			for key, def := range cfg.Monsters {
+				if def.StandeeCore == monster.StandeeCoreSilhouetteEdge {
+					r.standeeEdgeCores[r.prefixedStandeeKeyName("mob", key)] = true
+				}
+			}
+		}
+	}
+	return r.standeeEdgeCores[name]
+}
+
+// standeeCoreTone blends the wood tone toward the art's colour. By default that
+// is the perceived colour, a chroma-weighted average of the opaque texels: a
+// plain mean reads wrong - dark outlines and brown gear drown a goblin's green
+// skin - so saturated pixels dominate and near-grey ones barely vote (the +0.02
+// floor keeps monochrome sprites at their own grey). silhouetteEdge averages
+// the border texels instead: the colour an extruded cut-out shows on its side.
+func standeeCoreTone(sticker *image.RGBA, tint float64, silhouetteEdge bool) [3]float64 {
+	buf, w, h := sticker.Pix, sticker.Bounds().Dx(), sticker.Bounds().Dy()
+	opaque := func(x, y int) bool {
+		return x >= 0 && y >= 0 && x < w && y < h && buf[(y*w+x)*4+3] >= 24
+	}
+	var sumR, sumG, sumB, sumW float64
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if !opaque(x, y) || silhouetteEdge && opaque(x-1, y) && opaque(x+1, y) && opaque(x, y-1) && opaque(x, y+1) {
+				continue
+			}
+			i := (y*w + x) * 4
+			a := float64(buf[i+3])
+			// Un-premultiply to straight 0..1 color.
+			cr := float64(buf[i]) / a
+			cg := float64(buf[i+1]) / a
+			cb := float64(buf[i+2]) / a
+			weight := 1.0
+			if !silhouetteEdge {
+				weight = math.Max(cr, math.Max(cg, cb)) - math.Min(cr, math.Min(cg, cb)) + 0.02
+			}
+			sumR += cr * weight
+			sumG += cg * weight
+			sumB += cb * weight
+			sumW += weight
+		}
+	}
+	tone := standeeWoodTone
+	if sumW > 0 {
+		tint = max(0, min(1, tint))
+		tone[0] += (sumR/sumW - tone[0]) * tint
+		tone[1] += (sumG/sumW - tone[1]) * tint
+		tone[2] += (sumB/sumW - tone[2]) * tint
+	}
+	return tone
 }
 
 type standeePreparedPixels struct {
@@ -261,7 +321,7 @@ type standeePreparedPixels struct {
 	coreMips    []*image.RGBA
 }
 
-func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource bool) standeePreparedPixels {
+func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource, silhouetteEdge bool) standeePreparedPixels {
 	if cpu == nil {
 		return standeePreparedPixels{}
 	}
@@ -285,39 +345,7 @@ func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource bool) stand
 	}
 	buf := sticker.Pix
 	w, h = sticker.Bounds().Dx(), sticker.Bounds().Dy()
-
-	// Perceived color of the art: a chroma-weighted average of the opaque
-	// texels. A plain mean reads wrong - dark outlines and brown gear drown a
-	// goblin's green skin - so saturated pixels dominate and near-grey ones
-	// barely vote (the +0.02 floor keeps monochrome sprites at their own grey).
-	var sumR, sumG, sumB, sumW float64
-	for i := 0; i+3 < len(buf); i += 4 {
-		a := float64(buf[i+3])
-		if a < 24 {
-			continue
-		}
-		// Un-premultiply to straight 0..1 color.
-		cr := float64(buf[i]) / a
-		cg := float64(buf[i+1]) / a
-		cb := float64(buf[i+2]) / a
-		chroma := math.Max(cr, math.Max(cg, cb)) - math.Min(cr, math.Min(cg, cb))
-		w := chroma + 0.02
-		sumR += cr * w
-		sumG += cg * w
-		sumB += cb * w
-		sumW += w
-	}
-	tone := standeeWoodTone
-	if sumW > 0 {
-		if tint < 0 {
-			tint = 0
-		} else if tint > 1 {
-			tint = 1
-		}
-		tone[0] += (sumR/sumW - tone[0]) * tint
-		tone[1] += (sumG/sumW - tone[1]) * tint
-		tone[2] += (sumB/sumW - tone[2]) * tint
-	}
+	tone := standeeCoreTone(sticker, tint, silhouetteEdge)
 
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {

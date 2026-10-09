@@ -230,6 +230,10 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 			}
 		}
 		for _, entry := range npc.Inventory {
+			if entry != nil && entry.Type == "weapon" && config.GlobalWeapons != nil && !weaponNamed(entry.Name) {
+				// The shop looks weapons up by display name and would drop a typo silently.
+				return fmt.Errorf("NPC %q stocks unknown weapon %q", key, entry.Name)
+			}
 			if entry == nil || entry.Type == "weapon" {
 				continue
 			}
@@ -441,4 +445,13 @@ func (g *MMGame) merchantVisibleStock() []*character.MerchantStockItem {
 		}
 	}
 	return out
+}
+
+func weaponNamed(name string) bool {
+	for _, w := range config.GlobalWeapons.Weapons {
+		if w != nil && w.Name == name {
+			return true
+		}
+	}
+	return false
 }

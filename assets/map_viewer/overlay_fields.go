@@ -46,6 +46,57 @@ func overlayFloat(label string, p *float64, help string) overlayField {
 		return nil
 	}}
 }
+func overlaySignedFloat(label string, p *float64, help string, low, high float64) overlayField {
+	return overlayField{label: label, value: strconv.FormatFloat(*p, 'f', -1, 64), help: help, apply: func(s string) error {
+		n, e := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		if e != nil || math.IsNaN(n) || n < low || n > high {
+			return fmt.Errorf("Enter a number from %g to %g", low, high)
+		}
+		*p = n
+		return nil
+	}}
+}
+
+// overlayNumbers edits a fixed-size tuple typed as "a, b, c".
+func overlayNumbers(label string, values []*float64, help string, low, high float64) overlayField {
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = strconv.FormatFloat(*v, 'f', -1, 64)
+	}
+	return overlayField{label: label, value: strings.Join(parts, ", "), help: help, apply: func(s string) error {
+		fields := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' })
+		if len(fields) != len(values) {
+			return fmt.Errorf("Enter %d numbers separated by commas", len(values))
+		}
+		parsed := make([]float64, len(values))
+		for i, f := range fields {
+			n, e := strconv.ParseFloat(f, 64)
+			if e != nil || math.IsNaN(n) || n < low || n > high {
+				return fmt.Errorf("Each number must be from %g to %g", low, high)
+			}
+			parsed[i] = n
+		}
+		for i := range values {
+			*values[i] = parsed[i]
+		}
+		return nil
+	}}
+}
+
+func overlayRGB(label string, p *[3]int, help string) overlayField {
+	r, g, b := float64(p[0]), float64(p[1]), float64(p[2])
+	f := overlayNumbers(label, []*float64{&r, &g, &b}, help, 0, 255)
+	apply := f.apply
+	f.apply = func(s string) error {
+		if err := apply(s); err != nil {
+			return err
+		}
+		*p = [3]int{int(r), int(g), int(b)}
+		return nil
+	}
+	return f
+}
+
 func overlayBool(label string, p *bool, help string) overlayField {
 	value := "No"
 	if *p {
@@ -106,26 +157,41 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 			return nil
 		}
 		e := &a.Effects[p.selected]
-		fields = append(fields, overlayField{label: "ID", value: e.ID, help: "Renaming also updates links in this map.", apply: func(s string) error { return d.renameID("effect", p.selected, s) }}, overlayString("Name", &e.Name, "Shown in combat messages."), overlayField{label: "Behavior", value: e.Kind, help: "trap: entry hit; occupation: damage per second; transfer: move party; lane: announced attack.", choices: []string{"trap", "occupation", "transfer", "lane"}, apply: func(s string) error { return d.changeKind(p.selected, s) }})
+		fields = append(fields, overlayField{label: "ID", value: e.ID, help: "Renaming also updates links in this map.", apply: func(s string) error { return d.renameID("effect", p.selected, s) }}, overlayString("Name", &e.Name, "Shown in combat messages."), overlayField{label: "Behavior", value: e.Kind, help: "trap: hits once on entry. occupation: damages every second while standing in it. transfer: moves the party to a receiver tile. lane: a boss attack announced before it strikes.", choices: []string{"trap", "occupation", "transfer", "lane"}, apply: func(s string) error { return d.changeKind(p.selected, s) }})
 		fields = append(fields, overlayHeading("Area"))
 		box(&e.Rect)
 		fields = append(fields, overlayAction("Redraw area", "Drag a new rectangle on the map.", func() { p.tool = "redraw" }))
 		fields = append(fields, overlayHeading("Behavior"))
 		if e.Kind == "transfer" {
-			fields = append(fields, overlayInt("Receiver column", &e.Destination[0], "Destination must be walkable and outside the source."), overlayInt("Receiver row", &e.Destination[1], "Destination must be safe."), overlayAction("Pick receiver on map", "Click the destination tile.", func() { p.tool = "receiver" }), overlayString("Fires with lane", &e.TriggerLane, "Optional: wait until this boss lane fires.", append([]string{""}, lanes...)...))
+			fields = append(fields, overlayInt("Receiver column", &e.Destination[0], "Destination must be walkable and outside the source."), overlayInt("Receiver row", &e.Destination[1], "Destination must be safe."), overlayAction("Pick receiver on map", "Click the destination tile.", func() { p.tool = "receiver" }), overlayString("Fires with lane", &e.TriggerLane, "Optional: wait until this boss lane fires.", append([]string{""}, lanes...)...), overlayString("Tile colour", &e.School, "Colours the transfer tiles by school. No damage.", "", "physical", "fire", "water", "earth", "air"))
 		} else {
-			fields = append(fields, overlayInt("Damage", &e.Damage, "Per entry or strike; per second for hazardous ground."), overlayString("Damage school", &e.School, "Resistance used for the damage.", "physical", "fire", "water", "earth", "air"), overlayString("Second school", &e.SecondarySchool, "Optional: split damage equally between the two schools.", "", "physical", "fire", "water", "earth", "air"))
+			fields = append(fields, overlayInt("Damage", &e.Damage, "Per entry for traps, per strike for lanes, per second for occupation."), overlayString("Damage school", &e.School, "Resistance used against the damage.", "physical", "fire", "water", "earth", "air"), overlayString("Second school", &e.SecondarySchool, "Optional: split the damage equally between two schools.", "", "physical", "fire", "water", "earth", "air"))
 		}
 		if e.Kind == "lane" {
-			fields = append(fields, overlayInt("Lingering damage / sec", &e.SustainDamage, "Zero means only the initial strike deals damage."), overlayFloat("Duration seconds", &e.DurationSeconds, "Real-time field lifetime."), overlayInt("Duration rounds", &e.DurationRounds, "Turn-based field lifetime."))
+			fields = append(fields, overlayInt("Lingering damage per second", &e.SustainDamage, "Damage per second on the struck tiles afterwards. 0: only the strike hurts."), overlayFloat("Lingering time (seconds)", &e.DurationSeconds, "Real-time lifetime of the lingering field."), overlayInt("Lingering time (rounds)", &e.DurationRounds, "Turn-based lifetime of the lingering field."))
 		}
-		if e.Kind == "lane" || e.Kind == "transfer" || e.BossBelowPercent > 0 {
-			fields = append(fields, overlayFloat("Warning seconds", &e.WarningSeconds, "Time to leave the marked tiles."), overlayInt("Warning rounds", &e.WarningRounds, "Turn-based warning duration."))
+		if e.Kind == "lane" || e.BossBelowPercent > 0 {
+			help := "Time between the announcement and the strike, to leave the marked tiles."
+			if e.Kind != "lane" {
+				help = "Charge time after the boss falls below the HP threshold, before the effect starts."
+			}
+			fields = append(fields, overlayFloat("Warning (seconds)", &e.WarningSeconds, help), overlayInt("Warning (rounds)", &e.WarningRounds, "Turn-based warning. "+help))
 		}
 		if e.Kind == "trap" {
-			fields = append(fields, overlayFloat("Rearm seconds", &e.RearmSeconds, "Delay before it can trigger on re-entry."), overlayInt("Rearm rounds", &e.RearmRounds, "Turn-based rearm delay."))
+			fields = append(fields, overlayFloat("Rearm (seconds)", &e.RearmSeconds, "Delay before it can hit again on re-entry."), overlayInt("Rearm (rounds)", &e.RearmRounds, "Turn-based rearm delay."))
 		}
-		fields = append(fields, overlayHeading("Activation conditions"), overlayString("Requires control", &e.RequiresControl, "Optional: inactive until this mechanism is used.", controls...), overlayInt("Boss HP threshold (%)", &e.BossBelowPercent, "0: no HP gate. Otherwise activates at or below this percentage."))
+		threshold := overlayInt("Starts at boss HP (%)", &e.BossBelowPercent, "0: always active. Otherwise it charges once the boss is at or below this HP, then starts after its warning.")
+		applyThreshold := threshold.apply
+		threshold.apply = func(s string) error {
+			if err := applyThreshold(s); err != nil {
+				return err
+			}
+			if e.BossBelowPercent > 0 && (e.WarningSeconds <= 0 || e.WarningRounds < 1) {
+				e.WarningSeconds, e.WarningRounds = 1.25, 1 // a zero warning would never count down
+			}
+			return nil
+		}
+		fields = append(fields, overlayHeading("Activation conditions"), overlayString("Requires switch", &e.RequiresControl, "Optional: inactive until this switch is used.", controls...), threshold)
 	case "control":
 		if p.selected < 0 || p.selected >= len(a.Controls) {
 			return nil
@@ -210,14 +276,33 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 		}
 		fields = append(fields, overlayAction("Pick endpoints", "Click the launch tile and then the landing tile.", func() { p.tool = "link-redraw"; p.anchorSet = false }))
 	case "settings":
-		fields = append(fields, overlayHeading("Map lifetime"), overlayInt("Respawn interval (days)", &d.state.RespawnDays, "0 disables ordinary respawn. Scheduled ownership requires 0."))
-		fields = append(fields, overlayBool("Reset on scheduled opening", &a.OpeningOwned, "Use calendar-owned visits instead of respawn_days."), overlayString("Element", &a.Element, "Required for opening-owned maps.", "", "fire", "water", "earth", "air"))
+		fields = append(fields, overlayHeading("Map lifetime"))
+		if v.overlayInOpenWorld(d.key) {
+			fields = append(fields, overlayInfo("Respawn", "Not available", "Maps merged into the open world never respawn as a whole."))
+		} else {
+			fields = append(fields, overlayInt("Respawn every (days)", &d.state.RespawnDays, "The map's monsters return when the party comes back after this many days. 0: never. Must be 0 on scheduled maps."))
+		}
+		opening := overlayBool("Opens on a schedule", &a.OpeningOwned, "Entered through scheduled openings; each visit starts fresh instead of respawning.")
+		applyOpening := opening.apply
+		opening.apply = func(s string) error {
+			if err := applyOpening(s); err != nil {
+				return err
+			}
+			if !a.OpeningOwned {
+				a.ExperienceCap, a.ResetDays = 0, 0
+			}
+			return nil
+		}
+		fields = append(fields, overlayHeading("Scheduled openings"), opening, overlayString("Element", &a.Element, "The opening's element. Required on scheduled maps; it names the map's element and does not change combat.", "", "fire", "water", "earth", "air"))
+		if a.OpeningOwned {
+			fields = append(fields, overlayInt("Experience cap per hero per visit", &a.ExperienceCap, "Monster experience each hero can earn during one visit. 0: no cap."), overlayInt("Reset after the boss falls (days)", &a.ResetDays, "The map starts a fresh visit this many days after its boss is defeated. Needs a boss. 0: no timer."))
+		}
 		fields = append(fields, overlayHeading("Entrance schedule"))
 		if a.Schedule == nil {
 			fields = append(fields, overlayAction("Add entrance schedule", "Configure the destination for every day and night.", func() { d.checkpoint(); a.Schedule = &config.AdventureSchedule{Days: make([][2]string, 7)} }))
 		} else {
 			s := a.Schedule
-			fields = append(fields, overlayString("Required quest", &s.RequiresQuest, "Quest ID that unlocks this entrance."), overlayString("Required spell", &s.RequiresSpell, "Spell ID required for access."), overlayString("Alternative technique", &s.AlternativeTechnique, "Optional alternative to the required spell.", "", "fold_step"))
+			fields = append(fields, overlayString("Required quest", &s.RequiresQuest, "The entrance opens once this quest is done.", v.overlayCatalog("quests", "quests")...), overlayString("Required spell", &s.RequiresSpell, "A party member must know this spell. A Jump device also works.", v.overlayCatalog("spells", "spells")...), overlayString("Alternative technique", &s.AlternativeTechnique, "Optional technique accepted instead of the spell.", "", "fold_step"))
 			maps := []string{}
 			for _, m := range v.maps {
 				if m.Key != d.key && m.Config != nil && m.Config.Adventure != nil && m.Config.Adventure.OpeningOwned {

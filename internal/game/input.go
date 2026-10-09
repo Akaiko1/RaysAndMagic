@@ -2213,7 +2213,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	// buttons are consumed in the draw pass, so a click that misses every cell
 	// here falls through to flip the page. idx (absolute list position) keys the
 	// double-click so the same item keeps its identity across pages.
-	if kind == dialogKindMerchant || kind == dialogKindArenaGladiator {
+	if kind.drawsShop() {
 		// Gladiator tabbed dialog: the shop grids exist only on the Shop tab -
 		// their hidden rects must not swallow Talk/Board clicks.
 		if kind == dialogKindArenaGladiator && ih.game.dialogTab != 1 {

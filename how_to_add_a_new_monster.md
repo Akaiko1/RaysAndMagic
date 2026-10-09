@@ -11,6 +11,7 @@ Take level, HP, damage and experience from [Monster design](docs/monster-design.
 - Radii in `monsters.yaml` are in tiles (1 tile = 64px).
 - `size_class` sets the sprite size: one of `small`, `medium`, `person`, `large`, `huge`. The per-class height in tiles lives in `config.yaml` under `graphics.size_classes`. A raw `size_multiplier` is rejected at load.
 - `size_class` also sets the collision body (movement and projectile hits) from `config.yaml` `world.monster_bodies`: small 24 px, medium 40 px, person/large/huge 48 px. Bodies are capped at 48 px so every monster fits 1-wide corridors. Raw `box_w`/`box_h` are rejected at load.
+- Monsters render as thin slabs (standees). The slab side takes the art's average colour, where saturated pixels count more. If small bright accents on mostly grey art make the side look wrong (a coloured rim, thin spikes that look cut off), set `standee_core: silhouette_edge`: the side then takes the average colour of the silhouette's outline. Any other value is rejected at load.
 
 ## Step 1: Define the monster
 Add a new entry under `monsters:` in `assets/monsters.yaml`.

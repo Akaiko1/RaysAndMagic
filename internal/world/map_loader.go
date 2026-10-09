@@ -106,14 +106,6 @@ type MapData struct {
 	StartY            int
 }
 
-// NewMapLoader creates a new map loader
-func NewMapLoader(config interface{}) *MapLoader {
-	return &MapLoader{
-		config: config,
-		biome:  "forest", // Default biome
-	}
-}
-
 // NewMapLoaderWithBiome creates a new map loader for a specific biome
 func NewMapLoaderWithBiome(config interface{}, biome string) *MapLoader {
 	return &MapLoader{

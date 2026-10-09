@@ -105,12 +105,8 @@ func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int,
 	drawCenteredUIText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, nameY+uiTextCharHeight+2, w-8, uiTextCharHeight)
 }
 
-// trapTooltip renders the unified template card for a trap (the same builder
-// the quick-slot hover uses).
-func trapTooltip(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem) string {
-	return trapTooltipRows(key, def, char, cs).String()
-}
-
+// trapTooltipRows renders the unified template card for a trap (the same
+// builder the quick-slot hover uses).
 func trapTooltipRows(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem) character.CardRows {
 	out := buildTrapTooltipUnifiedRows(key, def, char, cs, tooltipDetailHeld())
 	if def.Description != "" {

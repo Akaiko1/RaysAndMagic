@@ -12,6 +12,57 @@ type propPose struct {
 	scale, co, si, progress float64
 }
 
+// sceneryPropFront is the nearest painter depth of one drawn scenery prop:
+// its sprite's depth, or its model's nearest face.
+type sceneryPropFront struct {
+	npc   *character.NPC
+	depth float64
+}
+
+// sceneryPropPaintGap keeps a monster strictly ahead of the props it covers.
+const sceneryPropPaintGap = 1e-3
+
+func npcIsSceneryProp(npc *character.NPC) bool {
+	return npcRenderCatOf(npc) == catScenery
+}
+
+// sceneryPropUnderMonster is the one same-tile rule for painter and pointer:
+// a scenery prop (barrel, chest, box pile) on the tile a monster is drawn on
+// stays behind that monster and never takes its press. Depth cannot decide
+// it: both stand near the tile centre and tie exactly after a TB snap.
+func (g *MMGame) sceneryPropUnderMonster(npc *character.NPC, monsterTileX, monsterTileY int) bool {
+	ts := float64(g.config.GetTileSize())
+	return npcIsSceneryProp(npc) && TileIndex(npc.X, ts) == monsterTileX && TileIndex(npc.Y, ts) == monsterTileY
+}
+
+// monsterTile is the tile a monster sprite is drawn on (its visual position).
+func (s *UnifiedSpriteRenderData) monsterTile(ts float64) (int, int) {
+	return TileIndex(s.monsterRenderX, ts), TileIndex(s.monsterRenderY, ts)
+}
+
+// paintMonstersOverSceneryProps pulls each monster's paint key just ahead of
+// every scenery prop on its tile. Its geometry stays at depthPerp.
+func (r *Renderer) paintMonstersOverSceneryProps(sprites []UnifiedSpriteRenderData) {
+	if len(r.sceneryPropFronts) == 0 {
+		return
+	}
+	ts := float64(r.game.config.GetTileSize())
+	for i := range sprites {
+		s := &sprites[i]
+		if s.spriteType != SpriteTypeMonster {
+			continue
+		}
+		tx, ty := s.monsterTile(ts)
+		key := s.depthPerp
+		for _, p := range r.sceneryPropFronts {
+			if p.depth-sceneryPropPaintGap < key && r.game.sceneryPropUnderMonster(p.npc, tx, ty) {
+				key = p.depth - sceneryPropPaintGap
+			}
+		}
+		s.paintAhead = s.depthPerp - key
+	}
+}
+
 // Rendering, lighting and picking always switch representation together.
 func (g *MMGame) usesPropModel(npc *character.NPC) bool {
 	return npc.PropModel != nil && g.props3DEnabled()
@@ -174,6 +225,7 @@ func (r *Renderer) collectPropModels() {
 				brightness *= standeeHoverBoost
 			}
 		}
+		firstFace := len(r.worldMesh.faces)
 		b := &r.worldMesh.builder
 		*b = worldModelBuilder{r: r, x: npc.X, y: npc.Y, ts: ts, alpha: 1,
 			origin: [2]float64{ox, oz}, axisX: [2]float64{xx - ox, xz - oz}, axisY: [2]float64{yx - ox, yz - oz}, triangles: b.triangles[:0]}
@@ -206,6 +258,13 @@ func (r *Renderer) collectPropModels() {
 			b.fireSeed = auraHash(int(npc.X), int(npc.Y), 17, 31)
 
 			pose.eachFlameFace(func(f worldModelTriangle) { b.projectTriangle(&f) })
+		}
+		if faces := r.worldMesh.faces[firstFace:]; len(faces) > 0 && npcIsSceneryProp(npc) {
+			front := faces[0].depth
+			for i := range faces {
+				front = math.Min(front, faces[i].depth)
+			}
+			r.sceneryPropFronts = append(r.sceneryPropFronts, sceneryPropFront{npc: npc, depth: front})
 		}
 	}
 }

@@ -649,6 +649,9 @@ graphics:
     color: [255, 0, 255]   # magenta
     tolerance: 60          # per-channel slack for the fully-transparent core
     despill: true          # fringe (semitone) pixels: strip the magenta cast, keep the base tone opaque (don't erase)
+    # Preserve original colours, including edges, for these sprite families.
+    # Key-colour transparency still applies.
+    despill_exclusions: [alien_enforcer]
     # Despill is intentionally aggressive (strips ANY magenta hue), which greys
     # out sprites whose purple/magenta is real art. List those here (basenames;
     # naming any directional animation also covers its base and sibling sheets)

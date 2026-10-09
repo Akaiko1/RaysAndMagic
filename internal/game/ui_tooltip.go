@@ -298,15 +298,6 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	return lines
 }
 
-func buildSpellComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	itemID := spells.SpellID(item.SpellEffect)
-	equippedID := spells.SpellID(equipped.SpellEffect)
-	if itemID == "" || equippedID == "" {
-		return nil
-	}
-	return buildSpellComparisonLinesByID(itemID, equippedID, char, combatSystem)
-}
-
 func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	return buildSpellComparisonRowsByID(itemID, equippedID, char, combatSystem).Lines()
 }

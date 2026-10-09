@@ -29,11 +29,18 @@ func TestCurrencyItemKeyParsing(t *testing.T) {
 func TestValidateNPCCommerce(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	_ = cs
+	weapon := ""
+	for _, w := range config.GlobalWeapons.Weapons {
+		weapon = w.Name
+		break
+	}
 	good := map[string]*character.NPCData{
 		"a": {Currency: ""},
 		"b": {Currency: "arena_points"},
 		"c": {Currency: "item:clock_hand"},
 		"d": {GridSpanTiles: 2, GridSpanDir: "e"},
+		"e": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion"}}, ShopDialogue: true, Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Action: "leave"}}}},
+		"f": {Inventory: []*character.NPCItem{{Type: "weapon", Name: weapon}}},
 	}
 	if err := ValidateNPCCommerce(good); err != nil {
 		t.Fatalf("valid set rejected: %v", err)
@@ -45,11 +52,50 @@ func TestValidateNPCCommerce(t *testing.T) {
 		{"x": {GridSpanTiles: 2}}, // missing dir
 		{"x": {GridSpanTiles: 5, GridSpanDir: "e"}},
 		{"x": {GridSpanTiles: 2, GridSpanDir: "e", NoSpin: true}},
+		{"x": {Inventory: []*character.NPCItem{{Type: "weapon", Name: "No Such Blade"}}}},
 	}
 	for i, m := range bad {
 		if err := ValidateNPCCommerce(m); err == nil {
 			t.Errorf("bad set %d accepted", i)
 		}
+	}
+}
+
+// Reward chests share one world-wide list keyed by ID: a reused ID hides the
+// second chest, whichever field or file authors it.
+func TestValidateRewardChestIDs(t *testing.T) {
+	fight := func(single string, list ...string) *character.NPCData {
+		r := &monsterPkg.EncounterRewards{}
+		if single != "" {
+			r.TreasureChest = &monsterPkg.TreasureChestReward{ID: single}
+		}
+		for _, id := range list {
+			r.TreasureChests = append(r.TreasureChests, monsterPkg.TreasureChestReward{ID: id})
+		}
+		return &character.NPCData{Type: character.NPCTypeEncounter, Encounter: &character.NPCEncounter{Rewards: r}}
+	}
+	cleared := func(id string) *config.MapConfig {
+		return &config.MapConfig{ClearEncounter: &config.MapClearEncounterConfig{Rewards: &config.MapEncounterRewardsConfig{
+			TreasureChest: &config.MapTreasureChestRewardConfig{ID: id},
+		}}}
+	}
+	for _, tc := range []struct {
+		name string
+		npcs map[string]*character.NPCData
+		maps map[string]*config.MapConfig
+		ok   bool
+	}{
+		{"distinct and unnamed chests", map[string]*character.NPCData{"a": fight("a_chest", "a_chest_2", ""), "b": fight("", "b_chest", "")}, map[string]*config.MapConfig{"m": cleared("m_chest")}, true},
+		{"two chests of one fight", map[string]*character.NPCData{"a": fight("", "a_chest", "a_chest")}, nil, false},
+		{"single and list chest fields", map[string]*character.NPCData{"a": fight("a_chest", "a_chest")}, nil, false},
+		{"two fights", map[string]*character.NPCData{"a": fight("", "x"), "b": fight("", "x")}, nil, false},
+		{"fight and map clear reward", map[string]*character.NPCData{"a": fight("", "x")}, map[string]*config.MapConfig{"m": cleared("x")}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateRewardChestIDs(tc.npcs, tc.maps); (err == nil) != tc.ok {
+				t.Fatalf("valid=%v, want %v: %v", err == nil, tc.ok, err)
+			}
+		})
 	}
 }
 

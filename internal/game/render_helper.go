@@ -483,15 +483,9 @@ func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance
 	return rh.billboardMetrics(ex, ey, distance, sizeTiles, minSize)
 }
 
-// CalculateEnvironmentSpriteMetrics sizes an environment TILE sprite (trees,
+// CalculateEnvironmentSpriteMetricsF sizes an environment TILE sprite (trees,
 // rocks): billboardMetrics' model plus the tile-type height multiplier, and a
 // fixed 5.0 near-cull (env tiles keep it even in turn-based mode).
-func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, rh.envHeightMultiplier(tileType, sizeScale), sceneryMinSpriteSize)
-}
-
-// CalculateEnvironmentSpriteMetricsF is the float twin of
-// CalculateEnvironmentSpriteMetrics.
 func (rh *RenderingHelper) CalculateEnvironmentSpriteMetricsF(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenXf, bottomF, sizeF float64, visible bool) {
 	return rh.projectSpriteMetricsF(entityX, entityY, distance, 5.0, rh.envHeightMultiplier(tileType, sizeScale), sceneryMinSpriteSize)
 }

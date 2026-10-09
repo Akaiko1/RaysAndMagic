@@ -56,7 +56,11 @@ const (
 	seedManifestName      = assetmanifest.FileName
 	seedStateName         = ".seed_state" // "<build stamp> <shipped-content digest>"
 	seedManifestStateName = ".seed_manifest_state"
-	seedManifestVersion   = "all-assets-v1"
+	// v2: a reseed also prunes unshipped non-map files. The bump makes every
+	// v1 install reseed once, clearing leftovers from pre-manifest seeders.
+	seedManifestVersion = "all-assets-v2"
+	// The short-lived three-field .seed_state recorded the version as v1.
+	interimSeedStateVersion = "all-assets-v1"
 )
 
 // seedManifest maps every seeded asset-relative path to its SHIPPED content
@@ -276,7 +280,7 @@ func seedUserData(contentDir, userDir string) error {
 			// Repair the interim format before any early return. Keep the
 			// installed stamp/digest so even a stale bundle can repair metadata
 			// without downgrading content or claiming ownership of a newer seed.
-			if len(fields) == 3 && fields[2] == seedManifestVersion {
+			if len(fields) == 3 && fields[2] == interimSeedStateVersion {
 				if err := writeSeedState(userDir, fields[0], fields[1]); err != nil {
 					return err
 				}
@@ -406,6 +410,7 @@ func migrateLegacySaves(oldDir, newDir string) {
 // never-tracked shipped map always wins and is (re)recorded in manifest.
 func copyAssetsTree(src, dst string, manifest seedManifest) error {
 	next := seedManifest{}
+	shippedDirs := map[string]bool{}
 	if err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -416,6 +421,7 @@ func copyAssetsTree(src, dst string, manifest seedManifest) error {
 		}
 		target := filepath.Join(dst, rel)
 		if d.IsDir() {
+			shippedDirs[filepath.ToSlash(rel)] = true
 			return os.MkdirAll(target, 0755)
 		}
 		key := filepath.ToSlash(rel)
@@ -454,9 +460,50 @@ func copyAssetsTree(src, dst string, manifest seedManifest) error {
 			return fmt.Errorf("remove retired asset %q: %w", key, err)
 		}
 	}
+	if err := pruneUnshippedAssets(dst, next, shippedDirs); err != nil {
+		return err
+	}
 	clear(manifest)
 	for key, hash := range next {
 		manifest[key] = hash
+	}
+	return nil
+}
+
+// pruneUnshippedAssets makes the seeded tree match the bundle. Untracked files
+// are leftovers of pre-manifest seeders or renamed assets, and they shadow live
+// content (an old walking_r sheet beats a shipped walking_l). Only maps can be
+// player content here; hidden files belong to the OS. Directories the bundle
+// does not ship are removed once empty.
+func pruneUnshippedAssets(dst string, shipped seedManifest, shippedDirs map[string]bool) error {
+	var dirs []string
+	if err := filepath.WalkDir(dst, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dst, p)
+		if err != nil {
+			return err
+		}
+		key := filepath.ToSlash(rel)
+		if d.IsDir() {
+			if !shippedDirs[key] {
+				dirs = append(dirs, p)
+			}
+			return nil
+		}
+		if _, ok := shipped[key]; ok || !d.Type().IsRegular() || strings.HasPrefix(d.Name(), ".") || strings.HasSuffix(key, ".map") {
+			return nil
+		}
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove unshipped asset %q: %w", key, err)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		_ = os.Remove(dirs[i]) // children first; fails harmlessly while not empty
 	}
 	return nil
 }

@@ -93,7 +93,7 @@ func TestEditorRenderedCatalogText(t *testing.T) {
 			})
 		}
 	}
-	for _, c := range buildCharacterDetails(cfg) {
+	for _, c := range buildCharacterDetails(cfg, charTextCols(windowWidth)) {
 		for _, row := range c.rows {
 			check(c.portrait, row.text)
 		}
@@ -175,6 +175,62 @@ func TestEditorMonsterAttackText(t *testing.T) {
 	}
 }
 
+// Range labels describe attack delivery, not the misleadingly generic
+// AttackRadius field. Saves are irrelevant: this is a derived catalog view.
+func TestEditorMonsterRangeText(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		def          monster.MonsterDefinition
+		runtime      *monster.Monster3D
+		want, absent []string
+	}{
+		{"melee", monster.MonsterDefinition{AttackRadius: 1}, nil,
+			[]string{"Melee reach: 1.0 tiles"}, []string{"Ranged attack range:"}},
+		{"long melee", monster.MonsterDefinition{AttackRadius: 2.5}, nil,
+			[]string{"Melee reach: 2.5 tiles"}, []string{"Ranged attack range:"}},
+		{"ranged spell", monster.MonsterDefinition{AttackRadius: 5, RangedAttackRange: 5, ProjectileSpell: "fixture"}, nil,
+			[]string{"Melee: adjacent tiles", "Ranged attack range: 5.0 tiles"}, []string{"Melee reach:"}},
+		{"ranged weapon boss", monster.MonsterDefinition{Boss: true, AttackRadius: 2, RangedAttackRange: 7, ProjectileWeapon: "fixture"}, nil,
+			[]string{"Melee: adjacent tiles", "Ranged attack range: 7.0 tiles"}, []string{"Melee reach:"}},
+		{"unresolved projectile", monster.MonsterDefinition{AttackRadius: 5, ProjectileSpell: "fixture"}, nil,
+			[]string{"Melee: adjacent tiles", "Ranged attack range: resolved in preview"}, []string{"Melee reach:", "Ranged attack range: 5.0"}},
+		{"staged projectile", monster.MonsterDefinition{AttackRadius: 5, RangedAttackRange: 5},
+			&monster.Monster3D{AttackRadius: 7 * 64, ProjectileWeapon: "fixture"},
+			[]string{"Melee: adjacent tiles", "Ranged attack range: 7.0 tiles"}, []string{"Melee reach:", "Ranged attack range: 5.0"}},
+		{"staged melee", monster.MonsterDefinition{AttackRadius: 1, ProjectileWeapon: "fixture", RangedAttackRange: 5},
+			&monster.Monster3D{AttackRadius: 2 * 64},
+			[]string{"Melee reach: 2.0 tiles"}, []string{"Ranged attack range:"}},
+		{"unresolved champion", monster.MonsterDefinition{Champion: "fixture", AttackRadius: 5}, nil,
+			[]string{"Attack reach: tier/loadout-dependent"}, []string{"Melee reach:", "Ranged attack range:"}},
+		{"ranged champion", monster.MonsterDefinition{Champion: "fixture", AttackRadius: 5},
+			&monster.Monster3D{ChampionKey: "fixture", AttackRadius: 6 * 64, ProjectileWeapon: "fixture"},
+			[]string{"Ranged attack range: 6.0 tiles"}, []string{"Melee:", "Melee reach:", "Melee weapon reach:", "Adjacent tiles"}},
+		{"melee champion", monster.MonsterDefinition{Champion: "fixture", AttackRadius: 5},
+			&monster.Monster3D{ChampionKey: "fixture", AttackRadius: 2 * 64},
+			[]string{"Melee weapon reach: 2.0 tiles"}, []string{"Ranged attack range:", "Adjacent tiles"}},
+		{"noncombatant", monster.MonsterDefinition{WarlordIdol: true, AttackRadius: 5, RangedAttackRange: 5, ProjectileSpell: "fixture"}, nil,
+			[]string{"Does not attack"}, []string{"Melee", "Ranged attack range:", "TB shots:", "Attacks require"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var lines []string
+			for _, row := range buildMobInfoRuntime("fixture", tc.def, tc.runtime, 64) {
+				lines = append(lines, row.text)
+			}
+			text := strings.Join(strings.Fields(strings.Join(lines, " ")), " ")
+			for _, want := range tc.want {
+				if !strings.Contains(text, want) {
+					t.Errorf("missing %q in %s", want, text)
+				}
+			}
+			for _, absent := range append(tc.absent, "Effective ranged range", "Attacks require clear line of sight", "TB shots:", "Adjacent tiles also reachable") {
+				if strings.Contains(text, absent) {
+					t.Errorf("misleading range %q in %s", absent, text)
+				}
+			}
+		})
+	}
+}
+
 func TestEditorBossTextMatchesRules(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -208,13 +264,40 @@ func TestEditorBossTextMatchesRules(t *testing.T) {
 	}
 }
 
-// Overflow rows scroll (TestMobInfoScrollRetainsFractionalWheelInput); the
-// layout itself must keep every column clear of its neighbour.
+// The catalog reflows at the actual logical viewport, not a fixed canvas.
 func TestEditorMobSheetLayoutKeepsAllRowsReachable(t *testing.T) {
-	for _, width := range []int{600, 868} {
-		cols, _, colWidth := mobInfoLayout(width, 250)
-		if cols*colWidth > width || game.ShadedTextWidth(strings.Repeat("M", mobInfoCols))+16 > colWidth {
-			t.Fatal("stat columns overlap")
+	for _, size := range [][2]int{{1200, 800}, {1600, 900}, {1920, 1080}, {800, 1200}} {
+		v := &viewer{page: pageMobs}
+		w, h := v.Layout(size[0], size[1])
+		l := v.mobCatalogLayout()
+		if l.list.x+l.list.w >= l.stage.x || l.stage.x+l.stage.w >= l.details.x || l.details.x+l.details.w > w || l.details.y+l.details.h > h {
+			t.Fatal("catalog panes overlap or exceed viewport")
 		}
+	}
+}
+
+func TestEditorTelegraphDurationAndShieldText(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind   string
+		sustain      int
+		runtime      *monster.Monster3D
+		want, absent string
+	}{
+		{"shield", "shield", 0, nil, "Ally shield: absorbs 15 damage per hit", "sustained damage"},
+		{"staged shield", "shield", 0, &monster.Monster3D{DamageMin: 60, DamageMax: 80}, "Ally shield: absorbs 35 damage per hit", "sustained damage"},
+		{"timed field", "root", 7, nil, "sustained damage: 7", "Ally shield"},
+		{"timed control", "root", 0, nil, "Duration: 4s / 2 rounds", "sustained damage"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := monster.MonsterDefinition{DamageMin: 20, DamageMax: 40, Telegraph: &monster.TelegraphedAttack{Kind: tc.kind, Name: "Fixture", DurationSeconds: 4, DurationRounds: 2, SustainDamage: tc.sustain}}
+			var b strings.Builder
+			for _, row := range buildMobInfoRuntime("fixture", d, tc.runtime, 64) {
+				b.WriteString(row.text)
+				b.WriteByte('\n')
+			}
+			if !strings.Contains(b.String(), tc.want) || strings.Contains(b.String(), tc.absent) {
+				t.Fatalf("incorrect telegraph text: %s", b.String())
+			}
+		})
 	}
 }

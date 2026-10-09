@@ -1496,7 +1496,7 @@ func TestNPCIdleFramesStayVisibleThroughStreamingPrewarm(t *testing.T) {
 		key := makeStandeeCoreKey("npc:test_idle", frame, false)
 		commit := newMapRenderStandeeCommit(mapRenderPreparedStandee{
 			key: key, source: frame,
-			prepared: prepareStandeePixels(frameCPU, 0.35, false),
+			prepared: prepareStandeePixels(frameCPU, 0.35, false, false),
 		})
 		if _, _, done := commit.advance(r, 0); !done {
 			t.Fatalf("frame %d streaming commit did not finish", frameIndex)
@@ -1671,7 +1671,7 @@ func TestMapRenderEvictionInvalidatesOnlyAliasedStandeeMipFrames(t *testing.T) {
 			}
 			stableImage := tt.animationType != ""
 			key := makeStandeeCoreKey("test:"+tt.resourceName, source, stableImage)
-			prepared := prepareStandeePixels(image.NewRGBA(image.Rectangle{Max: source.Bounds().Size()}), 0, false)
+			prepared := prepareStandeePixels(image.NewRGBA(image.Rectangle{Max: source.Bounds().Size()}), 0, false, false)
 			if _, core := r.commitPreparedStandeePixels(key, source, prepared); core == nil {
 				t.Fatal("failed to seed victim standee cache")
 			}
@@ -1686,7 +1686,7 @@ func TestMapRenderEvictionInvalidatesOnlyAliasedStandeeMipFrames(t *testing.T) {
 
 			unrelatedSource := ebiten.NewImage(8, 8)
 			unrelatedKey := makeStandeeCoreKey("test:unrelated", unrelatedSource, false)
-			unrelatedPrepared := prepareStandeePixels(image.NewRGBA(image.Rect(0, 0, 8, 8)), 0, false)
+			unrelatedPrepared := prepareStandeePixels(image.NewRGBA(image.Rect(0, 0, 8, 8)), 0, false, false)
 			if _, core := r.commitPreparedStandeePixels(unrelatedKey, unrelatedSource, unrelatedPrepared); core == nil {
 				t.Fatal("failed to seed unrelated standee cache")
 			}
