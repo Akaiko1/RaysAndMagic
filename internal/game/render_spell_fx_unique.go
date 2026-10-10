@@ -42,6 +42,14 @@ func validateProjectileFxStyles() {
 		if def.Graphics == nil {
 			continue
 		}
+		if style := def.Graphics.CastOverlay; style != "" {
+			if _, ok := castOverlayStyles[style]; !ok {
+				panic(fmt.Sprintf("spell %q: unknown cast_overlay style %q", key, style))
+			}
+			if def.IsProjectile {
+				panic(fmt.Sprintf("spell %q: cast_overlay requires a non-projectile spell", key))
+			}
+		}
 		if def.Graphics.ProjectileFx != "" {
 			if _, ok := spellFxStyleKinds[def.Graphics.ProjectileFx]; !ok {
 				panic(fmt.Sprintf("spell %q: unknown projectile_fx style %q", key, def.Graphics.ProjectileFx))

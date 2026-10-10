@@ -45,6 +45,9 @@ safe margins. Follow the project's asset-generation instructions when producing 
 | Spell tooltip icon | `assets/sprites/interface/spells/icon_spell_<id>.png` |
 | Item tooltip icon | `assets/sprites/interface/items/icon_item_<key>.png`; shared resolver: `itemTooltipIconName` |
 
+Pixel sizes for every kind of art are listed in
+[assets/IMAGE_SIZES.md](../assets/IMAGE_SIZES.md).
+
 New detailed weapon/spell icons are 128x128; preserve existing 64x64 legacy
 icons. Generate item, weapon, spell, and trap artwork without a baked-in frame,
 on a uniform opaque black background, with the complete silhouette inside safe

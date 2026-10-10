@@ -629,6 +629,32 @@ func TestMouseSmartAttackDynamicAcquisitionCancellation(t *testing.T) {
 	}
 }
 
+// Sprinting suspends held attacks without ending the hold: releasing Shift
+// resumes them on the held target with no new press.
+func TestMouseHoldResumesWhenSprintEnds(t *testing.T) {
+	g, ih, fp, m, tick := mouseCombatHarness(t, false)
+	ih.heldKeys = heldOnly(ebiten.KeyShiftLeft)
+	fp.press()
+	tick()
+	fp.hold()
+	for range rtHoldRepeatDelay + 60 {
+		tick()
+	}
+	if len(g.slashEffects) != 0 {
+		t.Fatal("attacked while sprinting")
+	}
+	if ih.mouseAttackTarget != m || ih.mouseAttackBlocked {
+		t.Fatal("sprinting dropped the held target")
+	}
+	ih.heldKeys = heldOnly()
+	for range rtHoldRepeatDelay + 60 {
+		tick()
+	}
+	if len(g.slashEffects) == 0 {
+		t.Fatal("the hold did not resume when the sprint ended")
+	}
+}
+
 func TestMouseSmartAttackPreservesHealingPriority(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		g, _, fp, _, tick := mouseCombatHarness(t, tb)

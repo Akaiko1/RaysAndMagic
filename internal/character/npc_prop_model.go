@@ -21,7 +21,7 @@ type NPCPropModel struct {
 
 // IsNPCPropShape is the shared vocabulary for procedural props and their UI.
 func IsNPCPropShape(shape string) bool {
-	return shape == "crates" || shape == "campfire"
+	return shape == "crates" || shape == "campfire" || shape == "thieves_guild"
 }
 
 func validateNPCPropModel(key string, npc *NPCData) error {
@@ -29,8 +29,10 @@ func validateNPCPropModel(key string, npc *NPCData) error {
 		return nil
 	}
 	p := npc.PropModel
-	if npc.Type != NPCTypeLootCrate || npc.RenderCategory != "scenery" || npc.HideWhenVisited || npc.GridSpanTiles != 0 {
-		return fmt.Errorf("NPC %q: prop_model requires visible scenery of type loot_crate in both visit states", key)
+	guild := npc.Type == NPCTypeThievesGuild && npc.RenderCategory == "landmark" && p.Shape == "thieves_guild"
+	crate := npc.Type == NPCTypeLootCrate && npc.RenderCategory == "scenery" && p.Shape != "thieves_guild"
+	if (!guild && !crate) || npc.HideWhenVisited || npc.GridSpanTiles != 0 {
+		return fmt.Errorf("NPC %q: prop_model requires matching loot-crate scenery or a guild landmark, visible in both visit states", key)
 	}
 	if !IsNPCPropShape(p.Shape) {
 		return fmt.Errorf("NPC %q: unknown prop_model.shape %q", key, p.Shape)

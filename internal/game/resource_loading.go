@@ -231,7 +231,9 @@ func (gl *GameLoop) loadingBarrier() bool {
 func (gl *GameLoop) discardLoadingInput() {
 	if gl.ui != nil {
 		gl.ui.dropQueuedClicks()
-		gl.ui.cancelScreenPointerGestures()
+		// Widget gestures retire; a held mouse attack only pauses. Loading is
+		// not a scene change, and the hold resumes on its target afterwards.
+		gl.ui.cancelWidgetPointerGestures()
 		gl.ui.displayedInput.ready = false
 	}
 	if gl.inputHandler != nil {
@@ -249,9 +251,26 @@ func (gl *GameLoop) discardLoadingInput() {
 	}
 }
 
+// tickLoadingPause is every Update that loading stops before HandleInput.
 func (gl *GameLoop) tickLoadingPause() {
+	gl.endMouseGestureOnSkippedInput()
 	gl.discardLoadingInput()
 	gl.game.updateInterfacePresentation()
+}
+
+// HandleInput does not run on a loading tick, so the pointer edges it would read
+// are read here. A release or a fresh press ends the held attack; a held button
+// only pauses it. A fresh press also lifts the block, unless it acted on a layer
+// not redrawn yet: the click that closed a menu stays claimed until release.
+func (gl *GameLoop) endMouseGestureOnSkippedInput() {
+	ih := gl.inputHandler
+	if ih == nil || pointerLeftPressed() && !pointerLeftJustPressed() {
+		return
+	}
+	ih.cancelMouseAttack()
+	if !pointerLeftPressed() || !gl.ui.modalRedrawBarrierActive() {
+		ih.mouseAttackBlocked = false
+	}
 }
 
 func (gl *GameLoop) advanceResourceLoading() {

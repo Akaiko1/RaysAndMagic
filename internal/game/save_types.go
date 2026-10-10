@@ -124,6 +124,8 @@ type QuestSave struct {
 }
 
 type PartySave struct {
+	NonKeyDoorsOpened   int             `json:"non_key_doors_opened,omitempty"`
+	ThievesGuildMember  bool            `json:"thieves_guild_member,omitempty"`
 	Gold                int             `json:"gold"`
 	Food                int             `json:"food"`
 	ArenaPoints         int             `json:"arena_points,omitempty"`
@@ -418,13 +420,14 @@ type TreasureChestRewardSave struct {
 // one map (e.g. two "City Gate" NPCs), coordinates can't. Legacy saves without
 // coordinates fall back to name matching on restore.
 type NPCSave struct {
-	MapKey         string  `json:"map_key"`
-	Name           string  `json:"name"`
-	X              float64 `json:"x,omitempty"`
-	Y              float64 `json:"y,omitempty"`
-	Visited        bool    `json:"visited"`
-	DoorAttempts   int     `json:"door_attempts,omitempty"`
-	DoorLockBroken bool    `json:"door_lock_broken,omitempty"`
+	MapKey         string                      `json:"map_key"`
+	Name           string                      `json:"name"`
+	X              float64                     `json:"x,omitempty"`
+	Y              float64                     `json:"y,omitempty"`
+	Visited        bool                        `json:"visited"`
+	DoorAttempts   int                         `json:"door_attempts,omitempty"`
+	DoorLockBroken bool                        `json:"door_lock_broken,omitempty"`
+	DoorOpenedBy   character.DoorOpeningMethod `json:"door_opened_by,omitempty"`
 	// Remaining merchant stock, keyed by item NAME in stock order (duplicate
 	// names consume sequentially). Index-aligned restore was abandoned: stock
 	// ORDER is a presentation detail (grouping can reorder it between versions)

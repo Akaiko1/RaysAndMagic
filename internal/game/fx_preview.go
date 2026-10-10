@@ -224,7 +224,7 @@ func (p *FxPreview) Items() []FxItem {
 		// an empty preview.
 		def := config.GlobalSpells.Spells[k]
 		if !def.IsProjectile && def.ZoneRadiusTiles <= 0 && !def.StarburstFx && def.BuffFxSprite == "" &&
-			(def.Graphics == nil || def.Graphics.NovaFx == "") {
+			(def.Graphics == nil || (def.Graphics.NovaFx == "" && def.Graphics.CastOverlay == "")) {
 			continue
 		}
 		spellKeys = append(spellKeys, k)
@@ -386,8 +386,8 @@ func (p *FxPreview) spawn() {
 		// hero lacks the school) and refund - the gate then skips the overlay.
 		// The tab's job is showing the art, so force-play it in that case.
 		if cfgDef, ok := config.GetSpellDefinition(p.sel.Key); ok && cfgDef != nil &&
-			cfgDef.BuffFxSprite != "" && len(g.buffFxAnims) == buffAnimsBefore {
-			g.playBuffFx(cfgDef.BuffFxSprite)
+			len(g.buffFxAnims) == buffAnimsBefore {
+			g.playSpellCastFx(cfgDef)
 		}
 		// Same for a nova's ground effect: the stage has no open sky, so an
 		// outdoor_only quake refunds itself and paints nothing. Play it anyway -

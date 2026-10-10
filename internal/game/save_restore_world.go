@@ -35,6 +35,15 @@ func (g *MMGame) restoreSavedNPCs(wm *world.WorldManager, save *GameSave) {
 				npc.PropUseStarted = 0 // restore the settled prop pose, never replay consumption
 				npc.DoorAttempts = ns.DoorAttempts
 				npc.DoorLockBroken = ns.DoorLockBroken
+				npc.DoorOpenedBy = ns.DoorOpenedBy
+				// Old saves cannot distinguish a key from force or lockpicking.
+				// Grandfather one opened lock, using the existing identity-aware
+				// restore across split maps and merged regions. Modern key-opened
+				// doors have a method and never receive this migration credit.
+				if g.party != nil && g.party.NonKeyDoorsOpened == 0 && npc.Visited && character.IsLockedDoor(npc) && ns.DoorOpenedBy == "" {
+					g.party.NonKeyDoorsOpened = 1
+					g.loadNeedsResave = true
+				}
 				// Stock restores by item NAME (order is presentation-only and can
 				// change between versions); duplicate names consume sequentially.
 				// A saved name missing from the current YAML is simply dropped.

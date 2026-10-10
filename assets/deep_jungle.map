@@ -42,7 +42,7 @@
 # gate: jump (44,41) spell_lectern - the stilt platform: stand (42,41), vault
 #   the rootwall at (43,41)
 VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
-V.Y...................O..............Y.QQQ....@Y.V  >[npc:chest_wooden]
+V.Y...................O..............Y.QQQ....@Y@V  >[npc:chest_wooden], [npc:thieves_guild]
 V...Y.@:j.........O.............K.....QQQ.Y...V..V  >[npc:spell_lectern]
 V.GG...j:::.........O......VV....o.Y.QQQ.........V
 V.G........::........Y..............QQQ.Y....YVVVV

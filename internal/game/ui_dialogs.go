@@ -574,7 +574,7 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, screenWidth, screenHeight, color.RGBA{0, 0, 0, 128})
 
 	// Draw dialog background
-	if ui.game.npcDialogKindFor(ui.game.dialogNPC).drawsShop() {
+	if ui.game.npcDialogKindFor(ui.game.dialogNPC).drawsShop() || ui.game.npcDialogKindFor(ui.game.dialogNPC) == dialogKindThievesGuild {
 		ui.drawMerchantFrame(screen, layoutRect{dialogX, dialogY, dialogWidth, dialogHeight})
 	} else {
 		ui.drawThemeFrame(screen, frameGold, dialogX, dialogY, dialogWidth, dialogHeight)
@@ -584,6 +584,8 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 
 	// Handle different NPC capabilities (data-driven)
 	switch ui.game.npcDialogKindFor(ui.game.dialogNPC) {
+	case dialogKindThievesGuild:
+		ui.drawThievesGuildDialog(screen, layoutRect{dialogX, dialogY, dialogWidth, dialogHeight})
 	case dialogKindSpellTrader:
 		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindChoices:

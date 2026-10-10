@@ -152,8 +152,7 @@ func (gl *GameLoop) updateExploration() {
 	// the camera as rendered last frame - exactly what the player is seeing.
 	gl.game.updateFocusedNPC()
 	if gl.loadingBarrier() {
-		gl.game.updateInterfacePresentation()
-		gl.discardLoadingInput()
+		gl.tickLoadingPause()
 		return
 	}
 

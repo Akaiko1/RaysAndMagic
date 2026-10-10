@@ -91,6 +91,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	legacyBless, _ := g.statBuffByID("bless")
 	// Party
 	ps := PartySave{
+		NonKeyDoorsOpened:   g.party.NonKeyDoorsOpened,
+		ThievesGuildMember:  g.party.ThievesGuildMember,
 		Gold:                g.party.Gold,
 		Food:                g.party.Food,
 		ArenaPoints:         g.party.ArenaPoints,
@@ -360,6 +362,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ns := NPCSave{
 					MapKey: key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited,
 					DoorAttempts: npc.DoorAttempts, DoorLockBroken: npc.DoorLockBroken,
+					DoorOpenedBy: npc.DoorOpenedBy,
 				}
 				if len(npc.MerchantStock) > 0 {
 					ns.Stock = make([]NPCStockSave, len(npc.MerchantStock))
@@ -545,7 +548,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		WalkOnWaterDuration:        g.walkOnWaterDuration,
 		FlyActive:                  g.flyActive,
 		FlyDuration:                g.flyDuration,
-		VisitedTavernMaps:          g.sortedTownPortalDestinations(),
+		VisitedTavernMaps:          g.sortedVisitedPortalMaps(),
 		StatBuffs:                  buildStatBuffSaves(g.statBuffs),
 		BlessActive:                legacyBless.Frames > 0,
 		BlessDuration:              legacyBless.Frames,

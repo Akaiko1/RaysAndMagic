@@ -68,6 +68,8 @@ func buildPropModel(spec character.NPCPropModel) *propModel {
 	b := &worldModelBuilder{}
 	m := &propModel{}
 	switch spec.Shape {
+	case "thieves_guild":
+		return buildGuildModel(spec)
 	case "crates":
 		m.height = 1
 		for index, box := range [][5]float64{{-.28, 0, 0, .48, -.14}, {.26, .04, 0, .5, .12}, {-.11, .075, .50, .49, -.28}} {

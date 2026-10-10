@@ -15,7 +15,8 @@ func (ih *InputHandler) cancelMouseAttack() {
 func (ih *InputHandler) blockMouseAttackUntilRelease() {
 	ih.cancelMouseAttack()
 	// Cancellation is state-only: keyboard, load and camera paths can call it.
-	// HandleInput clears the barrier on release or a fresh physical press.
+	// HandleInput (or tickLoadingPause when loading skips it) clears the
+	// barrier on release or a fresh physical press.
 	ih.mouseAttackBlocked = true
 }
 

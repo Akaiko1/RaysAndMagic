@@ -139,6 +139,46 @@ func (v *viewer) overlayEncounterMonsters() []string {
 	return keys
 }
 
+// overlayBecomeGuild leaves a valid guild after a type switch. The guild owns its
+// ledger and membership-gated portal, so ordinary stock, spells, choices and the
+// Town Portal anchor go; missing terms, art and greeting come from an authored guild.
+func overlayBecomeGuild(n *character.NPCData) {
+	n.RenderCategory, n.NoSpin, n.TownPortal, n.HideWhenVisited = "landmark", true, false, false
+	n.Inventory, n.StockWeaponsRarity, n.SellAvailable, n.Spells = nil, "", false, nil
+	n.ShopDialogue, n.ShopDisplay = false, ""
+	template := overlayAuthoredGuild()
+	if n.Guild == nil {
+		n.Guild = &character.GuildServiceConfig{}
+		if template != nil {
+			*n.Guild = *template.Guild
+		}
+	}
+	if n.Dialogue == nil {
+		n.Dialogue = &character.NPCDialogue{}
+	}
+	n.Dialogue.Choices = nil
+	if n.Dialogue.Greeting == "" && template != nil && template.Dialogue != nil {
+		n.Dialogue.Greeting = template.Dialogue.Greeting
+	}
+	if n.PropModel != nil {
+		n.PropModel.Shape = "thieves_guild"
+		n.GridSpanTiles, n.GridSpanDir = 0, ""
+	}
+}
+
+// overlayAuthoredGuild is the first catalog guild by key, or nil.
+func overlayAuthoredGuild() *character.NPCData {
+	if character.NPCConfigInstance == nil {
+		return nil
+	}
+	for _, key := range slices.Sorted(maps.Keys(character.NPCConfigInstance.NPCs)) {
+		if n := character.NPCConfigInstance.NPCs[key]; n != nil && n.Type == character.NPCTypeThievesGuild && n.Guild != nil {
+			return n
+		}
+	}
+	return nil
+}
+
 func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 	p := &v.overlay
 	if p.selected < 0 || p.selected >= len(d.state.Data.NPCSpawns) {
@@ -183,6 +223,16 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 		}
 		if s != character.NPCTypeEncounter {
 			n.Encounter = nil
+		}
+		if s == character.NPCTypeThievesGuild {
+			overlayBecomeGuild(n)
+		} else {
+			n.Guild = nil
+			// The guild model is guild-only, and other types offer no 3D model
+			// fields to remove it by hand.
+			if was == character.NPCTypeThievesGuild && n.PropModel != nil && n.PropModel.Shape == "thieves_guild" {
+				n.PropModel = nil
+			}
 		}
 		return nil
 	}
@@ -274,15 +324,22 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 			})), overlayAction("Remove crystal shimmer", "Remove the glint animation.", edit(func(x *character.NPCData) { x.CrystalShimmer = nil })))
 		}
 	}
-	if n.Type == character.NPCTypeLootCrate && n.RenderCategory == "scenery" {
+	if n.Type == character.NPCTypeLootCrate && n.RenderCategory == "scenery" || n.Type == character.NPCTypeThievesGuild {
 		if m := n.PropModel; m == nil {
 			add(overlayAction("Add 3D model", "Draw the crate as a lit 3D model instead of a flat sprite.", edit(func(x *character.NPCData) {
 				x.PropModel = &character.NPCPropModel{Shape: "crates", Body: [3]int{133, 88, 48}, Trim: [3]int{80, 79, 75}, UseSeconds: 1.2}
+				if x.Type == character.NPCTypeThievesGuild {
+					x.PropModel.Shape = "thieves_guild"
+				}
 				x.HideWhenVisited = false
 			})))
 		} else {
+			shapes := []string{"crates", "campfire"}
+			if n.Type == character.NPCTypeThievesGuild {
+				shapes = []string{"thieves_guild"}
+			}
 			add(overlayHeading("3D model"),
-				overlayString("Model shape", &m.Shape, "Built-in model.", "crates", "campfire"),
+				overlayString("Model shape", &m.Shape, "Built-in model.", shapes...),
 				overlaySignedFloat("Rotation (degrees)", &m.YawDegrees, "Turns the model around its vertical axis.", -360, 360),
 				overlayRGB("Body colour (r, g, b)", &m.Body, "Main colour, 0 to 255 per channel."),
 				overlayRGB("Trim colour (r, g, b)", &m.Trim, "Accent colour, 0 to 255 per channel."),
@@ -305,8 +362,12 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 		add(overlayBool("Hide after use", &n.HideWhenVisited, "Disappears once used. Use only when its action records a visit."))
 	}
 	add(overlayString("Requires completed quest", &n.RequiresQuest, "The object's services stay closed until this quest is done.", quests...),
-		overlayBool("Refuses a Lich", &n.RejectsLich, "Will not speak to a party that includes a Lich."),
-		overlayBool("Town Portal arrival point", &n.TownPortal, "Town Portal brings the party to this object in its region."))
+		overlayBool("Refuses a Lich", &n.RejectsLich, "Will not speak to a party that includes a Lich."))
+	if n.Type == character.NPCTypeThievesGuild {
+		add(overlayInfo("Town Portal", "Unlocked with membership", "Guild entrances appear separately from ordinary region destinations."))
+	} else {
+		add(overlayBool("Town Portal arrival point", &n.TownPortal, "Town Portal brings the party to this object in its region."))
+	}
 
 	// Dialogue.
 	if opensDialog {
@@ -373,6 +434,17 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 	}
 
 	// Services.
+	if s := n.Guild; s != nil {
+		add(overlayHeading("Guild membership"),
+			overlayInt("One-time gold fee", &s.MembershipGold, "Paid once by the party."),
+			overlayInt("Doors opened without keys", &s.NonKeyDoorsOpened, "Successful force or lockpick openings required before joining. Keys do not count."),
+			overlayString("Merchant miniature", &s.Art.Merchant, "Guild report art."),
+			overlayString("Town miniature", &s.Art.Town, "Guild location art."),
+			overlayString("Dungeon miniature", &s.Art.Dungeon, "Guild report art."),
+			overlayString("Creature miniature", &s.Art.Creature, "Guild report art."),
+			overlayString("Wildlife miniature", &s.Art.Wildlife, "Guild report art."),
+			overlayString("Caravan miniature", &s.Art.Caravan, "Guild report art."))
+	}
 	stocked := len(n.Inventory) > 0 || n.StockWeaponsRarity != "" || n.SellAvailable
 	// The game's own dialog dispatch decides whether a shop here is ever drawn.
 	shopDrawn, shopTabs, dialog := game.NPCShopOffer(key, n)

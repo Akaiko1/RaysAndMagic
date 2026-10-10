@@ -20,6 +20,8 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	}
 	g.pickerInventoryOwner, g.promotionPickerItemOwner, g.dragInvOwner = nil, nil, nil
 	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, ArenaPoints: save.Party.ArenaPoints, Inventory: save.Party.Inventory}
+	g.party.NonKeyDoorsOpened = max(0, save.Party.NonKeyDoorsOpened)
+	g.party.ThievesGuildMember = save.Party.ThievesGuildMember
 	for i := range g.party.Inventory {
 		normalizeItemFromConfig(&g.party.Inventory[i])
 	}

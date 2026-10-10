@@ -14,6 +14,33 @@
 # Maps sharing a biome share its palette. Placements do not change this at runtime.
 
 npcs:
+  thieves_guild:
+    biomes: [forest, desert, highlands, dragon_cliffs, jungle, japanese_castle, sakura_garden]
+    name: "Thieves' Guild"
+    description: "A discreet guild house with intelligence on restocks and returning dangers."
+    type: thieves_guild
+    sprite: thieves_guild
+    render_category: landmark
+    size_class: structure
+    prompt_verb: enter
+    guild:
+      membership_gold: 5000
+      non_key_doors_opened: 1
+      art:
+        merchant: guild_merchant
+        town: guild_town
+        dungeon: guild_dungeon
+        creature: guild_creature
+        wildlife: guild_wildlife
+        caravan: guild_caravan
+    prop_model:
+      shape: thieves_guild
+      body: [128, 119, 102]
+      trim: [110, 74, 42]
+      yaw_degrees: 180
+      use_seconds: 1
+    dialogue:
+      greeting: "We keep track of full shelves, empty lairs, and creatures too stubborn to stay dead. Open a locked door without a key first. A deft hand or a sturdy shoulder will do."
   solstice_fire_coolant_west:
     biomes: ["solstice_fire"]
     name: "Coolant West"

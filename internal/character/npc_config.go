@@ -51,14 +51,15 @@ type NPCData struct {
 	// for restored NPCs so old saves retain the current shop presentation.
 	ShopDisplay string `yaml:"shop_display,omitempty"`
 	// Empty biome scope keeps the NPC available in every editor palette.
-	Biomes        []string      `yaml:"biomes,omitempty"`
-	Name          string        `yaml:"name"`
-	Type          string        `yaml:"type"`
-	Description   string        `yaml:"description"`
-	Sprite        string        `yaml:"sprite"`
-	PropModel     *NPCPropModel `yaml:"prop_model,omitempty"`
-	VisitedSprite string        `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
-	NoSpin        bool          `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
+	Biomes        []string            `yaml:"biomes,omitempty"`
+	Name          string              `yaml:"name"`
+	Type          string              `yaml:"type"`
+	Description   string              `yaml:"description"`
+	Sprite        string              `yaml:"sprite"`
+	PropModel     *NPCPropModel       `yaml:"prop_model,omitempty"`
+	Guild         *GuildServiceConfig `yaml:"guild,omitempty"`
+	VisitedSprite string              `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
+	NoSpin        bool                `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
 	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
 	// Its span and sprite aspect are its complete visual-size contract, so it is
 	// mutually exclusive with size_class and no_spin.
@@ -424,6 +425,9 @@ func validateLoadedNPCConfig(cfg *NPCConfig) error {
 		return err
 	}
 	for key, npc := range cfg.NPCs {
+		if err := validateGuildService(key, npc); err != nil {
+			return err
+		}
 		if err := validateNPCPropModel(key, npc); err != nil {
 			return err
 		}
@@ -633,6 +637,7 @@ func NewNPCFromData(key string, data *NPCData, x, y float64) *NPC {
 		Description:      data.Description,
 		Sprite:           data.Sprite,
 		PropModel:        data.PropModel,
+		Guild:            data.Guild,
 		RenderCategory:   data.RenderCategory,
 		PromptVerb:       data.PromptVerb,
 		Transparent:      data.Transparent,

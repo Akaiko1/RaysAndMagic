@@ -118,6 +118,7 @@ type Renderer struct {
 	standeeMipCache        map[standeeMipKey]*mipChain
 	crystalShimmerShader   *ebiten.Shader
 	auraCurtainShader      *ebiten.Shader
+	castOverlay            castOverlayRenderer
 	auraCurtainWarmed      bool
 	auraCurtainCoverage    bool
 	auraCurtainOpts        ebiten.DrawTrianglesShaderOptions

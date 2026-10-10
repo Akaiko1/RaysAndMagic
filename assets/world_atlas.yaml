@@ -6,9 +6,11 @@ legend_icons:
   people: atlas_person
   objects: atlas_chest
 prop_shapes:
+  thieves_guild: atlas_town
   campfire: atlas_campfire
   crates: atlas_crates
 npc_types:
+  thieves_guild: atlas_town
   loot_crate: atlas_chest
   spell_lectern: atlas_book
   door: atlas_portal

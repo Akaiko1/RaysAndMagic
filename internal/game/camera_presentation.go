@@ -56,12 +56,31 @@ func (g *MMGame) cameraInterpolationAllowed() bool {
 	return !g.turnBasedMode && g.cameraPresentationAllowed()
 }
 func (g *MMGame) cameraPresentationAllowed() bool {
-	return g.camera != nil && g.config != nil && g.appScreen == AppScreenInGame && !g.gameplayPausedByOverlay() &&
-		(g.gameLoop == nil || g.gameLoop.loading == nil || !g.gameLoop.loading.awaitingFrame)
+	return g.cameraSceneLive() && !g.cameraLoadingStall()
 }
+
+// cameraSceneLive reports the in-game scene on screen and not paused by an
+// overlay; leaving it is a discontinuity (see resetCameraPresentation).
+func (g *MMGame) cameraSceneLive() bool {
+	return g.camera != nil && g.config != nil && g.appScreen == AppScreenInGame && !g.gameplayPausedByOverlay()
+}
+
+// cameraLoadingStall is a frame held for resource loading: the same scene
+// resumes from the same pose, so it is a pause, not a discontinuity.
+func (g *MMGame) cameraLoadingStall() bool {
+	return g.gameLoop != nil && g.gameLoop.loading != nil && g.gameLoop.loading.awaitingFrame
+}
+
 func (g *MMGame) finishCameraTick(before cameraPose, epoch uint64, started time.Time) {
-	if epoch != g.cameraPresentation.epoch || !g.cameraPresentationAllowed() {
+	if epoch != g.cameraPresentation.epoch || !g.cameraSceneLive() {
 		g.resetCameraPresentation()
+		return
+	}
+	if g.cameraLoadingStall() {
+		// Restart interpolation only. The displayed pick frame and a held mouse
+		// attack survive: streaming while walking used to block the hold until
+		// release, so an attack held toward a monster never fired.
+		g.cameraPresentation.valid, g.cameraPresentation.historyValid = false, false
 		return
 	}
 	p := &g.cameraPresentation

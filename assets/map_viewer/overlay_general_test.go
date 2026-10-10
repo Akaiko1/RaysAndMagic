@@ -253,3 +253,56 @@ func TestOverlayMechanicsIndependentDrafts(t *testing.T) {
 		})
 	}
 }
+
+// A type switch to or from a guild must leave content the boot accepts: the
+// guild model, landmark, membership terms and reserved services follow the type,
+// and nothing guild-only stays behind where the inspector cannot remove it.
+func TestOverlayGuildTypeSwitchStaysValid(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		start func(n *character.NPCData)
+	}{
+		{"object with dialogue choices", func(*character.NPCData) {}},
+		{"crate drawn as a 3D model", func(n *character.NPCData) {
+			n.Type, n.Dialogue = character.NPCTypeLootCrate, nil
+			n.PropModel = &character.NPCPropModel{Shape: "crates", UseSeconds: 1.2}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := overlayTestViewer(t)
+			overlaySandbox(t, v)
+			d := v.overlayDoc()
+			if err := v.overlayPlaceObject(d, overlayEmptyCell(t, v, d)); err != nil {
+				t.Fatal(err)
+			}
+			key := d.state.Data.NPCSpawns[v.overlay.selected].NPCKey
+			// The start need not be valid itself: a bare crate has no loot table.
+			tc.start(d.state.NPCs[key])
+			setType := func(s string) {
+				t.Helper()
+				for _, f := range v.overlayFields(d) {
+					if f.label == "Object type" {
+						if err := f.apply(s); err != nil {
+							t.Fatal(err)
+						}
+						return
+					}
+				}
+				t.Fatal("missing Object type field")
+			}
+			setType(character.NPCTypeThievesGuild)
+			n := d.state.NPCs[key]
+			if err := v.validateOverlayObjects(d); err != nil {
+				t.Fatalf("switched guild is invalid: %v", err)
+			}
+			if n.Guild == nil || n.Guild.MembershipGold <= 0 || n.Dialogue == nil || len(n.Dialogue.Choices) != 0 {
+				t.Fatal("guild did not take authored terms or kept ordinary choices")
+			}
+			setType(character.NPCTypeEncounter)
+			n = d.state.NPCs[key]
+			if n.Guild != nil || n.PropModel != nil && n.PropModel.Shape == "thieves_guild" {
+				t.Fatal("guild-only parts survived the switch away")
+			}
+		})
+	}
+}

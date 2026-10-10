@@ -113,7 +113,7 @@ func TestAvailableDoorUnlocks_KeyStatAndMaster(t *testing.T) {
 	// A strong member adds the force option (order: keys then forcings).
 	g.party.Members[0].Might = 60
 	opts := g.availableDoorUnlocks(npc)
-	if len(opts) != 2 || opts[1].kind != doorUnlockForce || opts[1].chancePct != character.DoorForceChancePct {
+	if len(opts) != 2 || opts[1].kind != character.DoorOpeningForce || opts[1].chancePct != character.DoorForceChancePct {
 		t.Fatalf("might 60 should add a force option, got %+v", opts)
 	}
 
@@ -190,7 +190,7 @@ func TestDoorLockpickingUsesBestLivingSkillAndKeysBypassJam(t *testing.T) {
 	g.party.Members = append(g.party.Members, thief)
 
 	opts := g.availableDoorUnlocks(npc)
-	if len(opts) != 1 || opts[0].kind != doorUnlockLockpick ||
+	if len(opts) != 1 || opts[0].kind != character.DoorOpeningLockpick ||
 		opts[0].chancePct != character.LockpickingChancePct(2) {
 		t.Fatalf("lockpick options = %+v", opts)
 	}
@@ -201,7 +201,7 @@ func TestDoorLockpickingUsesBestLivingSkillAndKeysBypassJam(t *testing.T) {
 	}
 	g.party.AddItem(items.CreateItemFromYAML("ordinary_key"))
 	opts = g.availableDoorUnlocks(npc)
-	if len(opts) != 1 || opts[0].kind != doorUnlockConsumableKey {
+	if len(opts) != 1 || opts[0].kind != character.DoorOpeningKey {
 		t.Fatalf("key did not bypass jammed lock: %+v", opts)
 	}
 	g.openLockedDoor(npc, 0)

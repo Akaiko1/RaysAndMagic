@@ -1,0 +1,85 @@
+//kage:unit pixels
+package main
+
+var Phase float
+var Style float
+var Viewport vec2
+
+// Shared cached noise with wrapped bilinear taps at texel centers.
+// R is broad structure; G already contains three scales of detail.
+func veilNoise(p vec2) vec2 {
+	size := imageSrc0Size()
+	q := fract(p)*size - .5
+	i, f := floor(q), fract(q)
+	o := imageSrc0Origin() + vec2(.5)
+	a := imageSrc0UnsafeAt(o + mod(i, size)).rg
+	b := imageSrc0UnsafeAt(o + mod(i+vec2(1, 0), size)).rg
+	c := imageSrc0UnsafeAt(o + mod(i+vec2(0, 1), size)).rg
+	d := imageSrc0UnsafeAt(o + mod(i+vec2(1, 1), size)).rg
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y)
+}
+
+func Fragment(dst vec4, src vec2, color vec4) vec4 {
+	p := (dst.xy - imageDstOrigin() - Viewport*vec2(.5, .46)) / Viewport.y
+	t := Phase
+	fade := smoothstep(0, .12, t) * (1 - smoothstep(.66, 1, t))
+	if fade <= 0 {
+		return vec4(0)
+	}
+	if Style < .5 {
+		// Advected folds gather from the edges; independent finer currents tear
+		// the folds into smoke. The central sightline stays partly transparent.
+		flow := p*vec2(.43, .26) + vec2(t*.065, -t*.16)
+		warp := veilNoise(flow+vec2(.17, .39)) - .5
+		n := veilNoise(flow + warp*.24)
+		detail := veilNoise(p*.81 + warp*.18 + vec2(-t*.09, t*.11)).g
+		fold := sin(p.x*20+warp.x*9+p.y*3-t*2.8)*.5 + .5
+		edge := length(p * vec2(.85, 1))
+		gather := smoothstep(.09, .70, edge+.18*n.r)
+		density := clamp((n.g*.68+detail*.32)*1.2+fold*.12, 0, 1)
+		a := fade * (.10 + gather*.82) * smoothstep(.15, .72, density)
+		wisp := pow(max(0, 1-abs(density-.57)*10), 3) * gather
+		rib := pow(fold, 9) * (.25 + .75*n.g)
+		rgb := vec3(.018, .012, .037) + vec3(.16, .07, .27)*wisp + vec3(.07, .035, .13)*rib
+		return vec4(rgb*a, a)
+	}
+	// Polar advection gives depth to the aperture. Dark core, cyan flow,
+	// broken hot rim and escaping sparks have distinct visual roles.
+	p.x *= 1.40
+	r := length(p)
+	a := atan2(p.y, p.x)
+	opening := smoothstep(0, .37, t)
+	radius := .055 + .34*opening
+	if r > radius+.17 {
+		return vec4(0)
+	}
+	direction := vec2(cos(a), sin(a))
+	n := veilNoise(direction*.22 + vec2(t*.12, -t*.09))
+	warped := r + (n.g-.5)*.024
+	d := abs(warped - radius)
+	core := exp(-d * 310)
+	halo := exp(-d * 48)
+	angle := a + r*15 - t*4.8
+	flowUV := vec2(cos(angle), sin(angle))*(.18+r*.65) + vec2(t*.06, -t*.07)
+	f := veilNoise(flowUV)
+	inside := 1 - smoothstep(radius-.014, radius+.005, r)
+	spiral := pow(max(0, sin(a*3+r*27-t*7+f.r*3)), 4)
+	depth := smoothstep(.035, radius, r)
+	filament := pow(max(0, 1-abs(f.g-.54)*8), 3) * depth
+	veil := inside * (.24 + .37*(1-depth))
+	fray := exp(-d*72) * pow(max(0, sin(a*19-t*10+n.r*7+r*48)), 4)
+	light := (core*.94 + halo*.43 + fray*.42) * (.58 + .42*n.r)
+	rgb := inside * (vec3(.009, .022, .064)*veil + vec3(.04, .34, .49)*spiral*depth*.65 + vec3(.10, .62, .72)*filament*.52)
+	rgb += vec3(.27, .69, .78)*halo*.32 + vec3(1, .74, .32)*light
+	// Stable sector identities, never frame-random particles.
+	sector := floor((a + 3.14159265) * 9)
+	seed := fract(sin(sector*127.1+19.3) * 43758.5453)
+	travel := fract(t*.8 + seed)
+	sa := (sector+.25+seed*.5)/9 - 3.14159265 + t*.05
+	sr := radius + .01 + travel*.11
+	sparkDist := length(p - vec2(cos(sa), sin(sa))*sr)
+	spark := exp(-sparkDist*550) * pow(1-travel, 2) * opening
+	rgb += vec3(.9, .70, .35) * spark
+	alpha := clamp(veil+inside*(spiral*.25+filament*.22)+light+halo*.26+spark, 0, 1) * fade
+	return vec4(min(rgb*fade, vec3(alpha)), alpha)
+}

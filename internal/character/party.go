@@ -11,8 +11,10 @@ type Party struct {
 	Food    int
 	// ArenaPoints is the arena victory currency (champion duels); spent at the
 	// arena quartermaster. Persisted with the save like Gold.
-	ArenaPoints int
-	Inventory   []items.Item
+	ArenaPoints        int
+	NonKeyDoorsOpened  int
+	ThievesGuildMember bool
+	Inventory          []items.Item
 	// Reserve holds benched heroes available at the tavern (swappable into the
 	// active party). They keep all gear/XP/skills and level alongside the party.
 	Reserve []*MMCharacter

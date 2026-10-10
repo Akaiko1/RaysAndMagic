@@ -188,6 +188,84 @@ func TestLoadingUpdateFreezesSimulationAndRetiresInput(t *testing.T) {
 	}
 }
 
+// A loading frame is a pause, not a scene change: a held mouse attack keeps its
+// target through it, while a release or a fresh press landing on it ends the old
+// hold and its block. A world-pausing overlay still blocks the hold, and the
+// press that closes it stays claimed until release, loading or not.
+func TestLoadingFrameKeepsHeldMouseAttack(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// pointer is the button per Update: Press, Hold or Release.
+		pointer                 string
+		held, oldBlocked, menu  bool
+		closeOverlay            string // "live" or "loading": the first press closes the combat log
+		wantBlocked, wantTarget bool
+	}{
+		{name: "hold through a loading frame", pointer: "HHH", held: true, wantTarget: true},
+		{name: "fresh press on a loading frame", pointer: "PHH", oldBlocked: true},
+		{name: "release and press again while loading", pointer: "RPH", held: true},
+		{name: "hold while a menu opens", pointer: "HHH", held: true, menu: true, wantBlocked: true},
+		{name: "press that closes an overlay", pointer: "PHH", closeOverlay: "live", wantBlocked: true},
+		{name: "press that closes an overlay as loading begins", pointer: "PHH", closeOverlay: "loading", wantBlocked: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gl := loadingFixture(t)
+			g, ih := gl.game, gl.inputHandler
+			fp := installFakePointer(t)
+			update := func() {
+				if err := gl.Update(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ts := float64(g.config.GetTileSize())
+			m := monster.NewMonster3DFromConfig(2.5*ts, 1.5*ts, "goblin", g.config)
+			g.world.Monsters = []*monster.Monster3D{m}
+			if tc.held {
+				ih.mouseAttackTarget, ih.mouseAttackWorld = m, g.world
+			}
+			ih.mouseAttackBlocked = tc.oldBlocked
+			g.menuOpen = tc.menu
+			if tc.closeOverlay != "" {
+				g.combat = NewCombatSystem(g) // the world runs once the overlay closes
+				g.combatLogOpen = true
+				update() // the paused scene blocks the button until release
+				if !ih.mouseAttackBlocked || gl.loading.awaitingFrame {
+					t.Fatal("fixture: an open overlay on a live frame must block the hold")
+				}
+				// What Draw presents: the overlay and its close button.
+				gl.ui.renderedModalSnapshot = gl.ui.topModalSnapshot()
+				gl.ui.beginDisplayedInput()
+				gl.ui.onDisplayedInput(uiCommandClick, layoutRect{0, 0, 40, 40}, func() {
+					g.combatLogOpen = false
+					if tc.closeOverlay == "loading" {
+						gl.loading.begin(time.Now())
+					}
+				})
+				gl.ui.endDisplayedInput()
+				fp.moveTo(10, 10)
+			} else {
+				gl.loading.begin(time.Now())
+			}
+			for i, edge := range tc.pointer {
+				map[rune]func(){'P': fp.press, 'H': fp.hold, 'R': fp.release}[edge]()
+				update()
+				if i == 0 && tc.closeOverlay != "" {
+					if g.combatLogOpen {
+						t.Fatal("fixture: the press did not close the overlay")
+					}
+					gl.ui.renderedModalSnapshot = gl.ui.topModalSnapshot()
+				}
+			}
+			if ih.mouseAttackBlocked != tc.wantBlocked {
+				t.Fatalf("blocked = %v, want %v", ih.mouseAttackBlocked, tc.wantBlocked)
+			}
+			if (ih.mouseAttackTarget == m) != tc.wantTarget {
+				t.Fatalf("held target kept = %v, want %v", ih.mouseAttackTarget == m, tc.wantTarget)
+			}
+		})
+	}
+}
+
 func TestLoadingRegionReadinessIncludesOnlyRequiredSubmissions(t *testing.T) {
 	for _, kind := range []string{"resident", "required_upload", "nearby_upload", "required_shader", "nearby_shader"} {
 		t.Run(kind, func(t *testing.T) {

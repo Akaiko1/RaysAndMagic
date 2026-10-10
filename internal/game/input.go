@@ -1907,6 +1907,8 @@ func (ih *InputHandler) handleDialogInput() {
 			ih.handleBuffServiceInput()
 		case dialogKindTavern:
 			ih.handleTavernInput()
+		case dialogKindThievesGuild:
+			ih.handleGuildInput()
 		}
 	}
 

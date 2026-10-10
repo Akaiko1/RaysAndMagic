@@ -1054,6 +1054,9 @@ type ProjectileRenderConfig struct {
 	// its reach (Earthquake's rubble). Empty = only the per-monster impact
 	// bursts. Validated against the novaFxSpawn registry at boot.
 	NovaFx string `yaml:"nova_fx,omitempty"`
+	// CastOverlay selects a procedural screen-space flourish on a committed
+	// cast. It is visual only and never controls a spell's gameplay duration.
+	CastOverlay string `yaml:"cast_overlay,omitempty"`
 }
 
 type TileConfig struct {

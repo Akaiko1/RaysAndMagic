@@ -31,7 +31,9 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-	atlas worldAtlas
+	modeDomainIcons      map[string]modeDomainIconCache
+	modeDomainIconShader *ebiten.Shader
+	atlas                worldAtlas
 
 	journalRewardItems      map[string]items.Item
 	journalItemsCatalog     *config.ItemSystemConfig

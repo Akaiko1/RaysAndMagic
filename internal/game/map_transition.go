@@ -28,6 +28,26 @@ type mapTransition struct {
 	pose           MapPose
 }
 
+// arrivalTileError checks a map-local arrival tile against its region and
+// terrain. A caller that pays before travelling asks it first.
+func (g *MMGame) arrivalTileError(mapKey string, tile [2]int) error {
+	wm, w := world.GlobalWorldManager, g.worldByKey(mapKey)
+	if wm == nil || w == nil {
+		return fmt.Errorf("destination map is not loaded: %s", mapKey)
+	}
+	x, y := tile[0], tile[1]
+	if region := wm.OpenWorldRegionByKey(mapKey); region != nil {
+		if x < 0 || y < 0 || x >= region.LocalWidth || y >= region.LocalHeight {
+			return fmt.Errorf("authored arrival outside region")
+		}
+	}
+	x, y = wm.ProjectTile(mapKey, x, y)
+	if x < 0 || y < 0 || x >= w.Width || y >= w.Height || w.IsTileBlockingTerrainAt(x, y) {
+		return fmt.Errorf("invalid authored arrival tile")
+	}
+	return nil
+}
+
 // transitionToMap owns one complete travel operation. No arrival, quest entry
 // spawn or autosave runs unless the destination world was selected successfully.
 func (g *MMGame) transitionToMap(request mapTransition) error {
@@ -42,16 +62,8 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 		return fmt.Errorf("destination map is not loaded: %s", request.mapKey)
 	}
 	if request.arrivalTile != nil {
-		x, y := request.arrivalTile[0], request.arrivalTile[1]
-		w := g.worldByKey(request.mapKey)
-		if region := wm.OpenWorldRegionByKey(request.mapKey); region != nil {
-			if x < 0 || y < 0 || x >= region.LocalWidth || y >= region.LocalHeight {
-				return fmt.Errorf("authored arrival outside region")
-			}
-		}
-		x, y = wm.ProjectTile(request.mapKey, x, y)
-		if x < 0 || y < 0 || x >= w.Width || y >= w.Height || w.IsTileBlockingTerrainAt(x, y) {
-			return fmt.Errorf("invalid authored arrival tile")
+		if err := g.arrivalTileError(request.mapKey, *request.arrivalTile); err != nil {
+			return err
 		}
 	}
 	if g.adventureArenaBounds().Enabled && request.arrival != mapArrivalTownPortal {

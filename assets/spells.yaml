@@ -225,6 +225,8 @@ spells:
     stun_duration_seconds: 5
     stun_duration_turns: 3
     message: "Darkness engulfs the area"
+    graphics:
+      cast_overlay: darkness
 
   disintegrate:
     # Basic spell properties
@@ -861,6 +863,8 @@ spells:
     is_utility: true
     town_portal: true          # opens the visited-destination picker
     message: "A portal shimmers open!"
+    graphics:
+      cast_overlay: town_portal
 
   fire_shield:
     name: "Fire Shield"

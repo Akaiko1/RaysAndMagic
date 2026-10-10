@@ -332,7 +332,12 @@ type npcDialogRect struct{ x, y, w, h int }
 
 func npcDialogLayout(g *MMGame) npcDialogRect {
 	width, height := npcDialogWidth, npcDialogHeight
-	if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
+	if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindThievesGuild {
+		width, height = min(1000, g.config.GetScreenWidth()-48), min(760, g.config.GetScreenHeight()-64)
+		if !g.party.ThievesGuildMember {
+			height = min(height, 420)
+		}
+	} else if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
 		width, height = tavernDialogWidth, tavernDialogHeight
 	} else if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC).drawsShop() {
 		height = merchantDialogHeight
@@ -346,6 +351,7 @@ func npcDialogLayout(g *MMGame) npcDialogRect {
 func (g *MMGame) switchDialogTab(tab int) {
 	g.pendingRosterSwap = nil
 	g.dialogTab = tab
+	g.guildScroll = 0
 	g.dialogNodePath = nil
 	g.selectedChoice = 0
 	g.merchantBuyPage = 0
@@ -373,6 +379,7 @@ const (
 	dialogKindArenaGladiator
 	dialogKindBuffService
 	dialogKindTavern
+	dialogKindThievesGuild
 )
 
 // String names the kind for diagnostics - a boot error that says which
@@ -397,6 +404,8 @@ func (k npcDialogKind) String() string {
 		return "buff service"
 	case dialogKindTavern:
 		return "tavern"
+	case dialogKindThievesGuild:
+		return "thieves guild"
 	default:
 		return fmt.Sprintf("kind(%d)", int(k))
 	}
@@ -637,6 +646,8 @@ func (g *MMGame) npcDialogKindFor(npc *character.NPC) npcDialogKind {
 // skipped by accident.
 func npcDialogKindUngated(npc *character.NPC) npcDialogKind {
 	switch {
+	case npc.Type == character.NPCTypeThievesGuild:
+		return dialogKindThievesGuild
 	case npcIsCardCollector(npc):
 		return dialogKindCardCollector
 	case tavernChoice(npc, "tavern_rest") != nil:
