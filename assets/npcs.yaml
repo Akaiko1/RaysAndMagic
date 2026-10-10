@@ -525,6 +525,7 @@ npcs:
           completed: "A transfer, a drifting clock, a broken connection, and a return signal arriving first. We have the sequence, but not their final diagnosis."
       choices: [{"text": "We will investigate: The Surveyor's Contradiction.", "action": "give_quest", "quest_id": "solstice_survey"}, {"text": "Report: The Surveyor's Contradiction.", "action": "turn_in_quest", "quest_id": "solstice_survey"}, {"text": "We will investigate: The Missing Expedition.", "action": "give_quest", "quest_id": "solstice_expedition", "requires_quest": "solstice_survey"}, {"text": "Report: The Missing Expedition.", "action": "turn_in_quest", "quest_id": "solstice_expedition", "requires_quest": "solstice_survey"}, {"text": "We will investigate: Four Anchor Points.", "action": "give_quest", "quest_id": "solstice_anchors", "requires_quest": "solstice_expedition"}, {"text": "Report: Four Anchor Points.", "action": "turn_in_quest", "quest_id": "solstice_anchors", "requires_quest": "solstice_expedition"}, {"text": "We will investigate: The Engineers' Schedule.", "action": "give_quest", "quest_id": "solstice_schedule", "requires_quest": "solstice_anchors"}, {"text": "Report: The Engineers' Schedule.", "action": "turn_in_quest", "quest_id": "solstice_schedule", "requires_quest": "solstice_anchors"}, {"text": "We will investigate: The Broken Connection.", "action": "give_quest", "quest_id": "solstice_connection", "requires_quest": "solstice_schedule"}, {"text": "Report: The Broken Connection.", "action": "turn_in_quest", "quest_id": "solstice_connection", "requires_quest": "solstice_schedule"}, {"text": "We will investigate: The Four Experiment Records.", "action": "give_quest", "quest_id": "solstice_records", "requires_quest": "solstice_connection"}, {"text": "Report: The Four Experiment Records.", "action": "turn_in_quest", "quest_id": "solstice_records", "requires_quest": "solstice_connection"}, {"text": "Leave.", "action": "leave"}]
   solstice_tovan:
+    shop_display: merchant_display_supplies
     biomes: ["jungle"]
     name: "Tovan"
     type: "merchant"
@@ -737,6 +738,7 @@ npcs:
           action: "leave"
   # Example of other NPC types for future expansion
   merchant_general:
+    shop_display: merchant_display_supplies
     biomes: []
     name: "Trader Aelwen"
     type: "merchant"
@@ -757,6 +759,7 @@ npcs:
         quantity: 3
 
   desert_merchant:
+    shop_display: merchant_display_supplies
     biomes: ["desert"]
     name: "Esna the Wayfarer"
     type: "merchant"
@@ -2008,6 +2011,7 @@ npcs:
           action: "leave"
 
   city_weapon_shop:
+    shop_display: merchant_display_weapons
     biomes: ["city"]
     name: "Bladewright Dalia"
     type: "merchant"
@@ -2043,6 +2047,7 @@ npcs:
         quantity: 3
 
   city_potion_shop:
+    shop_display: merchant_display_supplies
     biomes: ["city"]
     name: "Apothecary Wrenna"
     type: "merchant"
@@ -2148,6 +2153,7 @@ npcs:
           action: "leave"
 
   elf_city_bowyer:
+    shop_display: merchant_display_weapons
     biomes: ["elf_city"]
     name: "Captain Aewen"
     type: "merchant"
@@ -2169,6 +2175,7 @@ npcs:
       - { type: "item", name: "Accuracy Talisman", cost: 1800, quantity: 1, tab: "Scout Kit" }
 
   elf_city_apothecary:
+    shop_display: merchant_display_supplies
     biomes: ["elf_city"]
     name: "Herbwright Nerith"
     type: "merchant"
@@ -2305,6 +2312,7 @@ npcs:
           quest_id: "toll_of_blades"
 
   nomad_city_caravan:
+    shop_display: merchant_display_supplies
     biomes: ["nomad_city"]
     name: "Zaira of the Long Road"
     type: "merchant"
@@ -2521,6 +2529,7 @@ npcs:
   # the arena points shop + champions' board as dialog tabs (shared &arena_shop
   # block with the duel master inside).
   gladiator_gatekeeper:
+    shop_display: merchant_display_armory
     biomes: ["desert"]
     name: "Arena Gatekeeper"
     type: "encounter"
@@ -2678,6 +2687,7 @@ npcs:
   # start_arena_duel picks the difficulty; the champion is rolled randomly from
   # the registry. Each tier can be challenged once per day (resets at sunrise).
   arena_duel_master:
+    shop_display: merchant_display_armory
     biomes: ["arena"]
     name: "Arena Duel Master"
     type: "encounter"
@@ -3101,6 +3111,7 @@ npcs:
 
   # Floor 1 trader: pays in gear for the hands the tower's horrors drop.
   clockmaker:
+    shop_display: merchant_display_armory
     biomes: ["clock_tower_workshop"]
     name: "Odile the Clockmaker"
     type: "merchant"
@@ -3180,6 +3191,7 @@ npcs:
   # The Scalewright: Coldbrook's dragon-smith. Every Drakeforged piece costs
   # dragon scales of its own colour PLUS a 20000 gold forging fee.
   scalewright:
+    shop_display: merchant_display_armory
     biomes: ["dragon_cliffs"]
     name: "Maruna the Scalewright"
     type: "merchant"

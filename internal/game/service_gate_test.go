@@ -926,6 +926,8 @@ func TestServicesAreReachable(t *testing.T) {
 		{name: "stock beside dialogue rows in tabs", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock, Dialogue: talk, ShopDialogue: true}, ok: true},
 		{name: "a plain shop", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock}, ok: true},
 		{name: "a shop behind an errand", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock, RequiresQuest: "some_quest"}, ok: true},
+		{name: "a shop display on a shop", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock, ShopDisplay: "merchant_display_supplies"}, ok: true},
+		{name: "a shop display on a trader without stock", npc: &character.NPCData{Type: character.NPCTypeSpellTrader, RenderCategory: "npc", Spells: rows, ShopDisplay: "merchant_display_supplies"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{"shop": tc.npc}}

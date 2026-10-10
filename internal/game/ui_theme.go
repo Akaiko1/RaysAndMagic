@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"os"
 
+	"ugataima/internal/character"
+
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -49,6 +51,16 @@ func (g *MMGame) validateInterfaceArt() {
 		src := g.sprites.GetSprite(spec.name)
 		if src == nil || src.Bounds().Dx() != spec.pattern.w || src.Bounds().Dy() != spec.pattern.h {
 			panic(fmt.Sprintf("interface frame %q must be %dx%d", spec.name, spec.pattern.w, spec.pattern.h))
+		}
+	}
+	if !g.sprites.HasSprite(merchantCornerSprite) {
+		panic(fmt.Sprintf("interface ornament %q is missing", merchantCornerSprite))
+	}
+	if character.NPCConfigInstance != nil {
+		for key, npc := range character.NPCConfigInstance.NPCs {
+			if npc != nil && npc.ShopDisplay != "" && !g.sprites.HasSprite(npc.ShopDisplay) {
+				panic(fmt.Sprintf("NPC %q: missing shop_display sprite %q", key, npc.ShopDisplay))
+			}
 		}
 	}
 }

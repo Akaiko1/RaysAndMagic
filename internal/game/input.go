@@ -2244,12 +2244,11 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		}
 
 		// Sell to merchant (right grid).
-		if ih.game.dialogNPC.SellAvailable {
-			inv := ih.game.party.Inventory
-			sellStart := ih.game.merchantSellPage * merchantPageSize
+		if merchantBuysForGold(ih.game.dialogNPC) {
+			view := ih.game.merchantBagViewIndices()
 			for slot := 0; slot < merchantPageSize; slot++ {
-				idx := sellStart + slot
-				if idx >= len(inv) {
+				idx := inventoryCellIndex(view, ih.game.merchantSellPage, merchantPageSize, slot)
+				if idx < 0 {
 					break
 				}
 				x, y, w, h := merchantCellRect(rightX, gridTop, slot)

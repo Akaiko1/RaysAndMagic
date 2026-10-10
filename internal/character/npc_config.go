@@ -47,6 +47,9 @@ type NPCData struct {
 	EditorOwnerMap string `yaml:"editor_owner_map,omitempty"`
 
 	ShopDialogue bool `yaml:"shop_dialogue,omitempty"`
+	// ShopDisplay is decorative interface art, resolved from the catalog even
+	// for restored NPCs so old saves retain the current shop presentation.
+	ShopDisplay string `yaml:"shop_display,omitempty"`
 	// Empty biome scope keeps the NPC available in every editor palette.
 	Biomes        []string      `yaml:"biomes,omitempty"`
 	Name          string        `yaml:"name"`

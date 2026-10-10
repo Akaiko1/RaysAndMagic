@@ -152,9 +152,8 @@ func compactCoinAmount(n int) string {
 func merchantGridLayout(dialogX, dialogY int) (leftX, rightX, gridTop, pagerY int) {
 	leftX = dialogX + 40
 	rightX = dialogX + npcDialogWidth/2 + 26
-	// Low enough that a two-line greeting clears the "For Sale"/"Your Items"
-	// headers (at gridTop-24), which in turn clear the grid below.
-	gridTop = dialogY + 108
+	// Reserve separate bands for the greeting, headings and category filters.
+	gridTop = dialogY + 236
 	stride := merchantIconSize + merchantPriceH + merchantRowGap
 	pagerY = gridTop + merchantGridRows*stride + 2
 	return
@@ -306,7 +305,7 @@ func (ui *UISystem) topModalLayer() modalLayerID {
 // Keep the value comparable so the Update/Draw barrier remains allocation-free.
 type modalLayerSnapshot struct {
 	layer   modalLayerID
-	state   [12]int
+	state   [14]int
 	stateID uint64
 	// contentRev is the explicit revision for modal-content mutations the
 	// derived fields below cannot see (a stash cell-to-cell move keeps every
@@ -392,6 +391,8 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 		s.state[9] = boolInt(g.stashShowCards)
 		s.state[10] = g.stashInvPage
 		s.state[11] = g.rosterSelectedActive
+		s.state[12] = g.merchantBuyCategory
+		s.state[13] = g.merchantSellCategory
 	case modalLayerVictory:
 		s.state[0] = boolInt(g.victoryScoreSaved)
 	case modalLayerStat:

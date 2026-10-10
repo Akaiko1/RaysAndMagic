@@ -61,6 +61,9 @@ type dialogState struct {
 	pendingTavernAction  *character.NPCDialogueChoice
 	merchantBuyPage      int
 	merchantSellPage     int
+	merchantBuyCategory  int
+	merchantSellCategory int
+	merchantStockView    merchantStockView
 	spellTraderPage      int
 	cardCollectorInvPage int
 }

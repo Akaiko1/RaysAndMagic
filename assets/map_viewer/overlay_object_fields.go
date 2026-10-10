@@ -56,6 +56,19 @@ func (v *viewer) overlaySprites() []string {
 	return sprites
 }
 
+// overlayShopDisplays lists the shop display art the catalog already uses:
+// names known to exist, since the game's boot check panics on a missing sprite.
+func (v *viewer) overlayShopDisplays() []string {
+	displays := []string{""}
+	for _, def := range character.NPCConfigInstance.NPCs {
+		if def != nil && def.ShopDisplay != "" && !slices.Contains(displays, def.ShopDisplay) {
+			displays = append(displays, def.ShopDisplay)
+		}
+	}
+	sort.Strings(displays)
+	return displays
+}
+
 func (v *viewer) overlayBiomes() []string {
 	biomes := []string{}
 	for _, m := range v.maps {
@@ -372,6 +385,7 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 		}
 		add(
 			overlayString("Currency", &n.Currency, "Empty: gold. arena_points: the arena victory currency. item:<key>: prices are counts of that item.", append([]string{"", "arena_points"}, overlayPrefixed("item:", items)...)...),
+			overlayString("Shop display art", &n.ShopDisplay, "Decorative art over the shop's top rail. Empty: none.", v.overlayShopDisplays()...),
 			overlayBool("Buys from the party", &n.SellAvailable, "The party can sell items here. Gold shops only."),
 			overlayInt("Restock every (weeks)", &n.StockRefreshWeeks, "0 keeps stock until sold out."),
 			overlayBool("Shop together with dialogue", &n.ShopDialogue, "Required when the object also has dialogue actions; otherwise the actions hide the shop."),

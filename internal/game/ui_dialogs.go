@@ -574,9 +574,13 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, screenWidth, screenHeight, color.RGBA{0, 0, 0, 128})
 
 	// Draw dialog background
-	ui.drawThemeFrame(screen, frameGold, dialogX, dialogY, dialogWidth, dialogHeight)
-	ui.drawCornerDecor(screen, frameGold, dialogX-8, dialogY-8, dialogWidth+16, dialogHeight+16, decorBottomCorners)
-	ui.drawPanelInlay(screen, frameGold, dialogX+dialogWidth-78, dialogY)
+	if ui.game.npcDialogKindFor(ui.game.dialogNPC).drawsShop() {
+		ui.drawMerchantFrame(screen, layoutRect{dialogX, dialogY, dialogWidth, dialogHeight})
+	} else {
+		ui.drawThemeFrame(screen, frameGold, dialogX, dialogY, dialogWidth, dialogHeight)
+		ui.drawCornerDecor(screen, frameGold, dialogX-8, dialogY-8, dialogWidth+16, dialogHeight+16, decorBottomCorners)
+		ui.drawPanelInlay(screen, frameGold, dialogX+dialogWidth-78, dialogY)
+	}
 
 	// Handle different NPC capabilities (data-driven)
 	switch ui.game.npcDialogKindFor(ui.game.dialogNPC) {
@@ -621,7 +625,7 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 	}
 	ui.registerDisplayedModalMouse((*InputHandler).handleEncounterMouseInput, modalLayerDialog)
 	dialogY := textY - dialogueBodyTextY
-	layout := ui.game.dialogueLayout(npc, dialogWidth, npcDialogHeight)
+	layout := ui.game.dialogueLayout(npc, dialogWidth, npcDialogLayout(ui.game).h)
 	ui.drawDialogueNavigation(screen, layout, dialogX, dialogY)
 	for i, line := range layout.bodyLines {
 		drawUIText(screen, line, dialogX+20, textY+i*dialogueLineHeight)
@@ -761,9 +765,26 @@ func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY 
 }
 
 func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, dialogY int, labels []string, enabled bool) {
+	ui.drawFolderTabs(screen, labels, enabled, func(i int) layoutRect {
+		x, y, w, h := dialogFolderTabRect(dialogX, dialogY, i)
+		return layoutRect{x, y, w, h}
+	})
+}
+
+// drawShopFolderTabs lays a shop dialog's tabs left of its floating display.
+func (ui *UISystem) drawShopFolderTabs(screen *ebiten.Image, dialogX, dialogY int, labels []string) {
+	ui.drawFolderTabs(screen, labels, true, func(i int) layoutRect {
+		return merchantFolderTabRect(dialogX, dialogY, i, len(labels))
+	})
+}
+
+// drawFolderTabs draws and wires the tabs at the caller's geometry, so the
+// rect a caller computes is the rect that is drawn and clicked.
+func (ui *UISystem) drawFolderTabs(screen *ebiten.Image, labels []string, enabled bool, tabRect func(int) layoutRect) {
 	interactive := enabled && ui.topModalLayer() == modalLayerDialog
 	for i, label := range labels {
-		tabX, tabY, tabW, tabH := dialogFolderTabRect(dialogX, dialogY, i)
+		r := tabRect(i)
+		tabX, tabY, tabW, tabH := r.x, r.y, r.w, r.h
 		ui.drawDialogTab(screen, layoutRect{tabX, tabY, tabW, tabH}, ui.game.dialogTab == i)
 		drawCenteredUIText(screen, label, tabX, tabY, tabW, tabH)
 		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, (tabX + tabW) - (tabX), (tabY + tabH) - (tabY)}, func() {
@@ -1146,16 +1167,16 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// Drag sources and the drop zone act only while the dialog IS the top
 	// layer - under the quantity picker the grids are decoration.
 	merchantInteractive := ui.topModalLayer() == modalLayerDialog
-	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
+	panel := layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}
+	layout := computeMerchantDialogSectionLayout(panel)
+	ui.drawMerchantDisplay(screen, panel)
 	titleText := uitext.Text("dialog.merchant", ui.game.dialogNPC.Name)
-	drawUIText(screen, clipUIText(titleText, layout.title.w), layout.title.x, layout.title.y)
+	drawUITextColored(screen, clipUIText(titleText, layout.title.w), layout.title.x, layout.title.y, rarityGold)
 	// The tabbed gladiator dialog keeps its (long) greeting on the Talk tab -
 	// the Shop tab goes straight to the grids or the text floods them.
 	if ui.game.npcDialogKindFor(ui.game.dialogNPC) != dialogKindArenaGladiator {
 		greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.merchant_prompt"))
-		greetingArea := layout.greeting
-		greetingArea.y += 2
-		ui.drawWrappedTextWithOverflow(screen, greeting, greetingArea, 2, dialogueLineHeight)
+		ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, layout.greeting.h/dialogueLineHeight, dialogueLineHeight)
 	}
 	balanceText := uitext.Text("dialog.party_gold", ui.game.party.Gold)
 	if ui.game.dialogNPC.FreeGoods {
@@ -1171,17 +1192,23 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialogX, dialogY)
 	mouseX, mouseY := uiCursorPosition()
 
-	// Headers + faint divider between the two halves. Headers sit at gridTop-24
-	// so they clear the two-line greeting above and the icon frames below.
+	// The headings and category strips have their own band above the counter.
 	header := uitext.Text("dialog.for_sale")
 	if ui.game.dialogNPC.FreeGoods {
 		header = uitext.Text("caravan.goods_header")
 	}
-	drawUIText(screen, header, leftX, gridTop-24)
+	if ui.game.merchantBuyCategory != inventoryTabAll {
+		header += " - " + inventoryTabs[ui.game.merchantBuyCategory].label
+	}
+	drawUIText(screen, clipUIText(header, merchantGridW), leftX, gridTop-72)
 	// The bag header doubles as the drag-to-buy hint at a shop that pays no
 	// coin: a separate line under it would sit on the first row of icons.
-	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-24)
-	drawFilledRect(screen, dialogX+dialogWidth/2, gridTop-6, 1, merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap), color.RGBA{90, 90, 110, 120})
+	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-72)
+	categoryInteractive := merchantInteractive && !ui.game.stashDragActive && !ui.game.stashDragPickedUp
+	ui.drawItemCategoryTabs(screen, leftX, gridTop-48, merchantGridW, ui.game.merchantBuyCategory, categoryInteractive,
+		func(tab int) { ui.game.setMerchantCategory(true, tab) })
+	ui.drawItemCategoryTabs(screen, rightX, gridTop-48, merchantGridW, ui.game.merchantSellCategory, categoryInteractive,
+		func(tab int) { ui.game.setMerchantCategory(false, tab) })
 
 	var tooltipItem items.Item
 	var tooltipHasItem bool
@@ -1190,7 +1217,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// the classic single grid stays for untabbed shops. The visible slice is
 	// shared with the click handler (merchantVisibleStock) so indices agree.
 	if tabs := ui.game.merchantShopTabs(); len(tabs) > 0 {
-		ui.drawDialogFolderTabs(screen, dialogX, dialogY, tabs)
+		ui.drawShopFolderTabs(screen, dialogX, dialogY, tabs)
 	}
 
 	// Buy grid (left): merchant stock.
@@ -1201,6 +1228,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		emptyText := uitext.Text("dialog.no_stock_for_sale")
 		if ui.game.dialogNPC.FreeGoods {
 			emptyText = uitext.Text("caravan.empty")
+		}
+		if ui.game.merchantBuyCategory != inventoryTabAll {
+			emptyText = uitext.Text("dialog.category_empty")
 		}
 		ui.drawWrappedTextWithOverflow(screen, emptyText, layoutRect{leftX, gridTop, merchantGridW, dialogueLineHeight * 3}, 3, dialogueLineHeight)
 	} else {
@@ -1216,7 +1246,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				ui.merchantStockDragSource(idx, image.Rect(x, y, x+w, y+h))
 			}
 			soldOut := !entry.InStock()
-			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+			if merchantInteractive && isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = entry.Item
 				tooltipHasItem = true
@@ -1246,12 +1276,16 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	buysGoods := merchantBuysForGold(ui.game.dialogNPC)
 	{
 		inv := ui.game.merchantBagItems()
-		sellPages := pageCount(len(inv), merchantPageSize)
+		view := ui.game.merchantBagViewIndices()
+		sellPages := pageCount(len(view), merchantPageSize)
 		clampPage(&ui.game.merchantSellPage, sellPages)
-		start := ui.game.merchantSellPage * merchantPageSize
+		if len(view) == 0 && ui.game.merchantSellCategory != inventoryTabAll {
+			// An empty bag on All is simply empty; only a filter explains itself.
+			ui.drawWrappedTextWithOverflow(screen, uitext.Text("dialog.category_empty"), layoutRect{rightX, gridTop, merchantGridW, dialogueLineHeight * 3}, 3, dialogueLineHeight)
+		}
 		for slot := 0; slot < merchantPageSize; slot++ {
-			idx := start + slot
-			if idx >= len(inv) {
+			idx := inventoryCellIndex(view, ui.game.merchantSellPage, merchantPageSize, slot)
+			if idx < 0 {
 				break
 			}
 			item := inv[idx]
@@ -1260,7 +1294,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				ui.stashInvSource(idx, image.Rect(x, y, x+w, y+h))
 			}
 			value := item.Attributes["value"]
-			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+			if merchantInteractive && isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = item
 				tooltipHasItem = true

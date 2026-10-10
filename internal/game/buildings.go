@@ -245,6 +245,19 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 				return fmt.Errorf("NPC %q stock: %w", key, err)
 			}
 		}
+		// Buying from the party is a gold-shop service. An item-priced shop's bag
+		// shows every carried stack (hero quick slots too) as payment, so its
+		// cells do not index party.Inventory and could not be sold from.
+		if npc.SellAvailable {
+			if npc.Currency != "" {
+				return fmt.Errorf("NPC %q has sell_available but trades in %q; only gold shops buy from the party", key, npc.Currency)
+			}
+			for _, it := range npc.Inventory {
+				if it != nil && it.CurrencyItem != "" {
+					return fmt.Errorf("NPC %q has sell_available but prices %q in an item; only gold-priced shops buy from the party", key, it.Name)
+				}
+			}
+		}
 		// Per-entry item currency (Scalewright): the key must exist, the count
 		// must be positive, and a gold surcharge can't be negative.
 		for _, it := range npc.Inventory {
@@ -427,24 +440,50 @@ func (g *MMGame) merchantShopTabs() []string {
 // source for both the draw pass and the click handler - their indices must
 // agree or clicks buy the wrong item.
 func (g *MMGame) merchantVisibleStock() []*character.MerchantStockItem {
-	if g.dialogNPC == nil {
+	npc := g.dialogNPC
+	if npc == nil {
 		return nil
 	}
-	tabs := character.MerchantTabs(g.dialogNPC.MerchantStock)
-	if len(tabs) == 0 {
-		return g.dialogNPC.MerchantStock
+	stock := npc.MerchantStock
+	// The view is read many times per frame. Stock only changes by reassigning
+	// the slice (restock, caravan, load) or in place inside an entry, which the
+	// tab and category filter never reads, so the slice identity keys it.
+	c := &g.merchantStockView
+	var base **character.MerchantStockItem
+	if len(stock) > 0 {
+		base = &stock[0]
 	}
-	if g.dialogTab < 0 || g.dialogTab >= len(tabs) {
+	if c.npc != npc || c.base != base || c.n != len(stock) {
+		*c = merchantStockView{npc: npc, base: base, n: len(stock), tabs: character.MerchantTabs(stock)}
+	}
+	if len(c.tabs) == 0 && g.merchantBuyCategory == inventoryTabAll {
+		return stock
+	}
+	if len(c.tabs) > 0 && (g.dialogTab < 0 || g.dialogTab >= len(c.tabs)) {
 		g.dialogTab = 0
 	}
-	want := tabs[g.dialogTab]
-	out := make([]*character.MerchantStockItem, 0, len(g.dialogNPC.MerchantStock))
-	for _, m := range g.dialogNPC.MerchantStock {
-		if m != nil && m.Tab == want {
-			out = append(out, m)
+	if c.view == nil || c.tab != g.dialogTab || c.category != g.merchantBuyCategory {
+		// A fresh slice: a caller may still be ranging over the previous view.
+		view := make([]*character.MerchantStockItem, 0, len(stock))
+		for _, m := range stock {
+			if m != nil && (len(c.tabs) == 0 || m.Tab == c.tabs[g.dialogTab]) &&
+				inventoryTabShows(g.merchantBuyCategory, m.Item) {
+				view = append(view, m)
+			}
 		}
+		c.view, c.tab, c.category = view, g.dialogTab, g.merchantBuyCategory
 	}
-	return out
+	return c.view
+}
+
+// merchantStockView memoizes merchantVisibleStock for one stock slice.
+type merchantStockView struct {
+	npc           *character.NPC
+	base          **character.MerchantStockItem
+	n             int
+	tabs          []string
+	tab, category int
+	view          []*character.MerchantStockItem
 }
 
 func weaponNamed(name string) bool {

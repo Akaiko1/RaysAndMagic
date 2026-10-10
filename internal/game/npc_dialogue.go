@@ -234,8 +234,9 @@ const (
 	// The standard centered NPC dialog box. Renderer and every mouse handler
 	// must use npcDialogLayout - a hardcoded copy that drifts desyncs click
 	// rects from drawn pixels.
-	npcDialogWidth  = 600
-	npcDialogHeight = 400
+	npcDialogWidth       = 600
+	npcDialogHeight      = 400
+	merchantDialogHeight = 544
 
 	// The tavern embeds roster and stash management instead of opening another
 	// modal, so it needs enough room for the two working grids.
@@ -333,6 +334,8 @@ func npcDialogLayout(g *MMGame) npcDialogRect {
 	width, height := npcDialogWidth, npcDialogHeight
 	if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
 		width, height = tavernDialogWidth, tavernDialogHeight
+	} else if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC).drawsShop() {
+		height = merchantDialogHeight
 	}
 	r := centeredRect(g.config.GetScreenWidth(), g.config.GetScreenHeight(), width, height)
 	return npcDialogRect{x: r.x, y: r.y, w: r.w, h: r.h}
@@ -346,6 +349,7 @@ func (g *MMGame) switchDialogTab(tab int) {
 	g.dialogNodePath = nil
 	g.selectedChoice = 0
 	g.merchantBuyPage = 0
+	g.merchantBuyCategory = inventoryTabAll
 	g.pendingBuffService = nil
 	g.pendingTavernAction = nil
 	g.rosterSelectedActive = -1
@@ -662,7 +666,9 @@ func npcDialogKindUngated(npc *character.NPC) npcDialogKind {
 // dialogueChoiceRect returns the screen rect of the i-th visible choice row in
 // an encounter-style dialogue (the same rect the renderer highlights).
 func (g *MMGame) dialogueChoiceRect(npc *character.NPC, i, dialogX, dialogY, dialogWidth int) (x, y, w, h int) {
-	layout := g.dialogueLayout(npc, dialogWidth, npcDialogHeight)
+	// The open frame's own height: a shop's taller frame keeps its Talk tab's
+	// navigation at the bottom and gives the choices the extra rows.
+	layout := g.dialogueLayout(npc, dialogWidth, npcDialogLayout(g).h)
 	if i < layout.firstChoice || i >= layout.firstChoice+layout.choiceCount {
 		return 0, 0, 0, 0
 	}

@@ -237,6 +237,26 @@ func (g *MMGame) merchantBagItems() []items.Item {
 	return g.party.Inventory
 }
 
+// merchantBagViewIndices keeps filtered cells tied to their physical bag
+// entries: positions in merchantBagItems(). Sales and drags must never use a
+// category-local index as a bag index. Where the party can sell (a gold shop,
+// ValidateNPCCommerce) merchantBagItems() is party.Inventory itself.
+func (g *MMGame) merchantBagViewIndices() []int {
+	return inventoryTabView(g.merchantSellCategory, g.merchantBagItems())
+}
+
+func (g *MMGame) setMerchantCategory(buy bool, category int) {
+	selected, page := &g.merchantSellCategory, &g.merchantSellPage
+	if buy {
+		selected, page = &g.merchantBuyCategory, &g.merchantBuyPage
+	}
+	if !selectCategory(selected, page, category) {
+		return
+	}
+	g.clearStashDrag()
+	g.resetDialogClickTracker()
+}
+
 // merchantBagHeaderLabel is the header over the party's bag grid. At a shop
 // that pays no coin the label carries BOTH facts - the grid is a buy target and
 // nothing is bought from the party - and it must fit merchantGridW whole: a

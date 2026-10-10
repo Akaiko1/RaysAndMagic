@@ -238,20 +238,34 @@ func trainerDialogLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 }
 
 func merchantDialogLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	dialog, l := npcDialogRegion(screenW, screenH)
+	dialog := centeredRect(screenW, screenH, npcDialogWidth, merchantDialogHeight)
+	l := computeMerchantDialogSectionLayout(dialog)
 	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialog.x, dialog.y)
 	gridH := merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap) - merchantRowGap
 	boxes := []uiBox{
+		namedLayoutBox("shop-display", merchantDisplayRect(dialog)),
 		namedLayoutBox("title", l.title), namedLayoutBox("balance", l.balance), namedLayoutBox("greeting", l.greeting),
-		textLineBox("buy-heading", "For Sale", leftX, gridTop-24),
-		textLineBox("sell-heading", "Your Items", rightX, gridTop-24),
+		textLineBox("buy-heading", "For Sale", leftX, gridTop-72),
+		textLineBox("sell-heading", "Your Items", rightX, gridTop-72),
 		{"buy-grid", leftX, gridTop, merchantGridW, gridH},
 		{"sell-grid", rightX, gridTop, merchantGridW, gridH},
 		{"buy-pager", leftX, pagerY, merchantGridW, pagerBtnH},
 		{"sell-pager", rightX, pagerY, merchantGridW, pagerBtnH},
 		namedLayoutBox("footer", layoutRect{l.footer[0].x, l.footer[0].y, l.footer[0].w, 2 * uiTextCharHeight}),
 	}
-	return namedLayoutBox("merchant-dialog", dialog), boxes
+	// The largest shipped set-shop has four stock tabs along the same rail.
+	for i := 0; i < 4; i++ {
+		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("stock-tab-%d", i), merchantFolderTabRect(dialog.x, dialog.y, i, 4)))
+	}
+	for side, x := range []int{leftX, rightX} {
+		for i, r := range inventoryTabRects(x, gridTop-48, merchantGridW) {
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("category-%d-%d", side, i), r))
+		}
+	}
+	// The decorative display intentionally extends above the modal's input
+	// rectangle. Check against the complete visible region, not just its body.
+	display := merchantDisplayRect(dialog)
+	return namedLayoutBox("merchant-dialog", layoutRect{dialog.x, display.y, dialog.w, dialog.bottom() - display.y}), boxes
 }
 
 func cardCollectorLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {

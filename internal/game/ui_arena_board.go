@@ -27,7 +27,7 @@ func sortedKeys[T any](m map[string]T) []string {
 // the quest-giving spell trader's; the Tab key also cycles (see
 // handleArenaGladiatorInput).
 func (ui *UISystem) drawArenaGladiatorDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
-	ui.drawDialogFolderTabs(screen, dialogX, dialogY, ui.game.merchantServiceTabs())
+	ui.drawShopFolderTabs(screen, dialogX, dialogY, ui.game.merchantServiceTabs())
 	switch ui.game.dialogTab {
 	case 1:
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)

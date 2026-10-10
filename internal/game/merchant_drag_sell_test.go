@@ -387,6 +387,49 @@ func potionStock(cost, quantity int) *character.MerchantStockItem {
 	}
 }
 
+// Every control ends a typing run, so the next digit replaces the value: a
+// digit typed after + must not append to it (5, +, 3 is 3, not 63).
+func TestQuantityButtonsThroughDisplayedPicker(t *testing.T) {
+	for _, mode := range []string{"buy", "sell", "split"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newDisplayedModalHarness(t, 1024, 768)
+			g, ui := h.g, h.ui
+			g.dialogActive = true
+			g.party.Inventory[0].Quantity = 20
+			g.party.Gold = 70
+			g.dialogNPC.MerchantStock = []*character.MerchantStockItem{potionStock(10, 12)}
+			maximum := 19
+			switch mode {
+			case "buy":
+				ui.beginMerchantBuyPicker(0)
+				maximum = 7
+			case "sell":
+				ui.beginMerchantSellPicker(0)
+				maximum = 20
+			default:
+				ui.openStackSplitPicker(stackSplitPickerInventory, 0, g.party.Inventory[0])
+			}
+			l := stackSplitPickerLayout(stackSplitPickerRect(1024, 768))
+			for _, step := range []struct {
+				button image.Rectangle
+				want   int
+			}{{l.maximum, maximum}, {l.one, 1}, {l.half, maximum / 2}, {l.maximum, maximum}, {l.minus, maximum - 1}, {l.plus, maximum}} {
+				if mode == "split" && step.button == l.half {
+					step.want = 10
+				}
+				ui.stackSplitPicker.typed = true
+				h.clicks(false, step.button.Min.X+5, step.button.Min.Y+5, 1)
+				if ui.stackSplitPicker.quantity != step.want || ui.stackSplitPicker.typed || !ui.stackSplitPicker.open {
+					t.Fatalf("button got %+v, want quantity=%d and fresh typing", ui.stackSplitPicker, step.want)
+				}
+				if g.party.Gold != 70 || g.party.Inventory[0].Count() != 20 {
+					t.Fatal("a button traded before confirmation")
+				}
+			}
+		})
+	}
+}
+
 // Dragging a shelf item onto the bag opens the buy picker at ONE unit - the
 // safe spending default - with the attainable maximum (shelf, purse or the
 // unlimited-shelf cap, in the shop's own till) as the typing ceiling.
@@ -773,7 +816,7 @@ func TestBuyPickerPriceLineNeverOverlapsButtons(t *testing.T) {
 	r := stackSplitPickerRect(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	L := stackSplitPickerLayout(r)
 	for name, btn := range map[string]image.Rectangle{
-		"minus": L.minus, "half": L.half, "plus": L.plus, "take": L.take, "cancel": L.cancel,
+		"minus": L.minus, "one": L.one, "half": L.half, "max": L.maximum, "plus": L.plus, "take": L.take, "cancel": L.cancel,
 	} {
 		if L.price.Overlaps(btn) {
 			t.Errorf("the price line %v overlaps the %s button %v", L.price, name, btn)

@@ -41,6 +41,7 @@ func TestValidateNPCCommerce(t *testing.T) {
 		"d": {GridSpanTiles: 2, GridSpanDir: "e"},
 		"e": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion"}}, ShopDialogue: true, Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Action: "leave"}}}},
 		"f": {Inventory: []*character.NPCItem{{Type: "weapon", Name: weapon}}},
+		"g": {SellAvailable: true, Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion"}}},
 	}
 	if err := ValidateNPCCommerce(good); err != nil {
 		t.Fatalf("valid set rejected: %v", err)
@@ -53,6 +54,10 @@ func TestValidateNPCCommerce(t *testing.T) {
 		{"x": {GridSpanTiles: 5, GridSpanDir: "e"}},
 		{"x": {GridSpanTiles: 2, GridSpanDir: "e", NoSpin: true}},
 		{"x": {Inventory: []*character.NPCItem{{Type: "weapon", Name: "No Such Blade"}}}},
+		// Only a gold-priced shop buys from the party: an item-priced bag is not
+		// party.Inventory, so its cells could not be sold from.
+		{"x": {SellAvailable: true, Currency: "item:clock_hand", Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Cost: 1}}}},
+		{"x": {SellAvailable: true, Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Cost: 1, CurrencyItem: "clock_hand"}}}},
 	}
 	for i, m := range bad {
 		if err := ValidateNPCCommerce(m); err == nil {

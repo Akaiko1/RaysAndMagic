@@ -16,7 +16,8 @@ func staleConversation(npc *character.NPC) dialogState {
 		dialogSelectedSpell: 2, selectedCharIdx: 2, skillTrainerPage: 3,
 		selectedSpellKey: "old", selectedChoice: 2, dialogNodePath: []*character.NPCDialogueChoice{choice},
 		dialogTab: 1, pendingBuffService: choice, pendingTavernAction: choice,
-		merchantBuyPage: 2, merchantSellPage: 3, spellTraderPage: 4, cardCollectorInvPage: 5,
+		merchantBuyPage: 2, merchantSellPage: 3, merchantBuyCategory: 1, merchantSellCategory: 2,
+		spellTraderPage: 4, cardCollectorInvPage: 5,
 	}
 }
 

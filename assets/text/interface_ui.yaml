@@ -11,6 +11,7 @@ ui.all_enemies_defeated: "All enemies defeated"
 ui.claim_reward: "Claim Reward"
 ui.reward: "Reward: %s"
 ui.scroll_details: "Scroll for details"
+ui.quantity_max: "Max"
 
 ui.overwatch_ready: "Overwatch ready"
 ui.overwatch_chances: "Enemy approach: %d%% per tile; attack: %.0f%% (in range and clear sight)"

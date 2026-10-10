@@ -133,6 +133,8 @@ func (g *MMGame) validateServicesAreReachable() error {
 				hint = "; set shop_dialogue to give the shop its own tab"
 			}
 			return fmt.Errorf("NPC %q has shop stock but resolves to the %s dialog - its shop would never be drawn%s", npcKey, kind, hint)
+		case data.ShopDisplay != "" && !kind.drawsShop():
+			return fmt.Errorf("NPC %q has shop_display but resolves to the %s dialog - its shop display would never be drawn", npcKey, kind)
 		}
 	}
 	return nil
