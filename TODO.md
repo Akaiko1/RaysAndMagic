@@ -1,10 +1,5 @@
 # TODO
 
-- [ ] Fly: make `partyEntombed` block combat only inside physical terrain
-  (walls, trees, and rocks), not on floor-level non-walkable tiles such as
-  water, deep water, and chasms. While flying over those tiles, weapon attacks
-  and spells should work normally. Add coverage for Fly on a wall, water, deep
-  water, a chasm, and water with Walk on Water or Water Breathing.
 - [ ] Review the 44 production functions that only tests call (staticcheck
   U1000 and deadcode do not flag them; list verified 2026-10-10 against all
   .go files, untracked included). For each, decide one of three outcomes:

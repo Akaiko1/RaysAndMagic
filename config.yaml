@@ -333,7 +333,7 @@ characters:
       accuracy: 11
       speed: 10
       luck: 11
-      skills: [sword, mace, axe, plate, bodybuilding, spell_absorption, strong_magic]
+      skills: [sword, mace, axe, plate, shield, bodybuilding, spell_absorption, strong_magic]
       magic:
         - { school: light, spells: [resurrect] }
         - { school: earth, spells: [rock_blast] }
