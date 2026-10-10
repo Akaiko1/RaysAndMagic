@@ -25,6 +25,9 @@ type OpenWorldRegion struct {
 	Orient                  string
 	StartX, StartY          int                 // source '+' in unified tiles (-1 if none)
 	InitialMonsterKeys      map[string]struct{} // this map's own authored monster kinds (region-scoped loot pools)
+	// stitched holds the LOCAL cells the stitch rewrote: carved opening layers
+	// and removed travel devices or gates. They differ from the source map.
+	stitched map[[2]int]struct{}
 }
 
 // --- Placement orientation transforms ---------------------------------------
@@ -394,6 +397,25 @@ func (wm *WorldManager) LocalizeAngle(mapKey string, a float64) float64 {
 
 // LocalizeTile is the inverse of ProjectTile: a unified-world tile back to
 // the region's map-local tile (offset AND orientation).
+// SourceTile reports whether a map-local tile is the source map's own interior
+// cell in both world modes: inside the border ring and not rewritten by the
+// stitch. Runtime content saved map-local may only claim such cells. A split
+// map is its own source; an unknown key answers true.
+func (wm *WorldManager) SourceTile(mapKey string, lx, ly int) bool {
+	w, h := 0, 0
+	if r := wm.OpenWorldRegionByKey(mapKey); r != nil {
+		if _, rewritten := r.stitched[[2]int{lx, ly}]; rewritten {
+			return false
+		}
+		w, h = r.LocalWidth, r.LocalHeight
+	} else if m := wm.LoadedMaps[mapKey]; m != nil {
+		w, h = m.Width, m.Height
+	} else {
+		return true
+	}
+	return lx >= 1 && ly >= 1 && lx < w-1 && ly < h-1
+}
+
 func (wm *WorldManager) LocalizeTile(mapKey string, tx, ty int) (int, int) {
 	if r := wm.OpenWorldRegionByKey(mapKey); r != nil {
 		return owXformTileInv(r.Orient, r.LocalWidth, r.LocalHeight, tx-r.OffsetX, ty-r.OffsetY)
@@ -563,8 +585,13 @@ func (wm *WorldManager) buildOpenWorld() error {
 		}
 		off := owc.Placements[key]
 		p := owPlacedMap{key: key, mc: mc, data: data, off: off, defTile: defTile}
-		if err := applyOpenWorldRemovals(&p.data.NPCSpawns, &p.data.SpecialTileSpawns, p.data, owc.Removals[key], key, defTile); err != nil {
+		removed, err := applyOpenWorldRemovals(&p.data.NPCSpawns, &p.data.SpecialTileSpawns, p.data, owc.Removals[key], key, defTile)
+		if err != nil {
 			return err
+		}
+		p.stitched = make(map[[2]int]struct{}, len(removed))
+		for _, cell := range removed {
+			p.stitched[cell] = struct{}{}
 		}
 		placed = append(placed, p)
 		pw, ph := owPlacedDims(off.Orient, data.Width, data.Height)
@@ -637,6 +664,7 @@ func (wm *WorldManager) buildOpenWorld() error {
 			LocalWidth: p.data.Width, LocalHeight: p.data.Height,
 			Orient: p.off.Orient,
 			StartX: startX, StartY: startY,
+			stitched: p.stitched,
 		})
 		regionIdx[p.key] = i
 	}
@@ -650,6 +678,13 @@ func (wm *WorldManager) buildOpenWorld() error {
 		conn := &owc.Connections[ci]
 		if err := carveOpenWorldConnection(merged, regionGrid, regionIdx, placedByKey, conn, owc); err != nil {
 			return fmt.Errorf("open world: connection %d (%s->%s): %w", ci, conn.From.Map, conn.To.Map, err)
+		}
+		for _, side := range []config.OpenWorldPortalSide{conn.From, conn.To} {
+			r := &regions[regionIdx[side.Map]]
+			for _, c := range r.OpeningCells(side, conn.Width) {
+				lx, ly := owXformTileInv(r.Orient, r.LocalWidth, r.LocalHeight, c[0]-r.OffsetX, c[1]-r.OffsetY)
+				r.stitched[[2]int{lx, ly}] = struct{}{}
+			}
 		}
 	}
 
@@ -751,9 +786,10 @@ func (wm *WorldManager) buildOpenWorld() error {
 }
 
 // applyOpenWorldRemovals strips the listed gate NPCs and special tiles from
-// one map's freshly-loaded data. A listed key that is not present is a config
-// error (typo or stale entry), not a silent no-op.
-func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpawn, data *MapData, removal config.OpenWorldRemoval, mapKey string, defTile TileType3D) error {
+// one map's freshly-loaded data and returns the cells it changed. A listed key
+// that is not present is a config error (typo or stale entry), not a no-op.
+func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpawn, data *MapData, removal config.OpenWorldRemoval, mapKey string, defTile TileType3D) ([][2]int, error) {
+	var removed [][2]int
 	clearedGround := false
 	for _, key := range removal.NPCs {
 		found := false
@@ -761,6 +797,7 @@ func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpa
 		for _, spawn := range *npcSpawns {
 			if spawn.NPCKey == key {
 				found = true
+				removed = append(removed, [2]int{spawn.X, spawn.Y})
 				if data.ClearNPCGround(GlobalTileManager, spawn, defTile) {
 					if data.entityFloors == nil {
 						data.entityFloors = make(map[[2]int]entityFloor)
@@ -774,7 +811,7 @@ func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpa
 		}
 		*npcSpawns = kept
 		if !found {
-			return fmt.Errorf("open world: removals for %q list NPC %q not present on the map", mapKey, key)
+			return nil, fmt.Errorf("open world: removals for %q list NPC %q not present on the map", mapKey, key)
 		}
 	}
 	for _, key := range removal.SpecialTiles {
@@ -783,6 +820,7 @@ func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpa
 		for _, spawn := range *stileSpawns {
 			if spawn.TileKey == key {
 				found = true
+				removed = append(removed, [2]int{spawn.X, spawn.Y})
 				// The loader already stamped the tile into the grid - revert it
 				// to the biome floor.
 				if spawn.Y >= 0 && spawn.Y < data.Height && spawn.X >= 0 && spawn.X < data.Width {
@@ -794,7 +832,7 @@ func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpa
 		}
 		*stileSpawns = kept
 		if !found {
-			return fmt.Errorf("open world: removals for %q list special tile %q not present on the map", mapKey, key)
+			return nil, fmt.Errorf("open world: removals for %q list special tile %q not present on the map", mapKey, key)
 		}
 	}
 	if clearedGround {
@@ -802,16 +840,17 @@ func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpa
 		// donate their old ground to one another. Keep the walkable entity rule.
 		data.Floors = resolveEntityFloors(GlobalTileManager, data.Tiles, data.entityFloors)
 	}
-	return nil
+	return removed, nil
 }
 
 // owPlacedMap is one source map staged for stitching.
 type owPlacedMap struct {
-	key     string
-	mc      *config.MapConfig
-	data    *MapData
-	off     config.OpenWorldPlacement
-	defTile TileType3D
+	key      string
+	mc       *config.MapConfig
+	data     *MapData
+	off      config.OpenWorldPlacement
+	defTile  TileType3D
+	stitched map[[2]int]struct{} // local cells the removals rewrote
 }
 
 // owEdgeIsVertical reports whether an edge runs along the map's east/west

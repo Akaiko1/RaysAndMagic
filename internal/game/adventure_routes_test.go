@@ -79,7 +79,7 @@ func TestSolsticeAuthoredRoutesAndRewards(t *testing.T) {
 				if !job.seen[p] {
 					t.Fatalf("%s cannot reach Jump endpoint %v", key, p)
 				}
-				if g.harvestPlacementAllowed(p[0], p[1]) {
+				if g.harvestPlacementAllowed(key, p[0], p[1]) {
 					t.Fatalf("resource on Jump endpoint %v", p)
 				}
 			}

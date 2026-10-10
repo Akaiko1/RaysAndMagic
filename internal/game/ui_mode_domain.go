@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	turnModeIconSize = 32
-	domainIconSize   = 24
-	modeDomainGap    = 8
+	turnModeIconSize = 64
+	domainIconSize   = 48
+	modeDomainGap    = 16
 )
 
 func (g *MMGame) elementalDomainAt(x, y float64) string {

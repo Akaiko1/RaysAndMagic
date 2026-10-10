@@ -116,7 +116,7 @@ func TestRemovedNPCGroundOverrides(t *testing.T) {
 						want, _ = tm.GetTileTypeFromKey("dragon_cliffs_basalt_floor")
 						md.Tiles[1][1], md.Tiles[1][2] = want, want
 					}
-					if err := applyOpenWorldRemovals(&md.NPCSpawns, &md.SpecialTileSpawns, md,
+					if _, err := applyOpenWorldRemovals(&md.NPCSpawns, &md.SpecialTileSpawns, md,
 						config.OpenWorldRemoval{NPCs: []string{"portal_gate_highlands"}}, "forest", TileEmpty); err != nil {
 						t.Fatal(err)
 					}

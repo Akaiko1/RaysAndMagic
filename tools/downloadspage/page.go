@@ -79,13 +79,17 @@ type release struct {
 
 func (r release) ShortCommit() string { return r.Commit[:min(8, len(r.Commit))] }
 
+// historyLimit is how many releases the page lists; older ones stay on GitHub.
+const historyLimit = 5
+
 type page struct {
-	Repo    string
-	RunURL  string
-	Built   time.Time
-	Latest  []release // newest downloadable release per channel, in channel order
-	History []release // every published release, newest first
-	Image   string    // screenshot file name inside the site, "" for none
+	Repo         string
+	RunURL       string
+	Built        time.Time
+	Latest       []release // newest downloadable release per channel, in channel order
+	History      []release // the newest published releases, newest first
+	MoreReleases bool      // History was cut at historyLimit
+	Image        string    // screenshot file name inside the site, "" for none
 }
 
 func decodeStream[T any](r io.Reader, what string) ([]T, error) {
@@ -136,6 +140,11 @@ func buildPage(releases []ghRelease, tags []ghTag, repo string) (page, error) {
 	}
 	if len(p.Latest) == 0 {
 		return page{}, errors.New("no published release has downloadable archives")
+	}
+	// Latest reads the whole history first: a channel's newest build can be
+	// older than the listed releases.
+	if len(p.History) > historyLimit {
+		p.History, p.MoreReleases = p.History[:historyLimit], true
 	}
 	return p, nil
 }

@@ -95,7 +95,7 @@ footer { padding: 8px 16px 40px; color: var(--muted); font-size: 0.9rem; }
   <p>macOS keeps saves in <code>~/Library/Application Support/RaysAndMagic</code>, so a new build finds them. On Windows they live in the <code>saves</code> folder next to RaysAndMagic.exe: copy that folder over when you unpack an update.</p>
 </section>
 <section id="releases">
-  <h2>All releases</h2>
+  <h2>Recent releases</h2>
   <ul class="history">
   {{range .History}}
     <li>
@@ -104,6 +104,7 @@ footer { padding: 8px 16px 40px; color: var(--muted); font-size: 0.9rem; }
     </li>
   {{end}}
   </ul>
+  {{if .MoreReleases}}<p><a href="https://github.com/{{.Repo}}/releases">Older releases on GitHub</a></p>{{end}}
 </section>
 </main>
 <footer class="wrap">Updated {{date .Built}}{{if .RunURL}} by <a href="{{.RunURL}}">this workflow run</a>{{end}}. Source on <a href="https://github.com/{{.Repo}}">GitHub</a>.</footer>

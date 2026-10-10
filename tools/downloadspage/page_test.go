@@ -59,6 +59,7 @@ func TestBuildPage(t *testing.T) {
 		wantErr    string
 		wantLatest []string
 		wantOrder  []string
+		wantMore   bool
 		wantAssets []string // download order on every latest card; nil: current archives
 	}{
 		{name: "latest per channel in channel order", releases: []ghRelease{nightly, oldStable, stable},
@@ -69,6 +70,13 @@ func TestBuildPage(t *testing.T) {
 		{name: "release without archives stays out of latest", releases: []ghRelease{stable, nightly, empty},
 			wantLatest: []string{"v0.9.9.stable", "v0.9.9.1.nightly"},
 			wantOrder:  []string{"v1.0.nightly", "v0.9.9.1.nightly", "v0.9.9.stable"}},
+		{name: "history lists the newest five, latest still reads all", releases: []ghRelease{testRelease("v0.9.7.stable", 5, allArchives...),
+			testRelease("v0.9.9.1.nightly", 21, allArchives...), testRelease("v0.9.9.2.nightly", 22, allArchives...),
+			testRelease("v0.9.9.3.nightly", 23, allArchives...), testRelease("v0.9.9.4.nightly", 24, allArchives...),
+			testRelease("v0.9.9.5.nightly", 25, allArchives...)},
+			wantLatest: []string{"v0.9.7.stable", "v0.9.9.5.nightly"},
+			wantOrder:  []string{"v0.9.9.5.nightly", "v0.9.9.4.nightly", "v0.9.9.3.nightly", "v0.9.9.2.nightly", "v0.9.9.1.nightly"},
+			wantMore:   true},
 		{name: "single channel only", releases: []ghRelease{nightly},
 			wantLatest: []string{"v0.9.9.1.nightly"}, wantOrder: []string{"v0.9.9.1.nightly"}},
 		{name: "legacy per-arch archives stay listed", releases: []ghRelease{oldStable},
@@ -103,8 +111,8 @@ func TestBuildPage(t *testing.T) {
 			for _, r := range p.History {
 				order = append(order, r.Tag)
 			}
-			if !slices.Equal(latest, tc.wantLatest) || !slices.Equal(order, tc.wantOrder) {
-				t.Fatalf("latest %v history %v, want %v and %v", latest, order, tc.wantLatest, tc.wantOrder)
+			if !slices.Equal(latest, tc.wantLatest) || !slices.Equal(order, tc.wantOrder) || p.MoreReleases != tc.wantMore {
+				t.Fatalf("latest %v history %v more %v, want %v and %v more %v", latest, order, p.MoreReleases, tc.wantLatest, tc.wantOrder, tc.wantMore)
 			}
 			want := tc.wantAssets
 			if want == nil {

@@ -1,8 +1,11 @@
 package game
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"ugataima/internal/character"
@@ -306,5 +309,141 @@ func TestHarvestPendingRepairSurvivesLoadWithoutBusySearch(t *testing.T) {
 	got := g.alchemy.Populations[id]
 	if len(got.Nodes) != 1 || got.Nodes[0].Relocate || got.Nodes[0].ID != node.ID || got.Nodes[0].Quantity != 2 {
 		t.Fatalf("load lost or refilled pending repair: %+v", got)
+	}
+}
+
+// A herb stands only on a tile that is harvest ground in whichever world mode
+// loads the save. The stitched world rewrites some cells (corridors, carved
+// opening layers, removed travel devices and gates): placement there is
+// refused, and a herb saved on such a cell is relocated with its identity,
+// stock and day. The oracle is the split map itself, not the stitch record.
+func TestHarvestTilesHoldInBothWorldModes(t *testing.T) {
+	t.Chdir("../..")
+	storage.SetDataRootForTesting(t.TempDir())
+	t.Cleanup(func() { storage.SetDataRootForTesting("") })
+	previous := config.GlobalAlchemySpawns
+	t.Cleanup(func() { config.GlobalAlchemySpawns = previous })
+	type cell struct {
+		m    string
+		x, y int
+	}
+	byTile := func(a, b cell) int {
+		return cmp.Or(strings.Compare(a.m, b.m), a.y-b.y, a.x-b.x)
+	}
+	enterRegion := func(g *MMGame, key string, cfg *config.Config) {
+		t.Helper()
+		g.party.Members[0] = character.CreateCharacter("Alchemist", character.ClassAlchemist, cfg)
+		if err := g.transitionToMap(mapTransition{mapKey: key, arrival: mapArrivalEntrance}); err != nil {
+			t.Fatal(err)
+		}
+		g.world.Monsters = nil
+		g.gameLoop.closeResourceLoading()
+		g.gameLoop.renderer = nil
+	}
+
+	// Stitched world: every tile the rule accepts, and one rewritten ground
+	// cell per region for the load repair.
+	g, wm, cfg := bootOpenWorldGame(t, true)
+	if _, err := config.LoadAlchemySpawns("assets/alchemy_spawns.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	occupied := g.harvestOccupied()
+	accepted := map[cell]bool{}
+	rewritten := map[string]cell{}
+	for ty := 0; ty < g.world.Height; ty++ {
+		for tx := 0; tx < g.world.Width; tx++ {
+			r := wm.OpenWorldRegionAtTile(tx, ty)
+			if r == nil {
+				continue
+			}
+			lx, ly := wm.LocalizeTile(r.MapKey, tx, ty)
+			c := cell{r.MapKey, lx, ly}
+			if g.harvestPlacementAllowed(r.MapKey, tx, ty) {
+				if !occupied[[2]int{tx, ty}] {
+					accepted[c] = true
+				}
+			} else if g.harvestGround(tx, ty) && !wm.SourceTile(r.MapKey, lx, ly) {
+				rewritten[r.MapKey] = c
+			}
+		}
+	}
+	pops := config.GlobalAlchemySpawns.Populations
+	i := slices.IndexFunc(pops, func(p config.HarvestPopulation) bool { _, ok := rewritten[p.Map]; return ok })
+	if i < 0 || len(accepted) == 0 {
+		t.Fatal("fixture: no harvest region has stitched ground next to accepted tiles")
+	}
+	p := pops[i]
+	id, reagent := p.Map+":"+p.Key, slices.Sorted(maps.Keys(p.Weights))[0]
+	var interior []cell
+	for c := range accepted {
+		if c.m == p.Map {
+			interior = append(interior, c)
+		}
+	}
+	slices.SortFunc(interior, byTile)
+	saved := []HarvestNode{
+		{ID: "rewritten", Key: reagent, Region: p.Map, Quantity: 2, X: rewritten[p.Map].x, Y: rewritten[p.Map].y},
+		{ID: "interior", Key: reagent, Region: p.Map, Quantity: 2, X: interior[0].x, Y: interior[0].y},
+	}
+	enterRegion(g, p.Map, cfg)
+	day := g.currentCalendarDay()
+	g.alchemy.Populations = map[string]HarvestPopulationState{id: {Day: day, Nodes: slices.Clone(saved)}}
+	g.harvestRuntime = harvestRuntime{}
+	finishRareHarvest(t, g)
+	got := g.alchemy.Populations[id]
+	if got.Day != day || len(got.Nodes) != 2 {
+		t.Fatalf("repair refilled or rewound the population: %+v", got)
+	}
+	moved, kept := got.Nodes[0], got.Nodes[1]
+	if moved.ID != "rewritten" || moved.Relocate || moved.Quantity != 2 || moved.X == saved[0].X && moved.Y == saved[0].Y {
+		t.Fatalf("herb on a rewritten cell was not relocated intact: %+v", moved)
+	}
+	if kept != saved[1] {
+		t.Fatalf("herb inside its map was disturbed: %+v", kept)
+	}
+
+	// Split world: the oracle for every accepted tile and the relocation, then
+	// the same save loaded here.
+	g2, wm2, cfg2 := bootOpenWorldGame(t, false)
+	if _, err := config.LoadAlchemySpawns("assets/alchemy_spawns.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	ts := float64(cfg2.GetTileSize())
+	splitHolds := func(c cell) bool {
+		w := wm2.LoadedMaps[c.m]
+		if w == nil {
+			t.Fatalf("split map %s is not loaded", c.m)
+		}
+		for _, n := range w.NPCs {
+			if n != nil && TileIndex(n.X, ts) == c.x && TileIndex(n.Y, ts) == c.y {
+				return false
+			}
+		}
+		current := g2.world
+		g2.world = w
+		defer func() { g2.world = current }()
+		return g2.harvestPlacementAllowed(c.m, c.x, c.y)
+	}
+	cells := slices.SortedFunc(maps.Keys(accepted), byTile)
+	for _, c := range cells {
+		if !splitHolds(c) {
+			t.Fatalf("%s local (%d,%d) takes a herb the split map cannot hold", c.m, c.x, c.y)
+		}
+	}
+	if splitHolds(rewritten[p.Map]) {
+		t.Fatalf("fixture: rewritten cell %+v is ordinary ground on the split map", rewritten[p.Map])
+	}
+	if !splitHolds(cell{p.Map, moved.X, moved.Y}) {
+		t.Fatalf("relocated herb landed on %+v, which the split map cannot hold", moved)
+	}
+	enterRegion(g2, p.Map, cfg2)
+	g2.alchemy.Populations = map[string]HarvestPopulationState{id: {Day: g2.currentCalendarDay(), Nodes: slices.Clone(saved)}}
+	g2.syncHarvestProps()
+	placed := func(nodeID string) bool {
+		return slices.ContainsFunc(g2.world.NPCs, func(n *character.NPC) bool { return n != nil && n.Key == nodeID })
+	}
+	split := g2.alchemy.Populations[id].Nodes
+	if !split[0].Relocate || placed("rewritten") || split[1].Relocate || !placed("interior") {
+		t.Fatalf("split load kept the rewritten herb or moved the interior one: %+v", split)
 	}
 }

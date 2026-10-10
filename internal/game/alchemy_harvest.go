@@ -73,11 +73,21 @@ func (g *MMGame) harvestOccupied() map[[2]int]bool {
 	}
 	return occupied
 }
-func (g *MMGame) harvestPlacementAllowed(x, y int) bool {
+
+// harvestPlacementAllowed is the ground rule for one herb tile of region, in
+// the current world's tiles. Herbs are saved map-local, so a cell the stitch
+// rewrote (corridor, carved opening, removed device or gate) is refused: in
+// the split world it is a wall, off the map or a travel device.
+func (g *MMGame) harvestPlacementAllowed(region string, x, y int) bool {
 	if !g.harvestGround(x, y) {
 		return false
 	}
-	if a := g.adventureConfig(currentMapKey()); a != nil && a.OpeningOwned {
+	if wm := world.GlobalWorldManager; wm != nil {
+		if lx, ly := wm.LocalizeTile(region, x, y); !wm.SourceTile(region, lx, ly) {
+			return false
+		}
+	}
+	if a := g.adventureConfig(region); a != nil && a.OpeningOwned {
 		for _, link := range a.JumpLinks {
 			if (x == link[0] && y == link[1]) || (x == link[2] && y == link[3]) {
 				return false
@@ -112,7 +122,7 @@ func (g *MMGame) advanceHarvestSearch(job *harvestSearch) bool {
 	for job.cursor < len(job.queue) && job.cursor < end {
 		p := job.queue[job.cursor]
 		job.cursor++
-		if g.harvestPlacementAllowed(p[0], p[1]) && !job.occupied[p] && p != job.start {
+		if g.harvestPlacementAllowed(job.region, p[0], p[1]) && !job.occupied[p] && p != job.start {
 			job.free = append(job.free, p)
 		}
 		// Closed interiors include their authored Jump and transport edges.
@@ -260,7 +270,7 @@ func (g *MMGame) updateAlchemyHarvest() {
 		for len(free) > 0 {
 			xy := free[len(free)-1]
 			free = free[:len(free)-1]
-			if occupied[xy] || !g.harvestPlacementAllowed(xy[0], xy[1]) {
+			if occupied[xy] || !g.harvestPlacementAllowed(region, xy[0], xy[1]) {
 				continue
 			}
 			occupied[xy] = true
@@ -322,6 +332,12 @@ func (g *MMGame) syncHarvestProps() {
 	g.world.NPCs = kept
 	ts := float64(g.config.GetTileSize())
 	buildings := g.buildingOccupiedTiles()
+	npcTiles := map[[2]int]bool{}
+	for _, n := range g.world.NPCs {
+		if n != nil {
+			npcTiles[[2]int{TileIndex(n.X, ts), TileIndex(n.Y, ts)}] = true
+		}
+	}
 	for _, p := range config.GlobalAlchemySpawns.Populations {
 		if !mapKeyOnCurrentWorld(p.Map) {
 			continue
@@ -338,9 +354,11 @@ func (g *MMGame) syncHarvestProps() {
 			if wm := world.GlobalWorldManager; wm != nil {
 				x, y = wm.ProjectTile(p.Map, x, y)
 			}
-			if buildings[[2]int{x, y}] {
-				// Preserve the remaining stock and its identity while repairing
-				// an old save or a newly occupied tile. Never rewind its day.
+			if buildings[[2]int{x, y}] || npcTiles[[2]int{x, y}] || !g.harvestPlacementAllowed(p.Map, x, y) {
+				// The saved tile is not harvest ground in the world just loaded:
+				// an old save, a newly occupied tile, or a cell the other world
+				// mode rewrites. Preserve the remaining stock and its identity
+				// while repairing. Never rewind its day.
 				node.Relocate = true
 			}
 			if node.Relocate {

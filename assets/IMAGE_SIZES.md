@@ -40,6 +40,7 @@ live in [content authoring](../docs/content-authoring.md) and the
 | --- | --- | --- | --- |
 | Item, weapon, armor, accessory, spell, trap, atlas and achievement icons | `sprites/interface/*` | 128x128 | Unframed art; the engine draws the frame (see `icon_frames.yaml`). Legacy 64x64 icons stay as they are. |
 | Small glyph icons | `sprites/interface/icons/` | 24x24 | |
+| HUD mode and domain icons | `sprites/interface/ui/` | 256x256 | `hud_mode_rt`/`hud_mode_tb` draw at 64x64, `hud_domain_<school>` at 48x48 (UI units, top right). Author on a black backing; `hud_icon_key.kage` keys it out at load. |
 | Hero portraits | `sprites/characters/heroes/` | 64x64 and 256x256 | `<hero>.png` for the party card, `<hero>_full.png` for the full portrait. |
 | Monster card art | `sprites/interface/cards/` | 1254x1254 | |
 | Camp and theme backgrounds | `sprites/interface/camping/`, `theme/` | 1536x1024 | |
