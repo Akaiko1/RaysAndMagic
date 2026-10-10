@@ -64,6 +64,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	// one's heading or focus identity (loading does NOT reload maps, so NPC
 	// pointers survive). One reset, after the journal has settled.
 	g.resetScreenBanners()
+	g.reconcileRestoredPursuit(wm)
 
 	// Restore played time by adjusting session start
 	if save.PlayedTimeNs > 0 {

@@ -86,7 +86,7 @@ func TestGorillaTitan_SummonsEscortUpToCap(t *testing.T) {
 // across the map from spawn - it goes relentless only after normal aggro (in its
 // alert radius / once hit). Contrast: a boss with AggroWholeMap (Golden Thief Bug)
 // chases from anywhere on activation.
-func TestGorillaTitan_NoMapWideAggroUntilEngaged(t *testing.T) {
+func TestGorillaTitan_AlwaysUsesFinitePursuit(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 5, 5, ts)
 
@@ -99,14 +99,14 @@ func TestGorillaTitan_NoMapWideAggroUntilEngaged(t *testing.T) {
 	}
 	gorilla.IsEngagingPlayer = true
 	game.refreshMonsterAIState()
-	if !gorilla.BossAggro {
-		t.Fatal("an engaged gorilla should relentlessly pursue")
+	if gorilla.BossAggro || gorilla.IsEngagingPlayer {
+		t.Fatal("an ordinary boss must disengage beyond its leash")
 	}
 	gorilla.IsEngagingPlayer = false
-	gorilla.WasAttacked = true // sticky once hit
+	gorilla.WasAttacked = true // Remember prior provocation.
 	game.refreshMonsterAIState()
-	if !gorilla.BossAggro {
-		t.Fatal("a struck gorilla should keep relentlessly pursuing")
+	if gorilla.BossAggro || gorilla.TargetsParty() {
+		t.Fatal("remembering a hit must not restart distant pursuit")
 	}
 }
 

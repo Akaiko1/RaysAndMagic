@@ -1,0 +1,131 @@
+# Sparse miniatures over live terrain and NPC positions. Unlisted terrain
+# keeps its map ink. Natural cliffs and foliage use their own symbols.
+portal_icon: atlas_portal
+legend_icons:
+  town: atlas_town
+  people: atlas_person
+  objects: atlas_chest
+prop_shapes:
+  thieves_guild: atlas_town
+  campfire: atlas_campfire
+  crates: atlas_crates
+npc_types:
+  thieves_guild: atlas_town
+  loot_crate: atlas_chest
+  spell_lectern: atlas_book
+  door: atlas_portal
+render_categories:
+  npc: atlas_person
+  wall_mounted: atlas_shrine
+  door: atlas_portal
+  landmark: atlas_portal
+  wide_landmark: atlas_portal
+  scenery: atlas_shrine
+  invisible: atlas_shrine
+tiles:
+  tree: atlas_tree
+  ancient_tree: atlas_tree
+  palm_tree: atlas_tree
+  nomad_palm_planter: atlas_tree
+  castle_bonsai: atlas_tree
+  sakura_tree_large: atlas_tree
+  sakura_tree_cluster: atlas_tree
+  sakura_tree_weeping: atlas_tree
+  sakura_bamboo_thicket: atlas_tree
+  sakura_red_maple: atlas_tree
+  sakura_azalea_shrub: atlas_tree
+  jungle_vine_tree: atlas_tree
+  jungle_palm: atlas_tree
+  elf_sapling: atlas_tree
+  highlands_pine: atlas_tree
+  dragon_cliffs_wind_pine: atlas_tree
+  solstice_fire_wall: atlas_wall
+  solstice_water_wall: atlas_wall
+  solstice_earth_wall: atlas_wall
+  solstice_vestibule_wall: atlas_wall
+  solstice_air_wall: atlas_wall
+  solstice_fire_service_wall: atlas_wall
+  solstice_water_service_wall: atlas_wall
+  solstice_earth_service_wall: atlas_wall
+  solstice_vestibule_service_wall: atlas_wall
+  solstice_air_service_wall: atlas_wall
+  wall: atlas_wall
+  thicket: atlas_tree
+  oob_cliff: atlas_rock
+  church_wall: atlas_wall
+  arena_wall: atlas_wall
+  arena_corridor_wall: atlas_wall
+  pyramid_wall: atlas_wall
+  lich_nexus_wall: atlas_wall
+  culverts_wall: atlas_wall
+  culverts_wall_1: atlas_wall
+  culverts_wall_2: atlas_wall
+  culverts_wall_3: atlas_wall
+  japanese_castle_wall: atlas_wall
+  japanese_castle_wall_1: atlas_wall
+  japanese_castle_wall_2: atlas_wall
+  japanese_castle_wall_3: atlas_wall
+  sakura_garden_wall: atlas_wall
+  sakura_garden_wall_1: atlas_wall
+  sakura_garden_wall_2: atlas_wall
+  sakura_garden_wall_3: atlas_wall
+  sakura_sacred_rock: atlas_rock
+  sakura_moss_outcrop: atlas_rock
+  jungle_wall_foliage: atlas_tree
+  jungle_wall_ruin: atlas_wall
+  jungle_wall_trunk: atlas_tree
+  jungle_wall_cliff: atlas_rock
+  city_wall: atlas_wall
+  city_house_0: atlas_wall
+  city_house_1: atlas_wall
+  city_house_2: atlas_wall
+  city_house_3: atlas_wall
+  city_house_4: atlas_wall
+  city_house_5: atlas_wall
+  city_shop_weapon: atlas_wall
+  city_shop_potions: atlas_wall
+  city_shop_spells: atlas_wall
+  city_shop_trainer: atlas_wall
+  city_gate_wall: atlas_wall
+  elf_city_wall: atlas_wall
+  elf_city_wall_1: atlas_wall
+  elf_city_wall_2: atlas_wall
+  elf_city_wall_3: atlas_wall
+  nomad_city_wall: atlas_wall
+  nomad_city_wall_1: atlas_wall
+  nomad_city_wall_2: atlas_wall
+  nomad_city_wall_3: atlas_wall
+  highlands_cliff: atlas_rock
+  highlands_granite: atlas_rock
+  highlands_ruin_wall: atlas_wall
+  highlands_slate_wall: atlas_wall
+  highlands_rock_outcrop: atlas_rock
+  highlands_boulder: atlas_rock
+  dragon_cliffs_cliff: atlas_rock
+  dragon_cliffs_basalt_wall: atlas_wall
+  dragon_cliffs_ruin_wall: atlas_wall
+  dragon_cliffs_slate_wall: atlas_wall
+  dragon_cliffs_rock_outcrop: atlas_rock
+  dragon_cliffs_boulder: atlas_rock
+  dragon_cliffs_dragon_bones: atlas_rock
+  forest_portal_rock: atlas_rock
+  moss_rock: atlas_rock
+  desert_dune: atlas_rock
+  large_dune: atlas_rock
+  coral_reef: atlas_tree
+  large_coral: atlas_tree
+  low_wall: atlas_wall
+  high_wall: atlas_wall
+  clocktower_gearstone_wall: atlas_wall
+  clocktower_pipework_wall: atlas_wall
+  clocktower_timber_wall: atlas_wall
+  clocktower_plaster_wall: atlas_wall
+
+# Town markers follow the actual entrance NPCs, including stitched maps.
+npcs:
+  seabright_gate: atlas_town
+  silverbough_gate: atlas_town
+  dunehold_gate: atlas_town
+
+# The runtime boss classification and living roster decide where this appears.
+boss_icon: atlas_boss

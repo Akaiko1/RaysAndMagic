@@ -17,7 +17,7 @@ func TestMonsterAndNPCSpritesHaveNoNearCull(t *testing.T) {
 	game.camera.ViewDist = game.config.GetViewDistance()
 	x, y := game.camera.X+2, game.camera.Y
 
-	if _, _, _, visible := game.renderHelper.CalculateMonsterSpriteMetrics(x, y, 2, 1); !visible {
+	if _, _, _, visible := game.renderHelper.CalculateMonsterSpriteMetricsF(x, y, 2, 1); !visible {
 		t.Fatal("monster sprite was near-culled")
 	}
 	npc := &character.NPC{RenderCategory: "scenery", SizeClass: "full_tile"}

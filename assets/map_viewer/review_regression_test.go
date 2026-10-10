@@ -41,10 +41,6 @@ func TestSavedItemAccentUsesTypeWithoutRarity(t *testing.T) {
 }
 
 func TestMobInfoScrollRetainsFractionalWheelInput(t *testing.T) {
-	original := mobsPage
-	t.Cleanup(func() { mobsPage = original })
-	mobsPage.info = make([]infoLine, 20)
-	mobsPage.infoCapacity = 10
 	for _, tc := range []struct {
 		name   string
 		start  float64
@@ -60,12 +56,12 @@ func TestMobInfoScrollRetainsFractionalWheelInput(t *testing.T) {
 		{"resize clamps", 15, []float64{0}, 10},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			mobsPage.infoOffset = tc.start
+			offset := tc.start
 			for _, delta := range tc.deltas {
-				scrollMobInfo(delta)
+				offset = scrollCatalogRows(offset, delta, 20, 10)
 			}
-			if math.Abs(mobsPage.infoOffset-tc.want) > 1e-8 {
-				t.Fatalf("offset=%v want=%v", mobsPage.infoOffset, tc.want)
+			if math.Abs(offset-tc.want) > 1e-8 {
+				t.Fatalf("offset=%v want=%v", offset, tc.want)
 			}
 		})
 	}

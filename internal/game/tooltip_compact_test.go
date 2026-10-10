@@ -29,7 +29,7 @@ func TestTooltipCompactKeepsResultsFullAddsBreakdown(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	item := func(it items.Item, bearer *character.MMCharacter, cs *CombatSystem) func(*testing.T) (string, string) {
 		return func(*testing.T) (string, string) {
-			return GetItemTooltip(it, bearer, cs, false), GetItemTooltip(it, bearer, cs, true)
+			return GetItemTooltipRows(it, bearer, cs, false).String(), GetItemTooltipRows(it, bearer, cs, true).String()
 		}
 	}
 	yamlItem := func(key string) items.Item {
@@ -86,7 +86,7 @@ func TestTooltipCompactKeepsResultsFullAddsBreakdown(t *testing.T) {
 				sg.combat = NewCombatSystem(sg)
 				caster := character.CreateCharacter("Lys", character.ClassSorcerer, cfg)
 				sg.party.Members[0] = caster
-				return GetSpellTooltip("fireball", caster, sg.combat, false), GetSpellTooltip("fireball", caster, sg.combat, true)
+				return GetSpellTooltipRows("fireball", caster, sg.combat, false).String(), GetSpellTooltipRows("fireball", caster, sg.combat, true).String()
 			},
 			compact:      []string{"Cost:", "Cooldown:", "Total Damage:"},
 			compactHides: []string{"Base ("},
@@ -258,8 +258,8 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 			if tt.shop {
 				bearer = nil
 			}
-			full := GetItemTooltip(weapon, bearer, cs, true)
-			compact := GetItemTooltip(weapon, bearer, cs, false)
+			full := GetItemTooltipRows(weapon, bearer, cs, true).String()
+			compact := GetItemTooltipRows(weapon, bearer, cs, false).String()
 
 			want := tt.want
 			if tt.baseCooldown {

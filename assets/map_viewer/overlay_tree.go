@@ -8,10 +8,12 @@ import (
 func (v *viewer) overlayTree(d *overlayDocument) ([]overlayWidget, int) {
 	p := &v.overlay
 	var rows []overlayWidget
-	y := 90
+	track := v.overlayGeometry().treeTrack
+	y := track.y
+	bottom := track.y + track.h
 	add := func(label, kind string, index, depth int) {
 		r := rect{12 + depth*16, y - p.treeScroll, 214 - depth*16, 28}
-		if r.y >= 80 && r.y+r.h <= 706 {
+		if r.y >= 80 && r.y+r.h <= bottom {
 			rows = append(rows, overlayWidget{r: r, text: label, kind: "tree", active: p.section == kind && p.selected == index, help: "Select to edit. Indented rows belong to their parent.", action: func() { v.overlaySelect(kind, index) }})
 		}
 		y += 32
@@ -23,7 +25,7 @@ func (v *viewer) overlayTree(d *overlayDocument) ([]overlayWidget, int) {
 			mark = "> "
 		}
 		r := rect{12, y - p.treeScroll, 214, 32}
-		if r.y >= 80 && r.y+r.h <= 706 {
+		if r.y >= 80 && r.y+r.h <= bottom {
 			rows = append(rows, overlayWidget{r: r, kind: "heading", text: fmt.Sprintf("%s%s (%d)", mark, strings.ToUpper(label), count), help: "Expand or collapse this group.", action: func() {
 				if p.collapsed == nil {
 					p.collapsed = map[string]bool{}
@@ -90,7 +92,7 @@ func (v *viewer) overlayTree(d *overlayDocument) ([]overlayWidget, int) {
 			add(fmt.Sprintf("Jump link %d", i+1), "link", i, 1)
 		}
 	}
-	return rows, max(0, y-706)
+	return rows, max(0, y-bottom)
 }
 
 func (v *viewer) overlayFocusNext(d *overlayDocument, reverse bool) {
@@ -109,12 +111,13 @@ func (v *viewer) overlayFocusNext(d *overlayDocument, reverse bool) {
 			continue
 		}
 		v.overlay.fieldFocus = index
-		rows, _ := overlayInspectorRows(fields, v.overlay.fieldScroll)
+		rows, _ := v.overlayInspectorRows(fields, v.overlay.fieldScroll)
 		r := rows[index].r
-		if r.y < overlayInspectorTop {
-			v.overlay.fieldScroll -= overlayInspectorTop - r.y
+		view := v.overlayGeometry().fields
+		if r.y < view.y {
+			v.overlay.fieldScroll -= view.y - r.y
 		}
-		if end := overlayInspectorTop + overlayInspectorHeight; r.y+r.h > end {
+		if end := view.y + view.h; r.y+r.h > end {
 			v.overlay.fieldScroll += r.y + r.h - end
 		}
 		return

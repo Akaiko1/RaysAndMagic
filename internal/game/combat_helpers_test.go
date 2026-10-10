@@ -1,10 +1,17 @@
 package game
 
 import (
+	"image/color"
+	"maps"
+	"slices"
+
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
+	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 func (cs *CombatSystem) countCardSummons() int {
@@ -61,4 +68,77 @@ func (gl *GameLoop) monsterAttackFoeTurnBased(attacker, foe *monsterPkg.Monster3
 	if foe != nil {
 		gl.game.combat.commitMonsterAttack(attacker, monsterAttackDestination{foe: foe}, monsterAttackTurn)
 	}
+}
+
+// GetCombatMessages returns the HUD combat-message texts (most recent last).
+// The HUD itself draws from the cached line list (combatLogVersion).
+func (g *MMGame) GetCombatMessages() []string {
+	hud := g.hudLog()
+	out := make([]string, len(hud))
+	for i, e := range hud {
+		out[i] = e.Text
+	}
+	return out
+}
+
+// GetCombatMessageColor returns the display color for HUD row index (aligned
+// with GetCombatMessages).
+func (g *MMGame) GetCombatMessageColor(index int) color.Color {
+	hud := g.hudLog()
+	if index < 0 || index >= len(hud) {
+		return color.White
+	}
+	return hud[index].Color
+}
+
+func (reg *renderResourceRegistry) estimatedGPUBytes() int64 {
+	var bytes int64
+	for img := range reg.allocations {
+		b := img.Bounds()
+		bytes += int64(b.Dx()) * int64(b.Dy()) * 4
+	}
+	return bytes
+}
+
+func inventoryBagUnits(b character.InventoryBag) int {
+	n := 0
+	for _, it := range b.Items() {
+		n += it.Count()
+	}
+	return n
+}
+
+// createArrowAttack fires along the party's own aim, as a plain ranged attack.
+func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, label string) bool {
+	return cs.createArrowAttackAimed(damage, slot, label, cs.partyAttackAngle(), false)
+}
+
+func (r *Renderer) collectMapRenderPrewarmPlan(mapKey string) mapRenderPrewarmPlan {
+	return r.collectMapRenderPrewarmPlanForScope(r.mapRenderPrewarmScope(mapKey))
+}
+
+func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmScope) mapRenderPrewarmPlan {
+	plan, _ := r.collectMapRenderPrewarmPlanAndPriorities(scope)
+	return plan
+}
+
+func alchemyRecipeByKey(key string) *config.AlchemyRecipe {
+	if config.GlobalAlchemy != nil {
+		for i := range config.GlobalAlchemy.Recipes {
+			if config.GlobalAlchemy.Recipes[i].Key == key {
+				return &config.GlobalAlchemy.Recipes[i]
+			}
+		}
+	}
+	return nil
+}
+
+func allTileKeys(tm *world.TileManager) []string {
+	return slices.Collect(maps.Keys(tm.ListTiles()))
+}
+
+// takeDamageParts is the monster half of a hit alone: resistance and soak, no
+// target armor. Game code goes through applyMonsterDamagePacket.
+func takeDamageParts(m *monsterPkg.Monster3D, parts damagecalc.Parts, damageType monsterPkg.DamageType, resistPiercePct int) int {
+	return m.TakeDamagePacket([]monsterPkg.DamageComponent{{Parts: parts, DamageType: damageType, ResistPiercePct: resistPiercePct}}).Total()
 }

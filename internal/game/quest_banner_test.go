@@ -62,7 +62,7 @@ func TestQuestBannerFollowsTheQuestLifecycle(t *testing.T) {
 	}
 
 	for kill := 1; kill < def.TargetCount; kill++ {
-		g.questManager.OnMonsterKilled(def.TargetMonster, "")
+		g.questManager.OnMonsterKilledFromSource(def.TargetMonster, "", "")
 		want := fmt.Sprintf("%s  %d/%d", name, kill, def.TargetCount)
 		if got := bannerTexts(g); len(got) != 1 || got[0] != want {
 			t.Fatalf("kill %d = %v, want the counter banner %q", kill, got, want)
@@ -70,7 +70,7 @@ func TestQuestBannerFollowsTheQuestLifecycle(t *testing.T) {
 	}
 
 	// The last kill completes it: the finish is the news, not the counter.
-	g.questManager.OnMonsterKilled(def.TargetMonster, "")
+	g.questManager.OnMonsterKilledFromSource(def.TargetMonster, "", "")
 	got := bannerTexts(g)
 	if len(got) != 1 || got[0] != "Quest complete - "+name {
 		t.Fatalf("completing kill = %v, want one \"Quest complete\" banner", got)

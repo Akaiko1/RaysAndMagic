@@ -77,7 +77,7 @@ func TestEquipmentComparisonCatalog(t *testing.T) {
 						oldResists[school.String()] = cs.game.schoolResistPct(ch, school.String())
 					}
 
-					text := GetItemComparisonTooltip(candidate, ch, cs)
+					text := GetItemComparisonTooltipRows(candidate, ch, cs).String()
 					afterJSON, _ := json.Marshal(ch)
 					if string(beforeJSON) != string(afterJSON) {
 						t.Fatal("preview mutated the live character")
@@ -174,7 +174,7 @@ func TestEquipmentComparisonDestinations(t *testing.T) {
 				ch.Equipment[slot] = create(key)
 			}
 			item := create(tc.key)
-			text := GetItemComparisonTooltip(item, ch, cs)
+			text := GetItemComparisonTooltipRows(item, ch, cs).String()
 			if !strings.HasPrefix(text, tc.label) {
 				t.Fatalf("wrong destination: %s", text)
 			}
@@ -224,7 +224,7 @@ func TestEquipmentComparisonCompletedSets(t *testing.T) {
 					if ch.HasCompletedEquipmentSet(key) {
 						continue
 					}
-					text := GetItemComparisonTooltip(piece, ch, cs)
+					text := GetItemComparisonTooltipRows(piece, ch, cs).String()
 					minW, minH := MinimumWindowSize()
 					_, height := tooltipBoxSizeForScreen(strings.Split(text, "\n"), nil, false, 0, minW/2-tooltipCompareGap, minH)
 					if height > minH {
@@ -243,7 +243,7 @@ func TestEquipmentComparisonCompletedSets(t *testing.T) {
 						}
 					}
 					replacement := items.Item{Type: piece.Type, Name: "Plain test replacement", Attributes: map[string]int{"equip_slot": int(slot)}}
-					text = GetItemComparisonTooltip(replacement, ch, cs)
+					text = GetItemComparisonTooltipRows(replacement, ch, cs).String()
 					if !strings.Contains(text, "Set lost: "+set.Name) {
 						t.Fatalf("missing loss: %s", text)
 					}
@@ -264,7 +264,7 @@ func TestEquipmentComparisonMechanicsAndContext(t *testing.T) {
 		item := items.CreateItemFromYAML(key)
 		def, _, _ := config.GetItemDefinitionByName(item.Name)
 		ch.Equipment = map[items.EquipSlot]items.Item{}
-		text := GetItemComparisonTooltip(item, ch, cs)
+		text := GetItemComparisonTooltipRows(item, ch, cs).String()
 		want := def.ItemMechanicLines()
 		if line := def.PartyArmorLine(); line != "" {
 			want = append(want, line)
@@ -277,7 +277,7 @@ func TestEquipmentComparisonMechanicsAndContext(t *testing.T) {
 		slot, _ := ch.EquipDestination(item)
 		ch.Equipment[slot] = item
 		plain := items.Item{Type: item.Type, Name: "Plain replacement", Attributes: map[string]int{"equip_slot": int(slot)}}
-		text = GetItemComparisonTooltip(plain, ch, cs)
+		text = GetItemComparisonTooltipRows(plain, ch, cs).String()
 		for _, line := range want {
 			if !strings.Contains(text, "Lose: "+line) {
 				t.Errorf("%s missing loss %s", key, line)
@@ -298,7 +298,7 @@ func TestEquipmentComparisonMechanicsAndContext(t *testing.T) {
 		t.Fatal("preview changed party membership")
 	}
 	ch.Skills = nil
-	if text := GetItemComparisonTooltip(items.CreateItemFromYAML("golden_armor"), ch, cs); !strings.Contains(text, "Cannot equip: requirements not met") {
+	if text := GetItemComparisonTooltipRows(items.CreateItemFromYAML("golden_armor"), ch, cs).String(); !strings.Contains(text, "Cannot equip: requirements not met") {
 		t.Fatal("missing eligibility warning")
 	}
 }
@@ -318,8 +318,8 @@ func TestEquipmentComparisonWeaponCatalog(t *testing.T) {
 				candidate := items.CreateWeaponFromYAML(key)
 				before := cs.calculateWeaponDamagePreview(ch.Equipment[items.SlotMainHand], ch)
 				oldCrit := cs.CalculateWeaponCritChance(ch.Equipment[items.SlotMainHand], ch)
-				text := GetItemComparisonTooltip(candidate, ch, cs)
-				main := GetItemTooltip(candidate, ch, cs, false)
+				text := GetItemComparisonTooltipRows(candidate, ch, cs).String()
+				main := GetItemTooltipRows(candidate, ch, cs, false).String()
 				if _, _, ok := ch.EquipItem(candidate); !ok {
 					t.Fatal("equip refused")
 				}
@@ -348,7 +348,7 @@ func TestItemCardUsesEquippedScaling(t *testing.T) {
 	comparisonTestHero(ch)
 	ch.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
 	candidate := items.CreateItemFromYAML("onryo_lamellar")
-	card := GetItemTooltip(candidate, ch, cs, false)
+	card := GetItemTooltipRows(candidate, ch, cs, false).String()
 	if _, _, ok := ch.EquipItem(candidate); !ok {
 		t.Fatal("equip refused")
 	}
@@ -361,7 +361,7 @@ func TestItemCardUsesEquippedScaling(t *testing.T) {
 	ring := items.CreateItemFromYAML("magic_ring")
 	ch.Equipment[items.SlotRing2] = ring
 	before, _ := json.Marshal(ch)
-	_ = GetItemTooltip(ring, ch, cs, true)
+	_ = GetItemTooltipRows(ring, ch, cs, true).String()
 	after, _ := json.Marshal(ch)
 	if string(before) != string(after) {
 		t.Fatal("equipped card changed the character")

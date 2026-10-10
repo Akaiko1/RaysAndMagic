@@ -8,25 +8,17 @@ import (
 
 // The live flying anchor and corpse use the same projection. Gravity moves the
 // anchor down to the ground over FallSeconds; fading only starts after landing.
-func monsterFlyingBottom(screenHeight int, groundBottom, size float64) float64 {
-	horizon := float64(screenHeight) / 2
+func monsterFlyingBottom(horizon, groundBottom, size float64) float64 {
 	// Keep small flyers centered on the horizon, but never let a large
 	// sprite's lower edge sink beneath its projected ground contact.
 	return math.Min(horizon+size/2, (horizon+groundBottom)/2)
 }
 
-func (g *MMGame) corpseBottom(c *monsterCorpse, groundBottom, size float64) float64 {
-	if !c.flying && c.arborealHeight <= 0 {
-		return groundBottom
-	}
+func (g *MMGame) corpseBottom(c *monsterCorpse, depth, groundBottom, size float64) float64 {
 	age := float64(g.frameCount-c.started) / float64(g.config.GetTPS())
 	t := math.Max(0, math.Min(1, age/g.monsterDeathSettings().FallSeconds))
-	airBottom := monsterFlyingBottom(g.worldHeight(), groundBottom, size)
-	if c.arborealHeight > 0 {
-		pixelsPerTile := 2 * (groundBottom - float64(g.worldHeight())/2)
-		airBottom = arborealBottom(groundBottom, pixelsPerTile, c.arborealHeight)
-	}
-	return airBottom + (groundBottom-airBottom)*t*t
+	a := monsterVisualAnchor{sizeTiles: c.sizeTiles, heightTiles: c.arborealHeight, flying: c.flying}
+	return a.bottomDuringFall(g, depth, groundBottom, size, t)
 }
 
 func (r *Renderer) collectMonsterCorpses(sprites []UnifiedSpriteRenderData, camX, camY, dirX, dirY, viewDistSq float64) []UnifiedSpriteRenderData {
@@ -48,7 +40,7 @@ func (r *Renderer) collectMonsterCorpses(sprites []UnifiedSpriteRenderData, camX
 		if !visible {
 			continue
 		}
-		bottom = r.game.corpseBottom(c, bottom, size)
+		bottom = r.game.corpseBottom(c, depth, bottom, size)
 		sprites = append(sprites, UnifiedSpriteRenderData{spriteType: SpriteTypeMonsterCorpse,
 			screenX: int(sx), screenY: int(bottom - size), spriteSize: int(size), screenXF: sx, bottomF: bottom, sizeF: size,
 			depthPerp: depth, distance: distance, sprite: anim.Frames[min(frame, len(anim.Frames)-1)], corpse: c})
@@ -67,7 +59,7 @@ func (r *Renderer) drawMonsterCorpse(screen *ebiten.Image, s UnifiedSpriteRender
 	if r.game.config.Graphics.Standee.Enabled {
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", c.key), s.sprite, true)
 		slab, ok := r.prepareStandeeSlab(s.sprite, key, c.x, c.y, c.yaw, s.depthPerp, s.sizeF, s.bottomF,
-			rr, gg, bb, false, c.mirror, 0, r.standeeSurfaces[:0])
+			rr, gg, bb, false, c.mirror, 0, r.standeeSurfaces[:0], -1)
 		if ok {
 			// Fade a single visible face: translucent wood shells would accumulate
 			// alpha and keep the body opaque until the last instant.
@@ -87,5 +79,5 @@ func (r *Renderer) drawMonsterCorpse(screen *ebiten.Image, s UnifiedSpriteRender
 	opts := r.scaledWorldSpriteOpts(sx, sy)
 	opts.GeoM.Translate(left, s.bottomF-s.sizeF)
 	opts.ColorScale.Scale(rr, gg, bb, alpha)
-	screen.DrawImage(s.sprite, opts)
+	worldDrawImage(screen, s.sprite, opts)
 }

@@ -1,7 +1,7 @@
 techniques:
   - key: fold_step
     name: Fold Step
-    description: "Step forward at least 3 tiles. Can cross open gaps, but needs solid footing to land. Cannot cross walls, doors or transitions. Later Folds keep the first departure anchor and refresh its timer. No action cost or extra monster turn. Shares its reuse lock with Return Step."
+    description: "Cross open gaps and land on solid ground. Walls, doors and exits block the step. Repeated steps keep the original return point and refresh its lifetime."
     icon: icon_technique_fold_step
     level: 1
     sp_cost: [8, 7, 6, 5]
@@ -12,7 +12,7 @@ techniques:
     reuse_seconds: 3
   - key: phase_veil
     name: Phase Veil
-    description: "Briefly increase the whole party's dodge chance. Costs one action in turn-based combat."
+    description: "A shimmer of displaced air helps the party slip past incoming blows."
     trigger: "Engaged, and either two enemies within 2 tiles or a living ally below 35% HP."
     icon: icon_technique_phase_veil
     level: 1
@@ -33,8 +33,8 @@ techniques:
     automatic: true
   - key: quickening
     name: Quickening
-    description: "RT: reduce future recovery. TB: add shared bonus actions every round from the next one while it lasts, at most one extra per eligible hero."
-    trigger: "Engaged, Quickening absent, and the party can benefit in the current mode."
+    description: "RT: faster recovery for new actions. TB: extra actions from next round, at most one per hero able to act."
+    trigger: "In combat, not already quickened, and able to benefit."
     icon: icon_technique_quickening
     level: 4
     sp_cost: [12, 12, 12, 12]
@@ -45,7 +45,7 @@ techniques:
     automatic: true
   - key: return_step
     name: Return Step
-    description: "Return to the first Fold Step departure point from ANY distance on the same map, even across walls. The anchor must be active and its exact landing clear. No action cost or extra monster turn. Shares the party's spatial reuse lock."
+    description: "Return to the first Fold Step departure point from any distance in the same area, even across walls. The return point must still be active and clear."
     icon: icon_technique_return_step
     level: 6
     sp_cost: [6, 5, 4, 3]

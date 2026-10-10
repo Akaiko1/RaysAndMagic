@@ -1,11 +1,14 @@
 package game
 
-import "math"
+import (
+	"math"
+	"ugataima/internal/monster"
+)
 
 // Ability activation feedback is distinct from the weapon's ordinary attack.
 // These particles use the shared presentation clock and wall-depth clipping.
-func (g *MMGame) createElementalAbilityImpact(x, y float64, school string) {
-	fx := SpellHitEffect{Active: true}
+func (g *MMGame) createElementalAbilityImpact(x, y float64, school string, target *monster.Monster3D) {
+	fx := SpellHitEffect{Active: true, Anchor: visualAnchorFor(target)}
 	life := max(36, int(math.Round(float64(g.config.GetTPS())*.8)))
 	for i := 0; i < 18; i++ {
 		a := float64(i) * math.Pi * 2 / 18

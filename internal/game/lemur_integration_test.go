@@ -163,11 +163,11 @@ func TestLemurPrewarmAndDropContract(t *testing.T) {
 	}
 	c := &monsterCorpse{arborealHeight: 1.2, sizeTiles: .35, started: g.frameCount}
 	ground, size := float64(g.config.GetScreenHeight())/2+50, 35.0
-	if got := g.corpseBottom(c, ground, size); math.Abs(got-(ground-120)) > .01 {
+	if got := g.corpseBottom(c, g.viewFocal()*g.config.GetTileSize()/(2*(ground-g.viewHorizon())), ground, size); math.Abs(got-(ground-120)) > .01 {
 		t.Fatalf("canopy death starts on floor: %.2f", got)
 	}
 	g.frameCount += int64(g.config.GetTPS()) * 3
-	if got := g.corpseBottom(c, ground, size); got != ground {
+	if got := g.corpseBottom(c, g.viewFocal()*g.config.GetTileSize()/(2*(ground-g.viewHorizon())), ground, size); got != ground {
 		t.Fatalf("canopy corpse did not fall: %.2f", got)
 	}
 }

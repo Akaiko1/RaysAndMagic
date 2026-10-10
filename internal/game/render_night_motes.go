@@ -75,8 +75,7 @@ func (f nightMote) pose(tick int64, tileSize float64) (nightMotePose, bool) {
 
 	fadeIn := math.Min(1, progress/0.10)
 	fadeOut := math.Min(1, (1-progress)/0.22)
-	flicker := 0.78 + 0.22*math.Sin(float64(tick)*0.17+f.phase*2.3)
-	return nightMotePose{x: x, y: y, heightTiles: height, alpha: fadeIn * fadeOut * flicker}, true
+	return nightMotePose{x: x, y: y, heightTiles: height, alpha: fadeIn * fadeOut}, true
 }
 
 func (r *Renderer) resetNightMotes() {
@@ -284,10 +283,11 @@ func (r *Renderer) spawnNightMote(tick int64, chosen *TransparentSpriteData, cur
 }
 
 type nightMoteDraw struct {
-	x, y               float64
-	glowSize, coreSize float64
-	alpha              float64
-	palette            nightMotePalette
+	x, y     float64
+	glowSize float64
+	alpha    float64
+	palette  nightMotePalette
+	phase    float64
 }
 
 func (r *Renderer) nightMoteHasLineOfSight(x, y float64) bool {
@@ -300,7 +300,7 @@ func (r *Renderer) drawNightMotes(screen *ebiten.Image) {
 		return
 	}
 	tileSize := float64(r.game.config.GetTileSize())
-	screenH := float64(r.game.worldHeight())
+	screenH := r.game.viewFocal()
 	maxDepth := r.nightMoteMaxDepth()
 	draws := r.nightMoteDraws[:0]
 	for _, mote := range r.nightMotes {
@@ -323,14 +323,13 @@ func (r *Renderer) drawNightMotes(screen *ebiten.Image) {
 		}
 		// Ground is 0.5 tiles below eye level. Lift the mote by its authored
 		// hover height using the same perspective relation as spell particles.
-		screenY := screenH/2 + (0.5-pose.heightTiles)*tileSize*screenH/depth
+		screenY := r.game.viewHorizon() + (0.5-pose.heightTiles)*tileSize*screenH/depth
 		glowSize := tileSize * 0.075 * screenH / depth * mote.sizeScale
 		if glowSize < 3 {
 			glowSize = 3
 		} else if glowSize > 18 {
 			glowSize = 18
 		}
-		coreSize := math.Max(1.25, glowSize*0.16)
 		distanceAlpha := 1 - depth/maxDepth
 		alpha := pose.alpha * distanceAlpha
 		if alpha <= 0.01 {
@@ -338,18 +337,16 @@ func (r *Renderer) drawNightMotes(screen *ebiten.Image) {
 		}
 		draws = append(draws, nightMoteDraw{
 			x: float64(screenX), y: screenY,
-			glowSize: glowSize, coreSize: coreSize,
-			alpha:   alpha,
-			palette: mote.palette,
+			glowSize: glowSize,
+			alpha:    alpha,
+			palette:  mote.palette,
+			phase:    mote.phase,
 		})
 	}
 	r.nightMoteDraws = draws
 	for i := range draws {
 		d := &draws[i]
-		r.drawGlowSprite(screen, d.x, d.y, d.glowSize, d.palette.glow, 0.58*d.alpha, additiveGlowBlend)
-	}
-	for i := range draws {
-		d := &draws[i]
-		r.drawGlowRect(screen, d.x, d.y, d.coreSize, d.palette.core, d.alpha, additiveGlowBlend)
+		phase := d.phase
+		r.drawFirefly(screen, d.x, d.y, d.glowSize, d.alpha*fireflyPulse(r.weaponMaterialClock(), phase), r.weaponMaterialClock()*53+phase, d.palette.glow, d.palette.core)
 	}
 }

@@ -174,7 +174,7 @@ func (g *MMGame) detonateBossFireTrap(owner *monsterPkg.Monster3D) {
 		return
 	}
 	g.logCombat(logToneBad, "The ground erupts in %s!", logSchoolWord(monsterPkg.DamageFire.String(), "brood-fire"))
-	g.CreateSpellHitEffect(g.camera.X, g.camera.Y, "fire", 26, 9)
+	g.CreateSpellHitEffect(g.camera.X, g.camera.Y, "fire", 26, 9, nil)
 	g.addScreenShake(3, 5)
 	// The field carries authored trap damage only, not the owner's true_damage.
 	hit := monsterCharacterHit{

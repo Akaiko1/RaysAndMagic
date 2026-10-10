@@ -2,12 +2,101 @@ package game
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
+	"ugataima/internal/graphics"
 	"ugataima/internal/quests"
 )
+
+func TestQuestActionUsesNPCReplies(t *testing.T) {
+	loadTestConfig(t)
+	previousNPCs, previousQuests := character.NPCConfigInstance, quests.GlobalQuestManager
+	t.Cleanup(func() { character.NPCConfigInstance, quests.GlobalQuestManager = previousNPCs, previousQuests })
+	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	dialogue := character.NPCConfigInstance.NPCs["mage_tower"].Dialogue
+	words := dialogue.QuestMessages["archmage_trial"]
+	for _, tc := range []struct {
+		name, action, want          string
+		active, completed           bool
+		promotion                   character.Promotion
+		questID                     string
+		minLevel                    int
+		unknown, noReply, noManager bool
+	}{
+		{name: "accepted", action: "give_quest", want: words.Accepted},
+		{name: "ordinary accepted", action: "give_quest", questID: "ordinary", want: words.Accepted},
+		{name: "ordinary active", action: "give_quest", questID: "ordinary", want: words.AlreadyActive, active: true},
+		{name: "ordinary completed", action: "give_quest", questID: "ordinary", want: words.AlreadyActive, active: true, completed: true},
+		{name: "ordinary level gate", action: "give_quest", questID: "ordinary", minLevel: 99, want: "This quest requires party level 99."},
+		{name: "promotion level gate", action: "give_quest", minLevel: 99, want: "This quest requires party level 99."},
+		{name: "unknown quest", action: "give_quest", questID: "ordinary", unknown: true, want: "unknown quest \"ordinary\""},
+		{name: "unavailable manager", action: "give_quest", questID: "ordinary", noManager: true, want: "quest manager is unavailable"},
+		{name: "active fallback", action: "give_quest", questID: "ordinary", active: true, noReply: true, want: uitext.Text("dialog.you_are_already_on_that_quest")},
+
+		{name: "already active", action: "give_quest", want: words.AlreadyActive, active: true},
+		{name: "incomplete", action: "turn_in_quest", want: words.NotCompleted, active: true},
+		{name: "ineligible offer", action: "give_quest", want: words.Ineligible, promotion: character.PromotionArchmage},
+		{name: "ineligible turn in", action: "turn_in_quest", want: words.Ineligible, active: true, completed: true, promotion: character.PromotionArchmage},
+		{name: "undead offer", action: "give_quest", want: words.RejectedUndead, promotion: character.PromotionLich},
+		{name: "undead turn in", action: "turn_in_quest", want: words.RejectedUndead, active: true, completed: true, promotion: character.PromotionLich},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.want == "" {
+				t.Fatal("shipped quest response is missing")
+			}
+			g := newTestCombatSystemWithConfig(t).game
+			t.Chdir("../..") // Real promotion eligibility consults portrait assets.
+			g.sprites = graphics.NewSpriteManager()
+			questID := tc.questID
+			if questID == "" {
+				questID = "archmage_trial"
+			}
+			definitions := map[string]*quests.QuestDefinition{
+				questID: {Name: "Trial", Type: quests.QuestTypeInteract, TargetCount: 1, MinPartyLevel: tc.minLevel},
+			}
+			if tc.unknown {
+				delete(definitions, questID)
+			}
+			g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: definitions})
+			quests.GlobalQuestManager = g.questManager
+			for _, hero := range g.party.Members {
+				hero.Promotion = tc.promotion
+			}
+			if questID == "archmage_trial" && tc.promotion == character.PromotionNone && len(g.eligibleArchmageIndices()) == 0 {
+				t.Fatal("fixture needs an eligible hero")
+			}
+			if tc.active {
+				if err := g.questManager.ActivateQuest(questID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.completed {
+				g.questManager.MarkCompleted(questID)
+			}
+			replies := words
+			if tc.noReply {
+				replies = character.NPCQuestMessages{}
+			}
+			copy := *dialogue
+			copy.QuestMessages = map[string]character.NPCQuestMessages{questID: replies}
+			g.dialogNPC = &character.NPC{DialogueData: &copy}
+			if tc.noManager {
+				g.questManager = nil
+			}
+			g.dialogActive = true
+			dialogActions[tc.action](&InputHandler{game: g}, g.dialogNPC, &character.NPCDialogueChoice{Action: tc.action, QuestID: questID})
+			if g.dialogActive || !slices.Contains(g.GetCombatMessages(), tc.want) {
+				t.Fatalf("dialogue open=%v, messages=%v, want authored %q", g.dialogActive, g.GetCombatMessages(), tc.want)
+			}
+		})
+	}
+}
 
 // questGiverNPC builds a minimal quest-giver NPC wired to questID, with the
 // give_quest / turn_in_quest / leave choices and all four state messages.
@@ -89,7 +178,7 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 
 	// 3) Done, not turned in -> completed: turn_in available, offer gone.
 	for i := 0; i < def.TargetCount; i++ {
-		g.questManager.OnMonsterKilled(def.TargetMonster, "")
+		g.questManager.OnMonsterKilledFromSource(def.TargetMonster, "", "")
 	}
 	want(npcStateCompleted, "well done", "turn_in_quest", "leave")
 
@@ -230,7 +319,7 @@ func TestHandleTurnInQuest_GenericClaimsAndConcludes(t *testing.T) {
 		t.Fatalf("activate: %v", err)
 	}
 	for i := 0; i < def.TargetCount; i++ {
-		g.questManager.OnMonsterKilled(def.TargetMonster, "")
+		g.questManager.OnMonsterKilledFromSource(def.TargetMonster, "", "")
 	}
 
 	goldBefore := g.party.Gold
@@ -272,7 +361,7 @@ func TestSpellTrader_HoverShowsFullSpellCard(t *testing.T) {
 	}
 	ui := &UISystem{game: g}
 
-	lines := ui.spellTraderTooltipLines("fireball", g.party.Members[0])
+	lines := ui.spellTraderTooltipRows("fireball", g.party.Members[0]).Lines()
 	if len(lines) < 5 {
 		t.Fatalf("tooltip has %d lines, want the full card: %v", len(lines), lines)
 	}

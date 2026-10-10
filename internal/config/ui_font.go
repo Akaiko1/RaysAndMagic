@@ -13,7 +13,6 @@ type UIFont struct {
 	Label  string `yaml:"label"`
 	File   string `yaml:"file"`
 	SizePx int    `yaml:"size_px"`
-	Credit string `yaml:"credit"`
 
 	// Path is File resolved at load time ("" for the built-in face).
 	Path string `yaml:"-"`
@@ -50,8 +49,8 @@ func (d *DisplayConfig) resolveFonts(dir string) error {
 			return fmt.Errorf("%s: duplicate key %q", where, f.Key)
 		case f.Label == "":
 			return fmt.Errorf("%s: label is required", where)
-		case !isASCII(f.Label) || !isASCII(f.Credit):
-			return fmt.Errorf("%s: label and credit must be ASCII", where)
+		case !isASCII(f.Label):
+			return fmt.Errorf("%s: label must be ASCII", where)
 		case f.File == "" && f.SizePx != 0:
 			return fmt.Errorf("%s: size_px applies to a font file only", where)
 		case f.File != "" && (f.SizePx < minUIFontPx || f.SizePx > maxUIFontPx):

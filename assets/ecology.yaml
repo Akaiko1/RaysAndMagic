@@ -9,8 +9,16 @@ fish:
   radius_tiles: 7
   beach_chance: 0.06
 # Survivors persist; only deficits are replenished at the named phase.
+# Groups that should exist only by day or only by night belong in config.yaml
+# day_night.packs instead. Guide: docs/monster-spawns.md.
 turn_step_speed: 2.07
 populations:
+  - map: solstice_approach
+    key: dawn_hunters
+    monsters: [solstice_dusk_moth, solstice_sunscarab, solstice_rain_serpent]
+    hostile: true
+    count: 7
+    phase: day
   - {map: deep_jungle, monster: ring_tailed_lemur, count: 10, phase: day}
   - {map: deep_jungle, monster: red_ruffed_lemur, count: 10, phase: day}
   - {map: desert, monster: desert_rabbit, count: 7, phase: day}

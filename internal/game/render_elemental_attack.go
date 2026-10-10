@@ -166,6 +166,6 @@ func (r *Renderer) elementalAttackScreenRadius(fx elementalAttackEffect, depth f
 	if depth <= 0 {
 		return 0
 	}
-	radius := fx.RadiusTiles * r.game.config.GetTileSize() * float64(screenHeight) / (depth * r.game.camera.FOV)
+	radius := fx.RadiusTiles * r.game.config.GetTileSize() * r.game.viewFocal() / (depth * r.game.camera.FOV)
 	return math.Min(radius, float64(screenHeight)*.12)
 }

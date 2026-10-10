@@ -23,10 +23,18 @@ type catalog map[string]string
 
 var active atomic.Pointer[catalog]
 
+// contract is derived once from the bundled YAML, never maintained by hand.
+// External wording may change, but must still match the binary's call sites.
+var contract map[string]string
+
 func init() {
 	c, err := readCatalog(bundled)
 	if err != nil {
 		panic(err)
+	}
+	contract = make(map[string]string, len(c))
+	for key, line := range c {
+		contract[key], _ = formatSignature(line) // readCatalog already validated it
 	}
 	active.Store(&c)
 }
@@ -43,7 +51,7 @@ func LoadDirectory(path string) error {
 
 // Text formats a known template. Wording is never used as a content key.
 func Text(key string, args ...any) string {
-	spec, known := signatures[key]
+	spec, known := contract[key]
 	if !known || len(args) != len(spec) {
 		panic(fmt.Sprintf("UI text %q: unexpected argument count %d", key, len(args)))
 	}
@@ -92,8 +100,8 @@ func readCatalog(root fs.FS) (catalog, error) {
 			return nil, fmt.Errorf("UI text %s: %w", path, err)
 		}
 		for key, line := range entries {
-			spec, known := signatures[key]
-			if !known {
+			spec, known := contract[key]
+			if contract != nil && !known {
 				return nil, fmt.Errorf("UI text %s: unknown key %q", path, key)
 			}
 			if _, duplicate := result[key]; duplicate {
@@ -108,13 +116,13 @@ func readCatalog(root fs.FS) (catalog, error) {
 				}
 			}
 			got, err := formatSignature(line)
-			if err != nil || got != spec {
+			if err != nil || (contract != nil && got != spec) {
 				return nil, fmt.Errorf("UI text %q: expected format arguments %q, got %q (%v)", key, spec, got, err)
 			}
 			result[key] = line
 		}
 	}
-	for key := range signatures {
+	for key := range contract {
 		if _, ok := result[key]; !ok {
 			return nil, fmt.Errorf("UI text: missing key %q", key)
 		}

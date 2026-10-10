@@ -40,12 +40,6 @@ func overlayMechanicsWrite(d *overlayDocument, maps *config.MapConfigs) (overlay
 	if len(current) == 0 {
 		current = []byte("maps: {}\n")
 	}
-	if len(currentRules.Maps) == 0 {
-		current, err = overlayPatch(current, []string{"maps"}, map[string][]config.BossMechanic{d.key: {}})
-		if err != nil {
-			return overlayWrite{}, err
-		}
-	}
 	path := []string{"maps", d.key}
 	next, err := overlayPatch(current, path, d.state.Mechanics)
 	if err != nil {

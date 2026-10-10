@@ -15,9 +15,9 @@ func TestItemUsageGameEditorCatalog(t *testing.T) {
 	for key, def := range config.GlobalItems.Items {
 		t.Run(key, func(t *testing.T) {
 			item := items.CreateItemFromYAML(key)
-			editor := GetItemTooltip(baseTestItem(t, def.Name), nil, nil, true)
+			editor := GetItemTooltipRows(baseTestItem(t, def.Name), nil, nil, true).String()
 			for _, full := range []bool{false, true} {
-				rendered := GetItemTooltip(item, cs.game.party.Members[0], cs, full)
+				rendered := GetItemTooltipRows(item, cs.game.party.Members[0], cs, full).String()
 				for _, line := range def.TooltipUsageLines() {
 					if !strings.Contains(rendered, line) || !strings.Contains(editor, line) {
 						t.Errorf("game/editor usage mismatch: %q", line)
@@ -74,7 +74,7 @@ func TestItemUsageKindsAndAuthoredOverrides(t *testing.T) {
 			if !ok || !tc.fixture(def) {
 				t.Fatalf("fixture %s no longer exercises its usage branch", tc.key)
 			}
-			text := GetItemTooltip(items.CreateItemFromYAML(tc.key), cs.game.party.Members[0], cs, false)
+			text := GetItemTooltipRows(items.CreateItemFromYAML(tc.key), cs.game.party.Members[0], cs, false).String()
 			for _, s := range append(slices.Clone(tc.want), def.TooltipUsage...) {
 				if !strings.Contains(text, s) {
 					t.Errorf("missing %q: %s", s, text)
@@ -112,7 +112,7 @@ func TestItemCurrencyUsageFollowsMerchantStock(t *testing.T) {
 				continue
 			}
 			checked[key] = true
-			text := GetItemTooltip(items.CreateItemFromYAML(key), cs.game.party.Members[0], cs, false)
+			text := GetItemTooltipRows(items.CreateItemFromYAML(key), cs.game.party.Members[0], cs, false).String()
 			if !strings.Contains(text, "Exchange with") || strings.Contains(text, "sell to merchants") {
 				t.Errorf("%s currency %s lacks an exchange hint: %s", npcKey, key, text)
 			}

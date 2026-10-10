@@ -722,7 +722,7 @@ func TestAuditArchmageTurnInPersistsConclusion(t *testing.T) {
 	g.questManager.MarkCompleted("archmage_trial")
 	(&InputHandler{game: g}).handleTurnInQuest("archmage_trial")
 	q := g.questManager.GetQuest("archmage_trial")
-	if q == nil || !q.RewardsClaimed || !hero.IsArchmage() {
+	if q == nil || !q.RewardsClaimed || hero.Promotion != character.PromotionArchmage {
 		t.Fatal("turn-in discarded its completed journal record")
 	}
 	saved := auditSaveJSON(t, g.buildSave(wm))

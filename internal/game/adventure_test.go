@@ -250,7 +250,7 @@ func TestSolsticeWardRecipes(t *testing.T) {
 				first, second = "solstice_"+c.outdoor, c.herb
 			}
 			key += "_ward"
-			r := config.AlchemyRecipeByKey(key)
+			r := alchemyRecipeByKey(key)
 			if r == nil || r.Output != "brewed_"+key || r.Family != "empowering" || len(r.Ingredients) != 2 {
 				t.Fatalf("invalid ward recipe %s", key)
 			}

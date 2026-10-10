@@ -108,6 +108,7 @@ type SlashEffect struct {
 	AnimationFrame int     // Current animation frame
 	MaxFrames      int     // Total animation frames
 	SweepFrames    int     // Initial motion duration; the remaining time is cosmetic decay
+	AnchorLift     float64 // Authored view-height fraction, shared by body, trail and sparks.
 	Active         bool
 	Kind           string // per-weapon FX flavor: slash/chop/smash/stab/lunge
 	Style          string // bespoke legendary flourish (graphics.slash_fx); overrides Kind
@@ -115,6 +116,7 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
+	Continuation           bool             // Runtime-only; secondary legs cannot spend fresh attack charges.
 	Launch                 projectileLaunch // Runtime-only; save/load discards projectiles.
 	ElementalAbilityDamage int              // Effective-stat scaling snapshotted at launch.
 	Backwash               *backwashCharge  // Secondary charge; never triggers ordinary hit riders.
@@ -169,6 +171,7 @@ type SpellHitParticle struct {
 
 // SpellHitEffect represents a burst of particles from a spell impact
 type SpellHitEffect struct {
+	Anchor              monsterVisualAnchor
 	BurstAge, BurstLife int
 	BurstRadius         float64
 	BurstColor          [3]int
@@ -216,6 +219,7 @@ type MMGame struct {
 	partyRoot                PartyRootState
 	partyHinder              PartyHinderState
 	terrainChanges           []TerrainChange
+	atlasStyle               worldAtlasStyle
 	editorPreview            *editorPreviewState
 	fishWorlds               map[*world.World3D]struct{} // Only worlds with transient live fish.
 	ecology                  EcologyState
@@ -444,6 +448,7 @@ type MMGame struct {
 	// Persistent damage zones (Hot Steam) - see combat_zones.go.
 	persistentDamageZones           []PersistentDamageZone
 	nextPersistentDamageZoneFieldID uint64
+	trapBursts                      []trapBurst
 	traps                           []PlacedTrap // armed thief traps (map-scoped, persisted)
 	selectedTrap                    int          // trap-book browse index (selection != equipped quick trap)
 
@@ -567,6 +572,7 @@ type MMGame struct {
 
 	// Rendering helper
 	renderHelper *RenderingHelper
+	renderBasis  renderCameraBasis
 
 	// Depth buffer for proper 3D rendering (distance per screen column)
 	depthBuffer []float64
@@ -576,9 +582,9 @@ type MMGame struct {
 	// distant field paints over a nearer creature.
 	actorDepthBuffer []float64
 	// wallTopBuffer is the screen-Y of the nearest solid wall's TOP per column
-	// (parallel to depthBuffer). Lets tall sprites (tree standees) render the
-	// part that rises ABOVE a shorter wall instead of being culled whole-column.
-	wallTopBuffer []int
+	// (parallel to depthBuffer). Preserve the wall geometry's fractional edge
+	// so tall sprites above it neither leave a sky gap nor overdraw the wall.
+	wallTopBuffer []float64
 
 	// Systems
 	gameLoop             *GameLoop
@@ -837,7 +843,8 @@ type FirstPersonCamera struct {
 // ApplySpriteColorKey wires the config's load-time color key into a sprite
 // manager: stray magenta (from imperfect sprite background removal) turns
 // transparent; edge-only sprites despill just their rims. Shared by the game
-// and the map editor so both render sprites identically.
+// and the map editor so both render sprites identically. Excluded families
+// preserve their original colours, including rims.
 func ApplySpriteColorKey(sprites *graphics.SpriteManager, cfg *config.Config) {
 	ck := cfg.Graphics.ColorKey
 	if !ck.Enabled {
@@ -849,6 +856,16 @@ func ApplySpriteColorKey(sprites *graphics.SpriteManager, cfg *config.Config) {
 	}
 	sprites.SetColorKey(true, r, g, b, ck.Tolerance, ck.Despill)
 	sprites.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
+	// Headless fixtures may have no asset tree. Real loads validate references
+	// before preparing any resources, so a typo cannot silently recolour art.
+	if _, err := os.Stat("assets/sprites"); err == nil {
+		for _, name := range ck.DespillExclusions {
+			if !sprites.HasSprite(name) {
+				panic(fmt.Sprintf("graphics.color_key.despill_exclusions: sprite %q not found", name))
+			}
+		}
+	}
+	sprites.SetDespillExclusions(ck.DespillExclusions)
 }
 
 func NewMMGame(cfg *config.Config) *MMGame {
@@ -903,6 +920,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		editorPreview = &editorPreviewState{}
 	}
 	game := &MMGame{
+		atlasStyle:       loadedAtlasStyle,
 		editorPreview:    editorPreview,
 		menuState:        newMenuState(),
 		dialogState:      newDialogState(),
@@ -949,7 +967,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		// Initialize depth buffers for proper 3D rendering.
 		depthBuffer:      make([]float64, cfg.GetScreenWidth()),
 		actorDepthBuffer: make([]float64, cfg.GetScreenWidth()),
-		wallTopBuffer:    make([]int, cfg.GetScreenWidth()),
+		wallTopBuffer:    make([]float64, cfg.GetScreenWidth()),
 
 		// Pre-allocate reusable slices to reduce GC pressure
 		reusableMonsterWrappers:     make([]entities.MonsterUpdateInterface, 0, 64),
@@ -1013,8 +1031,8 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	if err := game.validateNPCCastBuffs(); err != nil {
 		panic(err)
 	}
-	// Spell rows only sell if the kind dispatch resolves to the trader dialog.
-	if err := game.validateSpellShopsAreReachable(); err != nil {
+	// A service only sells if the kind dispatch resolves to the dialog that draws it.
+	if err := game.validateServicesAreReachable(); err != nil {
 		panic(err)
 	}
 	// The same hazard for ordinary rows: a fixed-layout dialog draws none.
@@ -1024,6 +1042,11 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	// And an action name nothing dispatches draws a row that does nothing.
 	if err := game.validateDialogueActionsAreDispatched(); err != nil {
 		panic(err)
+	}
+	if character.NPCConfigInstance != nil && world.GlobalWorldManager != nil {
+		if err := ValidateRewardChestIDs(character.NPCConfigInstance.NPCs, world.GlobalWorldManager.MapConfigs); err != nil {
+			panic(err)
+		}
 	}
 	// Every interact quest must be finishable: its tag credited by something, and
 	// enough of those props actually standing. Runs HERE, with its siblings, so
@@ -1257,6 +1280,9 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 // against the wall depth buffer at the sprite's centre column.
 func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey float64, x, y int) bool {
 	defer g.beginPresentedCameraSwap()()
+	if g.usesPropModel(npc) {
+		return g.propModelHitTest(npc, x, y)
+	}
 	distance := Distance(g.camera.X, g.camera.Y, ex, ey)
 	screenX, screenY, spriteSize, visible := g.renderHelper.NPCSpriteMetrics(npc, ex, ey, distance)
 	if !visible || spriteSize <= 0 {
@@ -1292,7 +1318,7 @@ func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey float64, x, y int) 
 			occluded := standeeColumnOccluded(depth, g.depthBuffer[screenX], occlusion.depthAllowance)
 			if occluded && occlusion.hasBackingWall {
 				dirX, dirY := math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
-				halfFovTan := math.Tan(g.camera.FOV / 2)
+				halfFovTan := math.Tan(g.viewFOV() / 2)
 				planeX, planeY := -dirY*halfFovTan, dirX*halfFovTan
 				rayX, rayY := standeeRayAtScreenX(float64(screenX)+0.5, g.worldWidth(), dirX, dirY, planeX, planeY)
 				if occlusion.matchesBackingWall(g.camera.X, g.camera.Y, rayX, rayY, g.depthBuffer[screenX]) {
@@ -1716,7 +1742,7 @@ func (g *MMGame) turnBlurPixels(screenWidth int) float64 {
 		return 0
 	}
 	stepRad := (math.Pi / 2) / float64(g.turnViewFrames()) // per-frame yaw step
-	panPx := stepRad / g.camera.FOV * float64(screenWidth)
+	panPx := stepRad / g.viewFOV() * float64(screenWidth)
 	if blur := panPx * turnBlurStrength; blur < turnBlurMaxPixels {
 		return blur
 	}
@@ -1904,7 +1930,7 @@ func (g *MMGame) handleResize(ui, world image.Point) {
 
 	g.depthBuffer = make([]float64, world.X)
 	g.actorDepthBuffer = make([]float64, world.X)
-	g.wallTopBuffer = make([]int, world.X)
+	g.wallTopBuffer = make([]float64, world.X)
 	g.skyImg = ebiten.NewImage(world.X, world.Y/2)
 	g.groundImg = ebiten.NewImage(world.X, world.Y/2)
 	g.UpdateSkyAndGroundColors()
@@ -1931,14 +1957,10 @@ func (g *MMGame) worldHeight() int {
 	return g.config.GetScreenHeight()
 }
 
-// uiToWorldPoint maps a point in UI units onto the 3D view pixel under it:
-// both frames cover the same screen area.
+// uiToWorldPoint maps a UI pixel center into the perspective coordinates used
+// by visibility, undoing the displayed projection. All world picking shares it.
 func (g *MMGame) uiToWorldPoint(x, y int) (int, int) {
-	if g.worldFrame == (image.Point{}) {
-		return x, y
-	}
-	return int((float64(x) + 0.5) * float64(g.worldFrame.X) / float64(g.config.GetScreenWidth())),
-		int((float64(y) + 0.5) * float64(g.worldFrame.Y) / float64(g.config.GetScreenHeight()))
+	return g.uiToScenePoint(x, y)
 }
 
 // worldCursorPosition is the pointer in the 3D view's pixels.
@@ -1963,11 +1985,16 @@ func (g *MMGame) uiPixelScale() float64 {
 // the threading components' own idempotency - call once on game exit.
 func (g *MMGame) Shutdown() {
 	g.cancelCampPresentation()
+	if g.gameLoop != nil && g.gameLoop.renderer != nil && g.gameLoop.renderer.litVolumeLayer != nil {
+		g.gameLoop.renderer.litVolumeLayer.Deallocate()
+		g.gameLoop.renderer.litVolumeLayer = nil
+	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil && g.gameLoop.ui.profileViewport != nil {
 		uiReleaseLayer(g.gameLoop.ui.profileViewport)
 		g.gameLoop.ui.profileViewport = nil
 	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil {
+		g.gameLoop.ui.atlas.release()
 		g.gameLoop.ui.releaseCompassFrame()
 		g.gameLoop.ui.profileArt.close()
 		g.gameLoop.ui.profileArt = nil
@@ -2174,28 +2201,6 @@ func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 	return x, y, int(math.Ceil(float64(lx+lw)*unit)) - x, int(math.Ceil(float64(ly+lh)*unit)) - y
 }
 
-// GetCombatMessages returns the HUD combat-message texts (most recent last).
-// Read-only view for TESTS: the HUD itself draws from the cached line list
-// (combatLogVersion), so nothing in the draw path needs this.
-func (g *MMGame) GetCombatMessages() []string {
-	hud := g.hudLog()
-	out := make([]string, len(hud))
-	for i, e := range hud {
-		out[i] = e.Text
-	}
-	return out
-}
-
-// GetCombatMessageColor returns the display color for HUD row index (aligned with
-// GetCombatMessages).
-func (g *MMGame) GetCombatMessageColor(index int) color.Color {
-	hud := g.hudLog()
-	if index < 0 || index >= len(hud) {
-		return color.White
-	}
-	return hud[index].Color
-}
-
 // cardFx identifies a party-card overlay effect tracked per member in
 // cardFxTimers. Durations: blink uses the config value, the rest the consts.
 type cardFx int
@@ -2356,11 +2361,9 @@ func (g *MMGame) refreshMonsterAIState() {
 		// until the quest unseals it. An evasive boss WITH an evade radius still
 		// skitters and blinks, so it is excluded.
 		m.BossDormant = evasive && m.EvadeRadiusTiles == 0
-		// Relentless chase (ignores detection range). Most bosses go relentless only
-		// AFTER normal aggro - within their alert radius or once the party has hit
-		// them. AggroWholeMap is the unique opt-in that chases from anywhere.
-		m.BossAggro = m.IsBoss() && !evasive && !m.BossWarded &&
-			(m.AggroWholeMap || m.IsEngagingPlayer || m.WasAttacked)
+		// Bind live scope for actors imported directly by world loading too.
+		g.stampMonsterHome(g.world, m)
+		m.BossAggro = m.IsBoss() && m.AggroWholeMap && !m.BossDormant && !m.BossEvasive && !m.BossWarded
 	}
 
 	for _, m := range g.world.Monsters {
@@ -2377,6 +2380,7 @@ func (g *MMGame) refreshMonsterAIState() {
 			continue
 		}
 		g.combat.refreshMonsterAITarget(m)
+		m.LimitPlayerEngagement(g.camera.X, g.camera.Y)
 	}
 	g.updateAdventureArena()
 	g.ejectPartyTargetingMonsters()
@@ -3155,6 +3159,9 @@ func (g *MMGame) consumeSelectedCharWeaponAction() {
 
 func (g *MMGame) ToggleTurnBasedMode() {
 	defer g.resetOverwatch()
+	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
+		g.gameLoop.inputHandler.blockMouseAttackUntilRelease()
+	}
 	if g.turnBasedMode {
 		// Keep both action economies intact. RT cooldowns already pause while
 		// TB is active; clearing them here made Tab an attack/cast reset.
@@ -3554,7 +3561,7 @@ func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
 		mpw.game.combat.detonateFlask(mpw.MagicProjectile, mpw.impactX, mpw.impactY)
 		return
 	}
-	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType)
+	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType, nil)
 	if mpw.game.combat != nil {
 		mpw.game.combat.burstSpellShot(mpw.MagicProjectile, mpw.impactX, mpw.impactY, nil)
 	}
@@ -3636,7 +3643,7 @@ func (aw *ArrowWrapper) ApplyCollisionEffects() {
 	// Staff/book bolt -> magical burst on wall/terrain impact, not an arrow puff
 	// (shares the monster-hit decision so the staff never "explodes like an arrow").
 	def, _ := config.GetWeaponDefinition(aw.Arrow.BowKey)
-	aw.game.spawnWeaponBoltImpact(aw.impactX, aw.impactY, def, SpellParticleCount, SpellParticleSize)
+	aw.game.spawnWeaponBoltImpact(aw.impactX, aw.impactY, def, SpellParticleCount, SpellParticleSize, nil)
 }
 
 func (aw *ArrowWrapper) GetLifetime() int {

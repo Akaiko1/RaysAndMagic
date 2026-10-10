@@ -22,7 +22,7 @@ func overlayArenaSummary(b *config.AdventureBoss) string {
 func overlayControlBossSummary(d *overlayDocument, id string) string {
 	var parts []string
 	if c := d.state.Adventure.Control(id); c != nil {
-		if c.StopHealing {
+		if c.StopHealing && d.state.Adventure.Boss != nil && d.state.Adventure.Boss.HealPercent > 0 {
 			parts = append(parts, "Stops regeneration")
 		}
 		if c.ArmorReduction > 0 {
@@ -87,7 +87,7 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 	case "mechanics":
 		regen := "Disabled"
 		if b.HealPercent > 0 {
-			regen = fmt.Sprintf("%d%% HP every 6 seconds", b.HealPercent)
+			regen = fmt.Sprintf("%d%% HP every 6 s (2 rounds)", b.HealPercent)
 		}
 		out := []overlayField{overlayHeading("Core mechanics"), nav("Regeneration", regen, "regeneration"), nav("Armor reduction", fmt.Sprintf("Minimum armor: %d", b.ArmorFloor), "armor"), overlayHeading("Extra mechanics")}
 		add := overlayAction("+ Add mechanic", "Add critical chance or perfect dodge.", func() { v.overlayAddMechanic(d) })
@@ -117,9 +117,9 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 			}
 			return nil
 		}
-		out := []overlayField{overlayNote("Heals every 6 seconds while fighting. All linked switches must be used to stop it."), toggle}
+		out := []overlayField{overlayNote("Heals every 6 seconds in real time, every 2 rounds in turn-based combat. Using all linked switches stops it."), toggle}
 		if enabled {
-			out = append(out, overlayHeading("Healing"), overlayInt("HP restored per tick (%)", &b.HealPercent, "Percent of maximum HP restored every 6 seconds. Use the toggle to disable."), overlayInt("Total healing budget (%)", &b.HealCapPercent, "Maximum total healing during this visit, as a percent of maximum HP."))
+			out = append(out, overlayHeading("Healing"), overlayInt("HP restored each time (%)", &b.HealPercent, "Percent of maximum HP restored every 6 s (2 rounds). Use the toggle to disable."), overlayInt("Total healing per visit (%)", &b.HealCapPercent, "Most healing the boss can gain in one visit, as a percent of maximum HP."))
 		}
 		active, all := []string{}, []string{}
 		for _, c := range a.Controls {
@@ -149,7 +149,7 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 		out = append(out, overlayAction("+ Place regeneration switch", "Place a new switch already linked to this mechanic.", func() { p.tool = "healing-control" }))
 		return out
 	case "armor":
-		out := []overlayField{overlayNote("Each linked switch permanently subtracts armor for this visit. Reductions stop at the minimum."), overlayInt("Minimum armor", &b.ArmorFloor, "Armor cannot fall below this value."), overlayHeading("Switch reductions")}
+		out := []overlayField{overlayNote("Each linked switch subtracts armor for the rest of the visit. Armor never drops below the minimum."), overlayInt("Minimum armor", &b.ArmorFloor, "Armor never drops below this value. 0 or more."), overlayHeading("Switch reductions")}
 		var available []string
 		for i := range a.Controls {
 			c := &a.Controls[i]
@@ -173,13 +173,13 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 	case "mechanic":
 		return v.overlayMechanicFields(d)
 	case "arena":
-		out := []overlayField{overlayNote("The violet rectangle limits where the boss can move. It does not damage the party or define attack range.")}
+		out := []overlayField{overlayNote("The violet rectangle keeps the boss inside. When the fight starts the party is pulled into it and cannot leave until the boss falls or Town Portal is used. It deals no damage and does not limit attack range.")}
 		if b.Arena == nil {
 			out = append(out, overlayInfo("Movement", "Unrestricted", "No boss movement boundary is configured."))
 			if a.OpeningOwned {
 				out = append(out, overlayAction("Draw movement area", "Drag a rectangle around the boss's allowed movement tiles.", func() { p.tool = "arena" }))
 			} else {
-				out = append(out, overlayNote("Movement boundaries require scheduled visit resets."), nav("Map rules", "Configure scheduled visits", "settings"))
+				out = append(out, overlayNote("A movement area needs a map that opens on a schedule."), nav("Map rules", "Configure scheduled openings", "settings"))
 			}
 			return out
 		}
@@ -231,7 +231,7 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 				lanes = append(lanes, e.ID)
 			}
 		}
-		out := []overlayField{overlayHeading("Default pattern"), overlayInt("Special every N actions", &b.EveryActions, "At least 2. A health phase can override this."), overlayList("Attack lanes", &b.Lanes, "Used in sequence when there are no health phases.", lanes), overlayFloat("Range below 25% HP", &b.LowHealthRange, "0 uses ordinary attack range."), overlayHeading("Health phases"), overlayAction("+ Add health phase", "Configure its threshold and attack volleys.", func() { v.overlayAddPhase(d) })}
+		out := []overlayField{overlayHeading("Default pattern"), overlayInt("Lane attack every N actions", &b.EveryActions, "At least 2. A health phase can override this."), overlayList("Attack lanes", &b.Lanes, "Fired in turn while the boss's HP is above every health phase threshold.", lanes), overlayFloat("Attack range at or below 25% HP (tiles)", &b.LowHealthRange, "0 keeps the normal attack range."), overlayHeading("Health phases"), overlayAction("+ Add health phase", "Configure its threshold and attack volleys.", func() { v.overlayAddPhase(d) })}
 		for i, phase := range b.Phases {
 			f := overlayNavigate(fmt.Sprintf("At or below %d%% HP", phase.BelowPercent), fmt.Sprintf("%d attack volleys", len(phase.Patterns)), "Edit this phase's conditions and attack sequence.", func() { v.overlaySelect("phase", i) })
 			f.depth = 1

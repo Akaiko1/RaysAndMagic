@@ -134,6 +134,27 @@ func scrollbarCases() []scrollbarCase {
 			unchanged: func(h *displayedModalHarness) any { return h.g.statisticsScroll },
 		},
 	)
+	for tab := 0; tab < 3; tab++ {
+		cases = append(cases, scrollbarCase{
+			name: fmt.Sprintf("guild ledger %d", tab),
+			setup: func(h *displayedModalHarness) {
+				h.g.party.ThievesGuildMember = true
+				h.g.beginConversation(&character.NPC{Type: character.NPCTypeThievesGuild, Guild: &character.GuildServiceConfig{MembershipGold: 5000, NonKeyDoorsOpened: 1}})
+				h.g.switchDialogTab(tab)
+				for i := 0; i < 12; i++ {
+					h.g.guildLedger[tab] = append(h.g.guildLedger[tab], guildLedgerEntry{title: fmt.Sprintf("Report %d", i), status: "3 days remaining"})
+				}
+			},
+			track: func(h *displayedModalHarness) (layoutRect, int, int) {
+				l := makeGuildLedgerLayout(h.g)
+				return l.track, h.g.guildScroll, len(h.g.guildLedger[tab]) * guildLedgerRowHeight
+			},
+			contentRight: func(h *displayedModalHarness) int { return makeGuildLedgerLayout(h.g).list.right() },
+			unchanged: func(h *displayedModalHarness) any {
+				return fmt.Sprintf("%d/%t/%d", h.g.party.Gold, h.g.party.ThievesGuildMember, h.g.dialogTab)
+			},
+		})
+	}
 	return cases
 }
 

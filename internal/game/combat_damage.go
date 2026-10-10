@@ -99,6 +99,8 @@ func (cs *CombatSystem) applyMonsterDamagePacket(target *monsterPkg.Monster3D, p
 			ResistPiercePct: component.ResistPiercePct,
 		})
 	}
+	// Input may cross a region seam and hit before the serial AI pre-pass.
+
 	dealt := target.TakeDamagePacket(components)
 	if target.BandGroup != "" {
 		cs.game.rallyAuthoredBandHit(target)
@@ -321,7 +323,8 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 	if def == nil {
 		return weaponDamagePreview{}
 	}
-	normal := def.Damage
+	night := cs != nil && cs.game != nil && cs.game.dayNightIsNight
+	normal := character.WeaponDamageAtNight(def, nil, night).Base
 	if char != nil && cs != nil && cs.game != nil {
 		_, _, normal = cs.CalculateWeaponDamage(item, char)
 	}

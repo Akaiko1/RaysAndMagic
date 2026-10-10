@@ -636,7 +636,7 @@ func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawCompass(screen)
 	ui.drawWizardEyeRadar(screen)
 	ui.drawCombatMessages(screen)
-	ui.drawTurnBasedStatus(screen)
+	ui.drawModeDomainIcons(screen)
 	// The screen banner is NOT drawn here - it belongs above the dialog dim; see
 	// its call in UISystem.Draw.
 }
@@ -1831,8 +1831,7 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	drawUITextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})
 }
 
-// Translucent text-panel geometry shared by the turn-based status bar and the
-// FPS/perf overlay.
+// Translucent text-panel geometry for the FPS/perf overlay.
 const (
 	textPanelLineHeight = 16
 	textPanelPadding    = 6
@@ -1849,53 +1848,12 @@ func measureTextPanel(lines []string) (w, h int) {
 	return widest + textPanelPadding*2, len(lines)*textPanelLineHeight + textPanelPadding*2
 }
 
-// drawTurnBasedStatus displays the current game mode and turn state
-func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
-	lines, barX, barY, barWidth, barHeight := ui.turnBasedStatusLayout()
-
-	uiFillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{5, 9, 16, 220}, false)
-	uiFillRect(screen, float32(barX+2), float32(barY+2), float32(barWidth-4), 2, color.RGBA{88, 125, 169, 210}, false)
-	uiStrokeRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), 1, color.RGBA{188, 154, 78, 235}, false)
-
-	for i, line := range lines {
-		textColor := color.Color(color.White)
-		if i == 0 {
-			textColor = rarityGold
-		}
-		drawUITextColored(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight, textColor)
-	}
-}
-
-func (ui *UISystem) turnBasedStatusLayout() ([]string, int, int, int, int) {
-	mode := "REAL-TIME"
-	if ui.game.turnBasedMode {
-		mode = "TURN-BASED"
-	}
-	lines := []string{mode}
-	if ui.game.turnBasedMode {
-		turnText := "Party Turn"
-		if ui.game.currentTurn == 1 {
-			turnText = "Monster Turn"
-		}
-		lines = append(lines, turnText)
-		if ui.game.currentTurn == 0 {
-			lines = append(lines, fmt.Sprintf("Actions: %d/2", ui.game.partyActionsUsed))
-		}
-	}
-
-	barWidth, barHeight := measureTextPanel(lines)
-	barX := ui.game.config.GetScreenWidth() - barWidth - 10
-	barY := 10
-
-	return lines, barX, barY, barWidth, barHeight
-}
-
 func (ui *UISystem) getCompassCenter() (int, int) {
-	_, _, barY, _, barHeight := ui.turnBasedStatusLayout()
+	_, mode := ui.modeDomainIconLayout()
 	compassRadius := ui.compassRadius()
 	spacing := 28
 	compassX := ui.game.config.GetScreenWidth() - 28 - compassRadius
-	compassY := barY + barHeight + spacing + compassRadius
+	compassY := mode.bottom() + spacing + compassRadius
 	return compassX, compassY
 }
 

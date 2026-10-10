@@ -2,17 +2,13 @@
 
 package main
 
-// turnBlurShaderSrc is a horizontal directional blur - camera motion blur for a
-// yaw turn (the whole scene pans sideways, so the smear is horizontal). It box-
-// averages taps spread across [-BlurPx, +BlurPx] on the X axis of the source
-// scene image; BlurPx (pixels) tracks the turn speed. Y is clamped per row.
-
+// Yaw motion blur for the perspective view. Panini renders without this pass.
 var BlurPx float
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
-	size := imageSrc0Size()
-	origin := imageSrc0Origin()
-	local := srcPos - origin
+ size := imageSrc0Size()
+ origin := imageSrc0Origin()
+ local := srcPos-origin
 	sy := clamp(local.y, 0.5, size.y-0.5)
 
 	const taps = 13

@@ -9,14 +9,17 @@ type NPC struct {
 
 	QuestPropOwner string // transient owner; reconstructed from quest YAML/state
 
-	X, Y          float64
-	Key           string // npcs.yaml key this NPC was created from
-	Name          string
-	Type          string
-	Description   string
-	Sprite        string
-	VisitedSprite string // optional art swap once Visited (an emptied barrel closes)
-	NoSpin        bool   // pin a non-person token to a fixed pose
+	X, Y           float64
+	Key            string // npcs.yaml key this NPC was created from
+	Name           string
+	Type           string
+	Description    string
+	Sprite         string
+	PropModel      *NPCPropModel
+	Guild          *GuildServiceConfig
+	PropUseStarted int64  // transient presentation tick + 1; saved Visited restores the final pose
+	VisitedSprite  string // optional art swap once Visited (an emptied barrel closes)
+	NoSpin         bool   // pin a non-person token to a fixed pose
 	// GridSpanTiles >=2: render a fixed grid-aligned facade spanning this many
 	// tiles. Its span and sprite aspect set its visual geometry; normal size and
 	// spin settings are invalid for this mode.
@@ -53,9 +56,26 @@ type NPC struct {
 	LockLabel       string
 	DoorKeyItemKeys []string // items.yaml keys; never display names
 	DoorStatReqs    []NPCDoorStatReq
-	DoorAttempts    int  // non-key attempts made on this lock
-	DoorLockBroken  bool // jammed after DoorMaxNonKeyAttempts; only keys work
+	DoorAttempts    int               // non-key attempts made on this lock
+	DoorLockBroken  bool              // jammed after DoorMaxNonKeyAttempts; only keys work
+	DoorOpenedBy    DoorOpeningMethod // empty for unopened doors or legacy history
 	Visited         bool
+}
+
+// DoorOpeningMethod records the successful transaction, not a prior failed
+// attempt. Empty is reserved for unopened doors and pre-method save files.
+type DoorOpeningMethod string
+
+const (
+	DoorOpeningKey       DoorOpeningMethod = "key"
+	DoorOpeningMasterKey DoorOpeningMethod = "master_key"
+	DoorOpeningForce     DoorOpeningMethod = "force"
+	DoorOpeningLockpick  DoorOpeningMethod = "lockpick"
+)
+
+// WithoutKey reports successful methods that qualify for guild membership.
+func (m DoorOpeningMethod) WithoutKey() bool {
+	return m == DoorOpeningForce || m == DoorOpeningLockpick
 }
 
 // NPC type discriminators that carry behavior (the authored `type:` field).
@@ -73,6 +93,7 @@ const (
 	NPCTypeSpellLectern  = "spell_lectern"
 	NPCTypeHarvest       = "alchemy_harvest"
 	NPCTypeDoor          = "door" // a doorway; door_behavior chooses its mechanics
+	NPCTypeThievesGuild  = "thieves_guild"
 
 	// NPCDoorBehaviorLocked is a persisted door opened by a matching key or a
 	// stat check. NPCDoorBehaviorChampionPortcullis opens while no arena champion
@@ -89,13 +110,14 @@ var ValidNPCTypes = map[string]bool{
 	NPCTypeEncounter: true, NPCTypeQuestGiver: true, NPCTypeMerchant: true,
 	NPCTypeSpellTrader: true, NPCTypeSkillTrainer: true, NPCTypeCardCollector: true,
 	NPCTypeLootCrate: true, NPCTypeSpellLectern: true, NPCTypeDoor: true,
+	NPCTypeThievesGuild: true,
 }
 
 // NPCTypeOrder is the canonical editor palette section order for NPC types:
 // people you deal with first, props after, the encounter catch-all last.
 var NPCTypeOrder = []string{
 	NPCTypeQuestGiver, NPCTypeMerchant, NPCTypeSpellTrader, NPCTypeSkillTrainer,
-	NPCTypeCardCollector, NPCTypeSpellLectern, NPCTypeLootCrate, NPCTypeDoor, NPCTypeEncounter,
+	NPCTypeCardCollector, NPCTypeThievesGuild, NPCTypeSpellLectern, NPCTypeLootCrate, NPCTypeDoor, NPCTypeEncounter,
 }
 
 // IsDoor reports whether an NPC participates in the authored door behavior

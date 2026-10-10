@@ -22,7 +22,7 @@ func TestSeedReconcilesRetiredAssets(t *testing.T) {
 		{"edited_shipped_sprite", "sprites/environment/old.png", true, false, false},
 		{"map", "old.map", false, false, false},
 		{"edited_map", "old.map", true, false, true},
-		{"custom_sprite", "sprites/environment/custom.png", false, true, true},
+		{"unshipped_sprite", "sprites/environment/custom.png", false, true, false},
 		{"custom_map", "custom.map", false, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -86,7 +86,7 @@ func TestSeedMovedSpriteResolvesReplacement(t *testing.T) {
 	}
 }
 
-func TestSeedLegacySpriteDoesNotShadowCurrentBundle(t *testing.T) {
+func TestSeedRemovesLegacySpriteShadowingCurrentBundle(t *testing.T) {
 	content, user := t.TempDir(), t.TempDir()
 	writeFile(t, filepath.Join(content, "config.yaml"), "cfg")
 	writeFile(t, filepath.Join(content, "assets/forest.map"), "shipped map")
@@ -112,12 +112,11 @@ func TestSeedLegacySpriteDoesNotShadowCurrentBundle(t *testing.T) {
 		}
 		writeFile(t, fixture.path, encoded.String())
 	}
-	oldBytes := read(t, filepath.Join(user, oldRel))
 	if err := seedUserData(content, user); err != nil {
 		t.Fatal(err)
 	}
-	if read(t, filepath.Join(user, oldRel)) != oldBytes {
-		t.Fatal("untracked legacy sprite was altered")
+	if _, err := os.Stat(filepath.Join(user, oldRel)); !os.IsNotExist(err) {
+		t.Fatalf("untracked legacy sprite survived the reseed: %v", err)
 	}
 	t.Chdir(user)
 	sm := graphics.NewSpriteManager()
@@ -157,5 +156,55 @@ func TestSeedMigratesMapsOnlyManifest(t *testing.T) {
 	}
 	if loadSeedManifest(user)["sprite.png"] == "" {
 		t.Fatal("unchanged bundle did not migrate to a complete manifest")
+	}
+}
+
+// A v1 install with unchanged bundle content still reseeds once on upgrade, so
+// leftovers from pre-manifest seeders stop shadowing live sprites. Only maps,
+// hidden files and data outside assets survive; emptied legacy directories go.
+func TestSeedUpgradePrunesLegacyLeftovers(t *testing.T) {
+	content, user := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(content, "config.yaml"), "cfg")
+	writeFile(t, filepath.Join(content, "assets/forest.map"), "shipped map")
+	writeFile(t, filepath.Join(content, "assets/sprites/mobs/enforcer_walking_l.png"), "current sheet")
+	if err := os.MkdirAll(filepath.Join(content, "assets/sprites/empty_shipped"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedUserData(content, user); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := shippedContentDigest(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, _ := fileSHA256(filepath.Join(user, seedManifestName))
+	writeFile(t, filepath.Join(user, seedManifestStateName), "all-assets-v1 "+digest+" "+hash)
+	survives := map[string]bool{
+		"assets/sprites/mobs/enforcer_walking_r.png": false, // would beat the shipped _l sheet
+		"assets/sprites/retired_dir/old.png":         false,
+		"assets/old_config.yaml":                     false,
+		"assets/custom.map":                          true,
+		"assets/sprites/.DS_Store":                   true,
+		"saves/save1.json":                           true,
+	}
+	for path := range survives {
+		writeFile(t, filepath.Join(user, path), "leftover")
+	}
+	if err := seedUserData(content, user); err != nil {
+		t.Fatal(err)
+	}
+	for path, keep := range survives {
+		if _, err := os.Stat(filepath.Join(user, path)); (err == nil) != keep {
+			t.Errorf("%s exists=%v, want %v", path, err == nil, keep)
+		}
+	}
+	if read(t, filepath.Join(user, "assets/sprites/mobs/enforcer_walking_l.png")) != "current sheet" || read(t, filepath.Join(user, "assets/forest.map")) != "shipped map" {
+		t.Error("shipped content changed")
+	}
+	if _, err := os.Stat(filepath.Join(user, "assets/sprites/retired_dir")); !os.IsNotExist(err) {
+		t.Errorf("emptied legacy directory remains: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(user, "assets/sprites/empty_shipped")); err != nil || !info.IsDir() {
+		t.Errorf("shipped directory was removed: %v", err)
 	}
 }

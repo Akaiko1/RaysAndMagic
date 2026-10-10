@@ -212,9 +212,10 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 			if ally.ID != s.TargetID || !ally.IsAlive() || ally.IsPartyControlled() || ally.Pacified || m.CanAttackActor(ally) || !g.telegraphLOS(m, ally.X, ally.Y) || Distance(m.X, m.Y, ally.X, ally.Y) > float64(a.Range)*ts {
 				continue
 			}
-			ally.ApplySoak(max(1, (m.DamageMin+m.DamageMax)/4), int(a.DurationSeconds*float64(g.config.GetTPS())), a.DurationRounds)
+			ally.ApplySoak(monster.TelegraphShieldAbsorption(m.DamageMin, m.DamageMax), int(a.DurationSeconds*float64(g.config.GetTPS())), a.DurationRounds)
 			g.AddCombatMessage(m.Name + " shields " + ally.Name + " with circulating water.")
-			g.createElementalAbilityImpact(ally.X, ally.Y, "water")
+			vx, vy := g.combat.monsterVisualPos(ally)
+			g.createElementalAbilityImpact(vx, vy, "water", ally)
 		}
 		return
 	}

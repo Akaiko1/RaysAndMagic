@@ -7,7 +7,7 @@ package main
 // lets us avoid the deprecated DrawTrianglesOptions.Filter / Address paths
 // (which break batching and force the source out of the texture atlas).
 
-func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	size := imageSrc0Size()
 	origin := imageSrc0Origin()
 

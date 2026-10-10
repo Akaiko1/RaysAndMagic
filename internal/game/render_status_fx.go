@@ -187,6 +187,7 @@ type statusCanvas struct {
 	clock      float64
 	visible    func(centerX, width float64) bool
 	batch      *statusPathBatch
+	world      *worldStatusBatch
 }
 
 // Reuse geometry storage and submit one path per paint style, rather than two
@@ -246,6 +247,10 @@ func (c statusCanvas) stroke(x1, y1, x2, y2, width float64, col color.RGBA) {
 	}{
 		{color.RGBA{12, 15, 20, col.A / 2}, float32(px + 1.2)}, {col, float32(px)},
 	} {
+		if c.world != nil {
+			c.world.line(x1, y1, x2, y2, float64(paint.width), paint.col)
+			continue
+		}
 		p := c.batch.path(paint.col, paint.width)
 		p.MoveTo(float32(x1), float32(y1))
 		p.LineTo(float32(x2), float32(y2))
@@ -263,6 +268,10 @@ func (c statusCanvas) dot(x, y, rad float64, col color.RGBA) {
 	}{
 		{color.RGBA{12, 15, 20, col.A / 2}, float32(rad + .65)}, {col, float32(rad)},
 	} {
+		if c.world != nil {
+			c.world.circle(x, y, float64(paint.radius), paint.col)
+			continue
+		}
 		p := c.batch.path(paint.col, 0)
 		p.MoveTo(float32(x)+paint.radius, float32(y))
 		p.Arc(float32(x), float32(y), paint.radius, 0, 2*math.Pi, vector.Clockwise)
@@ -284,6 +293,11 @@ func (c statusCanvas) chip(x, y, rx, ry float64, col color.RGBA) {
 		return
 	}
 	fill := color.RGBA{col.R / 3, col.G / 3, col.B / 3, col.A}
+	if c.world != nil {
+		c.world.diamond(c.x+x*c.w, c.y+y*c.h, rx*c.w, ry*c.h, fill)
+		c.diamond(x, y, rx, ry, col)
+		return
+	}
 	p := c.batch.path(fill, 0)
 	p.MoveTo(float32(c.x+(x-rx)*c.w), float32(c.y+y*c.h))
 	p.LineTo(float32(c.x+x*c.w), float32(c.y+(y-ry)*c.h))
@@ -293,13 +307,22 @@ func (c statusCanvas) chip(x, y, rx, ry float64, col color.RGBA) {
 	c.diamond(x, y, rx, ry, col)
 }
 
-// fill paints a solid polygon given in normalized coordinates.
-func (c statusCanvas) fill(col color.RGBA, pts ...[2]float64) {
+// fillTriangle paints hourglass sand in normalized actor coordinates.
+func (c statusCanvas) fillTriangle(col color.RGBA, a, b, d [2]float64) {
+	pts := [3][2]float64{a, b, d}
 	lo, hi := math.Inf(1), math.Inf(-1)
 	for _, q := range pts {
 		lo, hi = min(lo, c.x+q[0]*c.w), max(hi, c.x+q[0]*c.w)
 	}
 	if c.visible != nil && !c.visible((lo+hi)/2, hi-lo+1) {
+		return
+	}
+	if c.world != nil {
+		var tri [3][2]float64
+		for j, q := range pts {
+			tri[j] = [2]float64{c.x + q[0]*c.w, c.y + q[1]*c.h}
+		}
+		c.world.triangle(tri, col)
 		return
 	}
 	p := c.batch.path(col, 0)
@@ -338,6 +361,12 @@ func (c statusCanvas) arc(cx, cy, rx, ry, from, to float64, col color.RGBA) {
 
 func (c statusCanvas) draw(v statusVisuals) {
 	if v == 0 {
+		return
+	}
+	if c.world != nil {
+		c.world.reset()
+		c.build(v)
+		c.world.flush(c.dst)
 		return
 	}
 	b := statusPathPool.Get().(*statusPathBatch)
@@ -405,10 +434,10 @@ func (c statusCanvas) build(v statusVisuals) {
 		if left := 1 - flow; left > 0 {
 			top := -.006 - left*(hh-.03)
 			half := neck + (hw*.8-neck)*(-top/(hh*.45))*.9
-			c.fill(sand, at(-min(half, hw*.8), top), at(min(half, hw*.8), top), at(0, -.004))
+			c.fillTriangle(sand, at(-min(half, hw*.8), top), at(min(half, hw*.8), top), at(0, -.004))
 		}
 		pile := hh - .014 - flow*hh*.7
-		c.fill(sand, at(-hw*.85, hh-.014), at(hw*.85, hh-.014), at(0, pile))
+		c.fillTriangle(sand, at(-hw*.85, hh-.014), at(hw*.85, hh-.014), at(0, pile))
 		if flow < 1 && turn == 0 {
 			line(0, 0, 0, pile, .007, sand)
 		}
@@ -547,21 +576,60 @@ func (r *Renderer) drawAdditionalMonsterStatusFX(screen *ebiten.Image, s Unified
 	if v == 0 || s.spriteSize <= 0 {
 		return
 	}
-	// Share trap geometry's per-piece depth test, slightly ahead of the actor's
+	// Use a per-piece depth test, slightly ahead of the actor's
 	// own stamp. Nearby walls and other actors must still hide the particles.
-	anchor := trapAnchor{depth: math.Nextafter(s.depthPerp, math.Inf(-1))}
+	depth := math.Nextafter(s.depthPerp, math.Inf(-1))
 	size := float64(s.spriteSize)
 	viewBottom := worldViewportBottom(r.game)
-	// As with stun stars, keep a melee-range actor's status readable when its
-	// head/feet project beyond the viewport. Never put the cue under the HUD.
-	top := max(4, float64(screenY))
-	bottom := min(float64(viewBottom-4), float64(screenY)+size)
+	top, bottom := statusCueSpan(worldProjectionOf(screen), float64(s.screenX), float64(screenY), size, float64(viewBottom))
 	if bottom <= top {
 		return
 	}
 	width := min(size*.64, (bottom-top)*1.1)
 	c := statusCanvas{dst: screen, x: float64(s.screenX) - width/2, y: top, w: width, h: bottom - top,
+		world:   &r.statusGlyphs,
 		clock:   float64(r.game.frameCount) + float64(monsterBurnSalt(s.monster.ID)),
-		visible: func(x, w float64) bool { return r.trapFxSpanVisible(anchor, x, w) }}
+		visible: func(x, w float64) bool { return r.statusFxSpanVisible(depth, x, w) }}
 	c.draw(v)
+}
+
+// statusCueSpan keeps a melee-range actor's status readable when its head or
+// feet project beyond the viewport, and never puts the cue under the HUD. Both
+// edges hold where the cue is finally shown.
+func statusCueSpan(proj paniniProjection, x, headY, size, viewBottom float64) (top, bottom float64) {
+	left, right := x-size*.32, x+size*.32
+	return max(proj.sourceEdgeY(left, right, 4), headY), min(proj.sourceEdgeY(left, right, viewBottom-4), headY+size)
+}
+
+// statusFxSpanVisible conservatively depth-tests the complete horizontal span of
+// one status primitive against wall/actor columns already drawn. The painter
+// pass handles nearer sprite silhouettes. Culling a small primitive when any
+// column is hidden avoids painting its edge through a wall beside its centre.
+func (r *Renderer) statusFxSpanVisible(depth float64, centerX, width float64) bool {
+	if r == nil || r.game == nil || width <= 0 {
+		return false
+	}
+	left := int(math.Floor(centerX - width/2))
+	// Glow quads occupy a half-open destination span. Convert its exclusive
+	// right edge to the final covered depth-buffer column before the inclusive
+	// scan below, otherwise a wall immediately beside the glow makes it pop out.
+	right := int(math.Ceil(centerX+width/2)) - 1
+	bufferWidth := max(len(r.game.depthBuffer), len(r.game.actorDepthBuffer))
+	if bufferWidth == 0 {
+		return true // synthetic gallery anchors have no world depth buffers
+	}
+	if right < 0 || left >= bufferWidth {
+		return false
+	}
+	left = max(0, left)
+	right = min(bufferWidth-1, right)
+	for x := left; x <= right; x++ {
+		if x < len(r.game.actorDepthBuffer) && depth >= r.game.actorDepthBuffer[x] {
+			return false
+		}
+		if x < len(r.game.depthBuffer) && depth >= r.game.depthBuffer[x] {
+			return false
+		}
+	}
+	return true
 }

@@ -61,6 +61,9 @@ func (r *Renderer) drawMeleeFxArenaGladius(screen *ebiten.Image, s SlashEffect, 
 // torn-metal edges, a grinding spark fountain off the leading edge, and
 // sheared armor plates tumbling away. Every swing peels the fight more naked.
 func (r *Renderer) drawMeleeFxArenaLabrys(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
+	// Both strokes own the body throughout their shared timeline, including
+	// the gaps before the first pose and after their recovery.
+	r.weaponMaterialState.bodyHandled = true
 	progress, fade, _, lead := meleeFxTiming(s)
 	if fade <= 0 {
 		return
@@ -99,6 +102,12 @@ func (r *Renderer) drawMeleeFxArenaLabrys(screen *ebiten.Image, s SlashEffect, c
 			alpha:  func(t float64) float64 { return 0.7 * t },
 			length: reach * math.Abs(end-start), seed: seed, salt: 224 + i, blend: additiveGlowBlend,
 		}, ld, p)
+		if p > 0 && p < .64 {
+			r.weaponMaterialState.hand = i
+			r.weaponMaterialState.progress = p
+			x, y := arc(ld)
+			r.drawWeaponSilhouette(screen, "chop", "arena_labrys", x, y, start+(end-start)*ld, h*.062, math.Min(1, (.64-p)/.20))
+		}
 
 		// Grinding sparks: a fountain streaming off the moving bit-edge,
 		// kicked outward and falling under gravity with ghost trails.
@@ -248,5 +257,5 @@ func (r *Renderer) drawMeleeFxArenaLion(screen *ebiten.Image, s SlashEffect, cx,
 
 // Bronze Cesti alternate two staggered punches with their plated fist models.
 func (r *Renderer) drawMeleeFxArenaCesti(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	r.drawIdentityStrike(screen, s, cx, cy, screenH, "arena_cesti", "punch")
+	r.drawGauntletStrike(screen, s, cx, cy, screenH)
 }

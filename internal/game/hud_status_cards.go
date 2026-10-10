@@ -17,13 +17,8 @@ var (
 	hudCardBlockedColor = color.RGBA{236, 111, 95, 255}
 )
 
-// buffStatusCard is the status-rail hover card: the running effect with its
+// buffStatusCardRows is the status-rail hover card: the running effect with its
 // live magnitudes, the time left on both clocks, and how to end it.
-func (g *MMGame) buffStatusCard(s *UtilitySpellStatus) ([]string, color.Color) {
-	rows, plate := g.buffStatusCardRows(s)
-	return rows.Lines(), plate
-}
-
 func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardRows, plate color.Color) {
 	id := string(s.SpellID)
 	name, subtitle := s.Label, ""
@@ -74,7 +69,7 @@ func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardR
 // was cast with (mastery included), in the wording of the card that grants it.
 func (g *MMGame) activeBuffEffectLines(id string) []string {
 	if def, ok := config.GetItemDefinition(id); ok && def.HasTimedBuff() {
-		return def.ItemMechanicLines() // draughts are fixed by the item
+		return def.TimedBuffEffectLines() // the HUD owns the remaining duration
 	}
 	var out []string
 	if b, ok := g.statBuffByID(id); ok {
@@ -122,13 +117,8 @@ func (g *MMGame) buffRemainingText(frames int) string {
 	return cardDurationText(strconv.Itoa(seconds), pluralizeCount(tbRoundsForSeconds(seconds), "round", "rounds"))
 }
 
-// campStatusCard is the camp button's hover card. Its last line says whether
+// campStatusCardRows is the camp button's hover card. Its last line says whether
 // the party can camp now, from the same rule TryCamp enforces.
-func (g *MMGame) campStatusCard() ([]string, []color.Color) {
-	rows, colors := g.campStatusCardRows()
-	return rows.Lines(), colors
-}
-
 func (g *MMGame) campStatusCardRows() (character.CardRows, []color.Color) {
 	effects := ttSection{Title: "EFFECTS"}
 	effects.Add("%s", uitext.Text("ui.camp_restores"))

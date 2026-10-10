@@ -10,9 +10,16 @@ import (
 
 // Only the party's battle participates; unrelated ecology and friendly summons
 // do not acquire red outlines. Enemies fighting a bound ally still participate.
-func combatAuraHostile(m *monster.Monster3D) bool {
-	return m != nil && m.IsAlive() && !m.IsPartyControlled() &&
-		(m.TargetsParty() || (m.IsInCombat() && m.AIFoe != nil && m.AIFoe.IsAlive() && m.AIFoe.Bound))
+func (g *MMGame) combatAuraHostile(m *monster.Monster3D) bool {
+	if m == nil || !m.IsAlive() || m.IsPartyControlled() || g.camera == nil {
+		return false
+	}
+	px, py := g.combat.logicalCameraXY()
+	if Distance(px, py, m.X, m.Y) > g.config.MonsterAI.Pursuit.MaxRadiusTiles*float64(g.config.GetTileSize()) {
+		return false
+	}
+	return m.PressesParty(px, py) || (!m.PartyOutsideHome() && m.IsInCombat() && m.AIFoe != nil && m.AIFoe.IsAlive() && m.AIFoe.Bound &&
+		Distance(px, py, m.AIFoe.X, m.AIFoe.Y) <= g.config.MonsterAI.Pursuit.MaxRadiusTiles*float64(g.config.GetTileSize()))
 }
 
 func (g *MMGame) combatAuraMoveSteps(m *monster.Monster3D) int {
@@ -120,7 +127,7 @@ func (g *MMGame) prepareCombatAura(c *combatAuraScratch, ts float64) bool {
 	px, py := g.combat.logicalCameraXY()
 	radius := 0.0
 	for _, m := range g.world.Monsters {
-		if combatAuraHostile(m) {
+		if g.combatAuraHostile(m) {
 			radius = max(radius, Distance(px, py, m.X, m.Y)/ts+float64(g.combatAuraMoveSteps(m)))
 		}
 	}
@@ -149,7 +156,7 @@ func (g *MMGame) prepareCombatAura(c *combatAuraScratch, ts float64) bool {
 		}
 	}
 	for _, m := range g.world.Monsters {
-		if !combatAuraHostile(m) {
+		if !g.combatAuraHostile(m) {
 			continue
 		}
 		g.combatAuraMovement(c, m, g.combatAuraMoveSteps(m), ts)
@@ -204,7 +211,7 @@ func (g *MMGame) combatAuraStateKey(px, py, radius, ts float64) uint64 {
 		}
 		_, tx, ty, target := g.monsterAttackTarget(m)
 		state := combatAuraActorKey{id: m.ID, x: m.X, y: m.Y, rangePixels: m.GetAttackRangePixels(), pounce: m.PounceRangePixels, targetX: tx, targetY: ty,
-			behavior: m.CurrentAIBehavior(), steps: g.combatAuraMoveSteps(m), cooldown: g.combatAuraPounceCooldown(m), alive: m.IsAlive(), hostile: combatAuraHostile(m), hasTarget: target, ranged: m.HasRangedAttack(), champion: m.IsChampion(), flying: m.Flying, pounceReady: m.CanPounce(), stunned: m.StunTurnsRemaining > 0 || g.turnBasedMonsterStunned[m]}
+			behavior: m.CurrentAIBehavior(), steps: g.combatAuraMoveSteps(m), cooldown: g.combatAuraPounceCooldown(m), alive: m.IsAlive(), hostile: g.combatAuraHostile(m), hasTarget: target, ranged: m.HasRangedAttack(), champion: m.IsChampion(), flying: m.Flying, pounceReady: m.CanPounce(), stunned: m.StunTurnsRemaining > 0 || g.turnBasedMonsterStunned[m]}
 		if m.AmbientBounds != nil {
 			state.bounds = *m.AmbientBounds
 			state.hasBounds = true

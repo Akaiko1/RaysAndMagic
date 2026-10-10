@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 	uitext "ugataima/assets/text"
@@ -41,7 +42,9 @@ type InputHandler struct {
 	mouseAttackTarget     *monster.Monster3D
 	mouseAttackWorld      *world.World3D
 	mouseAttackHoldFrames int
+	mouseAttackRepeatAt   int64 // TB automatic input deadline; never delays manual input.
 	mouseAttackTurnBased  bool
+	mouseAttackBlocked    bool // a claimed press cannot become combat until release
 }
 
 // NewInputHandler creates a new input handler
@@ -88,7 +91,10 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
 	ih.keys.BeginFrame()
-	if !pointerLeftPressed() || !ih.game.worldClickAllowed() || ih.game.dragArmed || ih.game.dragActive || ih.game.dragPickedUp || ih.game.stashDragPickedUp {
+	if !pointerLeftPressed() || pointerLeftJustPressed() {
+		ih.mouseAttackBlocked = false
+	}
+	if !pointerLeftPressed() || !ih.game.mouseCombatInputAllowed() {
 		ih.cancelMouseAttack()
 	}
 
@@ -1528,6 +1534,7 @@ func (ih *InputHandler) handleWorldMouseInput() {
 			pickupRange := ih.game.groundContainerPickupRange()
 			if idx := ih.game.findGroundContainerIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
 				ih.game.consumeLeftClick()
+				ih.blockMouseAttackUntilRelease()
 				ih.game.pickupGroundContainerAt(idx)
 				return
 			}
@@ -1538,6 +1545,7 @@ func (ih *InputHandler) handleWorldMouseInput() {
 			}
 			if npc, inRange := ih.game.findNPCAtScreen(clickX, clickY); npc != nil {
 				ih.game.consumeLeftClick()
+				ih.blockMouseAttackUntilRelease()
 				if inRange {
 					ih.openNPCInteraction(npc)
 				} else {
@@ -1545,13 +1553,9 @@ func (ih *InputHandler) handleWorldMouseInput() {
 				}
 				return
 			}
-			// A press on empty world space arms dynamic target acquisition.
-			// UI, loot and NPC presses have already claimed their own gestures.
+			// Empty scenery and ordinary HUD presses may acquire a monster
+			// later. Loot and NPC interactions own their press until release.
 			ih.game.consumeLeftClick()
-			if pointerLeftPressed() && ih.game.monsterPointerFrameAllowed(clickX, clickY) {
-				ih.beginMouseAttack(nil)
-			}
-			return
 		}
 	}
 
@@ -1903,6 +1907,8 @@ func (ih *InputHandler) handleDialogInput() {
 			ih.handleBuffServiceInput()
 		case dialogKindTavern:
 			ih.handleTavernInput()
+		case dialogKindThievesGuild:
+			ih.handleGuildInput()
 		}
 	}
 
@@ -2209,7 +2215,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	// buttons are consumed in the draw pass, so a click that misses every cell
 	// here falls through to flip the page. idx (absolute list position) keys the
 	// double-click so the same item keeps its identity across pages.
-	if kind == dialogKindMerchant || kind == dialogKindArenaGladiator {
+	if kind.drawsShop() {
 		// Gladiator tabbed dialog: the shop grids exist only on the Shop tab -
 		// their hidden rects must not swallow Talk/Board clicks.
 		if kind == dialogKindArenaGladiator && ih.game.dialogTab != 1 {
@@ -2240,12 +2246,11 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		}
 
 		// Sell to merchant (right grid).
-		if ih.game.dialogNPC.SellAvailable {
-			inv := ih.game.party.Inventory
-			sellStart := ih.game.merchantSellPage * merchantPageSize
+		if merchantBuysForGold(ih.game.dialogNPC) {
+			view := ih.game.merchantBagViewIndices()
 			for slot := 0; slot < merchantPageSize; slot++ {
-				idx := sellStart + slot
-				if idx >= len(inv) {
+				idx := inventoryCellIndex(view, ih.game.merchantSellPage, merchantPageSize, slot)
+				if idx < 0 {
 					break
 				}
 				x, y, w, h := merchantCellRect(rightX, gridTop, slot)
@@ -2835,6 +2840,7 @@ func (g *MMGame) creditClearedKillQuests(npc *character.NPC) {
 // handleGiveQuest activates a quest offered by an NPC (e.g. the Archmage trial).
 func (ih *InputHandler) handleGiveQuest(questID string) {
 	g := ih.game
+	npc := g.dialogNPC
 	g.closeConversation()
 	if questID == "" || quests.GlobalQuestManager == nil {
 		return
@@ -2845,31 +2851,29 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	// kill quests), which just activate generically.
 	if questID == "archmage_trial" {
 		if g.party.HasLich() {
-			g.AddCombatMessage(uitext.Text("dialog.the_tower_s_wards_reject_the_undead"))
+			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.RejectedUndead }, uitext.Text("dialog.promotion_rejects_undead")))
 			return
 		}
 		if len(g.eligibleArchmageIndices()) == 0 {
-			g.AddCombatMessage(uitext.Text("dialog.no_one_in_your_party_can_walk"))
+			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.Ineligible }, uitext.Text("dialog.promotion_ineligible")))
 			return
 		}
-		if err := g.activateQuest(questID); err != nil {
-			g.AddCombatMessage(uitext.Text("dialog.the_trial_is_already_underway_return_when"))
-			return
-		}
-		g.AddCombatMessage(uitext.Text("dialog.trial_accepted_slay_the_lich_king_then"))
-		return
 	}
 
-	// Generic quest activation.
+	// Activation and authored replies share one path after eligibility checks.
 	if err := g.activateQuest(questID); err != nil {
-		g.AddCombatMessage(err.Error())
+		reply := err.Error()
+		if g.questManager != nil && g.questManager.GetQuest(questID) != nil {
+			reply = npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.AlreadyActive }, reply)
+		}
+		g.AddCombatMessage(reply)
 		return
 	}
 	name := questID
 	if q := quests.GlobalQuestManager.GetQuest(questID); q != nil && q.Definition.Name != "" {
 		name = q.Definition.Name
 	}
-	g.AddCombatMessage(uitext.Text("dialog.quest_accepted", name))
+	g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.Accepted }, uitext.Text("dialog.quest_accepted", name)))
 
 }
 
@@ -2887,16 +2891,16 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 
 	if questID == "archmage_trial" {
 		if g.party.HasLich() {
-			g.AddCombatMessage(uitext.Text("dialog.the_tower_s_wards_reject_the_undead"))
+			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.RejectedUndead }, uitext.Text("dialog.promotion_rejects_undead")))
 			return
 		}
 		quest := g.questManager.GetQuest(questID)
 		if quest == nil || !quest.Completed || quest.RewardsClaimed {
-			g.AddCombatMessage(uitext.Text("dialog.the_lich_king_still_draws_breath_return"))
+			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.NotCompleted }, uitext.Text("dialog.that_task_isn_t_finished_yet_return")))
 			return
 		}
 		if !g.promoteEligibleMember(character.PromotionArchmage, -1) {
-			g.AddCombatMessage(uitext.Text("dialog.no_one_in_your_party_can_walk"))
+			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.Ineligible }, uitext.Text("dialog.promotion_ineligible")))
 			return
 		}
 		g.recordProfileQuestResolution(quest)
@@ -2910,7 +2914,7 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 	// Generic turn-in: must be done, then pay out and conclude the NPC.
 	quest := g.questManager.GetQuest(questID)
 	if quest == nil || !quest.Completed {
-		g.AddCombatMessage(uitext.Text("dialog.that_task_isn_t_finished_yet_return"))
+		g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.NotCompleted }, uitext.Text("dialog.that_task_isn_t_finished_yet_return")))
 		return
 	}
 	if g.claimQuestReward(questID) && npc != nil && !g.npcHasPendingChainStep(npc, questID) {
@@ -2985,41 +2989,43 @@ func (ih *InputHandler) handleQuestPropInteract(questID string, words *character
 	}
 }
 
+// paidServiceResponse substitutes only named cost data. Authored prose is
+// never a printf format string; literal percent signs remain literal.
+func paidServiceResponse(choice *character.NPCDialogueChoice) string {
+	return strings.ReplaceAll(choice.Response, "{cost}", strconv.Itoa(choice.Cost))
+}
+
 // handleTavernRest charges the room price and fully restores the party (the
 // dead stay dead), then closes the dialog - the night passes.
 func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 	g := ih.game
 	if g.party.Gold < choice.Cost {
-		g.AddCombatMessage(uitext.Text("dialog.a_night_here_costs_gold_you_cannot", choice.Cost))
+		g.AddCombatMessage(uitext.Text("dialog.service_cannot_afford", choice.Cost))
 		return
 	}
 	g.party.Gold -= choice.Cost
 	g.restParty()
 	g.closeConversation()
-	g.AddCombatMessage(uitext.Text("dialog.the_party_sleeps_soundly_gold_hp_and", choice.Cost))
+	g.AddCombatMessage(paidServiceResponse(choice))
 }
 
-// handleArenaWait dozes on the arena bones until the next nightfall or dawn
-// for Cost gold: the day/night clock jumps to that phase (packs, panorama and
+// handlePaidWait waits until the next nightfall or dawn for Cost gold:
+// the day/night clock advances to that phase (packs, panorama and
 // the per-tier duel lockout all flip with it). No rest - just time passing.
-func (ih *InputHandler) handleArenaWait(choice *character.NPCDialogueChoice, night bool) {
+func (ih *InputHandler) handlePaidWait(choice *character.NPCDialogueChoice, night bool) {
 	g := ih.game
 	if g.dayNightSkipActive {
 		g.AddCombatMessage(uitext.Text("dialog.time_is_already_passing"))
 		return
 	}
 	if g.party.Gold < choice.Cost {
-		g.AddCombatMessage(uitext.Text("dialog.the_pit_crew_charges_gold_for_an", choice.Cost))
+		g.AddCombatMessage(uitext.Text("dialog.service_cannot_afford", choice.Cost))
 		return
 	}
 	g.party.Gold -= choice.Cost
 	g.advanceDayNightToPhase(night)
 	g.closeConversation()
-	if night {
-		g.AddCombatMessage(uitext.Text("dialog.you_doze_among_the_old_bones_until", choice.Cost))
-	} else {
-		g.AddCombatMessage(uitext.Text("dialog.you_doze_among_the_old_bones_until_2", choice.Cost))
-	}
+	g.AddCombatMessage(paidServiceResponse(choice))
 }
 
 // handleBuyFood sells Amount food for Cost gold; the dialog stays open so the
@@ -3158,9 +3164,6 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 	g.AddCombatMessage(uitext.Text("dialog.the_dragon_erupts_from_the_shattering_statue", s.Label))
 }
 
-func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
-	ih.enterEncounterMapAt(targetMapKey, nil)
-}
 func (ih *InputHandler) enterEncounterMapAt(targetMapKey string, tile *[2]int) {
 	ih.game.closeConversation()
 	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance, arrivalTile: tile}); err != nil {

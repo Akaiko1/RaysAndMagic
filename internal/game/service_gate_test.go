@@ -890,47 +890,56 @@ func TestEveryInteractQuestTagHasAProducer(t *testing.T) {
 	}
 }
 
-// Spell rows only sell if the KIND dispatch resolves to the trader dialog. The
-// authored type merely gets them copied, and tavern / buff service / card
-// collector / arena gladiator all win first - so a trader that also rents rooms
-// would show no shop and say nothing about it.
-func TestSpellShopsAreReachable(t *testing.T) {
+// A service only sells if the KIND dispatch resolves to the dialog that draws
+// it: spell rows to the trader, training to the trainer, stock to a shop. The
+// authored data merely gets copied, and earlier kinds win - so a trader that
+// rents rooms or a trainer with stock would show nothing and say nothing.
+func TestServicesAreReachable(t *testing.T) {
 	g, _ := bootQuestGiverTest(t)
-	if err := g.validateSpellShopsAreReachable(); err != nil {
-		t.Fatalf("shipped spell shops: %v", err)
+	if err := g.validateServicesAreReachable(); err != nil {
+		t.Fatalf("shipped services: %v", err)
 	}
 
 	previous := character.NPCConfigInstance
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
 	rows := map[string]*character.NPCSpell{"heal": {Name: "Heal", Cost: 100}}
+	stock := []*character.NPCItem{{Type: "item", Name: "Health Potion"}}
+	talk := &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Text: "Ask", Action: "info", Response: "Yes."}}}
+	rest := &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Text: "Rest", Action: "tavern_rest", Cost: 25}}}
 	for _, tc := range []struct {
 		name string
 		npc  *character.NPCData
+		ok   bool
 	}{
-		{
-			name: "a trader that also rents rooms",
-			npc: &character.NPCData{
-				Type: character.NPCTypeSpellTrader, RenderCategory: "npc", Spells: rows,
-				Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{
-					{Text: "Rest", Action: "tavern_rest", Cost: 25},
-				}},
-			},
-		},
-		{
-			name: "a trader that also blesses",
-			npc: &character.NPCData{
-				Type: character.NPCTypeSpellTrader, RenderCategory: "npc", Spells: rows,
-				Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{
-					{Text: "Bless", Action: "cast_buff", Buff: "bless", Cost: 10, DurationSeconds: 60},
-				}},
-			},
-		},
+		{name: "a trader that also rents rooms", npc: &character.NPCData{Type: character.NPCTypeSpellTrader, RenderCategory: "npc", Spells: rows, Dialogue: rest}},
+		{name: "a trader that also blesses", npc: &character.NPCData{
+			Type: character.NPCTypeSpellTrader, RenderCategory: "npc", Spells: rows,
+			Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{
+				{Text: "Bless", Action: "cast_buff", Buff: "bless", Cost: 10, DurationSeconds: 60},
+			}},
+		}},
+		{name: "a trainer that also rents rooms", npc: &character.NPCData{Type: character.NPCTypeSkillTrainer, RenderCategory: "npc", Training: map[string]int{"expert": 100}, Dialogue: rest}},
+		{name: "a spell trader with stock", npc: &character.NPCData{Type: character.NPCTypeSpellTrader, RenderCategory: "npc", Spells: rows, Inventory: stock, ShopDialogue: true}},
+		{name: "a trainer with stock", npc: &character.NPCData{Type: character.NPCTypeSkillTrainer, RenderCategory: "npc", Training: map[string]int{"expert": 100}, Inventory: stock, ShopDialogue: true}},
+		{name: "stock behind dialogue rows", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock, Dialogue: talk}},
+		{name: "a weapon rack behind a fight", npc: &character.NPCData{Type: character.NPCTypeEncounter, RenderCategory: "npc", StockWeaponsRarity: "common", StockWeaponsCost: 10, Encounter: &character.NPCEncounter{}}},
+		{name: "stock beside dialogue rows in tabs", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock, Dialogue: talk, ShopDialogue: true}, ok: true},
+		{name: "a plain shop", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock}, ok: true},
+		{name: "a shop behind an errand", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock, RequiresQuest: "some_quest"}, ok: true},
+		{name: "a shop display on a shop", npc: &character.NPCData{Type: character.NPCTypeMerchant, RenderCategory: "npc", Inventory: stock, ShopDisplay: "merchant_display_supplies"}, ok: true},
+		{name: "a shop display on a trader without stock", npc: &character.NPCData{Type: character.NPCTypeSpellTrader, RenderCategory: "npc", Spells: rows, ShopDisplay: "merchant_display_supplies"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{"shop": tc.npc}}
-			err := g.validateSpellShopsAreReachable()
-			if err == nil || !strings.Contains(err.Error(), "would never be drawn") {
-				t.Fatalf("error = %v, want the unreachable shop rejected", err)
+			err := g.validateServicesAreReachable()
+			if tc.ok != (err == nil) || err != nil && !strings.Contains(err.Error(), "would never be drawn") {
+				t.Fatalf("error = %v, want reachable=%v", err, tc.ok)
+			}
+			if !tc.ok {
+				return
+			}
+			if ok, _, dialog := NPCShopOffer("shop", tc.npc); !ok {
+				t.Fatalf("editor would refuse a shop the game draws (%s dialog)", dialog)
 			}
 		})
 	}

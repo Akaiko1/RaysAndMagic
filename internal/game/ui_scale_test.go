@@ -165,75 +165,107 @@ func TestWorldClicksHitWhatIsDrawnAtEveryInterfaceSize(t *testing.T) {
 		{"large", image.Pt(960, 720)},
 		{"fractional", image.Pt(874, 656)},
 	} {
-		for _, kind := range []string{"NPC", "loot", "monster"} {
-			t.Run(fmt.Sprintf("%s/%s", frame.name, kind), func(t *testing.T) {
-				if kind == "monster" {
-					g, _, fp, m, tick := mouseCombatHarness(t, false)
+		for _, view := range []struct {
+			name     string
+			wide     bool
+			distance float64
+		}{{"classic", false, 0}, {"wide perspective", true, 1}, {"panini", true, 1}, {"partial panini", true, 0.5}} {
+			for _, kind := range []string{"NPC", "loot", "monster"} {
+				t.Run(fmt.Sprintf("%s/%s/%s", frame.name, view.name, kind), func(t *testing.T) {
+					if kind == "monster" {
+						g, _, fp, m, tick := mouseCombatHarness(t, false)
+						g.handleResize(ui, frame.world)
+						g.combatPreferences.WideView = view.wide
+						g.combatPreferences.PaniniDisabled = view.name == "wide perspective"
+						g.config.Graphics.View.WidePaniniDistance = view.distance
+						g.gameLoop.worldProjection = g.widePaniniProjection()
+						clearWorldDepth(g)
+						r := g.gameLoop.renderer
+						r.beginMonsterPickFrame()
+						wx, wy := frame.world.X*3/4, frame.world.Y*2/5
+						ux, uy := presentedPickPoint(g, wx, wy)
+						fp.moveTo(ux, uy)
+						r.monsterPick.hits = []monsterPickHit{{monster: m, left: float64(wx - 20), top: float64(wy - 20), size: 40, depth: 64}}
+						fp.press()
+						tick()
+						if m.HitPoints == m.MaxHitPoints {
+							t.Fatalf("press over the drawn monster (world %d,%d) did not attack", wx, wy)
+						}
+						return
+					}
+					h := newDisplayedModalHarness(t, ui.X, ui.Y)
+					g := h.g
 					g.handleResize(ui, frame.world)
+					g.combatPreferences.WideView = view.wide
+					g.combatPreferences.PaniniDisabled = view.name == "wide perspective"
+					g.config.Graphics.View.WidePaniniDistance = view.distance
+					g.gameLoop.worldProjection = g.widePaniniProjection()
 					clearWorldDepth(g)
-					r := g.gameLoop.renderer
-					r.beginMonsterPickFrame()
-					fp.moveTo(320, 220)
-					wx, wy := g.uiToWorldPoint(320, 220)
-					r.monsterPick.hits = []monsterPickHit{{monster: m, left: float64(wx - 20), top: float64(wy - 20), size: 40, depth: 64}}
+					g.menuOpen = false
+					g.world.Monsters, g.world.NPCs = nil, nil
+					g.renderHelper = NewRenderingHelper(g)
+					g.camera.ViewDist = 5000
+					g.camera.X, g.camera.Y = 320, 320
+					g.snapFacing(0)
+					n := &character.NPC{Name: "Pick target", Sprite: "missing_pick_fixture", RenderCategory: "npc", SizeClass: "full_tile", X: 430, Y: 365}
+					var wx, wy int
+					hit := func(x, y int) bool { return false }
+					if kind == "NPC" {
+						g.world.NPCs = []*character.NPC{n}
+						ex, ey := g.npcEffectivePos(n)
+						sx, sy, size, visible := g.renderHelper.NPCSpriteMetrics(n, ex, ey, Distance(g.camera.X, g.camera.Y, ex, ey))
+						if !visible {
+							t.Fatal("NPC fixture not visible")
+						}
+						wx, wy = sx, sy+size/2
+						hit = func(x, y int) bool { return g.npcScreenHitTest(n, ex, ey, x, y) }
+					} else {
+						g.groundContainers = []GroundContainer{{X: 420, Y: 370, Sprite: n.Sprite, Gold: 7}}
+						info := g.groundContainerRenderInfo(&g.groundContainers[0], -1)
+						if !info.Visible {
+							t.Fatal("loot fixture not visible")
+						}
+						wx, wy = info.ScreenX, info.ScreenY+info.SpriteSize/2
+						hit = func(x, y int) bool {
+							return g.groundContainerHitTestFromInfo(info, n.Sprite, x, y, g.groundContainerPickupRange())
+						}
+					}
+					ux, uy := presentedPickPoint(g, wx, wy)
+					if !view.wide && frame.world != ui && hit(ux, uy) {
+						t.Fatal("fixture: the unit's own coordinates also hit, so it cannot tell the frames apart")
+					}
+					g.beginRenderCameraSwap(time.Now())()
+					h.ui.Draw(h.screen)
+					fp := installFakePointer(t)
+					fp.moveTo(ux, uy)
 					fp.press()
-					tick()
-					if m.HitPoints == m.MaxHitPoints {
-						t.Fatalf("press over the drawn monster (world %d,%d) did not attack", wx, wy)
+					if err := h.loop.Update(); err != nil {
+						t.Fatal(err)
 					}
-					return
-				}
-				h := newDisplayedModalHarness(t, ui.X, ui.Y)
-				g := h.g
-				g.handleResize(ui, frame.world)
-				clearWorldDepth(g)
-				g.menuOpen = false
-				g.world.Monsters, g.world.NPCs = nil, nil
-				g.renderHelper = NewRenderingHelper(g)
-				g.camera.ViewDist = 5000
-				g.camera.X, g.camera.Y = 320, 320
-				g.snapFacing(0)
-				n := &character.NPC{Name: "Pick target", Sprite: "missing_pick_fixture", RenderCategory: "npc", SizeClass: "full_tile", X: 430, Y: 365}
-				var wx, wy int
-				hit := func(x, y int) bool { return false }
-				if kind == "NPC" {
-					g.world.NPCs = []*character.NPC{n}
-					ex, ey := g.npcEffectivePos(n)
-					sx, sy, size, visible := g.renderHelper.NPCSpriteMetrics(n, ex, ey, Distance(g.camera.X, g.camera.Y, ex, ey))
-					if !visible {
-						t.Fatal("NPC fixture not visible")
+					if kind == "NPC" && g.dialogNPC != n || kind == "loot" && g.party.Gold != 7 {
+						t.Fatalf("click at unit (%d,%d) missed the %s drawn at world (%d,%d)", ux, uy, kind, wx, wy)
 					}
-					wx, wy = sx, sy+size/2
-					hit = func(x, y int) bool { return g.npcScreenHitTest(n, ex, ey, x, y) }
-				} else {
-					g.groundContainers = []GroundContainer{{X: 420, Y: 370, Sprite: n.Sprite, Gold: 7}}
-					info := g.groundContainerRenderInfo(&g.groundContainers[0], -1)
-					if !info.Visible {
-						t.Fatal("loot fixture not visible")
-					}
-					wx, wy = info.ScreenX, info.ScreenY+info.SpriteSize/2
-					hit = func(x, y int) bool {
-						return g.groundContainerHitTestFromInfo(info, n.Sprite, x, y, g.groundContainerPickupRange())
-					}
-				}
-				ux, uy := wx*ui.X/frame.world.X, wy*ui.Y/frame.world.Y
-				if frame.world != ui && hit(ux, uy) {
-					t.Fatal("fixture: the unit's own coordinates also hit, so it cannot tell the frames apart")
-				}
-				g.beginRenderCameraSwap(time.Now())()
-				h.ui.Draw(h.screen)
-				fp := installFakePointer(t)
-				fp.moveTo(ux, uy)
-				fp.press()
-				if err := h.loop.Update(); err != nil {
-					t.Fatal(err)
-				}
-				if kind == "NPC" && g.dialogNPC != n || kind == "loot" && g.party.Gold != 7 {
-					t.Fatalf("click at unit (%d,%d) missed the %s drawn at world (%d,%d)", ux, uy, kind, wx, wy)
-				}
-			})
+				})
+			}
 		}
 	}
+}
+
+// Independently project a known source pixel by its angular ray. Input must
+// undo this when NPC, loot and monster dispatchers consume a displayed click.
+func presentedPickPoint(g *MMGame, x, y int) (int, int) {
+	sx, sy := float64(x)+0.5, float64(y)+0.5
+	d := g.config.Graphics.View.WidePaniniDistance
+	if g.combatPreferences.WideView && !g.combatPreferences.PaniniDisabled && d > 0 {
+		f, cx, cy := g.viewFocal(), float64(g.worldWidth())/2, g.viewHorizon()
+		edge := math.Atan(cx / f)
+		a := cx * (d + math.Cos(edge)) / math.Sin(edge)
+		theta := math.Atan((sx - cx) / f)
+		sx = cx + a*math.Sin(theta)/(d+math.Cos(theta))
+		sy = cy + (sy-cy)*a*math.Cos(theta)/(f*(d+math.Cos(theta)))
+	}
+	return int(sx * float64(g.config.GetScreenWidth()) / float64(g.worldWidth())),
+		int(sy * float64(g.config.GetScreenHeight()) / float64(g.worldHeight()))
 }
 
 // The HUD combat log keeps Normal's physical size at every interface size, so

@@ -22,8 +22,24 @@ const (
 )
 
 type buffFxAnim struct {
-	sprite string
-	age    int
+	sprite   string
+	overlay  string
+	lifetime int
+	age      int
+}
+
+func (a buffFxAnim) totalFrames() int {
+	if a.lifetime > 0 {
+		return a.lifetime
+	}
+	return buffFxTotalFrames
+}
+
+func (g *MMGame) playSpellCastFx(def *config.SpellDefinitionConfig) {
+	g.playBuffFx(def.BuffFxSprite)
+	if def.Graphics != nil && def.Graphics.CastOverlay != "" {
+		g.buffFxAnims = append(g.buffFxAnims, buffFxAnim{overlay: def.Graphics.CastOverlay, lifetime: max(1, g.config.GetTPS()*6/5)})
+	}
 }
 
 // playBuffFx queues the buff overlay animation. No-op for an empty name.
@@ -42,7 +58,7 @@ func (g *MMGame) tickBuffFx() {
 	dst := g.buffFxAnims[:0]
 	for _, a := range g.buffFxAnims {
 		a.age++
-		if a.age < buffFxTotalFrames {
+		if a.age < a.totalFrames() {
 			dst = append(dst, a)
 		}
 	}
@@ -59,6 +75,10 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 	sw := float64(r.game.worldWidth())
 	sh := float64(r.game.worldHeight())
 	for _, a := range r.game.buffFxAnims {
+		if a.overlay != "" {
+			r.drawCastOverlay(screen, a)
+			continue
+		}
 		sheet := r.game.sprites.GetSprite(a.sprite)
 		if sheet == nil {
 			continue
@@ -90,6 +110,8 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 		opts.GeoM.Scale(scale, scale)
 		opts.GeoM.Translate(sw/2-float64(fw)*scale/2, sh*0.42-float64(fh)*scale/2)
 		opts.ColorScale.ScaleAlpha(float32(alpha))
+		// This overlay is authored in the camera's frame, like the complete
+		// melee swing. Submit it directly so world Panini cannot resize it.
 		screen.DrawImage(img, opts)
 	}
 }

@@ -13,12 +13,12 @@ import (
 // a magical school burst for a staff/book (projectile_school set), a fire/element
 // burst for an AoE bow (e.g. Bow of Hellfire), and nothing for a plain arrow -
 // the arrow simply vanishes on hit. Single source for the monster- and wall-hit paths.
-func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDefinitionConfig, count, size int) {
+func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDefinitionConfig, count, size int, target *monsterPkg.Monster3D) {
 	if weaponDef == nil {
 		return
 	}
 	if weaponDef.ProjectileSchool != "" {
-		g.createSpellHitEffectStyled(x, y, normalizeDamageTypeStr(weaponDef.ProjectileSchool), count, size, false, weaponImpactColor(weaponDef))
+		g.createSpellHitEffectStyled(x, y, normalizeDamageTypeStr(weaponDef.ProjectileSchool), count, size, false, visualAnchorFor(target), weaponImpactColor(weaponDef))
 		return
 	}
 	// Explosive arrows (AoE bows, e.g. Bow of Hellfire) burst in their damage element.
@@ -27,7 +27,7 @@ func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDef
 		if element == monsterPkg.DamagePhysical {
 			element = monsterPkg.DamageFire
 		}
-		g.createSpellHitEffectStyled(x, y, element.String(), count, size, false, weaponImpactColor(weaponDef))
+		g.createSpellHitEffectStyled(x, y, element.String(), count, size, false, visualAnchorFor(target), weaponImpactColor(weaponDef))
 	}
 	// Plain arrow: no impact effect - it just disappears.
 }
@@ -58,7 +58,7 @@ const (
 )
 
 // CreateSpellHitEffectFromSpell spawns spell hit particles scaled by base damage and hit radius.
-func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
+func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string, target *monsterPkg.Monster3D) {
 	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellID))
 	element := monsterPkg.DamagePhysical.String()
 	damage := 1
@@ -104,7 +104,7 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 	if cfgDef, ok := config.GetSpellDefinition(spellID); ok && cfgDef.Graphics != nil {
 		rgb = cfgDef.Graphics.Color
 	}
-	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, stars, rgb)
+	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, stars, visualAnchorFor(target), rgb)
 
 	// Heavy spells rattle the view: shake amplitude follows the same damage +
 	// blast levers as the particles, so a bolt barely taps and a fireball kicks.
@@ -167,13 +167,13 @@ type ImpactLight struct {
 const impactLightFrames = 20 // ~0.17s at 120 TPS
 
 // CreateSpellHitEffect spawns a burst of colored particles at the impact point
-func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCount, particleSize int) {
-	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, false)
+func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCount, particleSize int, target *monsterPkg.Monster3D) {
+	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, false, visualAnchorFor(target))
 }
 
 // createSpellHitEffectStyled is CreateSpellHitEffect with the star-shape flag
 // (impact_stars): star bursts twinkle; other impacts shed eroding mirror shards.
-func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, particleCount, particleSize int, stars bool, authored ...[3]int) {
+func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, particleCount, particleSize int, stars bool, anchor monsterVisualAnchor, authored ...[3]int) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
@@ -303,6 +303,7 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 	}
 
 	effect := SpellHitEffect{
+		Anchor:    anchor,
 		Particles: particles,
 		Active:    true,
 	}
@@ -347,20 +348,20 @@ func (cs *CombatSystem) spawnHitSparks(m *monsterPkg.Monster3D) {
 		return
 	}
 	vx, vy := cs.monsterVisualPos(m)
-	cs.game.spawnImpactSparks(vx, vy)
+	cs.game.spawnImpactSparks(vx, vy, m)
 }
 
 // spawnWeaponHitImpactFX adds the damage-scaled view kick to the sparks. Only a
 // blow the party lands kicks the camera - a field ticking every second must not.
 func (cs *CombatSystem) spawnWeaponHitImpactFX(m *monsterPkg.Monster3D, damage int, weapon *config.WeaponDefinitionConfig) {
 	x, y := cs.monsterVisualPos(m)
-	cs.game.spawnImpactSparks(x, y, weaponImpactColor(weapon))
+	cs.game.spawnImpactSparks(x, y, m, weaponImpactColor(weapon))
 	cs.game.addScreenShake(0.05*float64(damage), 2.2)
 }
 
 // spawnImpactSparks throws a quick radial burst of bright white->gold sparks at
 // a world point - the weapon-hit feedback when the party strikes a monster.
-func (g *MMGame) spawnImpactSparks(x, y float64, authored ...[3]int) {
+func (g *MMGame) spawnImpactSparks(x, y float64, target *monsterPkg.Monster3D, authored ...[3]int) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
@@ -391,7 +392,7 @@ func (g *MMGame) spawnImpactSparks(x, y float64, authored ...[3]int) {
 			LifeTime: life, MaxLife: life, Size: 5, Active: true,
 		}
 	}
-	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true, Particles: parts})
+	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Anchor: visualAnchorFor(target), Active: true, Particles: parts})
 }
 
 // tileScatterMaxTiles caps how many tiles one area FX paints. A wide spell
@@ -534,10 +535,10 @@ const quakeShakeAmp = 2.6
 // groundOffsetY is the particle OffsetY that sits ON THE FLOOR, and
 // offsetYPerTileHeight is how much OffsetY one tile of height is worth.
 //
-// A hit particle draws at centerY + OffsetY*screenH/(depth*fov) while the floor
-// line is centerY + 0.5*screenH*tileSize/depth (calculateFloorScreenYF), so the
-// floor sits at 0.5*tileSize*fov for EVERY distance - depth cancels. OffsetY 0
-// is eye level, which is why a ground effect authored at 0 hangs in the sky.
+// A ground particle draws at viewHorizon + OffsetY*viewFocal/(depth*camera.FOV),
+// while the floor is viewHorizon + 0.5*viewFocal*tileSize/depth. The authored
+// offset units retain the logical FOV in either view mode; focal length and
+// depth cancel. OffsetY 0 is the horizon when no body anchor is attached.
 func (g *MMGame) groundOffsetY() float64 {
 	return 0.5 * float64(g.config.GetTileSize()) * g.camera.FOV
 }
@@ -668,7 +669,7 @@ func (g *MMGame) UpdateHitEffects() {
 					if sz < 1 {
 						sz = 1
 					}
-					trail = append(trail, SpellHitEffect{Active: true, Particles: []SpellHitParticle{{
+					trail = append(trail, SpellHitEffect{Anchor: effect.Anchor, Active: true, Particles: []SpellHitParticle{{
 						X: particle.X, Y: particle.Y,
 						OffsetX: particle.OffsetX, OffsetY: particle.OffsetY,
 						Color: particle.Color, LifeTime: 14, MaxLife: 14, Size: sz, Active: true,

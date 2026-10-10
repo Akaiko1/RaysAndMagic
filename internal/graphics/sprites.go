@@ -56,8 +56,9 @@ type SpriteManager struct {
 	keyDespill bool
 	// Sprites whose interior magenta is real art: despill only their edge fringe
 	// (within keyEdgeRadius px of a transparent pixel), not the whole body.
-	keyEdgeOnly   map[string]bool
-	keyEdgeRadius int
+	keyEdgeOnly        map[string]bool
+	keyEdgeRadius      int
+	keyDespillExcluded map[string]bool
 	// lazyResourceObserver assigns synchronous fallback loads to the renderer's
 	// current region. It also receives the created root images with their
 	// decoded CPU pixels so same-frame derived builders (standee cores, mips)
@@ -188,6 +189,16 @@ func (sm *SpriteManager) SetDespillEdgeOnly(names []string, radius int) {
 	sm.keyEdgeRadius = radius
 }
 
+// SetDespillExclusions preserves all non-key colours, including the edges, of
+// each named animation family. Exclusion takes precedence over edge-only cleanup.
+// Configure before loading resources.
+func (sm *SpriteManager) SetDespillExclusions(names []string) {
+	sm.keyDespillExcluded = make(map[string]bool, len(names))
+	for _, name := range names {
+		sm.keyDespillExcluded[spriteDespillFamily(name)] = true
+	}
+}
+
 // Directional motion suffixes belong to one source identity. Strip only the
 // complete suffix, never an arbitrary prefix (lich and lich_king are distinct).
 func spriteDespillFamily(name string) string {
@@ -222,7 +233,7 @@ func (sm *SpriteManager) SetColorKey(enabled bool, r, g, b, tolerance int, despi
 //
 // For names in keyEdgeOnly (intentional magenta art), despill is restricted to
 // the fringe band within keyEdgeRadius px of a transparent edge, leaving the
-// interior purple/magenta untouched.
+// interior purple/magenta untouched. keyDespillExcluded bypasses despill entirely.
 func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image {
 	if !sm.keyEnabled || src == nil {
 		return src
@@ -248,7 +259,9 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 		return near(p.R, sm.keyR) && near(p.G, sm.keyG) && near(p.B, sm.keyB)
 	}
 
-	edgeOnly := sm.keyEdgeOnly[spriteDespillFamily(name)]
+	family := spriteDespillFamily(name)
+	despill := sm.keyDespill && !sm.keyDespillExcluded[family]
+	edgeOnly := despill && sm.keyEdgeOnly[family]
 	// Transparency mask, needed only when despill is limited to the fringe band.
 	var trans []bool
 	if edgeOnly {
@@ -268,7 +281,7 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 			}
 		}
 	}
-	if !sm.keyDespill {
+	if !despill {
 		return dst
 	}
 
@@ -1185,22 +1198,5 @@ func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
 	images := sm.CommitPreparedResource(prepared)
 	if prepared.Found && sm.lazyResourceObserver != nil {
 		sm.lazyResourceObserver(prepared.Request, images)
-	}
-}
-
-// VisitCommitPixels reports retained CPU allocations on the game owner. It
-// never reads GPU pixels; callers can deduplicate aliases across caches.
-func (c *PreparedSpriteCommit) VisitCommitPixels(visit func(*image.RGBA)) {
-	if c == nil || visit == nil {
-		return
-	}
-	for _, target := range c.targets {
-		visit(target.cpu)
-	}
-	for _, target := range c.completed {
-		visit(target.cpu)
-	}
-	for _, cpu := range c.result {
-		visit(cpu)
 	}
 }

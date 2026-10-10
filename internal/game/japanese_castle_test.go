@@ -139,16 +139,15 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 		t.Error("boss must no longer be dormant once castle_armory completes")
 	}
 	// Unsealed but UNengaged: the Samurai does NOT beeline across the whole map
-	// (that map-wide chase is the Golden Thief Bug's unique trait). It goes
-	// relentless only after normal aggro - within its (large) alert radius or once
-	// the party hits it.
+	// (that map-wide chase is the Golden Thief Bug's unique trait). Its pursuit
+	// remains finite even after sight or damage starts combat.
 	if boss.BossAggro {
 		t.Error("unsealed-but-unengaged Samurai must NOT relentlessly chase from across the map")
 	}
 	boss.IsEngagingPlayer = true
 	cs.game.refreshMonsterAIState()
-	if !boss.BossAggro {
-		t.Error("an engaged unsealed Samurai should relentlessly pursue")
+	if boss.BossAggro || boss.PursuitLeashPixels() > cs.game.config.MonsterAI.Pursuit.MaxRadiusTiles*cs.game.config.GetTileSize() {
+		t.Error("an engaged unsealed Samurai must retain its finite pursuit leash")
 	}
 }
 

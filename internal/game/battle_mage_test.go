@@ -622,7 +622,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s definition: %v", tc.spellID, err)
 			}
-			card := buildSpellTooltipUnified(def, caster, cs, true)
+			card := buildSpellTooltipUnifiedRows(def, caster, cs, true).String()
 			if want := tc.expected(def); !strings.Contains(card, want) {
 				t.Errorf("%s card does not quote the boosted packet %q:\n%s", tc.spellID, want, card)
 			}
@@ -639,7 +639,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 			SpellID: "test-outgoing-buff", Frames: 600,
 			OutBonus: 7, OutDamageType: "all",
 		}}
-		lines := buildSpellComparisonLinesByID("rock_blast", "firebolt", caster, cs)
+		lines := buildSpellComparisonRowsByID("rock_blast", "firebolt", caster, cs).Lines()
 		_, _, rockTotal := cs.CalculateSpellDamage("rock_blast", caster)
 		_, _, boltTotal := cs.CalculateSpellDamage("firebolt", caster)
 		rockParts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("rock_blast", caster, rockTotal), "earth")
@@ -689,7 +689,7 @@ func TestStrongMagicSpellCardStatesHPCost(t *testing.T) {
 				caster.SpellPoints, caster.MaxSpellPoints = 500, 500
 				cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
 				want := character.StrongMagicHPCost(cost, strongMagicPct(caster, def))
-				card := GetSpellTooltip(key, caster, cs, false)
+				card := GetSpellTooltipRows(key, caster, cs, false).String()
 				shown := strings.Contains(card, "Strong Magic: also burns")
 				if shown != (want > 0) || (want > 0 && !strings.Contains(card, fmt.Sprintf("also burns %d HP", want))) {
 					t.Fatalf("card shows a Strong Magic price = %v, want %d HP:\n%s", shown, want, card)

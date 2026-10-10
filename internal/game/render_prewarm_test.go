@@ -967,21 +967,28 @@ func TestVisibleOpenWorldMapKeysIncludesEveryRegionInView(t *testing.T) {
 		{MapKey: "north_east", OffsetX: 10, OffsetY: -10, Width: 10, Height: 10},
 		{MapKey: "south_east", OffsetX: 10, OffsetY: 10, Width: 10, Height: 10},
 		{MapKey: "far", OffsetX: 40, OffsetY: 0, Width: 10, Height: 10},
+		{MapKey: "wide_only", OffsetX: 10, OffsetY: -20, Width: 10, Height: 10},
 	}}
 	tests := []struct {
 		name     string
 		angle    float64
 		distance float64
+		viewFOV  float64
 		want     []string
 	}{
 		{name: "three neighbours share the view", angle: 0, distance: 20, want: []string{"current", "east", "north_east", "south_east"}},
 		{name: "regions behind the camera stay cold", angle: math.Pi, distance: 20, want: []string{"current"}},
 		{name: "far region stays cold", angle: 0, distance: 3, want: []string{"current", "east"}},
+		{name: "wide presentation includes extra region", angle: 0, distance: 20, viewFOV: math.Pi * 2 / 3, want: []string{"current", "east", "north_east", "south_east", "wide_only"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			camera := &FirstPersonCamera{X: 9, Y: 5, Angle: tt.angle, FOV: math.Pi / 2, ViewDist: tt.distance}
-			if got := visibleOpenWorldMapKeys(wm, camera, 1, 0, 0); !reflect.DeepEqual(got, tt.want) {
+			viewFOV := tt.viewFOV
+			if viewFOV == 0 {
+				viewFOV = camera.FOV
+			}
+			if got := visibleOpenWorldMapKeys(wm, camera, 1, 0, 0, viewFOV); !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("visible regions = %v, want %v", got, tt.want)
 			}
 		})
@@ -1057,8 +1064,8 @@ func TestMapRenderPrefetchAndMovementPriorityCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.prefetchKey != "" {
-				exact := visibleOpenWorldMapKeys(wm, camera, 1, 0, 0)
-				prefetched := visibleOpenWorldMapKeys(wm, camera, 1, mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles)
+				exact := visibleOpenWorldMapKeys(wm, camera, 1, 0, 0, camera.FOV)
+				prefetched := visibleOpenWorldMapKeys(wm, camera, 1, mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles, camera.FOV)
 				if containsString(exact, tt.prefetchKey) {
 					t.Fatalf("%s was already visible without the prefetch margin", tt.prefetchKey)
 				}
@@ -1489,7 +1496,7 @@ func TestNPCIdleFramesStayVisibleThroughStreamingPrewarm(t *testing.T) {
 		key := makeStandeeCoreKey("npc:test_idle", frame, false)
 		commit := newMapRenderStandeeCommit(mapRenderPreparedStandee{
 			key: key, source: frame,
-			prepared: prepareStandeePixels(frameCPU, 0.35, false),
+			prepared: prepareStandeePixels(frameCPU, 0.35, false, false),
 		})
 		if _, _, done := commit.advance(r, 0); !done {
 			t.Fatalf("frame %d streaming commit did not finish", frameIndex)
@@ -1664,7 +1671,7 @@ func TestMapRenderEvictionInvalidatesOnlyAliasedStandeeMipFrames(t *testing.T) {
 			}
 			stableImage := tt.animationType != ""
 			key := makeStandeeCoreKey("test:"+tt.resourceName, source, stableImage)
-			prepared := prepareStandeePixels(image.NewRGBA(image.Rectangle{Max: source.Bounds().Size()}), 0, false)
+			prepared := prepareStandeePixels(image.NewRGBA(image.Rectangle{Max: source.Bounds().Size()}), 0, false, false)
 			if _, core := r.commitPreparedStandeePixels(key, source, prepared); core == nil {
 				t.Fatal("failed to seed victim standee cache")
 			}
@@ -1679,7 +1686,7 @@ func TestMapRenderEvictionInvalidatesOnlyAliasedStandeeMipFrames(t *testing.T) {
 
 			unrelatedSource := ebiten.NewImage(8, 8)
 			unrelatedKey := makeStandeeCoreKey("test:unrelated", unrelatedSource, false)
-			unrelatedPrepared := prepareStandeePixels(image.NewRGBA(image.Rect(0, 0, 8, 8)), 0, false)
+			unrelatedPrepared := prepareStandeePixels(image.NewRGBA(image.Rect(0, 0, 8, 8)), 0, false, false)
 			if _, core := r.commitPreparedStandeePixels(unrelatedKey, unrelatedSource, unrelatedPrepared); core == nil {
 				t.Fatal("failed to seed unrelated standee cache")
 			}

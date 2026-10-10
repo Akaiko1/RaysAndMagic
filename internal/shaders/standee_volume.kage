@@ -1,4 +1,6 @@
 //include standee_sampling.kageinc
+
+var Horizon float
 // The crossed-standee volume shader composites the exact shell stack in one
 // fragment invocation. It receives all per-slab data through vertices so
 // successive trees with the same texture remain batchable:
@@ -6,7 +8,7 @@
 //	custom.xy  far/near reciprocal perpendicular depth
 //	custom.zw  far/near source U divided by depth
 //	srcPos.xy  height/bottom projection invariants
-//	color      brightness, wall depth, wall top, shell count
+//	color      brightness, reciprocal wall depth, wall top, shell count
 //
 // Geometry covers the projected union of both outer faces. Every virtual
 // layer reconstructs the same perspective height, source coordinate, wall
@@ -16,7 +18,7 @@ func sourcePosition(dstY float, depth float, u float, heightScale float, bottomS
 		return vec2(0), false
 	}
 	height := heightScale / depth
-	bottom := imageDstSize().y/2.0 + bottomScale/depth
+	bottom := Horizon + bottomScale/depth
 	v := (dstY - (bottom - height)) / height
 	if v < 0.0 || v > 1.0 {
 		return vec2(0), false
@@ -32,14 +34,15 @@ func addFront(acc vec4, c vec4) vec4 {
 	return acc + c*(1.0-acc.a)
 }
 
-func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+	dstPos := vec4(paniniSourcePoint(rawDstPos.xy-imageDstOrigin())+imageDstOrigin(),rawDstPos.zw)
 	farDepth := 1.0/custom.x
 	nearDepth := 1.0/custom.y
 	farU := custom.z*farDepth
 	nearU := custom.w*nearDepth
 	projection := srcPos - imageSrc0Origin()
 	dstY := dstPos.y - imageDstOrigin().y
-	wallDepth := color.g
+	wallDepth := 1.0/color.g
 	wallTop := color.b
 	packed := color.a
 	shellCount := floor(packed)
@@ -87,3 +90,5 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	}
 	return acc
 }
+
+//include panini.kageinc

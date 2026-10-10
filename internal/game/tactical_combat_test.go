@@ -321,7 +321,7 @@ func TestBallisticsAndMedicineUseSharedNumbers(t *testing.T) {
 		if !g.UseConsumableFromInventory(0, 0) || ch.SpellPoints != want {
 			t.Fatal("mana potion ignored Field Medicine")
 		}
-		text := GetItemTooltip(ch.Equipment[items.SlotMainHand], ch, g.combat, true)
+		text := GetItemTooltipRows(ch.Equipment[items.SlotMainHand], ch, g.combat, true).String()
 		if !strings.Contains(text, fmt.Sprintf("Range: %.0f tiles", rangeTiles)) || !strings.Contains(text, fmt.Sprintf("Projectile Speed: %.1f tiles/s", speed)) {
 			t.Fatal("tooltip ignored Ballistics")
 		}

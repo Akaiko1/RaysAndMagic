@@ -6,6 +6,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -53,9 +54,43 @@ func (g *MMGame) registerVisitedTownPortalDestination() {
 	g.visitedTavernMaps[mapKey] = true
 }
 
-// sortedTownPortalDestinations returns the Town Portal destination list in
-// stable order.
-func (g *MMGame) sortedTownPortalDestinations() []string {
+// townPortalRow is one picker row: its stable ID and its label.
+type townPortalRow struct{ id, label string }
+
+// townPortalRows lists the Town Portal destinations in stable order. A row ID
+// is a saved map unlock or a guild entrance from guildPortalDestinations.
+func (g *MMGame) townPortalRows() []townPortalRow {
+	guilds := g.guildPortalDestinations()
+	ids := g.sortedVisitedPortalMaps()
+	for id := range guilds {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	rows := make([]townPortalRow, len(ids))
+	for i, id := range ids {
+		rows[i].id, rows[i].label = id, g.townPortalMapLabel(id)
+		if dest, ok := guilds[id]; ok {
+			rows[i].label = fmt.Sprintf("%s - %s", guildMapName(dest.mapKey), dest.npc.Name)
+		}
+	}
+	return rows
+}
+
+// townPortalRequest resolves a row to its transition before anything is paid:
+// a guild entrance lands beside its guild, a map at its arrival point.
+func (g *MMGame) townPortalRequest(id string) (mapTransition, error) {
+	if dest, ok := g.guildPortalDestinations()[id]; ok {
+		return g.guildPortalRequest(dest)
+	}
+	if g.worldByKey(id) == nil {
+		return mapTransition{}, fmt.Errorf("%s", uitext.Text("portal.unavailable"))
+	}
+	return mapTransition{mapKey: id, arrival: mapArrivalTownPortal}, nil
+}
+
+// Only ordinary map unlocks are saved. Guild entrances derive from membership
+// and current placements, so removed entrances cannot linger in a saved list.
+func (g *MMGame) sortedVisitedPortalMaps() []string {
 	keys := make([]string, 0, len(g.visitedTavernMaps))
 	for k, ok := range g.visitedTavernMaps {
 		if ok {
@@ -95,11 +130,15 @@ func (g *MMGame) townPortalArrivalPoint(mapKey string) (float64, float64, bool) 
 
 // confirmTownPortal casts the portal the picker was opened for: the caster
 // pays its SP, action and cooldown as for any cast, then the party goes.
-func (g *MMGame) confirmTownPortal(mapKey string) {
+func (g *MMGame) confirmTownPortal(dest string) {
 	caster, id := g.townPortalCaster, g.townPortalSpell
 	g.cancelTownPortalPicker()
 	idx := g.combat.findCharacterIndex(caster)
 	if caster == nil || !g.canSpendCombatAction(idx) {
+		return
+	}
+	if _, err := g.townPortalRequest(dest); err != nil {
+		g.AddCombatMessage(err.Error())
 		return
 	}
 	def, err := spells.GetSpellDefinitionByID(id)
@@ -114,14 +153,19 @@ func (g *MMGame) confirmTownPortal(mapKey string) {
 	}
 	g.menuOpen = false
 	g.consumeCharacterActionWithRTCooldown(idx, g.combat.SpellCooldownFrames(caster, id))
-	g.townPortalTeleport(mapKey)
+	g.townPortalTeleport(dest)
 }
 
-// townPortalTeleport moves the party to the chosen map and lands them at its
-// arrival point.
-func (g *MMGame) townPortalTeleport(mapKey string) {
+// townPortalTeleport moves the party to the chosen destination and lands them
+// at its arrival point.
+func (g *MMGame) townPortalTeleport(dest string) {
 	g.townPortalPickerOpen = false
-	if err := g.transitionToMap(mapTransition{mapKey: mapKey, arrival: mapArrivalTownPortal}); err != nil {
+	request, err := g.townPortalRequest(dest)
+	if err != nil {
+		g.AddCombatMessage(err.Error())
+		return
+	}
+	if err := g.transitionToMap(request); err != nil {
 		g.AddCombatMessage("Town Portal failed: " + err.Error())
 		return
 	}
@@ -156,7 +200,7 @@ func nearestWalkableNeighbor(w *world.World3D, tileSize, px, py float64) (float6
 // into the destination list.
 func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 	g := ui.game
-	dests := g.sortedTownPortalDestinations()
+	dests := g.townPortalRows()
 	if len(dests) == 0 {
 		g.cancelTownPortalPicker()
 		return
@@ -167,19 +211,19 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 	}
 	ui.drawMemberPickerPopup(screen, "Town Portal", "Choose a destination.", 360, rows,
 		func(idx int) string {
-			return fmt.Sprintf("%d) %s", idx+1, g.townPortalDestinationLabel(dests[idx]))
+			return fmt.Sprintf("%d) %s", idx+1, dests[idx].label)
 		},
 		func(idx int) {
-			g.confirmTownPortal(dests[idx])
+			g.confirmTownPortal(dests[idx].id)
 		},
 		g.cancelTownPortalPicker, ui.topModalLayer() == modalLayerTownPortal)
 }
 
-// townPortalDestinationLabel renders a map key as a picker row label: the map's
-// own name, and the ANCHOR's name when one speaks for it ("Elvish Forest - The
+// townPortalMapLabel renders a map key as a picker row label: the map's own
+// name, and the ANCHOR's name when one speaks for it ("Elvish Forest - The
 // Wandering Wyvern"). The flag is generic, so the label must not assume the
 // anchor is an inn.
-func (g *MMGame) townPortalDestinationLabel(mapKey string) string {
+func (g *MMGame) townPortalMapLabel(mapKey string) string {
 	name := humanizeKey(mapKey)
 	if world.GlobalWorldManager != nil {
 		if mc := world.GlobalWorldManager.MapConfigs[mapKey]; mc != nil && mc.Name != "" {

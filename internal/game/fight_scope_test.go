@@ -12,15 +12,15 @@ import (
 )
 
 // Invariant: the party is in a fight only while a party-hostile monster is
-// close enough to press it - within its pursuit leash or its attack reach.
+// allowed to pursue it and within the configured local pursuit cap.
 // Case table:
-//   - Hostility: calm, sight chase, sticky hit, relentless, bound ally.
+//   - Hostility: calm, sight chase, remembered hit, relentless, bound ally.
 //   - Distance: inside camp radius, inside leash, beyond leash (stranded),
-//     beyond leash but inside attack reach, lured past tether (wider leash).
+//     varied attack reach and displacement from home (neither extends the cap).
 //   - Entry points: TryCamp, brewSelectedRecipe, the M key on the Alchemist
 //     (closed menu and open on another tab), Drakehide shedding, automatic
 //     techniques. Wording follows the action: camp rests, the book brews.
-//   - Persistence: sticky hostility survives save/load in both world modes;
+//   - Persistence: provocation memory survives save/load in both world modes;
 //     a hunter stranded in another open-world region does not hold the party.
 func TestFightScopeIsReachNotTheWholeMap(t *testing.T) {
 	type row struct {
@@ -53,10 +53,10 @@ func TestFightScopeIsReachNotTheWholeMap(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g, _ := rareClassGame(t, character.ClassAlchemist, false)
 			ts := float64(g.config.GetTileSize())
-			// Leash = 4-tile alert x 2 hysteresis = 8 tiles at the post; 16 when lured.
-			m := &monster.Monster3D{ID: "probe", Key: "goblin", Name: "Goblin", HitPoints: 10, MaxHitPoints: 10,
-				X: g.camera.X + tc.tiles*ts, Y: g.camera.Y, AlertRadius: 4 * ts, TetherRadius: 4 * ts,
-				AttackRadius: tc.reachTiles * ts}
+			// Sight leash = 4-tile alert x 2 hysteresis; provocation uses the configured cap.
+			m := monster.NewMonster3DFromConfig(g.camera.X+tc.tiles*ts, g.camera.Y, "goblin", g.config)
+			m.ID, m.Name, m.HitPoints, m.MaxHitPoints = "probe", "Goblin", 10, 10
+			m.AlertRadius, m.TetherRadius, m.AttackRadius = 4*ts, 4*ts, tc.reachTiles*ts
 			m.SpawnX, m.SpawnY = m.X, m.Y
 			if tc.luredPastTether {
 				m.SpawnX += 20 * ts
@@ -154,7 +154,7 @@ func TestStrandedHunterSurvivesSaveWithoutHoldingTheParty(t *testing.T) {
 					}
 				}
 				if got == nil {
-					t.Fatal("sticky hostility was not persisted")
+					t.Fatal("provocation memory was not persisted")
 				}
 				_, safe := g.safeToPrepare(campActivity())
 				if want := place == "other_region"; safe != want {

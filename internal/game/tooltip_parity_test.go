@@ -33,8 +33,8 @@ func TestBaseTooltipsIndependentOfParty(t *testing.T) {
 		check := func(key string, it items.Item) {
 			t.Helper()
 			t.Run(key, func(t *testing.T) {
-				base := GetItemTooltip(it, nil, nil, full)
-				shop := GetItemTooltip(it, nil, cs, full)
+				base := GetItemTooltipRows(it, nil, nil, full).String()
+				shop := GetItemTooltipRows(it, nil, cs, full).String()
 				if base == "" || base != shop {
 					t.Fatalf("base/shop mismatch:\n%s\n%s", base, shop)
 				}
@@ -87,14 +87,14 @@ func TestSpellItemBaseUsesCurrentDefinition(t *testing.T) {
 	}
 	want := fmt.Sprintf("Total Damage: %d", character.SpellDamageBreakdown(def, nil).Total)
 	for _, full := range []bool{false, true} {
-		tip := GetItemTooltip(it, nil, cs, full)
+		tip := GetItemTooltipRows(it, nil, cs, full).String()
 		if strings.Contains(tip, it.Description) || !strings.Contains(tip, want) {
 			t.Fatalf("want %q:\n%s", want, tip)
 		}
 	}
 	// Confirm the live path still applies real party buffs.
 	cs.game.combatBuffs = []TimedCombatBuff{{SpellID: "test", Frames: 600, OutBonus: 99, OutDamageType: "all"}}
-	live := GetSpellTooltip("fireball", gmReferenceChar(cs.game.config), cs, true)
+	live := GetSpellTooltipRows("fireball", gmReferenceChar(cs.game.config), cs, true).String()
 	if !strings.Contains(live, "Active party buff: +99") {
 		t.Fatal(live)
 	}

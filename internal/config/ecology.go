@@ -19,11 +19,31 @@ type EcologyConfig struct {
 	Caravan       CaravanConfig        `yaml:"caravan"`
 }
 type WildlifePopulation struct {
-	Map     string `yaml:"map"`
-	Monster string `yaml:"monster"`
-	Count   int    `yaml:"count"`
-	Phase   string `yaml:"phase"`
+	Key      string   `yaml:"key,omitempty"`
+	Monsters []string `yaml:"monsters,omitempty"`
+	Hostile  bool     `yaml:"hostile,omitempty"`
+	Map      string   `yaml:"map"`
+	Monster  string   `yaml:"monster"`
+	Count    int      `yaml:"count"`
+	Phase    string   `yaml:"phase"`
 }
+
+// Identity preserves legacy singleton population keys across saved campaigns.
+func (p WildlifePopulation) Identity() string {
+	if p.Key != "" {
+		return p.Map + ":" + p.Key
+	}
+	return p.Map + ":" + p.Monster
+}
+
+// Species is the authored pool; mixed populations roll each new actor equally.
+func (p WildlifePopulation) Species() []string {
+	if len(p.Monsters) > 0 {
+		return p.Monsters
+	}
+	return []string{p.Monster}
+}
+
 type RoutePoint struct {
 	Map string `yaml:"map" json:"map"`
 	X   int    `yaml:"x" json:"x"`
@@ -72,9 +92,17 @@ func (c *EcologyConfig) Validate() error {
 	}
 	seen := map[string]bool{}
 	for _, p := range c.Populations {
-		k := p.Map + ":" + p.Monster
-		if p.Map == "" || p.Monster == "" || p.Count <= 0 || (p.Phase != "day" && p.Phase != "night") || seen[k] {
+		k := p.Identity()
+		mixed := len(p.Monsters) > 0
+		if p.Map == "" || (p.Monster == "") != mixed || (mixed && p.Key == "") || p.Count <= 0 || (p.Phase != "day" && p.Phase != "night") || seen[k] {
 			return fmt.Errorf("invalid wildlife population %q", k)
+		}
+		species := map[string]bool{}
+		for _, monster := range p.Species() {
+			if monster == "" || species[monster] {
+				return fmt.Errorf("population %q has empty/duplicate species", k)
+			}
+			species[monster] = true
 		}
 		seen[k] = true
 	}

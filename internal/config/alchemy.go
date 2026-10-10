@@ -170,16 +170,6 @@ func validateAlchemyConfig(c *AlchemyConfig) error {
 	}
 	return nil
 }
-func AlchemyRecipeByKey(key string) *AlchemyRecipe {
-	if GlobalAlchemy != nil {
-		for i := range GlobalAlchemy.Recipes {
-			if GlobalAlchemy.Recipes[i].Key == key {
-				return &GlobalAlchemy.Recipes[i]
-			}
-		}
-	}
-	return nil
-}
 func LoadAlchemySpawns(filename string) (*AlchemySpawnConfig, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {

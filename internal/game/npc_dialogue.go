@@ -234,8 +234,9 @@ const (
 	// The standard centered NPC dialog box. Renderer and every mouse handler
 	// must use npcDialogLayout - a hardcoded copy that drifts desyncs click
 	// rects from drawn pixels.
-	npcDialogWidth  = 600
-	npcDialogHeight = 400
+	npcDialogWidth       = 600
+	npcDialogHeight      = 400
+	merchantDialogHeight = 544
 
 	// The tavern embeds roster and stash management instead of opening another
 	// modal, so it needs enough room for the two working grids.
@@ -331,8 +332,15 @@ type npcDialogRect struct{ x, y, w, h int }
 
 func npcDialogLayout(g *MMGame) npcDialogRect {
 	width, height := npcDialogWidth, npcDialogHeight
-	if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
+	if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindThievesGuild {
+		width, height = min(1000, g.config.GetScreenWidth()-48), min(760, g.config.GetScreenHeight()-64)
+		if !g.party.ThievesGuildMember {
+			height = min(height, 420)
+		}
+	} else if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC) == dialogKindTavern {
 		width, height = tavernDialogWidth, tavernDialogHeight
+	} else if g.dialogNPC != nil && g.npcDialogKindFor(g.dialogNPC).drawsShop() {
+		height = merchantDialogHeight
 	}
 	r := centeredRect(g.config.GetScreenWidth(), g.config.GetScreenHeight(), width, height)
 	return npcDialogRect{x: r.x, y: r.y, w: r.w, h: r.h}
@@ -343,9 +351,11 @@ func npcDialogLayout(g *MMGame) npcDialogRect {
 func (g *MMGame) switchDialogTab(tab int) {
 	g.pendingRosterSwap = nil
 	g.dialogTab = tab
+	g.guildScroll = 0
 	g.dialogNodePath = nil
 	g.selectedChoice = 0
 	g.merchantBuyPage = 0
+	g.merchantBuyCategory = inventoryTabAll
 	g.pendingBuffService = nil
 	g.pendingTavernAction = nil
 	g.rosterSelectedActive = -1
@@ -369,6 +379,7 @@ const (
 	dialogKindArenaGladiator
 	dialogKindBuffService
 	dialogKindTavern
+	dialogKindThievesGuild
 )
 
 // String names the kind for diagnostics - a boot error that says which
@@ -393,6 +404,8 @@ func (k npcDialogKind) String() string {
 		return "buff service"
 	case dialogKindTavern:
 		return "tavern"
+	case dialogKindThievesGuild:
+		return "thieves guild"
 	default:
 		return fmt.Sprintf("kind(%d)", int(k))
 	}
@@ -405,6 +418,11 @@ func (k npcDialogKind) String() string {
 // hand-kept list would let authoring drift from what the runtime withholds.
 func (k npcDialogKind) isGatedService() bool {
 	return k != dialogKindGeneric && k != dialogKindChoices
+}
+
+// drawsShop reports whether this dialog kind shows the NPC's shop grids.
+func (k npcDialogKind) drawsShop() bool {
+	return k == dialogKindMerchant || k == dialogKindArenaGladiator
 }
 
 // drawsDialogueRows reports whether this dialog kind has a surface for GENERIC
@@ -437,6 +455,17 @@ func (g *MMGame) npcShopHeaderLine(npc *character.NPC, stock string) string {
 		return npc.DialogueData.Greeting
 	}
 	return stock
+}
+
+// npcQuestReply selects optional NPC prose; otherwise the caller supplies
+// neutral UI feedback. The NPC must be captured before closing its dialog.
+func npcQuestReply(npc *character.NPC, questID string, pick func(character.NPCQuestMessages) string, fallback string) string {
+	if npc != nil && npc.DialogueData != nil {
+		if line := pick(npc.DialogueData.QuestMessages[questID]); line != "" {
+			return line
+		}
+	}
+	return fallback
 }
 
 // npcIsCardCollector reports whether the NPC runs the monster-card collection UI.
@@ -525,10 +554,10 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 		ih.handleTavernRest(c)
 	},
 	"wait_until_night": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
-		ih.handleArenaWait(c, true)
+		ih.handlePaidWait(c, true)
 	},
 	"wait_until_dawn": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
-		ih.handleArenaWait(c, false)
+		ih.handlePaidWait(c, false)
 	},
 	"buy_food": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		ih.handleBuyFood(c)
@@ -564,7 +593,7 @@ var gatedServiceActions = map[string]bool{
 	"manage_stash":       true,
 	"cast_buff":          true,
 	"start_arena_duel":   true,
-	"wait_until_night":   true, // the arena's paid rest (750g in npcs.yaml)
+	"wait_until_night":   true, // paid waiting, priced in npcs.yaml
 	"wait_until_dawn":    true,
 }
 
@@ -617,6 +646,8 @@ func (g *MMGame) npcDialogKindFor(npc *character.NPC) npcDialogKind {
 // skipped by accident.
 func npcDialogKindUngated(npc *character.NPC) npcDialogKind {
 	switch {
+	case npc.Type == character.NPCTypeThievesGuild:
+		return dialogKindThievesGuild
 	case npcIsCardCollector(npc):
 		return dialogKindCardCollector
 	case tavernChoice(npc, "tavern_rest") != nil:
@@ -646,7 +677,9 @@ func npcDialogKindUngated(npc *character.NPC) npcDialogKind {
 // dialogueChoiceRect returns the screen rect of the i-th visible choice row in
 // an encounter-style dialogue (the same rect the renderer highlights).
 func (g *MMGame) dialogueChoiceRect(npc *character.NPC, i, dialogX, dialogY, dialogWidth int) (x, y, w, h int) {
-	layout := g.dialogueLayout(npc, dialogWidth, npcDialogHeight)
+	// The open frame's own height: a shop's taller frame keeps its Talk tab's
+	// navigation at the bottom and gives the choices the extra rows.
+	layout := g.dialogueLayout(npc, dialogWidth, npcDialogLayout(g).h)
 	if i < layout.firstChoice || i >= layout.firstChoice+layout.choiceCount {
 		return 0, 0, 0, 0
 	}

@@ -95,7 +95,7 @@ func TestScreenBannerQueueIsBounded(t *testing.T) {
 		t.Fatalf("activate: %v", err)
 	}
 	for i := 0; i < kills; i++ {
-		g.questManager.OnMonsterKilled(def.TargetMonster, "")
+		g.questManager.OnMonsterKilledFromSource(def.TargetMonster, "", "")
 		g.syncQuestBanners(true)
 	}
 	if len(g.screenBannerQueue) > bannerQueueMax {

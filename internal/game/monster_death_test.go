@@ -224,14 +224,14 @@ func TestMonsterDeathFlight(t *testing.T) {
 				}
 				cfg, tps := g.monsterDeathSettings(), float64(g.config.GetTPS())
 				const ground, size = 600.0, 120.0
-				air := monsterFlyingBottom(g.config.GetScreenHeight(), ground, size)
+				air := monsterFlyingBottom(float64(g.config.GetScreenHeight())/2, ground, size)
 				for _, part := range []float64{0, 0.5, 1} {
 					g.frameCount = int64(part * cfg.FallSeconds * tps)
 					want := ground
 					if flying {
 						want = air + (ground-air)*part*part
 					}
-					if got := g.corpseBottom(c, ground, size); math.Abs(got-want) > 0.01 {
+					if got := g.corpseBottom(c, g.viewFocal()*g.config.GetTileSize()/(2*(ground-g.viewHorizon())), ground, size); math.Abs(got-want) > 0.01 {
 						t.Fatalf("fall part=%v bottom=%v want=%v", part, got, want)
 					}
 					if bag.hop.waiting(g.frameCount) != (flying && part < 1) {

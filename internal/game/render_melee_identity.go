@@ -8,6 +8,7 @@ import (
 // A readable weapon leads each authored strike; the material wake stays behind
 // the blade instead of substituting for it. Paired weapons have staggered poses.
 func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, screenH float64, style, kind string) {
+	r.weaponMaterialState.bodyHandled = true
 	p, fade, _, lead := meleeFxTiming(s)
 	if fade <= 0 {
 		return
@@ -21,7 +22,7 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 		col = [3]int{185, 211, 228}
 	}
 	count := 1
-	if style == "kage_kunai" || style == "agility_katar" || style == "arena_cesti" || kind == "punch" {
+	if style == "kage_kunai" || style == "agility_katar" {
 		count = 2
 	}
 	for i := 0; i < count; i++ {
@@ -40,7 +41,7 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 			side = -1
 		}
 		path := func(t float64) (float64, float64) {
-			if kind == "stab" || kind == "punch" || kind == "lunge" {
+			if kind == "stab" || kind == "lunge" {
 				reach := .34
 				if kind == "lunge" {
 					reach = .46
@@ -70,9 +71,6 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 		if kind == "lunge" {
 			width = h * .009
 		}
-		if kind == "punch" {
-			width = h * .021
-		}
 		r.drawDissolveStroke(dst, dissolveStroke{path: path, width: func(t float64) float64 { return width * math.Sin(math.Pi*t) }, color: func(float64) [3]int { return col }, alpha: func(float64) float64 { return .36 }, length: h * .5, seed: seedFromID(s.ID), salt: 811 + i, blend: additiveGlowBlend}, ld, local)
 		x, y := path(ld)
 		angle := tangentAt(path, ld)
@@ -87,17 +85,16 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 		if kind == "lunge" {
 			size = h * .067
 		}
-		if kind == "punch" {
-			size = h * (.045 + .035*ld)
-		}
 		if style == "war_fan" {
 			size = h * .062
 			angle += .5
 		}
 		r.weaponMaterialState.hand = i
-		r.drawWeaponSilhouette(dst, kind, style, x, y, angle, size, col, bodyFade)
-		if local > .34 {
-			u := (local - .34) / .66
+		r.weaponMaterialState.progress = local
+		r.drawWeaponSilhouette(dst, kind, style, x, y, angle, size, bodyFade)
+		if local > meleeSweepFrac {
+			u := (local - meleeSweepFrac) / (1 - meleeSweepFrac)
+			x, y = path(1)
 			for k := 0; k < 4; k++ {
 				seed := seedFromID(s.ID) + i*53 + k*19
 				a := -math.Pi/2 + (auraHash(seed, k, 802, 0)-.5)*2.8
@@ -123,8 +120,7 @@ type weaponStrokePose struct {
 // Bespoke effects also carry solid weapon silhouettes. Their existing secondary
 // choreography remains visible behind the moving weapon.
 func (r *Renderer) drawSignatureSilhouette(dst *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	switch s.Style {
-	case "agility_katar", "kage_kunai", "arena_gladius", "arena_hasta", "arena_trident", "arena_cesti", "arena_parry", "arena_morningstar", "clock_minute", "war_fan", "katana", "solstice_anchor", "solstice_thermal", "idol_breaker", "dragon_jaws":
+	if r.weaponMaterialState.bodyHandled {
 		return
 	}
 	p, fade, _, _ := meleeFxTiming(s)
@@ -137,7 +133,7 @@ func (r *Renderer) drawSignatureSilhouette(dst *ebiten.Image, s SlashEffect, cx,
 	}
 	kind := s.Kind
 	style := s.Style
-	if kind == "" {
+	if kind == "" || style == "naginata" {
 		kind = "slash"
 	}
 	pose := r.weaponMaterialState.pose
@@ -145,17 +141,9 @@ func (r *Renderer) drawSignatureSilhouette(dst *ebiten.Image, s SlashEffect, cx,
 		return
 	}
 	x, y, angle := pose.x, pose.y, pose.angle
-	if kind == "slash" || kind == "chop" || style == "naginata" {
+	if kind == "slash" || kind == "chop" {
 		angle -= math.Pi / 2
 	}
-	if style == "arena_labrys" {
-		// The primary crescent turns counterclockwise: keep the head outside
-		// the arc and the haft pointing back toward its pivot.
-		angle += math.Pi
-	}
-	col := s.Color
-	if col == [3]int{} {
-		col = [3]int{190, 207, 216}
-	}
-	r.drawWeaponSilhouette(dst, kind, style, x, y, angle, h*.062, col, math.Min(fade*1.5, (.64-p)/.15))
+
+	r.drawWeaponSilhouette(dst, kind, style, x, y, angle, h*.062, math.Min(fade*1.5, (.64-p)/.15))
 }

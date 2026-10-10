@@ -61,6 +61,7 @@ func (cs *CombatSystem) knockOut(target *character.MMCharacter) {
 		return
 	}
 	target.AddCondition(character.ConditionUnconscious)
+	target.ReactiveCombat = character.ReactiveCombatState{}
 	cs.game.logCombat(logToneBad, "%s %s!", logHeroName(target), logColored("falls unconscious", logDyingHP))
 }
 
@@ -725,6 +726,7 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, explicitAim bool) 
 	// Card procs only fire on an attack that actually happened (gated above), so a
 	// capped ranged weapon can't be spammed for free Ningyo/Orc Warlord procs.
 	if acted {
+		cs.tryAttackZoneProc(weaponDef, attacker)
 		if weaponDef.Category == "staff" && !summonRolled {
 			attacker.ConsumeFlowingStaffCharge()
 		}
@@ -743,20 +745,15 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, explicitAim bool) 
 	return acted
 }
 
-// createArrowAttack creates a projectile arrow attack; reports whether an
+// createArrowAttackAimed creates a projectile arrow attack; reports whether an
 // arrow actually left the bow (max-projectiles cap / missing physics -> false,
-// so the attempt doesn't cost an action).
-// createArrowAttack fires from the weapon in `slot` - SlotMainHand for every
-// normal ranged attack and card procs (Bandit's bonus bolt), or whichever hand
-// attackSlotFor picked for a Dual Wielding character's primary swing (so a
-// bow in the off-hand fires correctly instead of silently reading the main
-// hand's weapon). A non-empty label names the projectile in chat instead of
-// the weapon (card-proc bolts on melee wielders would otherwise report the
-// hunting-bow physics fallback).
-func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, label string) bool {
-	return cs.createArrowAttackAimed(damage, slot, label, cs.partyAttackAngle(), false)
-}
-
+// so the attempt doesn't cost an action). It fires from the weapon in `slot` -
+// SlotMainHand for every normal ranged attack and card procs (Bandit's bonus
+// bolt), or whichever hand attackSlotFor picked for a Dual Wielding
+// character's primary swing (so a bow in the off-hand fires correctly instead
+// of silently reading the main hand's weapon). A non-empty label names the
+// projectile in chat instead of the weapon (card-proc bolts on melee wielders
+// would otherwise report the hunting-bow physics fallback).
 func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot, label string, angle float64, explicitAim bool) bool {
 	// Find the equipped projectile-weapon's YAML key. Range>3 = ranged
 	// (matches the dispatch gate in EquipmentMeleeAttack).
@@ -939,6 +936,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 			AnimationFrame: 0,
 			MaxFrames:      maxFrames,
 			SweepFrames:    sweepFrames,
+			AnchorLift:     graphicsConfig.SlashLiftRatio,
 			Active:         true,
 			Kind:           meleeFxKind(weaponDef),
 			Style:          graphicsConfig.SlashFx,
@@ -1347,7 +1345,7 @@ func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, fl
 // and party-nova victims so both anchor on the sprite, not the raw tile.
 func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element string) {
 	x, y := cs.monsterVisualPos(m)
-	cs.game.CreateSpellHitEffect(x, y, element, SpellParticleCount, SpellParticleSize)
+	cs.game.CreateSpellHitEffect(x, y, element, SpellParticleCount, SpellParticleSize, m)
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
@@ -1432,7 +1430,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// The immutable packet is reused by every AoE victim. Each target resolves
 	// its own armor, bonus-vs and resistances; the packet pays flat soak once.
-	hit := cs.applyPartyMonsterAttack(monster, attack)
+	hit := cs.applyPartyMonsterAttack(monster, cs.consumeDodgeCharge(attack))
 	finalDamage, isCrit := hit.Total(), hit.Critical
 	cs.markMonsterHit(monster)
 	cs.game.logCombat(logToneGood, "%s%s hits %s for %s damage! %s", logCrit(isCrit), logHeroText(attackerName),
@@ -1451,6 +1449,9 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 // the target.
 func (cs *CombatSystem) settlePartyHit(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig,
 	attacker *character.MMCharacter, attackerName string, shot *Arrow, riders func()) (executed bool) {
+	if weaponDef != nil && attacker != nil && weaponDef.HitShellAbsorption > 0 {
+		attacker.ReactiveCombat.Shell = weaponDef.HitShellAbsorption
+	}
 	cs.applyElementalWeaponAbility(monster, weaponDef, attacker, shot)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
@@ -1496,7 +1497,7 @@ func weaponAoeRadius(def *config.WeaponDefinitionConfig) float64 {
 // shared sight-agro rule. Only in TB, a party-caused hit may alert nearby
 // same-key monsters, but each neighbour must still have direct LoS to the
 // party. It is intentionally not an RT mechanic and it never behaves like an
-// alarm through walls.
+// alarm through walls. Witnessing the hit uses the shared provocation leash.
 func (cs *CombatSystem) engageTurnBasedSameKindPackOnPartyHit(hit *monsterPkg.Monster3D) {
 	if cs == nil || cs.game == nil || cs.game.world == nil || !cs.game.turnBasedMode || hit == nil {
 		return
@@ -1508,12 +1509,15 @@ func (cs *CombatSystem) engageTurnBasedSameKindPackOnPartyHit(hit *monsterPkg.Mo
 
 	for _, m := range cs.game.world.Monsters {
 		if m == nil || !m.IsAlive() || m.Key != hitKey ||
-			Distance(hit.X, hit.Y, m.X, m.Y) > radius ||
-			!m.CanStartPlayerAggro() ||
+			Distance(hit.X, hit.Y, m.X, m.Y) > radius {
+			continue
+		}
+
+		if !m.CanStartPlayerAggro() ||
 			!m.HasLineOfSightToPlayer(cs.game.collisionSystem, cs.game.camera.X, cs.game.camera.Y) {
 			continue
 		}
-		m.BeginPlayerEngagement()
+		cs.game.answerBandAlarm(m, true, true)
 	}
 }
 
@@ -1562,7 +1566,28 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	if !monster.IsAlive() {
 		return
 	}
+
+	// Tick the persistent attack cooldown every frame, BEFORE any state checks,
+	// so it counts down even while the monster is pursuing/alert. This is what
+	// stops a kiting player (stepping in and out of range) from resetting the
+	// attack cadence: the AI state can churn, but the cooldown can't be skipped.
+	if monster.AttackCDFrames > 0 {
+		monster.AttackCDFrames--
+	}
+	if monster.OffHandCDFrames > 0 {
+		monster.OffHandCDFrames--
+	}
+
+	monster.TickPounceCooldownFrame()
+	monster.LimitPlayerEngagement(cs.game.camera.X, cs.game.camera.Y)
 	behavior := monster.CurrentAIBehavior()
+	if !monster.IsInCombat() && behavior != monsterPkg.AIBehaviorEvasive {
+		if monster.IsBoss() {
+			tickBossRecovery(monster, false)
+			monster.TickTrapVolleyCooldownFrame()
+		}
+		return
+	}
 	// Movement AI and TB already hold scripted inactive encounter pieces.
 	// RT crossfire is a separate action path, so it must enforce the same gate
 	// before a precomputed bound-ally foe can trigger an attack.
@@ -1575,17 +1600,6 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	// the stun counter; here we just suppress the action.
 	if monster.StunFramesRemaining > 0 {
 		return
-	}
-
-	// Tick the persistent attack cooldown every frame, BEFORE any state checks,
-	// so it counts down even while the monster is pursuing/alert. This is what
-	// stops a kiting player (stepping in and out of range) from resetting the
-	// attack cadence: the AI state can churn, but the cooldown can't be skipped.
-	if monster.AttackCDFrames > 0 {
-		monster.AttackCDFrames--
-	}
-	if monster.OffHandCDFrames > 0 {
-		monster.OffHandCDFrames--
 	}
 
 	// Modes that may not attack own no RT attack action: stale StateAttacking,
@@ -1648,7 +1662,6 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	// Pounce (real-time): from within pounce range but beyond melee, leap
 	// to melee contact and strike immediately, then go on cooldown.
 	if monster.CanPounce() {
-		monster.TickPounceCooldownFrame()
 		if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
 			cs.monsterCanPounceParty(monster) {
 			if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
@@ -1970,6 +1983,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	// IgnoresDodge (champion GM weapon mastery) pierces the dodge entirely -
 	// the same rule a GM party member enjoys against monsters.
 	if dodged, _ := cs.RollPerfectDodge(target); dodged && !hit.IgnoresDodge {
+		cs.game.gainDodgeCharge(target)
 		trueDealt := cs.mitigateCharacterDamageParts(
 			damagecalc.Parts{True: hit.Parts.True},
 			hit.DamageType,
@@ -1980,7 +1994,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 			cs.game.logCombat(logToneNone, "Perfect Dodge! %s evades %s's attack!", logHeroName(target), logMonsterAs(monster, sourceName))
 			return
 		}
-		trueDealt = cs.redirectDamageThroughSacrifice(target, trueDealt)
+		trueDealt = cs.resolveHeroHitDamage(monster, target, trueDealt)
 		cs.takeHeroHP(target, trueDealt, sourceName)
 		cs.game.logCombat(logToneBad, "%s dodges %s but still takes %s! %s",
 			logHeroName(target), logMonsterAs(monster, sourceName), logTrueDamage(trueDealt), logHP(target.HitPoints, target.MaxHitPoints))
@@ -2009,7 +2023,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		hit.ArmorPiercePct,
 	)
 	finalDamage := dealt.Total()
-	finalDamage = cs.redirectDamageThroughSacrifice(target, finalDamage)
+	finalDamage = cs.resolveHeroHitDamage(monster, target, finalDamage)
 	cs.takeHeroHP(target, finalDamage, sourceName)
 	cs.game.logCombat(logToneBad, "%s hits %s for %s damage! %s", logMonsterAs(monster, sourceName),
 		logHeroName(target), logDamage(finalDamage, hit.DamageType), logHP(target.HitPoints, target.MaxHitPoints))
@@ -2488,7 +2502,7 @@ func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *charac
 		return 0
 	}
 	dealt := cs.mitigateCharacterDamageParts(parts, school, member, false).Total()
-	dealt = cs.redirectDamageThroughSacrifice(member, dealt)
+	dealt = cs.resolveHeroHitDamage(source, member, dealt)
 	hostile := ""
 	if source != nil {
 		hostile = source.Name
@@ -2503,9 +2517,9 @@ func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *charac
 	return dealt
 }
 
-// anyMonsterEngagingParty reports a live monster actively engaging and
-// pressing the party - the Drakehide shed condition (wider than
-// partyInCombat's interaction radius: a ranged boss presses from its reach).
+// anyMonsterEngagingParty is the Drakehide shed condition: a live monster must
+// actively target the party, satisfy CanPursueParty, and be within the configured
+// local pursuit cap. Attack reach does not extend this pressure range.
 func (g *MMGame) anyMonsterEngagingParty() bool {
 	if g.world == nil {
 		return false
@@ -2621,7 +2635,7 @@ func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weap
 	}
 	size := SpellParticleSize + damage/8
 	vx, vy := cs.monsterVisualPos(monster) // burst where the monster is drawn (pulled slot in TB)
-	cs.game.spawnWeaponBoltImpact(vx, vy, weaponDef, count, size)
+	cs.game.spawnWeaponBoltImpact(vx, vy, weaponDef, count, size, monster)
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
@@ -3067,6 +3081,8 @@ func (cs *CombatSystem) tryCardPoisonProc(monster *monsterPkg.Monster3D) {
 func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
 	m.HitTintFrames = MonsterHitFlashFrames
 	cs.breakPacifyOnHit(m)
+	m.RetaliateAgainstParty(cs.game.camera.X, cs.game.camera.Y)
+	cs.game.rallyAuthoredBandHit(m)
 	cs.engageTurnBasedSameKindPackOnPartyHit(m)
 }
 
@@ -3110,15 +3126,7 @@ func (cs *CombatSystem) announceKill(m *monsterPkg.Monster3D, xp int) {
 		tone = logToneBad
 	}
 	owner := cs.game.rewardOwner()
-	if actual, capped := owner.adventureKillExperience(m, xp); capped {
-		suffix := ""
-		if actual > 0 {
-			suffix = fmt.Sprintf(" +%d XP total", actual)
-		}
-		cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), logStyled{suffix, combatMessageGold})
-		return
-	}
-	cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), owner.logKillXP(xp))
+	cs.game.logCombat(tone, "%s is slain!%s", logMonsterName(m), owner.logMonsterKillXP(m, xp))
 }
 
 // killExperience is what a kill is worth to the party: nothing for its own
@@ -3154,7 +3162,7 @@ func (cs *CombatSystem) scatterBandOnMemberDeath(victim *monsterPkg.Monster3D) {
 		if cs.game.gameLoop != nil {
 			members := cs.game.gameLoop.lootGuardBandMembers(victim)
 			// A death is the same hostile event as a direct hit: surviving guards
-			// scatter, become sticky-hostile, and never resume their post.
+			// scatter and join a leashed fight; they can resume guard duty on return.
 			cs.game.gameLoop.scatterLootGuardBand(members, true)
 		}
 		return
@@ -3196,7 +3204,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 
 	recipient.recordProfileKill(monster)
 	xpAwarded := cs.killExperience(monster)
-	reportedXP, _ := recipient.adventureKillExperience(monster, xpAwarded)
+	reportedXP := recipient.adventureKillExperience(monster, xpAwarded).total
 
 	// Each living hero - active, reserve, or captive - gets the per-member share.
 	if xpAwarded > 0 {
@@ -3237,11 +3245,11 @@ func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
 	}
 	rallied := 0
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || m == dead || !m.IsAlive() || m.Relentless || m.MonsterType != dead.DeathRalliesType {
+		if m == nil || m == dead || !m.IsAlive() || m.Relentless || m.MonsterType != dead.DeathRalliesType || !cs.game.monsterIsFrom(cs.game.world, m, cs.game.monsterHomeMap(cs.game.world, dead)) {
 			continue
 		}
 		m.Relentless = true
-		m.WasAttacked = true // sticky hostility, persisted
+		m.WasAttacked = true // Saved provocation memory; Relentless grants home-region pursuit.
 		m.BeginPlayerEngagement()
 		rallied++
 	}
@@ -3330,7 +3338,7 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce 
 
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
 func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, char *character.MMCharacter) (int, int, int) {
-	result := character.WeaponDamageBreakdown(lookupWeaponConfigByName(weapon.Name), char)
+	result := character.WeaponDamageAtNight(lookupWeaponConfigByName(weapon.Name), char, cs != nil && cs.game != nil && cs.game.dayNightIsNight)
 	return result.Base + result.ArmsMaster + result.OrcishFury + result.FlowingStaff, result.StatBonus, result.Total
 }
 
@@ -3497,11 +3505,11 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 	}
 	switch {
 	case m.BossDormant:
-		cs.game.spawnImpactSparks(m.X, m.Y)
+		cs.spawnHitSparks(m)
 		cs.game.logCombat(logToneNone, "The seal holds - %s is impervious.", logMonsterName(m))
 		return true
 	case m.BossWarded:
-		cs.game.spawnImpactSparks(m.X, m.Y)
+		cs.spawnHitSparks(m)
 		cs.game.logCombat(logToneNone, "The idols' ward holds - %s is impervious. Shatter the idols!", logMonsterName(m))
 		return true
 	}
@@ -3702,7 +3710,7 @@ func (cs *CombatSystem) boundAllyCanDamageMonster(candidate *monsterPkg.Monster3
 // (CanStartPlayerEngagement): nothing aggros through a wall, summons included.
 // A NEW target must be in line of sight; the one already being fought is kept
 // regardless, so a chase does not drop every time the quarry rounds a corner -
-// exactly the sticky-once-engaged rule party pursuit uses. A nil collision
+// independently of the finite party-pursuit leash. A nil collision
 // system (isolated AI tests) means unobstructed sight, as everywhere else.
 func (cs *CombatSystem) canAcquireCrossfireFoe(m, candidate *monsterPkg.Monster3D) bool {
 	if m == nil || candidate == nil {
@@ -3749,6 +3757,9 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 		return nil
 	case behavior == monsterPkg.AIBehaviorBoundAlly:
 		return cs.nearestEnemyMonster(m, cs.boundAllySeekRadius())
+	}
+	if m.PartyOutsideHome() {
+		return nil
 	}
 	// Normal monster: only bother if any bound undead exist this frame.
 	if len(cs.game.boundAllies) == 0 {

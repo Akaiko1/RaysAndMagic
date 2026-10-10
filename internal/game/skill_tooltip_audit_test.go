@@ -32,29 +32,29 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillDisarmTrap:          {"40/60/80/100%", "0/1/2/3", "best active user", "true damage and DoTs bypass"},
 		character.SkillLearning:            {"0/10/20/30%", "+5%", "all rosters", "does not stack"},
 		character.SkillArmsMaster:          {"0/2/4/6", "+5% weapon crit"},
-		character.SkillTrapper:             {"0/5/10/15", "floor((Intellect + Accuracy)/3)", "0/2/4/6s RT", "0/0/1/2 turns TB"},
-		character.SkillSleightOfHand:       {"10/20/30/40%", "One successful theft per surviving enemy"},
+		character.SkillTrapper:             {"0/5/10/15", "(Intellect + Accuracy)/3", "0/2/4/6s RT", "0/0/1/2 turns TB"},
+		character.SkillSleightOfHand:       {"10/20/30/40%", "once per enemy", "loot on death is unaffected"},
 		character.SkillDualWielding:        {"0/10/20/30%", "each hand recovers on its own", "at least 2 actions per round"},
 		character.SkillIronBody:            {"10/20/30/40", "+10% Perfect Dodge"},
 		character.SkillSpiritualTraining:   {"10/20/30/40%", "even on a miss", "no SP or extra action", "offensive spell"},
 		character.SkillElementalMastery:    {"10/20/35/50%", "Light", "Dark"},
 		character.SkillAnimalBonding:       {"Weapon attacks/spells:", "5/8/12/15%", "100/200/300/500%", "40/60/80/100%", "up to 2 living bears"},
-		character.SkillSacrifice:           {"10/20/30/50%", "Strongest living active protector", "after defenses", "no second mitigation or DoTs"},
+		character.SkillSacrifice:           {"10/20/30/50%", "strongest protector able to act", "defenses do not reduce this transferred damage", "Excludes damage over time"},
 		character.SkillImpenetrableDefense: {"3/5/7/10", "after defenses", "Does not reduce true damage or DoTs"},
 		character.SkillLockpicking:         {"20/35/50/60%", "3 failed non-key attempts", "key still works"},
 		character.SkillNaturalHealer:       {"20/40/60/100%", "HP healed by healing spells"},
 		character.SkillCelestialProvidence: {"dawn/dusk", "Living active Celestial", "Master-tier", "Does not stack"},
 		character.SkillOrcishFury:          {"Normal weapon damage +3/5/7/10"},
-		character.SkillHalflingGuile:       {"Halves this hero's weight", "random party target"},
+		character.SkillHalflingGuile:       {"two to one", "random target"},
 		character.SkillDarkElfBinding:      {" 3% chance", "including fields", "turn the target into an ally until the party leaves for another map", "undead, bosses and invulnerable"},
 		character.SkillSpellAbsorption:     {"15/30/45/60%", "both HP and SP", "damage before defenses"},
-		character.SkillStrongMagic:         {"damage +25/50/75/100%", "HP cost: 25/50/75/100% of paid SP", "leave 1 HP"},
+		character.SkillStrongMagic:         {"+25/50/75/100% damage", "25/50/75/100% of their SP cost", "at least 1 HP"},
 		character.SkillBallistics:          {"15/25/35/50%", "0/0/1/2 tiles", "2/4/6/8%"},
-		character.SkillFieldMedicine:       {"15/25/40/60%", "10/20/30/40%", "Revival unchanged"},
+		character.SkillFieldMedicine:       {"15/25/40/60%", "10/20/30/40%", "Does not improve revival potions"},
 		character.SkillDesignateTarget:     {"6/9/12/15s", "5/8/12/15 percentage points", "One mark per user", "while the marker can act"},
 		character.SkillOverwatch:           {"20/30/40/50%", "half that chance", "free bow/blaster shot", "1.0s in RT", "until the next party round"},
-		character.SkillAlchemy:             {"common: 2/3/4/6", "protective: 1/2/3/4", "revival: 1/2/3/4"},
-		character.SkillPharmacology:        {"20/35/50/75%", "10/15/20/25%", "Intellect/3", "adds to Field Medicine", "Revival unchanged"},
+		character.SkillAlchemy:             {"Restoratives and throwing flasks: 2/3/4/6", "Protective draughts: 1/2/3/4", "Empowering draughts: 1/2/3/4", "Revival potions: 1/2/3/4"},
+		character.SkillPharmacology:        {"20/35/50/75%", "10/15/20/25%", "Intellect/3", "Stacks with Field Medicine", "Does not improve revival potions"},
 		character.SkillFlowingStaff:        {"fills the staff to 1/2/3/4 charges", "25/50/75/100%", "a guaranteed critical", "remain until spent"},
 		character.SkillPathfinding:         {"5/10/15/20%", "Party RT movement speed", "Best capable active guide", "attack and cast while running"},
 	}
@@ -106,7 +106,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 	}
 	for _, skill := range character.AllSkills {
 		t.Run(skill.String(), func(t *testing.T) {
-			text := masteryTooltipTextForSkill(skill)
+			text := masteryTooltipRowsForSkill(skill).String()
 			assertSkillGrandMasterSection(t, text, grandMasterSections[skill])
 			normalized := strings.Join(strings.Fields(text), " ")
 			for _, want := range cases[skill] {
@@ -122,7 +122,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		})
 	}
 	for _, school := range character.AllMagicSchools {
-		text := magicMasteryTooltipText(school)
+		text := magicMasteryTooltipRows(school).String()
 		assertSkillGrandMasterSection(t, text, true)
 		for _, want := range []string{"0/20/40/60%", "0/5/10/15", "Standard spell damage/healing"} {
 			if !strings.Contains(text, want) {
@@ -131,7 +131,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		}
 	}
 	// Each distinct flask geometry is stated once; one shared geometry is "All flasks".
-	flasks := masteryTooltipTextForSkill(character.SkillBombThrowing)
+	flasks := masteryTooltipRowsForSkill(character.SkillBombThrowing).String()
 	for g := range geometries {
 		if strings.Count(flasks, fmt.Sprintf("range %d tiles; radius %d tiles", g[0], g[1])) != 1 {
 			t.Errorf("flask geometry %v must appear exactly once: %s", g, flasks)
@@ -203,13 +203,13 @@ func TestSkillTooltipAuditTrainerHover(t *testing.T) {
 		}
 		t.Run(skill.String(), func(t *testing.T) {
 			g.party.Members[0] = &character.MMCharacter{Name: "Learner", Skills: map[character.SkillType]*character.Skill{skill: {}}}
-			check(masteryTooltipTextForSkill(skill))
+			check(masteryTooltipRowsForSkill(skill).String())
 		})
 	}
 	for _, school := range character.AllMagicSchools {
 		t.Run(school.String(), func(t *testing.T) {
 			g.party.Members[0] = &character.MMCharacter{Name: "Learner", MagicSchools: map[character.MagicSchoolID]*character.MagicSkill{school: {}}}
-			check(magicMasteryTooltipText(school))
+			check(magicMasteryTooltipRows(school).String())
 		})
 	}
 }
@@ -239,7 +239,7 @@ func TestSkillTooltipAuditRetunedFlaskWiring(t *testing.T) {
 				if p.Damage != d.Flask.Damage[tier]+c.GetEffectiveIntellect()/3 || p.FlaskPoisonFrames != d.Flask.PoisonSeconds[tier]*g.config.GetTPS() || p.FlaskBurnFrames != d.Flask.BurnSeconds[tier]*g.config.GetTPS() {
 					t.Fatal("projectile did not use the live mastery table")
 				}
-				text := masteryTooltipTextForSkill(character.SkillBombThrowing)
+				text := masteryTooltipRowsForSkill(character.SkillBombThrowing).String()
 				for _, want := range []string{d.Name + ": 19/27/38/53 + INT/3", "poison 2/4/7/11s", d.Name + ": range 9 tiles; radius 4 tiles"} {
 					if !strings.Contains(text, want) {
 						t.Errorf("retuned skill missing %q: %s", want, text)
@@ -264,7 +264,7 @@ func TestSkillTooltipAuditRetunedTechniqueWiring(t *testing.T) {
 				d.SPCost = [4]int{17, 14, 11, 8}
 				c.Skills[character.SkillTranslocation].Mastery = character.SkillMastery(tier)
 				delete(c.Skills, character.SkillMeditation)
-				text := masteryTooltipTextForSkill(character.SkillTranslocation)
+				text := masteryTooltipRowsForSkill(character.SkillTranslocation).String()
 				if g.techniqueSPCost(c, d) != d.SPCost[tier] || !strings.Contains(text, "17/14/11/8 SP") {
 					t.Fatal("technique cost and skill reference diverged")
 				}
@@ -283,7 +283,7 @@ func TestSkillTooltipAuditRetunedTechniqueWiring(t *testing.T) {
 					}
 					before := *tc.values
 					*tc.values = [4]int{7, 8, 9, 10}
-					if !strings.Contains(masteryTooltipTextForSkill(character.SkillTranslocation), tc.want) {
+					if !strings.Contains(masteryTooltipRowsForSkill(character.SkillTranslocation).String(), tc.want) {
 						t.Errorf("retuned %s lost %q", key, tc.want)
 					}
 					*tc.values = before

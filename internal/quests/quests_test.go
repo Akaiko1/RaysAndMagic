@@ -86,7 +86,7 @@ func TestQuestManager_OnMonsterKilled(t *testing.T) {
 
 	// Kill 4 goblins - quest should not complete
 	for i := 0; i < 4; i++ {
-		completed := qm.OnMonsterKilled("goblin", "")
+		completed := qm.OnMonsterKilledFromSource("goblin", "", "")
 		if len(completed) != 0 {
 			t.Errorf("Quest should not complete after %d kills", i+1)
 		}
@@ -98,7 +98,7 @@ func TestQuestManager_OnMonsterKilled(t *testing.T) {
 	}
 
 	// Kill 5th goblin - quest should complete
-	completed := qm.OnMonsterKilled("goblin", "")
+	completed := qm.OnMonsterKilledFromSource("goblin", "", "")
 	if len(completed) != 1 {
 		t.Fatalf("Expected 1 completed quest, got %d", len(completed))
 	}
@@ -134,7 +134,7 @@ func TestQuestManager_OnMonsterKilled_WrongMonster(t *testing.T) {
 	qm.InitializeStartingQuests()
 
 	// Kill wolves - should not affect goblin quest
-	completed := qm.OnMonsterKilled("wolf", "")
+	completed := qm.OnMonsterKilledFromSource("wolf", "", "")
 	if len(completed) != 0 {
 		t.Error("Killing wolf should not complete goblin quest")
 	}
@@ -170,8 +170,8 @@ func TestQuestManager_ClaimRewards(t *testing.T) {
 	}
 
 	// Complete the quest
-	qm.OnMonsterKilled("goblin", "")
-	qm.OnMonsterKilled("goblin", "")
+	qm.OnMonsterKilledFromSource("goblin", "", "")
+	qm.OnMonsterKilledFromSource("goblin", "", "")
 
 	// Claim rewards - should succeed
 	rewards, err := qm.ClaimRewards("goblin_hunt")
@@ -547,7 +547,7 @@ func TestQuestManager_AutoClaimCompletionAndRestore(t *testing.T) {
 	qm := NewQuestManager(cfg)
 	qm.InitializeStartingQuests()
 
-	completed := qm.OnMonsterKilled("boss", "")
+	completed := qm.OnMonsterKilledFromSource("boss", "", "")
 	if len(completed) != 1 || !completed[0].RewardsClaimed {
 		t.Fatalf("auto-claim completion = %+v", completed)
 	}
@@ -637,7 +637,7 @@ func TestEncounterOnlyQuestRequiresMatchingSource(t *testing.T) {
 	qm := NewQuestManager(cfg)
 	qm.InitializeStartingQuests()
 
-	if completed := qm.OnMonsterKilled("elder_dragon", ""); len(completed) != 0 {
+	if completed := qm.OnMonsterKilledFromSource("elder_dragon", "", ""); len(completed) != 0 {
 		t.Fatal("ordinary kill completed an encounter-only quest")
 	}
 	if got := qm.GetQuest("hunt").CurrentCount; got != 0 {

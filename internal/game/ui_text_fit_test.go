@@ -156,8 +156,9 @@ func TestQuestCardsSizeToCopyAndPackByHeight(t *testing.T) {
 }
 
 // The clipped-copy tooltip is the promise that nothing authored is lost.
-// Measured against the SHIPPED greetings in every font: a merchant greeting
-// that overflows its two-line box must be detectable as clipped, with the
+// Measured against the SHIPPED greetings in every font, each in the box its
+// dialog draws (a shop's three-line merchant box, the generic two-line box
+// otherwise): an overflowing greeting must be detectable as clipped, with the
 // whole text intact.
 func TestShippedGreetingsThatOverflowStayRecoverable(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -174,15 +175,25 @@ func TestShippedGreetingsThatOverflowStayRecoverable(t *testing.T) {
 		t.Fatal("an over-long body must report itself clipped and keep the full copy")
 	}
 
+	// A shop draws its greeting in the merchant box, which must end above the
+	// balance line; every other dialog uses the generic two-line box.
+	shop := computeMerchantDialogSectionLayout(layoutRect{0, 0, npcDialogWidth, merchantDialogHeight})
+	if shop.greeting.bottom() > shop.balance.y {
+		t.Fatalf("merchant greeting box ends at %d, under the balance line at %d", shop.greeting.bottom(), shop.balance.y)
+	}
 	forEachUIFont(t, func(t *testing.T) {
-		greetingW := computeNPCDialogSectionLayout(layoutRect{0, 0, npcDialogWidth, npcDialogHeight}, true).greeting.w
+		genericW := computeNPCDialogSectionLayout(layoutRect{0, 0, npcDialogWidth, npcDialogHeight}, true).greeting.w
 		overflowing := 0
 		for key, npc := range character.NPCConfigInstance.NPCs {
 			if npc.Dialogue == nil || npc.Dialogue.Greeting == "" {
 				continue
 			}
+			greetingW, lines := genericW, 2
+			if probe, err := probeUngatedNPC(key); err == nil && npcDialogKindUngated(probe) == dialogKindMerchant {
+				greetingW, lines = shop.greeting.w, shop.greeting.h/dialogueLineHeight
+			}
 			full := wrapUIText(npc.Dialogue.Greeting, greetingW)
-			shown := truncateWrappedLines(full, 2, greetingW)
+			shown := truncateWrappedLines(full, lines, greetingW)
 			for _, line := range shown {
 				if w := uiTextWidth(line); w > greetingW {
 					t.Errorf("NPC %q greeting line %q is %dpx wide, box is %dpx", key, line, w, greetingW)
@@ -200,7 +211,7 @@ func TestShippedGreetingsThatOverflowStayRecoverable(t *testing.T) {
 			}
 		}
 		if overflowing == 0 {
-			t.Skip("no shipped greeting overflows its two-line box in this font")
+			t.Skip("no shipped greeting overflows its box in this font")
 		}
 	})
 }

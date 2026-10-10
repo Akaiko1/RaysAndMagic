@@ -137,7 +137,7 @@ func TestRenderResourceTravelSoakPlateaus(t *testing.T) {
 		sprites.CommitPreparedResource(graphics.PreparedSpriteResource{Request: req, CPU: image.NewRGBA(image.Rect(0, 0, 32, 32)), Found: true})
 		source := sprites.ResourceImages(req)[0]
 		key := makeStandeeCoreKey("travel", source, true)
-		prepared := prepareStandeePixels(image.NewRGBA(image.Rect(0, 0, 32, 32)), 0, false)
+		prepared := prepareStandeePixels(image.NewRGBA(image.Rect(0, 0, 32, 32)), 0, false, false)
 		r.commitPreparedStandeePixels(key, source, prepared)
 		for _, region := range []string{"outdoor", "dungeon"} {
 			manifest := testMapRenderResources(key)

@@ -65,6 +65,9 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 		return false
 	}
 	x, y := cs.logicalCameraXY()
+	if !m.CanPursueParty(x, y) {
+		return false
+	}
 	if cadence == monsterAttackTurn {
 		return !monsterInAttackTransit(m) && cs.monsterAttackPointInReachTB(m, x, y)
 	}

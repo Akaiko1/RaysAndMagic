@@ -123,52 +123,65 @@ func TestPointerProjectileKeepsLaunchAim(t *testing.T) {
 }
 
 func TestMonsterAndNPCPointerDepthPriority(t *testing.T) {
+	// The monster stands one tile ahead (tile 11; "in front" is a person on
+	// that tile). Depth decides, except for a scenery prop on the monster's
+	// own tile: it is painted behind the monster and must not take the press.
+	cases := []struct {
+		where       string
+		category    string
+		tilesAhead  float64
+		wantMonster bool
+	}{
+		{"far behind", "npc", 3, true},
+		{"near behind", "npc", 1.5, true},
+		{"in front", "npc", 0.5, false},
+		{"no monster", "npc", 3, false},
+		{"prop on monster tile", "scenery", 0.9, true},
+		{"prop on nearer tile", "scenery", 0.45, false},
+	}
 	for _, tb := range []bool{false, true} {
-		for _, where := range []string{"far behind", "near behind", "in front", "no monster"} {
-			t.Run(fmt.Sprintf("TB=%v/%s", tb, where), func(t *testing.T) {
+		for _, c := range cases {
+			t.Run(fmt.Sprintf("TB=%v/%s", tb, c.where), func(t *testing.T) {
 				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 				g.camera.Angle = 0
 				g.camera.FOV = squareProjectionFOV(640, 480)
 				g.camera.ViewDist = 5000
 				g.renderHelper = NewRenderingHelper(g)
 				ts := float64(g.config.GetTileSize())
-				distance := 3 * ts
-				if where == "near behind" {
-					distance = 1.5 * ts
-				}
-				if where == "in front" {
-					distance = 0.5 * ts
-				}
-				npc := &character.NPC{Name: "Door", Sprite: "missing_pick_fixture", RenderCategory: "npc", SizeClass: "full_tile", X: g.camera.X + distance, Y: g.camera.Y}
+				distance := c.tilesAhead * ts
+				npc := &character.NPC{Name: "Fixture", Sprite: "missing_pick_fixture", RenderCategory: c.category, SizeClass: "full_tile", X: g.camera.X + distance, Y: g.camera.Y}
 				g.world.NPCs = []*character.NPC{npc}
 				sx, sy, size, visible := g.renderHelper.NPCSpriteMetrics(npc, npc.X, npc.Y, distance)
 				if !visible {
-					t.Fatal("fixture door not visible")
+					t.Fatal("fixture NPC not visible")
 				}
 				x, y := sx, sy+size/2
 				r := g.gameLoop.renderer
 				r.beginMonsterPickFrame()
-				r.monsterPick.hits = []monsterPickHit{{monster: m, left: float64(x - 20), top: float64(y - 20), size: 40, depth: ts}}
+				pick := func(mon *monster.Monster3D) monsterPickHit {
+					depth := mon.X - g.camera.X
+					s := UnifiedSpriteRenderData{monster: mon, sizeF: 40, depthPerp: depth, monsterRenderX: mon.X, monsterRenderY: mon.Y}
+					return r.makeMonsterPick(s, mon.X, mon.Y, 0, float64(x-20), float64(y-20), false)
+				}
 				back := monster.NewMonster3DFromConfig(g.camera.X+2*ts, g.camera.Y, "goblin", g.config)
 				g.world.Monsters = append(g.world.Monsters, back)
-				r.monsterPick.hits = append(r.monsterPick.hits, monsterPickHit{monster: back, left: float64(x - 20), top: float64(y - 20), size: 40, depth: 2 * ts})
-				if where == "no monster" {
+				r.monsterPick.hits = []monsterPickHit{pick(m), pick(back)}
+				if c.where == "no monster" {
 					r.monsterPick.hits = nil
 				}
 				fp.moveTo(x, y)
-				wantMonster := where == "far behind" || where == "near behind"
-				if (g.monsterAtScreen(x, y) == m) != wantMonster {
-					t.Fatal("hover disagrees with visible object depth")
+				if (g.monsterAtScreen(x, y) == m) != c.wantMonster {
+					t.Fatal("hover disagrees with visible object order")
 				}
 				fp.press()
 				tick()
-				if (m.HitPoints < m.MaxHitPoints) != wantMonster || (ih.mouseAttackTarget == m) != wantMonster {
-					t.Fatal("door stole a foreground monster click, or monster stole a foreground door click")
+				if (m.HitPoints < m.MaxHitPoints) != c.wantMonster || (ih.mouseAttackTarget == m) != c.wantMonster {
+					t.Fatal("NPC stole a foreground monster click, or monster stole a foreground NPC click")
 				}
-				if where == "in front" && g.dialogNPC != npc {
+				if !c.wantMonster && c.tilesAhead < 1 && g.dialogNPC != npc {
 					t.Fatal("foreground reachable NPC lost interaction")
 				}
-				if where == "no monster" && (g.dialogActive || len(g.combatLogHistory) == 0) {
+				if c.where == "no monster" && (g.dialogActive || len(g.combatLogHistory) == 0) {
 					t.Fatal("distant NPC no longer reports interaction range")
 				}
 			})
@@ -474,6 +487,110 @@ func TestProjectileInputParity(t *testing.T) {
 							}
 						})
 					}
+				}
+			})
+		}
+	}
+}
+
+// One gesture follows moving actors and party strafing, survives a lost frame,
+// and retargets in a crowd. Assert actual launch aim and the matching highlight.
+func TestMouseHoldTracksMovingProjectileTarget(t *testing.T) {
+	for _, kind := range []string{"alien_blaster", "firebolt"} {
+		for _, count := range []int{1, 8} {
+			t.Run(fmt.Sprintf("%s/crowd=%d", kind, count), func(t *testing.T) {
+				g, ih, fp, target, tick := mouseCombatHarness(t, false)
+				ts := float64(g.config.GetTileSize())
+				g.camera.Angle = 0
+				target.X, target.Y = g.camera.X+3*ts, g.camera.Y
+				for i := 1; i < count; i++ {
+					m := monster.NewMonster3DFromConfig(target.X+ts, target.Y+float64(i)*ts*.15, "goblin", g.config)
+					g.world.Monsters = append(g.world.Monsters, m)
+				}
+				g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+				for _, ch := range g.party.Members {
+					ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("alien_blaster")
+					if kind == "firebolt" {
+						ch.LearnSpell("firebolt")
+						ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
+						ch.SpellPoints, ch.MaxSpellPoints = 1000, 1000
+					}
+				}
+				r := g.gameLoop.renderer
+				visible := func(m *monster.Monster3D, left float64) {
+					r.beginMonsterPickFrame()
+					r.monsterPick.hits = []monsterPickHit{{monster: m, left: left, top: 150, size: 140, depth: 3 * ts}}
+				}
+				shots := func() int { return len(g.arrows) + len(g.magicProjectiles) }
+				awaitShot := func(want *monster.Monster3D) {
+					t.Helper()
+					before := shots()
+					for i := 0; i < 600 && shots() == before; i++ {
+						tick()
+					}
+					if shots() != before+1 {
+						t.Fatal("held gesture did not fire")
+					}
+					var launch projectileLaunch
+					var vx, vy float64
+					if kind == "firebolt" {
+						if len(g.magicProjectiles) == 0 {
+							t.Fatal("smart action did not cast the equipped spell")
+						}
+						p := g.magicProjectiles[len(g.magicProjectiles)-1]
+						launch, vx, vy = p.Launch, p.VelX, p.VelY
+					} else {
+						p := g.arrows[len(g.arrows)-1]
+						launch, vx, vy = p.Launch, p.VelX, p.VelY
+					}
+					angle := math.Atan2(want.Y-g.camera.Y, want.X-g.camera.X)
+					if launch.target != want || math.Abs(math.Remainder(math.Atan2(vy, vx)-angle, 2*math.Pi)) > 1e-6 {
+						t.Fatal("held shot did not follow the selected actor's current position")
+					}
+					r.selectMonsterHover()
+					if r.hoveredMonster != want {
+						t.Fatal("highlight and fired target disagree")
+					}
+				}
+				visible(target, 250)
+				fp.press()
+				tick()
+				fp.hold()
+				fp.moveTo(50, 50)
+				if shots() != 1 {
+					t.Fatal("initial press did not fire")
+				}
+				// Move the actor away from its original cursor pixel and strafe via the
+				// actual input movement path. The acquired actor must remain highlighted.
+				target.Y += ts * .4
+				g.collisionSystem.UpdateEntity(target.ID, target.X, target.Y)
+				ih.strafeRight()
+				visible(target, 410)
+				awaitShot(target)
+				// Lost visibility pauses, without requiring another mouse-down edge.
+				r.beginMonsterPickFrame()
+				before := shots()
+				for range 120 {
+					tick()
+				}
+				r.selectMonsterHover()
+				if shots() != before || r.hoveredMonster != nil || ih.mouseAttackWorld != g.world {
+					t.Fatal("lost focus did not pause fire while preserving the gesture")
+				}
+				visible(target, 410)
+				awaitShot(target)
+				if count > 1 {
+					next := g.world.Monsters[count-1]
+					r.monsterPick.hits = append(r.monsterPick.hits, monsterPickHit{monster: next, left: 200, top: 150, size: 140, depth: 2 * ts})
+					fp.moveTo(270, 220)
+					awaitShot(next)
+					fp.moveTo(480, 220)
+					awaitShot(target)
+				}
+				fp.release()
+				tick()
+				if ih.mouseAttackWorld != nil {
+					t.Fatal("release retained the gesture")
 				}
 			})
 		}

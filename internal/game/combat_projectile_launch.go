@@ -19,7 +19,8 @@ type projectileLaunch struct {
 	passed           bool
 	passedX, passedY float64
 	// startX/startY is a continuation leg's drawn offset at the actor it left.
-	startX, startY float64
+	startX, startY            float64
+	startAnchor, passedAnchor monsterVisualAnchor
 }
 
 // presentationReturnTiles is how far a drawn shot travels while easing from
@@ -36,7 +37,8 @@ func (cs *CombatSystem) continuationLaunch(from, to *monster.Monster3D) projecti
 	}
 	fx, fy := cs.monsterVisualPos(from)
 	return projectileLaunch{x: from.X, y: from.Y, dx: (to.X - from.X) / d, dy: (to.Y - from.Y) / d,
-		target: to, aimX: to.X, aimY: to.Y, aimDistance: d, startX: fx - from.X, startY: fy - from.Y}
+		target: to, aimX: to.X, aimY: to.Y, aimDistance: d, startX: fx - from.X, startY: fy - from.Y,
+		startAnchor: visualAnchorFor(from)}
 }
 
 // piercing hands the launch to a continuation that has just struck victim.
@@ -46,6 +48,7 @@ func (p projectileLaunch) piercing(cs *CombatSystem, victim *monster.Monster3D) 
 	if victim != nil && victim == p.target && !p.passed {
 		if ox, oy, ok := p.targetOffset(cs); ok {
 			p.passed, p.passedX, p.passedY = true, ox, oy
+			p.passedAnchor = visualAnchorFor(victim)
 		}
 	}
 	return p
@@ -128,27 +131,40 @@ func (p projectileLaunch) renderMotion(cs *CombatSystem, x, y, vx, vy float64) (
 	if cs == nil || cs.game == nil || cs.game.config == nil {
 		return x, y, vx, vy
 	}
-	travel := (x-p.x)*p.dx + (y-p.y)*p.dy
 	speed := vx*p.dx + vy*p.dy
-	ease := presentationReturnTiles * cs.game.config.GetTileSize()
+	w, rate, start, startRate := p.presentationWeights(x, y, cs.game.config.GetTileSize())
 	// Drawn offset and its rate of change per unit of travel along the ray.
 	var ox, oy, rx, ry float64
 	if tx, ty, ok := p.targetOffset(cs); ok {
-		w, rate := 0.0, 0.0
-		switch d := p.aimDistance; {
-		case travel <= d:
-			w, rate = travel/d, 1/d
-		case travel < d+ease:
-			w, rate = 1-(travel-d)/ease, -1/ease
-		}
 		ox, oy, rx, ry = w*tx, w*ty, rate*tx, rate*ty
 	}
-	if (p.startX != 0 || p.startY != 0) && travel < ease {
-		w := 1 - max(0, travel)/ease
-		ox, oy = ox+w*p.startX, oy+w*p.startY
-		if travel > 0 {
-			rx, ry = rx-p.startX/ease, ry-p.startY/ease
+	ox, oy = ox+start*p.startX, oy+start*p.startY
+	rx, ry = rx+startRate*p.startX, ry+startRate*p.startY
+	return x + ox, y + oy, vx + speed*rx, vy + speed*ry
+}
+
+// Both presentation axes use these weights, including continuation departures
+// and the return to the physical ray after piercing a target.
+func (p projectileLaunch) presentationWeights(x, y, tileSize float64) (target, targetRate, start, startRate float64) {
+	travel := (x-p.x)*p.dx + (y-p.y)*p.dy
+	ease := presentationReturnTiles * tileSize
+	if d := p.aimDistance; d > 0 {
+		switch {
+		case travel <= d:
+			target, targetRate = travel/d, 1/d
+		case travel < d+ease:
+			target, targetRate = 1-(travel-d)/ease, -1/ease
 		}
 	}
-	return x + ox, y + oy, vx + speed*rx, vy + speed*ry
+	departure := ease
+	if p.aimDistance > 0 {
+		departure = min(departure, p.aimDistance)
+	}
+	if travel < departure {
+		start = 1 - max(0, travel)/departure
+		if travel > 0 {
+			startRate = -1 / departure
+		}
+	}
+	return
 }

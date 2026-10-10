@@ -194,7 +194,7 @@ func TestEmptyWorldPressArmsDynamicMonsterHold(t *testing.T) {
 			}
 			fp.hold()
 			r.monsterPick.hits = []monsterPickHit{{monster: m, left: 250, top: 150, size: 140, depth: 64}}
-			for range rtHoldRepeatDelay + 1 {
+			for range mouseHoldRepeatTicks(g) {
 				if err := g.gameLoop.Update(); err != nil {
 					t.Fatal(err)
 				}
@@ -397,6 +397,13 @@ func TestDiscontinuousViewDiscardsPointerOwnership(t *testing.T) {
 			}
 			if ih.mouseAttackTarget != nil || len(g.mouseLeftClicks)+len(g.mouseRightClicks) > 0 {
 				t.Fatal("view replacement retained an old press or hold")
+			}
+			fp.hold()
+			for range rtHoldRepeatDelay + 1 {
+				tick()
+			}
+			if ih.mouseAttackTarget != nil {
+				t.Fatal("held button reacquired from the frame before the view replacement")
 			}
 		})
 	}

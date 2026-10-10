@@ -23,6 +23,8 @@ type GameLoop struct {
 	renderer           *Renderer
 	lastUpdateDuration time.Duration
 	lastDrawDuration   time.Duration
+	worldProjection    paniniProjection
+	paniniRaster       paniniRasterizer
 
 	// timedBuffRegistry caches the timedBuffs() registry: its pointers are
 	// stable for the MMGame lifetime, so it is built once on first use.
@@ -150,8 +152,7 @@ func (gl *GameLoop) updateExploration() {
 	// the camera as rendered last frame - exactly what the player is seeing.
 	gl.game.updateFocusedNPC()
 	if gl.loadingBarrier() {
-		gl.game.updateInterfacePresentation()
-		gl.discardLoadingInput()
+		gl.tickLoadingPause()
 		return
 	}
 
@@ -387,13 +388,11 @@ func (gl *GameLoop) drawExplorationFrame(screen *ebiten.Image) {
 }
 
 func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
-	// Render the 3D scene at the world's resolution, then composite it to the
-	// screen. During a turn-based turn the scene goes through a horizontal
-	// motion-blur shader (camera blur - the view pans sideways) whose length
-	// tracks the turn speed; otherwise it's a straight blit, or no copy at all
-	// when the screen is exactly the world's size. Either way the UI is drawn
-	// last, directly to the screen, so it never blurs.
+	// Panini projects world geometry before rasterization. Perspective modes
+	// retain TB motion blur. The HUD is drawn afterward in screen coordinates.
 	g := gl.game
+	gl.worldProjection = paniniProjection{}
+	projection := g.widePaniniProjection()
 	// Interpolate only the world pass. The loading preflight and UI retain
 	// logical coordinates; TB uses the existing eased angle.
 	if g.camera != nil {
@@ -404,30 +403,33 @@ func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
 	world := image.Pt(g.worldWidth(), g.worldHeight())
 	blurPx := g.turnBlurPixels(world.X) // blur length in the scene's own pixels
 	blur := blurPx >= 0.75
-	if !blur && turnBlurStrength > 0 && !g.turnBlurWarm {
+	if projection.distance == 0 && !blur && turnBlurStrength > 0 && !g.turnBlurWarm {
 		// Prewarm the exact blur pipeline on an idle frame. BlurPx=0 is a
 		// visually identical blit, but it creates the scene buffer and lets
 		// Ebiten/Metal compile the shader pipeline before the first TB turn.
-		g.turnBlurWarm = true
 		blur, blurPx = true, 0
 	}
 	var shader *ebiten.Shader
-	if blur {
+	if blur && projection.distance == 0 {
 		shader, _ = g.ensureBlurShader() // shader failed to compile - no blur
 	}
 	if shader == nil && screen.Bounds().Size() == world {
-		gl.renderer.RenderFirstPersonView(screen)
+		gl.worldProjection = projection
+		gl.renderProjectedWorld(screen)
 		return
 	}
 	scene := g.ensureSceneBuffer(world)
 	if scene == nil {
-		gl.renderer.RenderFirstPersonView(screen)
+		gl.worldProjection = projection
+		gl.renderProjectedWorld(screen)
 		return
 	}
 	scene.Clear()
-	gl.renderer.RenderFirstPersonView(scene)
+	gl.worldProjection = projection
+	gl.renderProjectedWorld(scene)
 	if shader != nil {
 		g.drawTurnBlur(screen, scene, shader, float32(blurPx))
+		g.turnBlurWarm = true
 		return
 	}
 	var op ebiten.DrawImageOptions
@@ -954,7 +956,7 @@ func (g *MMGame) advanceControlledMonsters(elapsed int) {
 			m.BoundFramesRemaining = max(0, m.BoundFramesRemaining-elapsed)
 			if m.BoundFramesRemaining == 0 {
 				m.Bound = false
-				m.WasAttacked = true // sticky: a freed undead immediately turns hostile
+				m.WasAttacked = true // Freed undead remember provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
 				g.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
 			}
@@ -963,7 +965,7 @@ func (g *MMGame) advanceControlledMonsters(elapsed int) {
 			m.PacifiedFramesRemaining = max(0, m.PacifiedFramesRemaining-elapsed)
 			if m.PacifiedFramesRemaining == 0 {
 				m.Pacified = false
-				m.WasAttacked = true // sticky: Charm expiry restores hostility immediately
+				m.WasAttacked = true // Charm expiry restores provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
 				g.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
 			}

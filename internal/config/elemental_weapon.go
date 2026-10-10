@@ -75,7 +75,7 @@ func (a *ElementalWeaponAbility) Lines() []string {
 	case "pressure":
 		effect = fmt.Sprintf("Pressure Vent: every %d hits on one target release %d + %s/%d extra fire damage.", a.Hits, a.Damage, a.ScalingStat, a.StatDivisor)
 	case "backwash":
-		return []string{fmt.Sprintf("Backwash: %d + %s/%d water damage; a charge jumps between foes less than %g tiles apart with clear sight, up to %d hits per foe.", a.Damage, a.ScalingStat, a.StatDivisor, a.RangeTiles, a.HitsPerTarget), "Intellect is fixed when fired; the chain ends without an eligible target."}
+		return []string{fmt.Sprintf("Backwash: %d + %s/%d water damage; a charge jumps between foes less than %g tiles apart with clear sight, up to %d hits per foe.", a.Damage, a.ScalingStat, a.StatDivisor, a.RangeTiles, a.HitsPerTarget)}
 	case "anchor":
 		effect = fmt.Sprintf("Stored Load: each hit adds a stack, then deals %d extra earth damage per stack on that target (maximum %d stacks).", a.Damage, a.MaxStacks)
 	case "crosswind":

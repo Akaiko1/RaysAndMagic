@@ -87,6 +87,19 @@ weapons:
 
 For melee, `arc_type` is 1 (single target), 2 (front and flank), 3 (three
 positions), or 4 (five positions). `arc_angle` and `hit_delay` are removed fields.
+
+### Class minimums
+Each weapon class has a floor for `range` and `arc_type`, authored in
+`weapon_class_minimums` at the end of `assets/weapons.yaml`. A weapon may go
+above its class floor (there are no maximums) but never below it; the load
+fails otherwise. Current floors:
+
+| Category | Minimum |
+|---|---|
+| `spear` | `range: 2` |
+| `mace` | `arc_type: 2` |
+
+Add a row there, not a special case in code, when a class gets a new floor.
 Ranged magic weapons with `projectile_school` must use the matching `damage_type`.
 
 Additional supported mechanics include `volley`, `pierce_count`,

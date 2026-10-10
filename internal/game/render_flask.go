@@ -27,12 +27,12 @@ func (r *Renderer) flaskProjectilePose(p MagicProjectile) (flaskRenderPose, bool
 	}
 	t := max(0, min(1, 1-p.FlaskRemaining/max(1, p.FlaskFlightRange)))
 	tile := float64(g.config.GetTileSize())
-	scale := float64(g.worldHeight()) / depth
+	scale := g.viewFocal() / depth
 	// Leave the throwing hand, crest above eye level, then fall to the floor.
 	height := flaskArcHeight(p, tile)
 	return flaskRenderPose{
 		x:     float64(projected.screenX) + float64(g.worldWidth())*.13*math.Pow(1-t, 3),
-		y:     float64(g.worldHeight())/2 + (.5*tile-height)*scale,
+		y:     g.viewHorizon() + (.5*tile-height)*scale,
 		size:  max(16, min(96, .25*tile*scale)),
 		angle: -.45 + t*3*math.Pi,
 	}, true
@@ -56,5 +56,5 @@ func (r *Renderer) drawFlaskProjectile(screen *ebiten.Image, p MagicProjectile) 
 	op.GeoM.Scale(pose.size/float64(b.Dx()), pose.size/float64(b.Dy()))
 	op.GeoM.Rotate(pose.angle)
 	op.GeoM.Translate(pose.x, pose.y)
-	screen.DrawImage(sprite, op)
+	worldDrawImage(screen, sprite, op)
 }

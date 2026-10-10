@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"sort"
 	"strings"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -235,6 +236,86 @@ func (g *MMGame) addTreasureChestsFromRewards(rewards *monster.EncounterRewards)
 	for i := range rewards.TreasureChests {
 		g.addTreasureChestFromReward(&rewards.TreasureChests[i])
 	}
+}
+
+// ValidateRewardChestIDs fails when two reward chests share an ID. Every chest
+// lives in one game-wide list keyed by ID (addGroundContainer keeps the first),
+// so the second would never appear. An empty ID opts out of the key.
+func ValidateRewardChestIDs(npcs map[string]*character.NPCData, maps map[string]*config.MapConfig) error {
+	owners := map[string]string{}
+	return forEachRewardChestID(npcs, maps, func(id, owner string) error {
+		if prev, dup := owners[id]; dup {
+			return fmt.Errorf("reward chest ID %q is used by both %s and %s; give each chest its own ID", id, prev, owner)
+		}
+		owners[id] = owner
+		return nil
+	})
+}
+
+// RewardChestIDs lists the reward chest IDs these catalogs author.
+func RewardChestIDs(npcs map[string]*character.NPCData, maps map[string]*config.MapConfig) map[string]bool {
+	used := map[string]bool{}
+	_ = forEachRewardChestID(npcs, maps, func(id, _ string) error {
+		used[id] = true
+		return nil
+	})
+	return used
+}
+
+// forEachRewardChestID visits every non-empty reward chest ID: NPC fight
+// rewards and map clear rewards, singular and list fields alike.
+func forEachRewardChestID(npcs map[string]*character.NPCData, maps map[string]*config.MapConfig, fn func(id, owner string) error) error {
+	visit := func(id, owner string) error {
+		if id == "" {
+			return nil
+		}
+		return fn(id, owner)
+	}
+	for _, key := range sortedMapKeys(npcs) {
+		n := npcs[key]
+		if n == nil || n.Encounter == nil || n.Encounter.Rewards == nil {
+			continue
+		}
+		r := n.Encounter.Rewards
+		owner := fmt.Sprintf("NPC %q", key)
+		if r.TreasureChest != nil {
+			if err := visit(r.TreasureChest.ID, owner); err != nil {
+				return err
+			}
+		}
+		for _, c := range r.TreasureChests {
+			if err := visit(c.ID, owner); err != nil {
+				return err
+			}
+		}
+	}
+	for _, key := range sortedMapKeys(maps) {
+		m := maps[key]
+		if m == nil {
+			continue
+		}
+		encounters := m.ClearEncounters
+		if m.ClearEncounter != nil {
+			encounters = append([]config.MapClearEncounterConfig{*m.ClearEncounter}, encounters...)
+		}
+		owner := fmt.Sprintf("map %q clear reward", key)
+		for _, e := range encounters {
+			if e.Rewards == nil {
+				continue
+			}
+			if e.Rewards.TreasureChest != nil {
+				if err := visit(e.Rewards.TreasureChest.ID, owner); err != nil {
+					return err
+				}
+			}
+			for _, c := range e.Rewards.TreasureChests {
+				if err := visit(c.ID, owner); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // randomWeaponRewards rolls `count` random weapons uniformly from weapons.yaml.

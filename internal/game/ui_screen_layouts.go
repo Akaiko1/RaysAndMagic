@@ -1,6 +1,9 @@
 package game
 
-import "ugataima/internal/quests"
+import (
+	uitext "ugataima/assets/text"
+	"ugataima/internal/quests"
+)
 
 type layoutRect struct{ x, y, w, h int }
 
@@ -412,7 +415,7 @@ func computeQuestContentLayout(content layoutRect, copies []questCardCopy, page 
 }
 
 type mapOverlayLayout struct {
-	panel, title, close, body layoutRect
+	panel, title, close, body, subtitle, index, legend, overview layoutRect
 }
 
 type npcDialogSectionLayout struct {
@@ -441,14 +444,35 @@ func computeNPCDialogSectionLayout(dialog layoutRect, hasBalance bool) npcDialog
 	}
 }
 
-func computeMapOverlayLayout(screenW, screenH int) mapOverlayLayout {
-	panelW := min(720, max(320, int(float64(screenW)*0.75)))
-	panelH := min(560, max(240, int(float64(screenH)*0.75)))
-	panel := centeredRect(screenW, screenH, panelW, panelH)
-	return mapOverlayLayout{
-		panel: panel,
-		title: layoutRect{panel.x + 16, panel.y + 12, panel.w - 58, uiTextCharHeight},
-		close: layoutRect{panel.right() - 26, panel.y + 10, 16, 16},
-		body:  layoutRect{panel.x + 18, panel.y + 36, panel.w - 36, panel.h - 54},
+// The atlas occupies the same viewport as the character hub. Its large close
+// target stays in logical UI pixels, so the shared display scale also scales it.
+func computeMapOverlayLayout(screenW, viewportBottom int) mapOverlayLayout {
+	panel := computeTabbedMenuLayout(screenW, viewportBottom).panel
+	inset := 24
+	closeW := max(124, uiTextWidth(uitext.Text("atlas.close"))+48)
+	close := layoutRect{panel.right() - inset - closeW, panel.y + 16, closeW, 40}
+	overview := layoutRect{close.x - 144, close.y, 132, close.h}
+	body := layoutRect{panel.x + inset, panel.y + 80, panel.w - 2*inset, panel.h - 124}
+	index := layoutRect{}
+	if body.w >= 800 && body.h >= 260 {
+		index = layoutRect{body.right() - 224, body.y, 224, body.h}
+		body.w -= index.w + 24
 	}
+	return mapOverlayLayout{
+		panel: panel, close: close, overview: overview,
+		title:    layoutRect{panel.x + inset, panel.y + 18, overview.x - panel.x - inset - 20, 24},
+		subtitle: layoutRect{panel.x + inset, panel.y + 48, overview.x - panel.x - inset - 20, uiTextCharHeight},
+		body:     body, index: index,
+		legend: layoutRect{panel.x + inset, panel.bottom() - 34, panel.w - 2*inset, 20},
+	}
+}
+
+// Regionless maps use the entire plate; rendering and picking share the result.
+func (ui *UISystem) mapOverlayLayout() mapOverlayLayout {
+	l := computeMapOverlayLayout(ui.game.config.GetScreenWidth(), gameplayViewportBottom(ui.game))
+	if len(atlasRegions(ui.game.world)) == 0 && l.index.w > 0 {
+		l.body.w = l.index.right() - l.body.x
+		l.index = layoutRect{}
+	}
+	return l
 }

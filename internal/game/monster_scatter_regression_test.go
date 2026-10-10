@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -173,8 +174,8 @@ func TestScatterWithoutFreeTileKeepsPinnedMemberInPlace(t *testing.T) {
 				for _, d := range bandScatterRing[1:] {
 					g.world.Tiles[10+d[1]][10+d[0]] = world.TileWall
 				}
-				mobile.WasAttacked = true
-				mobile.BeginPlayerEngagement()
+				placePlayerAtTile(g, 20, 10, tile) // Within the provoked leash, still behind the walls.
+				takeDamageParts(mobile, damagecalc.Parts{True: 1}, monster.DamagePhysical, 0)
 				gl.updateMonsterBands()
 				if pinned.X != x || pinned.Y != y || mobile.X != x || mobile.Y != y {
 					t.Fatal("scatter without a free tile forced a relocation")

@@ -109,6 +109,7 @@ func (g *MMGame) setCardCollectionSlot(slot int, it items.Item) bool {
 		return false
 	}
 	g.cardSlots[slot] = resolved
+	g.normalizeReactiveCards()
 	return true
 }
 
@@ -128,6 +129,7 @@ func (g *MMGame) clearCardCollectionSlot(slot int) {
 		return
 	}
 	g.cardSlots[slot] = cardSlot{}
+	g.normalizeReactiveCards()
 }
 
 func (g *MMGame) cardCollectionItem(slot int) items.Item {
@@ -331,6 +333,7 @@ func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionCon
 	if agg.CardPoisonResistPct > 100 {
 		agg.CardPoisonResistPct = 100
 	}
+	agg.CardDodgeChargePct, agg.CardDodgeChargeLimit, agg.CardRepeatedHitReductionPct, agg.CardRepeatedHitReductionCap = reactiveCardRules(defs)
 	return agg
 }
 
@@ -756,6 +759,7 @@ func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 // effects (move speed, actions, stat bonuses, walk-on-water, summons...).
 func (g *MMGame) resetCardCollection() {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.normalizeReactiveCards()
 	g.cardBurstTileX, g.cardBurstTileY = 0, 0
 	g.cardSummonCooldowns = nil // survives map switches/loads, so a NEW game must clear it here
 	g.recomputeStatBonuses()
@@ -796,18 +800,14 @@ func (g *MMGame) hasCardWalkOnWater() bool {
 	return false
 }
 
-// cardItemTooltipLines is the shared card for a monster card, plus the view's
-// own action hint (the collector's double-click).
-func cardItemTooltipLines(key string, usage ...string) []string {
-	return cardItemTooltipRows(key, usage...).Lines()
-}
-
+// cardItemTooltipRows serves collection views. Their local action replaces
+// inventory instructions; a slotted card needs no activation tutorial.
 func cardItemTooltipRows(key string, usage ...string) character.CardRows {
 	it, err := items.TryCreateItemFromYAML(key)
 	if err != nil {
 		return nil
 	}
-	return itemTooltipWithUsageRows(it, nil, nil, false, usage...)
+	return itemTooltipWithUsageRows(it, nil, nil, false, itemUsage{ReplaceDefaultHints: true, Hints: usage})
 }
 
 // firstFreeCardSlot returns the first empty collection slot, or -1 if full.

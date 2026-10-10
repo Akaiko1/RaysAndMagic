@@ -78,7 +78,6 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 		}
 		lines = append(lines, "Classes: "+strings.Join(names, ", "))
 	}
-	hasTimedBuff := d.HasTimedBuff()
 	if d.ProjectileReflectPct > 0 {
 		lines = append(lines, uitext.Text("item.mirror_scales_chance_to_turn_a_projectile", d.ProjectileReflectPct))
 	}
@@ -88,16 +87,30 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	if d.ScaleStackAC > 0 {
 		lines = append(lines, uitext.Text("item.growing_scales_ac_per_hit_taken_max", d.ScaleStackAC, d.ScaleStackAC*d.ScaleStackMax))
 	}
-	if hasTimedBuff && d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
-		lines = append(lines, uitext.Text("item.party_ward_resistance_for_s", TitleWords(d.ResistBuffSchool), d.ResistBuffSchoolPct, d.BuffDurationSeconds))
+	if d.HasTimedBuff() {
+		lines = append(lines, d.TimedBuffEffectLines()...)
+		lines = append(lines, uitext.Text("item.buff_duration", d.BuffDurationSeconds))
 	}
-	if hasTimedBuff && d.BuffDodgePct > 0 {
-		lines = append(lines, uitext.Text("item.party_dodge_for_s", d.BuffDodgePct, d.BuffDurationSeconds))
+	return lines
+}
+
+// TimedBuffEffectLines describes a draught's effects without its original
+// duration. Inventory cards add that duration once; active HUD cards show time left.
+func (d *ItemDefinitionConfig) TimedBuffEffectLines() []string {
+	if d == nil || !d.HasTimedBuff() {
+		return nil
 	}
-	if hasTimedBuff && d.DamageBuffPct > 0 {
-		lines = append(lines, uitext.Text("item.party_elemental_draught", TitleWords(d.DamageBuffSchool), d.DamageBuffPct, d.BuffDurationSeconds))
+	var lines []string
+	if d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
+		lines = append(lines, uitext.Text("item.party_ward", TitleWords(d.ResistBuffSchool), d.ResistBuffSchoolPct))
 	}
-	if hasTimedBuff && (d.BuffHPRegenPct > 0 || d.BuffManaRegenPct > 0) {
+	if d.BuffDodgePct > 0 {
+		lines = append(lines, uitext.Text("item.party_dodge", d.BuffDodgePct))
+	}
+	if d.DamageBuffPct > 0 {
+		lines = append(lines, uitext.Text("item.party_elemental_draught", TitleWords(d.DamageBuffSchool), d.DamageBuffPct))
+	}
+	if d.BuffHPRegenPct > 0 || d.BuffManaRegenPct > 0 {
 		var recovery []string
 		if d.BuffHPRegenPct > 0 {
 			recovery = append(recovery, uitext.Text("item.regeneration_hp", d.BuffHPRegenPct))
@@ -105,10 +118,10 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 		if d.BuffManaRegenPct > 0 {
 			recovery = append(recovery, uitext.Text("item.regeneration_mana", d.BuffManaRegenPct))
 		}
-		lines = append(lines, uitext.Text("item.party_regeneration_draught", strings.Join(recovery, uitext.Text("item.regeneration_join")), float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds, d.BuffDurationSeconds))
+		lines = append(lines, uitext.Text("item.party_regeneration_draught", strings.Join(recovery, uitext.Text("item.regeneration_join")), float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds))
 	}
-	if hasTimedBuff && d.BuffArmorClass > 0 {
-		lines = append(lines, uitext.Text("item.party_stoneskin_armor_class_for_s", d.BuffArmorClass, d.BuffDurationSeconds))
+	if d.BuffArmorClass > 0 {
+		lines = append(lines, uitext.Text("item.party_stoneskin", d.BuffArmorClass))
 	}
 	return lines
 }
@@ -343,6 +356,15 @@ func EquipmentSetLines(setKey string) []string {
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string
+	if d.CardDodgeChargePct > 0 {
+		p = append(p, uitext.Text("item.dodge_charge", d.CardDodgeChargePct, d.CardDodgeChargeLimit))
+	}
+	if d.CardRepeatedHitReductionPct > 0 {
+		p = append(p, uitext.Text("item.repeated_hit_reduction", d.CardRepeatedHitReductionPct, d.CardRepeatedHitReductionCap))
+	}
+	if d.CardHealingCleanse {
+		p = append(p, uitext.Text("item.healing_cleanse"))
+	}
 	if d.CardMoveSpeedPct != 0 {
 		p = append(p, uitext.Text("item.move_speed", d.CardMoveSpeedPct))
 	}

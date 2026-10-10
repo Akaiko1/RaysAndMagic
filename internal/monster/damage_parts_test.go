@@ -6,6 +6,12 @@ import (
 	damagecalc "ugataima/internal/damage"
 )
 
+// takeDamageParts is the monster half of a single-school hit: normal and true
+// damage share the element and resistance; Stone Skin soaks only the normal part.
+func takeDamageParts(m *Monster3D, parts damagecalc.Parts, damageType DamageType, resistPiercePct int) int {
+	return m.TakeDamagePacket([]DamageComponent{{Parts: parts, DamageType: damageType, ResistPiercePct: resistPiercePct}}).Total()
+}
+
 func TestTakeDamageParts_ResistanceThenNormalOnlySoak(t *testing.T) {
 	m := &Monster3D{
 		HitPoints:    100,
@@ -15,7 +21,7 @@ func TestTakeDamageParts_ResistanceThenNormalOnlySoak(t *testing.T) {
 		SoakFrames:   1,
 	}
 
-	got := m.TakeDamageParts(damagecalc.Parts{Normal: 50, True: 20}, DamagePhysical, 0)
+	got := takeDamageParts(m, damagecalc.Parts{Normal: 50, True: 20}, DamagePhysical, 0)
 	if got != 30 {
 		t.Fatalf("dealt = %d, want 30 (normal 50%% -> 25 -> soak 20; true 50%% -> 10)", got)
 	}
@@ -31,7 +37,7 @@ func TestTakeDamageParts_ScriptedInvulnerabilityAbsorbsBoth(t *testing.T) {
 		BossDormant:  true,
 	}
 
-	if got := m.TakeDamageParts(damagecalc.Parts{Normal: 100, True: 100}, DamagePhysical, 0); got != 0 {
+	if got := takeDamageParts(m, damagecalc.Parts{Normal: 100, True: 100}, DamagePhysical, 0); got != 0 {
 		t.Fatalf("invulnerable target took %d, want 0", got)
 	}
 	if m.HitPoints != 100 || m.WasAttacked {

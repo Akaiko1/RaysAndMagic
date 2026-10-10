@@ -1,5 +1,6 @@
 //include standee_sampling.kageinc
-func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+	dstPos := vec4(paniniSourcePoint(rawDstPos.xy-imageDstOrigin())+imageDstOrigin(),rawDstPos.zw)
 	p := srcPos
 	data := custom
 	if data.z < 0.0 {
@@ -27,3 +28,5 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	footprint := vec2(max(data.w, 0.0), max(-data.w, 0.0))
 	return nearStickerAt(p, data.z > 0.0, data.x, footprint) * color
 }
+
+//include panini.kageinc

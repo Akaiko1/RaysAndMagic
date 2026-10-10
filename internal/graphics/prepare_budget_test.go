@@ -178,3 +178,12 @@ func TestPrepareResourcesPreservesRequestOrder(t *testing.T) {
 		})
 	}
 }
+
+func (b *PreparationBudget) Usage() (used, peak int64) {
+	if b == nil {
+		return 0, 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.used, b.peak
+}

@@ -62,6 +62,9 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 		return
 	}
 	npc.Visited = true // consumed even if the trap fires - the lid is open
+	if npc.PropModel != nil {
+		npc.PropUseStarted = g.frameCount + 1
+	}
 	g.playSoundKey(crate.InteractionSound)
 
 	if crate.TrapDamage > 0 || crate.TrapIgnite {

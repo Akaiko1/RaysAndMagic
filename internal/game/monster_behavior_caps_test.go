@@ -33,7 +33,7 @@ func TestFleeOutranksFoeAndBand(t *testing.T) {
 				g.turnBasedMode = tb
 				g.threading = threading.NewThreadingComponents(g.config)
 				t.Cleanup(g.threading.Shutdown)
-				placePlayerAtTile(g, 30, 30, tile)
+				placePlayerAtTile(g, 20, 10, tile)
 				guardian := monster.NewMonster3DFromConfig(10.5*tile, 10.5*tile, "bronze_gatekeeper", g.config)
 				mate := monster.NewMonster3DFromConfig(10.6*tile, 10.5*tile, "gale_novice", g.config)
 				guardian.ID, mate.ID = "guardian", "mate"

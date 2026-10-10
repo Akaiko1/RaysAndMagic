@@ -64,8 +64,14 @@ type WeaponBreakdown struct {
 	OrcishFury   int
 }
 
-func WeaponDamageBreakdown(def *config.WeaponDefinitionConfig, c *MMCharacter) WeaponBreakdown {
-	out := WeaponBreakdown{Breakdown: WeaponDamageFormula(def).Evaluate(EffectiveCombatStats(c), 0)}
+// WeaponDamageAtNight changes only authored base damage; all additions retain
+// their normal order. Both gameplay and the live tooltip use this calculation.
+func WeaponDamageAtNight(def *config.WeaponDefinitionConfig, c *MMCharacter, night bool) WeaponBreakdown {
+	f := WeaponDamageFormula(def)
+	if night && def != nil && def.NightBaseDamageMultiplier > 0 {
+		f.Base *= def.NightBaseDamageMultiplier
+	}
+	out := WeaponBreakdown{Breakdown: f.Evaluate(EffectiveCombatStats(c), 0)}
 	if def != nil && c != nil {
 		out.ArmsMaster = c.ArmsMasterTier() * ArmsMasterDamagePerTier
 		if c.HasSkill(SkillOrcishFury) {

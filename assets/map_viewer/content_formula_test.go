@@ -48,7 +48,7 @@ func TestEditorWeaponStrikeUnits(t *testing.T) {
 			}
 			for _, line := range []string{
 				"Strikes per attack: 2",
-				"Per strike: divide Normal formula total by 2, round up",
+				"Normal damage is divided between 2 strikes, rounded up per strike.",
 			} {
 				if strings.Contains(text, line) != tc.wantSplit {
 					t.Errorf("split=%v, unexpected presence/absence of %q:\n%s", tc.wantSplit, line, text)

@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -19,6 +21,7 @@ import (
 
 const overlayConfigPath = "assets/map_configs.yaml"
 const overlayNPCPath = "assets/npcs.yaml"
+const overlayQuestsPath = "assets/quests.yaml"
 
 // Locate one mapping entry in the original text. Saving an overlay preserves
 // all bytes outside the edited entries, including other maps and their comments.
@@ -92,45 +95,11 @@ func overlayEntry(data []byte, path []string) (start, end, indent int, found boo
 	err = fmt.Errorf("Empty YAML path")
 	return
 }
+
+// overlayPatch writes value at path, rewriting only what changed (see
+// overlayMergePatch). A nil value removes the entry.
 func overlayPatch(data []byte, path []string, value any) ([]byte, error) {
-	start, end, indent, _, err := overlayEntry(data, path)
-	if err != nil {
-		return nil, err
-	}
-	node := &yaml.Node{Kind: yaml.MappingNode}
-	val := &yaml.Node{}
-	if err = val.Encode(value); err != nil {
-		return nil, err
-	}
-	node.Content = []*yaml.Node{{Kind: yaml.ScalarNode, Value: path[len(path)-1]}, val}
-	var b bytes.Buffer
-	enc := yaml.NewEncoder(&b)
-	enc.SetIndent(2)
-	if err = enc.Encode(node); err != nil {
-		return nil, err
-	}
-	_ = enc.Close()
-	eol := "\n"
-	if bytes.Contains(data, []byte("\r\n")) {
-		eol = "\r\n"
-	}
-	var out bytes.Buffer
-	out.Write(data[:start])
-	if start > 0 && data[start-1] != '\n' {
-		out.WriteString(eol)
-	}
-	for _, line := range strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n") {
-		out.WriteString(strings.Repeat(" ", indent))
-		out.WriteString(line)
-		out.WriteString(eol)
-	}
-	out.Write(data[end:])
-	// Validate the actual splice before any caller can publish it.
-	var checked any
-	if err := yaml.Unmarshal(out.Bytes(), &checked); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
+	return overlayMergePatch(data, path, value)
 }
 func overlayEntryUnchanged(before, now []byte, path []string) bool {
 	a, b, _, ok, e := overlayEntry(before, path)
@@ -165,6 +134,8 @@ func (v *viewer) overlayDoc() *overlayDocument {
 	if m.Config != nil && m.Config.Adventure != nil {
 		d.state.Adventure = overlayClone(*m.Config.Adventure)
 	}
+	d.npcBase, _ = os.ReadFile(overlayNPCPath)
+	d.questsBase, _ = os.ReadFile(overlayQuestsPath)
 	d.originalNPCs = map[string]*character.NPCData{}
 	if d.state.Data != nil {
 		for _, spawn := range d.state.Data.NPCSpawns {
@@ -178,7 +149,6 @@ func (v *viewer) overlayDoc() *overlayDocument {
 	if err != nil {
 		d.err = err.Error()
 	}
-	d.npcBase, _ = os.ReadFile(overlayNPCPath)
 	if m.Config != nil {
 		d.mapBase, _ = os.ReadFile(filepath.Join("assets", m.Config.File))
 	}
@@ -266,6 +236,38 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 			return err
 		}
 	}
+	// A changed boss archetype takes this map's clear reward and the quest
+	// objectives waiting for it along.
+	var questsNow, questsNext []byte
+	if oldBoss, newBoss := d.bossRename(); oldBoss != "" {
+		anyMonster := func(map[string]any) bool { return true }
+		if next, _, err = overlayRenameBoss(next, []string{"maps", d.key, "clear_encounters"}, anyMonster, "type", oldBoss, newBoss); err != nil {
+			return err
+		}
+		if questsNow, err = os.ReadFile(overlayQuestsPath); err != nil {
+			return err
+		}
+		questsNext = questsNow
+		var catalog struct {
+			Quests map[string]any `yaml:"quests"`
+		}
+		if err = yaml.Unmarshal(questsNow, &catalog); err != nil {
+			return err
+		}
+		onThisMap := func(o map[string]any) bool { return o["map"] == d.key }
+		for _, id := range slices.Sorted(maps.Keys(catalog.Quests)) {
+			var changed bool
+			if questsNext, changed, err = overlayRenameBoss(questsNext, []string{"quests", id}, onThisMap, "requires_boss", oldBoss, newBoss); err != nil {
+				return err
+			}
+			if changed && !overlayEntryUnchanged(d.questsBase, questsNow, []string{"quests", id}) {
+				return fmt.Errorf("Quest %s changed on disk; reload before saving", id)
+			}
+		}
+		if bytes.Equal(questsNext, questsNow) {
+			questsNow, questsNext = nil, nil
+		}
+	}
 	// Validate the actual merged document, including references from other maps.
 	var cfg config.MapConfigs
 	if err = yaml.Unmarshal(next, &cfg); err != nil {
@@ -275,6 +277,9 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 		return err
 	}
 	files := []overlayWrite{{overlayConfigPath, current, next}}
+	if questsNext != nil {
+		files = append(files, overlayWrite{overlayQuestsPath, questsNow, questsNext})
+	}
 	var mechanicsNext []byte
 	if !overlaySame(d.state.Mechanics, d.saved.Mechanics) {
 		w, e := overlayMechanicsWrite(d, &cfg)
@@ -285,6 +290,7 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 		mechanicsNext = w.after
 	}
 	npcNow, npcNext := []byte(nil), []byte(nil)
+	var merged character.NPCConfig
 	npcChanges := map[string]*character.NPCData{}
 	for key := range d.state.NPCs {
 		npcChanges[key] = d.state.NPCs[key]
@@ -319,25 +325,25 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 			if !overlayEntryUnchanged(d.npcBase, npcNow, p) {
 				return fmt.Errorf("Switch %s changed on disk; reload before saving", key)
 			}
-			if npcChanges[key] == nil {
-				var start, end int
-				start, end, _, _, err = overlayEntry(npcNext, p)
-				if err == nil {
-					npcNext = append(append([]byte(nil), npcNext[:start]...), npcNext[end:]...)
-				}
-			} else {
-				npcNext, err = overlayPatch(npcNext, p, npcChanges[key])
-			}
+			// A nil definition removes the entry; shared anchors move to their next user.
+			npcNext, err = overlayPatch(npcNext, p, npcChanges[key])
 			if err != nil {
 				return err
 			}
 		}
-		var merged character.NPCConfig
 		if err = yaml.Unmarshal(npcNext, &merged); err != nil {
 			return fmt.Errorf("Merged NPC catalog: %w", err)
 		}
 		if err = game.ValidateEditorNPCs(merged.NPCs, v.cfg.Graphics.SizeClasses); err != nil {
 			return fmt.Errorf("Merged NPC catalog: %w", err)
+		}
+		configs := map[string]*config.MapConfig{}
+		for k := range cfg.Maps {
+			m := cfg.Maps[k]
+			configs[k] = &m
+		}
+		if err = game.ValidateRewardChestIDs(merged.NPCs, configs); err != nil {
+			return err
 		}
 		files = append(files, overlayWrite{overlayNPCPath, npcNow, npcNext})
 	}
@@ -368,6 +374,7 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 	d.configBase = next
 	if npcNext != nil {
 		d.npcBase = npcNext
+		d.authoredNPCs = nil
 	}
 	if mapNext != nil {
 		d.mapBase = mapNext
@@ -379,15 +386,25 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 			config.GlobalBossMechanics = &rules
 		}
 	}
+	if questsNext != nil {
+		d.questsBase = questsNext
+		v.overlay.questDefs = nil
+	}
 	m.Config.RespawnDays = d.state.RespawnDays
 	m.Config.Adventure = overlayClone(&d.state.Adventure)
+	if overlayZero(d.state.Adventure) {
+		m.Config.Adventure = nil
+	}
+	m.Config.ClearEncounters = cfg.Maps[d.key].ClearEncounters
 	m.Data = d.state.Data.Clone()
 	if character.NPCConfigInstance != nil {
+		// The runtime catalog holds loader-processed definitions; the merged
+		// catalog was processed by the same validation before the write.
 		for key, n := range npcChanges {
 			if n == nil {
 				delete(character.NPCConfigInstance.NPCs, key)
 			} else {
-				character.NPCConfigInstance.NPCs[key] = overlayClone(n)
+				character.NPCConfigInstance.NPCs[key] = merged.NPCs[key]
 			}
 		}
 	}

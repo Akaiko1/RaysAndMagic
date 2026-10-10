@@ -40,61 +40,68 @@ func TestAuditReturnHomeDetour(t *testing.T) {
 // blocked home adopts the current position; a blocked step, a held actor, and
 // read-only path queries never move the home. Persistence is tested in game.
 func TestPatrolHomeFallback(t *testing.T) {
-	for _, kind := range []string{"long_detour", "outside_window", "blocked_home", "blocked_step", "zero_speed", "rooted"} {
-		t.Run(kind, func(t *testing.T) {
-			checker := NewMockCollisionChecker(defaultTileSize)
-			m := &Monster3D{ID: "strayed", X: 32, Y: 32, SpawnX: 40*64 + 32, SpawnY: 32, TetherRadius: 5 * 64, Speed: 2, HitPoints: 100, State: StatePatrolling}
-			homeX, homeY := m.SpawnX, m.SpawnY
-			var collision CollisionChecker = checker
-			switch kind {
-			case "long_detour", "outside_window":
-				length := 30
-				if kind == "outside_window" {
-					length = 60
+	for _, tb := range []bool{false, true} {
+		for _, kind := range []string{"long_detour", "outside_window", "blocked_home", "blocked_step", "zero_speed", "rooted"} {
+			t.Run(fmt.Sprintf("TB=%v/%s", tb, kind), func(t *testing.T) {
+				checker := NewMockCollisionChecker(defaultTileSize)
+				m := &Monster3D{ID: "strayed", X: 32, Y: 32, SpawnX: 40*64 + 32, SpawnY: 32, TetherRadius: 5 * 64, Speed: 2, HitPoints: 100, State: StatePatrolling}
+				homeX, homeY := m.SpawnX, m.SpawnY
+				var collision CollisionChecker = checker
+				switch kind {
+				case "long_detour", "outside_window":
+					length := 30
+					if kind == "outside_window" {
+						length = 60
+					}
+					for y := -length; y <= length; y++ {
+						checker.BlockTile(20, y)
+					}
+				case "blocked_home", "zero_speed", "rooted":
+					checker.BlockTile(40, 0)
+				case "blocked_step":
+					collision = &blockedPatrolStep{checker}
 				}
-				for y := -length; y <= length; y++ {
-					checker.BlockTile(20, y)
+				if kind == "zero_speed" {
+					m.Speed = 0
 				}
-			case "blocked_home", "zero_speed", "rooted":
-				checker.BlockTile(40, 0)
-			case "blocked_step":
-				collision = &blockedPatrolStep{checker}
-			}
-			if kind == "zero_speed" {
-				m.Speed = 0
-			}
-			if kind == "rooted" {
-				m.RootFramesRemaining = 60
-			}
-			if m.HasPathToTile(collision, 40, 0) && kind == "outside_window" {
-				t.Fatal("fixture detour must exceed search window")
-			}
-			if m.SpawnX != homeX || m.SpawnY != homeY {
-				t.Fatal("path query mutated patrol home")
-			}
-			m.updatePatrolling(collision)
-			rebase := kind == "outside_window" || kind == "blocked_home"
-			if rebase {
-				if m.SpawnX != m.X || m.SpawnY != m.Y || m.SpawnX == homeX {
-					t.Fatal("failed return search did not adopt current refuge")
+				if kind == "rooted" {
+					m.RootFramesRemaining, m.RootTurnsRemaining = 60, 2
 				}
-				if len(m.PathTiles) != 0 || m.HasMoveTarget {
-					t.Fatal("failed home route remained cached")
+				if m.HasPathToTile(collision, 40, 0) && kind == "outside_window" {
+					t.Fatal("fixture detour must exceed search window")
 				}
-				beforeX, beforeY := m.X, m.Y
-				// A deterministic local patrol goal proves the actor can resume roaming.
-				m.setMoveTarget(StatePatrolling, 1, 0)
-				for tick := 0; tick < 10; tick++ {
-					m.StateTimer++
+				if m.SpawnX != homeX || m.SpawnY != homeY {
+					t.Fatal("path query mutated patrol home")
+				}
+				if tb {
+					m.ReturningHome = true
+					m.NextReturnHomeStep(collision)
+				} else {
 					m.updatePatrolling(collision)
 				}
-				if m.X == beforeX && m.Y == beforeY {
-					t.Fatal("rebased monster remained stuck")
+				rebase := kind == "outside_window" || kind == "blocked_home"
+				if rebase {
+					if m.SpawnX != m.X || m.SpawnY != m.Y || m.SpawnX == homeX {
+						t.Fatal("failed return search did not adopt current refuge")
+					}
+					if len(m.PathTiles) != 0 || m.HasMoveTarget {
+						t.Fatal("failed home route remained cached")
+					}
+					beforeX, beforeY := m.X, m.Y
+					// A deterministic local patrol goal proves the actor can resume roaming.
+					m.setMoveTarget(StatePatrolling, 1, 0)
+					for tick := 0; tick < 10; tick++ {
+						m.StateTimer++
+						m.updatePatrolling(collision)
+					}
+					if m.X == beforeX && m.Y == beforeY {
+						t.Fatal("rebased monster remained stuck")
+					}
+				} else if m.SpawnX != homeX || m.SpawnY != homeY {
+					t.Fatal("reachable or temporarily held monster lost its home")
 				}
-			} else if m.SpawnX != homeX || m.SpawnY != homeY {
-				t.Fatal("reachable or temporarily held monster lost its home")
-			}
-		})
+			})
+		}
 	}
 }
 

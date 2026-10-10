@@ -366,7 +366,7 @@ func TestCooldownShowsQuickeningOnlyWhileActive(t *testing.T) {
 			if active {
 				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 600, RecoveryPct: 20})
 			}
-			card := GetSpellTooltip("fireball", char, cs, true)
+			card := GetSpellTooltipRows("fireball", char, cs, true).String()
 			if got := strings.Contains(card, "Quickening: -20% recovery"); got != active {
 				t.Fatalf("Quickening line shown=%v with the buff active=%v:\n%s", got, active, card)
 			}

@@ -18,6 +18,7 @@ type RenderingHelper struct {
 	game                    *MMGame
 	textureCache            map[string]*ebiten.Image // Cache for procedural textures
 	visibleHeightScaleCache map[visibleHeightScaleKey]float64
+	skyOpts                 ebiten.DrawTrianglesShaderOptions
 }
 
 type visibleHeightScaleKey struct {
@@ -45,17 +46,9 @@ func NewRenderingHelper(game *MMGame) *RenderingHelper {
 	}
 }
 
-// CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
-func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
-	wallHeightF, floorBottomF := rh.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
-	wallHeight = int(wallHeightF)
-	return wallHeight, int(floorBottomF) - wallHeight
-}
-
 // CalculateWallDimensionsWithHeightF is the float-precision projection shared
-// by textured wall meshes. The integer wrapper remains for cache keys and the
-// wall-top occlusion buffer, while visible distant sprite walls keep their
-// subpixel top/bottom instead of stepping a whole pixel between frames.
+// by every wall draw path and the wall-top occlusion buffer. Only texture cache
+// dimensions may be rounded; drawing and clipping must meet at the same edge.
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeightF(distance, heightMultiplier float64) (wallHeight, floorBottom float64) {
 	// Division guard only - collision keeps the camera farther away than this.
 	// The wall's vanish-at-point-blank bug came from CAPPING the height while
@@ -68,7 +61,7 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeightF(distance, heightMu
 	}
 
 	// Calculate base wall height on screen
-	baseHeight := float64(rh.game.worldHeight()) / distance * rh.game.config.GetTileSize()
+	baseHeight := rh.game.viewFocal() / distance * rh.game.config.GetTileSize()
 
 	// Apply height multiplier
 	wallHeight = baseHeight * heightMultiplier
@@ -92,16 +85,16 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeightF(distance, heightMu
 //
 // This is the inverse of the floor rendering formula used in drawSimpleFloorCeiling:
 //
-//	rowDistance = (0.5 * screenHeight * tileSize) / p
+//	rowDistance = (0.5 * focalLength * tileSize) / p
 //
 // Where:
 //   - rowDistance is the perpendicular distance from camera to floor point
 //   - p is the vertical offset from the horizon line (screen pixels)
-//   - screenHeight/2 is the horizon line position
+//   - viewHorizon() is the horizon line position
 //
 // Solving for screen Y:
 //
-//	p = (0.5 * screenHeight * tileSize) / rowDistance
+//	p = (0.5 * focalLength * tileSize) / rowDistance
 //	screenY = horizon + p
 //
 // This ensures sprites are anchored to the floor at their correct distance,
@@ -112,14 +105,14 @@ func (rh *RenderingHelper) calculateFloorScreenY(perpDist float64) int {
 }
 
 func (rh *RenderingHelper) calculateFloorScreenYF(perpDist float64) float64 {
-	screenHeight := float64(rh.game.worldHeight())
+	focalLength := rh.game.viewFocal()
 	tileSize := rh.game.config.GetTileSize()
-	horizon := screenHeight / 2
+	horizon := rh.game.viewHorizon()
 
 	if perpDist <= 0 {
 		perpDist = 1 // Avoid division by zero
 	}
-	return horizon + (0.5*screenHeight*tileSize)/perpDist
+	return horizon + (0.5*focalLength*tileSize)/perpDist
 }
 
 // projectToScreenX converts a world position into screen X using the camera plane.
@@ -153,17 +146,11 @@ func (rh *RenderingHelper) cameraSpaceXY(entityX, entityY float64) (tx, ty float
 	cam := rh.game.camera
 	dx := entityX - cam.X
 	dy := entityY - cam.Y
-	dirX := math.Cos(cam.Angle)
-	dirY := math.Sin(cam.Angle)
-	planeScale := math.Tan(cam.FOV / 2)
-	planeX := -dirY * planeScale
-	planeY := dirX * planeScale
-	det := planeX*dirY - dirX*planeY
-	if math.Abs(det) < 1e-9 {
+	b := rh.game.cameraBasis()
+	if b.halfFovTan < 1e-9 {
 		return 0, 0, false
 	}
-	invDet := 1.0 / det
-	return invDet * (dirY*dx - dirX*dy), invDet * (-planeY*dx + planeX*dy), true
+	return (-b.dirY*dx + b.dirX*dy) / b.halfFovTan, b.dirX*dx + b.dirY*dy, true
 }
 
 // projectSegmentSpanX projects a world segment's on-screen column span. Unlike
@@ -367,7 +354,8 @@ func (rh *RenderingHelper) billboardMetricsF(entityX, entityY, distance, sizeTil
 	return rh.projectSpriteMetricsF(entityX, entityY, distance, 0, sizeTiles, minSize)
 }
 
-// CalculateMonsterSpriteMetricsF is the float twin of CalculateMonsterSpriteMetrics.
+// CalculateMonsterSpriteMetricsF sizes a monster billboard (low pixel floor so
+// distant mobs shrink freely). sizeTiles is height in tiles.
 func (rh *RenderingHelper) CalculateMonsterSpriteMetricsF(entityX, entityY, distance, sizeTiles float64) (screenXf, bottomF, sizeF float64, visible bool) {
 	return rh.billboardMetricsF(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }
@@ -400,17 +388,6 @@ func (rh *RenderingHelper) npcBillboardParams(npc *character.NPC) (sizeTiles flo
 // sceneryMinSpriteSize is the pixel floor for prop standees (scenery/landmark/
 // wall/door): unlike people they may recede to almost nothing at range.
 const sceneryMinSpriteSize = 8
-
-// The Calculate*SpriteMetrics trio below are the PIXEL (int) view of the float
-// cores: truncating whole-pixel metrics is what made distant sprites jitter, so
-// draw paths must use the F twins. These stay for hit tests and the golden
-// size/near-cull tests, which reason in pixels by nature.
-
-// CalculateMonsterSpriteMetrics sizes a monster billboard (low pixel floor so
-// distant mobs shrink freely). sizeTiles is height in tiles.
-func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
-}
 
 // CalculateGroundContainerSpriteMetricsF sizes an interactable loot container.
 // Loot bags and chests use the same float projection as every other standee so
@@ -496,15 +473,9 @@ func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance
 	return rh.billboardMetrics(ex, ey, distance, sizeTiles, minSize)
 }
 
-// CalculateEnvironmentSpriteMetrics sizes an environment TILE sprite (trees,
+// CalculateEnvironmentSpriteMetricsF sizes an environment TILE sprite (trees,
 // rocks): billboardMetrics' model plus the tile-type height multiplier, and a
 // fixed 5.0 near-cull (env tiles keep it even in turn-based mode).
-func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, rh.envHeightMultiplier(tileType, sizeScale), sceneryMinSpriteSize)
-}
-
-// CalculateEnvironmentSpriteMetricsF is the float twin of
-// CalculateEnvironmentSpriteMetrics.
 func (rh *RenderingHelper) CalculateEnvironmentSpriteMetricsF(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenXf, bottomF, sizeF float64, visible bool) {
 	return rh.projectSpriteMetricsF(entityX, entityY, distance, 5.0, rh.envHeightMultiplier(tileType, sizeScale), sceneryMinSpriteSize)
 }
@@ -595,7 +566,7 @@ func (rh *RenderingHelper) projectSpriteMetricsF(entityX, entityY, distance, min
 		return 0, 0, 0, false
 	}
 
-	sizeF = float64(rh.game.worldHeight()) / perpDist * rh.game.config.GetTileSize() * heightMultiplier
+	sizeF = rh.game.viewFocal() / perpDist * rh.game.config.GetTileSize() * heightMultiplier
 	if maxS := float64(rh.game.worldHeight() * 64); sizeF > maxS {
 		sizeF = maxS
 	}
@@ -614,7 +585,7 @@ func (rh *RenderingHelper) projectSpriteMetricsF(entityX, entityY, distance, min
 // calculateSpriteSizeWithHeightMultiplier returns a sprite height using the
 // same scaling model as environment sprites (e.g., moss rocks).
 func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier float64) int {
-	return int(float64(rh.game.worldHeight()) / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
+	return int(rh.game.viewFocal() / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
 }
 
 // RenderSkyBackground draws the panorama or its solid-color fallback. The
@@ -623,6 +594,7 @@ func (rh *RenderingHelper) RenderSkyBackground(screen *ebiten.Image) {
 	if !rh.drawSkyPanorama(screen) {
 		// Draw cached solid-color sky fallback.
 		skyOpts := &ebiten.DrawImageOptions{}
+		skyOpts.GeoM.Scale(1, rh.game.viewHorizon()/float64(rh.game.skyImg.Bounds().Dy()))
 		screen.DrawImage(rh.game.skyImg, skyOpts)
 	}
 }
@@ -632,8 +604,9 @@ func (rh *RenderingHelper) RenderSkyBackground(screen *ebiten.Image) {
 // a redundant half-screen source draw and fill cost.
 func (rh *RenderingHelper) DrawGroundFallback(screen *ebiten.Image) {
 	groundOpts := &ebiten.DrawImageOptions{}
-	groundOpts.GeoM.Translate(0, float64(rh.game.worldHeight()/2))
-	screen.DrawImage(rh.game.groundImg, groundOpts)
+	groundOpts.GeoM.Scale(1, (float64(rh.game.worldHeight())-rh.game.viewHorizon())/float64(rh.game.groundImg.Bounds().Dy()))
+	groundOpts.GeoM.Translate(0, rh.game.viewHorizon())
+	worldDrawImage(screen, rh.game.groundImg, groundOpts)
 }
 
 // wrapPanoramaOffset keeps source coordinates near the panorama's own width
@@ -684,7 +657,7 @@ func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.I
 	}
 
 	screenWidth := rh.game.worldWidth()
-	skyHeight := rh.game.worldHeight() / 2
+	skyHeight := int(math.Ceil(rh.game.viewHorizon()))
 	if screenWidth <= 0 || skyHeight <= 0 {
 		return false
 	}
@@ -702,7 +675,7 @@ func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.I
 		return false
 	}
 
-	pixelsPerRadian := srcSpan / rh.game.camera.FOV
+	pixelsPerRadian := srcSpan / rh.game.viewFOV()
 	bx := float64(bounds.Min.X)
 	by := float64(bounds.Min.Y)
 	centerOffset := wrapPanoramaOffset(rh.game.camera.Angle*pixelsPerRadian, srcW)
@@ -721,8 +694,7 @@ func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.I
 		{DstX: dx1, DstY: dy1, SrcX: float32(sx1), SrcY: float32(sy1), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
 	}
 	indices := [6]uint16{0, 1, 2, 1, 3, 2}
-	op := &ebiten.DrawTrianglesShaderOptions{}
-	op.Images[0] = panorama
-	screen.DrawTrianglesShader(vertices[:], indices[:], shader, op)
+	rh.skyOpts.Images[0] = panorama
+	screen.DrawTrianglesShader(vertices[:], indices[:], shader, &rh.skyOpts)
 	return true
 }

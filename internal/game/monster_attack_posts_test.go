@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -166,46 +167,101 @@ func TestCombatAttackTransitIsWalkableSkipsArcAndTakesAoe(t *testing.T) {
 	}
 }
 
-func TestCombatTransitVisualStackEasesAcrossTileBoundary(t *testing.T) {
-	game, gl, tileSize := tbBehaviorGame(t, 30, 30)
-	game.turnBasedMode = false
-	placePlayerAtTile(game, 14, 14, tileSize)
-
-	first := hostileMonsterAt(game, 16, 14, tileSize)
-	second := hostileMonsterAt(game, 16, 14, tileSize)
-	first.State = monster.StatePursuing
-	second.State = monster.StatePursuing
-	game.world.Monsters = []*monster.Monster3D{first, second}
-
-	gl.updateCombatTransitVisualStacks()
-	var follower *monster.Monster3D
-	for _, m := range game.world.Monsters {
-		if m.TransitStackIndex == 1 {
-			follower = m
-			break
-		}
-	}
-	if follower == nil || follower.TransitStackCount != 2 {
-		t.Fatal("setup: co-located pursuers did not form a visual transit stack")
-	}
-	fullX, fullY := bandFanOffset(1, 2, tileSize)
-	fullDistance := math.Hypot(fullX, fullY)
-	firstDistance := math.Hypot(follower.TransitStackOffsetX, follower.TransitStackOffsetY)
-	if firstDistance <= 0 || firstDistance >= fullDistance {
-		t.Fatalf("first transit fan step = %.2f, want an eased value between 0 and %.2f", firstDistance, fullDistance)
-	}
-
-	// Crossing one integer-tile boundary used to clear the complete fan offset
-	// in a single tick, producing the repeated snap/un-snap seen while two
-	// same-speed guards followed the same route.
-	follower.X += tileSize
-	gl.updateCombatTransitVisualStacks()
-	secondDistance := math.Hypot(follower.TransitStackOffsetX, follower.TransitStackOffsetY)
-	if follower.TransitStackCount != 0 {
-		t.Fatalf("separated pursuer still has transit stack count %d", follower.TransitStackCount)
-	}
-	if secondDistance <= 0 || secondDistance >= firstDistance {
-		t.Fatalf("released fan offset = %.2f, want a smooth decay from %.2f rather than an instant clear", secondDistance, firstDistance)
+// Stack slots are cosmetic and local to the currently occupied tile. They
+// must not drag an actor toward another occupant or across its current tile.
+func TestCombatTransitVisualStackStaysOnOccupiedTile(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		t.Run(fmt.Sprintf("tb=%v", tb), func(t *testing.T) {
+			game, gl, ts := tbBehaviorGame(t, 30, 30)
+			game.turnBasedMode = tb
+			placePlayerAtTile(game, 16, 12, ts)
+			game.camera.Angle = math.Pi / 2
+			for i := 0; i < 3; i++ {
+				m := hostileMonsterAt(game, 16, 14, ts)
+				m.ID = fmt.Sprintf("m%d", i)
+				m.State = monster.StatePursuing
+				// The two followers exercise positive and negative tile-edge clipping.
+				if !tb {
+					if i == 1 {
+						m.X = 16.99 * ts
+					}
+					if i == 2 {
+						m.X = 16.01 * ts
+					}
+				}
+				game.world.Monsters = append(game.world.Monsters, m)
+			}
+			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+			r := &Renderer{game: game}
+			previous := make([][2]float64, 3)
+			for i, m := range game.world.Monsters {
+				previous[i] = [2]float64{m.X, m.Y}
+			}
+			checkTile := func(m *monster.Monster3D) {
+				t.Helper()
+				x, y := r.monsterVisualPosition(m)
+				if TileIndex(x, ts) != TileIndex(m.X, ts) || TileIndex(y, ts) != TileIndex(m.Y, ts) {
+					t.Fatalf("sprite crossed physical tile: actor %.4f,%.4f sprite %.4f,%.4f", m.X/ts, m.Y/ts, x/ts, y/ts)
+				}
+				if m.BandID != 0 || math.Hypot(x-m.X, y-m.Y) > bandFanRadiusTiles*ts+1e-8 {
+					t.Fatal("visual stack changed band or left compact fan")
+				}
+			}
+			for frame := 0; frame < 60; frame++ {
+				gl.resolveMonsterFrameActions()
+				for i, m := range game.world.Monsters {
+					checkTile(m)
+					x, y := r.monsterVisualPosition(m)
+					if m.TransitStackCount != 3 {
+						t.Fatal("co-located actors lost stack")
+					}
+					if math.Hypot(x-previous[i][0], y-previous[i][1]) > ts*.055 {
+						t.Fatal("stack membership snapped instead of easing")
+					}
+					previous[i] = [2]float64{x, y}
+				}
+			}
+			if previous[0] == previous[1] || previous[0] == previous[2] {
+				t.Fatal("stack did not separate occupants")
+			}
+			for _, m := range game.world.Monsters {
+				x, y := m.X, m.Y
+				gl.updateCombatTransitVisualStacks()
+				if m.X != x || m.Y != y {
+					t.Fatal("visual update moved a physical actor")
+				}
+			}
+			// Walk the left follower across the lower edge while its fan is still live.
+			moving := game.world.Monsters[2]
+			startTile := TileIndex(moving.X, ts)
+			for step := 0; step < 30; step++ {
+				moving.X -= .02 * ts
+				game.collisionSystem.UpdateEntity(moving.ID, moving.X, moving.Y)
+				gl.resolveMonsterFrameActions()
+				checkTile(moving)
+			}
+			if TileIndex(moving.X, ts) == startTile {
+				t.Fatal("fixture did not cross a tile boundary")
+			}
+			// Separate all occupants. Residual presentation offsets must stay inside
+			// their new tiles, ease out, and release the transient stack state.
+			for i, m := range game.world.Monsters {
+				m.X = (float64(15+i) + .5) * ts
+				game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+			}
+			for frame := 0; frame < 90; frame++ {
+				gl.resolveMonsterFrameActions()
+				for _, m := range game.world.Monsters {
+					checkTile(m)
+				}
+			}
+			for _, m := range game.world.Monsters {
+				x, y := r.monsterVisualPosition(m)
+				if m.TransitStackActive || m.TransitStackCount != 0 || x != m.X || y != m.Y {
+					t.Fatal("separated actor did not settle at its physical position")
+				}
+			}
+		})
 	}
 }
 
@@ -214,9 +270,10 @@ func TestCombatTransitVisualStackIncludesCalmOccupant(t *testing.T) {
 	game.turnBasedMode = false
 	placePlayerAtTile(game, 14, 14, tileSize)
 
-	pursuer := hostileMonsterAt(game, 16, 14, tileSize)
+	pursuer := monster.NewMonster3DFromConfig(16.5*tileSize, 14.5*tileSize, "mummy", game.config)
+	pursuer.BeginPlayerEngagement()
 	pursuer.State = monster.StatePursuing
-	calm := monster.NewMonster3DFromConfig(pursuer.X, pursuer.Y, "goblin", game.config)
+	calm := monster.NewMonster3DFromConfig(pursuer.X, pursuer.Y, "desert_rabbit", game.config)
 	calm.State = monster.StateIdle
 	game.world.Monsters = []*monster.Monster3D{pursuer, calm}
 

@@ -104,7 +104,7 @@ func wallTorchFlicker(seed int, frameCount int64) float64 {
 // Called from the unified sprite pass so the flame depth-sorts against
 // billboards and standees; walls still occlude via the depth buffer here.
 func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
-	horizon := float64(r.game.worldHeight()) / 2
+	horizon := r.game.viewHorizon()
 	viewDist := r.game.camera.ViewDist
 	depthBuf := r.game.depthBuffer
 	fc := r.game.frameCount

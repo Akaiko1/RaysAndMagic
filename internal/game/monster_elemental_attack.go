@@ -5,7 +5,6 @@ import (
 
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
-	"ugataima/internal/world"
 )
 
 // monsterEffectContext resolves the attacking monster's own region.
@@ -16,10 +15,8 @@ func (g *MMGame) monsterEffectContext(m *monster.Monster3D) monster.CombatEffect
 		return ctx
 	}
 	ctx.ElementalAttack = g.config.MonsterCombat.ElementalAttack
-	if m != nil && world.GlobalWorldManager != nil {
-		ts := float64(g.config.GetTileSize())
-		biome := g.biomeAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts))
-		ctx.ElementalSchool = world.GlobalWorldManager.Biomes[biome].ElementalAttackSchool
+	if m != nil {
+		ctx.ElementalSchool = g.elementalDomainAt(m.X, m.Y)
 	}
 	return ctx
 }

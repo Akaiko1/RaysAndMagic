@@ -60,8 +60,9 @@ Save files and `player_profile.json` normally live in these locations:
 
 On Windows, copy the `saves/` folder when moving to a newly extracted release.
 macOS apps share their writable content under
-`~/Library/Application Support/RaysAndMagic/`. Updates refresh bundled YAML and
-sprites. Local map edits survive only while the shipped version of that map is
+`~/Library/Application Support/RaysAndMagic/`. Updates refresh bundled YAML,
+sprites and sounds, and remove files the new version no longer ships; only maps
+are kept as local content. Local map edits survive only while the shipped version of that map is
 unchanged; an updated shipped map replaces the edited copy. Use the repository
 build for content editing. See [Player profile](docs/player-profile.md) for
 achievements and statistics.
@@ -140,7 +141,7 @@ YAML behaviors; a new behavior still needs runtime support.
 | --- | --- | --- |
 | Weapons | `assets/weapons.yaml` | [Weapons](how_to_add_a_new_weapon.md) |
 | Spells | `assets/spells.yaml` | [Spells](how_to_add_a_new_spell.md) |
-| Monsters and wildlife | `assets/monsters.yaml`, `assets/ecology.yaml` | [Monsters](how_to_add_a_new_monster.md), [Monster design](docs/monster-design.md) |
+| Monsters and wildlife | `assets/monsters.yaml`, `assets/ecology.yaml` | [Monsters](how_to_add_a_new_monster.md), [Monster design](docs/monster-design.md), [Spawns over time](docs/monster-spawns.md) |
 | Items, sets, and drops | `assets/items.yaml`, `assets/loots.yaml` | [Items and loot](docs/adding-items-and-loot.md) |
 | Alchemy and gathering | `assets/alchemy_recipes.yaml`, `assets/alchemy_spawns.yaml`, `assets/items.yaml` | [Shipped recipes](assets/alchemy_recipes.yaml), [Harvest populations](assets/alchemy_spawns.yaml) |
 | Pilgrim techniques | `assets/techniques.yaml` | [Shipped techniques](assets/techniques.yaml) |

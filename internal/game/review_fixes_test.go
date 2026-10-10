@@ -378,11 +378,11 @@ func TestWeaponDamagePreviewIncludesAuthoredTrueDamageWithoutBearer(t *testing.T
 	}
 
 	wantLine := fmt.Sprintf("Weapon: +%d True", def.TrueDamage)
-	tooltip := GetItemTooltip(weapon, nil, cs, true)
+	tooltip := GetItemTooltipRows(weapon, nil, cs, true).String()
 	if !strings.Contains(tooltip, wantLine) {
 		t.Fatalf("shop tooltip omits authored true damage:\n%s", tooltip)
 	}
-	editor := GetItemTooltip(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true)
+	editor := GetItemTooltipRows(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true).String()
 	if !strings.Contains(editor, wantLine) {
 		t.Fatalf("editor card omits authored true damage:\n%s", editor)
 	}
@@ -441,11 +441,11 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 	potion := &config.ItemDefinitionConfig{
 		ResistBuffSchool: "fire", ResistBuffSchoolPct: 50, BuffDurationSeconds: 60,
 	}
-	if joined := strings.Join(potion.CoreEffectLines(), "\n"); !strings.Contains(joined, "Fire resistance +50% for 60s") {
+	if joined := strings.Join(potion.CoreEffectLines(), "\n"); !strings.Contains(joined, "Fire resistance +50%") || !strings.Contains(joined, "Duration: 60s") {
 		t.Fatalf("draught CoreEffectLines missing ward line in:\n%s", joined)
 	}
 	stone := &config.ItemDefinitionConfig{BuffArmorClass: 15, BuffDurationSeconds: 60}
-	if joined := strings.Join(stone.CoreEffectLines(), "\n"); !strings.Contains(joined, "stoneskin: armor class +15 for 60s") {
+	if joined := strings.Join(stone.CoreEffectLines(), "\n"); !strings.Contains(joined, "stoneskin: armor class +15") || !strings.Contains(joined, "Duration: 60s") {
 		t.Fatalf("stoneskin CoreEffectLines missing line in:\n%s", joined)
 	}
 

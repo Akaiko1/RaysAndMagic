@@ -28,11 +28,11 @@ func TestTownPortalRegistersConfiguredDestination(t *testing.T) {
 	t.Cleanup(func() { world.GlobalWorldManager = previousManager })
 
 	game.registerVisitedTownPortalDestination()
-	got := game.sortedTownPortalDestinations()
-	if len(got) != 1 || got[0] != "japanese_castle" {
+	got := game.townPortalRows()
+	if len(got) != 1 || got[0].id != "japanese_castle" {
 		t.Fatalf("destinations = %v, want japanese_castle", got)
 	}
-	if label := game.townPortalDestinationLabel("japanese_castle"); label != "Eastern Isle Castle" {
+	if label := got[0].label; label != "Eastern Isle Castle" {
 		t.Fatalf("destination label = %q, want map name without Tavern", label)
 	}
 
@@ -106,13 +106,13 @@ func TestTownPortalAnchorNPCMakesItsMapADestination(t *testing.T) {
 	}
 
 	game.registerVisitedTownPortalDestination()
-	if got := game.sortedTownPortalDestinations(); len(got) != 1 || got[0] != "forest" {
+	if got := game.townPortalRows(); len(got) != 1 || got[0].id != "forest" {
 		t.Fatalf("a map with an anchor NPC registered as %v", got)
 	}
 
 	// The picker names the ANCHOR, not a guessed "Tavern": the flag is generic,
 	// so the next anchor may be a shrine or a gate house.
-	label := game.townPortalDestinationLabel("forest")
+	label := game.townPortalMapLabel("forest")
 	if !strings.Contains(label, inn.Name) {
 		t.Fatalf("label = %q, want it to name the anchor %q", label, inn.Name)
 	}
@@ -147,11 +147,11 @@ func TestTownPortalLabelsAnchorsFromAnotherMap(t *testing.T) {
 		MapConfigs:    map[string]*config.MapConfig{"forest": {Name: "Elvish Forest"}},
 	}
 
-	if label := g.townPortalDestinationLabel("forest"); !strings.Contains(label, inn.Name) {
+	if label := g.townPortalMapLabel("forest"); !strings.Contains(label, inn.Name) {
 		t.Fatalf("label = %q, want it to name the anchor %q from the dungeon", label, inn.Name)
 	}
 	// And the destination the party is standing on keeps its plain name.
-	if label := g.townPortalDestinationLabel("pyramid_1"); strings.Contains(label, inn.Name) {
+	if label := g.townPortalMapLabel("pyramid_1"); strings.Contains(label, inn.Name) {
 		t.Fatalf("the dungeon row = %q, it has no anchor", label)
 	}
 }
@@ -228,14 +228,14 @@ func TestTownPortalIgnoresAnUnflaggedMapWithAnInn(t *testing.T) {
 	}
 
 	game.registerVisitedTownPortalDestination()
-	if got := game.sortedTownPortalDestinations(); len(got) != 0 {
+	if got := game.townPortalRows(); len(got) != 0 {
 		t.Fatalf("an unflagged map with an inn registered as %v", got)
 	}
 
 	// Flag it and the same visit registers.
 	world.GlobalWorldManager.MapConfigs["unflagged_inn"].TownPortalDestination = true
 	game.registerVisitedTownPortalDestination()
-	if got := game.sortedTownPortalDestinations(); len(got) != 1 || got[0] != "unflagged_inn" {
+	if got := game.townPortalRows(); len(got) != 1 || got[0].id != "unflagged_inn" {
 		t.Fatalf("a flagged map registered as %v", got)
 	}
 }

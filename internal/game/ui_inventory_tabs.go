@@ -55,14 +55,34 @@ func inventoryTabOwning(item items.Item) int {
 // drag, context menu) addresses its physical bag directly, so a filtered cell
 // must hand them the real index or it acts on the wrong item.
 func (g *MMGame) inventoryViewIndices(tab int, owner ...*character.MMCharacter) []int {
-	bag := g.party.Bag(owner...).Items()
+	return inventoryTabView(tab, g.party.Bag(owner...).Items())
+}
+
+// inventoryTabShows is the one category filter: bags, shop shelves and the
+// shop's view of the party bag all ask it.
+func inventoryTabShows(tab int, item items.Item) bool {
+	return tab == inventoryTabAll || inventoryTabOwning(item) == tab
+}
+
+// inventoryTabView lists the positions in bag that tab shows, in bag order.
+func inventoryTabView(tab int, bag []items.Item) []int {
 	view := make([]int, 0, len(bag))
 	for i, item := range bag {
-		if tab == inventoryTabAll || inventoryTabOwning(item) == tab {
+		if inventoryTabShows(tab, item) {
 			view = append(view, i)
 		}
 	}
 	return view
+}
+
+// selectCategory switches a surface's category filter and returns to its
+// first page; false when tab is invalid or already selected.
+func selectCategory(selected, page *int, tab int) bool {
+	if tab < 0 || tab >= len(inventoryTabs) || tab == *selected {
+		return false
+	}
+	*selected, *page = tab, 0
+	return true
 }
 
 // inventoryCellIndex maps a grid cell on the current page to its ABSOLUTE bag
@@ -88,10 +108,9 @@ func (ui *UISystem) inventoryFilterState(owner ...*character.MMCharacter) (*int,
 // bag keeps both its filter and page, including while it is a transfer target.
 func (ui *UISystem) setInventoryTab(tab int, owner ...*character.MMCharacter) {
 	selected, page := ui.inventoryFilterState(owner...)
-	if tab < 0 || tab >= len(inventoryTabs) || tab == *selected {
+	if !selectCategory(selected, page, tab) {
 		return
 	}
-	*selected, *page = tab, 0
 	ui.lastClickedItem = -1
 	ui.inventoryContextOpen = false
 	ui.inventoryContextIndex = -1
@@ -115,11 +134,18 @@ var inventoryFilterIcons = [...]string{"", "icon_weapon_iron_sword", "icon_item_
 
 func (ui *UISystem) drawInventoryTabs(screen *ebiten.Image, x, y, w int, owner ...*character.MMCharacter) {
 	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
-	mx, my := pointerPosition()
 	selected, _ := ui.inventoryFilterState(owner...)
+	ui.drawItemCategoryTabs(screen, x, y, w, *selected, clickable, func(tab int) { ui.setInventoryTab(tab, owner...) })
+}
+
+// drawItemCategoryTabs shares the inventory's category vocabulary, art and hit
+// geometry with merchant shelves; each surface owns its selection and paging.
+func (ui *UISystem) drawItemCategoryTabs(screen *ebiten.Image, x, y, w, selected int, clickable bool, selectTab func(int)) {
+	mx, my := pointerPosition()
 	for i, r := range inventoryTabRects(x, y, w) {
-		active := i == *selected
-		hover := isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom())
+		active := i == selected
+		// Hover belongs to the live surface: under a modal the strip is decoration.
+		hover := clickable && isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom())
 		ui.drawDialogTab(screen, r, active)
 		if i == inventoryTabAll {
 			drawCenteredUIText(screen, "All", r.x, r.y, r.w, r.h)
@@ -137,7 +163,7 @@ func (ui *UISystem) drawInventoryTabs(screen *ebiten.Image, x, y, w int, owner .
 		}
 		ui.onDisplayedInput(uiCommandNavigation, r, func() {
 			if clickable && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				ui.setInventoryTab(i, owner...)
+				selectTab(i)
 			}
 		})
 	}

@@ -75,13 +75,14 @@ type AdventureExperience struct {
 }
 
 type MMCharacter struct {
-	AdventureXP map[string]AdventureExperience
-	Inventory   []items.Item // Personal bag; travels with this hero through roster changes.
-	RareClass   RareClassState
-	Name        string
-	Class       CharacterClass
-	Promotion   Promotion // elite status (Archmage/Lich); PromotionNone by default
-	Race        string    // config.yaml race key; persisted because racial traits are gameplay state
+	ReactiveCombat ReactiveCombatState
+	AdventureXP    map[string]AdventureExperience
+	Inventory      []items.Item // Personal bag; travels with this hero through roster changes.
+	RareClass      RareClassState
+	Name           string
+	Class          CharacterClass
+	Promotion      Promotion // elite status (Archmage/Lich); PromotionNone by default
+	Race           string    // config.yaml race key; persisted because racial traits are gameplay state
 
 	// Core stats
 	Level          int
@@ -340,11 +341,8 @@ const (
 	PromotionLich
 )
 
-// IsArchmage / IsLich are the promotion predicates. IsLich drives party traits
-// (hates.yaml aggro); IsArchmage currently has no gameplay caller and exists as
-// its symmetric twin for tests and future promotion rules.
-func (c *MMCharacter) IsArchmage() bool { return c.Promotion == PromotionArchmage }
-func (c *MMCharacter) IsLich() bool     { return c.Promotion == PromotionLich }
+// IsLich is the promotion predicate behind party traits (hates.yaml aggro).
+func (c *MMCharacter) IsLich() bool { return c.Promotion == PromotionLich }
 
 // ClassDisplayName returns the promoted title if any, else the base class name.
 func (c *MMCharacter) ClassDisplayName() string {
@@ -926,6 +924,7 @@ func (c *MMCharacter) CureRestConditions() {
 // Eradicate ends the hero outright: 0 HP, Eradicated as the only state, and no
 // poison, burn or stun left running to resurface after Resurrect.
 func (c *MMCharacter) Eradicate() {
+	c.ReactiveCombat = ReactiveCombatState{}
 	c.clearRestState()
 	c.HitPoints = 0
 	c.Conditions = []Condition{ConditionEradicated}

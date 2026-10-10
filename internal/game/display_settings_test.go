@@ -151,6 +151,22 @@ func TestDisplaySettingsControls(t *testing.T) {
 			if got := g.interfaceSizeKey(); got != sizes[len(sizes)-2].Key || readDisplayPreference(t) != got {
 				t.Fatalf("Left chose %q", got)
 			}
+			if !g.props3DEnabled() {
+				t.Fatal("3D props must default to enabled")
+			}
+			click(displayPropsToggleRect(layout.px, layout.py, layout.panelW))
+			if g.props3DEnabled() || g.displaySettingsDirty {
+				t.Fatal("3D props checkbox did not save the disabled choice")
+			}
+			g.loadDisplayPreferences()
+			if g.props3DEnabled() {
+				t.Fatal("saved 3D props choice was lost")
+			}
+			key(ebiten.KeyRight)
+			g.loadDisplayPreferences()
+			if !g.props3DEnabled() {
+				t.Fatal("Right did not enable and save 3D props")
+			}
 			// The neighbour tabs keep their own rows and controls.
 			click(settingsTabRect(layout.px, layout.py, layout.panelW, settingsTabSound))
 			master := audioSettingDefinitions[0].channel
@@ -167,16 +183,14 @@ func TestDisplaySettingsControls(t *testing.T) {
 }
 
 // On a screen where a preset cannot grow (4K: Largest repeats Large), the
-// button is dimmed and ignored, the arrow keys skip it, and the status line
-// says whether the active size is sharp.
+// button is dimmed and ignored, and the arrow keys skip it.
 func TestDisplaySettingsOfferedSizes(t *testing.T) {
 	for _, tc := range []struct {
 		display       string
 		largestOffers bool
-		largeStatus   string
 	}{
-		{"4K HiDPI", false, "Sharp: text pixels scale x3"},
-		{"1920x1080", true, "Text slightly soft: this screen has no sharp step here"},
+		{"4K HiDPI", false},
+		{"1920x1080", true},
 	} {
 		t.Run(tc.display, func(t *testing.T) {
 			h, _ := audioGestureHarness(t, false, 0)
@@ -196,9 +210,6 @@ func TestDisplaySettingsOfferedSizes(t *testing.T) {
 			// The panel is measured against the harness screen; keep it there.
 			g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = 1024, 768
 			g.switchSettingsTab(settingsTabDisplay)
-			if got := displaySizeStatus(g); len(got) < 2 || got[1] != tc.largeStatus {
-				t.Fatalf("status %q, want %q", got, tc.largeStatus)
-			}
 			fp := installFakePointer(t)
 			layout := makeAudioSettingsPanelLayout(1024, 768, false)
 			presentInputScreen(h)
@@ -252,6 +263,11 @@ func TestDisplayPreferencesFile(t *testing.T) {
 			}
 			if got := readDisplayPreference(t); got != tc.want {
 				t.Fatalf("loaded %q, want %q", got, tc.want)
+			}
+			g := &MMGame{config: loadTestConfig(t)}
+			g.loadDisplayPreferences()
+			if !g.props3DEnabled() {
+				t.Fatal("missing legacy field must keep the authored 3D props default")
 			}
 		})
 	}
@@ -393,15 +409,39 @@ func TestDisplaySettingsFontList(t *testing.T) {
 				click(displayFontItemRect(layout.px, layout.py, layout.panelW, i))
 				chosen(fonts[i].Key)
 			}
+			// Every point in a popup row belongs to that row, even over the
+			// props checkbox. An outside click only dismisses the popup.
+			for i, f := range fonts {
+				click(field)
+				item := displayFontItemRect(layout.px, layout.py, layout.panelW, i)
+				before := g.props3DEnabled()
+				click(layoutRect{item.right() - 4, item.y, 4, item.h})
+				chosen(f.Key)
+				if g.props3DEnabled() != before {
+					t.Fatal("font popup toggled underlying props")
+				}
+			}
+			click(field)
+			before := g.props3DEnabled()
+			back := audioBackRect(layout.px, layout.py, layout.panelH, layout.contentInset)
+			click(layoutRect{back.x1, back.y1, back.x2 - back.x1, back.y2 - back.y1})
+			chosen(fonts[len(fonts)-1].Key)
+			if g.props3DEnabled() != before || g.settingsTab != settingsTabDisplay || !h.ui.audioSettingsOwnsInput() {
+				t.Fatal("outside popup click reached underlying settings")
+			}
+			click(field)
+			click(displayFontItemRect(layout.px, layout.py, layout.panelW, 0))
+			chosen(fonts[0].Key)
 			click(field)
 			item := displayFontItemRect(layout.px, layout.py, layout.panelW, 1)
 			click(layoutRect{layout.px + 40, item.y, 10, item.h}) // beside the list
 			chosen(fonts[0].Key)
 
 			key(ebiten.KeyDown)
-			if g.audioSettingsSelection != displayRowFont {
+			if g.audioSettingsSelection != displayRowProps {
 				t.Fatalf("Down selected row %d", g.audioSettingsSelection)
 			}
+			key(ebiten.KeyUp)
 			key(ebiten.KeyRight)
 			chosen(fonts[1].Key)
 			key(ebiten.KeyLeft)

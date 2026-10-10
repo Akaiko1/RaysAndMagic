@@ -24,7 +24,7 @@ func TestWorldVisualSizeContentUsesSharedClasses(t *testing.T) {
 	}
 	world.GlobalTileManager = tm
 
-	for _, key := range tm.GetAllTileKeys() {
+	for _, key := range allTileKeys(tm) {
 		data := tm.GetTileDataByKey(key)
 		if data == nil {
 			continue

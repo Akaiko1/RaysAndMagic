@@ -152,9 +152,8 @@ func compactCoinAmount(n int) string {
 func merchantGridLayout(dialogX, dialogY int) (leftX, rightX, gridTop, pagerY int) {
 	leftX = dialogX + 40
 	rightX = dialogX + npcDialogWidth/2 + 26
-	// Low enough that a two-line greeting clears the "For Sale"/"Your Items"
-	// headers (at gridTop-24), which in turn clear the grid below.
-	gridTop = dialogY + 108
+	// Reserve separate bands for the greeting, headings and category filters.
+	gridTop = dialogY + 236
 	stride := merchantIconSize + merchantPriceH + merchantRowGap
 	pagerY = gridTop + merchantGridRows*stride + 2
 	return
@@ -306,7 +305,7 @@ func (ui *UISystem) topModalLayer() modalLayerID {
 // Keep the value comparable so the Update/Draw barrier remains allocation-free.
 type modalLayerSnapshot struct {
 	layer   modalLayerID
-	state   [12]int
+	state   [14]int
 	stateID uint64
 	// contentRev is the explicit revision for modal-content mutations the
 	// derived fields below cannot see (a stash cell-to-cell move keeps every
@@ -392,6 +391,8 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 		s.state[9] = boolInt(g.stashShowCards)
 		s.state[10] = g.stashInvPage
 		s.state[11] = g.rosterSelectedActive
+		s.state[12] = g.merchantBuyCategory
+		s.state[13] = g.merchantSellCategory
 	case modalLayerVictory:
 		s.state[0] = boolInt(g.victoryScoreSaved)
 	case modalLayerStat:
@@ -848,10 +849,6 @@ func (ui *UISystem) offerClippedTextTooltip(fullLines []string, clipped bool, x,
 	ui.queueTooltip(fullLines, mouseX+12, mouseY+8)
 }
 
-func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
-	ui.queueCardTooltip(character.PlainCardRows(lines), nil, nil, nil, icon, x, y)
-}
-
 func (ui *UISystem) validTooltipIcon(icon string) string {
 	if icon == "" || ui == nil || ui.game == nil || ui.game.sprites == nil {
 		return ""
@@ -864,14 +861,6 @@ func (ui *UISystem) validTooltipIcon(icon string) string {
 		log.Printf("[UI] Missing tooltip icon sprite: %s", icon)
 	}
 	return ""
-}
-
-func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color) {
-	ui.queueCardComparison(character.PlainCardRows(lines), colors, nil, nil)
-}
-
-func (ui *UISystem) queueTitledTooltipComparison(lines []string, colors []color.Color, plate, title color.Color) {
-	ui.queueCardComparison(character.PlainCardRows(lines), colors, plate, title)
 }
 
 func (ui *UISystem) queueCardComparison(rows character.CardRows, colors []color.Color, plate, title color.Color) {
@@ -1306,7 +1295,6 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.Color) {
 var (
 	raritySilver   = config.RaritySilver
 	rarityGold     = config.RarityGold
-	rarityFire     = config.RarityLegendary
 	rarityEmerald  = config.RarityUnique
 	focusModeMetal = color.RGBA{70, 155, 235, 255}  // focus-mode blue steel
 	itemCountMetal = color.RGBA{240, 240, 240, 255} // neutral white metal
@@ -1367,27 +1355,20 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 	return mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2
 }
 
-// Text APIs project the same canonical reference card used by live hovers.
-func statTooltipText(stat string) string { return statTooltipRows(stat).String() }
 func statTooltipRows(stat string) character.CardRows {
-	return referenceTooltipRows(config.TitleWords(stat), "EFFECTS", character.StatDescription(stat))
-}
-func masteryTooltipTextForSkill(skill character.SkillType) string {
-	return masteryTooltipRowsForSkill(skill).String()
+	return referenceTooltipRows(config.TitleWords(stat), "EFFECTS", character.StatDescription(stat), "")
 }
 func masteryTooltipRowsForSkill(skill character.SkillType) character.CardRows {
-	return referenceTooltipRows(skill.String(), "EFFECTS", skill.Description())
-}
-func magicMasteryTooltipText(school character.MagicSchoolID) string {
-	return magicMasteryTooltipRows(school).String()
+	ref := skill.Reference()
+	return referenceTooltipRows(skill.String(), "EFFECTS", ref.Effects, ref.Grandmaster)
 }
 func magicMasteryTooltipRows(school character.MagicSchoolID) character.CardRows {
-	return referenceTooltipRows(school.DisplayName()+" Magic", "MASTERY", character.MagicMasteryDescription(school))
+	ref := character.MagicMasteryReference(school)
+	return referenceTooltipRows(school.DisplayName()+" Magic", "MASTERY", ref.Effects, ref.Grandmaster)
 }
 
-// Reference prose stays canonical. Only its authored paragraph boundaries and
-// Grandmaster block are formatted; renderers never inspect those strings.
-func referenceTooltipRows(title, section, description string) character.CardRows {
+// Section identity comes from reference data, independently of editable prose.
+func referenceTooltipRows(title, section, description, grandmaster string) character.CardRows {
 	if description == "" {
 		return nil
 	}
@@ -1395,12 +1376,11 @@ func referenceTooltipRows(title, section, description string) character.CardRows
 	rows.Add(character.CardRowTitle, title)
 	rows.Add(character.CardRowSpacer, "")
 	rows.Add(character.CardRowSection, section)
-	for i, block := range strings.Split(description, "\n\nGrandmaster:\n") {
-		if i > 0 {
-			rows.Add(character.CardRowSpacer, "")
-			rows.Add(character.CardRowSection, "GRANDMASTER")
-		}
-		rows.Add(character.CardRowBody, strings.ReplaceAll(block, ". ", ".\n"))
+	rows.Add(character.CardRowBody, strings.ReplaceAll(description, ". ", ".\n"))
+	if grandmaster != "" {
+		rows.Add(character.CardRowSpacer, "")
+		rows.Add(character.CardRowSection, "GRANDMASTER")
+		rows.Add(character.CardRowBody, strings.ReplaceAll(grandmaster, ". ", ".\n"))
 	}
 	return rows
 }

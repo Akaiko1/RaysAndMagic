@@ -9,11 +9,9 @@ import (
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
-	"ugataima/internal/config"
 	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
-	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -576,12 +574,18 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, screenWidth, screenHeight, color.RGBA{0, 0, 0, 128})
 
 	// Draw dialog background
-	ui.drawThemeFrame(screen, frameGold, dialogX, dialogY, dialogWidth, dialogHeight)
-	ui.drawCornerDecor(screen, frameGold, dialogX-8, dialogY-8, dialogWidth+16, dialogHeight+16, decorBottomCorners)
-	ui.drawPanelInlay(screen, frameGold, dialogX+dialogWidth-78, dialogY)
+	if ui.game.npcDialogKindFor(ui.game.dialogNPC).drawsShop() || ui.game.npcDialogKindFor(ui.game.dialogNPC) == dialogKindThievesGuild {
+		ui.drawMerchantFrame(screen, layoutRect{dialogX, dialogY, dialogWidth, dialogHeight})
+	} else {
+		ui.drawThemeFrame(screen, frameGold, dialogX, dialogY, dialogWidth, dialogHeight)
+		ui.drawCornerDecor(screen, frameGold, dialogX-8, dialogY-8, dialogWidth+16, dialogHeight+16, decorBottomCorners)
+		ui.drawPanelInlay(screen, frameGold, dialogX+dialogWidth-78, dialogY)
+	}
 
 	// Handle different NPC capabilities (data-driven)
 	switch ui.game.npcDialogKindFor(ui.game.dialogNPC) {
+	case dialogKindThievesGuild:
+		ui.drawThievesGuildDialog(screen, layoutRect{dialogX, dialogY, dialogWidth, dialogHeight})
 	case dialogKindSpellTrader:
 		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindChoices:
@@ -623,7 +627,7 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 	}
 	ui.registerDisplayedModalMouse((*InputHandler).handleEncounterMouseInput, modalLayerDialog)
 	dialogY := textY - dialogueBodyTextY
-	layout := ui.game.dialogueLayout(npc, dialogWidth, npcDialogHeight)
+	layout := ui.game.dialogueLayout(npc, dialogWidth, npcDialogLayout(ui.game).h)
 	ui.drawDialogueNavigation(screen, layout, dialogX, dialogY)
 	for i, line := range layout.bodyLines {
 		drawUIText(screen, line, dialogX+20, textY+i*dialogueLineHeight)
@@ -763,9 +767,26 @@ func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY 
 }
 
 func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, dialogY int, labels []string, enabled bool) {
+	ui.drawFolderTabs(screen, labels, enabled, func(i int) layoutRect {
+		x, y, w, h := dialogFolderTabRect(dialogX, dialogY, i)
+		return layoutRect{x, y, w, h}
+	})
+}
+
+// drawShopFolderTabs lays a shop dialog's tabs left of its floating display.
+func (ui *UISystem) drawShopFolderTabs(screen *ebiten.Image, dialogX, dialogY int, labels []string) {
+	ui.drawFolderTabs(screen, labels, true, func(i int) layoutRect {
+		return merchantFolderTabRect(dialogX, dialogY, i, len(labels))
+	})
+}
+
+// drawFolderTabs draws and wires the tabs at the caller's geometry, so the
+// rect a caller computes is the rect that is drawn and clicked.
+func (ui *UISystem) drawFolderTabs(screen *ebiten.Image, labels []string, enabled bool, tabRect func(int) layoutRect) {
 	interactive := enabled && ui.topModalLayer() == modalLayerDialog
 	for i, label := range labels {
-		tabX, tabY, tabW, tabH := dialogFolderTabRect(dialogX, dialogY, i)
+		r := tabRect(i)
+		tabX, tabY, tabW, tabH := r.x, r.y, r.w, r.h
 		ui.drawDialogTab(screen, layoutRect{tabX, tabY, tabW, tabH}, ui.game.dialogTab == i)
 		drawCenteredUIText(screen, label, tabX, tabY, tabW, tabH)
 		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, (tabX + tabW) - (tabX), (tabY + tabH) - (tabY)}, func() {
@@ -776,15 +797,11 @@ func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, d
 	}
 }
 
-// spellTraderTooltipLines is the hover card for one traded spell: the SAME full
+// spellTraderTooltipRows is the hover card for one traded spell: the SAME full
 // tooltip the spellbook shows (cost, damage, duration, description, scaled for
 // the selected character), with the trader's asking price appended - a shop is
 // where the party decides whether a spell is worth buying, so it needs the whole
 // card, not a name and a number.
-func (ui *UISystem) spellTraderTooltipLines(spellKey string, char *character.MMCharacter) []string {
-	return ui.spellTraderTooltipRows(spellKey, char).Lines()
-}
-
 func (ui *UISystem) spellTraderTooltipRows(spellKey string, char *character.MMCharacter) character.CardRows {
 	// Every authored row resolves: backfillTraderSpells rejects a key spells.yaml
 	// does not define, so there is no "unknown spell" case to fall back to.
@@ -818,7 +835,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 	}
 
-	greetingText := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.welcome_i_can_teach_you_powerful_spells"))
+	greetingText := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.spell_trader_prompt"))
 	ui.drawWrappedTextWithOverflow(screen, greetingText, layout.greeting, 2, dialogueLineHeight)
 
 	goldText := uitext.Text("dialog.party_gold", ui.game.party.Gold)
@@ -1152,16 +1169,16 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// Drag sources and the drop zone act only while the dialog IS the top
 	// layer - under the quantity picker the grids are decoration.
 	merchantInteractive := ui.topModalLayer() == modalLayerDialog
-	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
+	panel := layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}
+	layout := computeMerchantDialogSectionLayout(panel)
+	ui.drawMerchantDisplay(screen, panel)
 	titleText := uitext.Text("dialog.merchant", ui.game.dialogNPC.Name)
-	drawUIText(screen, clipUIText(titleText, layout.title.w), layout.title.x, layout.title.y)
+	drawUITextColored(screen, clipUIText(titleText, layout.title.w), layout.title.x, layout.title.y, rarityGold)
 	// The tabbed gladiator dialog keeps its (long) greeting on the Talk tab -
 	// the Shop tab goes straight to the grids or the text floods them.
 	if ui.game.npcDialogKindFor(ui.game.dialogNPC) != dialogKindArenaGladiator {
-		greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.bring_your_wares_i_pay_fair_coin"))
-		greetingArea := layout.greeting
-		greetingArea.y += 2
-		ui.drawWrappedTextWithOverflow(screen, greeting, greetingArea, 2, dialogueLineHeight)
+		greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.merchant_prompt"))
+		ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, layout.greeting.h/dialogueLineHeight, dialogueLineHeight)
 	}
 	balanceText := uitext.Text("dialog.party_gold", ui.game.party.Gold)
 	if ui.game.dialogNPC.FreeGoods {
@@ -1177,17 +1194,23 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialogX, dialogY)
 	mouseX, mouseY := uiCursorPosition()
 
-	// Headers + faint divider between the two halves. Headers sit at gridTop-24
-	// so they clear the two-line greeting above and the icon frames below.
+	// The headings and category strips have their own band above the counter.
 	header := uitext.Text("dialog.for_sale")
 	if ui.game.dialogNPC.FreeGoods {
 		header = uitext.Text("caravan.goods_header")
 	}
-	drawUIText(screen, header, leftX, gridTop-24)
+	if ui.game.merchantBuyCategory != inventoryTabAll {
+		header += " - " + inventoryTabs[ui.game.merchantBuyCategory].label
+	}
+	drawUIText(screen, clipUIText(header, merchantGridW), leftX, gridTop-72)
 	// The bag header doubles as the drag-to-buy hint at a shop that pays no
 	// coin: a separate line under it would sit on the first row of icons.
-	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-24)
-	drawFilledRect(screen, dialogX+dialogWidth/2, gridTop-6, 1, merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap), color.RGBA{90, 90, 110, 120})
+	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-72)
+	categoryInteractive := merchantInteractive && !ui.game.stashDragActive && !ui.game.stashDragPickedUp
+	ui.drawItemCategoryTabs(screen, leftX, gridTop-48, merchantGridW, ui.game.merchantBuyCategory, categoryInteractive,
+		func(tab int) { ui.game.setMerchantCategory(true, tab) })
+	ui.drawItemCategoryTabs(screen, rightX, gridTop-48, merchantGridW, ui.game.merchantSellCategory, categoryInteractive,
+		func(tab int) { ui.game.setMerchantCategory(false, tab) })
 
 	var tooltipItem items.Item
 	var tooltipHasItem bool
@@ -1196,7 +1219,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// the classic single grid stays for untabbed shops. The visible slice is
 	// shared with the click handler (merchantVisibleStock) so indices agree.
 	if tabs := ui.game.merchantShopTabs(); len(tabs) > 0 {
-		ui.drawDialogFolderTabs(screen, dialogX, dialogY, tabs)
+		ui.drawShopFolderTabs(screen, dialogX, dialogY, tabs)
 	}
 
 	// Buy grid (left): merchant stock.
@@ -1207,6 +1230,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		emptyText := uitext.Text("dialog.no_stock_for_sale")
 		if ui.game.dialogNPC.FreeGoods {
 			emptyText = uitext.Text("caravan.empty")
+		}
+		if ui.game.merchantBuyCategory != inventoryTabAll {
+			emptyText = uitext.Text("dialog.category_empty")
 		}
 		ui.drawWrappedTextWithOverflow(screen, emptyText, layoutRect{leftX, gridTop, merchantGridW, dialogueLineHeight * 3}, 3, dialogueLineHeight)
 	} else {
@@ -1222,7 +1248,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				ui.merchantStockDragSource(idx, image.Rect(x, y, x+w, y+h))
 			}
 			soldOut := !entry.InStock()
-			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+			if merchantInteractive && isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = entry.Item
 				tooltipHasItem = true
@@ -1252,12 +1278,16 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	buysGoods := merchantBuysForGold(ui.game.dialogNPC)
 	{
 		inv := ui.game.merchantBagItems()
-		sellPages := pageCount(len(inv), merchantPageSize)
+		view := ui.game.merchantBagViewIndices()
+		sellPages := pageCount(len(view), merchantPageSize)
 		clampPage(&ui.game.merchantSellPage, sellPages)
-		start := ui.game.merchantSellPage * merchantPageSize
+		if len(view) == 0 && ui.game.merchantSellCategory != inventoryTabAll {
+			// An empty bag on All is simply empty; only a filter explains itself.
+			ui.drawWrappedTextWithOverflow(screen, uitext.Text("dialog.category_empty"), layoutRect{rightX, gridTop, merchantGridW, dialogueLineHeight * 3}, 3, dialogueLineHeight)
+		}
 		for slot := 0; slot < merchantPageSize; slot++ {
-			idx := start + slot
-			if idx >= len(inv) {
+			idx := inventoryCellIndex(view, ui.game.merchantSellPage, merchantPageSize, slot)
+			if idx < 0 {
 				break
 			}
 			item := inv[idx]
@@ -1266,7 +1296,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				ui.stashInvSource(idx, image.Rect(x, y, x+w, y+h))
 			}
 			value := item.Attributes["value"]
-			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+			if merchantInteractive && isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = item
 				tooltipHasItem = true
@@ -1444,7 +1474,7 @@ func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) 
 func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogHeight int) {
 	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, npcDialogWidth, dialogHeight}, false)
 	drawUIText(screen, clipUIText(uitext.Text("dialog.card_collector", ui.game.dialogNPC.Name), layout.title.w), layout.title.x, layout.title.y)
-	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.cards_is_it_hand_them_here_and"))
+	greeting := ui.game.npcShopHeaderLine(ui.game.dialogNPC, uitext.Text("dialog.card_collection_prompt"))
 	ui.drawWrappedTextWithOverflow(screen, greeting, layout.greeting, 2, dialogueLineHeight)
 
 	mouseX, mouseY := uiCursorPosition()
@@ -1658,229 +1688,6 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 
 	// Instructions
 	drawUIText(screen, "Press ESC to close", centerX-70, h-50)
-}
-
-// handleMapOverlayInput claims the map overlay's clicks before lower displayed
-// commands: its close button sits over the hub's bag filter tabs.
-func (ui *UISystem) handleMapOverlayInput() {
-	if ui == nil || ui.game == nil || !ui.game.mapOverlayOpen {
-		return
-	}
-	screenW, screenH := ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight()
-	layout := computeMapOverlayLayout(screenW, screenH)
-	if ui.game.consumeLeftClickIn(layout.close.x, layout.close.y, layout.close.right(), layout.close.bottom()) {
-		ui.game.mapOverlayOpen = false
-		// Sibling clicks still belong to the map the player saw. They cannot act
-		// on the uncovered interface until a new display has been published.
-		ui.dropQueuedClicks()
-	}
-	// The Update dispatcher drops other unmatched events owned by any modal.
-}
-
-// drawMapOverlay renders the current map with NPCs and teleporters.
-func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
-	if ui.game.world == nil {
-		ui.game.mapOverlayOpen = false
-		return
-	}
-
-	screenW := ui.game.config.GetScreenWidth()
-	screenH := ui.game.config.GetScreenHeight()
-	layout := computeMapOverlayLayout(screenW, screenH)
-
-	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
-	ui.drawThemeFrame(screen, frameSilver, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h)
-
-	title := "World Map"
-	if world.GlobalWorldManager != nil {
-		if mapCfg := world.GlobalWorldManager.GetCurrentMapConfig(); mapCfg != nil && mapCfg.Name != "" {
-			title = fmt.Sprintf("World Map - %s", mapCfg.Name)
-		}
-	}
-	drawUIText(screen, clipUIText(title, layout.title.w), layout.title.x, layout.title.y)
-
-	ui.drawCloseButtonVisual(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h)
-	ui.onDisplayedInput(uiCommandClick, layout.close, ui.handleMapOverlayInput)
-	mapX, mapY, mapW, mapH := layout.body.x, layout.body.y, layout.body.w, layout.body.h
-
-	worldW := ui.game.world.Width
-	worldH := ui.game.world.Height
-	if worldW <= 0 || worldH <= 0 {
-		return
-	}
-
-	tileSize := mapW / worldW
-	if alt := mapH / worldH; alt < tileSize {
-		tileSize = alt
-	}
-	if tileSize < 2 {
-		tileSize = 2
-	}
-
-	originX := mapX + (mapW-worldW*tileSize)/2
-	originY := mapY + (mapH-worldH*tileSize)/2
-
-	defaultWallColor := color.RGBA{40, 40, 50, 255}
-	for y := 0; y < worldH; y++ {
-		for x := 0; x < worldW; x++ {
-			// Per-tile floor color: on the unified world each tile keeps ITS
-			// region's biome color regardless of where the party stands.
-			fc := ui.game.floorColorForTile(x, y, [3]int{60, 110, 60})
-			floorColor := color.RGBA{uint8(fc[0]), uint8(fc[1]), uint8(fc[2]), 255}
-			tile := ui.game.world.Tiles[y][x]
-			cellColor := floorColor
-			matched := true
-			switch tile {
-			case world.TileWall, world.TileTree, world.TileAncientTree, world.TileThicket, world.TileMossRock, world.TileLowWall, world.TileHighWall:
-				cellColor = defaultWallColor
-			case world.TileWater:
-				cellColor = color.RGBA{40, 90, 160, 255}
-			case world.TileDeepWater:
-				cellColor = color.RGBA{25, 60, 120, 255}
-			case world.TileVioletTeleporter:
-				cellColor = color.RGBA{170, 80, 200, 255}
-			case world.TileRedTeleporter:
-				cellColor = color.RGBA{200, 70, 70, 255}
-			default:
-				matched = false
-			}
-			// Dynamic tiles (corals, sand dunes, etc.) aren't in the predefined
-			// constants - pull their colour from the tile manager so they show
-			// up on the map overlay too.
-			if !matched && world.GlobalTileManager != nil {
-				if td := world.GlobalTileManager.GetTileData(tile); td != nil {
-					if td.Solid {
-						mc := config.TileMapColor(td)
-						cellColor = color.RGBA{uint8(mc[0]), uint8(mc[1]), uint8(mc[2]), 255}
-					} else if td.FloorNearColor != [3]int{} {
-						cellColor = color.RGBA{uint8(td.FloorNearColor[0]), uint8(td.FloorNearColor[1]), uint8(td.FloorNearColor[2]), 255}
-					}
-				}
-			}
-
-			drawX := originX + x*tileSize
-			drawY := originY + y*tileSize
-			uiFillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
-		}
-	}
-
-	// NPCs overlay
-	npcColor := color.RGBA{255, 220, 0, 255}
-	for _, npc := range ui.game.world.NPCs {
-		if !ui.game.npcMapMarkerVisible(npc) {
-			continue
-		}
-		nx := int(npc.X / float64(ui.game.config.GetTileSize()))
-		ny := int(npc.Y / float64(ui.game.config.GetTileSize()))
-		if nx < 0 || nx >= worldW || ny < 0 || ny >= worldH {
-			continue
-		}
-		drawX := originX + nx*tileSize
-		drawY := originY + ny*tileSize
-		size := tileSize
-		if size < 3 {
-			size = 3
-		}
-		uiFillRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), npcColor, false)
-	}
-
-	// Quest markers overlay (top 3 active quests with RGB colors)
-	ui.drawQuestMarkersOnMap(screen, originX, originY, tileSize, worldW, worldH)
-
-	// Player position overlay (cyan dot)
-	playerTileX := int(ui.game.camera.X / float64(ui.game.config.GetTileSize()))
-	playerTileY := int(ui.game.camera.Y / float64(ui.game.config.GetTileSize()))
-	if playerTileX >= 0 && playerTileX < worldW && playerTileY >= 0 && playerTileY < worldH {
-		drawX := originX + playerTileX*tileSize
-		drawY := originY + playerTileY*tileSize
-		markerSize := tileSize + 2
-		if markerSize < 5 {
-			markerSize = 5
-		}
-		// Draw player as a cyan circle with border
-		uiFillCircle(screen, float32(drawX)+float32(tileSize)/2, float32(drawY)+float32(tileSize)/2, float32(markerSize)/2, color.RGBA{50, 200, 255, 255}, true)
-		uiStrokeCircle(screen, float32(drawX)+float32(tileSize)/2, float32(drawY)+float32(tileSize)/2, float32(markerSize)/2, 1, color.RGBA{255, 255, 255, 255}, true)
-	}
-}
-
-// drawQuestMarkersOnMap draws quest objective markers on the map overlay
-// Shows top 3 active quests with RGB color coding (1=Red, 2=Green, 3=Blue)
-func (ui *UISystem) drawQuestMarkersOnMap(screen *ebiten.Image, originX, originY, tileSize, worldW, worldH int) {
-	if ui.game.questManager == nil {
-		return
-	}
-
-	// Get active quests (not completed)
-	activeQuests := ui.game.questManager.GetActiveQuests()
-	if len(activeQuests) == 0 {
-		return
-	}
-
-	// Limit to top 3 quests
-	maxQuests := 3
-	if len(activeQuests) < maxQuests {
-		maxQuests = len(activeQuests)
-	}
-
-	// Quest marker colors: Red, Green, Blue for quests 1, 2, 3
-	questColors := []color.RGBA{
-		{255, 80, 80, 255}, // Red for quest 1
-		{80, 255, 80, 255}, // Green for quest 2
-		{80, 80, 255, 255}, // Blue for quest 3
-	}
-
-	// Get current map key to filter markers
-	currentMapKey := ""
-	if world.GlobalWorldManager != nil {
-		currentMapKey = world.GlobalWorldManager.CurrentMapKey
-	}
-
-	for i := 0; i < maxQuests; i++ {
-		quest := activeQuests[i]
-		def := quest.Definition
-
-		// Skip quests without marker coordinates
-		if def.MarkerX == 0 && def.MarkerY == 0 {
-			continue
-		}
-
-		// Skip quests for different maps
-		if def.MarkerMap != "" && def.MarkerMap != currentMapKey {
-			continue
-		}
-
-		markerX := def.MarkerX
-		markerY := def.MarkerY
-
-		// Validate coordinates are within world bounds
-		if markerX < 0 || markerX >= worldW || markerY < 0 || markerY >= worldH {
-			continue
-		}
-
-		// Calculate screen position
-		drawX := originX + markerX*tileSize
-		drawY := originY + markerY*tileSize
-		markerSize := tileSize + 4
-		if markerSize < 8 {
-			markerSize = 8
-		}
-
-		// Draw quest marker as a diamond shape with number
-		centerX := float32(drawX) + float32(tileSize)/2
-		centerY := float32(drawY) + float32(tileSize)/2
-		halfSize := float32(markerSize) / 2
-
-		// Draw diamond shape using lines
-		markerColor := questColors[i]
-		uiStrokeLine(screen, centerX, centerY-halfSize, centerX+halfSize, centerY, 2, markerColor, true)
-		uiStrokeLine(screen, centerX+halfSize, centerY, centerX, centerY+halfSize, 2, markerColor, true)
-		uiStrokeLine(screen, centerX, centerY+halfSize, centerX-halfSize, centerY, 2, markerColor, true)
-		uiStrokeLine(screen, centerX-halfSize, centerY, centerX, centerY-halfSize, 2, markerColor, true)
-
-		// Draw quest number in center
-		questNum := fmt.Sprintf("%d", i+1)
-		drawUIText(screen, questNum, int(centerX)-3, int(centerY)-6)
-	}
 }
 
 // drawQuestsContent draws the quests tab content

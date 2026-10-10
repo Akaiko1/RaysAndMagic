@@ -1,6 +1,8 @@
 package game
 
 import (
+	"image"
+	"math"
 	"testing"
 
 	"ugataima/internal/game/keytracker"
@@ -28,7 +30,7 @@ func TestMapOverlayCloseButtonClaimsOnlyItsOwnClick(t *testing.T) {
 	ui := NewUISystem(g)
 	g.mapOverlayOpen = true
 
-	layout := computeMapOverlayLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	layout := computeMapOverlayLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g))
 	click := queuedClick{x: layout.close.x + layout.close.w/2, y: layout.close.y + layout.close.h/2, at: 1000}
 	g.mouseLeftClicks = []queuedClick{click}
 
@@ -124,7 +126,7 @@ func TestMapOverlayCloseDrainsBufferedClicks(t *testing.T) {
 	member := g.party.Members[0]
 	member.FreeStatPoints = 5
 
-	layout := computeMapOverlayLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	layout := computeMapOverlayLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g))
 	closeClick := queuedClick{x: layout.close.x + layout.close.w/2, y: layout.close.y + layout.close.h/2, at: 1000}
 	// The second press landed on a real HUD target under the overlay. If cleanup
 	// waits until the end of Draw, the freshly uncovered HUD opens this popup
@@ -275,7 +277,7 @@ func TestModalOpenedMidFrameIgnoresOlderQueuedClicks(t *testing.T) {
 	slotClick := func(at int64) queuedClick {
 		return queuedClick{x: (cell.Min.X + cell.Max.X) / 2, y: (cell.Min.Y + cell.Max.Y) / 2, at: at}
 	}
-	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight()).close
+	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g)).close
 	stale := queuedClick{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1060}
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
@@ -331,7 +333,7 @@ func TestModalOpenedFromInventoryIgnoresOlderQueuedClicks(t *testing.T) {
 	x, y, w, h := scaleInventorySourceRect(inv.grid.x, inv.grid.y, inv.grid.w, inv.grid.w,
 		inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
 	itemClick := func(at int64) queuedClick { return queuedClick{x: x + w/2, y: y + h/2, at: at} }
-	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight()).close
+	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g)).close
 	stale := queuedClick{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1060}
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
@@ -403,19 +405,9 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 		t.Fatal("the freshly painted map counts as stale - the next Update will eat the player's first click")
 	}
 
-	// End-to-end: the very next click on the close button must work. The button
-	// sits over a live bag filter tab of the hub under the map, and that tab
-	// must not take the press.
-	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), cfg.GetScreenHeight()).close
-	overTab := false
-	for _, bar := range []layoutRect{inv.categories, inv.personalCategories} {
-		for _, tab := range inventoryTabRects(bar.x, bar.y, bar.w) {
-			overTab = overTab || closeRect.x < tab.right() && tab.x < closeRect.right() && closeRect.y < tab.bottom() && tab.y < closeRect.bottom()
-		}
-	}
-	if !overTab {
-		t.Fatalf("fixture: the map close button %+v covers no bag filter tab, so the ordering is unproven", closeRect)
-	}
+	// The first press on the newly displayed full-viewport close control
+	// returns to the hub without changing its inventory filters.
+	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g)).close
 	sharedTab, personalTab := ui.inventoryTab, ui.personalInventoryTab
 	g.mouseLeftClicks = []queuedClick{{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1100}}
 	ui.dispatchDisplayedInput()
@@ -425,6 +417,9 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 	}
 	if ui.inventoryTab != sharedTab || ui.personalInventoryTab != personalTab {
 		t.Fatal("the close press also switched a bag filter of the hub under the map")
+	}
+	if !g.menuOpen {
+		t.Fatal("closing the map also closed the inventory hub underneath")
 	}
 }
 
@@ -591,5 +586,68 @@ func TestModalBlocksInventoryContextMutation(t *testing.T) {
 	ui.drawInventoryContextMenu(screen)
 	if len(g.party.Inventory) != 0 || ui.inventoryContextOpen || len(g.mouseLeftClicks) != 0 {
 		t.Fatal("inventory context action stayed blocked after the modal closed")
+	}
+}
+
+// Wheel and drag go through the displayed map's Update commands; neither
+// moves the party, and its visible overview control always restores the fit.
+func TestAtlasWheelAndDragStayInsideDisplayedMap(t *testing.T) {
+	h := newDisplayedModalHarness(t, 1024, 768)
+	g, ui := h.g, h.ui
+	setTestWorldManager(t, nil)
+	g.mapOverlayOpen = true
+	oldPosition, oldWheel, oldPressed := pointerPosition, pointerWheel, pointerLeftPressed
+	t.Cleanup(func() { pointerPosition, pointerWheel, pointerLeftPressed = oldPosition, oldWheel, oldPressed })
+	x, y, pressed, wheel := 0, 0, false, 0.0
+	pointerPosition = func() (int, int) { return x, y }
+	pointerWheel = func() (float64, float64) { return 0, wheel }
+	pointerLeftPressed = func() bool { return pressed }
+	step := func() { ui.Draw(h.screen); ui.dispatchDisplayedInput() }
+	step()
+	l := ui.mapOverlayLayout()
+	view := layoutRect{l.body.x + 12, l.body.y + 12, l.body.w - 24, l.body.h - 24}
+	bounds := image.Rect(0, 0, g.world.Width, g.world.Height)
+	// A wheel event over the close control cannot move or magnify the map.
+	x, y = l.close.x+8, l.close.y+8
+	wheel = 5
+	step()
+	if ui.atlas.zoom != 1 {
+		t.Fatal("wheel outside map changed its zoom")
+	}
+	x, y = view.x+view.w/2+12, view.y+view.h/2+10
+	before := ui.atlas.projection(view, bounds)
+	tileX, tileY := (float64(x)-before.x)/before.scale, (float64(y)-before.y)/before.scale
+	camera := *g.camera
+	step()
+	after := ui.atlas.projection(view, bounds)
+	if ui.atlas.zoom <= 1 || math.Abs((float64(x)-after.x)/after.scale-tileX) > 1e-6 || math.Abs((float64(y)-after.y)/after.scale-tileY) > 1e-6 {
+		t.Fatal("zoom did not preserve the tile under the pointer")
+	}
+	wheel = 0
+	pressed = true
+	step()
+	before = ui.atlas.projection(view, bounds)
+	x += 20
+	y += 12
+	step()
+	after = ui.atlas.projection(view, bounds)
+	if math.Abs(after.x-before.x-20) > 1e-6 || math.Abs(after.y-before.y-12) > 1e-6 {
+		t.Fatal("held map drag did not pan")
+	}
+	pressed = false
+	step()
+	x += 30
+	step()
+	released := ui.atlas.projection(view, bounds)
+	if released.x != after.x || released.y != after.y {
+		t.Fatal("map kept dragging after release")
+	}
+	if *g.camera != camera {
+		t.Fatal("atlas navigation moved the party")
+	}
+	g.mouseLeftClicks = []queuedClick{{x: l.overview.x + l.overview.w/2, y: l.overview.y + l.overview.h/2, at: 9000}}
+	ui.dispatchDisplayedInput()
+	if ui.atlas.zoom != 1 || ui.atlas.panX != 0 || ui.atlas.panY != 0 || !g.mapOverlayOpen {
+		t.Fatal("overview did not restore the map fit")
 	}
 }

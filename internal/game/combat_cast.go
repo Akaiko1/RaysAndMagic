@@ -56,7 +56,7 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 		cs.game.AddCombatMessage(fmt.Sprintf("%s needs the open sky.", def.Name))
 		return castRejected
 	}
-	if def.TownPortal && len(cs.game.sortedTownPortalDestinations()) == 0 {
+	if def.TownPortal && len(cs.game.townPortalRows()) == 0 {
 		cs.game.AddCombatMessage("The portal finds no destination it knows - visit a tavern, town, or major landmark first.")
 		return castRejected
 	}

@@ -31,6 +31,10 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
+	modeDomainIcons      map[string]modeDomainIconCache
+	modeDomainIconShader *ebiten.Shader
+	atlas                worldAtlas
+
 	journalRewardItems      map[string]items.Item
 	journalItemsCatalog     *config.ItemSystemConfig
 	journalWeaponsCatalog   *config.WeaponSystemConfig
@@ -180,6 +184,10 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
 	uiClippedLabels = uiClippedLabels[:0]
+	if !ui.game.mapOverlayOpen {
+		ui.atlas.dragging, ui.atlas.pointerReady = false, false
+		ui.atlas.terrainChecked = false
+	}
 	if ui.game.entryMenuMode != EntryMenuStatistics || ui.game.appScreen == AppScreenInGame {
 		ui.profileArena = nil
 		ui.profileArenaError = ""
@@ -308,8 +316,9 @@ func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
 	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
-	// states (stat popup, revival picker, fullscreen map) still suppress.
-	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
+	// states (stat popup, revival picker) still suppress. The map clears lower
+	// layers' queued tips before offering its own marker descriptions.
+	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
 		screenW := uiBounds(screen).Dx()
 		screenH := uiBounds(screen).Dy()
 		if ui.tooltipCompareLines == nil {

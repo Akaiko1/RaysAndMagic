@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
-	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/stash"
 	"ugataima/internal/world"
@@ -267,7 +266,7 @@ func TestPersonalInventoryAlchemyAcrossBags(t *testing.T) {
 			if short {
 				other.Inventory = nil
 			}
-			r := config.AlchemyRecipeByKey("health_potion")
+			r := alchemyRecipeByKey("health_potion")
 			g.alchemy.Selections = map[string]character.AlchemySelection{r.Key: {{"dawnleaf": true}, {"carp_scale": true, "koi_scale": true}}}
 			g.selectedRare, g.alchemyBatches = 0, 1
 			before := append([]items.Item(nil), g.party.CarriedItems()...)

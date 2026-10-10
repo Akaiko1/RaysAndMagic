@@ -124,7 +124,7 @@ func TestTerrainAuthoredProfilesEncode(t *testing.T) {
 		config.FloorTransitionVoid:      floorBlendVoid,
 		config.FloorTransitionChasm:     floorBlendChasm,
 	}
-	tileKeys := world.GlobalTileManager.GetAllTileKeys()
+	tileKeys := allTileKeys(world.GlobalTileManager)
 	sort.Strings(tileKeys)
 	firstTile := func(group string) string {
 		if group == defaultFloorTextureGroup {

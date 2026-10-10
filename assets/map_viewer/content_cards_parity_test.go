@@ -73,7 +73,7 @@ func TestEditorCardsWired(t *testing.T) {
 	}
 	// Starting equipment hovers resolve through these same catalogs.
 	cards := append(buildItemsCards(), buildSpellCards()...)
-	for _, ch := range buildCharacterDetails(cfg) {
+	for _, ch := range buildCharacterDetails(cfg, charTextCols(windowWidth)) {
 		for _, row := range ch.rows {
 			if !row.hasIcon {
 				continue

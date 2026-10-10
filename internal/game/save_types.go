@@ -124,6 +124,8 @@ type QuestSave struct {
 }
 
 type PartySave struct {
+	NonKeyDoorsOpened   int             `json:"non_key_doors_opened,omitempty"`
+	ThievesGuildMember  bool            `json:"thieves_guild_member,omitempty"`
 	Gold                int             `json:"gold"`
 	Food                int             `json:"food"`
 	ArenaPoints         int             `json:"arena_points,omitempty"`
@@ -136,6 +138,7 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
+	ReactiveCombat     character.ReactiveCombatState            `json:"reactive_combat,omitempty"`
 	AdventureXP        map[string]character.AdventureExperience `json:"adventure_xp,omitempty"`
 	Inventory          []items.Item                             `json:"inventory,omitempty"`
 	RareClass          character.RareClassState                 `json:"rare_class,omitempty"`
@@ -267,6 +270,13 @@ type GroundContainerSave struct {
 	SizeTiles float64      `json:"size_tiles"`
 }
 
+type MonsterAggroSave struct {
+	Retaliation    monster.RetaliationState `json:"retaliation,omitzero"`
+	BandHitPending bool                     `json:"band_hit_pending,omitempty"`
+	Engaged        bool                     `json:"engaged,omitempty"`
+	ReturningHome  bool                     `json:"returning_home,omitempty"`
+}
+
 type MonsterSave struct {
 	Telegraph         monster.TelegraphState `json:"telegraph,omitzero"`
 	BandInstance      string                 `json:"band_instance,omitempty"`
@@ -295,9 +305,10 @@ type MonsterSave struct {
 	PacifiedFramesRemaining int                      `json:"pacified_frames_remaining,omitempty"`
 	CharmedByParty          bool                     `json:"charmed_by_party,omitempty"`
 	WasAttacked             bool                     `json:"was_attacked,omitempty"`
-	// Normal sight engagement is sticky in TB but non-sticky in RT. Only the TB
-	// semantic case is saved, never the raw runtime flag.
-	TurnBasedSightEngaged bool `json:"turn_based_sight_engaged,omitempty"`
+	// Aggro distinguishes active pursuit from permanent provocation. Nil means
+	// a legacy save whose old flags must be reconciled against the current scope.
+	Aggro                 *MonsterAggroSave `json:"aggro,omitempty"`
+	TurnBasedSightEngaged bool              `json:"turn_based_sight_engaged,omitempty"` // legacy read only
 	// A calm guard reservation is gameplay state: without it, a reload can make
 	// a patrolling mob forget the crate/lectern it was already posted at.
 	LootGuarding         bool   `json:"loot_guarding,omitempty"`
@@ -409,13 +420,14 @@ type TreasureChestRewardSave struct {
 // one map (e.g. two "City Gate" NPCs), coordinates can't. Legacy saves without
 // coordinates fall back to name matching on restore.
 type NPCSave struct {
-	MapKey         string  `json:"map_key"`
-	Name           string  `json:"name"`
-	X              float64 `json:"x,omitempty"`
-	Y              float64 `json:"y,omitempty"`
-	Visited        bool    `json:"visited"`
-	DoorAttempts   int     `json:"door_attempts,omitempty"`
-	DoorLockBroken bool    `json:"door_lock_broken,omitempty"`
+	MapKey         string                      `json:"map_key"`
+	Name           string                      `json:"name"`
+	X              float64                     `json:"x,omitempty"`
+	Y              float64                     `json:"y,omitempty"`
+	Visited        bool                        `json:"visited"`
+	DoorAttempts   int                         `json:"door_attempts,omitempty"`
+	DoorLockBroken bool                        `json:"door_lock_broken,omitempty"`
+	DoorOpenedBy   character.DoorOpeningMethod `json:"door_opened_by,omitempty"`
 	// Remaining merchant stock, keyed by item NAME in stock order (duplicate
 	// names consume sequentially). Index-aligned restore was abandoned: stock
 	// ORDER is a presentation detail (grouping can reorder it between versions)

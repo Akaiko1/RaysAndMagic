@@ -43,7 +43,7 @@ func TestAlchemyCheckedMaterialsTransaction(t *testing.T) {
 		for _, tb := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/TB=%v", tc.name, tb), func(t *testing.T) {
 				g, _ := rareClassGame(t, character.ClassAlchemist, tb)
-				r := config.AlchemyRecipeByKey("health_potion")
+				r := alchemyRecipeByKey("health_potion")
 				g.party.Inventory = nil
 				herb, _ := items.TryCreateItemFromYAML("dawnleaf")
 				herb.Quantity = 16
@@ -114,7 +114,7 @@ func TestAlchemyKeyedSelectionPersistence(t *testing.T) {
 	for _, mode := range []string{"legacy", "multiple", "empty", "removed_key", "wrong_group_count"} {
 		t.Run(mode, func(t *testing.T) {
 			g, _ := rareClassGame(t, character.ClassAlchemist, false)
-			r := config.AlchemyRecipeByKey("health_potion")
+			r := alchemyRecipeByKey("health_potion")
 			state := AlchemyState{Choices: map[string][]int{r.Key: {0, 1}}}
 			want := character.AlchemySourceSelection(r, []int{0, 1})
 			if mode != "legacy" {
@@ -146,7 +146,7 @@ func TestAlchemyKeyedSelectionPersistence(t *testing.T) {
 			if got := g.alchemySelection(r); !reflect.DeepEqual(got, want) {
 				t.Fatalf("selection=%v want %v", got, want)
 			}
-			g.alchemySelection(config.AlchemyRecipeByKey("mana_potion"))
+			g.alchemySelection(alchemyRecipeByKey("mana_potion"))
 			if !reflect.DeepEqual(g.alchemySelection(r), want) {
 				t.Fatal("recipe switch lost selection")
 			}

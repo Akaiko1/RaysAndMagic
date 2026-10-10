@@ -20,7 +20,7 @@ func (g *MMGame) refreshScheduledMerchantStocks() {
 			if !ok || data.StockRefreshWeeks <= 0 {
 				continue
 			}
-			if (g.calendarWeek-1)%data.StockRefreshWeeks != 0 {
+			if nextMerchantRestockWeek(g.calendarWeek-1, data.StockRefreshWeeks) != g.calendarWeek {
 				continue
 			}
 			fresh, err := character.CreateNPCFromConfig(npc.Key, npc.X, npc.Y)
@@ -29,4 +29,13 @@ func (g *MMGame) refreshScheduledMerchantStocks() {
 			}
 		}
 	})
+}
+
+// Restocks happen at the first week after each complete authored cadence.
+// The ledger and the dawn scheduler use this same calendar boundary.
+func nextMerchantRestockWeek(week, cadence int) int {
+	if cadence <= 0 {
+		return 0
+	}
+	return ((max(1, week)-1)/cadence+1)*cadence + 1
 }

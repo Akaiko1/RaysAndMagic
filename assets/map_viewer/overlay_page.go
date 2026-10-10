@@ -10,6 +10,7 @@ import (
 
 	"ugataima/internal/config"
 	"ugataima/internal/game"
+	"ugataima/internal/quests"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -21,6 +22,7 @@ const pageOverlay = 9
 
 type overlayPage struct {
 	catalogs                  map[string][]string
+	questDefs                 map[string]*quests.QuestDefinition
 	pendingNPC, pendingPicker string
 	choicePath                []int
 	documents                 map[string]*overlayDocument
@@ -143,6 +145,7 @@ func (v *viewer) overlayApplyField(d *overlayDocument, index int, value string) 
 	return nil
 }
 func (v *viewer) overlayWidgets(d *overlayDocument) []overlayWidget {
+	g := v.overlayGeometry()
 	var out []overlayWidget
 	add := func(x, y, w int, text, help string, active bool, fn func()) {
 		out = append(out, overlayWidget{r: rect{x, y, w, 28}, text: text, help: help, active: active, action: fn})
@@ -189,9 +192,10 @@ func (v *viewer) overlayWidgets(d *overlayDocument) []overlayWidget {
 		v.overlayConfirm("Reload this map?", "Unsaved edits in Overlay and Maps for this map will be discarded.", func() { v.reloadOverlay(d.key) })
 	})
 	add(674, 42, 90, "Fit map", "Reset zoom and pan.", false, func() { v.overlay.zoom = 1; v.overlay.panX, v.overlay.panY = 0, 0 })
-	add(832, 42, 118, "+ Object", "Place an interactive object, NPC or special tile.", false, func() { v.overlayObjectPicker(d) })
-	add(956, 42, 108, "+ Boss", "Choose and place a boss on this map.", false, func() { v.overlayBossPicker(d) })
-	add(1070, 42, 118, "Overview", "Interaction sources, conditions and targets.", false, func() { v.overlaySelect("overview", 0) })
+	extra := (g.inspector.w - 360) / 3 // a wider inspector widens its three buttons
+	add(g.inspector.x, 42, 118+extra, "+ Object", "Place an interactive object, NPC or special tile.", false, func() { v.overlayObjectPicker(d) })
+	add(g.inspector.x+124+extra, 42, 108+extra, "+ Boss", "Choose and place a boss on this map.", false, func() { v.overlayBossPicker(d) })
+	add(g.inspector.x+238+2*extra, 42, 118+extra, "Overview", "Interaction sources, conditions and targets.", false, func() { v.overlaySelect("overview", 0) })
 	for i, tool := range []string{"trap", "occupation", "transfer", "lane", "new-control"} {
 		label := map[string]string{"trap": "+ Trap", "occupation": "+ Hazard", "transfer": "+ Transfer", "lane": "+ Lane", "new-control": "+ Switch"}[tool]
 		add(242+i*116, 80, 110, label, "Choose a tool, then drag an area on the map. Switches use one click.", v.overlay.tool == tool, func() { v.overlay.tool = tool; v.overlay.anchorSet = false })
@@ -211,14 +215,18 @@ func (v *viewer) overlayWidgets(d *overlayDocument) []overlayWidget {
 	add(438, 114, 92, "Delete", "Remove the selected object. Linked zones must be unlinked first.", false, func() {
 		v.overlayConfirm("Delete selected object?", "Referenced zones are protected. Deleting a control removes its operate actions but keeps the NPC.", func() { v.overlayDelete(d) })
 	})
-	add(536, 114, 126, "+ Jump link", "Click two walkable endpoints, two tiles apart.", v.overlay.tool == "link-new", func() { v.overlay.tool = "link-new"; v.overlay.anchorSet = false })
+	jump := "Click two walkable endpoints, two tiles apart."
+	if !d.state.Adventure.OpeningOwned {
+		jump = "Jump links work only on maps that open on a schedule (Map rules)."
+	}
+	add(536, 114, 126, "+ Jump link", jump, v.overlay.tool == "link-new", func() { v.overlay.tool = "link-new"; v.overlay.anchorSet = false })
 	add(668, 114, 150, "Boss settings", "Placement, movement, mechanics and attack patterns.", false, func() { v.overlaySelect("boss", 0) })
 	if b := d.state.Adventure.Boss; b != nil && b.Arena != nil {
-		add(486, 154, 326, "Movement area: "+overlayArenaSummary(b)+"  >", "Edit the violet boss movement boundary.", v.overlay.section == "arena", func() { v.overlaySelect("arena", 0) })
+		add(g.mapArea.x+g.mapArea.w-334, 154, 326, "Movement area: "+overlayArenaSummary(b)+"  >", "Edit the violet boss movement boundary.", v.overlay.section == "arena", func() { v.overlaySelect("arena", 0) })
 	}
 	for i := range out {
 		w := &out[i]
-		if (w.text == "Undo" && len(d.undo) == 0) || (w.text == "Redo" && len(d.redo) == 0) || (w.text == "Duplicate" && v.overlay.section != "effect") || (w.text == "Delete" && !slices.Contains([]string{"boss", "object", "special", "effect", "control", "phase", "link"}, v.overlay.section)) {
+		if (w.text == "Undo" && len(d.undo) == 0) || (w.text == "Redo" && len(d.redo) == 0) || (w.text == "Duplicate" && v.overlay.section != "effect") || (w.text == "Delete" && !slices.Contains([]string{"boss", "object", "special", "effect", "control", "phase", "link"}, v.overlay.section)) || (w.text == "+ Jump link" && !d.state.Adventure.OpeningOwned) {
 			w.action = nil
 		}
 	}
@@ -296,8 +304,21 @@ func (v *viewer) overlayDelete(d *overlayDocument) {
 			a.JumpLinks = slices.Delete(a.JumpLinks, p.selected, p.selected+1)
 		}
 	case "boss":
-		d.checkpoint()
-		a.Boss = nil
+		if b := a.Boss; b != nil {
+			d.checkpoint()
+			// Its placement and boss-only mechanics go with the encounter.
+			data := d.state.Data
+			floor, _ := v.tileManager.GetTileTypeFromLetterForBiome(floorLetter, v.currentBiome())
+			for i := len(data.MonsterSpawns) - 1; i >= 0; i-- {
+				if s := data.MonsterSpawns[i]; s.MonsterKey == b.Monster {
+					data.ClearMonsterGround(v.tileManager, s, floor)
+					data.MonsterSpawns = slices.Delete(data.MonsterSpawns, i, i+1)
+				}
+			}
+			data.RebuildFloors(v.tileManager, v.currentBiome())
+			d.state.Mechanics = nil
+			a.Boss = nil
+		}
 	}
 	if err != nil {
 		d.err = err.Error()
@@ -306,7 +327,8 @@ func (v *viewer) overlayDelete(d *overlayDocument) {
 	v.overlaySelect("overview", 0)
 }
 func (v *viewer) overlayLayout(d *overlayDocument) layout {
-	const x, y, w, h = 242, 150, 578, 558
+	area := v.overlayGeometry().mapArea
+	x, y, w, h := area.x, area.y, area.w, area.h
 	data := d.state.Data
 	fit := max(1, min((w-16)/max(1, data.Width), (h-48)/max(1, data.Height)))
 	zoom := v.overlay.zoom
@@ -337,14 +359,15 @@ func (v *viewer) scrollOverlayAt(d *overlayDocument, mx, my int, wheel float64) 
 		return
 	}
 	p := &v.overlay
-	if pointInRect(mx, my, 8, 78, 222, 636) {
+	g := v.overlayGeometry()
+	if pointInRect(mx, my, g.tree.x, g.tree.y, g.tree.w, g.tree.h) {
 		p.treeScroll = max(0, p.treeScroll-int(wheel*32))
 		_, maxScroll := v.overlayTree(d)
 		p.treeScroll = min(p.treeScroll, maxScroll)
 		return
 	}
-	if pointInRect(mx, my, 832, 78, 360, 636) {
-		_, maxScroll := overlayInspectorRows(v.overlayFields(d), 0)
+	if pointInRect(mx, my, g.inspector.x, g.inspector.y, g.inspector.w, g.inspector.h) {
+		_, maxScroll := v.overlayInspectorRows(v.overlayFields(d), 0)
 		p.fieldScroll = clampInt(p.fieldScroll-int(wheel*44), 0, maxScroll)
 		return
 	}
@@ -421,6 +444,9 @@ func (v *viewer) updateOverlayPage() {
 	mx, my := ebiten.CursorPosition()
 	_, wheel := ebiten.Wheel()
 	v.scrollOverlayAt(d, mx, my, wheel)
+	if v.dragOverlayScrollbars(d, readCatalogListInput()) {
+		return // the scrollbar owns the left button, not the rows or the map
+	}
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		for _, w := range v.overlayWidgets(d) {
 			if w.action != nil && pointInRect(mx, my, w.r.x, w.r.y, w.r.w, w.r.h) {
@@ -428,7 +454,7 @@ func (v *viewer) updateOverlayPage() {
 				return
 			}
 		}
-		if index := overlayInspectorHit(v.overlayFields(d), p.fieldScroll, mx, my); index >= 0 {
+		if index := v.overlayInspectorHit(v.overlayFields(d), p.fieldScroll, mx, my); index >= 0 {
 			p.fieldFocus = index
 			v.overlayOpenField(d, index)
 			return
@@ -569,7 +595,7 @@ func (v *viewer) overlayMapPress(d *overlayDocument, tile [2]int) {
 			d.checkpoint()
 			a.Controls[p.selected].Tiles = append(a.Controls[p.selected].Tiles, config.EnvironmentTile{X: tile[0], Y: tile[1], Tile: v.tileManager.GetTileKey(d.state.Data.Tiles[tile[1]][tile[0]])})
 			p.tool = ""
-			_, p.fieldScroll = overlayInspectorRows(v.overlayFields(d), 0)
+			_, p.fieldScroll = v.overlayInspectorRows(v.overlayFields(d), 0)
 		}
 	case "link-new", "link-redraw":
 		if p.tool == "link-redraw" && (p.selected < 0 || p.selected >= len(a.JumpLinks)) {
@@ -698,7 +724,8 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 		return
 	}
 	p := &v.overlay
-	for _, r := range []rect{{8, 78, 222, 636}, {832, 78, 360, 636}} {
+	g := v.overlayGeometry()
+	for _, r := range []rect{g.tree, g.inspector} {
 		drawFilledRect(screen, r.x, r.y, r.w, r.h, overlayBG)
 	}
 	m := v.maps[v.mapIndex]
@@ -824,10 +851,8 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 		game.DrawShadedText(screen, clipText(w.text, w.r.w-12), w.r.x+6, w.r.y+7, fg)
 	}
 	_, treeMax := v.overlayTree(d)
-	if treeMax > 0 {
-		h := max(24, 616*616/(treeMax+616))
-		y := 90 + (616-h)*min(p.treeScroll, treeMax)/treeMax
-		drawFilledRect(screen, 227, y, 2, h, overlayBorder)
+	if y, h, ok := catalogScrollThumb(g.treeTrack, min(p.treeScroll, treeMax), treeMax+g.treeTrack.h); ok {
+		drawFilledRect(screen, g.treeTrack.x+g.treeTrack.w-4, y, 2, h, overlayBorder)
 	}
 	help = v.drawOverlayInspector(screen, d, mx, my, help)
 	status := d.status
@@ -845,19 +870,19 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 		help = instruction + " Escape cancels."
 	}
 	if tile, ok := overlayTileAt(l, mx, my); ok {
-		game.DrawPlainText(screen, fmt.Sprintf("Tile %d, %d", tile[0], tile[1]), 242, 718)
+		game.DrawPlainText(screen, fmt.Sprintf("Tile %d, %d", tile[0], tile[1]), g.mapArea.x, g.height-82)
 	}
-	for i, line := range wrapTooltipLines(help, game.ShadedTextColumns(1170)) {
+	for i, line := range wrapTooltipLines(help, game.ShadedTextColumns(g.width-30)) {
 		if i >= 2 {
 			break
 		}
-		game.DrawPlainText(screen, line, 12, 740+i*16)
+		game.DrawPlainText(screen, line, 12, g.height-60+i*16)
 	}
-	for i, line := range wrapTooltipLines(status, game.ShadedTextColumns(1170)) {
+	for i, line := range wrapTooltipLines(status, game.ShadedTextColumns(g.width-30)) {
 		if i >= 2 {
 			break
 		}
-		game.DrawShadedText(screen, line, 12, 770+i*14, func() color.RGBA {
+		game.DrawShadedText(screen, line, 12, g.height-30+i*14, func() color.RGBA {
 			if d.err != "" {
 				return color.RGBA{255, 142, 132, 255}
 			}
@@ -898,4 +923,18 @@ func (v *viewer) overlayHistory(d *overlayDocument, redo bool) {
 	if len(v.overlayFields(d)) == 0 {
 		v.overlaySelect("overview", 0)
 	}
+}
+
+func (v *viewer) dragOverlayScrollbars(d *overlayDocument, in catalogListInput) bool {
+	p := &v.overlay
+	_, treeMax := v.overlayTree(d)
+	var dragging bool
+	// The tree's rows reach its bar, so only a narrow strip grabs it.
+	g := v.overlayGeometry()
+	if p.treeScroll, dragging = v.dragScrollbar("overlay:tree", g.treeTrack, min(p.treeScroll, treeMax), treeMax+g.treeTrack.h, in, 6); dragging {
+		return true
+	}
+	_, fieldMax := v.overlayInspectorRows(v.overlayFields(d), 0)
+	p.fieldScroll, dragging = v.dragCatalogScroll("overlay:inspector", g.fields, p.fieldScroll, fieldMax+g.fields.h, in)
+	return dragging
 }

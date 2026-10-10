@@ -39,8 +39,8 @@ type monsterBandGroup struct {
 //   - solo calm mobs may form new bands with other solo calm mobs;
 //   - each band caps at maxBandStackCount.
 //
-// A hit propagates for free: TakeDamage makes the struck mob non-calm, so next
-// tick its existing band scatters and the whole band becomes sticky-hostile.
+// TakeDamage makes the struck mob non-calm and records a fresh hit. Next tick
+// its existing band scatters and eligible peers join the leashed fight.
 // Ordinary sight only dissolves the band; each member still needs its own direct
 // line of sight to join the party fight. A one-shot KILL can't propagate this
 // way (the dead member drops out of the collection), so finishMonsterKill calls
@@ -118,11 +118,11 @@ func (gl *GameLoop) updateMonsterBands() {
 			}
 		}
 		if hasAggro {
-			// A direct hit propagates band-wide (sticky aggro). A sighting dissolves
+			// A fresh direct hit propagates band-wide. A sighting dissolves
 			// the stack, then every member applies its own ordinary LoS gate.
 			wasHit := false
 			for _, m := range group {
-				if m.WasAttacked {
+				if m.BandHitPending {
 					wasHit = true
 					break
 				}
@@ -364,8 +364,8 @@ var bandScatterRing = [][2]int{
 // scatterBand repositions each supplied member onto a distinct walkable tile
 // around the band centroid. Normal sight/hit scatter supplies the entire band;
 // death scatter deliberately supplies only survivors that were still calm, so
-// an already-fighting survivor is never teleported mid-combat. A hit makes the
-// whole supplied group sticky-hostile; sight keeps a member calm unless that
+// an already-fighting survivor is never teleported mid-combat. A hit makes
+// eligible peers join a leashed fight; sight keeps a member calm unless that
 // member independently sees the party.
 func (gl *GameLoop) scatterBand(members, group []*monster.Monster3D, tile float64, wasHit bool) {
 	var cx, cy float64
@@ -388,7 +388,7 @@ func (gl *GameLoop) scatterBand(members, group []*monster.Monster3D, tile float6
 	ri := 0
 	for _, m := range members {
 		gl.game.releaseMonsterAttackPost(m)
-		engageBandMemberOnScatter(m, wasHit, gl.bandMemberSeesParty(m))
+		gl.engageBandMemberOnScatter(m, wasHit, gl.bandMemberSeesParty(m))
 		leaveBand(m)
 		if gl.game.monsterMovementHeld(m) {
 			continue
@@ -432,14 +432,14 @@ func (gl *GameLoop) bandMemberSeesParty(m *monster.Monster3D) bool {
 // bands and mixed loot-guard pairs. A direct attack is an explicit group-wide
 // reaction. Sight is not: each member must already have, or independently gain,
 // direct party sight before it enters the fight.
-func engageBandMemberOnScatter(m *monster.Monster3D, wasHit, sawParty bool) {
+func (gl *GameLoop) engageBandMemberOnScatter(m *monster.Monster3D, wasHit, sawParty bool) {
 	if m == nil || m.IsPartyControlled() {
 		return
 	}
+	m.BandHitPending = false
 	if wasHit {
-		m.WasAttacked = true
-	}
-	if (wasHit || sawParty) && m.CurrentAIBehavior().Caps().AnswersBand {
+		gl.game.answerBandAlarm(m, true, true)
+	} else if sawParty && m.CanPursueParty(gl.game.camera.X, gl.game.camera.Y) && m.CurrentAIBehavior().Caps().AnswersBand {
 		m.BeginPlayerEngagement()
 	}
 }

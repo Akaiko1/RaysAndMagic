@@ -37,7 +37,8 @@ func TestWolfCullBridge_FloorBakeIndices(t *testing.T) {
 	for _, tc := range def.OnCompleteTiles {
 		tileType := forest.Tiles[tc.Y][tc.X]
 		group := r.floorTextureGroupForTile(tc.X, tc.Y, tileType)
-		idx, ok := r.floorTextureIndexForTile(tc.X, tc.Y, tileType)
+		idx := r.resolvedFloorMaterial(tc.X, tc.Y, tileType).atlas // 0: no texture
+		ok := idx != 0
 		t.Logf("tile (%d,%d): type=%v key=%s group=%q atlasIdx=%d ok=%v",
 			tc.X, tc.Y, tileType, world.GlobalTileManager.GetTileKey(tileType), group, idx, ok)
 		if !ok {

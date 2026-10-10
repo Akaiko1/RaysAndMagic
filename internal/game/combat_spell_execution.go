@@ -271,7 +271,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 // special-effect AND utility - so any spell can be given the animation by data.
 func (cs *CombatSystem) playSpellBuffFx(spellID spells.SpellID) {
 	if cfgDef, ok := config.GetSpellDefinition(string(spellID)); ok && cfgDef != nil {
-		cs.game.playBuffFx(cfgDef.BuffFxSprite)
+		cs.game.playSpellCastFx(cfgDef)
 	}
 }
 

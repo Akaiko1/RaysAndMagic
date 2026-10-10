@@ -8,6 +8,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -117,11 +118,14 @@ func buildItemCards() []contentCard {
 		return nil
 	}
 	// Stable section order for known item types; unknown types go last.
-	typeOrder := []string{"armor", "accessory", "consumable", "quest"}
+	typeOrder := []string{"armor", "accessory", "consumable", "device", "trinket", "card", "quest"}
 	typeLabel := map[string]string{
 		"armor":      "Armor",
 		"accessory":  "Accessories",
 		"consumable": "Consumables",
+		"device":     "Devices",
+		"trinket":    "Trinkets",
+		"card":       "Monster Cards",
 		"quest":      "Quest Items",
 	}
 	byType := map[string][]string{}
@@ -141,15 +145,48 @@ func buildItemCards() []contentCard {
 		if len(keys) == 0 {
 			return
 		}
-		sort.SliceStable(keys, func(i, j int) bool {
-			return config.GlobalItems.Items[keys[i]].Name < config.GlobalItems.Items[keys[j]].Name
-		})
 		label, ok := typeLabel[t]
 		if !ok {
 			label = titleCase(t)
 		}
+		// Wearables split the way weapons split by class: armor by its category
+		// (the skill that gates it), accessories by slot; within a section in
+		// the game's slot order. One "Accessories" pile hid rings among cloaks.
+		slotRank := func(key string) int {
+			kind := items.CreateItemFromYAML(key).DisplayKind()
+			return slices.IndexFunc(items.DisplayEquipSlots, func(s items.EquipSlot) bool { return s.DisplayName() == kind })
+		}
+		sectionOf := func(key string) (string, int) {
+			switch t {
+			case "armor":
+				category := strings.ToLower(config.GlobalItems.Items[key].ArmorType)
+				if category == "" {
+					return label + " - Other", 1 << 20
+				}
+				rank := 0 // cloth needs no skill
+				if skill, ok := character.ArmorSkillForCategory(category); ok {
+					rank = 1 + int(skill)
+				}
+				return label + " - " + titleCase(category), rank
+			case "accessory":
+				return label + " - " + items.CreateItemFromYAML(key).DisplayKind(), slotRank(key)
+			}
+			return label, 0
+		}
+		sort.SliceStable(keys, func(i, j int) bool {
+			_, si := sectionOf(keys[i])
+			_, sj := sectionOf(keys[j])
+			if si != sj {
+				return si < sj
+			}
+			if ri, rj := slotRank(keys[i]), slotRank(keys[j]); ri != rj {
+				return ri < rj
+			}
+			return config.GlobalItems.Items[keys[i]].Name < config.GlobalItems.Items[keys[j]].Name
+		})
 		for _, key := range keys {
-			cards = append(cards, itemCard(label, key, config.GlobalItems.Items[key]))
+			section, _ := sectionOf(key)
+			cards = append(cards, itemCard(section, key, config.GlobalItems.Items[key]))
 		}
 		delete(byType, t)
 	}
@@ -318,10 +355,9 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard {
 	subtitle := itemSubtitle(def)
 	it := items.CreateItemFromYAML(key)
-	kind := it.DisplayKind()
-	if strings.ToLower(def.Type) == "accessory" {
+	if it.Type == items.ItemArmor || it.Type == items.ItemAccessory {
 		// Surface the slot on the card itself, not only in the tooltip.
-		subtitle = strings.TrimSpace(kind + "  " + subtitle)
+		subtitle = strings.TrimSpace(it.DisplayKind() + "  " + subtitle)
 	}
 
 	rows := game.GetItemTooltipRows(it, nil, nil, true)
@@ -340,11 +376,7 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 func itemSubtitle(def *config.ItemDefinitionConfig) string {
 	switch strings.ToLower(def.Type) {
 	case "armor":
-		s := fmt.Sprintf("AC %d", def.ArmorClassBase)
-		if def.ArmorType != "" {
-			s += "  " + titleCase(def.ArmorType)
-		}
-		return s
+		return fmt.Sprintf("AC %d", def.ArmorClassBase) // the section names the category
 	case "consumable":
 		return strings.Join(def.CoreEffectLines(), "  ")
 	case "accessory":

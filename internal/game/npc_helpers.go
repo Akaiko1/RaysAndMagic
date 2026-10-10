@@ -102,30 +102,56 @@ func (g *MMGame) npcDialogHasTalkTab(npc *character.NPC) bool {
 		len(g.npcChoiceRows(npc, npc.DialogueData.Choices, true)) > 0
 }
 
-// validateSpellShopsAreReachable fails the boot when an NPC carries spell rows
-// that no dialog will ever show. The authored type only gets the rows COPIED;
-// what draws the shop is the kind dispatch, and tavern / buff service / card
-// collector / arena gladiator all win before dialogKindSpellTrader - so a trader
-// that also rents rooms sells nothing and says nothing about it.
-func (g *MMGame) validateSpellShopsAreReachable() error {
+// validateServicesAreReachable fails the boot when an NPC carries a service
+// that no dialog will ever show. Authoring only COPIES the data; what draws a
+// service is the kind dispatch, and tavern / buff service / card collector /
+// spell trader / trainer each win before the shop - so a trader that also
+// rents rooms, or a trainer with stock, sells nothing and says nothing about it.
+func (g *MMGame) validateServicesAreReachable() error {
 	if character.NPCConfigInstance == nil {
 		return nil
 	}
 	for _, npcKey := range sortedMapKeys(character.NPCConfigInstance.NPCs) {
 		data := character.NPCConfigInstance.NPCs[npcKey]
-		if data == nil || len(data.Spells) == 0 {
+		if data == nil {
 			continue
 		}
 		npc, err := probeUngatedNPC(npcKey)
 		if err != nil {
-			return fmt.Errorf("NPC %q sells spells but cannot be built: %w", npcKey, err)
+			return fmt.Errorf("NPC %q cannot be built: %w", npcKey, err)
 		}
-		if kind := g.npcDialogKindFor(npc); kind != dialogKindSpellTrader {
-			return fmt.Errorf("NPC %q authors %d spell rows but resolves to the %s dialog - its shop would never be drawn",
+		kind := g.npcDialogKindFor(npc)
+		switch {
+		case len(data.Spells) > 0 && kind != dialogKindSpellTrader:
+			return fmt.Errorf("NPC %q authors %d spell rows but resolves to the %s dialog - its spell shop would never be drawn",
 				npcKey, len(data.Spells), kind)
+		case len(data.Training) > 0 && kind != dialogKindSkillTrainer:
+			return fmt.Errorf("NPC %q offers training but resolves to the %s dialog - its training would never be drawn", npcKey, kind)
+		case npcHasMerchant(npc) && !kind.drawsShop():
+			hint := ""
+			if kind == dialogKindChoices {
+				hint = "; set shop_dialogue to give the shop its own tab"
+			}
+			return fmt.Errorf("NPC %q has shop stock but resolves to the %s dialog - its shop would never be drawn%s", npcKey, kind, hint)
+		case data.ShopDisplay != "" && !kind.drawsShop():
+			return fmt.Errorf("NPC %q has shop_display but resolves to the %s dialog - its shop display would never be drawn", npcKey, kind)
 		}
 	}
 	return nil
+}
+
+// NPCShopOffer answers, for the editor, whether shop stock added to this
+// authored NPC would be drawn, and whether it needs shop_dialogue to share the
+// dialog with the NPC's conversation. dialog names the dialog it would open.
+func NPCShopOffer(key string, data *character.NPCData) (ok, shopDialogue bool, dialog string) {
+	if data == nil {
+		return false, false, ""
+	}
+	npc := character.NewNPCFromData(key, data, 0, 0)
+	npc.RequiresQuest = ""
+	npc.SellAvailable, npc.ShopDialogue = true, true
+	kind := npcDialogKindUngated(npc)
+	return kind.drawsShop(), kind == dialogKindArenaGladiator, kind.String()
 }
 
 // sortedMapKeys orders any keyed catalog for VALIDATION: a boot check that

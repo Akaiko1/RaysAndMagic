@@ -62,6 +62,7 @@ func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
 	ch.RemoveCondition(character.ConditionDead)
 	if item.Attributes["full_heal"] > 0 {
 		ch.HitPoints = ch.MaxHitPoints
+		g.cleanseHealingRecipient(ch)
 	} else if ch.HitPoints <= 0 {
 		ch.HitPoints = 1
 	}
@@ -81,7 +82,7 @@ func (g *MMGame) HealablePartyIndices() []int {
 		if cannotReceiveOrdinaryHealing(m) {
 			continue
 		}
-		if m.HitPoints > 0 && m.HitPoints < m.MaxHitPoints {
+		if m.HitPoints > 0 && (m.HitPoints < m.MaxHitPoints || g.healingCardCanCleanse(m)) {
 			idxs = append(idxs, i)
 		}
 	}
@@ -136,11 +137,12 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 	if cannotReceiveOrdinaryHealing(ch) {
 		return false // heals never revive - Eradicated needs the Resurrect spell
 	}
-	if ch.HitPoints >= ch.MaxHitPoints {
+	if ch.HitPoints >= ch.MaxHitPoints && !g.healingCardCanCleanse(ch) {
 		return false
 	}
 	before := ch.HitPoints
 	g.applyFlatHeal(targetIdx, base, div)
+	g.cleanseHealingRecipient(ch)
 	bag.Consume(itemIdx, 1)
 	g.logCombat(logToneGood, "%s uses %s and heals %s HP!", logHeroName(ch), logItemName(item), logHealed(ch.HitPoints-before))
 	return true
@@ -245,6 +247,9 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 		if ch.HasCondition(character.ConditionPoisoned) {
 			ch.CurePoison()
 			g.applyFlatHeal(selectedChar, item.Attributes["heal_base"], item.Attributes["heal_endurance_divisor"])
+			if item.Attributes["heal_base"] > 0 {
+				g.cleanseHealingRecipient(ch)
+			}
 			bag.Consume(itemIndex, 1)
 			g.AddCombatMessage(fmt.Sprintf("%s drinks %s - the venom subsides.", ch.Name, item.Name))
 			return true
@@ -282,7 +287,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 				return false
 			}
 		}
-		if ch.HitPoints >= ch.MaxHitPoints {
+		if ch.HitPoints >= ch.MaxHitPoints && !g.healingCardCanCleanse(ch) {
 			// Nothing to heal: keep the potion instead of wasting it.
 			g.AddCombatMessage(fmt.Sprintf("%s is already at full health.", ch.Name))
 			return false

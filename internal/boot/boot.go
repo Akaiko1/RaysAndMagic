@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
+	"ugataima/internal/spritecatalog"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
@@ -31,6 +32,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	cfg := config.MustLoadConfig("config.yaml")
 	config.MustLoadSpellConfig("assets/spells.yaml")
 	config.MustLoadWeaponConfig("assets/weapons.yaml")
+	if err := config.ValidateWeaponSpellReferences(config.GlobalWeapons, config.GlobalSpells); err != nil {
+		log.Fatalf("Weapon spells: %v", err)
+	}
 	config.MustLoadItemConfig("assets/items.yaml")
 	if err := config.ValidateDeviceSpellReferences(config.GlobalItems, config.GlobalSpells); err != nil {
 		log.Fatalf("Device actions: %v", err)
@@ -76,6 +80,10 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 		log.Fatalf("Monster catalog links: %v", err)
 	}
 	character.MustLoadNPCConfig("assets/npcs.yaml")
+	spritePaths, _ := spritecatalog.BuildIndex()
+	if err := game.LoadWorldAtlas("assets/world_atlas.yaml", spritePaths); err != nil {
+		log.Fatalf("World atlas: %v", err)
+	}
 	if err := character.ValidateAlchemyTradeMaterials(config.GlobalAlchemy, character.NPCConfigInstance); err != nil {
 		log.Fatalf("Alchemy materials: %v", err)
 	}

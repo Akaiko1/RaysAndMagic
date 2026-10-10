@@ -51,7 +51,7 @@ func TestRareBalanceFlaskMasteryDamageAndBurn(t *testing.T) {
 					if m.MaxHitPoints-m.HitPoints != wantDamage || m.BurnFramesRemaining != burnSeconds*g.config.GetTPS() {
 						t.Fatal("impact disagrees with the launched mastery values")
 					}
-					text := GetItemTooltip(item, c, g.combat, true)
+					text := GetItemTooltipRows(item, c, g.combat, true).String()
 					if !strings.Contains(text, fmt.Sprintf("%d ", wantDamage)) || burnSeconds > 0 && !strings.Contains(text, fmt.Sprintf("Burning: %d seconds", burnSeconds)) {
 						t.Fatalf("item tooltip disagrees with impact: %s", text)
 					}
@@ -97,7 +97,7 @@ func TestRareBalanceFlowingStaffGuaranteedCritical(t *testing.T) {
 					if g.combat.CalculateCriticalChance(c) == 100 {
 						t.Fatal("staff charge leaked into spell critical chance")
 					}
-					text := GetItemTooltip(weapon, c, g.combat, true)
+					text := GetItemTooltipRows(weapon, c, g.combat, true).String()
 					if strings.Contains(text, "Flowing Staff: guaranteed critical hit") != charged {
 						t.Fatal("tooltip does not explain the active guarantee")
 					}

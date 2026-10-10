@@ -130,9 +130,10 @@ func (v *viewer) owRebuild() {
 // owViewport is the preview's on-screen placement: fit-to-panel scale (>=2 px
 // per tile when it fits) and the panel rect left of the side panel.
 func (v *viewer) owViewport() (panelX, panelY, panelW, panelH int, scale float64, viewX, viewY int) {
+	cw, ch := v.canvasSize()
 	panelX, panelY = 8, pageBarHeight+8
-	panelW = windowWidth - sidebarWidth - 24
-	panelH = windowHeight - pageBarHeight - 16
+	panelW = cw - sidebarWidth - 24
+	panelH = ch - pageBarHeight - 16
 	gw, gh := owPage.gridW, owPage.gridH
 	if (gw <= 0 || gh <= 0) && v.owc != nil {
 		// No successful stitch yet: size the viewport around the raw placements.
@@ -389,9 +390,10 @@ func owRegionByKey(regions []world.OpenWorldRegion, key string) *world.OpenWorld
 }
 
 func (v *viewer) drawOpenWorldSidebar(screen *ebiten.Image, x int) {
+	_, ch := v.canvasSize()
 	y := pageBarHeight + 8
-	drawFilledRect(screen, x, y, sidebarWidth-16, windowHeight-y-8, color.RGBA{25, 25, 40, 255})
-	drawRectBorder(screen, x, y, sidebarWidth-16, windowHeight-y-8, 2, color.RGBA{70, 70, 90, 255})
+	drawFilledRect(screen, x, y, sidebarWidth-16, ch-y-8, color.RGBA{25, 25, 40, 255})
+	drawRectBorder(screen, x, y, sidebarWidth-16, ch-y-8, 2, color.RGBA{70, 70, 90, 255})
 	line := func(s string) {
 		for _, row := range wrapTooltipLines(s, game.ShadedTextColumns(sidebarWidth-36)) {
 			game.DrawPlainText(screen, row, x+10, y+8)

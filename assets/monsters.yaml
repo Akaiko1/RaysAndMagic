@@ -102,6 +102,7 @@ monsters:
       water: -20
     boss: false
   solstice_aureth:
+    type: "formless"
     enrage_at_hp: 787
     enrage_cooldown_mult: 0.8
     name: "Aureth"
@@ -228,6 +229,7 @@ monsters:
       fire: -20
     boss: false
   solstice_neressa:
+    type: "formless"
     telegraphed_attack:
       name: "Undertow Lance"
       kind: "slow"
@@ -362,6 +364,7 @@ monsters:
       air: -20
     boss: false
   solstice_talura:
+    type: "formless"
     name: "Talura"
     level: 28
     max_hit_points: 3480
@@ -489,6 +492,7 @@ monsters:
       earth: -20
     boss: false
   solstice_vaelith:
+    type: "formless"
     flying: true
     name: "Vaelith"
     level: 28
@@ -2589,6 +2593,8 @@ monsters:
     enrage_cooldown_mult: 0.7
     sprite: "alien_enforcer"
     size_class: huge
+    # Grey armour with small neon accents: colour the slab side by the outline.
+    standee_core: silhouette_edge
     resistances: { air: 75, mind: 100, water: 100, physical: 40, dark: 50, spirit: -25 }
 
   ring_tailed_lemur:

@@ -41,22 +41,31 @@ func TestTooltipWordingDoesNotControlEffectSelection(t *testing.T) {
 				result[prefix+"editor"] = base
 			}
 			for key := range config.GlobalItems.Items {
-				add("item", key, GetItemTooltip(items.CreateItemFromYAML(key), ch, cs, full), GetItemTooltip(items.CreateItemFromYAML(key), nil, nil, full))
+				add("item", key, GetItemTooltipRows(items.CreateItemFromYAML(key), ch, cs, full).String(), GetItemTooltipRows(items.CreateItemFromYAML(key), nil, nil, full).String())
 			}
 			for key := range config.GlobalWeapons.Weapons {
-				add("weapon", key, GetItemTooltip(items.CreateWeaponFromYAML(key), ch, cs, full), GetItemTooltip(items.CreateWeaponFromYAML(key), nil, nil, full))
+				add("weapon", key, GetItemTooltipRows(items.CreateWeaponFromYAML(key), ch, cs, full).String(), GetItemTooltipRows(items.CreateWeaponFromYAML(key), nil, nil, full).String())
 			}
 			for key := range config.GlobalSpells.Spells {
 				sd, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
 				if err != nil {
 					t.Fatal(err)
 				}
-				add("spell", key, buildSpellTooltipUnified(sd, ch, cs, full), GetSpellTooltip(sd.ID, nil, nil, full))
+				add("spell", key, buildSpellTooltipUnifiedRows(sd, ch, cs, full).String(), GetSpellTooltipRows(sd.ID, nil, nil, full).String())
 			}
 			for _, key := range config.TrapKeysOrdered() {
 				def, _ := config.GetTrapDefinition(key)
-				add("trap", key, buildTrapTooltipUnified(key, def, ch, cs, full), buildTrapTooltipUnified(key, def, nil, nil, full))
+				add("trap", key, buildTrapTooltipUnifiedRows(key, def, ch, cs, full).String(), buildTrapTooltipUnifiedRows(key, def, nil, nil, full).String())
 			}
+		}
+		for _, skill := range character.AllSkills {
+			result["skill/"+skill.String()] = masteryTooltipRowsForSkill(skill).String()
+		}
+		for _, school := range character.AllMagicSchools {
+			result["school/"+school.String()] = magicMasteryTooltipRows(school).String()
+		}
+		for _, stat := range []string{"Might", "Intellect", "Personality", "Endurance", "Accuracy", "Speed", "Luck"} {
+			result["stat/"+stat] = statTooltipRows(stat).String()
 		}
 		return result
 	}
@@ -76,6 +85,9 @@ func TestTooltipWordingDoesNotControlEffectSelection(t *testing.T) {
 			t.Fatal(err)
 		}
 		for key, line := range entries {
+			if key == "reference.grandmaster_label" {
+				line = "Veteran bonus:"
+			}
 			entries[key] = "Edited " + line
 		}
 		data, err = yaml.Marshal(entries)

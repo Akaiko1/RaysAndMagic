@@ -63,8 +63,8 @@ func TestChamberExperienceBudget(t *testing.T) {
 		t.Fatal("cap refilled after reload")
 	}
 	g.combat.announceKill(mob, mob.Experience)
-	if strings.Contains(g.combatLogHistory[len(g.combatLogHistory)-1].Text, "XP") {
-		t.Fatal("kill log advertised exhausted XP")
+	if line := g.combatLogHistory[len(g.combatLogHistory)-1].Text; !strings.Contains(line, "XP limit reached in this chamber.") || strings.Contains(line, "+") {
+		t.Fatalf("kill log must explain exhausted XP: %s", line)
 	}
 	dead.HitPoints = 100
 	g.combat.awardExperienceAndGold(mob)
@@ -188,8 +188,19 @@ func TestChamberLearningPreviewMatchesAward(t *testing.T) {
 			mob := &monster.Monster3D{ID: "learning-budget", HomeMap: "forest", Experience: tc.amount}
 			g.combat.announceKill(mob, mob.Experience)
 			line := g.combatLogHistory[len(g.combatLogHistory)-1].Text
-			if wantTotal > 0 && !strings.Contains(line, fmt.Sprintf("+%d XP total", wantTotal)) || wantTotal == 0 && strings.Contains(line, "XP") {
-				t.Fatalf("preview=%q, want %d XP", line, wantTotal)
+			wantSuffix := fmt.Sprintf(" +%d XP", tc.amount)
+			if tc.spent > 0 {
+				wantSuffix = ""
+				if tc.want > 0 {
+					wantSuffix = fmt.Sprintf(" +%d XP", tc.want)
+				}
+				wantSuffix += " XP limit reached in this chamber."
+			}
+			if !strings.HasSuffix(line, wantSuffix) || strings.Contains(line, "XP total") {
+				t.Fatalf("preview=%q, want suffix %q", line, wantSuffix)
+			}
+			if preview := g.adventureKillExperience(mob, mob.Experience); preview.total != wantTotal {
+				t.Fatalf("preview total=%d, want %d", preview.total, wantTotal)
 			}
 			if hero.Experience != 0 || hero.AdventureXP["forest"].Amount != tc.spent {
 				t.Fatal("preview consumed XP")
@@ -203,6 +214,76 @@ func TestChamberLearningPreviewMatchesAward(t *testing.T) {
 			}
 			if hero.Experience != tc.want || hero.AdventureXP["forest"].Amount != tc.spent+tc.want {
 				t.Fatalf("award=%d budget=%d, want gain %d", hero.Experience, hero.AdventureXP["forest"].Amount, tc.want)
+			}
+		})
+	}
+}
+
+func TestKillExperienceLogUsesOrdinaryFormatAndExplainsCaps(t *testing.T) {
+	for _, tc := range []struct {
+		name, suffix                    string
+		spent, firstSpent, reserveSpent int
+		ordinary, zero, learning, reset bool
+	}{
+		{name: "ordinary", ordinary: true, suffix: " +400 XP (100 each)"},
+		{name: "chamber", suffix: " +400 XP (100 each)"},
+		{name: "Learning and reserve do not inflate log", learning: true, suffix: " +400 XP (100 each)"},
+		{name: "exact cap", spent: 6900, firstSpent: 6900, reserveSpent: 6900, suffix: " +400 XP (100 each) XP limit reached in this chamber."},
+		{name: "last partial award", spent: 6980, firstSpent: 6980, reserveSpent: 6980, suffix: " +80 XP (20 each) XP limit reached in this chamber."},
+		{name: "exhausted", spent: 7000, firstSpent: 7000, reserveSpent: 7000, suffix: " XP limit reached in this chamber."},
+		{name: "mixed", firstSpent: 7000, suffix: " +300 XP (active party: Hero0 +0, Hero1 +100, Hero2 +100, Hero3 +100) XP limit reached in this chamber for some heroes."},
+		{name: "reserve alone capped", reserveSpent: 7000, suffix: " +400 XP (100 each) XP limit reached in this chamber for some heroes."},
+		{name: "reserve still earning", spent: 7000, firstSpent: 7000, suffix: " XP limit reached in this chamber for some heroes."},
+		{name: "zero reward is not a cap", spent: 7000, firstSpent: 7000, reserveSpent: 7000, zero: true},
+		{name: "new generation", spent: 7000, firstSpent: 7000, reserveSpent: 7000, reset: true, suffix: " +400 XP (100 each)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, wm, _ := travelFixture(t)
+			g.combat = NewCombatSystem(g)
+			wm.MapConfigs["forest"] = &config.MapConfig{Adventure: &config.AdventureConfig{OpeningOwned: true, ExperienceCap: 7000}}
+			g.adventureVisit("forest").Generation = 1
+			if tc.reset {
+				g.adventureVisit("forest").Generation = 2
+			}
+			if len(g.party.Members) != 4 {
+				t.Fatal("fixture requires four active heroes")
+			}
+			for i, hero := range g.party.Members {
+				hero.Name = fmt.Sprintf("Hero%d", i)
+				hero.Level, hero.Experience, hero.HitPoints = 50, 0, 100
+				delete(hero.Skills, character.SkillLearning)
+				spent := tc.spent
+				if i == 0 {
+					spent = tc.firstSpent
+				}
+				hero.AdventureXP = map[string]character.AdventureExperience{"forest": {Generation: 1, Amount: spent}}
+			}
+			reserve := &character.MMCharacter{Name: "Reserve", Level: 50, HitPoints: 100, Skills: map[character.SkillType]*character.Skill{}, AdventureXP: map[string]character.AdventureExperience{"forest": {Generation: 1, Amount: tc.reserveSpent}}}
+			g.party.Reserve, g.party.Captive = []*character.MMCharacter{reserve}, nil
+			if tc.learning {
+				g.party.Members[0].Skills[character.SkillLearning] = &character.Skill{Mastery: character.MasteryExpert}
+				reserve.Skills[character.SkillLearning] = &character.Skill{Mastery: character.MasteryGrandMaster}
+			}
+			mob := &monster.Monster3D{ID: "log-budget", Name: "Target", HomeMap: "forest", Experience: 400}
+			if tc.ordinary {
+				mob.HomeMap = "other"
+			}
+			if tc.zero {
+				mob.NoKillRewards = true
+			}
+			// Real death entry point announces before committing its award.
+			g.combat.finishMonsterKill(mob)
+			found := false
+			for _, line := range g.combatLogHistory {
+				if strings.HasPrefix(line.Text, "Target is slain!") {
+					found = true
+					if line.Text != "Target is slain!"+tc.suffix {
+						t.Fatalf("kill log=%q, want %q", line.Text, "Target is slain!"+tc.suffix)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("death entry point did not announce the kill")
 			}
 		})
 	}
@@ -241,6 +322,9 @@ func TestChamberArenaLifecycle(t *testing.T) {
 				}
 				r, ts := a.Boss.Arena, float64(g.config.GetTileSize())
 				cx, cy := float64(r[0]+r[2]+1)*ts/2, float64(r[1]+r[3]+1)*ts/2
+				// Attack from just outside the arena, within the shared hit leash.
+				x, y = (float64(r[0])-.5)*ts, cy
+				g.setPartyPosition(x, y)
 				// Every packet in one area action must resolve at the original
 				// party position, even when the boss is the first victim.
 				seen := 0
@@ -349,6 +433,10 @@ func TestChamberArenaLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 				boss = g.adventureBoss(a)
+				if boss.TargetsParty() || !boss.WasAttacked {
+					t.Fatal("travel retained pursuit or erased provocation memory")
+				}
+				g.setPartyPosition(x, y)
 				boss.BeginPlayerEngagement()
 				g.refreshMonsterAIState()
 				if !g.adventureArenaBounds().Enabled {

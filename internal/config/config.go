@@ -59,6 +59,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	}
 	var lines []string
 	lines = append(lines, w.ElementalAbility.Lines()...)
+	lines = append(lines, w.reactiveEffectLines()...)
 	if damageType, err := damagecalc.ParseType(w.DamageType); includeStructured && err == nil && damageType != damagecalc.Physical {
 		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
 	}
@@ -124,7 +125,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	if w.PierceCount > 0 {
 		lines = append(lines, uitext.Text("weapon.pierces_through_target_s_and_flies_on", w.PierceCount))
 	}
-	if w.DoubleStrike {
+	if includeStructured && w.DoubleStrike {
 		lines = append(lines, uitext.Text("weapon.pair_every_swing_strikes_twice_at_half"))
 	}
 	if w.EquipPersonalityMin > 0 {
@@ -229,6 +230,8 @@ type Config struct {
 	PlayerInterfaceSize string `yaml:"-" json:"-"`
 	// PlayerFont is the saved interface font key ("" until loaded).
 	PlayerFont string `yaml:"-" json:"-"`
+	// PlayerProps3D overrides the authored default when a preference is saved.
+	PlayerProps3D *bool `yaml:"-" json:"-"`
 }
 
 type CampingConfig struct {
@@ -491,11 +494,12 @@ type MeleeAttackConfig struct {
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
-	SlashColor   [3]int `yaml:"slash_color"`             // RGB color for slash effect
-	SlashWidth   int    `yaml:"slash_width"`             // Width of slash line
-	SlashLength  int    `yaml:"slash_length"`            // Length of slash line
-	SlashFx      string `yaml:"slash_fx,omitempty"`      // bespoke swing style; empty = category default
-	ProjectileFx string `yaml:"projectile_fx,omitempty"` // bespoke accent for a weapon projectile; empty = category default
+	SlashLiftRatio float64 `yaml:"slash_lift_ratio,omitempty"` // Lift the complete swing by a fraction of view height.
+	SlashColor     [3]int  `yaml:"slash_color"`                // RGB color for slash effect
+	SlashWidth     int     `yaml:"slash_width"`                // Width of slash line
+	SlashLength    int     `yaml:"slash_length"`               // Length of slash line
+	SlashFx        string  `yaml:"slash_fx,omitempty"`         // bespoke swing style; empty = category default
+	ProjectileFx   string  `yaml:"projectile_fx,omitempty"`    // bespoke accent for a weapon projectile; empty = category default
 
 	MaxSize  int    `yaml:"max_size"`
 	MinSize  int    `yaml:"min_size"`
@@ -508,8 +512,23 @@ type CameraConfig struct {
 }
 
 type UIConfig struct {
-	SpellInputCooldown int `yaml:"spell_input_cooldown"`
-	DamageBlinkFrames  int `yaml:"damage_blink_frames"`
+	SpellInputCooldown int                   `yaml:"spell_input_cooldown"`
+	DamageBlinkFrames  int                   `yaml:"damage_blink_frames"`
+	TurnBasedMouseHold MouseHoldTimingConfig `yaml:"turn_based_mouse_hold"`
+}
+
+type MouseHoldTimingConfig struct {
+	DelaySeconds  float64 `yaml:"delay_seconds"`
+	RepeatSeconds float64 `yaml:"repeat_seconds"`
+}
+
+func (c MouseHoldTimingConfig) validate() error {
+	for key, value := range map[string]float64{"delay_seconds": c.DelaySeconds, "repeat_seconds": c.RepeatSeconds} {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
+			return fmt.Errorf("ui.turn_based_mouse_hold.%s must be finite and positive", key)
+		}
+	}
+	return nil
 }
 
 type CharacterConfig struct {
@@ -800,6 +819,8 @@ type SpellDefinitionConfig struct {
 }
 
 type MonsterAIConfig struct {
+	Pursuit MonsterPursuitConfig `yaml:"pursuit"`
+
 	// AI behavior timers in engine update ticks (see engine.tps).
 	IdlePatrolTimer int `yaml:"idle_patrol_timer"`
 	PatrolIdleTimer int `yaml:"patrol_idle_timer"`
@@ -820,10 +841,9 @@ type MonsterAIConfig struct {
 	PathCheckFrequency int `yaml:"path_check_frequency"`
 
 	// Detection tuning. Distances are in tiles; the rest are multipliers.
-	DefaultAlertRadiusTiles      float64 `yaml:"default_alert_radius_tiles"`      // fallback when a monster omits alert_radius
-	AlertOutsideTetherMultiplier float64 `yaml:"alert_outside_tether_multiplier"` // wider detection when lured away from spawn
-	DisengageDistanceMultiplier  float64 `yaml:"disengage_distance_multiplier"`   // lose engagement at detection x this (hysteresis)
-	AttackEnterRangeFraction     float64 `yaml:"attack_enter_range_fraction"`     // enter attack at <= range x this (exit at > range)
+	DefaultAlertRadiusTiles     float64 `yaml:"default_alert_radius_tiles"`    // fallback when a monster omits alert_radius
+	DisengageDistanceMultiplier float64 `yaml:"disengage_distance_multiplier"` // lose engagement at detection x this (hysteresis)
+	AttackEnterRangeFraction    float64 `yaml:"attack_enter_range_fraction"`   // enter attack at <= range x this (exit at > range)
 
 	// Flee cycle: after this many consecutive attacks, roll this chance to flee
 	FleeAfterAttacks       int     `yaml:"flee_after_attacks"`
@@ -831,15 +851,19 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
+	Props3D            bool                    `yaml:"props_3d"`
+	View               ViewRenderConfig        `yaml:"view"`
 	ElementalAttack    ElementalAttackFXConfig `yaml:"elemental_attack"`
 	RaysPerScreenWidth int                     `yaml:"rays_per_screen_width"`
 	Colors             ColorsConfig            `yaml:"colors"`
 	// RemovedSprite catches the retired graphics.sprite block so a stale config
 	// fails loudly instead of authoring scale nothing reads. See SpriteConfig.
-	RemovedSprite *SpriteConfig       `yaml:"sprite,omitempty"`
-	BrightnessMin float64             `yaml:"brightness_min"`
-	Monster       MonsterRenderConfig `yaml:"monster"`
-	NPC           NPCRenderConfig     `yaml:"npc"`
+	RemovedSprite *SpriteConfig `yaml:"sprite,omitempty"`
+	// RemovedTreeStandeeLOD rejects the retired distance-to-billboard switch.
+	RemovedTreeStandeeLOD *float64            `yaml:"tree_standee_lod_tiles,omitempty"`
+	BrightnessMin         float64             `yaml:"brightness_min"`
+	Monster               MonsterRenderConfig `yaml:"monster"`
+	NPC                   NPCRenderConfig     `yaml:"npc"`
 	// SizeClasses is the single quantized visual-scale table for world sprites.
 	// Actor classes set frame height; prop/landmark classes set visible alpha
 	// height; tree sprites interpret their selected class as frame width and keep
@@ -861,13 +885,17 @@ type GraphicsConfig struct {
 	// draws a textured vertical slice; see drawTreeBillboardSlice.
 	TreesAsBillboards bool `yaml:"trees_as_billboards"`
 
-	// TreeStandeeLODTiles is the distance (in tiles) beyond which a crossed-tree
-	// standee degrades to a single (non-crossed) standee plane. <=0 disables the
-	// distant LOD. Close trees always retain the full slab.
-	TreeStandeeLODTiles float64 `yaml:"tree_standee_lod_tiles"`
-
 	// NightMotes controls the moving motes emitted by authored tree tiles at night.
 	NightMotes NightMoteRenderConfig `yaml:"night_motes"`
+}
+
+type ViewRenderConfig struct {
+	WideFocalRatio          float64 `yaml:"wide_focal_ratio"`
+	WideHorizonRatio        float64 `yaml:"wide_horizon_ratio"`
+	WidePaniniDistance      float64 `yaml:"wide_panini_distance"`
+	WideWeaponViewportRatio float64 `yaml:"wide_weapon_viewport_ratio"`
+	LiftFadeTiles           float64 `yaml:"lift_fade_tiles"`
+	LiftFullTiles           float64 `yaml:"lift_full_tiles"`
 }
 
 // NightMoteRenderConfig controls the shared runtime budget and timing for
@@ -906,6 +934,8 @@ func validateNightMoteRenderConfig(nightMotes NightMoteRenderConfig) error {
 // StandeeConfig tunes the board-game standee rendering mode.
 type StandeeConfig struct {
 	Enabled bool `yaml:"enabled"`
+	// CrossedStandeeLayers budgets natural-cross interiors, never outer faces.
+	CrossedStandeeLayers CrossedStandeeLayersConfig `yaml:"crossed_standee_layers"`
 	// ThicknessTiles is the token slab's thickness in tiles: the gap between
 	// the front and back sticker faces, with the core layer visible between
 	// them at viewing angles.
@@ -937,6 +967,9 @@ type ColorKeyConfig struct {
 	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent -> magenta (255,0,255)
 	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
 	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
+	// DespillExclusions disables despill for entire sprite animation families,
+	// including edges. Key-colour transparency is independent and still applies.
+	DespillExclusions []string `yaml:"despill_exclusions,omitempty"`
 	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
 	// "<name>_<animType>") whose interior magenta is intentional art. Naming a
 	// directional sheet or its base covers the entire animation family. For these,
@@ -1021,6 +1054,9 @@ type ProjectileRenderConfig struct {
 	// its reach (Earthquake's rubble). Empty = only the per-monster impact
 	// bursts. Validated against the novaFxSpawn registry at boot.
 	NovaFx string `yaml:"nova_fx,omitempty"`
+	// CastOverlay selects a procedural screen-space flourish on a committed
+	// cast. It is visual only and never controls a spell's gameplay duration.
+	CastOverlay string `yaml:"cast_overlay,omitempty"`
 }
 
 type TileConfig struct {
@@ -1040,10 +1076,11 @@ type TileNightMoteConfig struct {
 	CoreColor [3]int `yaml:"core_color"`
 }
 
-// ValidTileTypes is the closed set of authored tile `type` values: a purely
-// organizational taxonomy the map editor groups its palette by. REQUIRED on
-// every tiles.yaml entry (special_tiles.yaml has its own palette section and
-// is exempt); validated fail-fast at load. No render code reads it.
+// ValidTileTypes is the closed set of authored tile `type` values: the
+// taxonomy the map editor groups its palette by. REQUIRED on every tiles.yaml
+// entry (special_tiles.yaml has its own palette section and is exempt);
+// validated fail-fast at load. No render code reads it; the one gameplay
+// reader is ecology spawning, which uses only `floor` tiles.
 var ValidTileTypes = map[string]bool{
 	"floor": true, "water": true, "marker": true, "wall": true,
 	"wall_decor": true, "nature": true, "rock": true, "structure": true, "prop": true,
@@ -1152,9 +1189,8 @@ const (
 	TileRenderStandee = "standee"
 	// TileRenderCrossedStandee is the natural crossed volume: trees, rocks,
 	// dunes. size_class is the projected frame WIDTH (tree = the standard 2.0;
-	// a smaller class makes a narrower tree). Degrades to one camera-facing
-	// plane past graphics.tree_standee_lod_tiles and is the class canopy shade
-	// and earthquake toppling act on.
+	// a smaller class makes a narrower tree). Retains both crossed planes at
+	// every distance; canopy shade and earthquake toppling act on this class.
 	TileRenderCrossedStandee = "crossed_standee"
 	// TileRenderCrossedProp is the built crossed volume: boilers, crates,
 	// screens, logs. Same two-plane geometry, but size_class is the VISIBLE
@@ -1178,7 +1214,7 @@ var tileRenderTypes = [...]string{
 
 // IsCrossedRenderType reports whether a render type draws two perpendicular
 // planes. Geometry dispatchers (tile cache, raycast skip, prewarm, opacity)
-// treat both crossed classes alike; the tree MECHANICS - billboard LOD, canopy
+// treat both crossed classes alike; the tree MECHANICS - interior budget, canopy
 // shade, earthquake toppling - stay keyed to TileRenderCrossedStandee.
 func IsCrossedRenderType(renderType string) bool {
 	return renderType == TileRenderCrossedStandee || renderType == TileRenderCrossedProp
@@ -1352,6 +1388,15 @@ type WeaponSystemConfig struct {
 	// noun (sword/dagger/axe/spear/bow/mace/staff/blaster). Types not listed default to
 	// 1.0. A single weapon may override via its own `cooldown_multiplier`.
 	WeaponCooldownMultipliers map[string]float64 `yaml:"weapon_cooldown_multipliers"`
+	// WeaponClassMinimums is the least reach a weapon category may author, keyed
+	// by category. Classes have no maximums; a weapon below its floor fails the load.
+	WeaponClassMinimums map[string]WeaponClassMinimum `yaml:"weapon_class_minimums,omitempty"`
+}
+
+// WeaponClassMinimum is one category's floor; a zero field sets none.
+type WeaponClassMinimum struct {
+	Range   int `yaml:"range,omitempty"`
+	ArcType int `yaml:"arc_type,omitempty"`
 }
 
 // WeaponCooldownMultiplierForSkill returns the attack-cooldown multiplier for a
@@ -1367,7 +1412,10 @@ func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
 type WeaponDefinitionConfig struct {
-	ElementalAbility *ElementalWeaponAbility `yaml:"elemental_ability,omitempty"`
+	NightBaseDamageMultiplier int                     `yaml:"night_base_damage_multiplier,omitempty"`
+	HitShellAbsorption        int                     `yaml:"hit_shell_absorption,omitempty"`
+	AttackZoneProc            *AttackZoneProcConfig   `yaml:"attack_zone_proc,omitempty"`
+	ElementalAbility          *ElementalWeaponAbility `yaml:"elemental_ability,omitempty"`
 	// Basic weapon properties
 	Name               string  `yaml:"name"`
 	Description        string  `yaml:"description"`
@@ -1614,8 +1662,8 @@ func LoadConfig(filename string) (*Config, error) {
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
-	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to one plane (shipped config.yaml sets 25)
-	config.Graphics.Standee.CoreTint = 1.0   // sprite-average standee core by default
+	config.Graphics.Props3D = true
+	config.Graphics.Standee.CoreTint = 1.0 // sprite-average standee core by default
 	config.Graphics.NightMotes = NightMoteRenderConfig{
 		EmissionRadiusTiles:     10,
 		EmissionIntervalSeconds: 2,
@@ -1626,6 +1674,12 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
+		return nil, err
+	}
+	if err := config.MonsterAI.Pursuit.validate(); err != nil {
+		return nil, err
+	}
+	if err := config.UI.TurnBasedMouseHold.validate(); err != nil {
 		return nil, err
 	}
 	if err := config.Display.validateInterfaceSizes(); err != nil {
@@ -1679,6 +1733,28 @@ func LoadConfig(filename string) (*Config, error) {
 	if config.Graphics.RemovedSprite != nil {
 		return nil, fmt.Errorf("graphics.sprite is removed - flat billboard scale comes from the tile size_class and the source texture aspect")
 	}
+	if config.Graphics.RemovedTreeStandeeLOD != nil {
+		return nil, fmt.Errorf("graphics.tree_standee_lod_tiles is removed - natural crosses retain both planes; use graphics.standee.crossed_standee_layers for interior budgets")
+	}
+	v := config.Graphics.View
+	if !(v.WidePaniniDistance >= 0 && v.WidePaniniDistance <= 1) {
+		return nil, fmt.Errorf("graphics.view.wide_panini_distance must be in [0, 1], got %g", v.WidePaniniDistance)
+	}
+	if !(v.WideFocalRatio > 0 && v.WideFocalRatio <= 1) {
+		return nil, fmt.Errorf("graphics.view.wide_focal_ratio must be in (0, 1], got %g", v.WideFocalRatio)
+	}
+	if !(v.WideHorizonRatio > 0 && v.WideHorizonRatio < 1) {
+		return nil, fmt.Errorf("graphics.view.wide_horizon_ratio must be in (0, 1), got %g", v.WideHorizonRatio)
+	}
+	if !(v.WideWeaponViewportRatio > 0 && v.WideWeaponViewportRatio <= 1) {
+		return nil, fmt.Errorf("graphics.view.wide_weapon_viewport_ratio must be in (0, 1], got %g", v.WideWeaponViewportRatio)
+	}
+	if !(v.LiftFadeTiles > 0 && v.LiftFadeTiles < 2) {
+		return nil, fmt.Errorf("graphics.view.lift_fade_tiles must be in (0, 2), got %g", v.LiftFadeTiles)
+	}
+	if !(v.LiftFullTiles > v.LiftFadeTiles && v.LiftFullTiles <= 2) {
+		return nil, fmt.Errorf("graphics.view.lift_full_tiles must exceed lift_fade_tiles (%g) and be <= 2, got %g", v.LiftFadeTiles, v.LiftFullTiles)
+	}
 	for class, value := range config.Graphics.SizeClasses {
 		if class == "" || value <= 0 {
 			return nil, fmt.Errorf("graphics.size_classes contains invalid class %q = %v", class, value)
@@ -1722,6 +1798,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := validateNightMoteRenderConfig(config.Graphics.NightMotes); err != nil {
+		return nil, err
+	}
+	if err := config.Graphics.Standee.CrossedStandeeLayers.Validate(); err != nil {
 		return nil, err
 	}
 
@@ -2021,6 +2100,9 @@ var validWeaponBonusStats = func() map[string]bool {
 }()
 
 func validateWeaponConfig(cfg *WeaponSystemConfig) error {
+	if err := validateClassMinimums(cfg); err != nil {
+		return err
+	}
 	for key, def := range cfg.Weapons {
 		if def == nil {
 			return fmt.Errorf("weapon '%s' has empty definition", key)
@@ -2040,6 +2122,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			def.ProjectileSchool = school
 		}
 		if err := def.ElementalAbility.validate(def); err != nil {
+			return fmt.Errorf("weapon %q: %w", key, err)
+		}
+		if err := def.validateReactiveEffects(); err != nil {
 			return fmt.Errorf("weapon %q: %w", key, err)
 		}
 		if IsMagicRangedWeapon(def) {
@@ -2093,6 +2178,15 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if projectileCategory(def) && !def.IsRanged() {
 			return fmt.Errorf("weapon '%s' (category %q) has range %d; a projectile weapon needs range >= %d", key, def.Category, def.Range, RangedWeaponMinRangeTiles)
 		}
+		if err := cfg.checkClassMinimum(key, def); err != nil {
+			return err
+		}
+		if def.Graphics != nil {
+			lift := def.Graphics.SlashLiftRatio
+			if math.IsNaN(lift) || math.IsInf(lift, 0) || lift < 0 || lift > .5 || (def.IsRanged() && lift != 0) {
+				return fmt.Errorf("weapon '%s': slash_lift_ratio must be finite in [0,0.5] and melee-only", key)
+			}
+		}
 		if def.IsRanged() {
 			if def.Physics == nil {
 				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
@@ -2122,6 +2216,47 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			if def.Graphics == nil || def.Graphics.SlashWidth <= 0 || def.Graphics.SlashLength <= 0 {
 				return fmt.Errorf("melee weapon '%s' missing melee graphics configuration", key)
 			}
+		}
+	}
+	return nil
+}
+
+// checkClassMinimum enforces the weapon's category floor from
+// weapon_class_minimums.
+func (cfg *WeaponSystemConfig) checkClassMinimum(key string, def *WeaponDefinitionConfig) error {
+	category := strings.ToLower(strings.TrimSpace(def.Category))
+	floor, ok := cfg.WeaponClassMinimums[category]
+	if !ok {
+		return nil
+	}
+	if def.Range < floor.Range {
+		return fmt.Errorf("weapon '%s' (category %q) has range %d; the class minimum is %d", key, category, def.Range, floor.Range)
+	}
+	arc := 0
+	if def.Melee != nil {
+		arc = def.Melee.ArcType
+	}
+	if arc < floor.ArcType {
+		return fmt.Errorf("weapon '%s' (category %q) has arc_type %d; the class minimum is %d", key, category, arc, floor.ArcType)
+	}
+	return nil
+}
+
+// validateClassMinimums rejects floors for categories no weapon uses (typos)
+// and arc floors outside the 1-4 swing shapes.
+func validateClassMinimums(cfg *WeaponSystemConfig) error {
+	used := make(map[string]bool, len(cfg.Weapons))
+	for _, def := range cfg.Weapons {
+		if def != nil {
+			used[strings.ToLower(strings.TrimSpace(def.Category))] = true
+		}
+	}
+	for category, floor := range cfg.WeaponClassMinimums {
+		if !used[category] {
+			return fmt.Errorf("weapon_class_minimums names category %q, which no weapon uses", category)
+		}
+		if floor.Range < 0 || floor.ArcType < 0 || floor.ArcType > 4 {
+			return fmt.Errorf("weapon_class_minimums %q: range must be >= 0 and arc_type 0-4", category)
 		}
 	}
 	return nil
@@ -2315,45 +2450,50 @@ type ItemDefinitionConfig struct {
 	// the passive party-wide mechanic and the derived effect text (single source).
 	// Int fields STACK additively across the collection; CardWalkOnWater is a
 	// capability (present-or-not).
-	CardMoveSpeedPct      int                `yaml:"card_move_speed_pct,omitempty"`      // +N% party movement speed
-	CardBonusActions      int                `yaml:"card_bonus_actions,omitempty"`       // +N party actions per turn-based round
-	CardStatBonuses       map[string]int     `yaml:"card_stat_bonuses,omitempty"`        // flat party-wide stat bonuses (e.g. {speed: 15}); reuses StatBonusesFromMap
-	CardRangedDmgPct      int                `yaml:"card_ranged_dmg_pct,omitempty"`      // +N% ranged weapon damage
-	CardMeleeTrueDmg      int                `yaml:"card_melee_true_dmg,omitempty"`      // +N flat true damage on melee hits
-	CardPhysToFirePct     int                `yaml:"card_phys_to_fire_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as fire instead
-	CardHealOnAtkPct      int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on a weapon attack
-	CardHealAmount        int                `yaml:"card_heal_amount,omitempty"`         // HP restored by the self-heal-on-attack proc
-	CardLethalSavePct     int                `yaml:"card_lethal_save_pct,omitempty"`     // N% chance a lethal hit leaves the member at half HP+SP
-	CardMoveAoePct        int                `yaml:"card_move_aoe_pct,omitempty"`        // N% chance, on party move, to burst nearby foes
-	CardMoveAoeDmg        int                `yaml:"card_move_aoe_dmg,omitempty"`        // physical true damage dealt by the move-burst
-	CardWalkOnWater       bool               `yaml:"card_walk_on_water,omitempty"`       // permanent walk-on-water while collected
-	CardSummonChance      int                `yaml:"card_summon_chance,omitempty"`       // N% chance, on any party action, to summon allied adds
-	CardSummonLimit       int                `yaml:"card_summon_limit,omitempty"`        // max live allied summons from one copy of this card
-	CardSummonMonster     string             `yaml:"card_summon_monster,omitempty"`      // monster key summoned as a party ally
-	CardSummonCDSeconds   int                `yaml:"card_summon_cd_seconds,omitempty"`   // proc cooldown: the CARD can't fire again for N seconds (never gates the character)
-	CardDisintegratePct   int                `yaml:"card_disintegrate_pct,omitempty"`    // N% chance any hit instantly disintegrates the monster
-	CardRegenPct          int                `yaml:"card_regen_pct,omitempty"`           // % of maxHP regenerated per regen tick
-	CardDoubleAttackPct   int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee attack strikes again immediately
-	CardSpellProcPct      int                `yaml:"card_spell_proc_pct,omitempty"`      // N% chance a melee swing casts a fire bolt instead (Intellect-scaled)
-	CardDodgeBonusPct     int                `yaml:"card_dodge_bonus_pct,omitempty"`     // +N Perfect Dodge chance
-	CardArmorBonus        int                `yaml:"card_armor_bonus,omitempty"`         // +N flat party Armor Class
-	CardThornsPct         int                `yaml:"card_thorns_pct,omitempty"`          // N% of incoming monster damage reflected back to it
-	CardPhysToDarkPct     int                `yaml:"card_phys_to_dark_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as dark instead
-	CardPhysToLightPct    int                `yaml:"card_phys_to_light_pct,omitempty"`   // N% of physical damage (melee/ranged/trap) dealt as light instead
-	CardPoisonProcPct     int                `yaml:"card_poison_proc_pct,omitempty"`     // N% chance on hit to poison the monster
-	CardPoisonDurationSec int                `yaml:"card_poison_duration_sec,omitempty"` // duration of the on-hit poison proc
-	CardMeleeDmgPct       int                `yaml:"card_melee_dmg_pct,omitempty"`       // +N% melee weapon damage
-	CardMaxHPBonus        int                `yaml:"card_max_hp_bonus,omitempty"`        // +N flat party max HP
-	CardResistBonus       map[string]int     `yaml:"card_resist_bonus,omitempty"`        // flat party elemental resist, e.g. {fire: 50}
-	CardGoldFindPct       int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
-	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on a weapon attack to also fire a bonus bolt (Accuracy/3 dmg)
-	CardBonusBoltLabel    string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
-	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a ranged weapon attack fires one extra projectile
-	CardStunOnHitPct      int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
-	CardPoisonResistPct   int                `yaml:"card_poison_resist_pct,omitempty"`   // N% chance to resist an incoming monster poison proc
-	CardCritBonusPct      int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
-	CardBonusVs           map[string]float64 `yaml:"card_bonus_vs,omitempty"`            // dmg multiplier vs monster Name/Key/Type, mirrors weapon bonus_vs
-	CardArmorPiercePct    int                `yaml:"card_armor_pierce_pct,omitempty"`    // N% chance a melee hit ignores the target's armor entirely
+	CardMoveSpeedPct            int                `yaml:"card_move_speed_pct,omitempty"`      // +N% party movement speed
+	CardBonusActions            int                `yaml:"card_bonus_actions,omitempty"`       // +N party actions per turn-based round
+	CardStatBonuses             map[string]int     `yaml:"card_stat_bonuses,omitempty"`        // flat party-wide stat bonuses (e.g. {speed: 15}); reuses StatBonusesFromMap
+	CardRangedDmgPct            int                `yaml:"card_ranged_dmg_pct,omitempty"`      // +N% ranged weapon damage
+	CardMeleeTrueDmg            int                `yaml:"card_melee_true_dmg,omitempty"`      // +N flat true damage on melee hits
+	CardPhysToFirePct           int                `yaml:"card_phys_to_fire_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as fire instead
+	CardHealOnAtkPct            int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on a weapon attack
+	CardHealAmount              int                `yaml:"card_heal_amount,omitempty"`         // HP restored by the self-heal-on-attack proc
+	CardLethalSavePct           int                `yaml:"card_lethal_save_pct,omitempty"`     // N% chance a lethal hit leaves the member at half HP+SP
+	CardMoveAoePct              int                `yaml:"card_move_aoe_pct,omitempty"`        // N% chance, on party move, to burst nearby foes
+	CardMoveAoeDmg              int                `yaml:"card_move_aoe_dmg,omitempty"`        // physical true damage dealt by the move-burst
+	CardWalkOnWater             bool               `yaml:"card_walk_on_water,omitempty"`       // permanent walk-on-water while collected
+	CardSummonChance            int                `yaml:"card_summon_chance,omitempty"`       // N% chance, on any party action, to summon allied adds
+	CardSummonLimit             int                `yaml:"card_summon_limit,omitempty"`        // max live allied summons from one copy of this card
+	CardSummonMonster           string             `yaml:"card_summon_monster,omitempty"`      // monster key summoned as a party ally
+	CardSummonCDSeconds         int                `yaml:"card_summon_cd_seconds,omitempty"`   // proc cooldown: the CARD can't fire again for N seconds (never gates the character)
+	CardDisintegratePct         int                `yaml:"card_disintegrate_pct,omitempty"`    // N% chance any hit instantly disintegrates the monster
+	CardRegenPct                int                `yaml:"card_regen_pct,omitempty"`           // % of maxHP regenerated per regen tick
+	CardDoubleAttackPct         int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee attack strikes again immediately
+	CardSpellProcPct            int                `yaml:"card_spell_proc_pct,omitempty"`      // N% chance a melee swing casts a fire bolt instead (Intellect-scaled)
+	CardDodgeBonusPct           int                `yaml:"card_dodge_bonus_pct,omitempty"`     // +N Perfect Dodge chance
+	CardArmorBonus              int                `yaml:"card_armor_bonus,omitempty"`         // +N flat party Armor Class
+	CardThornsPct               int                `yaml:"card_thorns_pct,omitempty"`          // N% of incoming monster damage reflected back to it
+	CardPhysToDarkPct           int                `yaml:"card_phys_to_dark_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as dark instead
+	CardPhysToLightPct          int                `yaml:"card_phys_to_light_pct,omitempty"`   // N% of physical damage (melee/ranged/trap) dealt as light instead
+	CardPoisonProcPct           int                `yaml:"card_poison_proc_pct,omitempty"`     // N% chance on hit to poison the monster
+	CardPoisonDurationSec       int                `yaml:"card_poison_duration_sec,omitempty"` // duration of the on-hit poison proc
+	CardMeleeDmgPct             int                `yaml:"card_melee_dmg_pct,omitempty"`       // +N% melee weapon damage
+	CardMaxHPBonus              int                `yaml:"card_max_hp_bonus,omitempty"`        // +N flat party max HP
+	CardResistBonus             map[string]int     `yaml:"card_resist_bonus,omitempty"`        // flat party elemental resist, e.g. {fire: 50}
+	CardGoldFindPct             int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
+	CardBonusBoltPct            int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on a weapon attack to also fire a bonus bolt (Accuracy/3 dmg)
+	CardBonusBoltLabel          string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
+	CardVolleyBonusPct          int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a ranged weapon attack fires one extra projectile
+	CardStunOnHitPct            int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
+	CardPoisonResistPct         int                `yaml:"card_poison_resist_pct,omitempty"`   // N% chance to resist an incoming monster poison proc
+	CardCritBonusPct            int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
+	CardBonusVs                 map[string]float64 `yaml:"card_bonus_vs,omitempty"`            // dmg multiplier vs monster Name/Key/Type, mirrors weapon bonus_vs
+	CardArmorPiercePct          int                `yaml:"card_armor_pierce_pct,omitempty"`    // N% chance a melee hit ignores the target's armor entirely
+	CardDodgeChargePct          int                `yaml:"card_dodge_charge_pct,omitempty"`
+	CardDodgeChargeLimit        int                `yaml:"card_dodge_charge_limit,omitempty"`
+	CardRepeatedHitReductionPct int                `yaml:"card_repeated_hit_reduction_pct,omitempty"`
+	CardRepeatedHitReductionCap int                `yaml:"card_repeated_hit_reduction_cap,omitempty"`
+	CardHealingCleanse          bool               `yaml:"card_healing_cleanse,omitempty"`
 
 	// Duplicate cards use the largest movement-burst radius, not its sum.
 	CardMoveAoeRadiusTiles float64 `yaml:"card_move_aoe_radius_tiles,omitempty"`
@@ -2486,6 +2626,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		}
 		if err := validateDeviceDefinition(key, def); err != nil {
 			return err
+		}
+		if err := def.validateReactiveCard(); err != nil {
+			return fmt.Errorf("item %q: %w", key, err)
 		}
 		if err := validateCraftedItem(key, def); err != nil {
 			return err
@@ -3208,17 +3351,6 @@ func GetLootTable(monsterKey string, isBoss bool) []LootEntry {
 	entries := make([]LootEntry, 0, len(authored)+len(GlobalLoots.BossLoot))
 	entries = append(entries, authored...)
 	return append(entries, GlobalLoots.BossLoot...)
-}
-
-// GetBossLoot returns the globally-authored entries appended to every boss's
-// normal loot table. Gameplay must NOT call this: it resolves loot through
-// GetLootTable(key, isBoss), which merges these entries in - the door/key test
-// uses it to prove that merge really happens.
-func GetBossLoot() []LootEntry {
-	if GlobalLoots == nil {
-		return nil
-	}
-	return GlobalLoots.BossLoot
 }
 
 // Helper functions for easy access to commonly used values

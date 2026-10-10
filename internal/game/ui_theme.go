@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"os"
 
+	"ugataima/internal/character"
+
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -49,6 +51,34 @@ func (g *MMGame) validateInterfaceArt() {
 		src := g.sprites.GetSprite(spec.name)
 		if src == nil || src.Bounds().Dx() != spec.pattern.w || src.Bounds().Dy() != spec.pattern.h {
 			panic(fmt.Sprintf("interface frame %q must be %dx%d", spec.name, spec.pattern.w, spec.pattern.h))
+		}
+	}
+	if !g.sprites.HasSprite(merchantCornerSprite) {
+		panic(fmt.Sprintf("interface ornament %q is missing", merchantCornerSprite))
+	}
+	icons := []string{"hud_mode_rt", "hud_mode_tb"}
+	for _, school := range character.AllMagicSchools {
+		icons = append(icons, "hud_domain_"+string(school))
+	}
+	for _, name := range icons {
+		if !g.sprites.HasSprite(name) {
+			panic(fmt.Sprintf("HUD icon %q is missing", name))
+		}
+		g.sprites.GetSprite(name)
+	}
+	if character.NPCConfigInstance != nil {
+		for key, npc := range character.NPCConfigInstance.NPCs {
+			if npc != nil && npc.Guild != nil {
+				for _, name := range npc.Guild.Art.Sprites() {
+					if !g.sprites.HasSprite(name) {
+						panic(fmt.Sprintf("NPC %q: missing guild miniature %q", key, name))
+					}
+					g.sprites.GetSprite(name)
+				}
+			}
+			if npc != nil && npc.ShopDisplay != "" && !g.sprites.HasSprite(npc.ShopDisplay) {
+				panic(fmt.Sprintf("NPC %q: missing shop_display sprite %q", key, npc.ShopDisplay))
+			}
 		}
 	}
 }

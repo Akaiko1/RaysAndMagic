@@ -94,8 +94,8 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// player action on the first frame after load could damage a still-sealed
 				// boss before the flag is set. Uses the same completed-quest set as the
 				// throne snap-back above.
-				m.BossDormant = m.IsBoss() && m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
-					!completedQuests[m.PassiveUntilQuest]
+				m.BossEvasive = m.IsBoss() && m.PassiveUntilQuest != "" && !completedQuests[m.PassiveUntilQuest]
+				m.BossDormant = m.BossEvasive && m.EvadeRadiusTiles == 0
 				m.HomeMap = ms.HomeMap
 				if m.HomeMap == "" {
 					m.HomeMap = homeFallback
@@ -229,26 +229,20 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				if m.HomeMap == "" {
 					m.HomeMap = homeFallback
 				}
-				// A provoked monster (struck, or spawned hostile by an encounter the
-				// player opened) never stands down live - restore that hostility, or a
-				// lair dragon "forgets" the fight after a reload and idles point-blank.
-				// A quest-bearing encounter monster only exists because the player
-				// started that fight (lair/shipwreck/statue), so it counts as provoked
-				// even when the flag is absent (saves predating was_attacked).
-				// Chest-bound clear-encounter mobs carry no QuestID: normal aggro.
-				hostile := ms.WasAttacked ||
-					(ms.IsEncounterMonster && ms.EncounterRewards != nil && ms.EncounterRewards.QuestID != "")
-				m.WasAttacked = hostile
+				// Legacy hostility is an initial candidate, validated after
+				// world projection and party restoration. New saves preserve
+				// active pursuit separately from the memory of provocation.
+				m.WasAttacked = ms.WasAttacked || (ms.IsEncounterMonster && ms.EncounterRewards != nil && ms.EncounterRewards.QuestID != "")
 				m.BandInstance = ms.BandInstance
-				// A sighted loot guard is non-sticky by design, so WasAttacked is
-				// deliberately false. Preserve that active objective encounter across
-				// save/load without turning it into a permanent normal aggro state.
-				m.IsEngagingPlayer = hostile || m.LootGuardAlerted || (save.TurnBased && ms.TurnBasedSightEngaged)
-				// Patron-death revenge persists: a rallied human keeps hunting after reload.
-				if ms.Relentless {
-					m.Relentless = true
-					m.IsEngagingPlayer = true
+				m.Relentless = ms.Relentless
+				m.IsEngagingPlayer = m.WasAttacked || m.LootGuardAlerted || (save.TurnBased && ms.TurnBasedSightEngaged)
+				if ms.Aggro != nil {
+					m.IsEngagingPlayer = ms.Aggro.Engaged
+					m.ReturningHome = ms.Aggro.ReturningHome
+					m.RestoreRetaliation(ms.Aggro.Retaliation)
+					m.BandHitPending = ms.Aggro.BandHitPending
 				}
+
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true
 					if ms.EncounterID > 0 {

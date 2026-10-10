@@ -209,12 +209,7 @@ func (g *MMGame) merchantDragOpen() bool {
 	if !g.dialogActive || g.dialogNPC == nil {
 		return false
 	}
-	switch g.npcDialogKindFor(g.dialogNPC) {
-	case dialogKindMerchant, dialogKindArenaGladiator:
-		return true
-	default:
-		return false
-	}
+	return g.npcDialogKindFor(g.dialogNPC).drawsShop()
 }
 
 // Item-for-item traders can show active heroes' possessions as payment stock.
@@ -240,6 +235,26 @@ func (g *MMGame) merchantBagItems() []items.Item {
 		return g.party.CarriedItems()
 	}
 	return g.party.Inventory
+}
+
+// merchantBagViewIndices keeps filtered cells tied to their physical bag
+// entries: positions in merchantBagItems(). Sales and drags must never use a
+// category-local index as a bag index. Where the party can sell (a gold shop,
+// ValidateNPCCommerce) merchantBagItems() is party.Inventory itself.
+func (g *MMGame) merchantBagViewIndices() []int {
+	return inventoryTabView(g.merchantSellCategory, g.merchantBagItems())
+}
+
+func (g *MMGame) setMerchantCategory(buy bool, category int) {
+	selected, page := &g.merchantSellCategory, &g.merchantSellPage
+	if buy {
+		selected, page = &g.merchantBuyCategory, &g.merchantBuyPage
+	}
+	if !selectCategory(selected, page, category) {
+		return
+	}
+	g.clearStashDrag()
+	g.resetDialogClickTracker()
 }
 
 // merchantBagHeaderLabel is the header over the party's bag grid. At a shop

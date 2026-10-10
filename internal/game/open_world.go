@@ -32,6 +32,7 @@ func (g *MMGame) syncOpenWorldRegion() {
 	}
 	g.recordProfileTravel(wm.CurrentMapKey, r.MapKey)
 	wm.CurrentMapKey = r.MapKey
+	g.reconcileWorldPursuit(g.world)
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
 		// The stitched world does not rebuild renderer caches at a seamless
 		// boundary. Warm the new logical map explicitly; renderer residency
@@ -113,6 +114,14 @@ func (g *MMGame) monsterIsFrom(w *world.World3D, m *monster.Monster3D, mapKey st
 // stampMonsterHome records a new monster's home from the tile it appears on,
 // unless its spawner already named one.
 func (g *MMGame) stampMonsterHome(w *world.World3D, m *monster.Monster3D) {
+	owner := g
+	if g.ecologyOwner != nil {
+		owner = g.ecologyOwner
+	}
+	context := monsterAggroContext{game: owner, world: w}
+	if m.AggroContext != context {
+		m.AggroContext = context
+	}
 	if m.HomeMap == "" {
 		m.HomeMap = g.monsterHomeMap(w, m)
 	}

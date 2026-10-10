@@ -230,6 +230,10 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 			}
 		}
 		for _, entry := range npc.Inventory {
+			if entry != nil && entry.Type == "weapon" && config.GlobalWeapons != nil && !weaponNamed(entry.Name) {
+				// The shop looks weapons up by display name and would drop a typo silently.
+				return fmt.Errorf("NPC %q stocks unknown weapon %q", key, entry.Name)
+			}
 			if entry == nil || entry.Type == "weapon" {
 				continue
 			}
@@ -239,6 +243,19 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 			}
 			if err := config.ValidateOrdinaryItemGrant(itemKey); err != nil {
 				return fmt.Errorf("NPC %q stock: %w", key, err)
+			}
+		}
+		// Buying from the party is a gold-shop service. An item-priced shop's bag
+		// shows every carried stack (hero quick slots too) as payment, so its
+		// cells do not index party.Inventory and could not be sold from.
+		if npc.SellAvailable {
+			if npc.Currency != "" {
+				return fmt.Errorf("NPC %q has sell_available but trades in %q; only gold shops buy from the party", key, npc.Currency)
+			}
+			for _, it := range npc.Inventory {
+				if it != nil && it.CurrencyItem != "" {
+					return fmt.Errorf("NPC %q has sell_available but prices %q in an item; only gold-priced shops buy from the party", key, it.Name)
+				}
 			}
 		}
 		// Per-entry item currency (Scalewright): the key must exist, the count
@@ -335,8 +352,8 @@ func currencyItemName(currency string) (string, bool) {
 // alert radius; only the bell's subsequent sound may cross walls. It wakes up
 // to its authored number of calm neighbours once per life. A bell woken by
 // another bell joins the fight but consumes its own ring, preventing relay
-// chains. Woken monsters receive the STICKY WasAttacked signal so mode/AI
-// transitions cannot lull them back.
+// chains. Woken monsters remember the alarm as provocation and pursue within
+// the shared hit leash; changing mode cannot extend that pursuit.
 func (g *MMGame) rallyAggroedAlarms() {
 	if g == nil || g.world == nil || g.config == nil || g.camera == nil {
 		return
@@ -357,17 +374,21 @@ func (g *MMGame) rallyAggroedAlarms() {
 			}
 			// PassiveUntilAttacked keeps its authored contract: the bell never
 			// force-hostiles a monster that only fights when struck (WasAttacked
-			// is sticky, so waking it here would be permanent). The shared normal
+			// remembers provocation, so an alarm would change future sight behavior). The shared normal
 			// eligibility gate also excludes controlled, redirected, inert, and
 			// already-engaged targets.
-			if o == m || o == nil || o.PassiveUntilAttacked || !o.CanStartPlayerAggro() {
+			if o == m || o == nil || o.PassiveUntilAttacked {
 				continue
 			}
 			if math.Hypot(o.X-m.X, o.Y-m.Y) > r {
 				continue
 			}
-			o.BeginPlayerEngagement()
+
+			if !o.CanStartPlayerAggro() || math.Hypot(o.X-g.camera.X, o.Y-g.camera.Y) > g.config.MonsterAI.Pursuit.MaxRadiusTiles*ts {
+				continue
+			}
 			o.WasAttacked = true
+			o.BeginPlayerEngagement()
 			// Reuse the persisted one-ring marker for a bell roused by this one.
 			// It remains hostile, but cannot relay an alarm now or after save/load.
 			if o.RallyOnAggroTiles > 0 {
@@ -419,22 +440,57 @@ func (g *MMGame) merchantShopTabs() []string {
 // source for both the draw pass and the click handler - their indices must
 // agree or clicks buy the wrong item.
 func (g *MMGame) merchantVisibleStock() []*character.MerchantStockItem {
-	if g.dialogNPC == nil {
+	npc := g.dialogNPC
+	if npc == nil {
 		return nil
 	}
-	tabs := character.MerchantTabs(g.dialogNPC.MerchantStock)
-	if len(tabs) == 0 {
-		return g.dialogNPC.MerchantStock
+	stock := npc.MerchantStock
+	// The view is read many times per frame. Stock only changes by reassigning
+	// the slice (restock, caravan, load) or in place inside an entry, which the
+	// tab and category filter never reads, so the slice identity keys it.
+	c := &g.merchantStockView
+	var base **character.MerchantStockItem
+	if len(stock) > 0 {
+		base = &stock[0]
 	}
-	if g.dialogTab < 0 || g.dialogTab >= len(tabs) {
+	if c.npc != npc || c.base != base || c.n != len(stock) {
+		*c = merchantStockView{npc: npc, base: base, n: len(stock), tabs: character.MerchantTabs(stock)}
+	}
+	if len(c.tabs) == 0 && g.merchantBuyCategory == inventoryTabAll {
+		return stock
+	}
+	if len(c.tabs) > 0 && (g.dialogTab < 0 || g.dialogTab >= len(c.tabs)) {
 		g.dialogTab = 0
 	}
-	want := tabs[g.dialogTab]
-	out := make([]*character.MerchantStockItem, 0, len(g.dialogNPC.MerchantStock))
-	for _, m := range g.dialogNPC.MerchantStock {
-		if m != nil && m.Tab == want {
-			out = append(out, m)
+	if c.view == nil || c.tab != g.dialogTab || c.category != g.merchantBuyCategory {
+		// A fresh slice: a caller may still be ranging over the previous view.
+		view := make([]*character.MerchantStockItem, 0, len(stock))
+		for _, m := range stock {
+			if m != nil && (len(c.tabs) == 0 || m.Tab == c.tabs[g.dialogTab]) &&
+				inventoryTabShows(g.merchantBuyCategory, m.Item) {
+				view = append(view, m)
+			}
+		}
+		c.view, c.tab, c.category = view, g.dialogTab, g.merchantBuyCategory
+	}
+	return c.view
+}
+
+// merchantStockView memoizes merchantVisibleStock for one stock slice.
+type merchantStockView struct {
+	npc           *character.NPC
+	base          **character.MerchantStockItem
+	n             int
+	tabs          []string
+	tab, category int
+	view          []*character.MerchantStockItem
+}
+
+func weaponNamed(name string) bool {
+	for _, w := range config.GlobalWeapons.Weapons {
+		if w != nil && w.Name == name {
+			return true
 		}
 	}
-	return out
+	return false
 }

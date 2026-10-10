@@ -97,7 +97,7 @@ func TestMortarCardRangeIsTheLandingRange(t *testing.T) {
 			def.Physics.RangeTiles = def.MortarRangeTiles + 3
 			t.Cleanup(func() { def.Physics.RangeTiles = prev })
 			want := fmt.Sprintf("Range: %.0f tiles", def.MortarRangeTiles)
-			for _, card := range []string{GetSpellTooltip(spells.SpellID(key), nil, nil, true), GetSpellTooltip(spells.SpellID(key), caster, cs, true)} {
+			for _, card := range []string{GetSpellTooltipRows(spells.SpellID(key), nil, nil, true).String(), GetSpellTooltipRows(spells.SpellID(key), caster, cs, true).String()} {
 				if !strings.Contains(card, want) {
 					t.Fatalf("card lacks %q:\n%s", want, card)
 				}

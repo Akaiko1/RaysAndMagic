@@ -57,3 +57,27 @@ func TestLoadConfigRejectsRetiredSpriteBlock(t *testing.T) {
 		t.Fatalf("LoadConfig with a stale graphics.sprite block error = %v, want a removal error", err)
 	}
 }
+
+func TestLoadConfigRejectsRetiredTreeLOD(t *testing.T) {
+	previous := GlobalConfig
+	t.Cleanup(func() { GlobalConfig = previous })
+	data, err := os.ReadFile("../../config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig("../../config.yaml"); err != nil {
+		t.Fatalf("current config: %v", err)
+	}
+	for _, value := range []string{"25", "0", "-1"} {
+		t.Run(value, func(t *testing.T) {
+			stale := strings.Replace(string(data), "graphics:\n", "graphics:\n  tree_standee_lod_tiles: "+value+"\n", 1)
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "graphics.tree_standee_lod_tiles is removed") {
+				t.Fatalf("retired LOD %s: got %v, want removal error", value, err)
+			}
+		})
+	}
+}

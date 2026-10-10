@@ -224,7 +224,7 @@ func (p *FxPreview) Items() []FxItem {
 		// an empty preview.
 		def := config.GlobalSpells.Spells[k]
 		if !def.IsProjectile && def.ZoneRadiusTiles <= 0 && !def.StarburstFx && def.BuffFxSprite == "" &&
-			(def.Graphics == nil || def.Graphics.NovaFx == "") {
+			(def.Graphics == nil || (def.Graphics.NovaFx == "" && def.Graphics.CastOverlay == "")) {
 			continue
 		}
 		spellKeys = append(spellKeys, k)
@@ -330,6 +330,7 @@ func (p *FxPreview) clearTransient() {
 	g.persistentDamageZones = g.persistentDamageZones[:0]
 	g.pendingMortars = g.pendingMortars[:0]
 	g.traps = g.traps[:0]
+	g.trapBursts = g.trapBursts[:0]
 	g.buffFxAnims = g.buffFxAnims[:0]
 	g.elementalAttackEffects = g.elementalAttackEffects[:0]
 	g.screenShake = 0
@@ -385,8 +386,8 @@ func (p *FxPreview) spawn() {
 		// hero lacks the school) and refund - the gate then skips the overlay.
 		// The tab's job is showing the art, so force-play it in that case.
 		if cfgDef, ok := config.GetSpellDefinition(p.sel.Key); ok && cfgDef != nil &&
-			cfgDef.BuffFxSprite != "" && len(g.buffFxAnims) == buffAnimsBefore {
-			g.playBuffFx(cfgDef.BuffFxSprite)
+			len(g.buffFxAnims) == buffAnimsBefore {
+			g.playSpellCastFx(cfgDef)
 		}
 		// Same for a nova's ground effect: the stage has no open sky, so an
 		// outdoor_only quake refunds itself and paints nothing. Play it anyway -
@@ -408,13 +409,14 @@ func (p *FxPreview) spawn() {
 		}
 	case FxTrap:
 		if def, ok := config.GetTrapDefinition(p.sel.Key); ok && def != nil {
+			g.traps = g.traps[:0]
 			ts := float64(g.config.GetTileSize())
 			tx, ty := TileIndex(p.stageX, ts), TileIndex(p.stageY, ts)
 			g.traps = append(g.traps, PlacedTrap{
 				Key: p.sel.Key, MapKey: fxStageMapKey,
 				TileX: tx, TileY: ty,
 				X: (float64(tx) + 0.5) * ts, Y: (float64(ty) + 0.5) * ts,
-				Owner: m, FramesLeft: fxRespawnTicks + 30,
+				Owner: m, FramesLeft: 3 * g.config.GetTPS(),
 			})
 		}
 	case FxTile:
@@ -551,7 +553,19 @@ func (p *FxPreview) Step() {
 	p.resolveStageImpacts()
 
 	p.tick++
-	if p.tick >= fxRespawnTicks {
+	interval := fxRespawnTicks
+	if p.sel.Kind == FxTrap {
+		// Show the armed device, then its actual activation and complete fade.
+		armedTicks := g.config.GetTPS() * 3 / 2
+		if p.tick == armedTicks {
+			for _, trap := range g.traps {
+				g.startTrapBurst(trap)
+			}
+			g.traps = g.traps[:0]
+		}
+		interval = armedTicks + int(math.Ceil(trapBurstSeconds*float64(g.config.GetTPS()))) + 15
+	}
+	if p.tick >= interval {
 		if (p.sel.Kind == FxSpell || p.sel.Kind == FxWeapon) && p.attackVisualsActive() {
 			return
 		}

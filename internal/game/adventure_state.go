@@ -197,13 +197,10 @@ func (g *MMGame) enterAdventureSchedule(source string) error {
 	return g.transitionToMap(request)
 }
 func (g *MMGame) adventureScheduleText(source string) string {
-	a := g.adventureConfig(source)
-	if a == nil || a.Schedule == nil {
+	o := g.adventureNextOpening(source)
+	if o.current == "" {
 		return ""
 	}
-	s := a.Schedule
-	day, night := g.currentCalendarDay(), g.dayNightIsNight
-	current := s.Destination(day, night)
 	name := func(key string) string {
 		if m := world.GlobalWorldManager.MapConfigs[key]; m != nil {
 			return m.Name
@@ -212,9 +209,37 @@ func (g *MMGame) adventureScheduleText(source string) string {
 	}
 	now := g.currentQuestDay()
 	status := "available"
-	if !g.adventureAvailable(current, now) {
+	if !o.open {
 		status = "cleared"
 	}
+	if o.next != "" {
+		seconds := int(math.Ceil((o.nextAt - now) * float64(g.dayNightCycleFrames()) / float64(max(1, g.config.GetTPS()))))
+		hours := math.Ceil((o.nextAt-now)*24*10) / 10
+		return fmt.Sprintf("Now: %s (%s). Next available: %s in %d:%02d (%.1f game hours). Each chamber resets %d game days after victory.", name(o.current), status, name(o.next), seconds/60, seconds%60, hours, g.adventureConfig(o.next).ResetDays)
+	}
+	return fmt.Sprintf("Now: %s (%s).", name(o.current), status)
+}
+
+// adventureOpening is a schedule snapshot: the chamber of the current window,
+// whether it can be entered now, and the next usable window after it.
+type adventureOpening struct {
+	current, next string
+	open          bool
+	nextAt        float64
+}
+
+// adventureNextOpening is the shared schedule query for entrance dialogue and
+// guild reports. It includes cooldown expiry inside a scheduled window.
+func (g *MMGame) adventureNextOpening(source string) adventureOpening {
+	a := g.adventureConfig(source)
+	if a == nil || a.Schedule == nil {
+		return adventureOpening{}
+	}
+	s := a.Schedule
+	day, night := g.currentCalendarDay(), g.dayNightIsNight
+	now := g.currentQuestDay()
+	o := adventureOpening{current: s.Destination(day, night)}
+	o.open = g.adventureAvailable(o.current, now)
 	// Search schedule windows, including a cooldown that ends inside a window.
 	// Each destination repeats within one week after its cooldown expires.
 	horizon := now + 8
@@ -225,7 +250,6 @@ func (g *MMGame) adventureScheduleText(source string) string {
 			}
 		}
 	}
-	cycle := g.dayNightCycleFrames()
 	// Anchor windows to exact calendar half-days. Recombining the fractional
 	// clock with time to the next phase can round past a reset at the boundary,
 	// briefly selecting the chamber from the window that has already ended.
@@ -241,10 +265,9 @@ func (g *MMGame) adventureScheduleText(source string) string {
 			at = max(at, g.adventureResetAt(key, v))
 		}
 		// When the current chamber is available, report the next usable window.
-		if (start > now || status == "cleared") && at < boundary && g.adventureAvailable(key, at) {
-			seconds := int(math.Ceil((at - now) * float64(cycle) / float64(max(1, g.config.GetTPS()))))
-			hours := math.Ceil((at-now)*24*10) / 10
-			return fmt.Sprintf("Now: %s (%s). Next available: %s in %d:%02d (%.1f game hours). Each chamber resets %d game days after victory.", name(current), status, name(key), seconds/60, seconds%60, hours, g.adventureConfig(key).ResetDays)
+		if (start > now || !o.open) && at < boundary && g.adventureAvailable(key, at) {
+			o.next, o.nextAt = key, at
+			return o
 		}
 		start = boundary
 		boundary += .5
@@ -253,7 +276,7 @@ func (g *MMGame) adventureScheduleText(source string) string {
 		}
 		night = !night
 	}
-	return fmt.Sprintf("Now: %s (%s).", name(current), status)
+	return o
 }
 func (g *MMGame) commitAdventureVisit(key string, v *AdventureVisit) {
 	if g.adventure.Visits == nil {

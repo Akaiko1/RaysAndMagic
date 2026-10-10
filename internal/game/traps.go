@@ -11,7 +11,7 @@ import (
 )
 
 // Trap mechanics (thief trap book). A placed trap is a one-shot tile device:
-// it arms on its tile, shows a particle swirl + a colored tile-edge glow, and
+// it arms on its tile, shows a grounded shader model, and
 // fires when a monster occupies the tile - damage traps scale with the OWNER's
 // Intellect+Accuracy and Trapper mastery at trigger time, control traps
 // stun/root for a mastery-extended duration. Traps are map-scoped (MapKey) and
@@ -22,8 +22,6 @@ const (
 	// Canonical values live in config/traps.go (the editor cards quote them).
 	MaxTrapsPerOwner    = config.MaxTrapsPerOwner
 	TrapPlaceRangeTiles = config.TrapPlaceRangeTiles
-	// trapSwirlPeriodTicks is the cadence of the ambient swirl particle spawn.
-	trapSwirlPeriodTicks = 9 // ~0.07s at 120 TPS
 )
 
 // PlacedTrap is one armed trap on a map tile.
@@ -34,7 +32,6 @@ type PlacedTrap struct {
 	X, Y         float64                // tile center (render/VFX anchor)
 	Owner        *character.MMCharacter // scaling + per-owner limit; nil after failed save resolve
 	FramesLeft   int                    // armed lifetime; the trap despawns at 0
-	swirlTick    int
 }
 
 // trapAt returns the index of the trap occupying a tile on the current world, or -1.
@@ -208,7 +205,6 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 		FramesLeft: def.LifetimeSeconds * cs.game.config.GetTPS(),
 	})
 	cs.game.logCombat(logToneGood, "%s arms a %s!", logHeroName(caster), logAbility(def.Name))
-	cs.game.spawnTrapSwirl(cx, cy, def.Element)
 	// A trap thrown under a monster's feet fires immediately (TB has no
 	// per-frame sweep; in RT the next frame's sweep would catch it anyway).
 	cs.sweepTrapTriggers()
@@ -325,7 +321,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 		return
 	}
 	cs.game.logCombat(logToneGood, "%s springs under %s!", logAbility(def.Name), logMonsterName(victim))
-	cs.game.CreateSpellHitEffect(t.X, t.Y, def.Element, 0, 0)
+	cs.game.startTrapBurst(*t)
 
 	boundVictim := false
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
@@ -405,33 +401,27 @@ func (cs *CombatSystem) finishIndirectKill(m *monsterPkg.Monster3D) {
 	cs.finishMonsterKillImmediately(m)
 }
 
-// updateTraps runs once per frame from the game loop: ambient swirl VFX in
-// both modes, trigger sweep in real-time (TB sweeps after monster moves).
+// updateTraps expires presentation bursts on the frame clock in either mode.
+// Gameplay lifetimes and trigger sweeps retain their TB/RT clock rules.
 func (gl *GameLoop) updateTraps() {
 	g := gl.game
 	g.advanceTrapLifetimes(g.combatFrameElapsed())
-	if len(g.traps) == 0 {
-		return
-	}
-	for i := range g.traps {
-		t := &g.traps[i]
-		if mapKeyOnCurrentWorld(t.MapKey) {
-			t.swirlTick++
-			if t.swirlTick >= trapSwirlPeriodTicks {
-				t.swirlTick = 0
-				if def, ok := config.GetTrapDefinition(t.Key); ok {
-					g.spawnTrapSwirl(t.X, t.Y, def.Element)
-				}
-			}
+	w := 0
+	for _, burst := range g.trapBursts {
+		if float64(g.frameCount-burst.born) >= trapBurstSeconds*float64(g.config.GetTPS()) {
+			continue
 		}
+		g.trapBursts[w] = burst
+		w++
 	}
-	if !g.turnBasedMode {
-		gl.game.combat.sweepTrapTriggers()
+	g.trapBursts = g.trapBursts[:w]
+	if len(g.traps) > 0 && !g.turnBasedMode {
+		g.combat.sweepTrapTriggers()
 	}
 }
 
-// Lifetime is gameplay time on every map; the ambient swirl stays on the
-// presentation clock so an armed trap remains visibly alive during TB thinking.
+// Lifetime is gameplay time on every map. Shader animation uses presentation
+// time independently, including while the party is thinking in TB mode.
 func (g *MMGame) advanceTrapLifetimes(elapsed int) {
 	if elapsed <= 0 {
 		return
@@ -440,53 +430,12 @@ func (g *MMGame) advanceTrapLifetimes(elapsed int) {
 	for _, t := range g.traps {
 		t.FramesLeft = max(0, t.FramesLeft-elapsed)
 		if t.FramesLeft == 0 {
-			if mapKeyOnCurrentWorld(t.MapKey) {
-				if def, ok := config.GetTrapDefinition(t.Key); ok {
-					g.spawnTrapSwirl(t.X, t.Y, def.Element)
-				}
-			}
 			continue
 		}
 		g.traps[w] = t
 		w++
 	}
 	g.traps = g.traps[:w]
-}
-
-// spawnTrapSwirl emits the armed-trap "vortex": particles anchored at WORLD
-// positions on a ring around the tile center (screen offsets would drag the
-// swirl with the camera). Rotation comes from advancing the spawn phase with
-// the frame counter; short lifetimes keep the ring visibly turning. No impact
-// light (it runs every few ticks; a light would strobe the floor).
-func (g *MMGame) spawnTrapSwirl(x, y float64, element string) {
-	g.hitEffectsMu.Lock()
-	defer g.hitEffectsMu.Unlock()
-
-	element = normalizeDamageTypeStr(element)
-	baseColor, ok := ElementColors[element]
-	if !ok {
-		baseColor = ElementColors[monsterPkg.DamagePhysical.String()]
-	}
-	const n = 3
-	const ringRadius = 13.0 // world units around the tile center
-	phase := float64(g.frameCount) * 0.11
-	particles := make([]SpellHitParticle, 0, n)
-	for i := 0; i < n; i++ {
-		ang := phase + float64(i)/n*2*math.Pi
-		life := 22 + i*2
-		particles = append(particles, SpellHitParticle{
-			// World anchor ON the ring: the particle is pinned to the map.
-			X:        x + math.Cos(ang)*ringRadius,
-			Y:        y + math.Sin(ang)*ringRadius,
-			OffsetY:  -2,
-			VelY:     -0.35, // gentle rise above the floor
-			Gravity:  -0.01,
-			Color:    baseColor,
-			LifeTime: life, MaxLife: life,
-			Size: 3, Active: true,
-		})
-	}
-	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Particles: particles, Active: true})
 }
 
 // TrapSave is the JSON form of a PlacedTrap. The owner is stored by NAME and

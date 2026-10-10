@@ -5,6 +5,7 @@ import (
 
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -164,9 +165,8 @@ func bandMembershipCounts(monsters []*monsterPkg.Monster3D) map[int]int {
 }
 
 // TestScatterBand_SightVsHitPropagation: a band member being HIT marks the
-// whole band as attacked (sticky aggro); a band member merely NOTICING the
-// player engages the band without the sticky flag, so it can calm down by the
-// normal distance hysteresis.
+// eligible band peers as provoked; a sighting after an OLD hit is still only
+// sight and cannot transmit another attack event.
 func TestScatterBand_SightVsHitPropagation(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -174,7 +174,11 @@ func TestScatterBand_SightVsHitPropagation(t *testing.T) {
 		wantHit bool
 	}{
 		{"sighted", func(m *monsterPkg.Monster3D) { m.IsEngagingPlayer = true }, false},
-		{"hit", func(m *monsterPkg.Monster3D) { m.IsEngagingPlayer = true; m.WasAttacked = true }, true},
+		{"old wound sighted", func(m *monsterPkg.Monster3D) { m.IsEngagingPlayer = true; m.WasAttacked = true }, false},
+		{"hit", func(m *monsterPkg.Monster3D) {
+			m.HitPoints = 2
+			takeDamageParts(m, damagecalc.Parts{True: 1}, monsterPkg.DamagePhysical, 0)
+		}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

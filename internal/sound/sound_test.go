@@ -388,7 +388,7 @@ func TestMusicReturnsToPausedBiomePositionAfterFadeCompletes(t *testing.T) {
 		t.Fatal("completed biome fade did not retain its resume player")
 	}
 
-	manager.SetMusicBiome("forest")
+	manager.SetMusicState("forest", false)
 	if !player.playing {
 		t.Fatal("returning to biome did not resume music")
 	}

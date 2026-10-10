@@ -112,7 +112,7 @@ func TestSpellResistPierce_GMGated(t *testing.T) {
 }
 
 func TestMagicMasteryTooltip_ExplainsSelectedSchoolPolicy(t *testing.T) {
-	elementalTip := magicMasteryTooltipText(character.MagicSchoolLight)
+	elementalTip := magicMasteryTooltipRows(character.MagicSchoolLight).String()
 	if !strings.Contains(elementalTip, "Light true damage") {
 		t.Errorf("elemental magic mastery tooltip %q should cite GM true damage", elementalTip)
 	}
@@ -122,7 +122,7 @@ func TestMagicMasteryTooltip_ExplainsSelectedSchoolPolicy(t *testing.T) {
 		}
 	}
 
-	selfTip := magicMasteryTooltipText(character.MagicSchoolBody)
+	selfTip := magicMasteryTooltipRows(character.MagicSchoolBody).String()
 	if !strings.Contains(selfTip, fmt.Sprintf("%d%%", SelfMagicGMResistPiercePct)) {
 		t.Errorf("self-magic mastery tooltip should cite GM pierce: %q", selfTip)
 	}
@@ -192,7 +192,7 @@ func TestArmorGMDodgeCardMatchesCombat(t *testing.T) {
 		t.Fatalf("three GM plate pieces -> %d dodge, want %d once", got, ArmorGMDodgeBonus)
 	}
 	for _, key := range pieces {
-		card := GetItemTooltip(items.CreateItemFromYAML(key), m, cs, true)
+		card := GetItemTooltipRows(items.CreateItemFromYAML(key), m, cs, true).String()
 		if !strings.Contains(card, "Grandmaster: "+character.ArmorGMDodgeRule()) || strings.Contains(card, "while worn") {
 			t.Fatalf("%s card does not state the once-per-type rule:\n%s", key, card)
 		}

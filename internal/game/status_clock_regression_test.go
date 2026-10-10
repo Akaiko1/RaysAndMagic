@@ -115,9 +115,6 @@ func TestStatusClockControlsAndTraps(t *testing.T) {
 				if charm.PacifiedFramesRemaining != remaining || bind.BoundFramesRemaining != remaining || g.traps[0].FramesLeft != remaining {
 					t.Fatal("TB initial/idle spent gameplay lifetime")
 				}
-				if len(g.spellHitEffects) == 0 {
-					t.Fatal("TB trap presentation froze with gameplay clock")
-				}
 				if persist {
 					saved := auditSaveJSON(t, g.buildSave(wm))
 					g.restoreSavedMonsters(wm, &saved)
@@ -207,7 +204,8 @@ func TestStatusClockProvidenceCalendar(t *testing.T) {
 					if g.dayNightIsNight || !g.phaseOwnsBuff(string(id)) {
 						t.Fatal("Providence expired early")
 					}
-					card, _ := g.buffStatusCard(&UtilitySpellStatus{SpellID: id, Duration: 1})
+					rows, _ := g.buffStatusCardRows(&UtilitySpellStatus{SpellID: id, Duration: 1})
+					card := rows.Lines()
 					tooltip := strings.Join(card, " ")
 					if !strings.Contains(tooltip, "Until dusk") || strings.Contains(tooltip, "dispel") || strings.Contains(tooltip, "turn") {
 						t.Fatalf("wrong Providence clock tooltip: %s", tooltip)

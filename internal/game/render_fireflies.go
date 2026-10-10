@@ -39,91 +39,35 @@ func fireflySwarmSeed(tileX, tileY int) int {
 	return tileX*73 + tileY*193
 }
 
-// fireflySwarmFlicker is intentionally slower than torch flicker but has enough
-// contrast to read in the forest shade.
-func fireflySwarmFlicker(seed int, frameCount int64) float64 {
-	phase := auraHash(seed, 0, 31, 0) * 2 * math.Pi
-	f := 0.72 + 0.36*math.Sin(float64(frameCount)*0.075+phase) +
-		0.17*math.Sin(float64(frameCount)*0.031+phase*2.7)
-	if f < 0.40 {
-		return 0.40
+// The floor light follows the average of the same independent insect flashes.
+func fireflySwarmFlicker(seed int, seconds float64) float64 {
+	sum := 0.0
+	for i := range fireflySwarmMotes {
+		sum += fireflyPulse(seconds, auraHash(seed, i, 41, 0)*2*math.Pi)
 	}
-	if f > 1.25 {
-		return 1.25
-	}
-	return f
+	flash := (sum/float64(len(fireflySwarmMotes)) - fireflyPulseFloor) / (1 - fireflyPulseFloor)
+	// Preserve the original floor-light envelope while synchronizing its pulse.
+	return .4 + .85*flash
 }
 
-type fireflyMoteDraw struct {
-	x, y                 float64
-	glowSize, coreSize   float64
-	glowAlpha, coreAlpha float64
-}
-
-func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteRenderData, distance float64) {
-	if s.spriteSize <= 0 {
-		return
-	}
-
-	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, float64(r.game.config.GetTileSize()))
-	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, distance)
-	if brightness < 0.2 {
-		brightness = 0.2
-	}
-
+// World-space paths keep the swarm volumetric when the party turns or strafes.
+func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteRenderData, _ float64) {
+	ts := r.game.config.GetTileSize()
+	wx, wy := TileCenterFromTile(s.tileX, s.tileY, ts)
 	seed := fireflySwarmSeed(s.tileX, s.tileY)
-	frame := float64(r.game.frameCount)
-	drawLeft := float64(s.screenX - s.spriteSize/2)
-	drawTop := float64(s.screenY)
-	size := float64(s.spriteSize)
-	depthBuf := r.game.depthBuffer
-	glowBase := math.Max(3, size*0.105)
-	coreBase := math.Max(1.25, size*0.018)
-	globalFlicker := fireflySwarmFlicker(seed, r.game.frameCount)
-
-	var draws [len(fireflySwarmMotes)]fireflyMoteDraw
-	drawCount := 0
+	seconds := r.weaponMaterialClock()
 	for i, mote := range fireflySwarmMotes {
-		localPhase := auraHash(seed, i, 41, 0) * 2 * math.Pi
-		slowPulse := 0.66 + 0.34*math.Sin(frame*0.070+localPhase) +
-			0.16*math.Sin(frame*0.027+localPhase*1.9)
-		if slowPulse < 0.28 {
-			slowPulse = 0.28
-		}
-		if slowPulse > 1.15 {
-			slowPulse = 1.15
-		}
-
-		driftX := math.Sin(frame*0.012+localPhase*1.3) * size * 0.018
-		driftY := math.Sin(frame*0.010+localPhase*0.7) * size * 0.014
-		x := drawLeft + mote.u*size + driftX
-		y := drawTop + mote.v*size + driftY
-		// Per-mote occlusion: the whole-swarm visibility gate is ANY-column, so a
-		// swarm only peeking past a wall/tree edge would still draw every mote.
-		if col := int(x); col >= 0 && col < len(depthBuf) && s.depthPerp >= depthBuf[col] {
+		phase := auraHash(seed, i, 41, 0) * 2 * math.Pi
+		x := wx + ts*((mote.u-.5)*.8+.055*math.Sin(seconds*.7+phase)+.025*math.Sin(seconds*1.3+phase*2))
+		y := wy + ts*((auraHash(seed, i, 43, 0)-.5)*.65+.055*math.Cos(seconds*.6+phase))
+		height := ts*(1-mote.v)*.75 + ts*.035*math.Sin(seconds*.9+phase)
+		sx, depth, ok := r.game.renderHelper.projectToScreenXF(x, y)
+		if !ok || depth < 1 || sx < 0 || sx >= float64(len(r.game.depthBuffer)) || depth >= r.game.depthBuffer[int(sx)] {
 			continue
 		}
-		alpha := brightness * globalFlicker * slowPulse
-		if alpha > 1 {
-			alpha = 1
-		}
-		scale := 0.82 + 0.36*auraHash(seed, i, 42, 0)
-
-		draws[drawCount] = fireflyMoteDraw{
-			x: x, y: y,
-			glowSize: glowBase * scale, coreSize: coreBase * scale,
-			glowAlpha: 0.50 * alpha, coreAlpha: 0.95 * alpha,
-		}
-		drawCount++
-	}
-
-	// Group equal sources so Ebitengine can batch halos and cores separately.
-	for i := 0; i < drawCount; i++ {
-		d := draws[i]
-		r.drawGlowSprite(screen, d.x, d.y, d.glowSize, [3]int{255, 218, 80}, d.glowAlpha, additiveGlowBlend)
-	}
-	for i := 0; i < drawCount; i++ {
-		d := draws[i]
-		r.drawGlowRect(screen, d.x, d.y, d.coreSize, [3]int{255, 252, 170}, d.coreAlpha, additiveGlowBlend)
+		sy := r.game.viewHorizon() + (.5*ts-height)*r.game.viewFocal()/depth
+		radius := math.Max(3, ts*.065*r.game.viewFocal()/depth)
+		alpha := fireflyPulse(seconds, phase)
+		r.drawFirefly(screen, sx, sy, radius, alpha, seconds*53+phase, [3]int{255, 218, 80}, [3]int{255, 252, 170})
 	}
 }

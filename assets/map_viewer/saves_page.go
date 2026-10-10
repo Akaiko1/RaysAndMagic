@@ -103,10 +103,10 @@ func (v *viewer) updateSavesPage() {
 	mx, my := ebiten.CursorPosition()
 	if _, wheelY := ebiten.Wheel(); wheelY != 0 {
 		delta := -int(wheelY * 30)
-		partyPanel, lootPanel := saveDetailPanels()
+		partyPanel, lootPanel := v.saveDetailPanels()
 		switch {
 		case mx < saveListW:
-			savesPage.listScroll = clampScrollValue(savesPage.listScroll+delta, maxSaveListScroll())
+			savesPage.listScroll = clampScrollValue(savesPage.listScroll+delta, v.maxSaveListScroll())
 		case pointInRect(mx, my, partyPanel.x, partyPanel.y, partyPanel.w, partyPanel.h):
 			savesPage.partyScroll = clampScrollValue(savesPage.partyScroll+delta, maxDetailScroll(savesPage.partyLines, partyPanel))
 		case pointInRect(mx, my, lootPanel.x, lootPanel.y, lootPanel.w, lootPanel.h):
@@ -314,10 +314,10 @@ func (v *viewer) moveSaveSelection(delta int) {
 	if top-savesPage.listScroll < 0 {
 		savesPage.listScroll = top
 	}
-	if bottom := top + saveListRowH; bottom-savesPage.listScroll > saveListViewportH() {
-		savesPage.listScroll = bottom - saveListViewportH()
+	if bottom := top + saveListRowH; bottom-savesPage.listScroll > v.saveListViewportH() {
+		savesPage.listScroll = bottom - v.saveListViewportH()
 	}
-	savesPage.listScroll = clampScrollValue(savesPage.listScroll, maxSaveListScroll())
+	savesPage.listScroll = clampScrollValue(savesPage.listScroll, v.maxSaveListScroll())
 }
 
 func setSavesStatus(msg string, isErr bool) {
@@ -525,19 +525,23 @@ func savesButtons() []saveButton {
 }
 
 // saveDetailPanels returns the two detail panel rects (party | loot).
-func saveDetailPanels() (partyPanel, lootPanel rect) {
+func (v *viewer) saveDetailPanels() (partyPanel, lootPanel rect) {
+	cw, ch := v.canvasSize()
 	top := pageBarHeight + 10 + saveButtonH + 24 // buttons row + status line
-	w := (windowWidth - saveListW - 3*contentPad) / 2
-	h := windowHeight - top - contentPad
+	w := (cw - saveListW - 3*contentPad) / 2
+	h := ch - top - contentPad
 	partyPanel = rect{x: saveListW + contentPad, y: top, w: w, h: h}
 	lootPanel = rect{x: partyPanel.x + w + contentPad, y: top, w: w, h: h}
 	return partyPanel, lootPanel
 }
 
-func saveListViewportH() int { return windowHeight - pageBarHeight - saveListPadY*2 }
+func (v *viewer) saveListViewportH() int {
+	_, ch := v.canvasSize()
+	return ch - pageBarHeight - saveListPadY*2
+}
 
-func maxSaveListScroll() int {
-	return len(savesPage.entries)*saveListRowH - saveListViewportH()
+func (v *viewer) maxSaveListScroll() int {
+	return len(savesPage.entries)*saveListRowH - v.saveListViewportH()
 }
 
 func maxDetailScroll(lines []infoLine, panel rect) int {
@@ -559,12 +563,13 @@ func clampScrollValue(v, max int) int {
 
 func (v *viewer) drawSavesPage(screen *ebiten.Image) {
 	// Left: the slot + archive list.
-	drawFilledRect(screen, 0, pageBarHeight, saveListW, windowHeight-pageBarHeight, color.RGBA{22, 22, 32, 255})
-	list := screen.SubImage(image.Rect(0, pageBarHeight, saveListW, windowHeight)).(*ebiten.Image)
+	cw, ch := v.canvasSize()
+	drawFilledRect(screen, 0, pageBarHeight, saveListW, ch-pageBarHeight, color.RGBA{22, 22, 32, 255})
+	list := screen.SubImage(image.Rect(0, pageBarHeight, saveListW, ch)).(*ebiten.Image)
 	y0 := pageBarHeight + saveListPadY - savesPage.listScroll
 	for i, entry := range savesPage.entries {
 		ry := y0 + i*saveListRowH
-		if ry < pageBarHeight-saveListRowH || ry > windowHeight {
+		if ry < pageBarHeight-saveListRowH || ry > ch {
 			continue
 		}
 		if i == savesPage.selIdx && entry.kind != saveEntryHeader {
@@ -600,7 +605,7 @@ func (v *viewer) drawSavesPage(screen *ebiten.Image) {
 		game.DrawShadedText(screen, savesPage.status, saveListW+contentPad, pageBarHeight+10+saveButtonH+6, col)
 	}
 
-	partyPanel, lootPanel := saveDetailPanels()
+	partyPanel, lootPanel := v.saveDetailPanels()
 	hovered := drawSaveDetailPanel(screen, partyPanel, savesPage.partyLines, savesPage.partyScroll)
 	if h := drawSaveDetailPanel(screen, lootPanel, savesPage.lootLines, savesPage.lootScroll); h != nil {
 		hovered = h
@@ -608,7 +613,7 @@ func (v *viewer) drawSavesPage(screen *ebiten.Image) {
 	if hovered != nil {
 		mx, my := ebiten.CursorPosition()
 		card := cardForSavedItem(*hovered)
-		drawCardTooltip(screen, &card, mx, my, 0, windowWidth)
+		drawCardTooltip(screen, &card, mx, my, 0, cw)
 	}
 }
 

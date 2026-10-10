@@ -16,16 +16,15 @@ func TestTurnBasedHitEngagesPack(t *testing.T) {
 
 	tileSize := float64(cfg.GetTileSize())
 
-	game.camera.X = tileSize
-	game.camera.Y = tileSize
-	game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
+	placePlayerAtTile(game, 10, 13, tileSize)
 
-	hit := monster.NewMonster3DFromConfig(12*tileSize, 13*tileSize, "goblin", cfg)
-	nearSame := monster.NewMonster3DFromConfig(18*tileSize, 13*tileSize, "goblin", cfg) // 6 tiles from the hit goblin
-	farSame := monster.NewMonster3DFromConfig(22*tileSize, 13*tileSize, "goblin", cfg)  // 10 tiles from the hit goblin
-	nearOther := monster.NewMonster3DFromConfig(12*tileSize, 19*tileSize, "orc", cfg)   // 6 tiles away, different type
+	hit := monster.NewMonster3DFromConfig(20.5*tileSize, 13.5*tileSize, "goblin", cfg)
+	nearSame := monster.NewMonster3DFromConfig(26.5*tileSize, 13.5*tileSize, "goblin", cfg)    // 6 from hit; 16 from party
+	farSame := monster.NewMonster3DFromConfig(30.5*tileSize, 13.5*tileSize, "goblin", cfg)     // 10 from hit: outside pack
+	nearOther := monster.NewMonster3DFromConfig(20.5*tileSize, 19.5*tileSize, "orc", cfg)      // 6 from hit; different type
+	beyondLeash := monster.NewMonster3DFromConfig(27.5*tileSize, 13.5*tileSize, "goblin", cfg) // 7 from hit; 17 from party
 
-	worldTest.Monsters = []*monster.Monster3D{hit, nearSame, farSame, nearOther}
+	worldTest.Monsters = []*monster.Monster3D{hit, nearSame, farSame, nearOther, beyondLeash}
 	worldTest.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
 	game.combat.ApplyDamageToMonster(hit, 1, "Test", false)
@@ -42,10 +41,13 @@ func TestTurnBasedHitEngagesPack(t *testing.T) {
 	if nearOther.IsEngagingPlayer {
 		t.Fatalf("expected nearby different-type monster to remain disengaged")
 	}
+	if beyondLeash.IsEngagingPlayer || beyondLeash.WasAttacked {
+		t.Fatal("pack response bypassed the maximum party pursuit range")
+	}
 
 	// Setup: both goblins sit past their own sight, so only the TB pack rule
 	// (and the hit) can engage them.
-	for _, m := range []*monster.Monster3D{hit, farSame} {
+	for _, m := range []*monster.Monster3D{hit, nearSame, farSame} {
 		if Distance(game.camera.X, game.camera.Y, m.X, m.Y) <= m.AlertRadius {
 			t.Fatalf("setup: %s must be outside its own alert radius", m.ID)
 		}
@@ -62,12 +64,16 @@ func TestTurnBasedHitEngagesPack(t *testing.T) {
 	gl := &GameLoop{game: game}
 
 	oldHitX, oldHitY := hit.X, hit.Y
+	oldNearX, oldNearY := nearSame.X, nearSame.Y
 	oldFarX, oldFarY := farSame.X, farSame.Y
 
 	gl.updateMonstersTurnBased()
 
 	if hit.X == oldHitX && hit.Y == oldHitY {
 		t.Fatalf("expected engaged monster outside its alert radius to act in turn-based mode")
+	}
+	if nearSame.X == oldNearX && nearSame.Y == oldNearY {
+		t.Fatal("pack member at the pursuit boundary did not act")
 	}
 	if farSame.X != oldFarX || farSame.Y != oldFarY {
 		t.Fatalf("expected disengaged monster outside its alert radius to remain idle")

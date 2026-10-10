@@ -45,10 +45,6 @@ func previewEquippedItem(cs *CombatSystem, original *character.MMCharacter, item
 	return candidate, preview
 }
 
-func buildEquipmentComparisonLines(item items.Item, original *character.MMCharacter, cs *CombatSystem, slot items.EquipSlot) []string {
-	return buildEquipmentComparisonRows(item, original, cs, slot).Lines()
-}
-
 func buildEquipmentComparisonRows(item items.Item, original *character.MMCharacter, cs *CombatSystem, slot items.EquipSlot) character.CardRows {
 	before, beforeCS := equipmentComparisonContext(cs, original)
 	after, afterCS := previewEquippedItem(cs, original, item, slot)

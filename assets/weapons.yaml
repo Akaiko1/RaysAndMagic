@@ -7,12 +7,51 @@
 #   hitbox: standard | wide - closed set; sizes live in config.yaml world.projectile_hitboxes
 
 weapons:
+  duskneedle:
+    name: "Duskneedle"
+    description: "A moth-wing bow whose limbs stiffen beneath the night sky"
+    category: "bow"
+    damage: 12
+    range: 7
+    bonus_stat: "Accuracy"
+    crit_chance: 12
+    rarity: "uncommon"
+    value: 320
+    night_base_damage_multiplier: 2
+    physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
+    graphics: {projectile_fx: duskneedle, max_size: 22, min_size: 3, base_size: 12, color: [165, 140, 195]}
+  shellknocker:
+    name: "Shellknocker"
+    description: "A broad scarab-shell axe that hardens its wielder's guard on impact"
+    category: "axe"
+    damage: 15
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 9
+    rarity: "uncommon"
+    value: 320
+    hit_shell_absorption: 15
+    melee: {arc_type: 3, animation_frames: 12}
+    graphics: {slash_fx: shellknocker, slash_color: [190, 155, 70], slash_width: 38, slash_length: 60}
+  rainfang:
+    name: "Rainfang"
+    description: "A crystalline serpent fang that releases pockets of scalding rain"
+    category: "dagger"
+    damage: 9
+    range: 1
+    bonus_stat: "Accuracy"
+    crit_chance: 16
+    rarity: "uncommon"
+    value: 320
+    attack_zone_proc: {spell: hot_steam, chance_pct: 3, intellect: 50}
+    melee: {arc_type: 1, animation_frames: 6}
+    graphics: {slash_fx: rainfang, slash_color: [125, 205, 215], slash_width: 24, slash_length: 38}
   solstice_thermal_lance:
     name: "Thermal Lance"
     description: "The obsidian point drives heat into its target; the bronze collar vents on the third strike."
     category: "spear"
     damage: 32
-    range: 1
+    range: 2
     bonus_stat: "Might"
     damage_type: "fire"
     crit_chance: 10
@@ -69,6 +108,7 @@ weapons:
       arc_type: 2
       animation_frames: 8
     graphics:
+      slash_lift_ratio: 0.067
       slash_fx: "solstice_anchor"
       slash_color: [140, 155, 80]
       slash_width: 32
@@ -184,6 +224,7 @@ weapons:
 
     # Visual effects for slash animation
     graphics:
+      slash_lift_ratio: 0.114
       slash_color: [255, 255, 100]  # Holy golden flash
       slash_width: 40
       slash_length: 56
@@ -208,6 +249,7 @@ weapons:
 
     # Visual effects for slash animation
     graphics:
+      slash_lift_ratio: 0.114
       slash_color: [200, 200, 200]  # Steel flash
       slash_width: 40
       slash_length: 56
@@ -868,6 +910,7 @@ weapons:
       arc_type: 2
       animation_frames: 11
     graphics:
+      slash_lift_ratio: 0.086
       slash_color: [170, 150, 120]
       slash_width: 42
       slash_length: 56
@@ -974,6 +1017,7 @@ weapons:
       arc_type: 2
       animation_frames: 10
     graphics:
+      slash_lift_ratio: 0.114
       slash_color: [210, 200, 170]
       slash_width: 40
       slash_length: 52
@@ -1040,6 +1084,7 @@ weapons:
       arc_type: 3
       animation_frames: 12
     graphics:
+      slash_lift_ratio: 0.156
       slash_color: [220, 180, 90]
       slash_width: 46
       slash_length: 58
@@ -1275,7 +1320,7 @@ weapons:
 
   bronze_cesti:
     name: "Bronze Cesti"
-    description: "Paired bronze-plated battle gloves - every swing lands twice"
+    description: "Paired bronze-plated battle gloves"
     category: "dagger"
     damage: 10
     range: 1
@@ -1365,6 +1410,7 @@ weapons:
       arc_type: 2
       animation_frames: 11
     graphics:
+      slash_lift_ratio: 0.074
       slash_color: [235, 215, 160]
       slash_fx: "clock_chime"
       slash_width: 44
@@ -1538,7 +1584,7 @@ weapons:
     no_loot: true
     flavor: "Hatch, little one."
     melee:
-      arc_type: 1
+      arc_type: 2
       animation_frames: 12
     graphics:
       slash_color: [255, 140, 40]
@@ -1631,7 +1677,7 @@ weapons:
     no_loot: true
     flavor: "The roar breaks what the steel forgives."
     melee:
-      arc_type: 1
+      arc_type: 2
       animation_frames: 13
     graphics:
       slash_color: [200, 170, 120]
@@ -1823,3 +1869,11 @@ weapon_cooldown_multipliers:
   mace: 1.15
   bow: 1.2
   axe: 1.35
+
+# Minimum reach per weapon class (category), checked at load. A weapon may go
+# above its class floor - classes have no maximums - but never below it.
+#   range    - reach in tiles
+#   arc_type - melee swing shape: 1 single, 2 front+flank, 3 three, 4 five
+weapon_class_minimums:
+  spear: {range: 2}
+  mace: {arc_type: 2}

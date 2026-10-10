@@ -21,15 +21,16 @@ func TestMonsterStackCannotMoveTowardParty(t *testing.T) {
 					m := monster.NewMonster3DFromConfig(g.camera.X+dx*ts, g.camera.Y+dy*ts, "goblin", g.config)
 					m.BeginPlayerEngagement()
 					if stack == "transit" {
-						m.TransitStackCount = 2
-						m.TransitStackOffsetX = -dx * .2 * ts
-						m.TransitStackOffsetY = -dy * .2 * ts
+						m.TransitStackCount = 8
 					} else {
 						m.BandStackCount = 8
 					}
 					r := &Renderer{game: g}
 					for i := 0; i < 8; i++ {
 						m.BandStackIndex = i
+						m.TransitStackIndex = i
+						m.TransitStackActive = stack == "transit"
+						m.TransitStackOffsetX, m.TransitStackOffsetY = bandFanOffset(i, 8, ts)
 						x, y := r.monsterVisualPosition(m)
 						if (x-g.camera.X)*dx+(y-g.camera.Y)*dy < ts-1e-8 {
 							t.Fatal("stack fan moved hostile closer than its attack post")

@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 	"testing"
+	"ugataima/internal/monster"
 )
 
 // Sprite depth and size come from the PERPENDICULAR camera distance, not the
@@ -63,5 +64,75 @@ func TestSpriteUsesPerpendicularDistance(t *testing.T) {
 				t.Fatalf("size/bottom = %.3f/%.3f, want %.3f/%.3f from the perpendicular depth", size, bottom, wantSize, wantBottom)
 			}
 		})
+	}
+}
+
+// A view preference is presentation only, including the pixel-pick geometry
+// and impacts. A camera crossing must release the correction instead of pinning
+// the creature to the HUD while its projected size grows without bound.
+func TestMonsterViewPresentation(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
+	g.renderHelper = NewRenderingHelper(g)
+	g.showPartyStats = true
+	g.camera.X, g.camera.Y, g.camera.Angle = 320, 320, 0
+	g.camera.FOV = squareProjectionFOV(g.worldWidth(), g.worldHeight())
+	g.camera.ViewDist = cfg.GetViewDistance()
+	ts := cfg.GetTileSize()
+	logical := *g.camera
+	for _, wide := range []bool{false, true} {
+		g.combatPreferences.WideView = wide
+		for _, key := range []string{"bat", "rat", "goblin", "troll", "mountain_troll", "orc_hero_boss", "dragon"} {
+			m := monster.NewMonster3DFromConfig(320+ts, 320, key, cfg)
+			a := visualAnchorFor(m)
+			_, ground, size, ok := g.renderHelper.CalculateMonsterSpriteMetricsF(m.X, m.Y, ts, a.sizeTiles)
+			if !ok {
+				t.Fatal("one-tile monster not projected")
+			}
+			bottom := a.bottom(g, ts, ground, size)
+			if wide && (bottom > float64(worldViewportBottom(g)) || bottom-size < 0) {
+				t.Fatalf("Wide clips %s at one tile: %.2f..%.2f", key, bottom-size, bottom)
+			}
+			if !wide && size < float64(2*worldViewportBottom(g)-g.worldHeight()) && !m.Flying && bottom > float64(worldViewportBottom(g))+.01 {
+				t.Fatalf("Classic did not clear HUD for %s", key)
+			}
+			if math.Abs(a.centerOffset(g, ts)-(bottom-size/2-g.viewHorizon())) > 1e-6 {
+				t.Fatal("impact anchor disagrees with sprite")
+			}
+			c := &monsterCorpse{sizeTiles: a.sizeTiles, flying: a.flying, arborealHeight: a.heightTiles, started: g.frameCount}
+			if got := g.corpseBottom(c, ts, ground, size); math.Abs(got-bottom) > 1e-6 {
+				t.Fatal("death moved the live anchor")
+			}
+			g.frameCount += int64(math.Ceil(g.monsterDeathSettings().FallSeconds * float64(cfg.GetTPS())))
+			groundAnchor := a
+			groundAnchor.flying = false
+			groundAnchor.heightTiles = 0
+			if got := g.corpseBottom(c, ts, ground, size); math.Abs(got-groundAnchor.bottom(g, ts, ground, size)) > 1e-6 {
+				t.Fatal("corpse landed behind the grounded body anchor")
+			}
+
+		}
+		if *g.camera != logical {
+			t.Fatal("view altered logical camera")
+		}
+	}
+	g.combatPreferences.WideView = false
+	lastLift := math.Inf(1)
+	for depth := ts; depth >= ts*.2; depth -= ts * .01 {
+		ground := g.renderHelper.calculateFloorScreenYF(depth)
+		size := g.viewFocal() * .35 * ts / depth
+		lift := g.monsterHUDLift(depth, ground, size)
+		if lift < 0 || lift > float64(g.worldHeight()-worldViewportBottom(g)) || lift > lastLift+1e-6 {
+			t.Fatal("camera crossing increased the lift")
+		}
+		if depth <= cfg.Graphics.View.LiftFadeTiles*ts && lift != 0 {
+			t.Fatal("lift survives near camera")
+		}
+		lastLift = lift
+	}
+	for _, depth := range []float64{0, -ts} {
+		if g.monsterHUDLift(depth, 1000, 800) != 0 {
+			t.Fatal("lift exists behind camera")
+		}
 	}
 }

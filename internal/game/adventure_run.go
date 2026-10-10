@@ -58,21 +58,48 @@ func (g *MMGame) capAdventureExperience(hero *character.MMCharacter, key string,
 	return gain
 }
 
-func (g *MMGame) adventureKillExperience(m *monster.Monster3D, xp int) (int, bool) {
+type killXPShare struct {
+	hero   *character.MMCharacter
+	amount int
+}
+
+type adventureKillXPPreview struct {
+	total               int
+	chamber             bool
+	activeLimited       bool
+	activeShares        []killXPShare
+	recipients, atLimit int
+}
+
+// Preview is read-only and uses the same Learning and budget rules as grants.
+// Totals include reserves for reward accounting, never for the ordinary log.
+func (g *MMGame) adventureKillExperience(m *monster.Monster3D, xp int) adventureKillXPPreview {
+	result := adventureKillXPPreview{total: xp}
 	key := m.HomeMap
 	if key == "" {
 		key = currentMapKey()
 	}
 	a := g.adventureConfig(key)
-	if a == nil || a.ExperienceCap <= 0 || g.party == nil {
-		return xp, false
+	if a == nil || a.ExperienceCap <= 0 || g.party == nil || xp <= 0 {
+		return result
 	}
-	amount, teacher, total := g.xpShare(xp), g.learningTeacherBonusPct(), 0
-	g.forEachLivingXPRecipient(func(hero *character.MMCharacter, _ bool) {
+	result.total, result.chamber = 0, true
+	amount, teacher := g.xpShare(xp), g.learningTeacherBonusPct()
+	g.forEachLivingXPRecipient(func(hero *character.MMCharacter, active bool) {
 		gain := experienceWithLearning(hero, amount, teacher)
-		total += g.remainingAdventureExperience(hero, key, gain)
+		actual := g.remainingAdventureExperience(hero, key, gain)
+		result.total += actual
+		result.recipients++
+		earned, cap := g.adventureExperienceBudget(hero, key)
+		if earned.Amount+actual >= cap {
+			result.atLimit++
+		}
+		if active {
+			result.activeShares = append(result.activeShares, killXPShare{hero: hero, amount: actual})
+			result.activeLimited = result.activeLimited || actual < gain
+		}
 	})
-	return total, true
+	return result
 }
 
 func (g *MMGame) adventureResetAt(key string, v *AdventureVisit) float64 {

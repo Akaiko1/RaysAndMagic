@@ -43,13 +43,13 @@ func TestSolsticeFlyingLandings(t *testing.T) {
 					c := &g.monsterCorpses[0]
 					settings := g.monsterDeathSettings()
 					const ground, size = 600.0, 120.0
-					air := monsterFlyingBottom(g.worldHeight(), ground, size)
+					air := monsterFlyingBottom(float64(g.worldHeight())/2, ground, size)
 					for _, phase := range []float64{0, 0.5, 1} {
 						g.frameCount = int64(math.Ceil(phase * settings.FallSeconds * float64(g.config.GetTPS())))
 						age := float64(g.frameCount) / float64(g.config.GetTPS())
 						progress := math.Min(1, age/settings.FallSeconds)
 						want := air + (ground-air)*progress*progress
-						if got := g.corpseBottom(c, ground, size); math.Abs(got-want) > 0.01 {
+						if got := g.corpseBottom(c, g.viewFocal()*g.config.GetTileSize()/(2*(ground-g.viewHorizon())), ground, size); math.Abs(got-want) > 0.01 {
 							t.Fatalf("phase %v: body bottom %v, want %v", phase, got, want)
 						}
 						if _, opacity := g.corpseFrameAndOpacity(c); opacity < 0.98 {

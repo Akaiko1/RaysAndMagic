@@ -111,6 +111,8 @@ type mapRenderStandeeJob struct {
 	key    standeeCoreKey
 	source *ebiten.Image
 	cpu    *image.RGBA
+	// Resolved on the main thread; workers never read renderer state.
+	silhouetteEdge bool
 }
 
 type mapRenderPreparedStandee struct {
@@ -387,16 +389,6 @@ func sortedStringSet(set map[string]struct{}) []string {
 	return out
 }
 
-// collectMapRenderPrewarmPlan enumerates every resource the requested logical
-// map can reveal later. In the unified open world, mapKey scopes both source
-// images and derived resources to one placed region; the previous region stays
-// resident across a seam. In particular it includes authored respawns, both
-// day/night packs, NPC-triggered and boss-triggered summons, visited NPC art,
-// encounter reward chests, and the indexed loot-bag family.
-func (r *Renderer) collectMapRenderPrewarmPlan(mapKey string) mapRenderPrewarmPlan {
-	return r.collectMapRenderPrewarmPlanForScope(r.mapRenderPrewarmScope(mapKey))
-}
-
 // mapRenderPrewarmPriorities is the camera-dependent companion of a plan: the
 // minimal stream score seen per normalized sprite name. Smaller warms earlier.
 // The plan itself stays camera-independent; this is recomputed from the live
@@ -522,15 +514,18 @@ func resolveMonsterPrewarmResources(seeds map[string]float64, priorities mapRend
 	return resources
 }
 
-func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmScope) mapRenderPrewarmPlan {
-	plan, _ := r.collectMapRenderPrewarmPlanAndPriorities(scope)
-	return plan
-}
-
-// collectMapRenderPrewarmPlanAndPriorities makes ONE walk over the authored
-// use sites and returns both outputs of it: the camera-independent plan and
-// its camera-dependent stream priorities (each name's best mapRenderStreamScore
-// across the sites that were visited with a position in hand).
+// collectMapRenderPrewarmPlanAndPriorities enumerates every resource the
+// requested logical map can reveal later. In the unified open world, the scope
+// limits both source images and derived resources to one placed region; the
+// previous region stays resident across a seam. In particular it includes
+// authored respawns, both day/night packs, NPC-triggered and boss-triggered
+// summons, visited NPC art, encounter reward chests, and the indexed loot-bag
+// family.
+//
+// It makes ONE walk over the authored use sites and returns both outputs of it:
+// the camera-independent plan and its camera-dependent stream priorities (each
+// name's best mapRenderStreamScore across the sites that were visited with a
+// position in hand).
 func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewarmScope) (mapRenderPrewarmPlan, mapRenderPrewarmPriorities) {
 	var plan mapRenderPrewarmPlan
 	priorities := make(mapRenderPrewarmPriorities)
@@ -544,7 +539,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 	mapKey := scope.mapKey
 	streamScoreAt := func(x, y float64) float64 {
 		if cam := r.game.camera; cam != nil {
-			return mapRenderStreamScore(cam.X, cam.Y, cam.Angle, cam.FOV, x, y)
+			return mapRenderStreamScore(cam.X, cam.Y, cam.Angle, r.game.viewFOV(), x, y)
 		}
 		return math.Inf(1)
 	}
@@ -796,9 +791,14 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 			}
 		}
 		for _, population := range ecology.Populations {
-			if population.Map == mapKey && len(monsterSpecialAnimations(population.Monster)) > 0 {
-				observeMinScore(decodeMonsterKeys, population.Monster, math.Inf(1))
-				observeMinScore(monsterKeys, population.Monster, math.Inf(1))
+			if population.Map != mapKey {
+				continue
+			}
+			for _, species := range population.Species() {
+				if len(monsterSpecialAnimations(species)) > 0 {
+					observeMinScore(decodeMonsterKeys, species, math.Inf(1))
+					observeMinScore(monsterKeys, species, math.Inf(1))
+				}
 			}
 		}
 	}
@@ -1132,7 +1132,7 @@ func (p *mapRenderPrewarmer) standee(prefix, name string, img *ebiten.Image, sta
 	p.resources.standees[key] = struct{}{}
 	cpu := p.cpuImage(img)
 	if cpu != nil && p.task != nil {
-		p.task.standeeJobs = append(p.task.standeeJobs, mapRenderStandeeJob{key: key, source: img, cpu: cpu})
+		p.task.standeeJobs = append(p.task.standeeJobs, mapRenderStandeeJob{key: key, source: img, cpu: cpu, silhouetteEdge: p.renderer.standeeCoreFromEdge(key.name)})
 		p.stats.standeeFrames++
 		return true
 	}
@@ -1191,7 +1191,7 @@ func prepareMapRenderStandees(ctx context.Context, jobs []mapRenderStandeeJob, t
 				lease:    lease,
 				key:      job.key,
 				source:   job.source,
-				prepared: prepareStandeePixels(job.cpu, tint, true),
+				prepared: prepareStandeePixels(job.cpu, tint, true, job.silhouetteEdge),
 			}
 			lease.ReleaseOnCancel(ctx)
 			jobs[i] = mapRenderStandeeJob{}
@@ -1448,15 +1448,16 @@ func mapRenderRegionIntersectsView(region *world.OpenWorldRegion, tileSize, came
 	return false
 }
 
-func visibleOpenWorldMapKeys(wm *world.WorldManager, camera *FirstPersonCamera, tileSize, fovMargin, distanceMargin float64) []string {
+func visibleOpenWorldMapKeys(wm *world.WorldManager, camera *FirstPersonCamera, tileSize, fovMargin, distanceMargin float64, viewFOV float64) []string {
 	if wm == nil || camera == nil || tileSize <= 0 {
 		return nil
 	}
+	fov := viewFOV
 	keys := make([]string, 0, len(wm.OpenWorldRegions))
 	for i := range wm.OpenWorldRegions {
 		region := &wm.OpenWorldRegions[i]
 		if mapRenderRegionIntersectsView(region, tileSize, camera.X, camera.Y, camera.Angle,
-			camera.FOV+fovMargin, camera.ViewDist+distanceMargin) {
+			fov+fovMargin, camera.ViewDist+distanceMargin) {
 			keys = append(keys, region.MapKey)
 		}
 	}
@@ -2392,9 +2393,10 @@ func (r *Renderer) finalizeMapRenderPrewarm(task *mapRenderPrewarmTask) {
 	_, _ = r.ensureFloorShader()
 	_, _ = r.ensureAuraCurtainShader()
 	_ = r.ensureWeaponMaterialShaders()
+	_ = r.ensureWorldMaterial()
 	_, _ = r.game.ensureSkyShader()
 	p.stats.uploadImages = len(p.uploads)
-	if !r.auraCurtainWarmed || !r.weaponMaterialWarmed || p.shaderStickerMips != nil && p.shaderCoreMips != nil {
+	if !r.auraCurtainWarmed || !r.weaponMaterialWarmed || !r.worldMesh.warmed || p.shaderStickerMips != nil && p.shaderCoreMips != nil {
 		r.mapRenderShaderWarmTasks = append(r.mapRenderShaderWarmTasks, task)
 	}
 }
@@ -2606,6 +2608,7 @@ func (r *Renderer) drawMapRenderShaderWarm(screen *ebiten.Image) {
 		}
 		r.drawAuraCurtainShaderWarm(screen)
 		r.drawWeaponMaterialWarm(screen)
+		r.drawWorldMaterialWarm(screen)
 		r.drawMapRenderStandeeShaderWarm(screen, task)
 		return
 	}
@@ -2646,14 +2649,16 @@ func (r *Renderer) drawMapRenderStandeeShaderWarm(target *ebiten.Image, task *ma
 	if r.standeeVolumeShader != nil {
 		for i := range vertices {
 			vertices[i].SrcX = srcX + 1
-			vertices[i].ColorG = 100
+			vertices[i].ColorG = 1.0 / 100
 			vertices[i].ColorA = standeeVolumeMinShells + 0.0625
 			vertices[i].Custom0 = 0.5
 			vertices[i].Custom1 = 1
 			vertices[i].Custom2 = 0.25
 			vertices[i].Custom3 = 0.5
 		}
-		target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, shaderOpts())
+		opts := shaderOpts()
+		opts.Uniforms = map[string]any{"Horizon": float32(target.Bounds().Dy()) / 2}
+		target.DrawTrianglesShader32(vertices, indices, r.standeeVolumeShader, opts)
 	}
 }
 

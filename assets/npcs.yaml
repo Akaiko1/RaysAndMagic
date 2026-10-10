@@ -9,9 +9,40 @@
 # PLACEMENT FORMAT:
 # Use [npc:key] in map files to place NPCs
 # The key corresponds to an NPC definition in this file
+# Editor availability is authored through biomes, just like terrain and monsters.
+# Single-map NPCs use that map's biome; shared NPCs use [] for all biomes.
+# Maps sharing a biome share its palette. Placements do not change this at runtime.
 
 npcs:
+  thieves_guild:
+    biomes: [forest, desert, highlands, dragon_cliffs, jungle, japanese_castle, sakura_garden]
+    name: "Thieves' Guild"
+    description: "A discreet guild house with intelligence on restocks and returning dangers."
+    type: thieves_guild
+    sprite: thieves_guild
+    render_category: landmark
+    size_class: structure
+    prompt_verb: enter
+    guild:
+      membership_gold: 5000
+      non_key_doors_opened: 1
+      art:
+        merchant: guild_merchant
+        town: guild_town
+        dungeon: guild_dungeon
+        creature: guild_creature
+        wildlife: guild_wildlife
+        caravan: guild_caravan
+    prop_model:
+      shape: thieves_guild
+      body: [128, 119, 102]
+      trim: [110, 74, 42]
+      yaw_degrees: 180
+      use_seconds: 1
+    dialogue:
+      greeting: "We keep track of full shelves, empty lairs, and creatures too stubborn to stay dead. Open a locked door without a key first. A deft hand or a sturdy shoulder will do."
   solstice_fire_coolant_west:
+    biomes: ["solstice_fire"]
     name: "Coolant West"
     type: "encounter"
     sprite: "solstice_coolant_control"
@@ -23,6 +54,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Cool the archive vent, kiln channel and western arena strip.", "action": "adventure_control", "control": "coolant_west"}, {"text": "Leave.", "action": "leave"}]
   solstice_fire_coolant_east:
+    biomes: ["solstice_fire"]
     name: "Coolant East"
     type: "encounter"
     sprite: "solstice_coolant_control"
@@ -34,6 +66,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Bleed the eastern strip and lower firing row.", "action": "adventure_control", "control": "coolant_east"}, {"text": "Leave.", "action": "leave"}]
   solstice_fire_exit:
+    biomes: ["solstice_fire"]
     name: "Receiving Threshold"
     type: "encounter"
     sprite: "solstice_exit_arch"
@@ -44,6 +77,7 @@ npcs:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
   solstice_fire_cache:
+    biomes: ["solstice_fire"]
     name: "Service Archive Cache"
     type: "loot_crate"
     sprite: "solstice_archive_cache"
@@ -51,6 +85,7 @@ npcs:
     transparent: true
     size_class: "small_prop"
   solstice_water_intake_sluice:
+    biomes: ["solstice_water"]
     name: "Intake Sluice"
     type: "encounter"
     sprite: "solstice_sluice_control"
@@ -62,6 +97,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Close Neressa's healing intake.", "action": "adventure_control", "control": "intake_sluice"}, {"text": "Leave.", "action": "leave"}]
   solstice_water_return_sluice:
+    biomes: ["solstice_water"]
     name: "Return Sluice"
     type: "encounter"
     sprite: "solstice_sluice_control"
@@ -73,6 +109,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Open the current to the chamber entrance.", "action": "adventure_control", "control": "return_sluice"}, {"text": "Leave.", "action": "leave"}]
   solstice_water_exit:
+    biomes: ["solstice_water"]
     name: "Receiving Threshold"
     type: "encounter"
     sprite: "solstice_exit_arch"
@@ -83,6 +120,7 @@ npcs:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
   solstice_water_cache:
+    biomes: ["solstice_water"]
     name: "Service Archive Cache"
     type: "loot_crate"
     sprite: "solstice_archive_cache"
@@ -90,6 +128,7 @@ npcs:
     transparent: true
     size_class: "small_prop"
   solstice_earth_security_bypass:
+    biomes: ["solstice_earth"]
     name: "Security Bypass"
     type: "encounter"
     sprite: "solstice_brace_control"
@@ -101,6 +140,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_0"}, {"text": "Leave.", "action": "leave"}]
   solstice_earth_brace_one:
+    biomes: ["solstice_earth"]
     name: "Brace One"
     type: "encounter"
     sprite: "solstice_brace_control"
@@ -112,6 +152,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Release Talura's armor brace.", "action": "adventure_control", "control": "brace_one"}, {"text": "Disarm the pressure plate circuit.", "action": "disarm_environment", "control": "plate_row_1"}, {"text": "Leave.", "action": "leave"}]
   solstice_earth_brace_two:
+    biomes: ["solstice_earth"]
     name: "Brace Two"
     type: "encounter"
     sprite: "solstice_brace_control"
@@ -123,6 +164,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Lock the north plate and lower firing row.", "action": "adventure_control", "control": "brace_two"}, {"text": "Leave.", "action": "leave"}]
   solstice_earth_brace_three:
+    biomes: ["solstice_earth"]
     name: "Brace Three"
     type: "encounter"
     sprite: "solstice_brace_control"
@@ -134,6 +176,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Lock the south plate and final ground shock.", "action": "adventure_control", "control": "brace_three"}, {"text": "Leave.", "action": "leave"}]
   solstice_earth_exit:
+    biomes: ["solstice_earth"]
     name: "Receiving Threshold"
     type: "encounter"
     sprite: "solstice_exit_arch"
@@ -144,6 +187,7 @@ npcs:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
   solstice_earth_cache:
+    biomes: ["solstice_earth"]
     name: "Service Archive Cache"
     type: "loot_crate"
     sprite: "solstice_archive_cache"
@@ -151,6 +195,7 @@ npcs:
     transparent: true
     size_class: "small_prop"
   solstice_air_gallery_vane:
+    biomes: ["solstice_air"]
     name: "Gallery Vane"
     type: "encounter"
     sprite: "solstice_vane_control"
@@ -162,6 +207,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Operate the control.", "action": "adventure_control", "control": "gallery_vane"}, {"text": "Leave.", "action": "leave"}]
   solstice_air_hub_vane:
+    biomes: ["solstice_air"]
     name: "Hub Vane"
     type: "encounter"
     sprite: "solstice_vane_control"
@@ -173,6 +219,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Open the return crossing and arena escape currents.", "action": "adventure_control", "control": "hub_vane"}, {"text": "Leave.", "action": "leave"}]
   solstice_air_exit:
+    biomes: ["solstice_air"]
     name: "Receiving Threshold"
     type: "encounter"
     sprite: "solstice_exit_arch"
@@ -183,6 +230,7 @@ npcs:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Receiving Threshold.", "action": "enter_map", "map": "solstice_vestibule"}, {"text": "Stay here.", "action": "leave"}]
   solstice_air_cache:
+    biomes: ["solstice_air"]
     name: "Service Archive Cache"
     type: "loot_crate"
     sprite: "solstice_archive_cache"
@@ -190,6 +238,7 @@ npcs:
     transparent: true
     size_class: "small_prop"
   solstice_survey_marker_1:
+    biomes: ["jungle"]
     name: "Survey Marker 1"
     type: "encounter"
     sprite: "solstice_survey_marker"
@@ -201,6 +250,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Survey Marker 1.", "action": "prop", "quest_id": "solstice_survey", "prop": {"tag": "solstice_survey", "token": "marker_1", "not_yet": "Velna has not asked for this work yet.", "took": "Survey Marker 1 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_survey_marker_2:
+    biomes: ["jungle"]
     name: "Survey Marker 2"
     type: "encounter"
     sprite: "solstice_survey_marker"
@@ -212,6 +262,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Survey Marker 2.", "action": "prop", "quest_id": "solstice_survey", "prop": {"tag": "solstice_survey", "token": "marker_2", "not_yet": "Velna has not asked for this work yet.", "took": "Survey Marker 2 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_survey_marker_3:
+    biomes: ["jungle"]
     name: "Survey Marker 3"
     type: "encounter"
     sprite: "solstice_survey_marker"
@@ -223,6 +274,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Survey Marker 3.", "action": "prop", "quest_id": "solstice_survey", "prop": {"tag": "solstice_survey", "token": "marker_3", "not_yet": "Velna has not asked for this work yet.", "took": "Survey Marker 3 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_expedition_instrument:
+    biomes: ["jungle"]
     name: "Instrument"
     type: "encounter"
     sprite: "solstice_survey_instrument"
@@ -234,6 +286,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Instrument.", "action": "prop", "quest_id": "solstice_expedition", "prop": {"tag": "solstice_expedition", "token": "instrument", "not_yet": "Velna has not asked for this work yet.", "took": "Instrument is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_expedition_page_1:
+    biomes: ["jungle"]
     name: "Page 1"
     type: "encounter"
     sprite: "solstice_field_notes"
@@ -245,6 +298,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Page 1.", "action": "prop", "quest_id": "solstice_expedition", "prop": {"tag": "solstice_expedition", "token": "page_1", "not_yet": "Velna has not asked for this work yet.", "took": "Page 1 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_expedition_page_2:
+    biomes: ["jungle"]
     name: "Page 2"
     type: "encounter"
     sprite: "solstice_field_notes"
@@ -256,6 +310,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Page 2.", "action": "prop", "quest_id": "solstice_expedition", "prop": {"tag": "solstice_expedition", "token": "page_2", "not_yet": "Velna has not asked for this work yet.", "took": "Page 2 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_expedition_page_3:
+    biomes: ["jungle"]
     name: "Page 3"
     type: "encounter"
     sprite: "solstice_field_notes"
@@ -267,6 +322,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Page 3.", "action": "prop", "quest_id": "solstice_expedition", "prop": {"tag": "solstice_expedition", "token": "page_3", "not_yet": "Velna has not asked for this work yet.", "took": "Page 3 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_anchors_recover_fire:
+    biomes: ["jungle"]
     name: "Fire Bearing"
     type: "encounter"
     sprite: "solstice_fire_socket"
@@ -278,6 +334,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Fire Bearing.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "recover_fire", "not_yet": "Velna has not asked for this work yet.", "took": "Fire Bearing is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_anchors_install_fire:
+    biomes: ["jungle"]
     name: "Fire Socket"
     type: "encounter"
     sprite: "solstice_fire_socket"
@@ -289,6 +346,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Fire Socket.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "install_fire", "not_yet": "Velna has not asked for this work yet.", "took": "Fire Socket is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_anchors_recover_water:
+    biomes: ["jungle"]
     name: "Water Bearing"
     type: "encounter"
     sprite: "solstice_water_socket"
@@ -300,6 +358,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Water Bearing.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "recover_water", "not_yet": "Velna has not asked for this work yet.", "took": "Water Bearing is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_anchors_install_water:
+    biomes: ["jungle"]
     name: "Water Socket"
     type: "encounter"
     sprite: "solstice_water_socket"
@@ -311,6 +370,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Water Socket.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "install_water", "not_yet": "Velna has not asked for this work yet.", "took": "Water Socket is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_anchors_recover_earth:
+    biomes: ["jungle"]
     name: "Earth Bearing"
     type: "encounter"
     sprite: "solstice_earth_socket"
@@ -322,6 +382,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Earth Bearing.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "recover_earth", "not_yet": "Velna has not asked for this work yet.", "took": "Earth Bearing is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_anchors_install_earth:
+    biomes: ["jungle"]
     name: "Earth Socket"
     type: "encounter"
     sprite: "solstice_earth_socket"
@@ -333,6 +394,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Earth Socket.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "install_earth", "not_yet": "Velna has not asked for this work yet.", "took": "Earth Socket is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_anchors_recover_air:
+    biomes: ["jungle"]
     name: "Air Bearing"
     type: "encounter"
     sprite: "solstice_air_socket"
@@ -344,6 +406,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Air Bearing.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "recover_air", "not_yet": "Velna has not asked for this work yet.", "took": "Air Bearing is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_anchors_install_air:
+    biomes: ["jungle"]
     name: "Air Socket"
     type: "encounter"
     sprite: "solstice_air_socket"
@@ -355,6 +418,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Air Socket.", "action": "prop", "quest_id": "solstice_anchors", "prop": {"tag": "solstice_anchors", "token": "install_air", "not_yet": "Velna has not asked for this work yet.", "took": "Air Socket is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_schedule_day_reading:
+    biomes: ["jungle"]
     name: "Day Reading"
     type: "encounter"
     sprite: "solstice_console"
@@ -366,6 +430,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Day Reading.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "day_reading", "not_yet": "Velna has not asked for this work yet.", "took": "Day Reading is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_schedule_night_reading:
+    biomes: ["jungle"]
     name: "Night Reading"
     type: "encounter"
     sprite: "solstice_console"
@@ -377,6 +442,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Night Reading.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "night_reading", "not_yet": "Velna has not asked for this work yet.", "took": "Night Reading is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_schedule_alignment:
+    biomes: ["jungle"]
     name: "Schedule Disc"
     type: "encounter"
     sprite: "solstice_console"
@@ -388,6 +454,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Set position 1.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "1"}}, {"text": "Set position 2.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "2"}}, {"text": "Set position 3.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "3"}}, {"text": "Set position 4.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "4"}}, {"text": "Set position 5.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "5"}}, {"text": "Set position 6.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "6"}}, {"text": "Set position 7.", "action": "prop", "quest_id": "solstice_schedule", "prop": {"tag": "solstice_schedule", "token": "alignment", "not_yet": "Velna has not asked for this work yet.", "took": "Schedule Disc is recorded.", "completed": "Return to camp with the readings.", "step": "7"}}, {"text": "Leave.", "action": "leave"}]
   solstice_connection_receiver:
+    biomes: ["solstice_vestibule"]
     name: "Receiving Anchor"
     type: "encounter"
     sprite: "solstice_receiver"
@@ -399,6 +466,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Receiving Anchor.", "action": "prop", "quest_id": "solstice_connection", "prop": {"tag": "solstice_connection", "token": "receiver", "not_yet": "Velna has not asked for this work yet.", "took": "Receiving Anchor is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_records_fire_record:
+    biomes: ["solstice_fire"]
     name: "Record 1"
     type: "encounter"
     sprite: "solstice_sera"
@@ -410,6 +478,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Record 1.", "action": "prop", "quest_id": "solstice_records", "prop": {"tag": "solstice_records", "token": "fire_record", "not_yet": "Velna has not asked for this work yet.", "took": "Record 1 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_records_water_record:
+    biomes: ["solstice_water"]
     name: "Record 2"
     type: "encounter"
     sprite: "solstice_sera"
@@ -421,6 +490,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Record 2.", "action": "prop", "quest_id": "solstice_records", "prop": {"tag": "solstice_records", "token": "water_record", "not_yet": "Velna has not asked for this work yet.", "took": "Record 2 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_records_earth_record:
+    biomes: ["solstice_earth"]
     name: "Record 3"
     type: "encounter"
     sprite: "solstice_sera"
@@ -432,6 +502,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Record 3.", "action": "prop", "quest_id": "solstice_records", "prop": {"tag": "solstice_records", "token": "earth_record", "not_yet": "Velna has not asked for this work yet.", "took": "Record 3 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_records_air_record:
+    biomes: ["solstice_air"]
     name: "Record 4"
     type: "encounter"
     sprite: "solstice_sera"
@@ -443,6 +514,7 @@ npcs:
       visited_message: "The work is recorded."
       choices: [{"text": "Record Record 4.", "action": "prop", "quest_id": "solstice_records", "prop": {"tag": "solstice_records", "token": "air_record", "not_yet": "Velna has not asked for this work yet.", "took": "Record 4 is recorded.", "completed": "Return to camp with the readings."}}, {"text": "Leave.", "action": "leave"}]
   solstice_velna:
+    biomes: ["jungle"]
     name: "Velna"
     type: "quest_giver"
     sprite: "solstice_velna"
@@ -480,6 +552,8 @@ npcs:
           completed: "A transfer, a drifting clock, a broken connection, and a return signal arriving first. We have the sequence, but not their final diagnosis."
       choices: [{"text": "We will investigate: The Surveyor's Contradiction.", "action": "give_quest", "quest_id": "solstice_survey"}, {"text": "Report: The Surveyor's Contradiction.", "action": "turn_in_quest", "quest_id": "solstice_survey"}, {"text": "We will investigate: The Missing Expedition.", "action": "give_quest", "quest_id": "solstice_expedition", "requires_quest": "solstice_survey"}, {"text": "Report: The Missing Expedition.", "action": "turn_in_quest", "quest_id": "solstice_expedition", "requires_quest": "solstice_survey"}, {"text": "We will investigate: Four Anchor Points.", "action": "give_quest", "quest_id": "solstice_anchors", "requires_quest": "solstice_expedition"}, {"text": "Report: Four Anchor Points.", "action": "turn_in_quest", "quest_id": "solstice_anchors", "requires_quest": "solstice_expedition"}, {"text": "We will investigate: The Engineers' Schedule.", "action": "give_quest", "quest_id": "solstice_schedule", "requires_quest": "solstice_anchors"}, {"text": "Report: The Engineers' Schedule.", "action": "turn_in_quest", "quest_id": "solstice_schedule", "requires_quest": "solstice_anchors"}, {"text": "We will investigate: The Broken Connection.", "action": "give_quest", "quest_id": "solstice_connection", "requires_quest": "solstice_schedule"}, {"text": "Report: The Broken Connection.", "action": "turn_in_quest", "quest_id": "solstice_connection", "requires_quest": "solstice_schedule"}, {"text": "We will investigate: The Four Experiment Records.", "action": "give_quest", "quest_id": "solstice_records", "requires_quest": "solstice_connection"}, {"text": "Report: The Four Experiment Records.", "action": "turn_in_quest", "quest_id": "solstice_records", "requires_quest": "solstice_connection"}, {"text": "Leave.", "action": "leave"}]
   solstice_tovan:
+    shop_display: merchant_display_supplies
+    biomes: ["jungle"]
     name: "Tovan"
     type: "merchant"
     sprite: "solstice_tovan"
@@ -496,6 +570,7 @@ npcs:
       visited_message: "The stock is dry, labelled, and paid for. That makes it a considerable improvement on the ruins."
       choices: [{"text": "Teach Jump to the selected hero (1000 gold).", "action": "teach_spell", "spell": "jump", "cost": 1000, "requires_quest": "solstice_schedule"}, {"text": "Accept Fire supply commission.", "action": "give_quest", "quest_id": "solstice_fire_commission", "requires_quest": "solstice_records"}, {"text": "Deliver three Heat Resistant Fang.", "action": "prop", "quest_id": "solstice_fire_commission", "prop": {"tag": "solstice_fire_commission", "token": "delivery", "not_yet": "Take the commission first.", "took": "Tovan checks the consignment.", "completed": "The supplies are in order. Claim your payment."}}, {"text": "Claim Fire commission payment.", "action": "turn_in_quest", "quest_id": "solstice_fire_commission"}, {"text": "Exchange 1 Thermal Core and 2 Furnace Ceramic for an Advanced Heat Draught.", "action": "exchange", "requires_quest": "solstice_records", "exchange": {"output": "solstice_fire_advanced_ward", "costs": {"solstice_thermal_core": 1, "solstice_furnace_ceramic": 2}}}, {"text": "Accept Water supply commission.", "action": "give_quest", "quest_id": "solstice_water_commission", "requires_quest": "solstice_records"}, {"text": "Deliver three Coldwater Gland.", "action": "prop", "quest_id": "solstice_water_commission", "prop": {"tag": "solstice_water_commission", "token": "delivery", "not_yet": "Take the commission first.", "took": "Tovan checks the consignment.", "completed": "The supplies are in order. Claim your payment."}}, {"text": "Claim Water commission payment.", "action": "turn_in_quest", "quest_id": "solstice_water_commission"}, {"text": "Exchange 1 Flow Core and 2 Circulation Membrane for an Advanced Flow Draught.", "action": "exchange", "requires_quest": "solstice_records", "exchange": {"output": "solstice_water_advanced_ward", "costs": {"solstice_flow_core": 1, "solstice_circulation_membrane": 2}}}, {"text": "Accept Earth supply commission.", "action": "give_quest", "quest_id": "solstice_earth_commission", "requires_quest": "solstice_records"}, {"text": "Deliver three Mineral Plate.", "action": "prop", "quest_id": "solstice_earth_commission", "prop": {"tag": "solstice_earth_commission", "token": "delivery", "not_yet": "Take the commission first.", "took": "Tovan checks the consignment.", "completed": "The supplies are in order. Claim your payment."}}, {"text": "Claim Earth commission payment.", "action": "turn_in_quest", "quest_id": "solstice_earth_commission"}, {"text": "Exchange 1 Anchor Core and 2 Petrified Conductor for an Advanced Anchor Draught.", "action": "exchange", "requires_quest": "solstice_records", "exchange": {"output": "solstice_earth_advanced_ward", "costs": {"solstice_anchor_core": 1, "solstice_petrified_conductor": 2}}}, {"text": "Accept Air supply commission.", "action": "give_quest", "quest_id": "solstice_air_commission", "requires_quest": "solstice_records"}, {"text": "Deliver three Charged Quill.", "action": "prop", "quest_id": "solstice_air_commission", "prop": {"tag": "solstice_air_commission", "token": "delivery", "not_yet": "Take the commission first.", "took": "Tovan checks the consignment.", "completed": "The supplies are in order. Claim your payment."}}, {"text": "Claim Air commission payment.", "action": "turn_in_quest", "quest_id": "solstice_air_commission"}, {"text": "Exchange 1 Vector Core and 2 Resonance Coil for an Advanced Vector Draught.", "action": "exchange", "requires_quest": "solstice_records", "exchange": {"output": "solstice_air_advanced_ward", "costs": {"solstice_vector_core": 1, "solstice_resonance_coil": 2}}}, {"text": "Exchange 1 Grave Orchid for 900 gold.", "action": "exchange", "exchange": {"gold": 900, "costs": {"grave_orchid": 1}}}, {"text": "Exchange 2 Bitterroots for 1 Dawnleaf.", "action": "exchange", "exchange": {"output": "dawnleaf", "costs": {"bitterroot": 2}}}, {"text": "Leave.", "action": "leave"}]
   solstice_camp:
+    biomes: ["jungle"]
     name: "Survey Camp"
     type: "encounter"
     sprite: "solstice_camp_supplies"
@@ -505,8 +580,24 @@ npcs:
     dialogue:
       greeting: "Dry canvas shelters a small fire and a reliable clock."
       visited_message: "The work is recorded."
-      choices: [{"text": "Wait until dusk (250 gold).", "action": "wait_until_night", "cost": 250}, {"text": "Wait until dawn (250 gold).", "action": "wait_until_dawn", "cost": 250}, {"text": "Take the restored service lift to the threshold.", "action": "enter_map", "map": "solstice_vestibule", "arrival_tile": [12, 7], "requires_quest": "solstice_records"}, {"text": "Leave.", "action": "leave"}]
+      choices:
+        - text: "Wait until dusk (250 gold)."
+          action: "wait_until_night"
+          cost: 250
+          response: "You wait beneath the canvas as the campfire brightens against the gathering dusk (-{cost} gold)."
+        - text: "Wait until dawn (250 gold)."
+          action: "wait_until_dawn"
+          cost: 250
+          response: "You wait beneath the canvas until the first light reaches the camp (-{cost} gold)."
+        - text: "Take the restored service lift to the threshold."
+          action: "enter_map"
+          map: "solstice_vestibule"
+          arrival_tile: [12, 7]
+          requires_quest: "solstice_records"
+        - text: "Leave."
+          action: "leave"
   solstice_jungle_entrance:
+    biomes: ["jungle"]
     name: "Solstice Approach"
     type: "encounter"
     sprite: "solstice_ruins_facade"
@@ -529,6 +620,7 @@ npcs:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Solstice Approach.", "action": "enter_map", "map": "solstice_approach"}, {"text": "Stay here.", "action": "leave"}]
   solstice_approach_exit:
+    biomes: ["jungle"]
     name: "Deep Jungle"
     type: "encounter"
     sprite: "solstice_exit_arch"
@@ -539,6 +631,7 @@ npcs:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Deep Jungle.", "action": "enter_map", "map": "deep_jungle"}, {"text": "Stay here.", "action": "leave"}]
   solstice_vestibule_entrance:
+    biomes: ["jungle"]
     name: "Calibration Vestibule"
     type: "encounter"
     sprite: "solstice_ruins_facade"
@@ -561,6 +654,7 @@ npcs:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Calibration Vestibule.", "action": "enter_map", "map": "solstice_vestibule", "requires_quest": "solstice_anchors"}, {"text": "Stay here.", "action": "leave"}]
   solstice_vestibule_exit:
+    biomes: ["solstice_vestibule"]
     name: "Survey Camp"
     type: "encounter"
     sprite: "solstice_exit_arch"
@@ -571,6 +665,7 @@ npcs:
       greeting: "A numbered bronze fitting marks the passage."
       choices: [{"text": "Enter Survey Camp.", "action": "enter_map", "map": "solstice_approach"}, {"text": "Stay here.", "action": "leave"}]
   solstice_threshold:
+    biomes: ["solstice_vestibule"]
     name: "Scheduled Threshold"
     type: "encounter"
     sprite: "solstice_console"
@@ -584,6 +679,7 @@ npcs:
 
   # Spell Traders - NPCs who teach spells for gold
   spell_trader_mage:
+    biomes: ["forest"]
     name: "Priestess Liora"
     type: "spell_trader"
     description: "A priestess in white and gold who teaches Body, Mind, and Spirit at the lakeside shrine"
@@ -619,6 +715,7 @@ npcs:
   # Forest waterside service: she does not TEACH her water charms, she casts
   # them over the party for gold (cast_buff, fixed spans).
   mtrader0:
+    biomes: ["forest"]
     name: "Apprentice Mira"
     type: "quest_giver"
     description: "An apprentice with two water charms, a stack of bridge planks, and plans to study at the shrine"
@@ -668,6 +765,8 @@ npcs:
           action: "leave"
   # Example of other NPC types for future expansion
   merchant_general:
+    shop_display: merchant_display_supplies
+    biomes: []
     name: "Trader Aelwen"
     type: "merchant"
     description: "An elven trader in green robes, with healing vials hanging from her belt"
@@ -687,6 +786,8 @@ npcs:
         quantity: 3
 
   desert_merchant:
+    shop_display: merchant_display_supplies
+    biomes: ["desert"]
     name: "Esna the Wayfarer"
     type: "merchant"
     description: "A traveling peddler carrying a tray of potions and a well-used bedroll"
@@ -698,6 +799,7 @@ npcs:
       greeting: "Esna, at your service. I've carried these goods a long way, so I'd be pleased to sell you some. I buy spare equipment too. Let's see what you've got."
 
   card_collector:
+    biomes: ["desert"]
     name: "Cartomancer Odette"
     type: "card_collector"
     description: "A scholar with a monocle and belt pouches full of monster cards"
@@ -708,6 +810,7 @@ npcs:
       greeting: "Collecting monster cards? Let me examine them. I can pin a card into your collection so the whole party shares its power. I can remove cards too, if you wish to change the arrangement."
 
   quest_elder:
+    biomes: []
     name: "Warden Sylvaine"
     type: "quest_giver"
     description: "An elven road warden in green and leather, with a blade at her hip"
@@ -718,6 +821,7 @@ npcs:
       greeting: "Before you take the road: keep your party together and watch the bends. I am Sylvaine, warden here. We've had too many travelers go missing beyond the village."
 
   shipwreck_bandit_camp:
+    biomes: ["forest"]
     name: "Abandoned Shipwreck"
     type: "encounter"
     description: "An old shipwreck that appears abandoned, but sounds come from within"
@@ -754,6 +858,7 @@ npcs:
   # spent statue independently. The "summon" choice is injected at dialog-open
   # from the statuettes the party holds; only "Leave" is static here.
   dragon_statue_black:
+    biomes: ["desert"]
     name: "Black Dragon Statue"
     type: "encounter"
     description: "A coiled obsidian dragon, mouth agape as if mid-roar"
@@ -776,6 +881,7 @@ npcs:
         locked_response: "The inscription says this seal will answer only to someone sworn to hunt all four Elder Dragons. A pilgrim keeping watch among the dunes may know how to take that oath."
 
   dragon_statue_red:
+    biomes: ["desert"]
     name: "Red Dragon Statue"
     type: "encounter"
     description: "A rearing crimson dragon wrought in dark stone"
@@ -798,6 +904,7 @@ npcs:
         locked_response: "The inscription says this seal will answer only to someone sworn to hunt all four Elder Dragons. A pilgrim keeping watch among the dunes may know how to take that oath."
 
   dragon_statue_green:
+    biomes: ["desert"]
     name: "Green Dragon Statue"
     type: "encounter"
     description: "A serpentine dragon of mossy green stone"
@@ -820,6 +927,7 @@ npcs:
         locked_response: "The inscription says this seal will answer only to someone sworn to hunt all four Elder Dragons. A pilgrim keeping watch among the dunes may know how to take that oath."
 
   dragon_statue_gold:
+    biomes: ["desert"]
     name: "Gold Dragon Statue"
     type: "encounter"
     description: "A gilded dragon that glints even in the shade"
@@ -842,6 +950,7 @@ npcs:
         locked_response: "The inscription says this seal will answer only to someone sworn to hunt all four Elder Dragons. A pilgrim keeping watch among the dunes may know how to take that oath."
 
   prison:
+    biomes: ["highlands"]
     name: "Mountain Prison"
     type: "encounter"
     description: "A grim stockade of black iron, two elf jailers pacing the gate"
@@ -873,6 +982,7 @@ npcs:
         frees_captives: true
 
   tavern:
+    biomes: []
     name: "The Wandering Wyvern"
     type: "encounter"
     description: "A cozy timber tavern; off-duty heroes nurse their drinks here"
@@ -893,6 +1003,7 @@ npcs:
         - text: "Rest the night (25 gold)"
           action: "tavern_rest"
           cost: 25
+          response: "The party sleeps soundly (-{cost} gold). HP and spell points restored."
         - text: "Buy rations"
           action: "buy_food"
           cost: 250
@@ -901,6 +1012,7 @@ npcs:
           action: "leave"
 
   mage_tower:
+    biomes: ["highlands"]
     name: "Mage Tower"
     type: "encounter"
     description: "A slender spire of pale stone, its wards flickering white"
@@ -916,6 +1028,13 @@ npcs:
       completed_message: "The door shines white. 'The Lich King is defeated. Let one of you step forward to receive the Light and be raised to Archmage.'"
       visited_message: "The tower's wards part at your approach. One of your company now bears its Light."
       choice_prompt: "White fire outlines the open door."
+      quest_messages:
+        archmage_trial:
+          accepted: "Trial accepted: slay the Lich King, then return to the tower."
+          already_active: "The trial is already underway - return when the Lich King is slain."
+          not_completed: "The Lich King still draws breath. Return when the deed is done."
+          ineligible: "No one in your party can walk the Archmage's path."
+          rejected_undead: "The tower's wards reject the undead."
       choices:
         - text: "What trial does the tower offer?"
           action: "info"
@@ -942,6 +1061,7 @@ npcs:
           action: "leave"
 
   dragon_cliffs_ranger:
+    biomes: ["dragon_cliffs"]
     name: "Maera Cliffwatch"
     type: "quest_giver"
     description: "A wind-battered scout who watches the dragon cliffs for raiders and trolls"
@@ -980,6 +1100,7 @@ npcs:
           action: "leave"
 
   dragon_cliffs_bone_hermit:
+    biomes: ["dragon_cliffs"]
     name: "Old Varric Bone-Speaker"
     type: "quest_giver"
     description: "A hermit draped in dragon teeth and old cliff charms"
@@ -1018,6 +1139,7 @@ npcs:
           action: "leave"
 
   dragon_cliffs_bone_lair:
+    biomes: ["dragon_cliffs"]
     name: "Bone-Maw Lair"
     type: "encounter"
     description: "A cliff cave framed by fossilized dragon jaws and scattered ribs"
@@ -1052,6 +1174,7 @@ npcs:
         completion_message: "The Bone-Maw Lair is cleared."
 
   dragon_cliffs_ember_lair:
+    biomes: ["dragon_cliffs"]
     name: "Ember-Heart Lair"
     type: "encounter"
     description: "A basalt dragon den split by glowing ember cracks"
@@ -1086,6 +1209,7 @@ npcs:
         completion_message: "The Ember-Heart Lair is cleared."
 
   abandoned_church:
+    biomes: ["forest"]
     name: "Abandoned Church"
     type: "encounter"
     description: "A ruined stone church whose broken doorway descends into darkness"
@@ -1105,6 +1229,7 @@ npcs:
           action: "leave"
 
   abandoned_church_exit:
+    biomes: ["church"]
     name: "Church Entrance"
     type: "encounter"
     description: "The cold doorway back to the forest"
@@ -1124,6 +1249,7 @@ npcs:
           action: "leave"
 
   pyramid_entrance:
+    biomes: ["desert"]
     name: "Ancient Pyramid"
     type: "encounter"
     description: "A sun-baked pyramid with a narrow stairway descending into darkness"
@@ -1145,6 +1271,7 @@ npcs:
           action: "leave"
 
   pyramid_exit:
+    biomes: ["pyramid"]
     name: "Pyramid Entrance"
     type: "encounter"
     description: "The stairway back out of the pyramid"
@@ -1164,6 +1291,7 @@ npcs:
           action: "leave"
 
   pyramid_stairs_to_1:
+    biomes: ["pyramid"]
     name: "Stairs to Level 1"
     type: "encounter"
     description: "Sandstone stairs leading upward"
@@ -1183,6 +1311,7 @@ npcs:
           action: "leave"
 
   pyramid_stairs_to_2:
+    biomes: []
     name: "Stairs to Level 2"
     type: "encounter"
     description: "Sandstone stairs leading deeper"
@@ -1202,6 +1331,7 @@ npcs:
           action: "leave"
 
   pyramid_stairs_to_3:
+    biomes: ["pyramid"]
     name: "Stairs to the Sanctum"
     type: "encounter"
     description: "A narrow stairway toward the sealed sanctum"
@@ -1221,6 +1351,7 @@ npcs:
           action: "leave"
 
   lich_nexus_entrance:
+    biomes: ["highlands"]
     name: "Lich Nexus"
     type: "encounter"
     description: "A black stone arch crawling with trapped souls"
@@ -1240,6 +1371,7 @@ npcs:
           action: "leave"
 
   lich_nexus_exit:
+    biomes: ["lich_nexus"]
     name: "Nexus Portal"
     type: "encounter"
     description: "A portal back to the living world"
@@ -1259,6 +1391,7 @@ npcs:
           action: "leave"
 
   seabright_gate:
+    biomes: ["forest"]
     name: "Seabright Gate"
     type: "encounter"
     description: "A stone road gate leading toward the sea city of Seabright"
@@ -1285,6 +1418,7 @@ npcs:
 
   # --- Seabright Culverts (sewer dungeon) ---
   culverts_entrance:
+    biomes: ["city"]
     name: "Culvert Outflow"
     type: "encounter"
     description: "A great barred storm-drain venting into the harbor"
@@ -1304,6 +1438,7 @@ npcs:
           action: "leave"
 
   culverts_exit:
+    biomes: ["culverts"]
     name: "Outflow Grate"
     type: "encounter"
     description: "The barred outflow back up to Seabright harbor"
@@ -1323,6 +1458,7 @@ npcs:
           action: "leave"
 
   culverts_oldman:
+    biomes: ["culverts"]
     name: "Grist the Sluice-Rat"
     type: "quest_giver"
     description: "A cloaked ratfolk with a lantern who tends Seabright's seven sluice valves"
@@ -1370,6 +1506,7 @@ npcs:
   # independently (NPC Visited is save-tracked by name). Dialogue is shared via a
   # YAML anchor - it's a read-only template; only npc.Visited mutates at runtime.
   culvert_valve_1:
+    biomes: ["culverts"]
     name: "Sluice Valve I"
     type: "encounter"
     sprite: "culvert_valve"
@@ -1393,6 +1530,7 @@ npcs:
         - text: "Leave it"
           action: "leave"
   culvert_valve_2:
+    biomes: ["culverts"]
     name: "Sluice Valve II"
     type: "encounter"
     sprite: "culvert_valve"
@@ -1402,6 +1540,7 @@ npcs:
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_3:
+    biomes: ["culverts"]
     name: "Sluice Valve III"
     type: "encounter"
     sprite: "culvert_valve"
@@ -1411,6 +1550,7 @@ npcs:
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_4:
+    biomes: ["culverts"]
     name: "Sluice Valve IV"
     type: "encounter"
     sprite: "culvert_valve"
@@ -1420,6 +1560,7 @@ npcs:
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_5:
+    biomes: ["culverts"]
     name: "Sluice Valve V"
     type: "encounter"
     sprite: "culvert_valve"
@@ -1429,6 +1570,7 @@ npcs:
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_6:
+    biomes: ["culverts"]
     name: "Sluice Valve VI"
     type: "encounter"
     sprite: "culvert_valve"
@@ -1438,6 +1580,7 @@ npcs:
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_7:
+    biomes: ["culverts"]
     name: "Sluice Valve VII"
     type: "encounter"
     sprite: "culvert_valve"
@@ -1449,6 +1592,7 @@ npcs:
 
   # --- Eastern Isle Castle (japanese_castle) ---
   japanese_castle_exit:
+    biomes: ["japanese_castle"]
     name: "Moored Ship"
     type: "encounter"
     description: "The ship that bore you east, waiting at the castle dock"
@@ -1468,6 +1612,7 @@ npcs:
           action: "leave"
 
   castle_oldman:
+    biomes: ["japanese_castle"]
     name: "Shozo the Ronin"
     type: "quest_giver"
     description: "A ronin in a straw cloak who still guards his dead lord's castle"
@@ -1520,6 +1665,7 @@ npcs:
   # YAML anchor - read-only template; only npc.Visited mutates at runtime. Looting
   # rolls the castle_armory loot table (zone gear, never a unique) into the party.
   sword_rack_1:
+    biomes: ["japanese_castle"]
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
@@ -1544,6 +1690,7 @@ npcs:
         - text: "Leave it"
           action: "leave"
   sword_rack_2:
+    biomes: ["japanese_castle"]
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
@@ -1552,6 +1699,7 @@ npcs:
     size_class: tiny_prop
     dialogue: *rack_dialogue
   sword_rack_3:
+    biomes: ["japanese_castle"]
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
@@ -1560,6 +1708,7 @@ npcs:
     size_class: tiny_prop
     dialogue: *rack_dialogue
   sword_rack_4:
+    biomes: ["japanese_castle"]
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
@@ -1568,6 +1717,7 @@ npcs:
     size_class: tiny_prop
     dialogue: *rack_dialogue
   sword_rack_5:
+    biomes: ["japanese_castle"]
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
@@ -1581,6 +1731,7 @@ npcs:
   # arrival court, the exit just inside the garden. In open-world mode both are
   # removed (open_world.yaml) - the carved passage replaces them.
   sakura_garden_entrance:
+    biomes: ["japanese_castle"]
     name: "Garden Gatehouse"
     type: "encounter"
     description: "A broad gatehouse in the castle's south wall; sakura crowns show through the open doors"
@@ -1600,6 +1751,7 @@ npcs:
           action: "leave"
 
   sakura_garden_exit:
+    biomes: ["sakura_garden"]
     name: "Castle Gate"
     type: "encounter"
     description: "The smaller garden gate leading back to the castle courtyard"
@@ -1619,6 +1771,7 @@ npcs:
           action: "leave"
 
   miko_shiori:
+    biomes: ["sakura_garden"]
     name: "Shiori"
     type: "quest_giver"
     description: "A young shrine keeper in red and white, sweeping the entry court alone"
@@ -1651,6 +1804,7 @@ npcs:
           action: "leave"
 
   pond_keeper_ayame:
+    biomes: ["sakura_garden"]
     name: "Ayame"
     type: "quest_giver"
     description: "A sun-browned gardener with a ladle and gourd, working the pond terraces"
@@ -1683,6 +1837,7 @@ npcs:
           action: "leave"
 
   tengu_exile_kuroha:
+    biomes: ["sakura_garden"]
     name: "Kuroha"
     type: "quest_giver"
     description: "A black-winged tengu in a faded blue robe, watching the ridge from a safe overlook"
@@ -1718,6 +1873,7 @@ npcs:
   # requires_quest per level, so the boss hunt only opens once all three ward
   # errands (bells, seals, oath) are turned in and paid.
   onmyoji_hina:
+    biomes: ["sakura_garden"]
     name: "Hina"
     type: "quest_giver"
     description: "An onmyoji apprentice in pale blue, a bell in one hand and a folded paper seal in the other"
@@ -1773,6 +1929,7 @@ npcs:
   # tag -> the quest's interact tag), so a lamp taken before the errand is
   # accepted is refused instead of being wasted.
   shrine_lamp_1:
+    biomes: ["pyramid"]
     name: "Shrine Lamp"
     type: "encounter"
     sprite: "nomad_lantern"
@@ -1797,6 +1954,7 @@ npcs:
         - text: "Leave it"
           action: "leave"
   shrine_lamp_2:
+    biomes: ["pyramid"]
     name: "Shrine Lamp"
     type: "encounter"
     sprite: "nomad_lantern"
@@ -1806,6 +1964,7 @@ npcs:
     hide_when_visited: true
     dialogue: *shrine_lamp_dialogue
   shrine_lamp_3:
+    biomes: ["pyramid"]
     name: "Shrine Lamp"
     type: "encounter"
     sprite: "nomad_lantern"
@@ -1819,6 +1978,7 @@ npcs:
   # nothing at all; ground_tile paints the portal-stream tile under the gate so
   # the party steps onto shimmering water. Triggered with the interact key.
   portal_gate_highlands:
+    biomes: ["forest"]
     name: "Mountain Path"
     type: "encounter"
     description: "A shimmer over the stream - a path toward the misty highlands"
@@ -1838,6 +1998,7 @@ npcs:
           action: "leave"
 
   portal_gate_forest:
+    biomes: ["highlands"]
     name: "Forest Path"
     type: "encounter"
     description: "The shimmer that leads back down to the forest"
@@ -1857,6 +2018,7 @@ npcs:
           action: "leave"
 
   city_exit:
+    biomes: ["city"]
     name: "City Gate"
     type: "encounter"
     description: "The main gate back to the forest road"
@@ -1876,6 +2038,8 @@ npcs:
           action: "leave"
 
   city_weapon_shop:
+    shop_display: merchant_display_weapons
+    biomes: ["city"]
     name: "Bladewright Dalia"
     type: "merchant"
     description: "Seabright's blade merchant, wearing several examples of her stock"
@@ -1910,6 +2074,8 @@ npcs:
         quantity: 3
 
   city_potion_shop:
+    shop_display: merchant_display_supplies
+    biomes: ["city"]
     name: "Apothecary Wrenna"
     type: "merchant"
     description: "An apothecary with carefully labeled vials at her belt"
@@ -1935,6 +2101,7 @@ npcs:
         quantity: 10
 
   city_spell_shop:
+    biomes: ["city"]
     name: "Scrivener Oletta"
     type: "spell_trader"
     description: "An elemental scribe who keeps the Tideglass Scriptorium by the harbor"
@@ -1972,6 +2139,7 @@ npcs:
       stone_skin: { cost: 2000 }
 
   city_mastery_trainer:
+    biomes: ["city"]
     name: "Master Ilyra"
     type: "skill_trainer"
     description: "A martial instructor in worn leather, carrying a practice staff"
@@ -1989,6 +2157,7 @@ npcs:
   # towns each carry a trade it does not. Silverbough has the bows, the potion
   # garden and the archive.
   elf_city_exit:
+    biomes: ["elf_city"]
     name: "Silverbough Gate"
     type: "encounter"
     description: "The root-grown arch that closes Silverbough against the pinewood"
@@ -2011,6 +2180,8 @@ npcs:
           action: "leave"
 
   elf_city_bowyer:
+    shop_display: merchant_display_weapons
+    biomes: ["elf_city"]
     name: "Captain Aewen"
     type: "merchant"
     description: "The ranger captain of Silverbough; she outfits the wood patrols and sells what is left over"
@@ -2031,6 +2202,8 @@ npcs:
       - { type: "item", name: "Accuracy Talisman", cost: 1800, quantity: 1, tab: "Scout Kit" }
 
   elf_city_apothecary:
+    shop_display: merchant_display_supplies
+    biomes: ["elf_city"]
     name: "Herbwright Nerith"
     type: "merchant"
     description: "Silverbough's potion-maker, who keeps the walled physic garden behind her shop"
@@ -2049,6 +2222,7 @@ npcs:
       - { type: "item",   name: "Dead Branch",    cost: 240, quantity: 5 }
 
   elf_city_archive:
+    biomes: ["elf_city"]
     name: "Keeper Ilthaea"
     type: "spell_trader"
     description: "The keeper of the Starlight Archive, with a book under her arm and its keys at her belt"
@@ -2109,6 +2283,7 @@ npcs:
   # The armour town. Seabright sells arms and Silverbough sells bows; nobody
   # sold a mail shirt anywhere in the world before this gate opened.
   nomad_city_exit:
+    biomes: ["nomad_city"]
     name: "Dunehold Gate"
     type: "encounter"
     description: "The twin-tower gate of Dunehold, banners hanging dead in the heat"
@@ -2164,6 +2339,8 @@ npcs:
           quest_id: "toll_of_blades"
 
   nomad_city_caravan:
+    shop_display: merchant_display_supplies
+    biomes: ["nomad_city"]
     name: "Zaira of the Long Road"
     type: "merchant"
     description: "A caravan mistress selling armor and travel supplies from her desert stall"
@@ -2190,6 +2367,7 @@ npcs:
       - { type: "item", name: "Inlaid Key",       cost: 2500, quantity: -1, tab: "Road" }
 
   nomad_city_trainer:
+    biomes: ["nomad_city"]
     name: "Blademaster Nadira"
     type: "skill_trainer"
     description: "Dunehold's drill master, who trains caravan guards and proven arena fighters"
@@ -2227,6 +2405,7 @@ npcs:
           action: "leave"
 
   nomad_city_spells:
+    biomes: ["nomad_city"]
     name: "Yusra of the Oasis"
     type: "spell_trader"
     description: "The oasis lamp-keeper, who sells copied spells at the shrine steps and lights the pool at dusk"
@@ -2289,6 +2468,7 @@ npcs:
   # Overworld entrances show each complete town, matching Seabright's
   # city_exterior landmark. The gate-only art remains inside each town.
   silverbough_gate:
+    biomes: ["highlands"]
     name: "Silverbough Gate"
     type: "encounter"
     description: "A white arch grown through with roots, standing in the highland pinewood"
@@ -2308,6 +2488,7 @@ npcs:
           action: "leave"
 
   dunehold_gate:
+    biomes: ["desert"]
     name: "Dunehold Gate"
     type: "encounter"
     description: "A twin-tower gate of pale brick where the caravan road leaves the dunes"
@@ -2330,6 +2511,7 @@ npcs:
   # Pure-wilderness zone: the only NPC is the canoe back to Seabright at the
   # landing. Reuses the vine-arch object sprite as the riverside gateway.
   deep_jungle_exit:
+    biomes: ["jungle"]
     name: "Moored Riverboat"
     type: "encounter"
     description: "The shallow-draught riverboat that bore you upriver, tied at the landing"
@@ -2351,6 +2533,7 @@ npcs:
   # Arena entrance (landmark, like the church) - the actual arena map + fights
   # arrive in a later phase; for now the gate is barred (info-only).
   arena:
+    biomes: ["desert"]
     name: "The Grand Arena"
     type: "encounter"
     description: "A towering stone colosseum; the roar of unseen crowds drifts over its walls"
@@ -2373,6 +2556,8 @@ npcs:
   # the arena points shop + champions' board as dialog tabs (shared &arena_shop
   # block with the duel master inside).
   gladiator_gatekeeper:
+    shop_display: merchant_display_armory
+    biomes: ["desert"]
     name: "Arena Gatekeeper"
     type: "encounter"
     description: "A scarred gladiator in gilded armour, halberd planted, sizing up every passerby"
@@ -2508,6 +2693,7 @@ npcs:
 
   # Storage clerk - manages the shared cross-save stash, same as the tavern.
   storage_clerk:
+    biomes: ["desert"]
     name: "Storage Clerk"
     type: "encounter"
     description: "A tidy young clerk behind a counter, ledger in hand, a strongbox at her feet"
@@ -2528,6 +2714,8 @@ npcs:
   # start_arena_duel picks the difficulty; the champion is rolled randomly from
   # the registry. Each tier can be challenged once per day (resets at sunrise).
   arena_duel_master:
+    shop_display: merchant_display_armory
+    biomes: ["arena"]
     name: "Arena Duel Master"
     type: "encounter"
     description: "A scarred gladiator in gilded armour, keeper of the pit's rules"
@@ -2560,6 +2748,7 @@ npcs:
   # It is a door in the editor too; door_behavior keeps its champion state
   # distinct from persisted key/stat locks.
   arena_gate:
+    biomes: ["arena"]
     name: "Arena Portcullis"
     type: "door"
     door_behavior: "champion_portcullis"
@@ -2581,6 +2770,7 @@ npcs:
   # persisted in the save. door_key_items are items.yaml keys. The Skeleton Key
   # (master_key) opens any of these without spending.
   wooden_door:
+    biomes: []
     name: "Wooden Door"
     type: "door"
     door_behavior: "locked"
@@ -2600,6 +2790,7 @@ npcs:
       choices: []
 
   reinforced_door: &reinforced_door
+    biomes: []
     name: "Reinforced Door"
     type: "door"
     door_behavior: "locked"
@@ -2632,6 +2823,7 @@ npcs:
       choices: []
 
   steel_door:
+    biomes: []
     name: "Steel Door"
     type: "door"
     door_behavior: "locked"
@@ -2649,6 +2841,7 @@ npcs:
 
   # Way back out of the arena: a barred gate wall standee on the west chamber wall.
   arena_exit:
+    biomes: ["arena"]
     name: "Arena Gates"
     type: "encounter"
     description: "The barred gateway back out to the desert"
@@ -2672,10 +2865,17 @@ npcs:
   # sight required to open (no walls, no diagonal gaps). Loot + trap rules
   # live in loots.yaml `crates:` keyed by these NPC keys.
   pile_of_old_boxes:
+    biomes: []
     name: "Pile of Old Boxes"
     type: "loot_crate"
     description: "Splintered crates heaped into a leaning tower - something might have been left inside"
     sprite: "pile_of_old_boxes"
+    prop_model:
+      shape: crates
+      body: [133, 88, 48]
+      trim: [80, 79, 75]
+      yaw_degrees: 45
+      use_seconds: 1.2
     render_category: scenery
     no_spin: true
     prompt_verb: search
@@ -2683,16 +2883,26 @@ npcs:
     size_class: small_prop
 
   campfire:
+    biomes: []
     name: "Abandoned Campfire"
     type: "loot_crate"
     description: "A neat ring of stones around live embers - the owner left in a hurry"
     sprite: "campfire"
+    prop_model:
+      shape: campfire
+      body: [83, 46, 24]
+      trim: [106, 99, 88]
+      yaw_degrees: 20
+      use_seconds: 1.2
+      light_radius_tiles: 2
+      light_intensity: 0.8
     render_category: scenery
     prompt_verb: rest at
     transparent: true
     size_class: tiny_prop
 
   barrel_red:
+    biomes: []
     name: "Red Barrel"
     type: "loot_crate"
     description: "A stout barrel banded in iron, sealed with a red-brown lid"
@@ -2704,6 +2914,7 @@ npcs:
     size_class: small_prop
 
   barrel_green:
+    biomes: []
     name: "Green Barrel"
     type: "loot_crate"
     description: "A stout barrel banded in iron, its staves stained mossy green"
@@ -2715,6 +2926,7 @@ npcs:
     size_class: small_prop
 
   barrel_blue:
+    biomes: []
     name: "Blue Barrel"
     type: "loot_crate"
     description: "A stout barrel banded in iron, its staves washed a deep blue"
@@ -2726,6 +2938,7 @@ npcs:
     size_class: small_prop
 
   chest_wooden:
+    biomes: []
     name: "Wooden Chest"
     type: "loot_crate"
     description: "A banded wooden chest, its lock long since given up"
@@ -2736,6 +2949,7 @@ npcs:
     hide_when_visited: true
 
   chest_iron:
+    biomes: []
     name: "Iron Chest"
     type: "loot_crate"
     description: "A black iron strongbox with an intact lock"
@@ -2746,6 +2960,7 @@ npcs:
     hide_when_visited: true
 
   chest_golden:
+    biomes: []
     name: "Golden Chest"
     type: "loot_crate"
     description: "A sun-chased golden chest that has clearly outlived its owners"
@@ -2759,6 +2974,7 @@ npcs:
   # party member with the school open who doesn't know it. Not consumed while
   # nobody can learn. Author `spell:` on a copy for a fixed spell.
   spell_lectern:
+    biomes: []
     name: "Ancient Tome"
     type: "spell_lectern"
     description: "An open tome chained to a carved stone lectern, its script slowly rearranging itself"
@@ -2772,6 +2988,7 @@ npcs:
       pool: [fly, town_portal, fire_shield, stone_blossom, firewall, jump, earthquake, summon_ice_elemental]
 
   arena_bones:
+    biomes: ["arena"]
     name: "Bleached Bones"
     type: "encounter"
     description: "A gladiator's remains - helm, shield and bones half-swallowed by the sand"
@@ -2786,9 +3003,11 @@ npcs:
         - text: "Doze until nightfall (750 gold)"
           action: "wait_until_night"
           cost: 750
+          response: "You doze among the old bones until the stars come out (-{cost} gold)."
         - text: "Doze until dawn (750 gold)"
           action: "wait_until_dawn"
           cost: 750
+          response: "You doze among the old bones until first light (-{cost} gold)."
         - text: "Leave them be"
           action: "leave"
 
@@ -2796,6 +3015,7 @@ npcs:
   # The 2:1 facade on the overworld: a grid-span building (2 tiles wide, solid
   # on both) - walk up to the gate and enter floor 1.
   clock_tower_entrance:
+    biomes: ["highlands"]
     name: "The Clock Tower"
     type: "encounter"
     description: "A gearwork tower whose great dial has not moved in years"
@@ -2817,6 +3037,7 @@ npcs:
           action: "leave"
 
   clock_tower_exit:
+    biomes: ["clock_tower_workshop"]
     name: "Tower Gate"
     type: "encounter"
     description: "The great clock-crowned doors back out to the highlands"
@@ -2836,6 +3057,7 @@ npcs:
           action: "leave"
 
   clock_stairs_to_2:
+    biomes: ["clock_tower_workshop"]
     name: "Spiral Stair Up"
     type: "encounter"
     description: "A spiral stair climbing into the gearworks"
@@ -2855,6 +3077,7 @@ npcs:
           action: "leave"
 
   clock_stairs_to_1:
+    biomes: ["clock_tower_gearworks"]
     name: "Stairwell Down"
     type: "encounter"
     description: "The stair back down to the workshop"
@@ -2874,6 +3097,7 @@ npcs:
           action: "leave"
 
   clock_stairs_to_3:
+    biomes: ["clock_tower_gearworks"]
     name: "Spiral Stair Up"
     type: "encounter"
     description: "A narrow stair toward the belfry"
@@ -2893,6 +3117,7 @@ npcs:
           action: "leave"
 
   clock_stairs_down_to_2:
+    biomes: ["clock_tower_belfry"]
     name: "Stairwell Down"
     type: "encounter"
     description: "The stair back down to the gearworks"
@@ -2913,6 +3138,8 @@ npcs:
 
   # Floor 1 trader: pays in gear for the hands the tower's horrors drop.
   clockmaker:
+    shop_display: merchant_display_armory
+    biomes: ["clock_tower_workshop"]
     name: "Odile the Clockmaker"
     type: "merchant"
     description: "The tower's last clockmaker, still trading parts in the workshop below the Gearworks"
@@ -2953,6 +3180,7 @@ npcs:
 
   # Tower chests (loot crates on floors 2/3; rules in loots.yaml).
   chest_gearwood:
+    biomes: []
     name: "Gearwood Chest"
     type: "loot_crate"
     description: "A cog-latched workshop chest"
@@ -2964,6 +3192,7 @@ npcs:
     hide_when_visited: true
 
   chest_chrono:
+    biomes: []
     name: "Chrono Chest"
     type: "loot_crate"
     description: "An iron-strapped chest with a clock for a lock"
@@ -2975,6 +3204,7 @@ npcs:
     hide_when_visited: true
 
   chest_regal:
+    biomes: []
     name: "Regal Clockchest"
     type: "loot_crate"
     description: "The tower master's ornate strongbox"
@@ -2988,6 +3218,8 @@ npcs:
   # The Scalewright: Coldbrook's dragon-smith. Every Drakeforged piece costs
   # dragon scales of its own colour PLUS a 20000 gold forging fee.
   scalewright:
+    shop_display: merchant_display_armory
+    biomes: ["dragon_cliffs"]
     name: "Maruna the Scalewright"
     type: "merchant"
     description: "A smith who forges weapons from colored dragon scales"
@@ -3023,6 +3255,7 @@ npcs:
   # asks for the goblins first; the wolf road only comes up once that is settled
   # (requires_quest on the second offer), so the journal fills one line at a time.
   forest_peasant_wenna:
+    biomes: ["forest"]
     name: "Wenna the Herb-Picker"
     type: "quest_giver"
     description: "A village woman with a flower basket and a walking staff"
@@ -3079,6 +3312,7 @@ npcs:
           requires_quest: "goblin_hunt"
 
   lake_bather_ilsa:
+    biomes: ["forest"]
     name: "Ilsa"
     type: "quest_giver"
     description: "A young woman in a bathing wrap, standing in the lake shallows"
@@ -3110,6 +3344,7 @@ npcs:
           quest_id: "lake_spiders"
 
   desert_pilgrim_sylwen:
+    biomes: ["desert"]
     name: "Sylwen the Pilgrim"
     type: "quest_giver"
     description: "A sun-worn elf in travelling leathers, keeping watch on a dragon statue"
@@ -3147,6 +3382,7 @@ npcs:
 
 
   sister_mira:
+    biomes: ["highlands"]
     name: Sister Mira
     type: quest_giver
     description: A young monk mending travelers' sandals
@@ -3192,6 +3428,7 @@ npcs:
 
 
   pilgrim_sluice_spring:
+    biomes: ["desert"]
     name: Spring Sluice
     type: encounter
     sprite: pilgrim_sluice_spring
@@ -3216,6 +3453,7 @@ npcs:
           action: leave
 
   pilgrim_sluice_travelers:
+    biomes: ["desert"]
     name: Travelers Sluice
     type: encounter
     sprite: pilgrim_sluice_travelers
@@ -3240,6 +3478,7 @@ npcs:
           action: leave
 
   pilgrim_sluice_monastery:
+    biomes: ["desert"]
     name: Monastery Sluice
     type: encounter
     sprite: pilgrim_sluice_monastery
@@ -3264,6 +3503,7 @@ npcs:
           action: leave
 
   pilgrim_sun1:
+    biomes: ["jungle"]
     name: Sunlotus
     type: encounter
     sprite: pilgrim_sunlotus
@@ -3290,6 +3530,7 @@ npcs:
           action: leave
 
   pilgrim_sun2:
+    biomes: ["jungle"]
     name: Sunlotus
     type: encounter
     sprite: pilgrim_sunlotus
@@ -3316,6 +3557,7 @@ npcs:
           action: leave
 
   pilgrim_sun3:
+    biomes: ["jungle"]
     name: Sunlotus
     type: encounter
     sprite: pilgrim_sunlotus
@@ -3342,6 +3584,7 @@ npcs:
           action: leave
 
   pilgrim_moon1:
+    biomes: ["jungle"]
     name: Moonbell
     type: encounter
     sprite: pilgrim_moonbell
@@ -3368,6 +3611,7 @@ npcs:
           action: leave
 
   pilgrim_moon2:
+    biomes: ["jungle"]
     name: Moonbell
     type: encounter
     sprite: pilgrim_moonbell

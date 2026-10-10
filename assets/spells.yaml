@@ -225,6 +225,8 @@ spells:
     stun_duration_seconds: 5
     stun_duration_turns: 3
     message: "Darkness engulfs the area"
+    graphics:
+      cast_overlay: darkness
 
   disintegrate:
     # Basic spell properties
@@ -685,7 +687,7 @@ spells:
 
   charm:
     name: "Charm"
-    description: "Beguiles a living foe so it stops attacking. Breaks on any hit it takes. No effect on undead or bosses."
+    description: "Clouds a foe's mind with a moment of false friendship."
     school: "mind"
     spell_points_cost: 10
     cooldown_seconds: 2.0
@@ -769,7 +771,7 @@ spells:
 
   firewall:
     name: "Firewall"
-    description: "Raises a three-tile wall of fire. Adjacent open tiles take half damage. Both bands ignite victims for 3 seconds; overlapping flames hit once per tick."
+    description: "Raises a blazing barrier across the enemy's path."
     school: "fire"
     spell_points_cost: 25
     cooldown_seconds: 3.0
@@ -861,6 +863,8 @@ spells:
     is_utility: true
     town_portal: true          # opens the visited-destination picker
     message: "A portal shimmers open!"
+    graphics:
+      cast_overlay: town_portal
 
   fire_shield:
     name: "Fire Shield"

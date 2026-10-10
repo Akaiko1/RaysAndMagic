@@ -5,6 +5,7 @@ import (
 	"maps"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
@@ -97,20 +98,20 @@ func rareSkillDescription(skill SkillType) string {
 	switch skill {
 	case SkillAlchemy:
 		var yields []string
-		for _, family := range []string{"common", "protective", "revival"} {
-			yields = append(yields, family+": "+masteryProgression(func(tier int) int { return AlchemyYield(tier, family) }))
+		for _, family := range []string{"common", "protective", "empowering", "revival"} {
+			yields = append(yields, masteryProgression(func(tier int) int { return AlchemyYield(tier, family) }))
 		}
-		return "Batch yield - " + strings.Join(yields, "; ") + ". Flasks use common yields."
+		return uitext.Text("skill.alchemy", yields[0], yields[1], yields[2], yields[3])
 	case SkillPharmacology:
-		return fmt.Sprintf("Party recovery from potions and other restoratives: HP +%s%% + Intellect/3; SP +%s%%. Best capable active Alchemist; adds to Field Medicine. Revival unchanged.", masteryProgression(PharmacologyHP), masteryProgression(PharmacologySP))
+		return uitext.Text("skill.pharmacology", masteryProgression(PharmacologyHP), masteryProgression(PharmacologySP))
 	case SkillBombThrowing:
 		return bombThrowingDescription()
 	case SkillTranslocation:
 		return translocationDescription()
 	case SkillFlowingStaff:
-		return fmt.Sprintf("Moving one tile fills the staff to %s charges. Each staff attack, hit or miss, spends one charge for +%s%% normal damage and a guaranteed critical. Charges remain until spent; none build while the Pilgrim cannot act.", masteryProgression(FlowingStaffCapacity), masteryProgression(FlowingStaffPct))
+		return uitext.Text("skill.flowing_staff", masteryProgression(FlowingStaffCapacity), masteryProgression(FlowingStaffPct))
 	case SkillPathfinding:
-		return fmt.Sprintf("Party RT movement speed +%s%%. Best capable active guide only.\n\nGrandmaster:\nParty may attack and cast while running.", masteryProgression(PathfindingSpeedPct))
+		return uitext.Text("skill.pathfinding", masteryProgression(PathfindingSpeedPct))
 	}
 	return ""
 }
@@ -121,7 +122,7 @@ func bombThrowingDescription() string {
 	var lines []string
 	keys := config.FlaskKeys()
 	if len(keys) == 0 {
-		return fmt.Sprintf("Flask damage + INT/%d.", BombThrowingIntellectDivisor)
+		return uitext.Text("skill.bomb_throwing_unloaded", BombThrowingIntellectDivisor)
 	}
 	var geometryOrder [][2]int
 	geometryNames := map[[2]int][]string{}
@@ -133,21 +134,21 @@ func bombThrowingDescription() string {
 			geometryOrder = append(geometryOrder, geometry)
 		}
 		geometryNames[geometry] = append(geometryNames[geometry], d.Name)
-		line := fmt.Sprintf("%s: %s + INT/%d %s damage", d.Name, masteryValues(f.Damage), BombThrowingIntellectDivisor, f.Element)
+		line := uitext.Text("skill.flask_damage", d.Name, masteryValues(f.Damage), BombThrowingIntellectDivisor, f.Element)
 		if f.PoisonSeconds != [4]int{} {
-			line += fmt.Sprintf("; poison %ss", masteryValues(f.PoisonSeconds))
+			line += uitext.Text("skill.flask_poison", masteryValues(f.PoisonSeconds))
 		}
 		if f.BurnSeconds != [4]int{} {
-			line += fmt.Sprintf("; burning %ss", masteryValues(f.BurnSeconds))
+			line += uitext.Text("skill.flask_burn", masteryValues(f.BurnSeconds))
 		}
 		lines = append(lines, line+".")
 	}
 	for _, geometry := range geometryOrder {
 		label := strings.Join(geometryNames[geometry], ", ")
 		if len(geometryOrder) == 1 {
-			label = "All flasks"
+			label = uitext.Text("reference.all_flasks")
 		}
-		lines = append(lines, fmt.Sprintf("%s: range %d tiles; radius %d tiles.", label, geometry[0], geometry[1]))
+		lines = append(lines, uitext.Text("skill.flask_geometry", label, geometry[0], geometry[1]))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -159,24 +160,24 @@ func translocationDescription() string {
 			var effects []string
 			switch d.Key {
 			case "fold_step":
-				effects = append(effects, fmt.Sprintf("%s tiles; anchor %ss", masteryValues(d.Range), masteryValues(d.Duration)))
+				effects = append(effects, uitext.Text("skill.fold_step", masteryValues(d.Range), masteryValues(d.Duration)))
 			case "phase_veil":
-				effects = append(effects, fmt.Sprintf("dodge +%s%%; %ss", masteryValues(d.Power), masteryValues(d.Duration)))
+				effects = append(effects, uitext.Text("skill.phase_veil", masteryValues(d.Power), masteryValues(d.Duration)))
 			case "quickening":
-				effects = append(effects, fmt.Sprintf("RT recovery -%s%%; TB +%s shared actions each round from the next, at most one extra per hero; %ss", masteryValues(d.Power), masteryValues(d.TBPower), masteryValues(d.Duration)))
+				effects = append(effects, uitext.Text("skill.quickening", masteryValues(d.Power), masteryValues(d.TBPower), masteryValues(d.Duration)))
 			}
 			if d.SPCost != [4]int{d.SPCost[0], d.SPCost[0], d.SPCost[0], d.SPCost[0]} {
-				effects = append(effects, masteryValues(d.SPCost)+" SP")
+				effects = append(effects, uitext.Text("reference.sp_cost", masteryValues(d.SPCost)))
 			}
 			if len(effects) > 0 {
-				lines = append(lines, fmt.Sprintf("%s (level %d): %s.", d.Name, d.Level, strings.Join(effects, "; ")))
+				lines = append(lines, uitext.Text("skill.technique", d.Name, d.Level, strings.Join(effects, "; ")))
 			}
 		}
 	}
 	if len(lines) == 0 {
-		return "Technique mastery."
+		return uitext.Text("reference.technique_mastery")
 	}
-	return "Pilgrim techniques, each from its level:\n" + strings.Join(lines, "\n")
+	return uitext.Text("reference.pilgrim_techniques", strings.Join(lines, "\n"))
 }
 
 // GrantClassItems grants only active heroes' initial supplies. Benching/loading a

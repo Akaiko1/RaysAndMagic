@@ -11,8 +11,10 @@ type Party struct {
 	Food    int
 	// ArenaPoints is the arena victory currency (champion duels); spent at the
 	// arena quartermaster. Persisted with the save like Gold.
-	ArenaPoints int
-	Inventory   []items.Item
+	ArenaPoints        int
+	NonKeyDoorsOpened  int
+	ThievesGuildMember bool
+	Inventory          []items.Item
 	// Reserve holds benched heroes available at the tavern (swappable into the
 	// active party). They keep all gear/XP/skills and level alongside the party.
 	Reserve []*MMCharacter
@@ -259,7 +261,6 @@ func (p *Party) UpdateWithMode(turnBasedMode bool) bool {
 // trinkets) merge into an existing same-name stack; everything else appends.
 func (p *Party) AddItem(item items.Item)          { p.Bag().Add(item) }
 func (p *Party) RemoveItem(index int)             { p.Bag().Remove(index) }
-func (p *Party) ConsumeOneAt(index int) bool      { return p.ConsumeUnitsAt(index, 1) }
 func (p *Party) ConsumeUnitsAt(index, n int) bool { return p.Bag().Consume(index, n) }
 func (p *Party) TakeStackUnits(index, quantity int) (items.Item, bool) {
 	if index < 0 || index >= len(p.Inventory) || !p.Inventory[index].Stackable() {
@@ -321,7 +322,7 @@ func (p *Party) RemoveItemsByName(name string, n int) bool {
 }
 
 // GetTotalItems returns the number of item units in the party inventory,
-// stacks included.
+// stacks included. Test-only: character and game tests count units with it.
 func (p *Party) GetTotalItems() int {
 	n := 0
 	for i := range p.Inventory {

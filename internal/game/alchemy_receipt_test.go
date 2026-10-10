@@ -113,7 +113,7 @@ func TestAlchemyReceiptOverlappingGroupsAndFailures(t *testing.T) {
 	for _, state := range []string{"overlap", "missing", "incapacitated", "outside_party", "invalid_output", "ordinary_output"} {
 		t.Run(state, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassAlchemist, false)
-			r := *config.AlchemyRecipeByKey("mana_potion")
+			r := *alchemyRecipeByKey("mana_potion")
 			r.Ingredients = []config.AlchemyIngredient{
 				{Label: "First", Alternatives: []config.AlchemyAlternative{{Items: []string{"mooncap"}, Count: 1}}},
 				{Label: "Second", Alternatives: []config.AlchemyAlternative{{Items: []string{"mooncap", "bitterroot"}, Count: 2}}},

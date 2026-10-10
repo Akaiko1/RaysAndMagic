@@ -23,14 +23,14 @@ display:
     - {key: largest, label: "Largest", scale: 1.5}
   default_interface_size: normal
   # Settings > Display fonts. A file is a pixel font drawn at its design size
-  # (size_px, whole pixels only); no file is the built-in classic face. The
-  # credit is shown in Settings > Display. Keys are saved; keep them stable.
+  # (size_px, whole pixels only); no file is the built-in classic face.
+  # Keys are saved; keep them stable.
   fonts:
-    - {key: classic, label: "Classic", credit: ""}
-    - {key: romulus, label: "Romulus", file: assets/fonts/romulus/Romulus.ttf, size_px: 16, credit: "Romulus by Hewett Tsoi"}
-    - {key: alagard, label: "Alagard", file: assets/fonts/alagard/Alagard.ttf, size_px: 16, credit: "Alagard by Hewett Tsoi"}
-    - {key: fine_fantasy, label: "Fine Fantasy", file: assets/fonts/tinyrpg/TinyRPG-FineFantasyStrategies.ttf, size_px: 12, credit: "Fine Fantasy Strategies by tiopalada"}
-    - {key: brilliant, label: "Brilliant Strength", file: assets/fonts/tinyrpg/TinyRPG-BrilliantStrength.ttf, size_px: 14, credit: "Brilliant Strength by tiopalada"}
+    - {key: classic, label: "Classic"}
+    - {key: romulus, label: "Romulus", file: assets/fonts/romulus/Romulus.ttf, size_px: 16}
+    - {key: alagard, label: "Alagard", file: assets/fonts/alagard/Alagard.ttf, size_px: 16}
+    - {key: fine_fantasy, label: "Fine Fantasy", file: assets/fonts/tinyrpg/TinyRPG-FineFantasyStrategies.ttf, size_px: 12}
+    - {key: brilliant, label: "Brilliant Strength", file: assets/fonts/tinyrpg/TinyRPG-BrilliantStrength.ttf, size_px: 14}
   default_font: classic
   # Keep Metal presentation paced. An unsynced loop can count Draw calls while
   # skipping displayed frames under GPU load (especially long tree corridors).
@@ -95,6 +95,9 @@ camera:
 ui:
   spell_input_cooldown: 10
   damage_blink_frames: 3    # Number of frames to blink red when taking damage
+  turn_based_mouse_hold:
+    delay_seconds: 0.6     # Wait after pressing before automatic attacks start.
+    repeat_seconds: 0.35   # Gap between automatic attacks; manual input stays responsive.
 
 # Character stats and progression
 characters:
@@ -330,7 +333,7 @@ characters:
       accuracy: 11
       speed: 10
       luck: 11
-      skills: [sword, mace, axe, plate, bodybuilding, spell_absorption, strong_magic]
+      skills: [sword, mace, axe, plate, shield, bodybuilding, spell_absorption, strong_magic]
       magic:
         - { school: light, spells: [resurrect] }
         - { school: earth, spells: [rock_blast] }
@@ -497,8 +500,12 @@ monster_ai:
   path_check_frequency: 30      # Check for blocked paths every N frames
 
   # Detection (distances in tiles, the rest are multipliers)
+  pursuit:
+    max_radius_tiles: 16
+    retaliation_seconds: 10
+    retaliation_turns: 4
+    retaliation_margin_tiles: 2  # extra reach beyond the incoming shot distance
   default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
-  alert_outside_tether_multiplier: 2.0 # wider detection when lured away from spawn
   # No detection without line of sight: an unaware monster never aggros through
   # walls/trees (hard rule in PlayerDetectionRange, not a multiplier).
   disengage_distance_multiplier: 2.0   # lose engagement at detection x this (hysteresis)
@@ -510,6 +517,21 @@ monster_ai:
 
 # Graphics and rendering
 graphics:
+  # Default for Settings > Display. A saved player preference takes precedence.
+  props_3d: true
+  view:
+    # Ratios of the usable world viewport above the party panel.
+    wide_focal_ratio: 0.637
+    wide_horizon_ratio: 0.645
+    # Panini distance: 0 = perspective, 1 = full correction. Keeps side FOV;
+    # magnifies the center and bends horizontal lines away from the horizon.
+    wide_panini_distance: 1.0
+    # Equipment keeps the authored 1024x768 framing (652/768 usable height),
+    # independent of resolution, HUD visibility and interface size in Wide view.
+    wide_weapon_viewport_ratio: 0.8489583333333334
+    # Classic HUD clearance fades out before a creature crosses the camera.
+    lift_fade_tiles: 0.5
+    lift_full_tiles: 1.0
   elemental_attack:
     duration_seconds: 0.48
     radius_tiles: 0.35
@@ -524,11 +546,9 @@ graphics:
     ground: [34, 139, 34]     # Green
     forest_bg: [34, 139, 34]  # Forest background
 
-  # Distance (in tiles) beyond which a crossed-tree standee degrades to a single
-  # camera-facing plane. Trees only; close trees always retain full slab depth.
-  # <=0 disables the distant LOD.
+  # Draw natural crosses in the sorted sprite pass instead of the flat raycast
+  # fallback. Both crossed planes remain at every distance; no billboard LOD.
   trees_as_billboards: true
-  tree_standee_lod_tiles: 25
 
   # Moving motes emitted by authored tree tiles at night. They are local
   # visual effects rather than world lights, so dense forests stay cheap.
@@ -550,6 +570,21 @@ graphics:
     enabled: true
     thickness_tiles: 0.02       # wooden slab thickness (front sticker <-> back sticker)
     core_tint: 1.0              # 0 = wood core, 1 = sprite-average core color
+    crossed_standee_layers:
+      # Natural crosses keep both outer faces of both planes at every distance.
+      # Bands start at distance_tiles, measured to the tile centre in world space.
+      # Counts are intentional world-distance budgets, independent of FOV,
+      # resolution and thickness; built props keep projected-thickness sampling.
+      distance_bands:
+        - {distance_tiles: 0, layers: 16}
+        - {distance_tiles: 1, layers: 8}
+        - {distance_tiles: 2, layers: 4}
+        - {distance_tiles: 3, layers: 2}
+        - {distance_tiles: 5, layers: 0}
+      forward_half_width_tiles: 1.5 # three tile-wide lanes around the view axis
+      # With a 1.5-tile half-width every outside point is already >1 tile away.
+      # This cutoff matters independently for narrower lanes or a larger reach.
+      off_axis_max_distance_tiles: 1
     turn_speed_deg_per_sec: 270 # how fast monster tokens swivel toward their heading
     npc_spin_deg_per_sec: 12    # showcase spin of non-person NPC props (0 = off); terrain sprites use env_face instead
     env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)
@@ -614,6 +649,9 @@ graphics:
     color: [255, 0, 255]   # magenta
     tolerance: 60          # per-channel slack for the fully-transparent core
     despill: true          # fringe (semitone) pixels: strip the magenta cast, keep the base tone opaque (don't erase)
+    # Preserve original colours, including edges, for these sprite families.
+    # Key-colour transparency still applies.
+    despill_exclusions: [alien_enforcer]
     # Despill is intentionally aggressive (strips ANY magenta hue), which greys
     # out sprites whose purple/magenta is real art. List those here (basenames;
     # naming any directional animation also covers its base and sibling sheets)
@@ -684,6 +722,9 @@ day_night:
   panorama_fade_seconds: 3
   days_per_week: 7
   days_per_month: 28
+  # Phase-only packs: each dusk/dawn removes the outgoing phase's pack and spawns
+  # the incoming one. Groups that should persist belong in assets/ecology.yaml
+  # populations instead. Guide: docs/monster-spawns.md.
   # Counts are caps: packs use vacant authored monster spawn points only.
   packs:
     - map: forest

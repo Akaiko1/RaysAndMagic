@@ -125,7 +125,7 @@ func (r *Renderer) drawMeleeFxTechVibro(screen *ebiten.Image, s SlashEffect, cx,
 }
 
 // ============================= PURSUER RANGED ==============================
-// Overlays on top of the normal bolt/arrow (weaponProjectileFxStyleDraw).
+// Overlays on top of the normal bolt/arrow.
 
 // Suppressor - drum-fed slug thrower. ONE coherent shape, not a scatter of
 // parts: the slug drags a RIFLING CORKSCREW, a single continuous helix wound
@@ -133,9 +133,9 @@ func (r *Renderer) drawMeleeFxTechVibro(screen *ebiten.Image, s SlashEffect, cx,
 // separate echo slugs and tumbling casings around the bolt, and a handful of
 // detached elements moving at projectile speed just reads as random blobs -
 // the silhouette has to be one connected thing.
-func (r *Renderer) drawWeaponProjectileFxTechSuppressor(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
+func (r *Renderer) drawWeaponProjectileFxTechSuppressor(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	fc := float64(r.game.frameCount)
-	nx, ny := -dirY, dirX
+	nx, ny := projectilePerpendicular(dirX, dirY)
 	const turns, steps = 3.4, 26
 	reach := size * 3.4
 	spin := fc * 0.5 // the whole helix rotates: rifling, seen from the side
@@ -152,15 +152,15 @@ func (r *Renderer) drawWeaponProjectileFxTechSuppressor(screen *ebiten.Image, cx
 		x := cx - dirX*reach*t + nx*math.Cos(ang)*rad
 		y := cy - dirY*reach*t + ny*math.Cos(ang)*rad
 		if k > 0 {
-			a := (0.62 - 0.42*t) * critBoost
+			a := (0.62 - 0.42*t) * alpha
 			r.weaponFxSegment(screen, px, py, x, y, math.Max(2.5, size*0.2*(1-0.4*t)),
 				mixColor(techWhite, techCyan, 0.35+0.5*t), a, additiveGlowBlend)
 		}
 		px, py = x, y
 	}
 	// Bore glow at the slug itself, tying the helix to its head.
-	r.drawGlowSprite(screen, cx, cy, size*0.62, techCyan, 0.5*critBoost, additiveGlowBlend)
-	r.drawGlowSprite(screen, cx, cy, size*0.3, techWhite, 0.85*critBoost, additiveGlowBlend)
+	r.drawGlowSprite(screen, cx, cy, size*0.62, techCyan, 0.5*alpha, additiveGlowBlend)
+	r.drawGlowSprite(screen, cx, cy, size*0.3, techWhite, 0.85*alpha, additiveGlowBlend)
 	_ = id
 }
 
@@ -168,9 +168,9 @@ func (r *Renderer) drawWeaponProjectileFxTechSuppressor(screen *ebiten.Image, cx
 // signature is REACH: a hairline lance of light stretches far ahead of the
 // bolt (the shot outruns its own report) with a scope reticle pulsing at the
 // head. Thin and exact - nothing here blooms.
-func (r *Renderer) drawWeaponProjectileFxTechLonglance(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
+func (r *Renderer) drawWeaponProjectileFxTechLonglance(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	fc := float64(r.game.frameCount)
-	nx, ny := -dirY, dirX
+	nx, ny := projectilePerpendicular(dirX, dirY)
 	// The lance: ONE long solid bar reaching far ahead, laid down in three
 	// overlapping runs so it dims with distance without breaking into dots.
 	for i, run := range []struct{ from, to, thick, alpha float64 }{
@@ -180,30 +180,30 @@ func (r *Renderer) drawWeaponProjectileFxTechLonglance(screen *ebiten.Image, cx,
 			cx+dirX*size*run.from, cy+dirY*size*run.from,
 			cx+dirX*size*run.to, cy+dirY*size*run.to,
 			math.Max(2, size*run.thick), mixColor(techWhite, techCyan, 0.3+0.25*float64(i)),
-			run.alpha*critBoost, additiveGlowBlend)
+			run.alpha*alpha, additiveGlowBlend)
 	}
 	// A shorter, brighter tail behind: where it has already been.
 	r.weaponFxSegment(screen, cx, cy, cx-dirX*size*2.6, cy-dirY*size*2.6,
-		math.Max(2, size*0.13), techCyan, 0.45*critBoost, additiveGlowBlend)
+		math.Max(2, size*0.13), techCyan, 0.45*alpha, additiveGlowBlend)
 	// Scope reticle at the head: four ticks off the axis, pulsing.
 	pulse := 0.6 + 0.4*math.Sin(fc*0.5)
 	rr := size * (1.0 + 0.25*pulse)
 	for _, s := range []float64{-1, 1} {
-		r.weaponFxAccent(screen, cx+nx*s*rr, cy+ny*s*rr, math.Max(2, size*0.09), techCyan, 0.55*pulse*critBoost, additiveGlowBlend)
-		r.weaponFxAccent(screen, cx+dirX*s*rr, cy+dirY*s*rr, math.Max(2, size*0.09), techCyan, 0.4*pulse*critBoost, additiveGlowBlend)
+		r.weaponFxAccent(screen, cx+nx*s*rr, cy+ny*s*rr, math.Max(2, size*0.09), techCyan, 0.55*pulse*alpha, additiveGlowBlend)
+		r.weaponFxAccent(screen, cx+dirX*s*rr, cy+dirY*s*rr, math.Max(2, size*0.09), techCyan, 0.4*pulse*alpha, additiveGlowBlend)
 	}
-	r.drawGlowSprite(screen, cx, cy, size*0.3, techWhite, 0.5*critBoost, additiveGlowBlend)
+	r.drawGlowSprite(screen, cx, cy, size*0.3, techWhite, 0.5*alpha, additiveGlowBlend)
 }
 
 // Tidehunter Compound Bow - cam-drawn alloy from another sky. The signature is
 // STORED TENSION RELEASING: two cam rings counter-rotate around the shaft and
 // a wound string-trace behind the arrow visibly unwinds from a zigzag into a
 // straight line as it flies.
-func (r *Renderer) drawWeaponProjectileFxTechCompound(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
+func (r *Renderer) drawWeaponProjectileFxTechCompound(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	seed := id + 671
 	fc := float64(r.game.frameCount)
 	alloy := [3]int{168, 196, 214}
-	nx, ny := -dirY, dirX
+	nx, ny := projectilePerpendicular(dirX, dirY)
 	// Counter-rotating cam rings, flattened along the flight axis.
 	for ring := 0; ring < 2; ring++ {
 		spin := fc * 0.22 * (1 - 2*float64(ring))
@@ -219,7 +219,7 @@ func (r *Renderer) drawWeaponProjectileFxTechCompound(screen *ebiten.Image, cx, 
 			y := cy + ny*ox + dirY*oy
 			if i > 0 {
 				r.weaponFxSegment(screen, px, py, x, y, math.Max(2, size*0.12),
-					mixColor(alloy, techWhite, float64(ring)*0.4), (0.5-0.12*float64(ring))*critBoost, additiveGlowBlend)
+					mixColor(alloy, techWhite, float64(ring)*0.4), (0.5-0.12*float64(ring))*alpha, additiveGlowBlend)
 			}
 			px, py = x, y
 		}
@@ -234,7 +234,7 @@ func (r *Renderer) drawWeaponProjectileFxTechCompound(screen *ebiten.Image, cx, 
 		y := cy - dirY*size*3.8*u + ny*amp
 		if k > 0 {
 			r.weaponFxSegment(screen, px, py, x, y, math.Max(2, size*0.11),
-				mixColor(alloy, techCyan, u*0.5), (0.5-0.045*float64(k))*critBoost, additiveGlowBlend)
+				mixColor(alloy, techCyan, u*0.5), (0.5-0.045*float64(k))*alpha, additiveGlowBlend)
 		}
 		px, py = x, y
 	}

@@ -22,8 +22,7 @@ const (
 	// quantity dialog: same bag-indexed source, Sell instead of Pick up.
 	stackSplitPickerMerchantSell
 	// stackSplitPickerMerchantBuy is its mirror on the shop side: from indexes
-	// the VISIBLE stock, and the quantity defaults to the most the party can
-	// take right now (stock and purse permitting).
+	// the VISIBLE stock. Buying starts at one; Max uses stock and affordability.
 	stackSplitPickerMerchantBuy
 )
 
@@ -56,8 +55,8 @@ type stackSplitPickerState struct {
 }
 
 const (
-	stackSplitPickerW = 280
-	stackSplitPickerH = 144
+	stackSplitPickerW = 320
+	stackSplitPickerH = 200
 )
 
 // stackSplitPickerWidgets is the picker's inner geometry - the ONE source for
@@ -65,21 +64,23 @@ const (
 // its hitbox or slide under a text band.
 type stackSplitPickerWidgets struct {
 	minus, half, plus image.Rectangle
+	one, maximum      image.Rectangle
 	take, cancel      image.Rectangle
 	quantity, price   image.Rectangle
 }
 
 func stackSplitPickerLayout(r image.Rectangle) stackSplitPickerWidgets {
 	return stackSplitPickerWidgets{
-		minus:  image.Rect(r.Min.X+24, r.Min.Y+48, r.Min.X+56, r.Min.Y+72),
-		half:   image.Rect(r.Min.X+178, r.Min.Y+48, r.Min.X+216, r.Min.Y+72),
-		plus:   image.Rect(r.Min.X+224, r.Min.Y+48, r.Min.X+256, r.Min.Y+72),
-		take:   image.Rect(r.Min.X+24, r.Min.Y+102, r.Min.X+136, r.Min.Y+128),
-		cancel: image.Rect(r.Min.X+144, r.Min.Y+102, r.Min.X+256, r.Min.Y+128),
-		// The band between - and 1/2 carries the quantity only; the price gets
-		// its own full-width line below the buttons.
-		quantity: image.Rect(r.Min.X+64, r.Min.Y+53, r.Min.X+64+104, r.Min.Y+53+18),
-		price:    image.Rect(r.Min.X+12, r.Min.Y+80, r.Max.X-12, r.Min.Y+80+16),
+		minus:   image.Rect(r.Min.X+24, r.Min.Y+48, r.Min.X+56, r.Min.Y+72),
+		plus:    image.Rect(r.Max.X-56, r.Min.Y+48, r.Max.X-24, r.Min.Y+72),
+		one:     image.Rect(r.Min.X+24, r.Min.Y+88, r.Min.X+104, r.Min.Y+116),
+		half:    image.Rect(r.Min.X+120, r.Min.Y+88, r.Min.X+200, r.Min.Y+116),
+		maximum: image.Rect(r.Max.X-104, r.Min.Y+88, r.Max.X-24, r.Min.Y+116),
+		take:    image.Rect(r.Min.X+24, r.Min.Y+156, r.Min.X+152, r.Min.Y+184),
+		cancel:  image.Rect(r.Min.X+168, r.Min.Y+156, r.Max.X-24, r.Min.Y+184),
+		// Quantity, shortcuts, total and confirmation each own a separate band.
+		quantity: image.Rect(r.Min.X+64, r.Min.Y+48, r.Max.X-64, r.Min.Y+72),
+		price:    image.Rect(r.Min.X+12, r.Min.Y+128, r.Max.X-12, r.Min.Y+144),
 	}
 }
 
@@ -170,8 +171,16 @@ func (ui *UISystem) stackSplitSetQuantity(q int) {
 	ui.stackSplitPicker.quantity = q
 }
 
+// stackSplitChoose sets the quantity from a control rather than a digit: it
+// ends the typing run, so the next digit replaces the value instead of
+// appending to it. Every button and arrow goes through here.
+func (ui *UISystem) stackSplitChoose(q int) {
+	ui.stackSplitPicker.typed = false
+	ui.stackSplitSetQuantity(q)
+}
+
 func (ui *UISystem) stackSplitAdjust(delta int) {
-	ui.stackSplitSetQuantity(ui.stackSplitPicker.quantity + delta)
+	ui.stackSplitChoose(ui.stackSplitPicker.quantity + delta)
 }
 
 // stackSplitAppendDigit types into the quantity: the first digit replaces the
@@ -410,9 +419,8 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 	L := stackSplitPickerLayout(r)
 	minus, plus, half, take, cancel := L.minus, L.plus, L.half, L.take, L.cancel
 	mouseX, mouseY := uiCursorPosition()
-	// The band between the -/+ buttons is narrow, so it carries the QUANTITY
-	// only; a price can be an item currency plus gold ("2 red dragon scale +
-	// 20000 g") and gets its own full-width line under the buttons.
+	// Keep quantity, shortcuts and the total in independent rows. Item-currency
+	// totals can include both materials and gold and need the full panel width.
 	confirmLabel := "Pick up"
 	quantityText := fmt.Sprintf("x%d of x%d", ui.stackSplitPicker.quantity, item.Count())
 	priceLine := ""
@@ -430,7 +438,9 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 		priceLine = merchantTotalPriceLabel(g, ui.stackSplitStockEntry(), ui.stackSplitPicker.quantity)
 	}
 	ui.drawStackSplitButton(screen, minus, "-", ptInRect(mouseX, mouseY, minus))
+	ui.drawStackSplitButton(screen, L.one, "1", ptInRect(mouseX, mouseY, L.one))
 	ui.drawStackSplitButton(screen, half, "1/2", ptInRect(mouseX, mouseY, half))
+	ui.drawStackSplitButton(screen, L.maximum, uitext.Text("ui.quantity_max"), ptInRect(mouseX, mouseY, L.maximum))
 	ui.drawStackSplitButton(screen, plus, "+", ptInRect(mouseX, mouseY, plus))
 	ui.drawStackSplitButton(screen, take, confirmLabel, ptInRect(mouseX, mouseY, take))
 	ui.drawStackSplitButton(screen, cancel, "Cancel", ptInRect(mouseX, mouseY, cancel))
@@ -446,6 +456,16 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 
 	if ui.topModalLayer() != modalLayerStackSplit {
 		return
+	}
+	for _, preset := range []struct {
+		r        image.Rectangle
+		quantity int
+	}{{L.one, 1}, {L.maximum, ui.stackSplitMaxQuantity(item)}} {
+		ui.onDisplayedInput(uiCommandClick, layoutRect{preset.r.Min.X, preset.r.Min.Y, preset.r.Dx(), preset.r.Dy()}, func() {
+			if g.consumeLeftClickIn(preset.r.Min.X, preset.r.Min.Y, preset.r.Max.X, preset.r.Max.Y) {
+				ui.stackSplitChoose(preset.quantity)
+			}
+		})
 	}
 	ui.onDisplayedInput(uiCommandClick, layoutRect{minus.Min.X, minus.Min.Y, (minus.Max.X) - (minus.Min.X), (minus.Max.Y) - (minus.Min.Y)}, func() {
 		if g.consumeLeftClickIn(minus.Min.X, minus.Min.Y, minus.Max.X, minus.Max.Y) {
@@ -467,7 +487,7 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 			if stackSplitIsMerchantTrade(ui.stackSplitPicker.source) {
 				halfQ = ui.stackSplitMaxQuantity(item) / 2
 			}
-			ui.stackSplitSetQuantity(halfQ)
+			ui.stackSplitChoose(halfQ)
 			return
 		}
 	})

@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/threading/entities"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
@@ -115,6 +116,113 @@ func TestWildlifePopulationLifecycle(t *testing.T) {
 		})
 	}
 }
+func TestApproachDawnPopulation(t *testing.T) {
+	for _, mode := range []string{"local", "remote", "stitched"} {
+		t.Run(mode, func(t *testing.T) {
+			g, wm, tile := ecologyTestGame(t)
+			var p config.WildlifePopulation
+			for _, candidate := range config.GlobalEcology.Populations {
+				if candidate.Map == "solstice_approach" {
+					p = candidate
+					break
+				}
+			}
+			if !p.Hostile || len(p.Species()) != 3 {
+				t.Fatal("missing mixed hostile population")
+			}
+			config.GlobalEcology.Populations = []config.WildlifePopulation{p}
+			if mode == "stitched" {
+				t.Chdir("../..")
+				if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
+					t.Fatal(err)
+				}
+				if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
+					t.Fatal(err)
+				}
+				wm.MapConfigs = map[string]*config.MapConfig{p.Map: wm.MapConfigs[p.Map], "forest": wm.MapConfigs["forest"]}
+				wm.SetOpenWorldConfig(&config.OpenWorldConfig{VoidTile: "oob_cliff", Placements: map[string]config.OpenWorldPlacement{p.Map: {X: 5, Y: 5}, "forest": {X: 120, Y: 5}}})
+				if err := wm.LoadAllMaps(); err != nil {
+					t.Fatal(err)
+				}
+				if !wm.IsOpenWorldRegion(p.Map) {
+					t.Fatal("fixture did not build a stitched region")
+				}
+				g.world = wm.OpenWorld
+				g.collisionSystem = collision.NewCollisionSystem(g.world, tile)
+			}
+			w := g.world
+			wm.LoadedMaps = map[string]*world.World3D{p.Map: w}
+			wm.CurrentMapKey = p.Map
+			w.Monsters = nil
+			// Authored survivors count toward the cap but unrelated golems do not.
+			for i := 0; i < 2; i++ {
+				m := monster.NewMonster3DFromConfig((12.5+float64(i))*tile, 12.5*tile, p.Species()[i], g.config)
+				m.HomeMap = p.Map
+				w.Monsters = append(w.Monsters, m)
+			}
+			golem := monster.NewMonster3DFromConfig(15.5*tile, 12.5*tile, "solstice_rootbound_sentinel", g.config)
+			golem.HomeMap = p.Map
+			w.Monsters = append(w.Monsters, golem)
+			if mode == "remote" {
+				g.world = newTestWorld(g.config)
+				wm.LoadedMaps["elsewhere"] = g.world
+				wm.CurrentMapKey = "elsewhere"
+			}
+			count := func() int {
+				n := 0
+				for _, m := range w.Monsters {
+					if m == golem {
+						continue
+					}
+					if m.IsAlive() {
+						if mode == "stitched" && m.Population == p.Identity() {
+							r := wm.OpenWorldRegionByKey(p.Map)
+							if m.X < float64(r.OffsetX)*tile || m.Y < float64(r.OffsetY)*tile || m.X >= float64(r.OffsetX+r.Width)*tile || m.Y >= float64(r.OffsetY+r.Height)*tile {
+								t.Fatal("spawn escaped its stitched region")
+							}
+						}
+						n++
+						if !slices.Contains(p.Species(), m.Key) || m.IsAmbient() {
+							t.Fatalf("invalid replenishment: %s", m.Key)
+						}
+					}
+				}
+				return n
+			}
+			g.dayNightIsNight = true
+			g.replenishWildlife()
+			if count() != 2 {
+				t.Fatal("spawned at night")
+			}
+			g.dayNightDay++
+			g.dayNightIsNight = false
+			g.replenishWildlife()
+			if count() != p.Count {
+				t.Fatalf("dawn count=%d want %d", count(), p.Count)
+			}
+			w.Monsters[len(w.Monsters)-1].HitPoints = 0
+			golem.HitPoints = 0
+			data, err := json.Marshal(g.ecology)
+			if err != nil {
+				t.Fatal(err)
+			}
+			g.ecology = EcologyState{}
+			if err = json.Unmarshal(data, &g.ecology); err != nil {
+				t.Fatal(err)
+			}
+			g.replenishWildlife()
+			if count() != p.Count-1 {
+				t.Fatal("load refilled in the same morning")
+			}
+			g.dayNightDay++
+			g.replenishWildlife()
+			if count() != p.Count {
+				t.Fatal("next dawn did not replenish")
+			}
+		})
+	}
+}
+
 func TestEcologyRelationshipsAndKillCredit(t *testing.T) {
 	for _, mode := range []bool{false, true} {
 		t.Run(map[bool]string{false: "RT", true: "TB"}[mode], func(t *testing.T) {
@@ -148,6 +256,74 @@ func TestEcologyRelationshipsAndKillCredit(t *testing.T) {
 			g.refreshMonsterAIState()
 			if !fox.AmbientFlee || fox.AIFoe != nil || fox.TargetsParty() {
 				t.Fatal("party flee must override hunting and retaliation")
+			}
+		})
+	}
+}
+
+// Populations spawn only on bare ground (tile type floor). Walkable grass,
+// props, water and markers can sit outside a region's walls, so none of them
+// may take a spawn even when nothing else is free.
+func TestWildlifeSpawnsOnlyOnBareFloor(t *testing.T) {
+	catalog := world.NewTileManager(testTileSizeClasses())
+	if err := catalog.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	keys := allTileKeys(catalog)
+	slices.Sort(keys)
+	fillers := []string{catalog.GetTileKey(world.TileEmpty)}
+	seen := map[string]bool{"floor": true}
+	for _, k := range keys {
+		if d := catalog.GetTileDataByKey(k); d.Walkable && !seen[d.Type] {
+			seen[d.Type] = true
+			fillers = append(fillers, k)
+		}
+	}
+	if len(fillers) < 3 {
+		t.Fatalf("catalog needs walkable non-floor tiles, got %v", fillers)
+	}
+	bare := [][2]int{{20, 20}, {25, 8}} // far from the party at (1,1)
+	for _, filler := range fillers {
+		t.Run(filler, func(t *testing.T) {
+			g, wm, tile := ecologyTestGame(t)
+			var pop config.WildlifePopulation
+			for _, p := range config.GlobalEcology.Populations {
+				if p.Map == wm.CurrentMapKey && p.Phase == "day" {
+					pop = p
+					break
+				}
+			}
+			if pop.Count <= len(bare) {
+				t.Fatalf("fixture needs a day population above %d on %q", len(bare), wm.CurrentMapKey)
+			}
+			tm := world.GlobalTileManager
+			fill, _ := tm.GetTileTypeFromKey(filler)
+			for y := range g.world.Tiles {
+				for x := range g.world.Tiles[y] {
+					g.world.Tiles[y][x] = fill
+				}
+			}
+			for _, xy := range bare {
+				g.world.Tiles[xy[1]][xy[0]] = world.TileEmpty
+			}
+			g.world.Monsters = nil
+			g.replenishWildlife()
+			want := len(bare)
+			if tm.IsBareFloor(fill) {
+				want = pop.Count // control: plentiful bare ground fills the cap
+			}
+			n := 0
+			for _, m := range g.world.Monsters {
+				if m.Population != pop.Identity() {
+					continue
+				}
+				n++
+				if !tm.IsBareFloor(g.world.Tiles[int(m.Y/tile)][int(m.X/tile)]) {
+					t.Fatalf("%s spawned on %s", m.Key, tm.GetTileKey(g.world.Tiles[int(m.Y/tile)][int(m.X/tile)]))
+				}
+			}
+			if n != want {
+				t.Fatalf("spawned %d, want %d", n, want)
 			}
 		})
 	}
@@ -211,6 +387,65 @@ func TestCaravanTripRewardsAndCapacity(t *testing.T) {
 	}
 	if len(g.ecology.Stock) != caravan.StockSlots-1 {
 		t.Fatal("empty stack must release slot")
+	}
+}
+
+// Arrival is credited exactly when movement has finished the leg, so a stop
+// short of the centre (reload, blocked last step) cannot stall the route.
+func TestCaravanArrivalMatchesMovement(t *testing.T) {
+	goal := monster.TileCoord{X: 23, Y: 20} // checkpoint 1 of the fixture route
+	pending := []monster.TileCoord{goal}
+	cases := []struct {
+		name     string
+		dx, dy   float64 // offset from the goal centre, in tiles
+		path     []monster.TileCoord
+		index    int
+		move     bool // drive the real movement loop instead of one credit check
+		advances bool
+	}{
+		{name: "centre, path pending", path: pending, advances: true},
+		{name: "off centre, no path", dx: .3, dy: .3, advances: true},
+		{name: "off centre, path finished", dx: .3, dy: .3, path: pending, index: 1, advances: true},
+		{name: "off centre, path pending", dx: .3, dy: .3, path: pending, advances: false},
+		{name: "next tile, no path", dx: -1, advances: false},
+		{name: "reloaded off centre, real movement", dx: .1, dy: -.35, move: true, advances: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g, _, tile := ecologyTestGame(t)
+			config.GlobalEcology.Populations = nil
+			g.ecology.Unlocked = true
+			g.spawnCaravan()
+			_, m := g.ecologyActor()
+			if m == nil || g.ecology.Checkpoint != 1 {
+				t.Fatal("fixture caravan must head for checkpoint 1")
+			}
+			cx, cy := (float64(goal.X)+.5)*tile, (float64(goal.Y)+.5)*tile
+			m.X, m.Y = cx+tc.dx*tile, cy+tc.dy*tile
+			m.PathTiles, m.PathIndex = tc.path, tc.index
+			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+			placePlayerAtTile(g, 1, 1, tile)
+			startX, startY := m.X, m.Y
+			if tc.move {
+				for tick := 0; tick < 30 && g.ecology.Checkpoint == 1; tick++ {
+					g.prepareAmbientTarget(m)
+					m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, false)
+					g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+					g.updateEcology()
+				}
+			} else {
+				g.updateEcology()
+			}
+			if advanced := g.ecology.Checkpoint == 2; advanced != tc.advances {
+				t.Fatalf("checkpoint %d at (%.1f, %.1f), want advance=%v", g.ecology.Checkpoint, m.X, m.Y, tc.advances)
+			}
+			if tc.advances && !tc.move && (m.X != cx || m.Y != cy) {
+				t.Fatalf("credited caravan at (%.1f, %.1f), want snapped to (%.1f, %.1f)", m.X, m.Y, cx, cy)
+			}
+			if !tc.advances && (m.X != startX || m.Y != startY) {
+				t.Fatal("a refused credit must not move the caravan")
+			}
+		})
 	}
 }
 func TestCaravanDeathRespawnAndSave(t *testing.T) {

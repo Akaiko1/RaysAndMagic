@@ -116,7 +116,7 @@ func TestCampStatusCardMatchesTryCamp(t *testing.T) {
 				case "enemy_near":
 					g.world.Monsters = []*monster.Monster3D{{ID: "camp_near", Name: "Goblin", X: g.camera.X + tile, Y: g.camera.Y, HitPoints: 10, MaxHitPoints: 10}}
 				case "engaged_far":
-					g.world.Monsters = []*monster.Monster3D{{ID: "camp_engaged", Name: "Goblin", X: g.camera.X + 9*tile, Y: g.camera.Y, HitPoints: 10, MaxHitPoints: 10, IsEngagingPlayer: true}}
+					g.world.Monsters = []*monster.Monster3D{{ID: "camp_engaged", Name: "Goblin", X: g.camera.X + 9*tile, Y: g.camera.Y, HitPoints: 10, MaxHitPoints: 10, IsEngagingPlayer: true, WasAttacked: true}}
 				}
 				food := g.party.Food
 				l, visible := inGameActionBarLayout(g)
@@ -177,13 +177,14 @@ func TestBuffStatusCardNamesNonSpellSources(t *testing.T) {
 			if status == nil {
 				t.Fatal("drunk draught never reached the status rail")
 			}
-			card, _ := g.buffStatusCard(status)
+			rows, _ := g.buffStatusCardRows(status)
+			card := rows.Lines()
 			text := strings.Join(card, "\n")
 			if card[0] != def.Name || card[1] != uitext.Text("buff.source_draught") {
 				t.Fatalf("draught card header = %q", card[:2])
 			}
-			// The same lines as the draught's own item card.
-			for _, want := range def.ItemMechanicLines() {
+			// Effect magnitudes match the item; the HUD only shows time remaining.
+			for _, want := range def.TimedBuffEffectLines() {
 				if !slices.Contains(card, want) {
 					t.Fatalf("draught card lacks its item line %q:\n%s", want, text)
 				}
@@ -200,7 +201,8 @@ func TestBuffStatusCardNamesNonSpellSources(t *testing.T) {
 			if status == nil {
 				t.Fatal("quickening never reached the status rail")
 			}
-			card, _ := g.buffStatusCard(status)
+			rows, _ := g.buffStatusCardRows(status)
+			card := rows.Lines()
 			text := strings.Join(card, "\n")
 			for _, want := range []string{
 				uitext.Text("buff.rt_recovery", strconv.Itoa(config.TierValue(d.Power, tier))),
@@ -255,7 +257,8 @@ func TestBuffStatusCardFollowsTheCastersMastery(t *testing.T) {
 				if !cs.CastEquippedSpell() {
 					t.Fatalf("%s cast failed", key)
 				}
-				card, _ := g.buffStatusCard(g.utilitySpellStatuses[def.ID])
+				rows, _ := g.buffStatusCardRows(g.utilitySpellStatuses[def.ID])
+				card := rows.Lines()
 				seconds := character.SpellDurationAtTier(def, int(tier)).Seconds
 				for _, want := range []string{ladders[key](def, int(tier)), "Remaining: " + strconv.Itoa(seconds) + "s"} {
 					if !slices.ContainsFunc(card, func(line string) bool { return strings.HasPrefix(line, want) }) {

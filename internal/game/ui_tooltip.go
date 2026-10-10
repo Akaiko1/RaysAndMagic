@@ -18,24 +18,21 @@ var tooltipDetailHeld = func() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
 
-// GetItemTooltip is shared by inventory, shops and editor catalogs. A nil
+// GetItemTooltipRows is shared by inventory, shops and editor catalogs. A nil
 // character requests the item's base values, independent of any active game.
-func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
-	return GetItemTooltipRows(item, char, combatSystem, full).String()
-}
-
-// GetItemTooltipRows retains the producer's row roles for game and editor rendering.
 func GetItemTooltipRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) character.CardRows {
-	return itemTooltipWithUsageRows(item, char, combatSystem, full)
+	return itemTooltipWithUsageRows(item, char, combatSystem, full, itemUsage{})
 }
 
-// itemTooltipWithUsage is GetItemTooltip with context hints appended to the
-// card's USAGE section (the Card Collector names its double-click action).
-func itemTooltipWithUsage(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage ...string) string {
-	return itemTooltipWithUsageRows(item, char, combatSystem, full, usage...).String()
+// itemUsage controls authored action hints only. Consumable eligibility and
+// flask combat rules still appear in USAGE regardless of the view's action.
+// ReplaceDefaultHints with no Hints describes a passive collection view.
+type itemUsage struct {
+	ReplaceDefaultHints bool
+	Hints               []string
 }
 
-func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage ...string) character.CardRows {
+func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool, usage itemUsage) character.CardRows {
 	if char == nil {
 		combatSystem = nil
 	}
@@ -83,7 +80,7 @@ func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, comb
 		if combatSystem != nil && combatSystem.game != nil {
 			party = combatSystem.game.party
 		}
-		core = buildSimpleItemTooltipWithPartyRows(item, full, char, party, combatSystem, usage...)
+		core = buildSimpleItemTooltipWithPartyRows(item, full, char, party, combatSystem, usage)
 	}
 	if len(core) == 0 {
 		core.Add(character.CardRowTitle, item.Name)
@@ -110,13 +107,8 @@ func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, comb
 	return hintRowsLast(core)
 }
 
-// GetItemComparisonTooltip returns a comparison block against the currently equipped item
-// for the default equip destination, including empty slots and mixed wearable types.
-func GetItemComparisonTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
-	return GetItemComparisonTooltipRows(item, char, combatSystem).String()
-}
-
-// GetItemComparisonTooltipRows retains the producer's row roles for game and editor rendering.
+// GetItemComparisonTooltipRows compares an item with the one equipped in its
+// default equip destination, including empty slots and mixed wearable types.
 func GetItemComparisonTooltipRows(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) character.CardRows {
 	if char == nil || combatSystem == nil || combatSystem.game == nil {
 		return nil
@@ -156,12 +148,7 @@ func GetItemComparisonTooltipRows(item items.Item, char *character.MMCharacter, 
 	}
 }
 
-// GetSpellComparisonTooltip returns a comparison block for a spellbook spell against the equipped spell.
-func GetSpellComparisonTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) string {
-	return GetSpellComparisonTooltipRows(spellID, char, combatSystem).String()
-}
-
-// GetSpellComparisonTooltipRows retains the producer's row roles for game and editor rendering.
+// GetSpellComparisonTooltipRows compares a spellbook spell with the equipped spell.
 func GetSpellComparisonTooltipRows(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) character.CardRows {
 	if char == nil || combatSystem == nil || combatSystem.game == nil {
 		return nil
@@ -296,19 +283,6 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	return lines
 }
 
-func buildSpellComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	itemID := spells.SpellID(item.SpellEffect)
-	equippedID := spells.SpellID(equipped.SpellEffect)
-	if itemID == "" || equippedID == "" {
-		return nil
-	}
-	return buildSpellComparisonLinesByID(itemID, equippedID, char, combatSystem)
-}
-
-func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	return buildSpellComparisonRowsByID(itemID, equippedID, char, combatSystem).Lines()
-}
-
 func buildSpellComparisonRowsByID(itemID, equippedID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) character.CardRows {
 	itemDef, err := spells.GetSpellDefinitionByID(itemID)
 	if err != nil {
@@ -429,12 +403,7 @@ func spellEffectsSummary(def spells.SpellDefinition, char *character.MMCharacter
 	return strings.Join(lines, "; ")
 }
 
-// GetSpellTooltip returns a comprehensive tooltip for spells in the spellbook using centralized spell definitions
-func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
-	return GetSpellTooltipRows(spellID, char, combatSystem, full).String()
-}
-
-// GetSpellTooltipRows retains the producer's row roles for game and editor rendering.
+// GetSpellTooltipRows is the full spellbook card from the spell definitions.
 func GetSpellTooltipRows(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem, full bool) character.CardRows {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {

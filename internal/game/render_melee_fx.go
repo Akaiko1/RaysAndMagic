@@ -121,10 +121,11 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	if s.MaxFrames <= 0 {
 		return
 	}
+	cy -= screenH * s.AnchorLift
 	progress, _, _, _ := meleeFxTiming(s)
 	previous := r.weaponMaterialState
 	r.weaponMaterialState = weaponMaterialState{
-		weaponKey: s.WeaponKey, material: weaponMaterial(s.Style), phase: progress * 6, seed: seedFromID(s.ID),
+		weaponKey: s.WeaponKey, progress: progress, material: weaponMaterial(s.Style), phase: progress * 6, seed: seedFromID(s.ID),
 		trail: meleeTrailShape(s.Kind, screenH, s.Crit),
 	}
 	defer func() { r.weaponMaterialState = previous }()
@@ -134,7 +135,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 		return
 	}
 	if s.Kind == "punch" {
-		r.drawIdentityStrike(screen, s, cx, cy, screenH, "", "punch")
+		r.drawGauntletStrike(screen, s, cx, cy, screenH)
 		return
 	}
 	_, fade, sweepT, lead := meleeFxTiming(s)
@@ -196,7 +197,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 		if s.Kind == "stab" {
 			headSize *= .62
 		}
-		r.drawWeaponHead(screen, s.Kind, tipX, tipY, angle, headSize, col, fade)
+		r.drawWeaponHead(screen, s.Kind, tipX, tipY, angle, headSize, fade)
 	}
 	if sweepT >= 1 {
 		u := (progress - meleeSweepFrac) / (1 - meleeSweepFrac)

@@ -78,14 +78,14 @@ func TestWeaponTooltipStrikeUnits(t *testing.T) {
 						caster.Might, caster.Speed = 6, 4 // +2 and +1, summed before splitting.
 						want = tc.wantPersonal
 					}
-					text := GetItemTooltip(weapon, caster, cs, full)
+					text := GetItemTooltipRows(weapon, caster, cs, full).String()
 					if got := tooltipNumber(t, text, "Total Damage: "); got != want {
 						t.Errorf("per-strike damage = %d, want %d:\n%s", got, want, text)
 					}
 					if strings.Contains(text, "Damage shown per strike") != tc.wantSplit || strings.Contains(text, "Strikes per attack: 2") != tc.wantSplit {
 						t.Errorf("per-strike label does not match the attack kind:\n%s", text)
 					}
-					line := "Per strike: divide Normal formula total by 2, round up"
+					line := "Normal damage is divided between 2 strikes, rounded up per strike."
 					if strings.Contains(text, line) != (full && tc.wantSplit) {
 						t.Errorf("incorrect split stage in tooltip:\n%s", text)
 					}
@@ -150,8 +150,8 @@ func TestSharedSpellFormulaThroughCastAndTooltip(t *testing.T) {
 						target.ID, target.MonsterType = "formula-target", "undead"
 						target.X, target.Y = g.camera.X+32, g.camera.Y
 						g.world.Monsters = []*monsterPkg.Monster3D{target}
-						full := GetSpellTooltip(id, caster, cs, true)
-						compact := GetSpellTooltip(id, caster, cs, false)
+						full := GetSpellTooltipRows(id, caster, cs, true).String()
+						compact := GetSpellTooltipRows(id, caster, cs, false).String()
 						if !cs.CastEquippedSpell() {
 							t.Fatal("cast rejected")
 						}
@@ -227,7 +227,7 @@ func TestNoDamageSpellComparisonsBothDirections(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, tip := range []string{GetSpellComparisonTooltip(hover, caster, cs), GetItemComparisonTooltip(spellItem, caster, cs)} {
+				for _, tip := range []string{GetSpellComparisonTooltipRows(hover, caster, cs).String(), GetItemComparisonTooltipRows(spellItem, caster, cs).String()} {
 					for _, line := range strings.Split(tip, "\n") {
 						if !strings.HasPrefix(line, "Total Damage:") {
 							continue
@@ -287,7 +287,7 @@ func TestWeaponTooltipMatchesRealAttackStages(t *testing.T) {
 					if crit {
 						label = "Critical Damage: "
 					}
-					shown := tooltipNumber(t, GetItemTooltip(weapon, caster, cs, true), label)
+					shown := tooltipNumber(t, GetItemTooltipRows(weapon, caster, cs, true).String(), label)
 					if !cs.EquipmentMeleeAttack() {
 						t.Fatal("attack rejected")
 					}
@@ -355,8 +355,8 @@ func TestAuthoredSpellOverridesReachGameAndEditor(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			gameTip := GetSpellTooltip("fireball", caster, cs, true)
-			editorTip := GetSpellTooltip(spells.SpellID("fireball"), nil, nil, true)
+			gameTip := GetSpellTooltipRows("fireball", caster, cs, true).String()
+			editorTip := GetSpellTooltipRows(spells.SpellID("fireball"), nil, nil, true).String()
 			if strings.Contains(gameTip, tc.absent) || strings.Contains(editorTip, tc.absent) {
 				t.Fatalf("inactive formula term %q in game or editor:\n%s\n%s", tc.absent, gameTip, editorTip)
 			}

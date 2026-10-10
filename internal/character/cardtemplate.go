@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
@@ -105,9 +106,9 @@ func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	if dt == "" {
 		dt = damagecalc.Physical.String()
 	}
-	line := config.TitleWords(dt) + " Damage"
+	line := uitext.Text("damage.school", config.TitleWords(dt))
 	if aoeTiles > 0 {
-		line += fmt.Sprintf(" - splash radius %.0f tiles", aoeTiles)
+		line += uitext.Text("damage.splash_radius", aoeTiles)
 	}
 	return line
 }
@@ -122,22 +123,22 @@ func MeleeSwingArcLine(def *config.WeaponDefinitionConfig) string {
 	var shape string
 	switch def.Melee.ArcType {
 	case 1:
-		shape = "Strikes straight ahead"
+		shape = uitext.Text("weapon.arc_front")
 	case 2:
-		shape = "Strikes the front and one flank"
+		shape = uitext.Text("weapon.arc_flank")
 	case 3:
-		shape = "Strikes the front and both diagonals"
+		shape = uitext.Text("weapon.arc_diagonals")
 	case 4:
-		shape = "Strikes the front, both diagonals and both sides"
+		shape = uitext.Text("weapon.arc_sides")
 	default:
 		return ""
 	}
 	// Reach depth only: which directions get hit is the shape sentence's job,
 	// and depth counts diagonals as one step for EVERY weapon, so a per-item
 	// "diagonals included" note carried no information.
-	reach := "reaches 1 tile"
+	reach := uitext.Text("weapon.reach_one")
 	if def.Range >= 2 {
-		reach = fmt.Sprintf("reaches %d tiles deep in the cone", def.Range)
+		reach = uitext.Text("weapon.reach_cone", def.Range)
 	}
 	return fmt.Sprintf("%s; %s", shape, reach)
 }
@@ -150,13 +151,13 @@ func MeleeArcShortLabel(def *config.WeaponDefinitionConfig) string {
 	}
 	switch def.Melee.ArcType {
 	case 1:
-		return "front"
+		return uitext.Text("weapon.arc_short_front")
 	case 2:
-		return "front+flank"
+		return uitext.Text("weapon.arc_short_flank")
 	case 3:
-		return "front+diagonals"
+		return uitext.Text("weapon.arc_short_diagonals")
 	case 4:
-		return "front+diagonals+sides"
+		return uitext.Text("weapon.arc_short_sides")
 	default:
 		return ""
 	}
@@ -164,30 +165,32 @@ func MeleeArcShortLabel(def *config.WeaponDefinitionConfig) string {
 
 // SplashCritRule describes the shared source roll. Target-specific bonuses
 // such as Designate Target are resolved separately for each victim.
-const SplashCritRule = "One base critical roll applies to the primary hit and its splash"
+func SplashCritRule() string { return uitext.Text("spell.splash_critical") }
 
-const WeaponSplashCritRule = SplashCritRule + "; Designate Target's critical bonus applies separately to each marked victim"
+func WeaponSplashCritRule() string {
+	return SplashCritRule() + " " + uitext.Text("weapon.splash_designation")
+}
 
 // CardSectionSet titles the equipment-set block of a card.
 const CardSectionSet = "SET"
 
 // CooldownLine formats real-time recovery and the turn-based action cost.
 func CooldownLine(seconds float64) string {
-	return CooldownLineTB(seconds, "1 action")
+	return CooldownLineTB(seconds, uitext.Text("casting.one_action"))
 }
 
 // CooldownLineTB is CooldownLine with its own turn-based cost.
 func CooldownLineTB(seconds float64, tb string) string {
-	return fmt.Sprintf("RT Cooldown: %.2fs - TB: %s", CardSeconds(seconds), tb)
+	return uitext.Text("casting.cooldown", CardSeconds(seconds), tb)
 }
 
 // SpellTBCost is what one cast costs in turn-based combat: a jump is party
 // movement, so it ends the turn like a step.
 func SpellTBCost(def spells.SpellDefinition) string {
 	if def.JumpTiles > 0 {
-		return "ends the party's turn"
+		return uitext.Text("casting.ends_turn")
 	}
-	return "1 action"
+	return uitext.Text("casting.one_action")
 }
 
 // CardSeconds rounds a duration to the hundredths every card line shows, half
@@ -205,19 +208,19 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 	dt := strings.ToLower(strings.TrimSpace(damageType))
 	school, err := damagecalc.ParseType(dt)
 	if dt == "" || (err == nil && school == damagecalc.Physical) {
-		sec.AddDetail("Reduced by target Armor (up to %d%%, diminishing)", ArmorPhysicalMitigationCap)
+		sec.AddDetail("%s", uitext.Text("armor.physical_reduction", ArmorPhysicalMitigationCap))
 		if isRanged {
 			sec.AddDetail("%s", ArmorPierceShotsLine())
 		}
 	} else {
-		sec.AddDetail("Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, config.TitleWords(dt))
+		sec.AddDetail("%s", uitext.Text("armor.elemental_reduction", ArmorElementalMitigationCap, config.TitleWords(dt)))
 	}
 	if hasTrueDmg {
 		school := config.TitleWords(dt)
 		if dt == "" {
 			school = "Physical"
 		}
-		sec.AddDetail("True Damage also bypasses flat reduction; %s Resistance still applies", school)
+		sec.AddDetail("%s", uitext.Text("armor.true_resistance", school))
 	}
 }
 
@@ -240,7 +243,7 @@ func FilteredItemEffectLines(def *config.ItemDefinitionConfig) []string {
 // have been summed. True damage, crits and outgoing buffs are separate stages.
 func WeaponStrikeFormulaLine(def *config.WeaponDefinitionConfig) string {
 	if strikes := WeaponStrikeCount(def); strikes > 1 {
-		return fmt.Sprintf("Per strike: divide Normal formula total by %d, round up", strikes)
+		return uitext.Text("weapon.split_damage", strikes)
 	}
 	return ""
 }
@@ -273,92 +276,81 @@ type SpellRule struct {
 // underlying applicability logic.
 func SpellRules(def spells.SpellDefinition) []SpellRule {
 	var out []SpellRule
-	add := func(kind SpellRuleKind, format string, args ...any) {
-		out = append(out, SpellRule{Kind: kind, Text: fmt.Sprintf(format, args...)})
+	add := func(kind SpellRuleKind, text string) {
+		out = append(out, SpellRule{Kind: kind, Text: text})
 	}
 
 	school := config.TitleWords(def.School)
 	switch {
 	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
-		add(SpellRuleDamage, "All damage remains normal %s damage", strings.ToLower(school))
-		add(SpellRuleDamage, "Reduced by enemy Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, school)
+		add(SpellRuleDamage, uitext.Text("spell.area_mitigation", ArmorElementalMitigationCap, school))
 		if !def.SparesParty {
-			add(SpellRuleDamage, "Self-damage is reduced by party Armor, %s Resistance and per-hit reductions", school)
+			add(SpellRuleDamage, uitext.Text("spell.self_mitigation", school))
 		}
 		if MagicSchoolID(def.School).IsElemental() {
-			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
-				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
+			add(SpellRuleMasteryPolicy, uitext.Text("spell.elemental_mastery_pierce", ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school))
 		}
-		add(SpellRuleCritical, "Cannot critically hit")
+		add(SpellRuleCritical, uitext.Text("spell.no_critical"))
 	case def.DealsNoDamage:
 		// Control projectiles need to distinguish their effect from a damage hit.
-		// Movement and summons have no direct attack whose crit needs explaining.
+		// Movement and summons need no separate damage disclaimer.
 		if def.JumpTiles <= 0 && def.SummonMonster == "" {
-			add(SpellRuleGeneral, "Deals no damage")
-			add(SpellRuleCritical, "Cannot critically hit")
+			add(SpellRuleGeneral, uitext.Text("spell.no_damage"))
 		}
 	case def.IsProjectile || def.ZoneRadiusTiles > 0:
-		add(SpellRuleDamage, "Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, school)
+		add(SpellRuleDamage, uitext.Text("armor.elemental_reduction", ArmorElementalMitigationCap, school))
 		if MagicSchoolID(def.School).IsElemental() {
-			add(SpellRuleMasteryPolicy, "Elemental Mastery: ignores %d-%d%% of enemy %s Resistance",
-				ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school)
+			add(SpellRuleMasteryPolicy, uitext.Text("spell.elemental_mastery_pierce", ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school))
 			// A spell whose damage is an authored per-tier ladder gets no mastery
 			// add-ons at all - the ladder IS the payload (same exclusion Inferno
 			// earns through mastery_damage_per_tier), so no GM true-damage split.
 			if len(def.DamageByMastery) != 4 {
-				add(SpellRuleMasteryPolicy, "Grandmaster %s Magic: +%d %s true damage",
-					school, int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school)
+				add(SpellRuleMasteryPolicy, uitext.Text("spell.elemental_grandmaster_damage", school, int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school))
 			}
 		} else {
-			add(SpellRuleMasteryPolicy, "Grandmaster %s Magic: ignores %d%% of enemy %s Resistance",
-				school, SelfMagicGMResistPiercePct, school)
+			add(SpellRuleMasteryPolicy, uitext.Text("spell.self_grandmaster_pierce", school, SelfMagicGMResistPiercePct, school))
 		}
 	}
 	if def.AoeRadiusTiles > 0 {
 		if def.MortarRangeTiles > 0 {
-			add(SpellRuleCritical, "One critical roll boosts the entire bloom")
+			add(SpellRuleCritical, uitext.Text("spell.bloom_critical"))
 		} else {
-			add(SpellRuleCritical, "%s", SplashCritRule)
-			add(SpellRuleDamage, "Bursts where it stops: on a target, a wall or at the end of its range; walls shield what is behind them")
-			add(SpellRuleDamage, "The splash cannot be dodged; a target that dodges escapes only its own hit")
+			add(SpellRuleCritical, SplashCritRule())
+			add(SpellRuleDamage, uitext.Text("spell.splash_obstacles"))
+			add(SpellRuleDamage, uitext.Text("spell.splash_dodge"))
 		}
 	}
 	if def.IsProjectile && def.MortarRangeTiles <= 0 {
 		if !def.DealsNoDamage && MagicSchoolID(def.School).IsElemental() {
-			add(SpellRuleDodge, "At Grandmaster, Perfect Dodge avoids normal damage; typed true damage still lands")
+			add(SpellRuleDodge, uitext.Text("spell.gm_dodge"))
 		} else {
-			add(SpellRuleDodge, "Can be evaded by Perfect Dodge")
+			add(SpellRuleDodge, uitext.Text("spell.normal_dodge"))
 		}
 		if def.StunChance > 0 {
-			add(SpellRuleGeneral, "A dodged hit never stuns")
+			add(SpellRuleGeneral, uitext.Text("spell.dodged_stun"))
 		}
 	}
 	if def.MortarRangeTiles > 0 {
-		add(SpellRuleDamage, "The bloom cannot be evaded by Perfect Dodge")
-	}
-	if def.Pacify {
-		add(SpellRuleGeneral, "Any received hit breaks the charm")
-		add(SpellRuleGeneral, "No effect on undead")
+		add(SpellRuleDamage, uitext.Text("spell.bloom_dodge"))
 	}
 	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
 		if def.StatBonusGrandmaster > def.StatBonus {
-			add(SpellRuleDuration, "Mastery increases duration and the bonus")
+			add(SpellRuleDuration, uitext.Text("spell.mastery_duration_and_bonus"))
 		} else {
-			add(SpellRuleDuration, "Mastery increases duration, not the bonus")
+			add(SpellRuleDuration, uitext.Text("spell.mastery_duration_only"))
 		}
 	}
 	// A handled no-op keeps the SP but spends the turn and cooldown.
-	const kept = "the SP is kept but the action and cooldown are spent"
 	switch {
 	case def.Awaken:
-		add(SpellRuleGeneral, "With no one unconscious, %s", kept)
+		add(SpellRuleGeneral, uitext.Text("spell.awaken_no_target"))
 	case def.Revive || def.ReviveHpPct > 0:
-		add(SpellRuleGeneral, "With no one fallen, %s", kept)
+		add(SpellRuleGeneral, uitext.Text("spell.revive_no_target"))
 	case def.JumpTiles > 0:
-		add(SpellRuleGeneral, "If the landing is blocked or the party is rooted, %s", kept)
+		add(SpellRuleGeneral, uitext.Text("spell.jump_blocked"))
 	}
 	if def.ZoneRadiusTiles > 0 {
-		add(SpellRuleZone, "Overlapping zones of the same spell do not stack")
+		add(SpellRuleZone, uitext.Text("spell.zone_no_stacking"))
 	}
 	return out
 }
@@ -370,7 +362,7 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 // stay.
 func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.SpellDefinition) []CardSection {
 	casting := CardSection{Title: "CASTING"}
-	casting.Add("Cast by monsters only - never learnable")
+	casting.Add("%s", uitext.Text("spell.monster_only"))
 	if sd.IsProjectile && def.Physics != nil {
 		if def.Physics.RangeTiles > 0 {
 			casting.Add("Range: %.0f tiles", def.Physics.RangeTiles)
@@ -382,8 +374,8 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 
 	dmg := CardSection{Title: "DAMAGE"}
 	if sd.IsProjectile && !sd.DealsNoDamage {
-		dmg.Add("Deals the casting monster's attack damage")
-		dmg.Add("Cannot critically hit")
+		dmg.Add("%s", uitext.Text("spell.monster_damage"))
+		dmg.Add("%s", uitext.Text("spell.no_critical"))
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
@@ -391,14 +383,14 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 	// Against the party a disintegrate roll eradicates the hero it hits; the
 	// monster-target immunities do not apply.
 	if sd.DisintegrateChance > 0 {
-		effects.Add("Disintegrate: %.0f%% chance to eradicate the hero it hits", sd.DisintegrateChance*100)
+		effects.Add("%s", uitext.Text("spell.monster_disintegrate", sd.DisintegrateChance*100))
 		sd.DisintegrateChance = 0
 	}
 	for _, ln := range FilteredSpellEffectLines(sd) {
 		effects.Add("%s", ln)
 	}
 
-	casting.Add("Strikes your party and the undead your party has bound")
+	casting.Add("%s", uitext.Text("spell.monster_targets"))
 
 	return []CardSection{dmg, effects, casting}
 }

@@ -157,9 +157,7 @@ func TestMobInfo_UsesMonsterCombatEffectLines(t *testing.T) {
 				if line.School != "" {
 					col = game.SchoolColor(line.School)
 				}
-				for _, text := range wrapTooltipLines(line.Text, mobInfoCols) {
-					want = append(want, infoLine{text: text, col: col})
-				}
+				want = append(want, infoLine{text: strings.TrimSpace(line.Text), col: col})
 			}
 			rows := buildMobInfo(key, def)
 			header := -1

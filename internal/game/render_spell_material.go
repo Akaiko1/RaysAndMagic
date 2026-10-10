@@ -29,50 +29,41 @@ const (
 	spellEye
 )
 
-func spellMaterialRenderer(kind int) func(*Renderer, *ebiten.Image, float64, float64, float64, float64, float64, [3]int, projectileFxProfile, float64, int) {
-	return func(r *Renderer, dst *ebiten.Image, x, y, size, dx, dy float64, rgb [3]int, _ projectileFxProfile, crit float64, seed int) {
-		r.drawSpellMaterial(dst, x, y, size, dx, dy, rgb, crit, seed, kind)
-	}
-}
-
-func (r *Renderer) drawSpellMaterial(dst *ebiten.Image, x, y, size, dx, dy float64, rgb [3]int, crit float64, seed, kind int) {
-	r.drawSpellMaterialFade(dst, x, y, size, dx, dy, rgb, crit, seed, kind, 1)
+type spellProjection struct {
+	dx, dy, head, axial float64
+	axis                [3]float64
 }
 
 func (r *Renderer) drawSpellMaterialFade(dst *ebiten.Image, x, y, size, dx, dy float64, rgb [3]int, crit float64, seed, kind int, alpha float64) {
+	projection := spellProjection{dx: dx, dy: dy, axial: 1, axis: [3]float64{dx, dy, 0}}
+	if math.Hypot(dx, dy) < .01 {
+		projection.dx, projection.dy, projection.head, projection.axis = 1, 0, 1, [3]float64{0, 0, 1}
+	}
+	r.drawSpellMaterialProjected(dst, x, y, size, rgb, crit, seed, kind, alpha, projection)
+}
+
+func (r *Renderer) drawSpellMaterialProjected(dst *ebiten.Image, x, y, size float64, rgb [3]int, crit float64, seed, kind int, alpha float64, projection spellProjection) {
 	if alpha <= 0 || size <= 0 || crit <= 0 || r.ensureWeaponMaterialShaders() != nil {
 		return
 	}
 	if isFacetedBolt(kind) || kind == spellHarm {
-		axis := r.spellFlightAxis
-		if axis == [3]float64{} {
-			axis = [3]float64{dx, dy, 0}
-			if math.Hypot(dx, dy) < .01 {
-				axis = [3]float64{0, 0, 1}
-			}
-		}
-		r.drawSpellVolume(dst, x, y, size*math.Sqrt(crit), axis, rgb, alpha, kind)
+		r.drawLitVolume(dst, x, y, size*math.Sqrt(crit), projection.axis, rgb, alpha, kind, 1)
 		return
 	}
-	head := 0.0
-	if math.Hypot(dx, dy) < .01 {
-		head = 1
-		dx, dy = 1, 0
-	}
+	dx, dy, head := projection.dx, projection.dy, projection.head
 	size *= math.Sqrt(crit)
 	left, right, top, bottom := -3.3, 1.7, -1.7, 1.7
 	if kind == spellLight {
 		left = -7
 	}
-	if head > 0 {
-		left = -1.7
-	} else if kind == spellLash {
+	if kind == spellLash {
 		right = 2.8
 	}
+	left += (-1.7 - left) * head
 	phase := r.weaponMaterialClock()
 	axial := 1.0
-	if head == 0 && r.spellAxialScale > 0 && directionalSpellKind(kind) {
-		axial = r.spellAxialScale
+	if directionalSpellKind(kind) {
+		axial = projection.axial
 	}
 	for i, p := range [4][2]float64{{left, top}, {right, top}, {left, bottom}, {right, bottom}} {
 		v := weaponMaterialVertex(x+(p[0]*axial*dx-p[1]*dy)*size, y+(p[0]*axial*dy+p[1]*dx)*size, p[0], p[1], rgb, alpha)
@@ -81,7 +72,7 @@ func (r *Renderer) drawSpellMaterialFade(dst *ebiten.Image, x, y, size, dx, dy f
 		r.weaponMaterialQuad[i] = v
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.spellBodyShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.spellBodyShader, &r.weaponMaterialOpts)
 }
 
 // The broad impact face expands quickly, then rolls apart into smoke and grit.
@@ -99,5 +90,5 @@ func (r *Renderer) drawImpactCloud(dst *ebiten.Image, x, y, rx, ry, age float64,
 		r.weaponMaterialQuad[i] = v
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
-	dst.DrawTrianglesShader(r.weaponMaterialQuad[:], weaponQuadIndices, r.impactMaterialShader, &r.weaponMaterialOpts)
+	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.impactMaterialShader, &r.weaponMaterialOpts)
 }

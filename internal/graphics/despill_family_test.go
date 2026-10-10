@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ import (
 	"ugataima/internal/config"
 )
 
-// Case table: base/sheet exemption x static/every directional action x
+// Case table: edge-only/excluded x base/sheet x static/every directional action x
 // synchronous/background decoding. Similar prefixes and non-animation names
 // remain independent. Save/load is N/A: this is a load-time asset policy.
 func TestDespillFamilyResourceLoading(t *testing.T) {
@@ -43,48 +44,57 @@ func TestDespillFamilyResourceLoading(t *testing.T) {
 			requests = append(requests, SpriteResourceRequest{Name: "lich", AnimationType: action + "_" + direction})
 		}
 	}
-	for _, exemption := range []string{"lich", "lich_walking_r", "lich_dying_l"} {
-		for _, request := range requests {
-			for _, background := range []bool{false, true} {
-				name := request.Name
-				if request.AnimationType != "" {
-					name += "_" + request.AnimationType
-				}
-				mode := "immediate"
-				if background {
-					mode = "background"
-				}
-				t.Run(exemption+"/"+name+"/"+mode, func(t *testing.T) {
-					sm := NewSpriteManager()
-					sm.spritePaths = map[string]string{name: path}
-					sm.SetColorKey(true, 255, 0, 255, 60, true)
-					sm.SetDespillEdgeOnly([]string{exemption}, 3)
-					var prepared PreparedSpriteResource
+	for _, excluded := range []bool{false, true} {
+		for _, exemption := range []string{"lich", "lich_walking_r", "lich_dying_l"} {
+			for _, request := range requests {
+				for _, background := range []bool{false, true} {
+					name := request.Name
+					if request.AnimationType != "" {
+						name += "_" + request.AnimationType
+					}
+					mode := "immediate"
 					if background {
-						for result := range sm.PrepareResources(context.Background(), []SpriteResourceRequest{request}) {
-							prepared = result
+						mode = "background"
+					}
+					t.Run(fmt.Sprintf("excluded=%v/%s/%s/%s", excluded, exemption, name, mode), func(t *testing.T) {
+						sm := NewSpriteManager()
+						sm.spritePaths = map[string]string{name: path}
+						sm.SetColorKey(true, 255, 0, 255, 60, true)
+						sm.SetDespillEdgeOnly([]string{exemption}, 3)
+						if excluded {
+							sm.SetDespillExclusions([]string{exemption})
 						}
-					} else {
-						prepared = sm.decodePreparedResource(request)
-					}
-					defer prepared.QueueLease.Release()
-					if !prepared.Found || prepared.Image == nil {
-						t.Fatal("source was not decoded")
-					}
-					want := gray
-					if request.Name == "lich" {
-						want = purple
-					}
-					if got := color.NRGBAModel.Convert(prepared.Image.At(8, 8)); got != want {
-						t.Fatalf("interior: got %v want %v", got, want)
-					}
-					if got := color.NRGBAModel.Convert(prepared.Image.At(1, 1)); got != gray {
-						t.Fatalf("fringe was not cleaned: %v", got)
-					}
-					if _, _, _, alpha := prepared.Image.At(0, 0).RGBA(); alpha != 0 {
-						t.Fatal("key core survived")
-					}
-				})
+						var prepared PreparedSpriteResource
+						if background {
+							for result := range sm.PrepareResources(context.Background(), []SpriteResourceRequest{request}) {
+								prepared = result
+							}
+						} else {
+							prepared = sm.decodePreparedResource(request)
+						}
+						defer prepared.QueueLease.Release()
+						if !prepared.Found || prepared.Image == nil {
+							t.Fatal("source was not decoded")
+						}
+						want := gray
+						if request.Name == "lich" {
+							want = purple
+						}
+						if got := color.NRGBAModel.Convert(prepared.Image.At(8, 8)); got != want {
+							t.Fatalf("interior: got %v want %v", got, want)
+						}
+						fringe := gray
+						if excluded && request.Name == "lich" {
+							fringe = purple
+						}
+						if got := color.NRGBAModel.Convert(prepared.Image.At(1, 1)); got != fringe {
+							t.Fatalf("fringe: got %v want %v", got, fringe)
+						}
+						if _, _, _, alpha := prepared.Image.At(0, 0).RGBA(); alpha != 0 {
+							t.Fatal("key core survived")
+						}
+					})
+				}
 			}
 		}
 	}
@@ -122,11 +132,13 @@ func TestDespillConfiguredAssetCatalog(t *testing.T) {
 	ck := cfg.Graphics.ColorKey
 	sm.SetColorKey(ck.Enabled, ck.Color[0], ck.Color[1], ck.Color[2], ck.Tolerance, ck.Despill)
 	sm.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
+	sm.SetDespillExclusions(ck.DespillExclusions)
 	keyOnly := NewSpriteManager()
 	keyOnly.SetColorKey(ck.Enabled, ck.Color[0], ck.Color[1], ck.Color[2], ck.Tolerance, false)
 	requests := map[string]SpriteResourceRequest{}
 	families := map[string]int{}
-	for _, entry := range ck.EdgeOnlyDespill {
+	entries := slices.Concat(ck.EdgeOnlyDespill, ck.DespillExclusions)
+	for _, entry := range entries {
 		if sm.spritePaths[entry] == "" {
 			t.Errorf("configured exception %q has no asset", entry)
 			continue
@@ -166,6 +178,17 @@ func TestDespillConfiguredAssetCatalog(t *testing.T) {
 			prepared := sm.decodePreparedResource(request)
 			if !prepared.Found {
 				t.Fatal("authored resource did not load")
+			}
+			// Same family rule as runtime: an exclusion named by any sheet covers
+			// the base sprite and its sibling sheets.
+			if sm.keyDespillExcluded[spriteDespillFamily(request.Name)] {
+				for y := before.Bounds().Min.Y; y < before.Bounds().Max.Y; y++ {
+					for x := before.Bounds().Min.X; x < before.Bounds().Max.X; x++ {
+						if prepared.CPU.RGBAAt(x, y) != color.RGBAModel.Convert(before.At(x, y)) {
+							t.Fatalf("excluded sprite colour changed at (%d,%d)", x, y)
+						}
+					}
+				}
 			}
 			// Summed-area mask lets us reject any pixel whose fringe neighborhood
 			// touches transparency or the color-key core in constant time.
@@ -216,7 +239,7 @@ func TestDespillConfiguredAssetCatalog(t *testing.T) {
 			fmt.Fprintf(&report, "| %s | %d (%d purple) | identical |\n", name, checked, purple)
 		})
 	}
-	t.Logf("audited %d configured entries, %d monster families, %d PNG resources", len(ck.EdgeOnlyDespill), len(families), len(names))
+	t.Logf("audited %d configured entries, %d monster families, %d PNG resources", len(entries), len(families), len(names))
 	if path := os.Getenv("RAM_DESPILL_AUDIT_REPORT"); path != "" && !t.Failed() {
 		if err := os.WriteFile(path, []byte(report.String()), 0644); err != nil {
 			t.Fatal(err)

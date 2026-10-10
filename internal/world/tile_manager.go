@@ -401,16 +401,6 @@ func (tm *TileManager) GetTileTypeFromKey(key string) (TileType3D, bool) {
 	return tileType, ok
 }
 
-// GetAllTileKeys returns all available tile keys from the loaded configuration.
-// Used by the sprite golden test to sweep every authored tile.
-func (tm *TileManager) GetAllTileKeys() []string {
-	keys := make([]string, 0, len(tm.tileData))
-	for key := range tm.tileData {
-		keys = append(keys, key)
-	}
-	return keys
-}
-
 // HasTileKey checks if a tile key exists in the loaded configuration
 func (tm *TileManager) HasTileKey(key string) bool {
 	_, exists := tm.tileData[key]
@@ -465,6 +455,13 @@ func (tm *TileManager) BlocksPickup(tileType TileType3D, terrainPassage bool) bo
 func (tm *TileManager) CanFlyOver(tileType TileType3D) bool {
 	data := tm.GetTileData(tileType)
 	return data != nil && (data.FlyOver || (data.Solid && data.Transparent))
+}
+
+// IsBareFloor reports plain ground (type floor): no vegetation, props, water
+// or markers. Ecology populations spawn only here.
+func (tm *TileManager) IsBareFloor(tileType TileType3D) bool {
+	data := tm.GetTileData(tileType)
+	return data != nil && data.Type == "floor"
 }
 
 // IsOpaque returns whether a tile type blocks sight

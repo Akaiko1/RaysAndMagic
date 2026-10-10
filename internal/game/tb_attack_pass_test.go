@@ -118,7 +118,7 @@ func TestTBAttackRequestPassesWhenNobodyCanAttack(t *testing.T) {
 					fp.press()
 					tick()
 					fp.hold()
-					for i := 0; i < rtHoldRepeatDelay+1 && g.currentTurn == 0 && holder.ActionsRemaining > 0; i++ {
+					for i := 0; i < mouseHoldRepeatTicks(g) && g.currentTurn == 0 && holder.ActionsRemaining > 0; i++ {
 						tick()
 					}
 				default:

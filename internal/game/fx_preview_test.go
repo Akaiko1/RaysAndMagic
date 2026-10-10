@@ -40,8 +40,15 @@ func TestFxPreview_CatalogAndSpawnCycle(t *testing.T) {
 		}
 		seen[it.Kind] = true
 		p.Select(it)
-		for i := 0; i < fxRespawnTicks+5; i++ {
+		steps := fxRespawnTicks + 5
+		if it.Kind == FxTrap {
+			steps = 3 * cfg.GetTPS()
+		}
+		for i := 0; i < steps; i++ {
 			p.Step()
+		}
+		if it.Kind == FxTrap && (len(p.g.traps) != 1 || len(p.g.trapBursts) != 0) {
+			t.Fatal("trap preview did not complete activation and re-arm exactly once")
 		}
 	}
 
@@ -125,7 +132,7 @@ func TestFxPreview_AuraExhibitUsesEligibleAuthoredTile(t *testing.T) {
 			}
 			world.GlobalTileManager = tm
 			t.Cleanup(func() { world.GlobalTileManager = previous })
-			keys := tm.GetAllTileKeys()
+			keys := allTileKeys(tm)
 			sort.Strings(keys)
 			var eligible []string
 			for _, key := range keys {

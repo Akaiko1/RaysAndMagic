@@ -44,6 +44,8 @@ func (g *MMGame) closeMainMenu() {
 // double-click identity beneath it. Modal priority and redraw gating remain in
 // topModalLayerFor/topModalSnapshot; this owner only controls its own lifetime.
 type dialogState struct {
+	guildLedger          [3][]guildLedgerEntry
+	guildScroll          int
 	dialogLastClickTime  int64
 	dialogLastClickedIdx int
 	dialogLastClickZone  string
@@ -61,6 +63,9 @@ type dialogState struct {
 	pendingTavernAction  *character.NPCDialogueChoice
 	merchantBuyPage      int
 	merchantSellPage     int
+	merchantBuyCategory  int
+	merchantSellCategory int
+	merchantStockView    merchantStockView
 	spellTraderPage      int
 	cardCollectorInvPage int
 }
@@ -74,6 +79,9 @@ func (g *MMGame) beginConversation(npc *character.NPC) {
 	g.dialogNPC = npc
 	g.dialogActive = npc != nil
 	g.switchDialogTab(0)
+	if npc != nil && npc.Guild != nil {
+		g.refreshGuildLedger()
+	}
 }
 
 // closeConversation retires the entire conversation, whether closed by input,

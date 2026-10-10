@@ -17,20 +17,49 @@ type NPCConfig struct {
 	NPCs map[string]*NPCData `yaml:"npcs"`
 }
 
+// Decode each definition with its catalog key so nested YAML errors identify
+// the NPC even when they occur before keyed validation can run.
+func (nc *NPCConfig) UnmarshalYAML(node *yaml.Node) error {
+	var source struct {
+		NPCs map[string]yaml.Node `yaml:"npcs"`
+	}
+	if err := node.Decode(&source); err != nil {
+		return err
+	}
+	var npcs map[string]*NPCData
+	if source.NPCs != nil {
+		npcs = make(map[string]*NPCData, len(source.NPCs))
+	}
+	for key, definition := range source.NPCs {
+		var npc *NPCData
+		if err := definition.Decode(&npc); err != nil {
+			return fmt.Errorf("NPC %q: %w", key, err)
+		}
+		npcs[key] = npc
+	}
+	nc.NPCs = npcs
+	return nil
+}
+
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
 	// EditorOwnerMap identifies local definitions whose last placement can be deleted.
 	EditorOwnerMap string `yaml:"editor_owner_map,omitempty"`
 
 	ShopDialogue bool `yaml:"shop_dialogue,omitempty"`
+	// ShopDisplay is decorative interface art, resolved from the catalog even
+	// for restored NPCs so old saves retain the current shop presentation.
+	ShopDisplay string `yaml:"shop_display,omitempty"`
 	// Empty biome scope keeps the NPC available in every editor palette.
-	Biomes        []string `yaml:"biomes,omitempty"`
-	Name          string   `yaml:"name"`
-	Type          string   `yaml:"type"`
-	Description   string   `yaml:"description"`
-	Sprite        string   `yaml:"sprite"`
-	VisitedSprite string   `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
-	NoSpin        bool     `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
+	Biomes        []string            `yaml:"biomes,omitempty"`
+	Name          string              `yaml:"name"`
+	Type          string              `yaml:"type"`
+	Description   string              `yaml:"description"`
+	Sprite        string              `yaml:"sprite"`
+	PropModel     *NPCPropModel       `yaml:"prop_model,omitempty"`
+	Guild         *GuildServiceConfig `yaml:"guild,omitempty"`
+	VisitedSprite string              `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
+	NoSpin        bool                `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
 	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
 	// Its span and sprite aspect are its complete visual-size contract, so it is
 	// mutually exclusive with size_class and no_spin.
@@ -138,12 +167,19 @@ type NPCDialogue struct {
 	Choices       []*NPCDialogueChoice `yaml:"choices,omitempty"`
 }
 
-// NPCQuestMessages is the dialogue body for one quest in a giver's chain.
-// The quest's lifecycle state selects Offer, Active or Completed.
+// NPCQuestMessages holds bodies and optional action replies for one quest.
+// Lifecycle state selects Offer, Active or Completed; action replies override
+// neutral feedback only, never eligibility or completion rules.
 type NPCQuestMessages struct {
 	Offer     string `yaml:"offer,omitempty"`
 	Active    string `yaml:"active,omitempty"`
 	Completed string `yaml:"completed,omitempty"`
+	// Action replies override neutral UI feedback without changing quest gates.
+	Accepted       string `yaml:"accepted,omitempty"`
+	AlreadyActive  string `yaml:"already_active,omitempty"`
+	NotCompleted   string `yaml:"not_completed,omitempty"`
+	Ineligible     string `yaml:"ineligible,omitempty"`
+	RejectedUndead string `yaml:"rejected_undead,omitempty"`
 }
 
 // NPCDialogueChoice represents a dialogue choice option
@@ -178,6 +214,8 @@ type NPCDialogueChoice struct {
 	// does NOT close - it shows Response as the NPC's reply and Choices as the
 	// follow-up options, so "ask about X" actually answers and can lead deeper
 	// or on to a give_quest. Nest freely; "back" pops one level.
+	// Paid wait and tavern_rest actions require a complete success Response;
+	// {cost} is substituted from the choice's authored price.
 	Response string               `yaml:"response,omitempty"`
 	Choices  []*NPCDialogueChoice `yaml:"choices,omitempty"`
 	// Cost/Amount parameterize purchase-style actions: tavern_rest charges Cost
@@ -387,6 +425,12 @@ func validateLoadedNPCConfig(cfg *NPCConfig) error {
 		return err
 	}
 	for key, npc := range cfg.NPCs {
+		if err := validateGuildService(key, npc); err != nil {
+			return err
+		}
+		if err := validateNPCPropModel(key, npc); err != nil {
+			return err
+		}
 		if npc != nil && npc.RemovedSizeTiles != nil {
 			return fmt.Errorf("NPC %q uses removed size_tiles - use size_class", key)
 		}
@@ -430,8 +474,8 @@ func validateCratesAndLecterns(cfg *NPCConfig) error {
 			}
 		case NPCTypeSpellLectern:
 			l := npc.Lectern
-			if l == nil || (l.Spell == "" && len(l.Pool) == 0) {
-				return fmt.Errorf("NPC %q: type spell_lectern requires lectern.spell or lectern.pool", key)
+			if l == nil || (l.Spell == "") == (len(l.Pool) == 0) {
+				return fmt.Errorf("NPC %q: type spell_lectern requires exactly one of lectern.spell or lectern.pool", key)
 			}
 			for _, id := range append([]string{l.Spell}, l.Pool...) {
 				if id == "" {
@@ -482,13 +526,15 @@ func validatePricedChoices() error {
 						return fmt.Errorf("NPC %q: invalid exchange cost", npcKey)
 					}
 				}
-			case "tavern_rest":
-				if c.Cost <= 0 {
-					return fmt.Errorf("npc %q: tavern_rest choice requires cost > 0", npcKey)
-				}
-			case "wait_until_night", "wait_until_dawn":
+			case "tavern_rest", "wait_until_night", "wait_until_dawn":
 				if c.Cost <= 0 {
 					return fmt.Errorf("npc %q: %s choice requires cost > 0", npcKey, c.Action)
+				}
+				if strings.TrimSpace(c.Response) == "" {
+					return fmt.Errorf("npc %q: %s choice requires response", npcKey, c.Action)
+				}
+				if strings.ContainsAny(strings.ReplaceAll(c.Response, "{cost}", ""), "{}") {
+					return fmt.Errorf("npc %q: %s response supports only the {cost} placeholder", npcKey, c.Action)
 				}
 			case "buy_food":
 				if c.Cost <= 0 || c.Amount <= 0 {
@@ -577,7 +623,11 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 	if !exists {
 		return nil, fmt.Errorf("NPC data not found for key: %s", key)
 	}
+	return NewNPCFromData(key, data, x, y), nil
+}
 
+// NewNPCFromData builds a runtime NPC from one authored definition.
+func NewNPCFromData(key string, data *NPCData, x, y float64) *NPC {
 	npc := &NPC{
 		X:                x,
 		Y:                y,
@@ -586,6 +636,8 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Type:             data.Type,
 		Description:      data.Description,
 		Sprite:           data.Sprite,
+		PropModel:        data.PropModel,
+		Guild:            data.Guild,
 		RenderCategory:   data.RenderCategory,
 		PromptVerb:       data.PromptVerb,
 		Transparent:      data.Transparent,
@@ -613,6 +665,8 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		LockLabel:        data.LockLabel,
 		DoorKeyItemKeys:  data.DoorKeyItemKeys,
 		DoorStatReqs:     data.DoorStatReqs,
+		ArenaBoard:       data.ArenaBoard,
+		ShopDialogue:     data.ShopDialogue,
 	}
 
 	// Shop stock is capability-driven, not type-driven: ANY NPC that authors an
@@ -621,8 +675,6 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 	if len(data.Inventory) > 0 || data.StockWeaponsRarity != "" {
 		npc.MerchantStock = buildMerchantStock(data.Inventory)
 		npc.Currency = data.Currency
-		npc.ArenaBoard = data.ArenaBoard
-		npc.ShopDialogue = data.ShopDialogue
 		if data.StockWeaponsRarity != "" {
 			npc.MerchantStock = append(npc.MerchantStock,
 				buildRarityWeaponStock(data.StockWeaponsRarity, data.StockWeaponsCost)...)
@@ -640,7 +692,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		npc.EncounterData = data.Encounter
 	}
 
-	return npc, nil
+	return npc
 }
 
 func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {

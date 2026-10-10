@@ -16,8 +16,8 @@ Tiles are loaded by `TileManager` at startup. Read
 | --- | --- |
 | `floor` | Ground color/texture, no vertical sprite |
 | `wall` | Opaque vertical texture slices; source fills its square |
-| `crossed_standee` | Natural trees/rocks; size class controls frame width; tree mechanics apply |
-| `crossed_prop` | Built blockers such as crates/logs; size class controls visible height; no tree mechanics or billboard LOD |
+| `crossed_standee` | Natural trees/rocks; size class controls frame width; both planes remain at every distance; interiors use `graphics.standee.crossed_standee_layers` |
+| `crossed_prop` | Built blockers such as crates/logs; size class controls visible height; projected-thickness interiors, no tree mechanics |
 | `standee` | Camera-facing prop; must be walkable unless wall-mounted |
 | `landmark_standee` | Landmark sprite; shared prop size class |
 

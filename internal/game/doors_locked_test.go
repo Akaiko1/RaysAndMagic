@@ -62,8 +62,8 @@ func TestKeyTooltipsShareYAMLMechanicsWithEditor(t *testing.T) {
 			if len(def.TooltipEffects) == 0 || len(def.TooltipUsage) == 0 {
 				t.Fatalf("%s must author its door mechanics and usage", key)
 			}
-			tooltip := GetItemTooltip(items.CreateItemFromYAML(key), nil, g.combat, false)
-			editorCard := GetItemTooltip(baseTestItem(t, def.Name), nil, nil, true)
+			tooltip := GetItemTooltipRows(items.CreateItemFromYAML(key), nil, g.combat, false).String()
+			editorCard := GetItemTooltipRows(baseTestItem(t, def.Name), nil, nil, true).String()
 			for _, line := range append(append([]string{}, def.TooltipEffects...), def.TooltipUsageLines()...) {
 				if !strings.Contains(tooltip, line) {
 					t.Errorf("game tooltip missing YAML line %q:\n%s", line, tooltip)
@@ -113,7 +113,7 @@ func TestAvailableDoorUnlocks_KeyStatAndMaster(t *testing.T) {
 	// A strong member adds the force option (order: keys then forcings).
 	g.party.Members[0].Might = 60
 	opts := g.availableDoorUnlocks(npc)
-	if len(opts) != 2 || opts[1].kind != doorUnlockForce || opts[1].chancePct != character.DoorForceChancePct {
+	if len(opts) != 2 || opts[1].kind != character.DoorOpeningForce || opts[1].chancePct != character.DoorForceChancePct {
 		t.Fatalf("might 60 should add a force option, got %+v", opts)
 	}
 
@@ -190,7 +190,7 @@ func TestDoorLockpickingUsesBestLivingSkillAndKeysBypassJam(t *testing.T) {
 	g.party.Members = append(g.party.Members, thief)
 
 	opts := g.availableDoorUnlocks(npc)
-	if len(opts) != 1 || opts[0].kind != doorUnlockLockpick ||
+	if len(opts) != 1 || opts[0].kind != character.DoorOpeningLockpick ||
 		opts[0].chancePct != character.LockpickingChancePct(2) {
 		t.Fatalf("lockpick options = %+v", opts)
 	}
@@ -201,7 +201,7 @@ func TestDoorLockpickingUsesBestLivingSkillAndKeysBypassJam(t *testing.T) {
 	}
 	g.party.AddItem(items.CreateItemFromYAML("ordinary_key"))
 	opts = g.availableDoorUnlocks(npc)
-	if len(opts) != 1 || opts[0].kind != doorUnlockConsumableKey {
+	if len(opts) != 1 || opts[0].kind != character.DoorOpeningKey {
 		t.Fatalf("key did not bypass jammed lock: %+v", opts)
 	}
 	g.openLockedDoor(npc, 0)
@@ -323,11 +323,11 @@ func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 
 	owners := map[string]int{"ordinary_key": 0, "inlaid_key": 0}
 	bossSkeleton := false
-	for _, entry := range config.GetBossLoot() {
+	for _, entry := range config.GlobalLoots.BossLoot {
 		bossSkeleton = bossSkeleton || (entry.Type == "item" && entry.Key == "skeleton_key" && entry.Chance > 0)
 	}
 	if !bossSkeleton {
-		t.Fatalf("boss_loot = %+v, want a Skeleton Key entry", config.GetBossLoot())
+		t.Fatalf("boss_loot = %+v, want a Skeleton Key entry", config.GlobalLoots.BossLoot)
 	}
 	for _, monsterKey := range monsterPkg.MonsterConfig.GetAllMonsterKeys() {
 		monster := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, g.config)
