@@ -132,7 +132,7 @@ func TestFxPreview_AuraExhibitUsesEligibleAuthoredTile(t *testing.T) {
 			}
 			world.GlobalTileManager = tm
 			t.Cleanup(func() { world.GlobalTileManager = previous })
-			keys := tm.GetAllTileKeys()
+			keys := allTileKeys(tm)
 			sort.Strings(keys)
 			var eligible []string
 			for _, key := range keys {

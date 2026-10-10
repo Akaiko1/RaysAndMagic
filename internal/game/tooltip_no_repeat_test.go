@@ -43,7 +43,7 @@ func TestNoTooltipRepeatsALine(t *testing.T) {
 	for _, it := range cards {
 		for _, full := range []bool{false, true} {
 			seen := map[string]bool{}
-			for _, line := range strings.Split(GetItemTooltip(it, char, cs, full), "\n") {
+			for _, line := range strings.Split(GetItemTooltipRows(it, char, cs, full).String(), "\n") {
 				n := strings.Trim(strings.TrimSpace(line), "\"")
 				if len(n) < 16 {
 					continue

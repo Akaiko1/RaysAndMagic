@@ -396,7 +396,7 @@ func TestDuskneedleUnownedPreviewAtNight(t *testing.T) {
 		if night {
 			want *= def.NightBaseDamageMultiplier
 		}
-		text := buildWeaponTooltipUnified(weapon, nil, cs, true)
+		text := buildWeaponTooltipUnifiedRows(weapon, nil, cs, true).String()
 		if !strings.Contains(text, fmt.Sprintf("Base: %d", want)) || !strings.Contains(text, fmt.Sprintf("Total Damage: %d", want)) {
 			t.Fatalf("night=%v: inconsistent tooltip: %s", night, text)
 		}

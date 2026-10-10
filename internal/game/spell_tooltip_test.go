@@ -26,7 +26,7 @@ func TestSpellTooltipNamesEverySchoolOfADualSchoolSpell(t *testing.T) {
 	if len(def.SchoolList()) < 2 {
 		t.Fatalf("town_portal is no longer dual-school: %v", def.SchoolList())
 	}
-	got := buildSpellTooltipUnified(def, char, cs, false)
+	got := buildSpellTooltipUnifiedRows(def, char, cs, false).String()
 	for _, want := range []string{"Earth", "Air"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the Town Portal card does not mention its %s school:\n%s", want, got)
@@ -47,7 +47,7 @@ func TestSpellTooltipNamesEverySchoolOfADualSchoolSpell(t *testing.T) {
 	if got := spellSchoolForChar(caster, def); got != string(air) {
 		t.Fatalf("the card scores Town Portal under %q for an Air-only caster", got)
 	}
-	if card := buildSpellTooltipUnified(def, caster, cs, true); strings.Contains(card, "Earth Mastery") {
+	if card := buildSpellTooltipUnifiedRows(def, caster, cs, true).String(); strings.Contains(card, "Earth Mastery") {
 		t.Errorf("the card credits Earth mastery to a caster who only holds Air:\n%s", card)
 	}
 	// FILED, not merely open: opening the other school later must not move the
@@ -63,7 +63,7 @@ func TestSpellTooltipNamesEverySchoolOfADualSchoolSpell(t *testing.T) {
 	if skill := caster.SpellMasterySkill(def); skill == nil || skill.Mastery != character.MasteryExpert {
 		t.Fatalf("mastery = %+v, want the Expert AIR skill the page is filed under", skill)
 	}
-	if card := buildSpellTooltipUnified(def, caster, cs, true); strings.Contains(card, "Earth Mastery") {
+	if card := buildSpellTooltipUnifiedRows(def, caster, cs, true).String(); strings.Contains(card, "Earth Mastery") {
 		t.Errorf("the card credits Earth mastery to a page filed under Air:\n%s", card)
 	}
 
@@ -77,7 +77,7 @@ func TestSpellTooltipNamesEverySchoolOfADualSchoolSpell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fireball: %v", err)
 	}
-	if card := buildSpellTooltipUnified(fire, char, cs, false); !strings.Contains(card, "Fire Magic") {
+	if card := buildSpellTooltipUnifiedRows(fire, char, cs, false).String(); !strings.Contains(card, "Fire Magic") {
 		t.Errorf("a single-school card lost its subtitle:\n%s", card)
 	}
 }
@@ -106,7 +106,7 @@ func (e spellCardEnv) duration() string {
 }
 
 // Every spell card states the mechanics the 2026-09-30 audit checked against
-// the code, through the live entry point (GetSpellTooltip adds the authored
+// the code, through the live entry point (GetSpellTooltipRows adds the authored
 // description and routes monster-only spells to their own card). Numbers come
 // from the spell definitions; full rows are the Shift view, compact rows the
 // default hover that shows results without their formula.
@@ -276,7 +276,7 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 				t.Fatal(err)
 			}
 			char.MagicSchools[character.MagicSchoolID(def.School)] = &character.MagicSkill{Mastery: tc.tier}
-			card := GetSpellTooltip(def.ID, char, cs, !tc.compact)
+			card := GetSpellTooltipRows(def.ID, char, cs, !tc.compact).String()
 			want, mustNot := tc.want, tc.mustNot
 			if tc.derive != nil {
 				w, n := tc.derive(spellCardEnv{def: def, char: char, cs: cs})

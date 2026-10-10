@@ -3163,9 +3163,6 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 	g.AddCombatMessage(uitext.Text("dialog.the_dragon_erupts_from_the_shattering_statue", s.Label))
 }
 
-func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
-	ih.enterEncounterMapAt(targetMapKey, nil)
-}
 func (ih *InputHandler) enterEncounterMapAt(targetMapKey string, tile *[2]int) {
 	ih.game.closeConversation()
 	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance, arrivalTile: tile}); err != nil {

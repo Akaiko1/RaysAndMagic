@@ -30,7 +30,7 @@ func TestItemTooltipListsEveryResistance(t *testing.T) {
 		it := items.CreateItemFromYAML(key)
 		for _, bearer := range []*character.MMCharacter{nil, ch} {
 			for _, full := range []bool{false, true} {
-				card := GetItemTooltip(it, bearer, cs, full)
+				card := GetItemTooltipRows(it, bearer, cs, full).String()
 				for _, line := range want {
 					if !strings.Contains(card, line) {
 						t.Errorf("%s bearer=%v full=%v: missing %q:\n%s", key, bearer != nil, full, line, card)

@@ -35,6 +35,7 @@ func NewEntityUpdater() *EntityUpdater {
 }
 
 // NewEntityUpdaterWithWorkers runs the same barrier with an explicit pool size.
+// Test-only: game tests pin the pool size, and the pool field is unexported.
 func NewEntityUpdaterWithWorkers(workers int) *EntityUpdater {
 	pool := core.NewWorkerPool(workers)
 	pool.Start()

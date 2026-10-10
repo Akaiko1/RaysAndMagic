@@ -2201,28 +2201,6 @@ func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 	return x, y, int(math.Ceil(float64(lx+lw)*unit)) - x, int(math.Ceil(float64(ly+lh)*unit)) - y
 }
 
-// GetCombatMessages returns the HUD combat-message texts (most recent last).
-// Read-only view for TESTS: the HUD itself draws from the cached line list
-// (combatLogVersion), so nothing in the draw path needs this.
-func (g *MMGame) GetCombatMessages() []string {
-	hud := g.hudLog()
-	out := make([]string, len(hud))
-	for i, e := range hud {
-		out[i] = e.Text
-	}
-	return out
-}
-
-// GetCombatMessageColor returns the display color for HUD row index (aligned with
-// GetCombatMessages).
-func (g *MMGame) GetCombatMessageColor(index int) color.Color {
-	hud := g.hudLog()
-	if index < 0 || index >= len(hud) {
-		return color.White
-	}
-	return hud[index].Color
-}
-
 // cardFx identifies a party-card overlay effect tracked per member in
 // cardFxTimers. Durations: blink uses the config value, the rest the consts.
 type cardFx int

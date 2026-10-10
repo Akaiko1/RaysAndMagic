@@ -62,8 +62,8 @@ func TestKeyTooltipsShareYAMLMechanicsWithEditor(t *testing.T) {
 			if len(def.TooltipEffects) == 0 || len(def.TooltipUsage) == 0 {
 				t.Fatalf("%s must author its door mechanics and usage", key)
 			}
-			tooltip := GetItemTooltip(items.CreateItemFromYAML(key), nil, g.combat, false)
-			editorCard := GetItemTooltip(baseTestItem(t, def.Name), nil, nil, true)
+			tooltip := GetItemTooltipRows(items.CreateItemFromYAML(key), nil, g.combat, false).String()
+			editorCard := GetItemTooltipRows(baseTestItem(t, def.Name), nil, nil, true).String()
 			for _, line := range append(append([]string{}, def.TooltipEffects...), def.TooltipUsageLines()...) {
 				if !strings.Contains(tooltip, line) {
 					t.Errorf("game tooltip missing YAML line %q:\n%s", line, tooltip)
@@ -323,11 +323,11 @@ func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 
 	owners := map[string]int{"ordinary_key": 0, "inlaid_key": 0}
 	bossSkeleton := false
-	for _, entry := range config.GetBossLoot() {
+	for _, entry := range config.GlobalLoots.BossLoot {
 		bossSkeleton = bossSkeleton || (entry.Type == "item" && entry.Key == "skeleton_key" && entry.Chance > 0)
 	}
 	if !bossSkeleton {
-		t.Fatalf("boss_loot = %+v, want a Skeleton Key entry", config.GetBossLoot())
+		t.Fatalf("boss_loot = %+v, want a Skeleton Key entry", config.GlobalLoots.BossLoot)
 	}
 	for _, monsterKey := range monsterPkg.MonsterConfig.GetAllMonsterKeys() {
 		monster := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, g.config)

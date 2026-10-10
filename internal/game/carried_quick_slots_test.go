@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
-	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/world"
 )
@@ -143,7 +142,7 @@ func TestQuickCarriedCraftingAndCollection(t *testing.T) {
 			if !short {
 				carryInQuickSlot(t, g, 0, 4, koi)
 			}
-			r := config.AlchemyRecipeByKey("health_potion")
+			r := alchemyRecipeByKey("health_potion")
 			g.alchemy.Selections = map[string]character.AlchemySelection{r.Key: {{"dawnleaf": true}, {"carp_scale": true, "koi_scale": true}}}
 			g.selectedRare, g.alchemyBatches = 0, 1
 			before := g.party.CarriedItems()

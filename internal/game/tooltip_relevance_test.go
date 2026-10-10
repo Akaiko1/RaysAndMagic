@@ -41,7 +41,7 @@ func TestTooltipEquipmentShowsOnlyActiveMastery(t *testing.T) {
 					} else {
 						item = items.CreateItemFromYAML(key)
 					}
-					card := GetItemTooltip(item, ch, g.combat, full)
+					card := GetItemTooltipRows(item, ch, g.combat, full).String()
 					if strings.Contains(card, "Grandmaster:") != (tier == 3 && full) {
 						t.Fatalf("inactive or missing mastery rule:\n%s", card)
 					}
@@ -88,9 +88,9 @@ func TestTooltipRecoveryKeepsRelevantResourceAndDetails(t *testing.T) {
 					}
 					var card string
 					if context == "editor" {
-						card = GetItemTooltip(baseTestItem(t, def.Name), nil, nil, full)
+						card = GetItemTooltipRows(baseTestItem(t, def.Name), nil, nil, full).String()
 					} else {
-						card = GetItemTooltip(items.CreateItemFromYAML(itemKey), ch, g.combat, full)
+						card = GetItemTooltipRows(items.CreateItemFromYAML(itemKey), ch, g.combat, full).String()
 					}
 					if strings.Contains(card, "Current recovery: 0 HP") || strings.Contains(card, "Current recovery: 0 SP") {
 						t.Fatalf("irrelevant recovery info:\n%s", card)
@@ -141,7 +141,7 @@ func TestTooltipRecoveryWithoutAutomaticUse(t *testing.T) {
 	for _, full := range []bool{false, true} {
 		for _, key := range []string{"health_potion", "mana_potion", "antivenom"} {
 			def, _ := config.GetItemDefinition(key)
-			for _, card := range []string{GetItemTooltip(items.CreateItemFromYAML(key), ch, g.combat, full), GetItemTooltip(baseTestItem(t, def.Name), nil, nil, full)} {
+			for _, card := range []string{GetItemTooltipRows(items.CreateItemFromYAML(key), ch, g.combat, full).String(), GetItemTooltipRows(baseTestItem(t, def.Name), nil, nil, full).String()} {
 				if strings.Contains(card, "Auto-use") || strings.Contains(card, "own quick slots") {
 					t.Fatalf("disabled automatic use advertised:\n%s", card)
 				}
@@ -164,7 +164,7 @@ func TestTooltipSpellTargetsAndNonAttacks(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/full=%v", tc.key, full), func(t *testing.T) {
 				sd, _ := spells.GetSpellDefinitionByID(spells.SpellID(tc.key))
 				_, _ = config.GetSpellDefinition(tc.key)
-				for _, card := range []string{GetSpellTooltip(sd.ID, ch, g.combat, full), GetSpellTooltip(spells.SpellID(tc.key), nil, nil, full)} {
+				for _, card := range []string{GetSpellTooltipRows(sd.ID, ch, g.combat, full).String(), GetSpellTooltipRows(spells.SpellID(tc.key), nil, nil, full).String()} {
 					if !strings.Contains(card, tc.want) || strings.Contains(card, tc.absent) {
 						t.Fatalf("incorrect spell facts:\n%s", card)
 					}
@@ -186,7 +186,7 @@ func TestTooltipComparisonsOmitUnchangedFacts(t *testing.T) {
 		same bool
 	}{{"hunting_bow", true}, {"long_bow", false}} {
 		t.Run(tc.key, func(t *testing.T) {
-			card := GetItemComparisonTooltip(items.CreateWeaponFromYAML(tc.key), ch, g.combat)
+			card := GetItemComparisonTooltipRows(items.CreateWeaponFromYAML(tc.key), ch, g.combat).String()
 			if strings.Contains(card, "(+0") || strings.Contains(card, "No change") != tc.same {
 				t.Fatalf("irrelevant comparison:\n%s", card)
 			}
@@ -196,7 +196,7 @@ func TestTooltipComparisonsOmitUnchangedFacts(t *testing.T) {
 		})
 	}
 	for _, key := range []string{"fireball", "ice_bolt"} {
-		card := strings.Join(buildSpellComparisonLinesByID(spells.SpellID(key), "fireball", ch, g.combat), "\n")
+		card := strings.Join(buildSpellComparisonRowsByID(spells.SpellID(key), "fireball", ch, g.combat).Lines(), "\n")
 		if strings.Contains(card, "(+0") || strings.Contains(card, "No change") != (key == "fireball") {
 			t.Fatalf("irrelevant spell comparison:\n%s", card)
 		}

@@ -745,20 +745,15 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, explicitAim bool) 
 	return acted
 }
 
-// createArrowAttack creates a projectile arrow attack; reports whether an
+// createArrowAttackAimed creates a projectile arrow attack; reports whether an
 // arrow actually left the bow (max-projectiles cap / missing physics -> false,
-// so the attempt doesn't cost an action).
-// createArrowAttack fires from the weapon in `slot` - SlotMainHand for every
-// normal ranged attack and card procs (Bandit's bonus bolt), or whichever hand
-// attackSlotFor picked for a Dual Wielding character's primary swing (so a
-// bow in the off-hand fires correctly instead of silently reading the main
-// hand's weapon). A non-empty label names the projectile in chat instead of
-// the weapon (card-proc bolts on melee wielders would otherwise report the
-// hunting-bow physics fallback).
-func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, label string) bool {
-	return cs.createArrowAttackAimed(damage, slot, label, cs.partyAttackAngle(), false)
-}
-
+// so the attempt doesn't cost an action). It fires from the weapon in `slot` -
+// SlotMainHand for every normal ranged attack and card procs (Bandit's bonus
+// bolt), or whichever hand attackSlotFor picked for a Dual Wielding
+// character's primary swing (so a bow in the off-hand fires correctly instead
+// of silently reading the main hand's weapon). A non-empty label names the
+// projectile in chat instead of the weapon (card-proc bolts on melee wielders
+// would otherwise report the hunting-bow physics fallback).
 func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot, label string, angle float64, explicitAim bool) bool {
 	// Find the equipped projectile-weapon's YAML key. Range>3 = ranged
 	// (matches the dispatch gate in EquipmentMeleeAttack).

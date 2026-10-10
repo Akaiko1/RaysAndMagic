@@ -354,7 +354,7 @@ func TestNewSpellCardsStateTheirAuthoredFields(t *testing.T) {
 		return def
 	}
 	cardText := func(id string) string {
-		return buildSpellTooltipUnified(definition(id), char, cs, true)
+		return buildSpellTooltipUnifiedRows(definition(id), char, cs, true).String()
 	}
 
 	jump := cardText("jump")

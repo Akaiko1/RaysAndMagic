@@ -333,7 +333,7 @@ var skillTypeByKey = map[string]SkillType{
 
 // RaceOwned reports whether a race grants the skill (EnsureRacialTraits): no
 // class kit or level-up hands it out, though a trainer may raise one a hero
-// already has.
+// already has. Test-only: character and game tests check kits against it.
 func (s SkillType) RaceOwned() bool {
 	switch s {
 	case SkillCelestialProvidence, SkillHalflingGuile, SkillDarkElfBinding, SkillOrcishFury:

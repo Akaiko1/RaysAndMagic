@@ -44,19 +44,19 @@ func TestAddItemStacksFungibles(t *testing.T) {
 func TestConsumeOneAt(t *testing.T) {
 	p := &Party{}
 	p.AddItem(potion(2))
-	if !p.ConsumeOneAt(0) {
+	if !p.ConsumeUnitsAt(0, 1) {
 		t.Fatal("consume from stack failed")
 	}
 	if len(p.Inventory) != 1 || p.Inventory[0].Count() != 1 {
 		t.Fatalf("want stack of 1 left, got %+v", p.Inventory)
 	}
-	if !p.ConsumeOneAt(0) {
+	if !p.ConsumeUnitsAt(0, 1) {
 		t.Fatal("consume last unit failed")
 	}
 	if len(p.Inventory) != 0 {
 		t.Fatalf("last unit must remove the entry, got %+v", p.Inventory)
 	}
-	if p.ConsumeOneAt(0) {
+	if p.ConsumeUnitsAt(0, 1) {
 		t.Fatal("consume from empty bag must fail")
 	}
 }

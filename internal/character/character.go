@@ -341,11 +341,8 @@ const (
 	PromotionLich
 )
 
-// IsArchmage / IsLich are the promotion predicates. IsLich drives party traits
-// (hates.yaml aggro); IsArchmage currently has no gameplay caller and exists as
-// its symmetric twin for tests and future promotion rules.
-func (c *MMCharacter) IsArchmage() bool { return c.Promotion == PromotionArchmage }
-func (c *MMCharacter) IsLich() bool     { return c.Promotion == PromotionLich }
+// IsLich is the promotion predicate behind party traits (hates.yaml aggro).
+func (c *MMCharacter) IsLich() bool { return c.Promotion == PromotionLich }
 
 // ClassDisplayName returns the promoted title if any, else the base class name.
 func (c *MMCharacter) ClassDisplayName() string {

@@ -166,7 +166,7 @@ func TestRarePharmacologyCoherentSourceAndTooltip(t *testing.T) {
 	d, _ := config.GetItemDefinition("brewed_health_potion")
 	bonus := g.party.PotionSupport(recipient, d.HealBase, d.HealEnduranceDivisor, false)
 	want := character.ConsumableRestore(recipient, d.HealBase, d.HealEnduranceDivisor, false, bonus)
-	tooltip := buildSimpleItemTooltipWithParty(it, true, recipient, g.party, g.combat)
+	tooltip := buildSimpleItemTooltipWithPartyRows(it, true, recipient, g.party, g.combat, itemUsage{}).String()
 	if !strings.Contains(tooltip, fmt.Sprint(want)) || !strings.Contains(tooltip, "Master") {
 		t.Fatalf("tooltip diverged: %s", tooltip)
 	}
@@ -1000,7 +1000,7 @@ func TestTechniqueCardsMatchTheirUse(t *testing.T) {
 		if d.ReuseSeconds > 0 && strings.Contains(d.Description, strconv.Itoa(d.ReuseSeconds)+" second") {
 			t.Errorf("%s description restates its reuse lock in prose", d.Key)
 		}
-		catalog := GetItemTooltip(item, nil, nil, true)
+		catalog := GetItemTooltipRows(item, nil, nil, true).String()
 		for _, want := range []string{fmt.Sprintf("Technique - Level %d", d.Level), fmt.Sprintf("Cost: %d SP", d.SPCost[0]), techniqueMagnitude(nil, &d, tps)} {
 			if !strings.Contains(catalog, want) {
 				t.Errorf("%s catalog card lacks %q:\n%s", d.Key, want, catalog)
@@ -1011,7 +1011,7 @@ func TestTechniqueCardsMatchTheirUse(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/tier%d/tb=%v", d.Key, tier, tb), func(t *testing.T) {
 					g, c := rareClassGame(t, character.ClassWayfarer, tb)
 					c.Skills[character.SkillTranslocation] = &character.Skill{Mastery: character.SkillMastery(tier)}
-					card := GetItemTooltip(item, c, g.combat, true)
+					card := GetItemTooltipRows(item, c, g.combat, true).String()
 					if want := fmt.Sprintf("Cost: %d SP", g.techniqueSPCost(c, &d)); !strings.Contains(card, want) {
 						t.Fatalf("card lacks %q:\n%s", want, card)
 					}

@@ -255,7 +255,7 @@ func TestTrapRTCooldown_SpeedScalesWhenPlacedFromQuickSlot(t *testing.T) {
 			t.Fatalf("RT cooldown = %d, want %d", thief.RTCooldown, want)
 		}
 
-		tip := GetItemTooltip(trap, thief, g.combat, true)
+		tip := GetItemTooltipRows(trap, thief, g.combat, true).String()
 		if line := cooldownLine(g.combat, want); !strings.Contains(tip, line) {
 			t.Fatalf("trap tooltip must show effective cooldown %q:\n%s", line, tip)
 		}

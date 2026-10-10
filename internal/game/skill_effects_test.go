@@ -12,7 +12,7 @@ import (
 // TestSpeedTooltip_NoTurnBasedLie: Speed grants party-wide turn-based bonus
 // action slots, so its tooltip must not claim it has no turn-based effect.
 func TestSpeedTooltip_NoTurnBasedLie(t *testing.T) {
-	tip := statTooltipText("speed")
+	tip := statTooltipRows("speed").String()
 	if strings.Contains(strings.ToLower(tip), "no effect in turn-based") {
 		t.Errorf("speed tooltip still lies about turn-based: %q", tip)
 	}

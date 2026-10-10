@@ -11,7 +11,7 @@ import (
 
 // Weapon cards show weapon facts, not the Ballistics skill description.
 // Case table: bow/blaster/melee x compact/full x editor/shop/archer/sniper.
-// Sniper covers all four mastery tiers; inventory and shop share GetItemTooltip.
+// Sniper covers all four mastery tiers; inventory and shop share GetItemTooltipRows.
 // Persistence: N/A, these cards are formatted from the current bearer on demand.
 func TestWeaponCardsExcludeBallisticsDescription(t *testing.T) {
 	g, _ := newThiefTestGame(t)
@@ -45,9 +45,9 @@ func TestWeaponCardsExcludeBallisticsDescription(t *testing.T) {
 						}
 						var card string
 						if context == "editor" {
-							card = GetItemTooltip(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, full)
+							card = GetItemTooltipRows(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, full).String()
 						} else {
-							card = GetItemTooltip(weapon, bearer, g.combat, full)
+							card = GetItemTooltipRows(weapon, bearer, g.combat, full).String()
 						}
 						if strings.Contains(card, description) {
 							t.Fatal("weapon card includes the Ballistics skill description")

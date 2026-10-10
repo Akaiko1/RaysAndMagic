@@ -204,7 +204,8 @@ func TestStatusClockProvidenceCalendar(t *testing.T) {
 					if g.dayNightIsNight || !g.phaseOwnsBuff(string(id)) {
 						t.Fatal("Providence expired early")
 					}
-					card, _ := g.buffStatusCard(&UtilitySpellStatus{SpellID: id, Duration: 1})
+					rows, _ := g.buffStatusCardRows(&UtilitySpellStatus{SpellID: id, Duration: 1})
+					card := rows.Lines()
 					tooltip := strings.Join(card, " ")
 					if !strings.Contains(tooltip, "Until dusk") || strings.Contains(tooltip, "dispel") || strings.Contains(tooltip, "turn") {
 						t.Fatalf("wrong Providence clock tooltip: %s", tooltip)

@@ -461,17 +461,12 @@ func (qm *QuestManager) SetCurrentCount(questID string, count int) {
 	quest.CurrentCount = count
 }
 
-// OnMonsterKilled updates quest progress when a monster is killed. mapKey is
-// the victim's home map: a quest with TargetMap set only counts monsters from
-// there (forest wolves don't advance on a city wolf). Empty mapKey counts
-// everywhere (callers without map context).
-// Returns a list of quests that were completed by this kill.
-func (qm *QuestManager) OnMonsterKilled(monsterType, mapKey string) []*Quest {
-	return qm.OnMonsterKilledFromSource(monsterType, mapKey, "")
-}
-
-// OnMonsterKilledFromSource updates kill quests and supplies the authored
-// encounter quest ID, if any. EncounterOnly quests ignore all other kills.
+// OnMonsterKilledFromSource updates quest progress when a monster is killed.
+// mapKey is the victim's home map: a quest with TargetMap set only counts
+// monsters from there (forest wolves don't advance on a city wolf); empty
+// mapKey counts everywhere. sourceQuestID is the authored encounter quest ID,
+// if any; EncounterOnly quests ignore all other kills. Returns the quests this
+// kill completed.
 func (qm *QuestManager) OnMonsterKilledFromSource(monsterType, mapKey, sourceQuestID string) []*Quest {
 	_, completed := qm.advanceCountedQuests(QuestTypeKill, monsterType, mapKey, sourceQuestID, "")
 	return completed

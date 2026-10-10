@@ -23,7 +23,7 @@ func TestJapaneseCastleInheritedFloors(t *testing.T) {
 	r := NewRenderer(g)
 	tm := world.GlobalTileManager
 
-	keys := tm.GetAllTileKeys()
+	keys := allTileKeys(tm)
 	sort.Strings(keys)
 	var floors, markers, decor []string
 	for _, key := range keys {
@@ -68,7 +68,7 @@ func TestJapaneseCastleInheritedFloors(t *testing.T) {
 				if got := r.floorTextureGroupForTile(x, y, prop); got != floorData.FloorTextureGroup {
 					t.Fatalf("floor texture group = %q, want %q", got, floorData.FloorTextureGroup)
 				}
-				if _, ok := r.floorTextureIndexForTile(x, y, prop); !ok {
+				if r.resolvedFloorMaterial(x, y, prop).atlas == 0 {
 					t.Fatal("inherited floor baked no texture index")
 				}
 				want := rgba(base)

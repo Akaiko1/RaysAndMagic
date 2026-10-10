@@ -34,7 +34,7 @@ func TestTooltipOrderedWeaponResults(t *testing.T) {
 						ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: item}
 						cs.game.party.Members = []*character.MMCharacter{ch}
 						def, _, _ := config.GetWeaponDefinitionByName(item.Name)
-						card := GetItemTooltip(item, ch, cs, full)
+						card := GetItemTooltipRows(item, ch, cs, full).String()
 						for _, bad := range []string{"Current Range:", "Current Projectile Speed:", "Hitbox:", "slower than standard", "faster than standard", "base cooldown"} {
 							if strings.Contains(card, bad) {
 								t.Fatalf("obsolete row %q: %s", bad, card)
@@ -108,7 +108,7 @@ func TestTooltipOrderedSpellResults(t *testing.T) {
 					for _, school := range ch.MagicSchools {
 						school.Mastery = tier
 					}
-					card := GetSpellTooltip(id, ch, cs, full)
+					card := GetSpellTooltipRows(id, ch, cs, full).String()
 					for _, bad := range []string{"by mastery", "Expert / Master / GM:", "Scales with caster Speed", "Hitbox:", "for 5 minutes", "For 10 minutes"} {
 						if strings.Contains(card, bad) {
 							t.Fatalf("reference text %q in live card: %s", bad, card)
@@ -152,7 +152,7 @@ func TestTooltipComparisonUsesEffectiveValuesAndDirection(t *testing.T) {
 	ch.Skills[character.SkillBallistics] = &character.Skill{Mastery: character.MasteryGrandMaster}
 	ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
 	cs.game.party.Members = []*character.MMCharacter{ch}
-	card := GetItemComparisonTooltip(items.CreateWeaponFromYAML("compound_bow"), ch, cs)
+	card := GetItemComparisonTooltipRows(items.CreateWeaponFromYAML("compound_bow"), ch, cs).String()
 	oldDef, _ := config.GetWeaponDefinition("hunting_bow")
 	newDef, _ := config.GetWeaponDefinition("compound_bow")
 	oldRange, _ := character.EffectiveWeaponFlight(oldDef, ch)
@@ -165,7 +165,7 @@ func TestTooltipComparisonUsesEffectiveValuesAndDirection(t *testing.T) {
 		t.Fatalf("missing %q:\n%s", want, card)
 	}
 	for _, pair := range [][2]spells.SpellID{{"fireball", "ice_bolt"}, {"ice_bolt", "fireball"}} {
-		card = strings.Join(buildSpellComparisonLinesByID(pair[1], pair[0], ch, cs), "\n")
+		card = strings.Join(buildSpellComparisonRowsByID(pair[1], pair[0], ch, cs).Lines(), "\n")
 		if strings.Contains(card, " vs ") || !strings.Contains(card, "After equipping (current -> new)") {
 			t.Fatal(card)
 		}
@@ -191,7 +191,7 @@ func TestTooltipItemContributionAndRecovery(t *testing.T) {
 					}
 					item := items.CreateItemFromYAML(key)
 					def, _ := config.GetItemDefinition(key)
-					card := GetItemTooltip(item, bearer, cs, full)
+					card := GetItemTooltipRows(item, bearer, cs, full).String()
 					if strings.Contains(card, "Equipped mitigation:") || strings.Contains(card, "Total Armor Class:") {
 						t.Fatal(card)
 					}
@@ -241,14 +241,14 @@ func TestTooltipSpellComparisonDamageUnits(t *testing.T) {
 	for _, old := range types {
 		for _, next := range types {
 			t.Run(string(old.id)+"/"+string(next.id), func(t *testing.T) {
-				card := strings.Join(buildSpellComparisonLinesByID(next.id, old.id, ch, cs), "\n")
+				card := strings.Join(buildSpellComparisonRowsByID(next.id, old.id, ch, cs).Lines(), "\n")
 				for _, tick := range []bool{false, true} {
 					a, b := 0, 0
 					if old.label != "" && old.tick == tick {
-						a = tooltipNumber(t, GetSpellTooltip(old.id, ch, cs, true), old.label)
+						a = tooltipNumber(t, GetSpellTooltipRows(old.id, ch, cs, true).String(), old.label)
 					}
 					if next.label != "" && next.tick == tick {
-						b = tooltipNumber(t, GetSpellTooltip(next.id, ch, cs, true), next.label)
+						b = tooltipNumber(t, GetSpellTooltipRows(next.id, ch, cs, true).String(), next.label)
 					}
 					label := "Total Damage"
 					if tick {

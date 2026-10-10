@@ -17,13 +17,8 @@ var (
 	hudCardBlockedColor = color.RGBA{236, 111, 95, 255}
 )
 
-// buffStatusCard is the status-rail hover card: the running effect with its
+// buffStatusCardRows is the status-rail hover card: the running effect with its
 // live magnitudes, the time left on both clocks, and how to end it.
-func (g *MMGame) buffStatusCard(s *UtilitySpellStatus) ([]string, color.Color) {
-	rows, plate := g.buffStatusCardRows(s)
-	return rows.Lines(), plate
-}
-
 func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardRows, plate color.Color) {
 	id := string(s.SpellID)
 	name, subtitle := s.Label, ""

@@ -285,7 +285,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 				c.Skills[character.SkillFlowingStaff] = &character.Skill{Mastery: character.SkillMastery(tier)}
 				c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("oak_staff")
 				d := lookupWeaponConfigByName("Oak Staff")
-				base := character.WeaponDamageBreakdown(d, c).Total
+				base := character.WeaponDamageAtNight(d, c, false).Total
 				if !g.useTechnique(0, "fold_step", false, false) {
 					t.Fatal("Fold failed")
 				}
@@ -300,7 +300,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 					t.Fatal("time, world reset or save load discarded charges")
 				}
 				for left := tier + 1; left > 0; left-- {
-					b := character.WeaponDamageBreakdown(d, c)
+					b := character.WeaponDamageAtNight(d, c, false)
 					if b.FlowingStaff != base*pct/100 || b.Total != base+base*pct/100 {
 						t.Fatal("wrong charged damage")
 					}
@@ -312,7 +312,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 						t.Fatal("staff attack did not spend exactly one charge")
 					}
 				}
-				if character.WeaponDamageBreakdown(d, c).FlowingStaff != 0 {
+				if character.WeaponDamageAtNight(d, c, false).FlowingStaff != 0 {
 					t.Fatal("empty charges still boost damage")
 				}
 				g.notifyPilgrimDisplacement(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)

@@ -401,16 +401,6 @@ func (tm *TileManager) GetTileTypeFromKey(key string) (TileType3D, bool) {
 	return tileType, ok
 }
 
-// GetAllTileKeys returns all available tile keys from the loaded configuration.
-// Used by the sprite golden test to sweep every authored tile.
-func (tm *TileManager) GetAllTileKeys() []string {
-	keys := make([]string, 0, len(tm.tileData))
-	for key := range tm.tileData {
-		keys = append(keys, key)
-	}
-	return keys
-}
-
 // HasTileKey checks if a tile key exists in the loaded configuration
 func (tm *TileManager) HasTileKey(key string) bool {
 	_, exists := tm.tileData[key]

@@ -237,7 +237,7 @@ func TestTypedTooltipFallbackRoles(t *testing.T) {
 			if !reflect.DeepEqual(kinds, tc.want) {
 				t.Fatalf("fallback roles %v, want %v", kinds, tc.want)
 			}
-			if rows.String() != GetItemTooltip(tc.item, nil, nil, true) {
+			if rows.String() != GetItemTooltipRows(tc.item, nil, nil, true).String() {
 				t.Fatal("fallback lost its text projection")
 			}
 		})

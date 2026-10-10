@@ -152,10 +152,6 @@ func armorInteractionRules(sec *ttSection, damageType string, isRanged, hasTrueD
 
 // ---------------------------------------------------------------- weapons ---
 
-func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	return buildWeaponTooltipUnifiedRows(item, char, cs, full).String()
-}
-
 func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
 	def := lookupWeaponConfigByName(item.Name)
 	if def == nil {
@@ -394,10 +390,6 @@ type spellDamageTail struct {
 	enemiesOnly bool   // the party is struck too: pierce and buffs reach enemies only
 	masteryRow  bool   // the mastery bonus gets a row (an authored ladder is the whole payload)
 	bareMastery bool   // a nova's mastery adds raw points: "+N", not "+N Damage"
-}
-
-func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	return buildSpellTooltipUnifiedRows(def, char, cs, full).String()
 }
 
 func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
@@ -690,10 +682,6 @@ func maxInt(a, b int) int {
 
 // ----------------------------------------------------------------- traps ----
 
-func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	return buildTrapTooltipUnifiedRows(key, def, char, cs, full).String()
-}
-
 func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
 	subtitle := fmt.Sprintf("Trap - Level %d", def.Level)
 
@@ -841,10 +829,6 @@ func techniqueStepNames() []string {
 }
 
 // -------------------------------------------------- misc item categories ----
-
-func buildSimpleItemTooltipWithParty(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party, cs *CombatSystem) string {
-	return buildSimpleItemTooltipWithPartyRows(item, full, bearer, party, cs, itemUsage{}).String()
-}
 
 func buildSimpleItemTooltipWithPartyRows(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party, cs *CombatSystem, usage itemUsage) character.CardRows {
 	def, itemKey, ok := config.GetItemDefinitionByName(item.Name)

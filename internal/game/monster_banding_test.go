@@ -177,7 +177,7 @@ func TestScatterBand_SightVsHitPropagation(t *testing.T) {
 		{"old wound sighted", func(m *monsterPkg.Monster3D) { m.IsEngagingPlayer = true; m.WasAttacked = true }, false},
 		{"hit", func(m *monsterPkg.Monster3D) {
 			m.HitPoints = 2
-			m.TakeDamageParts(damagecalc.Parts{True: 1}, monsterPkg.DamagePhysical, 0)
+			takeDamageParts(m, damagecalc.Parts{True: 1}, monsterPkg.DamagePhysical, 0)
 		}, true},
 	}
 	for _, tc := range cases {

@@ -36,7 +36,7 @@ func TestAlchemyAnimationCommitAndLifetime(t *testing.T) {
 				g.selectedChar = 0
 				g.currentTab = TabSpellbook
 				g.menuOpen = true
-				r := config.AlchemyRecipeByKey("mana_potion")
+				r := alchemyRecipeByKey("mana_potion")
 				for i, recipe := range config.GlobalAlchemy.Recipes {
 					if recipe.Key == r.Key {
 						g.selectedRare = i

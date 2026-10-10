@@ -29,7 +29,7 @@ var (
 //     buff magnitudes, summon stats, Trapper damage and control durations.
 //   - Tiers: Novice..Grandmaster; a zero contribution may be omitted live.
 //
-// Entry points: GetSpellTooltip and GetItemTooltip, the two builders the
+// Entry points: GetSpellTooltipRows and GetItemTooltipRows, the two builders the
 // editor and the game share. Persistence: N/A (presentation only).
 func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -81,8 +81,8 @@ func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 	for _, key := range spellKeys {
 		t.Run("spell/"+key, func(t *testing.T) {
 			id := spells.SpellID(key)
-			check(t, GetSpellTooltip(id, nil, nil, true), func(tier int) string {
-				return GetSpellTooltip(id, casterAt(tier), cs, true)
+			check(t, GetSpellTooltipRows(id, nil, nil, true).String(), func(tier int) string {
+				return GetSpellTooltipRows(id, casterAt(tier), cs, true).String()
 			})
 		})
 	}
@@ -92,8 +92,8 @@ func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 			if !ok {
 				t.Fatalf("trap %q has no catalog item", key)
 			}
-			check(t, GetItemTooltip(it, nil, nil, true), func(tier int) string {
-				return GetItemTooltip(it, casterAt(tier), cs, true)
+			check(t, GetItemTooltipRows(it, nil, nil, true).String(), func(tier int) string {
+				return GetItemTooltipRows(it, casterAt(tier), cs, true).String()
 			})
 		})
 	}

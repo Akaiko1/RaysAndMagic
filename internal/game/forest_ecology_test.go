@@ -319,7 +319,7 @@ func TestRevivalBatchAllMasteriesWithFairyDust(t *testing.T) {
 		t.Run(fmt.Sprint(tier), func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassAlchemist, false)
 			c.Skills[character.SkillAlchemy].Mastery = character.SkillMastery(tier)
-			r := config.AlchemyRecipeByKey("revival_potion")
+			r := alchemyRecipeByKey("revival_potion")
 			choices := []int{0, len(r.Ingredients[1].Alternatives) - 1}
 			g.party.Inventory = nil
 			for i, group := range r.Ingredients {

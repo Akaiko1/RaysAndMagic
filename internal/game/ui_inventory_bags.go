@@ -135,10 +135,3 @@ func (ui *UISystem) inventoryMoveTarget(owner *character.MMCharacter) (*characte
 func (ui *UISystem) inventoryContextBag() character.InventoryBag {
 	return ui.game.party.Bag(ui.inventoryContextOwner)
 }
-func inventoryBagUnits(b character.InventoryBag) int {
-	n := 0
-	for _, it := range b.Items() {
-		n += it.Count()
-	}
-	return n
-}

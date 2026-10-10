@@ -182,15 +182,6 @@ func (reg *renderResourceRegistry) releaseResources(candidates map[renderResourc
 	}
 }
 
-func (reg *renderResourceRegistry) estimatedGPUBytes() int64 {
-	var bytes int64
-	for img := range reg.allocations {
-		b := img.Bounds()
-		bytes += int64(b.Dx()) * int64(b.Dy()) * 4
-	}
-	return bytes
-}
-
 func (r *Renderer) indexAnimationViews(source *ebiten.Image, frames []*ebiten.Image) {
 	if r.animFrameOrigins == nil {
 		r.animFrameOrigins = make(map[*ebiten.Image]*ebiten.Image)

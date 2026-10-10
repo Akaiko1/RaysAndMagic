@@ -20,7 +20,7 @@ import (
 //   - Layout: icon/missing icon, single/comparison, 800x600/1024x768.
 //
 // Inventory and stash share queueItemTooltip; shops use it with a nil bearer.
-// The editor shares GetItemTooltip but retains its own reference-panel layout.
+// The editor shares GetItemTooltipRows but retains its own reference-panel layout.
 // Persistence: N/A; no gameplay or saved state is changed by presentation.
 func TestWeaponTooltipMechanicGroups(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -91,7 +91,7 @@ func TestWeaponTooltipMechanicGroups(t *testing.T) {
 								}
 								cap := tooltipColumnWidth(size[0], columns)
 								if columns == 2 {
-									ui.queueTooltipComparison(strings.Split(GetItemComparisonTooltip(it, bearer, cs), "\n"), nil)
+									ui.queueCardComparison(character.PlainCardRows(strings.Split(GetItemComparisonTooltipRows(it, bearer, cs).String(), "\n")), nil, nil, nil)
 									pair := ui.queuedTooltipPairLayout(size[0], size[1])
 									cap = pair.mainCap
 									if pair.mainW+pair.compareW+tooltipCompareGap > size[0]-2*tooltipScreenMargin || pair.compareH > size[1]-2*tooltipScreenMargin {

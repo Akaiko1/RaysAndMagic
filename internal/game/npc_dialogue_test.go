@@ -178,7 +178,7 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 
 	// 3) Done, not turned in -> completed: turn_in available, offer gone.
 	for i := 0; i < def.TargetCount; i++ {
-		g.questManager.OnMonsterKilled(def.TargetMonster, "")
+		g.questManager.OnMonsterKilledFromSource(def.TargetMonster, "", "")
 	}
 	want(npcStateCompleted, "well done", "turn_in_quest", "leave")
 
@@ -319,7 +319,7 @@ func TestHandleTurnInQuest_GenericClaimsAndConcludes(t *testing.T) {
 		t.Fatalf("activate: %v", err)
 	}
 	for i := 0; i < def.TargetCount; i++ {
-		g.questManager.OnMonsterKilled(def.TargetMonster, "")
+		g.questManager.OnMonsterKilledFromSource(def.TargetMonster, "", "")
 	}
 
 	goldBefore := g.party.Gold
@@ -361,7 +361,7 @@ func TestSpellTrader_HoverShowsFullSpellCard(t *testing.T) {
 	}
 	ui := &UISystem{game: g}
 
-	lines := ui.spellTraderTooltipLines("fireball", g.party.Members[0])
+	lines := ui.spellTraderTooltipRows("fireball", g.party.Members[0]).Lines()
 	if len(lines) < 5 {
 		t.Fatalf("tooltip has %d lines, want the full card: %v", len(lines), lines)
 	}

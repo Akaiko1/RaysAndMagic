@@ -195,7 +195,7 @@ func TestBallisticsCriticalChanceAndTooltip(t *testing.T) {
 				if g.combat.CalculateCriticalChance(ch) != spellBefore {
 					t.Fatal("Ballistics leaked into spell crit")
 				}
-				text := GetItemTooltip(weapon, ch, g.combat, true)
+				text := GetItemTooltipRows(weapon, ch, g.combat, true).String()
 				if strings.Contains(text, "Ballistics: +") != (want > 0) {
 					t.Fatal("tooltip breakdown disagrees with runtime")
 				}

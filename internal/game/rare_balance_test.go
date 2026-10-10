@@ -234,7 +234,7 @@ func TestRareFlaskDamageUsesOnlyIntellect(t *testing.T) {
 					if !g.throwFlask(0, key, false) || g.magicProjectiles[0].Damage != want {
 						t.Fatalf("projectile damage must be %d", want)
 					}
-					tip := buildSimpleItemTooltipWithParty(it, true, c, g.party, g.combat)
+					tip := buildSimpleItemTooltipWithPartyRows(it, true, c, g.party, g.combat, itemUsage{}).String()
 					if !strings.Contains(tip, fmt.Sprintf("Total Damage: %d to each victim", want)) || !strings.Contains(tip, damageTypeAoELine(d.Flask.Element, float64(d.Flask.RadiusTiles))) {
 						t.Fatalf("tooltip damage diverged: %s", tip)
 					}

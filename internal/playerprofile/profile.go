@@ -103,6 +103,7 @@ func (d *Data) ObserveHistorical(key string, value int64) {
 
 // ResetAchievements starts a new progress period without changing statistics,
 // rankings, run history or profile age. Call while no game owns this profile.
+// Test-only: no game path resets achievements yet; tests in two packages do.
 func (d *Data) ResetAchievements(metrics []string) {
 	d.Unlocked = map[string]time.Time{}
 	d.AchievementHeroes = nil

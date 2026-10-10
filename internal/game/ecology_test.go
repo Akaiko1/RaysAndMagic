@@ -269,7 +269,7 @@ func TestWildlifeSpawnsOnlyOnBareFloor(t *testing.T) {
 	if err := catalog.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
 		t.Fatal(err)
 	}
-	keys := catalog.GetAllTileKeys()
+	keys := allTileKeys(catalog)
 	slices.Sort(keys)
 	fillers := []string{catalog.GetTileKey(world.TileEmpty)}
 	seen := map[string]bool{"floor": true}

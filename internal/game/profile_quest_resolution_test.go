@@ -127,7 +127,7 @@ func TestProfileQuestResolutionPaths(t *testing.T) {
 					action()
 					action()
 					assertCount(1)
-					if source == "archmage" && !g.party.Members[0].IsArchmage() {
+					if source == "archmage" && g.party.Members[0].Promotion != character.PromotionArchmage {
 						t.Fatal("turn-in did not promote the hero")
 					}
 					if source == "archmage picker" && !g.promotionPickerOpen {

@@ -1029,14 +1029,8 @@ func (m *Manager) pickVariantLocked(key string, count int) int {
 	return pick
 }
 
-// SetMusicBiome crossfades to the track assigned to biome. An unassigned biome
-// fades music to silence. Gameplay uses SetMusicState so boss combat can
-// temporarily override the location track.
-func (m *Manager) SetMusicBiome(biome string) {
-	m.SetMusicState(biome, false)
-}
-
-// SetMusicState atomically selects the location or boss-combat track. Boss
+// SetMusicState atomically selects the location or boss-combat track; an
+// unassigned biome fades music to silence. Boss
 // music starts fresh for a new encounter; a voice that is still fading out is
 // reused so a momentary aggro transition does not restart it. Location tracks
 // resume from their saved positions after the boss fight ends.

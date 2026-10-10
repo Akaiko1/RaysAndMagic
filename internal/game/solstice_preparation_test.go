@@ -56,7 +56,7 @@ func TestSolsticeDamageDraughts(t *testing.T) {
 							t.Fatalf("%s: %+v want %d", target, got, want)
 						}
 					}
-					card := GetItemTooltip(items.CreateItemFromYAML(key), nil, g.combat, true)
+					card := GetItemTooltipRows(items.CreateItemFromYAML(key), nil, g.combat, true).String()
 					if !strings.Contains(card, fmt.Sprintf("damage +%d%%", tier.percent)) || strings.Contains(card, "resistance") {
 						t.Fatal(card)
 					}
@@ -268,7 +268,7 @@ func TestAlchemyFiltersKeepRecipeIdentity(t *testing.T) {
 	if len(g.visibleAlchemyRecipes()) != 0 {
 		t.Fatal("empty bag has brewable recipe")
 	}
-	r := config.AlchemyRecipeByKey("solstice_fire_ward")
+	r := alchemyRecipeByKey("solstice_fire_ward")
 	for _, key := range []string{"solstice_living_ember", "solstice_furnace_bloom"} {
 		g.party.AddItem(items.CreateItemFromYAML(key))
 	}

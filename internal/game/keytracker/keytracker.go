@@ -21,6 +21,7 @@ type Consumer struct {
 
 // NewWithSource returns a Consumer that reads press edges from src instead of
 // the real keyboard, so package-level tests can drive keyboard paths headlessly.
+// Test-only: tests in other packages need it, and the source field is unexported.
 func NewWithSource(src func(ebiten.Key) bool) Consumer {
 	return Consumer{justPressed: src}
 }

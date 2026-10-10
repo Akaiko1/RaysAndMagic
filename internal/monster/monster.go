@@ -716,28 +716,16 @@ type DamageComponent struct {
 	ResistPiercePct int
 }
 
-// TakeDamageParts is a single-school shorthand for TakeDamagePacket: normal and
-// true damage share the attack's element and resistance, and champion Stone Skin
-// soaks only the normal component.
-//
-// GAME CODE MUST NOT CALL THIS (or TakeDamagePacket) DIRECTLY - it is the
-// monster's own mitigation half and knows nothing about ARMOR. Every hit belongs
-// to CombatSystem.applyMonsterDamagePacket, which resolves target armor first;
-// calling in here is how monster-vs-monster damage used to skip armor entirely.
-// Kept for tests that exercise the monster half on its own.
-func (m *Monster3D) TakeDamageParts(parts damagecalc.Parts, damageType DamageType, resistPiercePct int) int {
-	return m.TakeDamagePacket([]DamageComponent{{
-		Parts:           parts,
-		DamageType:      damageType,
-		ResistPiercePct: resistPiercePct,
-	}}).Total()
-}
-
 // TakeDamagePacket is the single monster sink for one potentially multi-school
 // hit. Each school applies its own resistance, then one flat soak is subtracted
 // from the combined normal damage. A physical hit converted into several
 // elements therefore remains one hit instead of consuming Stone Skin once per
 // component.
+//
+// GAME CODE MUST NOT CALL THIS DIRECTLY - it is the monster's own mitigation
+// half and knows nothing about ARMOR. Every hit belongs to
+// CombatSystem.applyMonsterDamagePacket, which resolves target armor first;
+// calling in here is how monster-vs-monster damage used to skip armor entirely.
 func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Parts {
 	// An invulnerable boss absorbs all damage from every source: a sealed (dormant)
 	// boss until its quest unseals it, or an idol-warded boss until its idols fall.

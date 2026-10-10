@@ -30,7 +30,7 @@ func TestTooltip_WeaponArcAndCooldownLabels(t *testing.T) {
 		t.Fatal("fixture: steel_mace must be a melee weapon with a swing arc")
 	}
 	// Swing arc is a core melee differentiator -> visible without Shift.
-	compact := GetItemTooltip(mace, thief, g.combat, false)
+	compact := GetItemTooltipRows(mace, thief, g.combat, false).String()
 	if !strings.Contains(compact, arc) {
 		t.Errorf("mace must show its swing arc %q:\n%s", arc, compact)
 	}
@@ -80,7 +80,7 @@ func TestTooltip_SpellCardRules(t *testing.T) {
 				tc.setup(caster)
 			}
 			cs.game.party.Members[0] = caster
-			full := GetSpellTooltip(tc.spell, caster, cs, true)
+			full := GetSpellTooltipRows(tc.spell, caster, cs, true).String()
 			for _, want := range tc.want {
 				if !strings.Contains(full, want) {
 					t.Errorf("missing %q:\n%s", want, full)
@@ -105,7 +105,7 @@ func TestEditorCard_RayOfLightDualScaling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ray_of_light sd: %v", err)
 	}
-	joined := GetSpellTooltip(spells.SpellID("ray_of_light"), nil, nil, true)
+	joined := GetSpellTooltipRows(spells.SpellID("ray_of_light"), nil, nil, true).String()
 	// Ray of Light scales with BOTH stats (school Intellect + the personality flag).
 	if !strings.Contains(joined, "Intellect / 3") || !strings.Contains(joined, "Personality / 3") {
 		t.Errorf("Ray of Light editor card must scale with BOTH Intellect and Personality:\n%s", joined)
@@ -130,7 +130,7 @@ func TestEditorCard_BuffOmitsInactiveRTCooldown(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s spell definition: %v", tc.key, err)
 			}
-			card := GetSpellTooltip(spells.SpellID(tc.key), nil, nil, true)
+			card := GetSpellTooltipRows(spells.SpellID(tc.key), nil, nil, true).String()
 			gotCooldown := strings.Contains(card, "Base cooldown:")
 			if gotCooldown != tc.wantCooldown {
 				t.Errorf("editor cooldown shown = %v, want %v:\n%s", gotCooldown, tc.wantCooldown, card)
@@ -262,9 +262,9 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 			assertCleanTooltipText(t, "spell/"+key, tip)
 			continue
 		}
-		assertCleanTooltipText(t, "compact/spell/"+key, GetSpellTooltip(spells.SpellID(key), char, cs, false))
-		assertCleanTooltipText(t, "spell/"+key, GetSpellTooltip(spells.SpellID(key), char, cs, true))
-		editor := GetSpellTooltip(spells.SpellID(key), nil, nil, true)
+		assertCleanTooltipText(t, "compact/spell/"+key, GetSpellTooltipRows(spells.SpellID(key), char, cs, false).String())
+		assertCleanTooltipText(t, "spell/"+key, GetSpellTooltipRows(spells.SpellID(key), char, cs, true).String())
+		editor := GetSpellTooltipRows(spells.SpellID(key), nil, nil, true).String()
 		assertCleanTooltipText(t, "editor/spell/"+key, editor)
 	}
 
@@ -278,9 +278,9 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 			t.Errorf("weapon/%s: %v", key, err)
 			continue
 		}
-		assertCleanTooltipText(t, "compact/weapon/"+key, GetItemTooltip(item, char, cs, false))
-		assertCleanTooltipText(t, "weapon/"+key, GetItemTooltip(item, char, cs, true))
-		editor := GetItemTooltip(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true)
+		assertCleanTooltipText(t, "compact/weapon/"+key, GetItemTooltipRows(item, char, cs, false).String())
+		assertCleanTooltipText(t, "weapon/"+key, GetItemTooltipRows(item, char, cs, true).String())
+		editor := GetItemTooltipRows(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true).String()
 		assertCleanTooltipText(t, "editor/weapon/"+key, editor)
 	}
 	for key, def := range config.GlobalItems.Items {
@@ -293,9 +293,9 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 			t.Errorf("item/%s: %v", key, err)
 			continue
 		}
-		assertCleanTooltipText(t, "compact/item/"+key, GetItemTooltip(item, char, cs, false))
-		assertCleanTooltipText(t, "item/"+key, GetItemTooltip(item, char, cs, true))
-		editor := GetItemTooltip(baseTestItem(t, def.Name), nil, nil, true)
+		assertCleanTooltipText(t, "compact/item/"+key, GetItemTooltipRows(item, char, cs, false).String())
+		assertCleanTooltipText(t, "item/"+key, GetItemTooltipRows(item, char, cs, true).String())
+		editor := GetItemTooltipRows(baseTestItem(t, def.Name), nil, nil, true).String()
 		// Pure collectibles have no mechanical sections; the editor's outer
 		// item card still renders their authored name and description.
 		if strings.TrimSpace(editor) != "" {
@@ -313,9 +313,9 @@ func TestAllTooltipCatalogsAreClean(t *testing.T) {
 			t.Errorf("trap/%s: cannot build item", key)
 			continue
 		}
-		assertCleanTooltipText(t, "compact/trap/"+key, GetItemTooltip(item, char, cs, false))
-		assertCleanTooltipText(t, "trap/"+key, GetItemTooltip(item, char, cs, true))
-		editor := GetItemTooltip(item, nil, nil, true)
+		assertCleanTooltipText(t, "compact/trap/"+key, GetItemTooltipRows(item, char, cs, false).String())
+		assertCleanTooltipText(t, "trap/"+key, GetItemTooltipRows(item, char, cs, true).String())
+		editor := GetItemTooltipRows(item, nil, nil, true).String()
 		assertCleanTooltipText(t, "editor/trap/"+key, editor)
 	}
 }

@@ -27,7 +27,7 @@ func TestAlchemySavedSourcesFollowCurrentRecipe(t *testing.T) {
 		for _, entry := range []string{"preview", "brew"} {
 			t.Run(tc.name+"/"+entry, func(t *testing.T) {
 				g, _ := rareClassGame(t, character.ClassAlchemist, false)
-				r := config.AlchemyRecipeByKey("health_potion")
+				r := alchemyRecipeByKey("health_potion")
 				save := GameSave{Alchemy: AlchemyState{Choices: map[string][]int{r.Key: tc.saved}}}
 				raw, err := json.Marshal(save)
 				if err != nil {

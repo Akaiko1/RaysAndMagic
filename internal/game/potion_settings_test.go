@@ -192,7 +192,7 @@ func TestPotionPolicyTooltip(t *testing.T) {
 		r.ThresholdPct = 61
 		for _, allowed := range []bool{false, true} {
 			r.Allowed[config.PotionFamily(def)] = allowed
-			tip := GetItemTooltip(items.CreateItemFromYAML(key), ch, g.combat, true)
+			tip := GetItemTooltipRows(items.CreateItemFromYAML(key), ch, g.combat, true).String()
 			if strings.Contains(tip, "61%") != allowed || strings.Contains(tip, "While poisoned:") {
 				t.Fatalf("tooltip contradicts policy: %s", tip)
 			}

@@ -21,18 +21,18 @@ func mapScopedQuestManager() *QuestManager {
 func TestOnMonsterKilled_MapScoped(t *testing.T) {
 	qm := mapScopedQuestManager()
 
-	qm.OnMonsterKilled("wolf", "city") // off-map wolf: no credit
+	qm.OnMonsterKilledFromSource("wolf", "city", "") // off-map wolf: no credit
 	if got := qm.GetQuest("wolf_cull").CurrentCount; got != 0 {
 		t.Errorf("off-map kill counted: %d", got)
 	}
 
-	qm.OnMonsterKilled("wolf", "forest")
+	qm.OnMonsterKilledFromSource("wolf", "forest", "")
 	if got := qm.GetQuest("wolf_cull").CurrentCount; got != 1 {
 		t.Errorf("on-map kill not counted: %d", got)
 	}
 
 	// Unknown map context still counts (callers without map info).
-	completed := qm.OnMonsterKilled("wolf", "")
+	completed := qm.OnMonsterKilledFromSource("wolf", "", "")
 	if len(completed) != 1 || !qm.GetQuest("wolf_cull").Completed {
 		t.Errorf("quest should complete at 2/2, completed=%v", completed)
 	}

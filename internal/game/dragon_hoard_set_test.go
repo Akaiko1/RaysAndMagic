@@ -96,14 +96,14 @@ func TestDragonHoardSetLootAndCriticalChance(t *testing.T) {
 	}
 	setRow := fmt.Sprintf("Set: +%d%%", bonus)
 	bonusRow := fmt.Sprintf("Set bonus: critical chance +%d%%", bonus)
-	spellTip := GetSpellTooltip(spells.SpellID("fireball"), ch, cs, true)
+	spellTip := GetSpellTooltipRows(spells.SpellID("fireball"), ch, cs, true).String()
 	for _, want := range []string{fmt.Sprintf("Chance: %d%%", bonus), setRow} {
 		if !strings.Contains(spellTip, want) {
 			t.Errorf("Fireball tooltip missing %q:\n%s", want, spellTip)
 		}
 	}
 
-	weaponTip := GetItemTooltip(sword, ch, cs, true)
+	weaponTip := GetItemTooltipRows(sword, ch, cs, true).String()
 	for _, want := range []string{
 		fmt.Sprintf("Chance: %d%%", weaponCrit), fmt.Sprintf("Set: %s (2/2 equipped)", set.Name), bonusRow, setRow,
 	} {
@@ -111,7 +111,7 @@ func TestDragonHoardSetLootAndCriticalChance(t *testing.T) {
 			t.Errorf("%s tooltip missing %q:\n%s", sword.Name, want, weaponTip)
 		}
 	}
-	armorTip := GetItemTooltip(armor, ch, cs, true)
+	armorTip := GetItemTooltipRows(armor, ch, cs, true).String()
 	if !strings.Contains(armorTip, bonusRow) {
 		t.Errorf("%s tooltip missing set bonus:\n%s", armor.Name, armorTip)
 	}

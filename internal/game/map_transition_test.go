@@ -63,7 +63,7 @@ func TestTravelEntryPointsCommitFinalArrival(t *testing.T) {
 						want = MapPose{X: 12.5 * ts, Y: 14.5 * ts, Angle: 0.37}
 						g.mapReturnPoses = map[string]MapPose{key: want}
 					}
-					ih.enterEncounterMap(key)
+					ih.enterEncounterMapAt(key, nil)
 					if g.mapReturnPoses["forest"] != origin {
 						t.Fatal("entrance did not retain its departure pose")
 					}
@@ -238,7 +238,7 @@ func TestStitchedRegionArrivalAutosavesLocalCoordinates(t *testing.T) {
 				x, y, _ = g.townPortalArrivalPoint(target)
 				g.townPortalTeleport(target)
 			} else {
-				NewInputHandler(g).enterEncounterMap(target)
+				NewInputHandler(g).enterEncounterMapAt(target, nil)
 			}
 			if g.world != wm.OpenWorld || wm.CurrentMapKey != target || g.camera.X != x || g.camera.Y != y {
 				t.Fatal("arrival selected the unified world's start instead of the requested region")

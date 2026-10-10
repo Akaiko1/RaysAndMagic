@@ -106,7 +106,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 	}
 	for _, skill := range character.AllSkills {
 		t.Run(skill.String(), func(t *testing.T) {
-			text := masteryTooltipTextForSkill(skill)
+			text := masteryTooltipRowsForSkill(skill).String()
 			assertSkillGrandMasterSection(t, text, grandMasterSections[skill])
 			normalized := strings.Join(strings.Fields(text), " ")
 			for _, want := range cases[skill] {
@@ -122,7 +122,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		})
 	}
 	for _, school := range character.AllMagicSchools {
-		text := magicMasteryTooltipText(school)
+		text := magicMasteryTooltipRows(school).String()
 		assertSkillGrandMasterSection(t, text, true)
 		for _, want := range []string{"0/20/40/60%", "0/5/10/15", "Standard spell damage/healing"} {
 			if !strings.Contains(text, want) {
@@ -131,7 +131,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		}
 	}
 	// Each distinct flask geometry is stated once; one shared geometry is "All flasks".
-	flasks := masteryTooltipTextForSkill(character.SkillBombThrowing)
+	flasks := masteryTooltipRowsForSkill(character.SkillBombThrowing).String()
 	for g := range geometries {
 		if strings.Count(flasks, fmt.Sprintf("range %d tiles; radius %d tiles", g[0], g[1])) != 1 {
 			t.Errorf("flask geometry %v must appear exactly once: %s", g, flasks)
@@ -203,13 +203,13 @@ func TestSkillTooltipAuditTrainerHover(t *testing.T) {
 		}
 		t.Run(skill.String(), func(t *testing.T) {
 			g.party.Members[0] = &character.MMCharacter{Name: "Learner", Skills: map[character.SkillType]*character.Skill{skill: {}}}
-			check(masteryTooltipTextForSkill(skill))
+			check(masteryTooltipRowsForSkill(skill).String())
 		})
 	}
 	for _, school := range character.AllMagicSchools {
 		t.Run(school.String(), func(t *testing.T) {
 			g.party.Members[0] = &character.MMCharacter{Name: "Learner", MagicSchools: map[character.MagicSchoolID]*character.MagicSkill{school: {}}}
-			check(magicMasteryTooltipText(school))
+			check(magicMasteryTooltipRows(school).String())
 		})
 	}
 }
@@ -239,7 +239,7 @@ func TestSkillTooltipAuditRetunedFlaskWiring(t *testing.T) {
 				if p.Damage != d.Flask.Damage[tier]+c.GetEffectiveIntellect()/3 || p.FlaskPoisonFrames != d.Flask.PoisonSeconds[tier]*g.config.GetTPS() || p.FlaskBurnFrames != d.Flask.BurnSeconds[tier]*g.config.GetTPS() {
 					t.Fatal("projectile did not use the live mastery table")
 				}
-				text := masteryTooltipTextForSkill(character.SkillBombThrowing)
+				text := masteryTooltipRowsForSkill(character.SkillBombThrowing).String()
 				for _, want := range []string{d.Name + ": 19/27/38/53 + INT/3", "poison 2/4/7/11s", d.Name + ": range 9 tiles; radius 4 tiles"} {
 					if !strings.Contains(text, want) {
 						t.Errorf("retuned skill missing %q: %s", want, text)
@@ -264,7 +264,7 @@ func TestSkillTooltipAuditRetunedTechniqueWiring(t *testing.T) {
 				d.SPCost = [4]int{17, 14, 11, 8}
 				c.Skills[character.SkillTranslocation].Mastery = character.SkillMastery(tier)
 				delete(c.Skills, character.SkillMeditation)
-				text := masteryTooltipTextForSkill(character.SkillTranslocation)
+				text := masteryTooltipRowsForSkill(character.SkillTranslocation).String()
 				if g.techniqueSPCost(c, d) != d.SPCost[tier] || !strings.Contains(text, "17/14/11/8 SP") {
 					t.Fatal("technique cost and skill reference diverged")
 				}
@@ -283,7 +283,7 @@ func TestSkillTooltipAuditRetunedTechniqueWiring(t *testing.T) {
 					}
 					before := *tc.values
 					*tc.values = [4]int{7, 8, 9, 10}
-					if !strings.Contains(masteryTooltipTextForSkill(character.SkillTranslocation), tc.want) {
+					if !strings.Contains(masteryTooltipRowsForSkill(character.SkillTranslocation).String(), tc.want) {
 						t.Errorf("retuned %s lost %q", key, tc.want)
 					}
 					*tc.values = before

@@ -800,12 +800,8 @@ func (g *MMGame) hasCardWalkOnWater() bool {
 	return false
 }
 
-// cardItemTooltipLines serves collection views. Their local action replaces
+// cardItemTooltipRows serves collection views. Their local action replaces
 // inventory instructions; a slotted card needs no activation tutorial.
-func cardItemTooltipLines(key string, usage ...string) []string {
-	return cardItemTooltipRows(key, usage...).Lines()
-}
-
 func cardItemTooltipRows(key string, usage ...string) character.CardRows {
 	it, err := items.TryCreateItemFromYAML(key)
 	if err != nil {

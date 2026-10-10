@@ -774,15 +774,11 @@ func (ui *UISystem) drawDialogFolderTabsEnabled(screen *ebiten.Image, dialogX, d
 	}
 }
 
-// spellTraderTooltipLines is the hover card for one traded spell: the SAME full
+// spellTraderTooltipRows is the hover card for one traded spell: the SAME full
 // tooltip the spellbook shows (cost, damage, duration, description, scaled for
 // the selected character), with the trader's asking price appended - a shop is
 // where the party decides whether a spell is worth buying, so it needs the whole
 // card, not a name and a number.
-func (ui *UISystem) spellTraderTooltipLines(spellKey string, char *character.MMCharacter) []string {
-	return ui.spellTraderTooltipRows(spellKey, char).Lines()
-}
-
 func (ui *UISystem) spellTraderTooltipRows(spellKey string, char *character.MMCharacter) character.CardRows {
 	// Every authored row resolves: backfillTraderSpells rejects a key spells.yaml
 	// does not define, so there is no "unknown spell" case to fall back to.

@@ -71,7 +71,7 @@ func TestEquippedSetTooltipActivation(t *testing.T) {
 						target = ch.Equipment[items.SlotMainHand]
 						ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: target, items.SlotOffHand: target}
 					}
-					text := GetItemTooltip(target, ch, cs, full)
+					text := GetItemTooltipRows(target, ch, cs, full).String()
 					if ch != nil {
 						count := len(keys)
 						if state == "incomplete" || state == "bag-completes" {

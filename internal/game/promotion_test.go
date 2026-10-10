@@ -72,7 +72,7 @@ func TestApplyArchmagePromotion_UnlocksLight(t *testing.T) {
 	g.applyArchmagePromotion(idx)
 	m := g.party.Members[idx]
 
-	if !m.IsArchmage() {
+	if m.Promotion != character.PromotionArchmage {
 		t.Error("character should be an Archmage after promotion")
 	}
 	if m.MagicSchools[character.MagicSchoolLight] == nil {

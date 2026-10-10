@@ -48,7 +48,7 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 				m.SpawnX += 2 * ts
 				m.State = monster.StateAlert
 				if tc.hit {
-					m.TakeDamageParts(damagecalc.Parts{True: 1}, "true", 0)
+					takeDamageParts(m, damagecalc.Parts{True: 1}, "true", 0)
 				}
 				if tc.stunned {
 					m.StunTurnsRemaining, m.StunFramesRemaining = 5, 600

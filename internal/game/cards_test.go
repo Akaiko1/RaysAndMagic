@@ -144,7 +144,7 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 	}
 
 	// Collection views keep the same effects but use only the local action.
-	bag := GetItemTooltip(items.CreateItemFromYAML("ocelot_card"), nil, nil, false)
+	bag := GetItemTooltipRows(items.CreateItemFromYAML("ocelot_card"), nil, nil, false).String()
 	if !strings.Contains(bag, "Bring to a Card Collector") {
 		t.Fatal("inventory card lost its activation hint")
 	}
@@ -153,7 +153,7 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 		if hint != "" {
 			usage = []string{hint}
 		}
-		collector := strings.Join(cardItemTooltipLines("ocelot_card", usage...), "\n")
+		collector := strings.Join(cardItemTooltipRows("ocelot_card", usage...).Lines(), "\n")
 		if !strings.Contains(collector, fmt.Sprintf("EFFECTS\n%+d Speed", speed)) || !strings.Contains(collector, hint) || strings.Contains(collector, "Bring to a Card Collector") {
 			t.Errorf("wrong collection context:\n%s", collector)
 		}

@@ -46,7 +46,7 @@ func TestTooltipTrueDamageAlwaysVisible(t *testing.T) {
 				if tc.base {
 					ch = nil
 				}
-				text := GetItemTooltip(it, ch, cs, full)
+				text := GetItemTooltipRows(it, ch, cs, full).String()
 				calculator := cs
 				if tc.base {
 					calculator = nil
@@ -80,7 +80,7 @@ func TestTooltipTrueDamageAlwaysVisible(t *testing.T) {
 						skill.Mastery = tier
 					}
 					cs.game.cardSlots = [MaxCardSlots]cardSlot{}
-					text := GetSpellTooltip(id, ch, cs, full)
+					text := GetSpellTooltipRows(id, ch, cs, full).String()
 					want := tier == character.MasteryGrandMaster && (id == "fireball" || id == "hot_steam")
 					if strings.Contains(text, " True)") != want {
 						t.Fatal(text)
@@ -136,7 +136,7 @@ func TestItemTooltipPreservesDistinctAuthoredProse(t *testing.T) {
 				}
 				it.Description = "Obsolete saved prose."
 				for _, full := range []bool{false, true} {
-					text := GetItemTooltip(it, nil, nil, full)
+					text := GetItemTooltipRows(it, nil, nil, full).String()
 					for _, want := range []string{tc.description, tc.flavor} {
 						if want != "" && strings.Count(text, want) != 1 {
 							t.Fatalf("missing or repeated %q: %s", want, text)
@@ -150,7 +150,7 @@ func TestItemTooltipPreservesDistinctAuthoredProse(t *testing.T) {
 		}
 	}
 	legacy := items.Item{Name: "Removed item", Type: items.ItemQuest, Description: "Only surviving description."}
-	if text := GetItemTooltip(legacy, nil, nil, true); strings.Count(text, legacy.Description) != 1 {
+	if text := GetItemTooltipRows(legacy, nil, nil, true).String(); strings.Count(text, legacy.Description) != 1 {
 		t.Fatal(text)
 	}
 }
@@ -174,9 +174,9 @@ func TestMonsterSpellPublicTooltipsDescribeMonsterCasting(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					texts := []string{GetSpellTooltip(spells.SpellID(key), ch, cs, full), GetItemTooltip(it, ch, cs, full)}
+					texts := []string{GetSpellTooltipRows(spells.SpellID(key), ch, cs, full).String(), GetItemTooltipRows(it, ch, cs, full).String()}
 					if !live {
-						texts = append(texts, GetSpellTooltip(spells.SpellID(key), nil, nil, full)) // the editor card's call
+						texts = append(texts, GetSpellTooltipRows(spells.SpellID(key), nil, nil, full).String()) // the editor card's call
 					}
 					for _, text := range texts {
 						if !strings.Contains(text, "Cast by monsters only") {
@@ -199,7 +199,7 @@ func TestMonsterSpellPublicTooltipsDescribeMonsterCasting(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no monster spell fixtures")
 	}
-	text := GetSpellTooltip("fireball", gmReferenceChar(cs.game.config), cs, true)
+	text := GetSpellTooltipRows("fireball", gmReferenceChar(cs.game.config), cs, true).String()
 	if strings.Contains(text, "Cast by monsters only") || !strings.Contains(text, "Cost:") {
 		t.Fatal(text)
 	}

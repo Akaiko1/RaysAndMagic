@@ -227,7 +227,7 @@ func TestTurnBasedPackAggroRequiresOwnPartyLoS(t *testing.T) {
 			!game.collisionSystem.CheckLineOfSight(visible.X, visible.Y, game.camera.X, game.camera.Y) {
 			t.Fatal("setup: visible neighbour must see the party from past its own radius, inside the pack radius")
 		}
-		hit.TakeDamageParts(damagecalc.Parts{Normal: 1}, monster.DamagePhysical, 0)
+		takeDamageParts(hit, damagecalc.Parts{Normal: 1}, monster.DamagePhysical, 0)
 		game.combat.markMonsterHit(hit)
 		return game, visible, hidden
 	}

@@ -241,7 +241,7 @@ func TestDamageTooltipsUseLiveSourceFormula(t *testing.T) {
 		t.Fatalf("idol_breakers_maul: %v", err)
 	}
 	preview := cs.calculateWeaponDamagePreview(weapon, char)
-	tooltip := GetItemTooltip(weapon, char, cs, true)
+	tooltip := GetItemTooltipRows(weapon, char, cs, true).String()
 	for _, want := range []string{
 		fmt.Sprintf("Normal Damage: %d", preview.Normal),
 		fmt.Sprintf("Total Damage: %d", preview.Total),
@@ -260,7 +260,7 @@ func TestDamageTooltipsUseLiveSourceFormula(t *testing.T) {
 	}
 	char.Equipment[items.SlotMainHand] = equipped
 	equippedPreview := cs.calculateWeaponDamagePreview(equipped, char)
-	comparison := GetItemComparisonTooltip(weapon, char, cs)
+	comparison := GetItemComparisonTooltipRows(weapon, char, cs).String()
 	wantComparison := fmt.Sprintf(
 		"Damage / hit: %d -> %d (%+d)",
 		equippedPreview.Total,
@@ -275,7 +275,7 @@ func TestDamageTooltipsUseLiveSourceFormula(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hot_steam: %v", err)
 	}
-	steamTooltip := buildSpellTooltipUnified(steam, char, cs, true)
+	steamTooltip := buildSpellTooltipUnifiedRows(steam, char, cs, true).String()
 	wantTick := cs.CalculatePersistentDamageZoneTickDamage(steam, char) + 5
 	if want := fmt.Sprintf("Total per tick: %d", wantTick); !strings.Contains(steamTooltip, want) {
 		t.Fatalf("Hot Steam tooltip missing live tick %q:\n%s", want, steamTooltip)

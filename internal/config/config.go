@@ -3350,17 +3350,6 @@ func GetLootTable(monsterKey string, isBoss bool) []LootEntry {
 	return append(entries, GlobalLoots.BossLoot...)
 }
 
-// GetBossLoot returns the globally-authored entries appended to every boss's
-// normal loot table. Gameplay must NOT call this: it resolves loot through
-// GetLootTable(key, isBoss), which merges these entries in - the door/key test
-// uses it to prove that merge really happens.
-func GetBossLoot() []LootEntry {
-	if GlobalLoots == nil {
-		return nil
-	}
-	return GlobalLoots.BossLoot
-}
-
 // Helper functions for easy access to commonly used values
 func (c *Config) GetScreenWidth() int {
 	return c.Display.ScreenWidth

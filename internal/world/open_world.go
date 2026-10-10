@@ -225,33 +225,6 @@ func (r *OpenWorldRegion) OpeningCells(side config.OpenWorldPortalSide, width in
 	return cells
 }
 
-// OpeningInteriorCells returns, per span index, the first cell BEHIND an
-// opening's pierced wall - the cell the stitcher guarantees walkable. Used by
-// tests to anchor reachability checks on the real (oriented) passage.
-func (r *OpenWorldRegion) OpeningInteriorCells(side config.OpenWorldPortalSide, width int) [][2]int {
-	edge, at := owXformSide(r.Orient, r.LocalWidth, r.LocalHeight, side.Edge, side.At, width)
-	depth := side.Depth
-	if depth == 0 {
-		depth = 1
-	}
-	cells := make([][2]int, 0, width)
-	for i := 0; i < width; i++ {
-		var x, y int
-		switch edge {
-		case "north":
-			x, y = r.OffsetX+at+i, r.OffsetY+depth
-		case "south":
-			x, y = r.OffsetX+at+i, r.OffsetY+r.Height-1-depth
-		case "west":
-			x, y = r.OffsetX+depth, r.OffsetY+at+i
-		default: // east
-			x, y = r.OffsetX+r.Width-1-depth, r.OffsetY+at+i
-		}
-		cells = append(cells, [2]int{x, y})
-	}
-	return cells
-}
-
 // owXformSpanDir rotates/mirrors a grid-span direction (e|s|w|n) into placed
 // space, so multi-tile facades keep hugging the same wall after placement.
 func owXformSpanDir(orient, dir string) string {

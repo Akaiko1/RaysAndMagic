@@ -354,7 +354,8 @@ func (rh *RenderingHelper) billboardMetricsF(entityX, entityY, distance, sizeTil
 	return rh.projectSpriteMetricsF(entityX, entityY, distance, 0, sizeTiles, minSize)
 }
 
-// CalculateMonsterSpriteMetricsF is the float twin of CalculateMonsterSpriteMetrics.
+// CalculateMonsterSpriteMetricsF sizes a monster billboard (low pixel floor so
+// distant mobs shrink freely). sizeTiles is height in tiles.
 func (rh *RenderingHelper) CalculateMonsterSpriteMetricsF(entityX, entityY, distance, sizeTiles float64) (screenXf, bottomF, sizeF float64, visible bool) {
 	return rh.billboardMetricsF(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }
@@ -387,17 +388,6 @@ func (rh *RenderingHelper) npcBillboardParams(npc *character.NPC) (sizeTiles flo
 // sceneryMinSpriteSize is the pixel floor for prop standees (scenery/landmark/
 // wall/door): unlike people they may recede to almost nothing at range.
 const sceneryMinSpriteSize = 8
-
-// The Calculate*SpriteMetrics trio below are the PIXEL (int) view of the float
-// cores: truncating whole-pixel metrics is what made distant sprites jitter, so
-// draw paths must use the F twins. These stay for hit tests and the golden
-// size/near-cull tests, which reason in pixels by nature.
-
-// CalculateMonsterSpriteMetrics sizes a monster billboard (low pixel floor so
-// distant mobs shrink freely). sizeTiles is height in tiles.
-func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
-}
 
 // CalculateGroundContainerSpriteMetricsF sizes an interactable loot container.
 // Loot bags and chests use the same float projection as every other standee so

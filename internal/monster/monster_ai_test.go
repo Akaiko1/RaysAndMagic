@@ -623,7 +623,7 @@ func TestMonsterEngagesWhenHit(t *testing.T) {
 	}
 
 	// Monster takes damage from close range
-	damage := m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
+	damage := takeDamageParts(m, damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// Verify damage was applied
 	if damage != 10 {
@@ -709,7 +709,7 @@ func TestEngagementLeashAfterHits(t *testing.T) {
 			}
 			for round := 0; round < rounds; round++ {
 				if tc.hitRounds > 0 {
-					m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
+					takeDamageParts(m, damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 					if !m.IsEngagingPlayer {
 						t.Fatalf("round %d: monster should engage after being hit", round)
 					}
@@ -737,7 +737,7 @@ func TestMonsterResistanceReducesDamage(t *testing.T) {
 	m.Resistances[DamageFire] = 50 // 50% fire resistance
 
 	// Hit with fire damage
-	damage := m.TakeDamageParts(damagecalc.Parts{Normal: 20}, DamageFire, 0)
+	damage := takeDamageParts(m, damagecalc.Parts{Normal: 20}, DamageFire, 0)
 
 	// Should receive only 50% of damage
 	if damage != 10 {
@@ -763,7 +763,7 @@ func TestMonsterDoesNotReengageWhenAlreadyEngaged(t *testing.T) {
 	m.StateTimer = 50
 
 	// Take more damage
-	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
+	takeDamageParts(m, damagecalc.Parts{Normal: 10}, DamagePhysical, 0)
 
 	// State should not change (still pursuing, not reset to alert)
 	if m.State != StatePursuing {
@@ -783,7 +783,7 @@ func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
 	playerX, playerY := 612.0, 100.0
 
 	// Hit the monster
-	m.TakeDamageParts(damagecalc.Parts{Normal: 10}, DamageFire, 0)
+	takeDamageParts(m, damagecalc.Parts{Normal: 10}, DamageFire, 0)
 
 	initialX := m.X
 

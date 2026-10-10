@@ -47,7 +47,7 @@ func TestWeaponTooltipSurfacesEveryAuthoredEffect(t *testing.T) {
 			for _, full := range []bool{false, true} {
 				it := items.CreateWeaponFromYAML(key)
 				ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: it}
-				card := GetItemTooltip(it, bearer, cs, full)
+				card := GetItemTooltipRows(it, bearer, cs, full).String()
 				rows := want
 				if full && def.MaxProjectiles > 0 {
 					exercised["max_projectiles"] = true
@@ -94,9 +94,9 @@ func TestWeaponComparisonGainsAndLosesEveryEffect(t *testing.T) {
 		checked++
 		it := items.CreateWeaponFromYAML(key)
 		ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: plain}
-		gain := GetItemComparisonTooltip(it, ch, cs)
+		gain := GetItemComparisonTooltipRows(it, ch, cs).String()
 		ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: it}
-		lose := GetItemComparisonTooltip(plain, ch, cs)
+		lose := GetItemComparisonTooltipRows(plain, ch, cs).String()
 		for _, line := range lines {
 			if !strings.Contains(gain, "Gain: "+line) {
 				t.Errorf("%s: comparison hides gained %q:\n%s", key, line, gain)
@@ -106,7 +106,7 @@ func TestWeaponComparisonGainsAndLosesEveryEffect(t *testing.T) {
 			}
 		}
 		// The same weapon on both sides gains and loses nothing.
-		if same := GetItemComparisonTooltip(items.CreateWeaponFromYAML(key), ch, cs); strings.Contains(same, "Gain: ") || strings.Contains(same, "Lose: ") {
+		if same := GetItemComparisonTooltipRows(items.CreateWeaponFromYAML(key), ch, cs).String(); strings.Contains(same, "Gain: ") || strings.Contains(same, "Lose: ") {
 			t.Errorf("%s: identical weapon reports effect changes:\n%s", key, same)
 		}
 	}

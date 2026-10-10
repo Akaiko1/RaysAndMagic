@@ -49,7 +49,7 @@ func TestArenaUniqueWeaponData(t *testing.T) {
 		}
 		// Signatures can live in DAMAGE, ATTACK or EFFECTS. Check the card
 		// the player sees instead of requiring one particular section.
-		card := GetItemTooltip(items.CreateWeaponFromYAML(c.key), nil, nil, true)
+		card := GetItemTooltipRows(items.CreateWeaponFromYAML(c.key), nil, nil, true).String()
 		if !strings.Contains(card, c.tooltip) {
 			t.Errorf("%s lost its tooltip signature %q: %s", c.key, c.tooltip, card)
 		}

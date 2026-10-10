@@ -389,16 +389,6 @@ func sortedStringSet(set map[string]struct{}) []string {
 	return out
 }
 
-// collectMapRenderPrewarmPlan enumerates every resource the requested logical
-// map can reveal later. In the unified open world, mapKey scopes both source
-// images and derived resources to one placed region; the previous region stays
-// resident across a seam. In particular it includes authored respawns, both
-// day/night packs, NPC-triggered and boss-triggered summons, visited NPC art,
-// encounter reward chests, and the indexed loot-bag family.
-func (r *Renderer) collectMapRenderPrewarmPlan(mapKey string) mapRenderPrewarmPlan {
-	return r.collectMapRenderPrewarmPlanForScope(r.mapRenderPrewarmScope(mapKey))
-}
-
 // mapRenderPrewarmPriorities is the camera-dependent companion of a plan: the
 // minimal stream score seen per normalized sprite name. Smaller warms earlier.
 // The plan itself stays camera-independent; this is recomputed from the live
@@ -524,15 +514,18 @@ func resolveMonsterPrewarmResources(seeds map[string]float64, priorities mapRend
 	return resources
 }
 
-func (r *Renderer) collectMapRenderPrewarmPlanForScope(scope mapRenderPrewarmScope) mapRenderPrewarmPlan {
-	plan, _ := r.collectMapRenderPrewarmPlanAndPriorities(scope)
-	return plan
-}
-
-// collectMapRenderPrewarmPlanAndPriorities makes ONE walk over the authored
-// use sites and returns both outputs of it: the camera-independent plan and
-// its camera-dependent stream priorities (each name's best mapRenderStreamScore
-// across the sites that were visited with a position in hand).
+// collectMapRenderPrewarmPlanAndPriorities enumerates every resource the
+// requested logical map can reveal later. In the unified open world, the scope
+// limits both source images and derived resources to one placed region; the
+// previous region stays resident across a seam. In particular it includes
+// authored respawns, both day/night packs, NPC-triggered and boss-triggered
+// summons, visited NPC art, encounter reward chests, and the indexed loot-bag
+// family.
+//
+// It makes ONE walk over the authored use sites and returns both outputs of it:
+// the camera-independent plan and its camera-dependent stream priorities (each
+// name's best mapRenderStreamScore across the sites that were visited with a
+// position in hand).
 func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewarmScope) (mapRenderPrewarmPlan, mapRenderPrewarmPriorities) {
 	var plan mapRenderPrewarmPlan
 	priorities := make(mapRenderPrewarmPriorities)

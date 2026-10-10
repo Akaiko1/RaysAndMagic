@@ -995,16 +995,6 @@ func (r *Renderer) precomputeFloorColorCache() {
 	}
 }
 
-func (r *Renderer) floorTextureIndexForTile(tileX, tileY int, tileType world.TileType3D) (int, bool) {
-	groupName := r.floorTextureGroupForTile(tileX, tileY, tileType)
-	group, ok := r.floorTexGroups[r.floorGroupLookupKey(tileX, tileY, groupName)]
-	if !ok || group.count <= 0 {
-		return 0, false
-	}
-	offset := stableFloorTextureIndex(tileX, tileY, int(tileType), group.count)
-	return group.start + offset, true
-}
-
 // defaultFloorTextureGroup is the biome floor group used for any tile that
 // doesn't name its own group - see floorTextureGroupForTile.
 const defaultFloorTextureGroup = "default"
@@ -1097,7 +1087,7 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 	// Floor textures are biome-driven: every map of a biome shares the same
 	// groups, so the atlas is cached per biome rather than per map file. The
 	// unified world spans several biomes at once - its atlas combines them all
-	// under "biome/group" keys (see floorGroupLookupKey).
+	// under "biome/group" keys (see floorTextureGroupKey).
 	cacheKey := mapConfig.Biome
 	groupSources := world.GlobalWorldManager.GetCurrentBiomeFloorTextureGroups()
 	if r.game.openWorldActive() {
@@ -1199,12 +1189,6 @@ func openWorldFloorTextureGroups() map[string][]string {
 		}
 	}
 	return out
-}
-
-// floorGroupLookupKey namespaces a floor group with the tile's region biome
-// on the unified world; identity for split maps (single-biome atlas).
-func (r *Renderer) floorGroupLookupKey(tileX, tileY int, group string) string {
-	return floorTextureGroupKey(r.floorBiomeKeyAt(tileX, tileY), group, r.game.openWorldActive())
 }
 
 // floorTextureGroupKey is shared by atlas creation and material lookup. Callers

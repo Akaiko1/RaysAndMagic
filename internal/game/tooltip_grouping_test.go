@@ -198,7 +198,7 @@ func TestGroupedTooltipComparisonsFit(t *testing.T) {
 	for _, full := range []bool{false, true} {
 		for key := range config.GlobalItems.Items {
 			it := items.CreateItemFromYAML(key)
-			compare := GetItemComparisonTooltip(it, ch, cs)
+			compare := GetItemComparisonTooltipRows(it, ch, cs).String()
 			if compare == "" {
 				continue
 			}
@@ -222,8 +222,8 @@ func TestGroupedTooltipComparisonsFit(t *testing.T) {
 
 func TestTooltipComparisonClearsPreviousTitleStyle(t *testing.T) {
 	ui := &UISystem{}
-	ui.queueTitledTooltipComparison([]string{"Equipment"}, nil, woodPlateColor, equipmentBenefitColor)
-	ui.queueTooltipComparison([]string{"Plain comparison"}, nil)
+	ui.queueCardComparison(character.PlainCardRows([]string{"Equipment"}), nil, woodPlateColor, equipmentBenefitColor)
+	ui.queueCardComparison(character.PlainCardRows([]string{"Plain comparison"}), nil, nil, nil)
 	if ui.tooltipCompareTitle != nil || ui.tooltipCompareText != nil {
 		t.Fatal("plain comparison inherited a previous card's title style")
 	}

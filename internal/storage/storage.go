@@ -91,6 +91,7 @@ func fileSHA256(path string) (string, bool) {
 
 // SetDataRootForTesting points the writable data root at a temp dir. Pass "" to
 // restore the default, which under go test is still the process's own temp root.
+// Test-only: tests in several packages redirect saves through it.
 func SetDataRootForTesting(dir string) { dataRoot = dir }
 
 // testSaveRoot keeps go test processes out of real saves: a test that sets no
