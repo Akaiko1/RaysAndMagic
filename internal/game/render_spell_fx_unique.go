@@ -11,25 +11,30 @@ import (
 
 // spellFxStyleKinds maps graphics.projectile_fx to its material silhouette.
 var spellFxStyleKinds = map[string]int{
-	"fireball":     spellFireball,
-	"lightning":    spellLightning,
-	"harm":         spellHarm,
-	"psyshock":     spellPsyshock,
-	"starburst":    spellStarburst,
-	"disintegrate": spellDisintegrate,
-	"ray_of_light": spellLight,
-	"rock":         spellRock,
-	"stone_bud":    spellStoneBud,
-	"swarm":        spellSwarm,
-	"ice_shard":    spellIce,
-	"fire_dart":    spellFireDart,
-	"sparks":       spellSparks,
-	"shadow_bolt":  spellShadow,
-	"void_needle":  spellVoidNeedle,
-	"shackle":      spellShackle,
-	"charm_bloom":  spellCharm,
-	"psi_lance":    spellPsiLance,
-	"lash":         spellLash,
+	"fireball":      spellFireball,
+	"lightning":     spellLightning,
+	"harm":          spellHarm,
+	"psyshock":      spellPsyshock,
+	"starburst":     spellStarburst,
+	"disintegrate":  spellDisintegrate,
+	"ray_of_light":  spellLight,
+	"rock":          spellRock,
+	"stone_bud":     spellStoneBud,
+	"swarm":         spellSwarm,
+	"ice_shard":     spellIce,
+	"fire_dart":     spellFireDart,
+	"sparks":        spellSparks,
+	"shadow_bolt":   spellShadow,
+	"void_needle":   spellVoidNeedle,
+	"shackle":       spellShackle,
+	"charm_bloom":   spellCharm,
+	"psi_lance":     spellPsiLance,
+	"lash":          spellLash,
+	"acid_burst":    spellAcid,
+	"flying_fist":   spellFlyingFist,
+	"shrapmetal":    spellShrapmetal,
+	"soul_wisp":     spellSoulWisp,
+	"prismatic_ray": spellPrismaticRay,
 }
 
 // validateProjectileFxStyles fails fast on a projectile_fx naming a style with
@@ -41,6 +46,20 @@ func validateProjectileFxStyles() {
 	for key, def := range config.GlobalSpells.Spells {
 		if def.Graphics == nil {
 			continue
+		}
+		if style := def.Graphics.WorldFx; style != "" {
+			kind := ""
+			if def.Mechanic != nil {
+				kind = def.Mechanic.Kind
+			}
+			if entry, ok := spellWorldStyles[style]; !ok || entry.mechanic != kind {
+				panic(fmt.Sprintf("spell %q: world_fx %q is incompatible with mechanic %q", key, style, kind))
+			}
+		}
+		if flights := def.Graphics.TargetFlights; flights != nil && flights.ProjectileFx != "" {
+			if _, ok := spellFxStyleKinds[flights.ProjectileFx]; !ok {
+				panic(fmt.Sprintf("spell %q: unknown target_flights.projectile_fx %q", key, flights.ProjectileFx))
+			}
 		}
 		if style := def.Graphics.CastOverlay; style != "" {
 			if _, ok := castOverlayStyles[style]; !ok {

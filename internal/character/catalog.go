@@ -99,7 +99,7 @@ const (
 	// TurnBasedTurnSeconds is the real-time equivalent one turn-based round
 	// consumes for periodic effects (DoTs, damage zones). Shared with the game's
 	// TurnBasedPeriodicEffectSeconds so cards can state ticks per turn.
-	TurnBasedTurnSeconds = 3
+	TurnBasedTurnSeconds = config.CombatRoundSeconds
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing. Buff magnitudes scale through their own
 	// *_grandmaster fields; duration via SpellMasteryDurationBonusPct.

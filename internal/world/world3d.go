@@ -72,6 +72,7 @@ type World3D struct {
 	StartY int
 	// Magic effects
 	walkOnWaterActive     bool
+	FrozenWater           func(tileX, tileY int) bool // Runtime Frozen Ground ice: walkable for every mover, monsters included.
 	waterBreathingActive  bool
 	terrainPassageActive  bool // Active party capability: pass through non-border tiles
 	environmentSpriteSeed uint64
@@ -358,6 +359,9 @@ func (w *World3D) IsTileBlockingTerrainAt(tileX, tileY int) bool {
 // with no Fly override. Bounds must already be checked.
 func (w *World3D) isTileBlockingTerrain(tileX, tileY int) bool {
 	tile := w.Tiles[tileY][tileX]
+	if w.isFrozenWaterTerrain(tileX, tileY) {
+		return false
+	}
 
 	// Use tile manager to check if tile blocks movement
 	if GlobalTileManager != nil {
@@ -385,13 +389,30 @@ func (w *World3D) isTileBlockingTerrain(tileX, tileY int) bool {
 	}
 }
 
+// isFrozenWaterTerrain is the shared ice exception for all movers. The runtime
+// callback supplies duration/map state; the tile catalog owns water identity.
+// Call only after checking bounds. Party-only water-walking never reaches here.
+func (w *World3D) isFrozenWaterTerrain(tileX, tileY int) bool {
+	if w.FrozenWater == nil {
+		return false
+	}
+	tile := w.Tiles[tileY][tileX]
+	water := tile == TileWater || tile == TileDeepWater || tile == TileForestStream
+	if GlobalTileManager != nil {
+		water = GlobalTileManager.IsWater(tile)
+	}
+	return water && w.FrozenWater(tileX, tileY)
+}
+
 // IsTileBlockingForMonster applies ordinary walkability, flight, then explicit
 // permissions for otherwise blocked tile keys. Overrides do not select habitat.
 func (w *World3D) IsTileBlockingForMonster(tileX, tileY int, walkableTileOverrides []string, flying bool) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
-
+	if w.isFrozenWaterTerrain(tileX, tileY) {
+		return false
+	}
 	tile := w.Tiles[tileY][tileX]
 
 	// Use tile manager to check if tile blocks movement

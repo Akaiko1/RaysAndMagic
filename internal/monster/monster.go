@@ -137,6 +137,9 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m == nil || m.IsInertSetPiece() || m.IsFish() {
 		return AIBehaviorInert
 	}
+	if m.FearFramesRemaining > 0 {
+		return AIBehaviorFleeing
+	}
 	if m.Bound {
 		return AIBehaviorBoundAlly
 	}
@@ -366,9 +369,9 @@ type Monster3D struct {
 	StunTurnsRemaining  int // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int // Real-time stun duration in frames
 	StunRate            int // Persisted frames-per-turn exchange rate keeping mode switches proportional
-	StunDRStacks        int // Stun diminishing-returns chain length (0=fresh; caps -> immune)
-	StunDRMemoryTurns   int // TB: stun-free turns left before the DR chain resets
-	StunDRMemoryFrames  int // RT: stun-free frames left before the DR chain resets
+	StunDRStacks        int // Shared stun/fear DR chain length (0=fresh; caps -> immune)
+	StunDRMemoryTurns   int // TB: stun/fear-free turns left before the DR chain resets
+	StunDRMemoryFrames  int // RT: stun/fear-free frames left before the DR chain resets
 	RootTurnsRemaining  int // TB root (bear trap): can't move, CAN attack
 	RootFramesRemaining int // RT root in frames: position pinned, attacks work
 	RootRate            int // Persisted frames-per-turn rate for the root clocks
@@ -414,14 +417,18 @@ type Monster3D struct {
 	WeakenRate            int
 	weakenPctThisTurn     int
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
-	Bound                   bool       // Bind Undead: under party control - hunts other monsters, ignores party
-	BoundFramesRemaining    int        // Shared RT/TB bind duration in frames (0 = permanent, e.g. card summon)
-	Pacified                bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
-	PacifiedFramesRemaining int        // Shared RT/TB charm duration in frames
-	CharmedByParty          bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
-	AITargetX               float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshMonsterAIState)
-	AITargetY               float64    // Per-frame pursuit target Y
-	AIFoe                   *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
+	Bound                          bool       // Bind Undead: under party control - hunts other monsters, ignores party
+	BoundFramesRemaining           int        // Shared RT/TB bind duration in frames (0 = permanent, e.g. card summon)
+	Pacified                       bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
+	PacifiedFramesRemaining        int        // Shared RT/TB charm duration in frames
+	FearFramesRemaining            int        // Forced retreat; damage does not cancel it.
+	SilenceImmunityFramesRemaining int        // Recovery immunity starts after silence ends.
+	SilenceFramesRemaining         int        // Disables spell attacks and ranged bolts.
+	BerserkFramesRemaining         int        // Attacks the closest visible actor, regardless of faction.
+	CharmedByParty                 bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
+	AITargetX                      float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshMonsterAIState)
+	AITargetY                      float64    // Per-frame pursuit target Y
+	AIFoe                          *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
 	// Loot guard is a calm, map-prop-specific assignment. The game owns target
 	// discovery and band membership; this struct only carries the serially
 	// prepared patrol tile into the parallel RT AI step.
@@ -884,7 +891,7 @@ func (m *Monster3D) GetTurnBasedAttackCount() int {
 }
 
 func (m *Monster3D) HasRangedAttack() bool {
-	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
+	return (m.ProjectileSpell != "" || m.ProjectileWeapon != "") && m.SilenceFramesRemaining == 0
 }
 
 // TickRootTurn consumes one TB turn of a root effect; the monster stays

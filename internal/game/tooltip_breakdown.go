@@ -170,9 +170,13 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 	tier, tierName := spellMasteryTier(char, def)
 	effects := ttSection{Title: "EFFECTS"}
 	if includeDamageType && def.IsProjectile && !def.DealsNoDamage {
-		effects.Add("%s", damageTypeAoELine(def.School, def.AoeRadiusTiles))
+		effects.Add("%s", damageTypeAoELine(def.DamageType(), def.AoeRadiusTiles))
 	}
-	for _, ln := range def.CoreEffectLines() {
+	effectTier := -1
+	if char != nil {
+		effectTier = tier
+	}
+	for _, ln := range def.CoreEffectLinesForMastery(effectTier) {
 		effects.Add("%s", ln)
 	}
 	hero := char != nil

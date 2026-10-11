@@ -78,6 +78,8 @@ func TestMapLoaderFloorPropagation(t *testing.T) {
 		{"other chasm bottom through rocks", "FRRR@E  >[npc:chest]\n", "dragon_cliffs_floor", 4, false},
 		{"monster over chasm bottom", "CRRRaE\n", "dragon_cliffs_floor", 4, false},
 		{"water through entity chain", "WaR@aE  >[npc:chest]\n", "dragon_cliffs_floor", 4, false},
+		{"stream through entity chain", "SR@E  >[npc:chest]\n", "dragon_cliffs_floor", 2, false},
+		{"explicit stream ground", "V@E  >[npc:chest@forest_stream]\n", "forest_stream", 1, false},
 		{"deep water through marker", "QR@@E  >[stile:vteleporter], [npc:chest]\n", "dragon_cliffs_floor", 3, false},
 		{"no source fallback", "ER@RE  >[npc:chest]\n", "dragon_cliffs_floor", 2, false},
 		{"edge cannot carry floor", "VER@  >[npc:chest]\n", "dragon_cliffs_floor", 3, false},
@@ -144,6 +146,8 @@ func TestFloorPropagationPolicies(t *testing.T) {
 		ok       bool
 	}{
 		{"water cannot propagate", [][]TileType3D{{tile("water"), rock, rock}}, nil, 2, 0, TileEmpty, false},
+		{"stream cannot propagate", [][]TileType3D{{stream, rock, rock}}, nil, 2, 0, TileEmpty, false},
+		{"land beside stream wins", [][]TileType3D{{stream, rock, rock, grass}}, nil, 1, 0, grass, true},
 		{"deep water cannot propagate", [][]TileType3D{{tile("deep_water"), rock, rock}}, nil, 2, 0, TileEmpty, false},
 		{"land beside water wins", [][]TileType3D{{tile("water"), rock, rock, grass}}, nil, 1, 0, grass, true},
 		{"land beside deep water wins", [][]TileType3D{{tile("deep_water"), rock, rock, grass}}, nil, 1, 0, grass, true},
@@ -163,11 +167,10 @@ func TestFloorPropagationPolicies(t *testing.T) {
 			}
 		})
 	}
-	// Every tile authored exclude_as_under_floor (the directional edges, paths
-	// and bridges) is skipped by propagation and never resolves a floor.
+	// All water and authored exclusions are skipped, regardless of walkability.
 	excluded := 0
 	for key, data := range tm.ListTiles() {
-		if data == nil || !data.ExcludeAsUnderFloor {
+		if data == nil || !(data.ExcludeAsUnderFloor || data.Type == "water") {
 			continue
 		}
 		excluded++
@@ -203,7 +206,7 @@ func TestFloorPropagationStitchedEntities(t *testing.T) {
 				continue // Authored gate NPCs are removed when stitching.
 			}
 			checked++
-			if tm.GetTileData(w.Tiles[y][x]).ExcludeAsUnderFloor {
+			if tm.GetTileData(w.Tiles[y][x]).ExcludeAsUnderFloor || tm.IsWater(w.Tiles[y][x]) {
 				t.Errorf("%s auto entity at %v inherited an edge", region.MapKey, cell)
 			}
 		}

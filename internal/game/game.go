@@ -70,7 +70,8 @@ const (
 const InteractionDistance = 128.0
 
 type MagicProjectile struct {
-	Launch                             projectileLaunch // Runtime-only; save/load discards projectiles.
+	Launch                             projectileLaunch      // Runtime-only; save/load discards projectiles.
+	HitBudget                          *spellVolleyHitBudget // Shared by the physical fragments of one cast; also runtime-only.
 	FlaskKey                           string
 	FlaskRemaining, FlaskRadius        float64
 	FlaskFlightRange                   float64
@@ -93,7 +94,11 @@ type MagicProjectile struct {
 	SourceName         string
 	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none); retained for status riders/attribution
 	AoE                bool               // monster projectile: on hit, splash damage to the whole party
-	NoCollide          bool               // mortar visual (Stone Blossom): the display bolt never collides
+	NoCollide          bool               // visual-only flight: no second damage or collision event
+	VisualColor        *[3]int            // optional per-flight palette, independent of damage school
+	VisualFx           string             // optional visual-only material override
+	VisualScale        float64            // optional multiplier for a visual-only flight
+	VisualFrames       int                // original lifetime of a visual-only flight
 	AoeTiles           float64            // party spell blast radius, snapshotted at launch: the shot bursts wherever it ends
 }
 
@@ -116,6 +121,9 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
+	FireAuraPercent        int
+	FireAuraSchool         monster.DamageType // Snapshotted with damage; later effect expiry cannot change a flying shot.
+	VampiricPct            int
 	Continuation           bool             // Runtime-only; secondary legs cannot spend fresh attack charges.
 	Launch                 projectileLaunch // Runtime-only; save/load discards projectiles.
 	ElementalAbilityDamage int              // Effective-stat scaling snapshotted at launch.
@@ -373,7 +381,8 @@ type MMGame struct {
 	slashEffects           []SlashEffect
 	spellHitEffects        []SpellHitEffect
 	elementalAttackEffects []elementalAttackEffect
-	buffFxAnims            []buffFxAnim  // buff-cast overlay animations (render_buff_fx.go)
+	buffFxAnims            []buffFxAnim // buff-cast overlay animations (render_buff_fx.go)
+	spellWorldVisuals      []spellWorldVisual
 	impactLights           []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
 	screenShake            float64       // camera shake amplitude in world units, decays each tick
 	screenShakeOffsetX     float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
@@ -426,6 +435,10 @@ type MMGame struct {
 	townPortalCaster     *character.MMCharacter // who opened the picker; pays on confirm
 	townPortalSpell      spells.SpellID
 	townPortalConfirming *character.MMCharacter // set while the confirmed cast runs
+	beaconPicker         bool
+	beaconSelection      int
+	identifyScroll       int
+	beaconConfirming     bool
 	// visitedTavernMaps retains its legacy save-field name. It contains map keys
 	// of all Town Portal destinations the party has visited: tavern maps plus
 	// maps explicitly marked town_portal_destination in map_configs.yaml.
@@ -440,7 +453,12 @@ type MMGame struct {
 	// Stacking timed party combat buffs (Day of the Gods, Hour of Power, Stone
 	// Skin, Heroism, ...) - see combat_buffs.go. Their ResistPct/OutBonus/InReduce
 	// sum across all active entries.
-	combatBuffs []TimedCombatBuff
+	combatBuffs        []TimedCombatBuff
+	frozenWater        []FrozenWaterTile
+	identifiedMonster  *monster.Monster3D
+	identifySelecting  bool
+	allySpellSelecting bool
+	identifyConfirming *monster.Monster3D
 	// celestialBuffSpellID identifies the race-granted buff so the next real
 	// dawn/dusk boundary removes exactly the previous Providence result.
 	celestialBuffSpellID string
@@ -1487,8 +1505,8 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
 			return x, y
 		}
-		if tile == world.TileWater || tile == world.TileDeepWater {
-			if g.walkOnWaterEffective() || g.waterBreathingActive {
+		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWater(tile) {
+			if g.walkOnWaterEffective() || g.waterBreathingActive || g.isFrozenWaterAt(x, y) {
 				return x, y
 			}
 		}
@@ -1501,7 +1519,7 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 // Checks tile type directly: buff expiry runs before the per-frame world-flag
 // sync, so the world's own water flags are still stale here.
 func (g *MMGame) settleAfterWalkOnWater() {
-	if g.partyHasTerrainPassage() || g.waterBreathingActive || g.hasCardWalkOnWater() {
+	if g.partyHasTerrainPassage() || g.waterBreathingActive || g.hasCardWalkOnWater() || g.isFrozenWaterAt(g.camera.X, g.camera.Y) {
 		return
 	}
 	w := g.GetCurrentWorld()
@@ -1513,7 +1531,7 @@ func (g *MMGame) settleAfterWalkOnWater() {
 	if tx < 0 || ty < 0 || tx >= w.Width || ty >= w.Height {
 		return
 	}
-	if tile := w.Tiles[ty][tx]; tile != world.TileWater && tile != world.TileDeepWater {
+	if world.GlobalTileManager == nil || !world.GlobalTileManager.IsWater(w.Tiles[ty][tx]) || world.GlobalTileManager.IsWalkable(w.Tiles[ty][tx]) {
 		return
 	}
 	g.settleAshore("Walk on Water fades - the party wades ashore.")
@@ -2083,6 +2101,20 @@ func (g *MMGame) appendCombatLog(entry combatLogEntry) {
 	}
 }
 
+// summonableMonsterKeys is the roster random summons draw from: every
+// encounter monster, bosses included, never an ambient actor (fish, wildlife,
+// caravan). Sorted so a seeded roll is reproducible.
+func summonableMonsterKeys() []string {
+	var keys []string
+	for key, def := range monster.MonsterConfig.Monsters {
+		if def.Disposition == "" && def.Champion == "" {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	return keys
+}
+
 // SummonRandomMonsterNearPlayer spawns a random monster roughly distanceTiles away if possible
 func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 	if world.GlobalWorldManager == nil || monster.MonsterConfig == nil {
@@ -2099,8 +2131,7 @@ func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 		return false
 	}
 
-	// Pick a random monster key from config
-	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	keys := summonableMonsterKeys()
 	if len(keys) == 0 {
 		return false
 	}
@@ -2830,11 +2861,11 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 	if len(initial) == 0 || !initial[0] {
 		for range TurnBasedPeriodicEffectSeconds {
 			for _, m := range g.party.Members {
-				m.TickPoisonTurn(tps, tps)
+				m.TickPoisonTurn(tps, tps, g.absorbCelestialDamage)
 			}
 			g.sweepLethalDoTVictims()
 			for _, m := range g.party.Members {
-				m.TickBurnTurn(tps, tps)
+				m.TickBurnTurn(tps, tps, g.absorbCelestialDamage)
 			}
 			g.sweepLethalDoTVictims()
 		}
@@ -2887,7 +2918,7 @@ func (g *MMGame) updatePartyClocks() {
 	if g == nil || g.party == nil {
 		return
 	}
-	if g.party.UpdateWithMode(g.turnBasedMode) {
+	if g.party.UpdateWithMode(g.turnBasedMode, g.absorbCelestialDamage) {
 		g.turnBasedSpRegenCount = 0
 	}
 }
@@ -2904,7 +2935,7 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 	// Monster cards (e.g. the Puma Card) add to the party's bonus-action pool,
 	// distributed to the fastest members alongside Speed bonuses.
 	bonusActions += g.cardBonusActions()
-	if b, ok := g.combatBuffByID("quickening"); ok {
+	if b, ok := g.partyTempoBuff(); ok {
 		bonusActions += b.ExtraActions
 	}
 	for bonusActions > 0 {
@@ -3527,15 +3558,14 @@ func (mpw *MagicProjectileWrapper) SetVelocity(vx, vy float64) {
 	mpw.MagicProjectile.VelY = vy
 }
 
-// OnCollision runs in a worker goroutine - it only touches this projectile's
-// own fields. The actual hit effect (shared state: particle list, screen
-// shake) is spawned later by ApplyCollisionEffects, serially.
-// IgnoresWalls: a mortar's display bolt (NoCollide) sails its whole arc; the
-// deferred detonation, not terrain, ends it.
+// IgnoresWalls lets visual-only flights finish their presentation independently
+// of the damage event that owns them (area spells or deferred mortar impacts).
 func (mpw *MagicProjectileWrapper) IgnoresWalls() bool {
 	return mpw.MagicProjectile.NoCollide
 }
 
+// OnCollision runs in a worker goroutine and touches only this projectile.
+// ApplyCollisionEffects emits its shared effects serially afterward.
 func (mpw *MagicProjectileWrapper) OnCollision(hitX, hitY float64) {
 	if mpw.MagicProjectile == nil || !mpw.MagicProjectile.Active {
 		return

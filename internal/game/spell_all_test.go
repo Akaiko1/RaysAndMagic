@@ -47,6 +47,7 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 		key := key
 		t.Run(key, func(t *testing.T) {
 			game, _, _ := tbBehaviorGame(t, 9, 9)
+			game.combat.controlSaveRoll = func() float64 { return 0.99 } // Exercise effects, not random saves.
 			def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
 			if err != nil {
 				t.Fatalf("def: %v", err)
@@ -54,15 +55,37 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 			equipSpellAndPrepareCaster(t, game.combat, key, 200, 30)
 			caster := game.party.Members[0]
 			ally := game.party.Members[1]
+			game.camera.Angle = 0 // Targeted spells and cones face the prepared enemy.
 
 			// A tanky monster adjacent to the party for offensive spells.
-			mon := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
+			mon := monster.NewMonster3DFromConfig(game.camera.X+game.config.GetTileSize(), game.camera.Y, "goblin", game.config)
 			mon.MaxHitPoints, mon.HitPoints = 500, 500
 			game.world.Monsters = []*monster.Monster3D{mon}
 			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
 			projBefore := len(game.magicProjectiles) + len(game.arrows)
 			spBefore := caster.SpellPoints
+			mechanic := ""
+			if def.Mechanic != nil {
+				mechanic = def.Mechanic.Kind
+			}
+			switch mechanic {
+			case "destroy_undead", "turn_undead":
+				mon.MonsterType = monster.TypeUndead
+			case "purify", "dispel_magic":
+				ally.ApplyPoison(10 * game.config.GetTPS())
+				if mechanic == "dispel_magic" {
+					game.magicProjectiles = append(game.magicProjectiles, MagicProjectile{ID: "hostile", Active: true, LifeTime: 60, SpellType: "firebolt", Owner: ProjectileOwnerMonster, X: game.camera.X, Y: game.camera.Y})
+				}
+			case "shared_life", "souldrinker":
+				ally.MaxHitPoints, ally.HitPoints = 100, 40
+			case "vvoid_beacon":
+				setTestWorldManager(t, &world.WorldManager{
+					CurrentMapKey: "test",
+					LoadedMaps:    map[string]*world.World3D{"test": game.world},
+					MapConfigs:    map[string]*config.MapConfig{"test": {Name: "Test"}},
+				})
+			}
 
 			// Scene prep per effect class.
 			switch {
@@ -99,6 +122,24 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 				}
 				caster.ActionsRemaining = 1 // the confirm spends the caster's TB action
 				game.confirmTownPortal("forest")
+			} else if mechanic == "vvoid_beacon" {
+				if game.combat.CastEquippedSpell() || caster.SpellPoints != spBefore || !game.beaconPicker {
+					t.Fatal("beacon cast must open its picker without spending SP")
+				}
+				caster.ActionsRemaining = 1
+				game.confirmBeacon(0, true)
+			} else if def.TargetsAlly() {
+				if game.combat.CastEquippedSpell() || caster.SpellPoints != spBefore || !game.allySpellSelecting {
+					t.Fatal("ally buff must enter paused targeting without spending SP")
+				}
+				caster.ActionsRemaining = 1
+				game.confirmAllySpell(0)
+			} else if mechanic == "identify_monster" {
+				if game.combat.CastEquippedSpell() || caster.SpellPoints != spBefore || !game.identifySelecting {
+					t.Fatal("identify must enter paused targeting without spending SP")
+				}
+				caster.ActionsRemaining = 1
+				game.confirmIdentify(mon)
 			} else if !game.combat.CastEquippedSpell() {
 				t.Fatalf("CastEquippedSpell returned false")
 			}
@@ -108,6 +149,62 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 
 			// Class-correct effect assertion.
 			switch {
+			case def.Mechanic != nil && !def.IsProjectile:
+				switch mechanic {
+				case "fire_aura", "fate", "vampiric_weapon":
+					if len(caster.SpellState.Effects) != 1 || caster.SpellState.Effects[0].SpellID != key {
+						t.Fatal("personal spell effect missing")
+					}
+				case "haste", "shield", "preservation", "regeneration", "protection_from_magic", "celestial_armor", "pain_reflection":
+					if game.advancedBuff(mechanic) == nil {
+						t.Fatal("shared spell effect missing")
+					}
+				case "purify", "dispel_magic":
+					if ally.Purifiable() || ally.PoisonFramesRemaining != 0 {
+						t.Fatal("cleanse did not remove poison")
+					}
+					if mechanic == "dispel_magic" && game.magicProjectiles[0].Active {
+						t.Fatal("dispel left hostile magic active")
+					}
+				case "shared_life":
+					if ally.HitPoints <= 40 {
+						t.Fatal("shared life did not redistribute HP")
+					}
+				case "vvoid_beacon":
+					if len(caster.SpellState.Beacons) != 1 || caster.SpellState.Beacons[0].MapKey != "test" {
+						t.Fatal("beacon confirmation did not bind a point")
+					}
+				case "identify_monster":
+					if game.identifiedMonster != mon || !game.townPortalPickerOpen {
+						t.Fatal("identify did not open the target report")
+					}
+				case "berserk":
+					if mon.BerserkFramesRemaining <= 0 {
+						t.Fatal("berserk did not affect the living target")
+					}
+				case "frozen_ground":
+					if mon.RootFramesRemaining <= 0 {
+						t.Fatal("frozen ground did not root the forward target")
+					}
+				case "slow":
+					if mon.SlowFramesRemaining <= 0 {
+						t.Fatal("slow did not affect the target")
+					}
+				case "turn_undead", "mass_fear":
+					if mon.FearFramesRemaining <= 0 {
+						t.Fatal("fear did not affect the eligible target")
+					}
+				case "feeblemind":
+					if mon.SilenceFramesRemaining <= 0 {
+						t.Fatal("feeblemind did not silence the target")
+					}
+				case "destroy_undead", "prismatic_light", "souldrinker":
+					if mon.HitPoints >= 500 {
+						t.Fatal("direct spell did not damage the eligible target")
+					}
+				default:
+					t.Fatalf("missing effect assertion for mechanic %q", mechanic)
+				}
 			case def.ReviveHpPct > 0 || def.Revive:
 				if ally.HasCondition(character.ConditionDead) || ally.HitPoints <= 0 {
 					t.Errorf("ally not revived (hp=%d, dead=%v)", ally.HitPoints, ally.HasCondition(character.ConditionDead))

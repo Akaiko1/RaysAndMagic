@@ -224,7 +224,7 @@ func (p *FxPreview) Items() []FxItem {
 		// an empty preview.
 		def := config.GlobalSpells.Spells[k]
 		if !def.IsProjectile && def.ZoneRadiusTiles <= 0 && !def.StarburstFx && def.BuffFxSprite == "" &&
-			(def.Graphics == nil || (def.Graphics.NovaFx == "" && def.Graphics.CastOverlay == "")) {
+			(def.Graphics == nil || (def.Graphics.NovaFx == "" && def.Graphics.CastOverlay == "" && def.Graphics.WorldFx == "" && def.Graphics.TargetFlights == nil)) {
 			continue
 		}
 		spellKeys = append(spellKeys, k)
@@ -308,6 +308,7 @@ func (p *FxPreview) Select(item FxItem) {
 
 // clearTransient wipes leftover projectiles/effects so previews don't overlap.
 func (p *FxPreview) clearTransient() {
+	p.g.spellWorldVisuals = nil
 	g := p.g
 	// A previous utility preview (notably Fly) must not change which edges
 	// qualify for the next exhibit. Reuse the shared effect reset, without
@@ -379,6 +380,9 @@ func (p *FxPreview) spawn() {
 		if err != nil {
 			return
 		}
+		if authored, ok := config.GetSpellDefinition(p.sel.Key); ok && (authored.Mechanic != nil && authored.Mechanic.MaxTargets > 0 || authored.Graphics != nil && (authored.Graphics.TargetFlights != nil || authored.Graphics.WorldFx != "")) {
+			p.stageSpellTargets(authored)
+		}
 		buffAnimsBefore := len(g.buffFxAnims)
 		hitFxBefore := len(g.spellHitEffects)
 		g.combat.castResolvedSpell(id, def, m, 0, false, false)
@@ -429,6 +433,50 @@ func (p *FxPreview) spawn() {
 		}
 	case FxStatus:
 		p.stageStatus(m)
+	}
+}
+
+// stageSpellTargets gives target-dependent area flights actual recipients. The
+// sandbox holds their AI still and refreshes them on each preview loop.
+func (p *FxPreview) stageSpellTargets(def *config.SpellDefinitionConfig) {
+	p.clearStage()
+	g := p.g
+	ts := g.config.GetTileSize()
+	key := fxStatusDummy()
+	if def.Mechanic != nil && (def.Mechanic.Kind == "turn_undead" || def.Mechanic.Kind == "destroy_undead") {
+		// Pick a real eligible recipient; a living dummy would make these
+		// previews silently no-op. Lowest key makes the stage deterministic.
+		key = ""
+		for k, m := range monster.MonsterConfig.Monsters {
+			if m.Type == monster.TypeUndead && m.HasAttackStats() && !m.Boss && (key == "" || k < key) {
+				key = k
+			}
+		}
+	}
+	offsets := [][2]float64{{3, -1.2}, {4.5, 0}, {3.5, 1.4}}
+	if def.Mechanic != nil && def.Mechanic.MaxTargets > 0 {
+		// The capped fan needs recipients in its authored reach. Twelve is a
+		// stage readability limit, not the spell's gameplay target cap.
+		count := min(def.Mechanic.MaxTargets, 12)
+		radius := def.Mechanic.RadiusTiles
+		if def.Physics != nil {
+			radius = def.Physics.RangeTiles
+		}
+		offsets = make([][2]float64, count)
+		for i := range offsets {
+			a := (float64(i)/float64(max(1, count-1)) - .5) * 1.15
+			d := min(4.5, radius*.82) * (1 - .13*float64(i%2))
+			offsets[i] = [2]float64{math.Cos(a) * d, math.Sin(a) * d}
+		}
+	}
+	for _, offset := range offsets {
+		m := monster.NewMonster3DFromConfig(p.homeX+offset[0]*ts, p.homeY+offset[1]*ts, key, g.config)
+		if m == nil {
+			continue
+		}
+		m.HitPoints, m.MaxHitPoints = 100000, 100000
+		m.Direction = math.Atan2(p.homeY-m.Y, p.homeX-m.X)
+		g.registerSpawnedMonster(m)
 	}
 }
 
@@ -607,7 +655,7 @@ func (p *FxPreview) attackVisualsActive() bool {
 			return true
 		}
 	}
-	return len(g.buffFxAnims) > 0 || len(g.elementalAttackEffects) > 0 ||
+	return len(g.buffFxAnims) > 0 || len(g.spellWorldVisuals) > 0 || len(g.elementalAttackEffects) > 0 ||
 		len(g.persistentDamageZones) > 0 || len(g.pendingMortars) > 0
 }
 

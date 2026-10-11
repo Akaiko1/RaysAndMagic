@@ -9,8 +9,20 @@ func validateDeviceDefinition(key string, d *ItemDefinitionConfig) error {
 	if d.Type != "device" && d.UseAction == "" && d.UseSpell == "" && d.UseCooldownSeconds == 0 && d.UseJumpExtraTiles == 0 {
 		return nil
 	}
-	if d.Type != "device" || d.UseAction != "jump" || d.UseSpell == "" || d.UseCooldownSeconds <= 0 || d.UseJumpExtraTiles < 0 {
-		return fmt.Errorf("item %q: device requires a supported use_action (jump), use_spell, positive use_cooldown_seconds and nonnegative use_jump_extra_tiles", key)
+	if d.Type != "device" || d.UseCooldownSeconds <= 0 {
+		return fmt.Errorf("item %q: device requires positive use_cooldown_seconds", key)
+	}
+	switch d.UseAction {
+	case "jump":
+		if d.UseSpell == "" || d.UseJumpExtraTiles < 0 || d.SummonDistanceTiles != 0 {
+			return fmt.Errorf("item %q: jump device requires use_spell, nonnegative use_jump_extra_tiles and no summon distance", key)
+		}
+	case "summon":
+		if d.SummonDistanceTiles <= 0 || d.UseSpell != "" || d.UseJumpExtraTiles != 0 {
+			return fmt.Errorf("item %q: summon device requires positive summon_distance_tiles and no jump fields", key)
+		}
+	default:
+		return fmt.Errorf("item %q: unsupported device use_action %q", key, d.UseAction)
 	}
 	return nil
 }
@@ -28,6 +40,9 @@ func ValidateDeviceSpellReferences(catalog *ItemSystemConfig, spells *SpellSyste
 		if err := validateDeviceDefinition(key, d); err != nil {
 			return err
 		}
+		if d.UseAction != "jump" {
+			continue
+		}
 		if spells == nil || spells.Spells[d.UseSpell] == nil {
 			return fmt.Errorf("item %q: use_spell %q does not exist", key, d.UseSpell)
 		}
@@ -39,7 +54,13 @@ func ValidateDeviceSpellReferences(catalog *ItemSystemConfig, spells *SpellSyste
 }
 
 func (d *ItemDefinitionConfig) DeviceEffectLines() []string {
-	if d.Type != "device" || d.UseAction != "jump" || GlobalSpells == nil {
+	if d.Type != "device" {
+		return nil
+	}
+	if d.UseAction == "summon" {
+		return []string{uitext.Text("item.device_summon", d.SummonDistanceTiles), uitext.Text("item.device_recharge", d.UseCooldownSeconds)}
+	}
+	if d.UseAction != "jump" || GlobalSpells == nil {
 		return nil
 	}
 	spell := GlobalSpells.Spells[d.UseSpell]

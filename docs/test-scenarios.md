@@ -5,6 +5,7 @@ Run `./build_bin.sh`, then double-click `bin/test_pilgrimage.command`, or run:
 ```sh
 bin/test_scenario.command pilgrimage
 bin/test_scenario.command arena
+bin/test_spells.command
 ```
 
 The binary accepts `--test-scenario NAME` (also `--test-scenario=NAME`).
@@ -22,11 +23,12 @@ Supported fields:
 
 | Field | Meaning |
 | --- | --- |
-| `party` | Up to four members, with `name`, class key, optional `skills` mastery map and `equipment` item keys. Omit to keep the normal starting party. |
+| `party` | Up to four members, with `name`, class key, optional `skills` and `schools` mastery maps, and `equipment` item or weapon keys. Omit to keep the normal starting party. |
 | `bench_party` | A complete build from `assets/bench_parties.yaml` at `level` (see below). Excludes `party`, the stat targets and `learn_school_spells`. |
 | `level` | Raise active members through the normal XP progression to this level. Earned level-up choices remain unspent. |
 | `speed_target`, `endurance_target` | Spend earned attribute points toward these targets, then the class's primary attribute. |
 | `learn_school_spells` | Learn spells from each member's existing schools. |
+| `skill_mastery` | Set every existing skill to this mastery and clear pending level-up picks after training. Does not add new class skills. |
 | `map`, `x`, `y`, `angle` | Map-local tile position and heading in radians; works in separate and stitched worlds. |
 | `safe_radius` | Clear existing monsters within this many tiles of the start, without rewards; later quest spawns are unaffected. |
 | `items`, `gold` | Extra inventory item keys and gold. |
@@ -38,6 +40,15 @@ Supported fields:
 Unknown fields, classes, skills, mastery names, items, maps and blocked start
 positions fail loudly. The launcher is a development fixture, not a balance
 migration or an automatic quest completion tool.
+
+## Spell sandbox
+
+`bin/test_spells.command` starts an equipped level-50 party: two Sorcerers,
+a Cleric and a Druid. Their authored schools are Grandmaster and collectively
+cover every player spell, including Light and Dark; all their class skills are
+trained to Grandmaster. The scenario grants potions and 50,000 gold and uses
+the normal starting location. It is intentionally a spell-testing sandbox,
+not a progression-legal benchmark party. Saves remain in `test-runs/spells/`.
 
 ## Benchmark parties
 

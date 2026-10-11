@@ -811,7 +811,9 @@ func championSpellPool(def *config.ChampionDefinition) []spells.SpellID {
 			// Combat spells only: no utility, and no behavior-effect projectiles
 			// (deals_no_damage - Charm's pacify / Disintegrate's instakill have no
 			// party-side meaning and would land as bare damage-less hits).
-			if sd, ok := config.GetSpellDefinition(key); ok && sd != nil && !sd.IsUtility && !sd.DealsNoDamage {
+			// Advanced mechanics dispatch through player targeting and impact
+			// paths; champions must not cast them as ordinary damage-only bolts.
+			if sd, ok := config.GetSpellDefinition(key); ok && sd != nil && !sd.IsUtility && !sd.DealsNoDamage && sd.Mechanic == nil {
 				add(spells.SpellID(key))
 			}
 		}

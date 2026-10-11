@@ -1,0 +1,61 @@
+//kage:unit pixels
+package main
+
+var Phase float
+
+func Fragment(dst vec4,src vec2,color vec4,c vec4) vec4 {
+	p:=src-imageSrc0Origin()
+	n:=normalize(c.xyz)
+	mat:=floor(c.w)
+	light:=max(0,dot(n,normalize(vec3(-.4,-.7,-.6))))
+	spec:=pow(max(0,dot(n,normalize(vec3(-.3,-.45,-1)))),24)
+	a:=color.a
+	rgb:=color.rgb*(.32+.68*light)+vec3(.42,.36,.22)*spec
+	if mat==1 || mat==8 {
+		// Broad reflected light panels reveal curvature. The smooth normal is
+		// supplied by the mesh; seams and rolled edges remain geometric.
+		r:=reflect(vec3(0,0,1),n)
+		panel:=exp(-pow((r.x+.35)*2.6,2))*smoothstep(-.7,.15,-r.y)
+		strip:=exp(-pow((r.x-.62)*8,2))*(.65+.35*r.y)
+		horizon:=exp(-pow((r.y-.15)*4,2))
+		fresnel:=.55+.45*pow(1-abs(n.z),5)
+		env:=vec3(.49,.56,.65)+vec3(.65,.67,.69)*panel+vec3(.60,.67,.81)*strip+vec3(.15,.12,.07)*horizon
+		rgb=color.rgb*env*fresnel+vec3(.19,.22,.25)*spec
+	}
+	if mat==1 {
+		// Light forges metal upward, leaving a solid engraved silver surface.
+		front:=1.1-Phase*8
+		if p.y<front {discard()}
+		edge:=exp(-abs(p.y-front)*25)
+		fluting:=pow(max(0,cos(p.x*58+sin(p.y*5)*4)),20)*.035
+		chased:=pow(max(0,cos(p.x*105+sin(p.y*35)*2)),26)*.015
+		rgb+=vec3(.18,.27,.33)*(fluting+chased)+vec3(.51,.84,1)*edge
+	} else if mat==2 {
+		// Glass keeps empty space visible through the hourglass.
+		rim:=pow(1-abs(n.z),3)
+		rib:=pow(max(0,cos(p.x*8+p.y)),18)
+		a*=.10+rim*.55+spec*.35
+		rgb=color.rgb*(.55+spec)+vec3(.32,.43,.47)*rib
+	} else if mat==3 {
+		if p.y<0 && p.y < -.62+Phase*.55 {discard()}
+		if p.y>0 && p.y < .66-Phase*.48 {discard()}
+		grain:=fract(sin(dot(floor(p*220),vec2(127.1,311.7)))*43758.5453)
+		rgb=color.rgb*(.65+grain*.35+light*.2)
+	} else if mat==4 {
+		rgb=color.rgb*(.8+.2*sin(p.y*160-Phase*130))
+	} else if mat==5 {
+		// Local feather UVs: shaft along Y, barbs branch from that shaft.
+		barbs:=pow(max(0,cos(p.y*180-abs(p.x)*22)),8)
+		shaft:=exp(-abs(p.x)*45)*(1-smoothstep(.78,1,p.y))
+		edge:=pow(abs(p.x),5)
+		sheen:=pow(max(0,dot(n,normalize(vec3(-.6,-.25,-1)))),5)
+		rgb=color.rgb*(.56+.30*light+.22*sheen)-vec3(.09,.070,.035)*barbs*.6
+		rgb=mix(rgb,vec3(.77,.46,.13),edge*.60)+vec3(.11,.08,.035)*shaft
+	} else if mat==6 {
+		// Opaque wax: warm near the wick, cooler along the cylindrical sides.
+		rgb=color.rgb*(.56+.44*light)+vec3(.18,.065,.008)*exp(-abs(p.y+.65)*4)
+	} else if mat==7 {
+		rgb=color.rgb*(.60+.40*light)+vec3(.5,.7,.9)*spec
+	}
+	return vec4(min(rgb,vec3(1))*a,a)
+}

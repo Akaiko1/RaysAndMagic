@@ -73,7 +73,7 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, elapsed int, advance fu
 	for i := range list {
 		left := advance(&list[i], elapsed)
 		b := list[i]
-		if left > 0 {
+		if left != 0 {
 			g.updateUtilityStatus(spells.SpellID(b.buffSpellID()), left, true)
 			list[w] = b
 			w++
@@ -144,6 +144,8 @@ func (g *MMGame) resetTimedEffects() {
 	g.recomputeStatBonuses()
 	g.celestialBuffSpellID = ""
 	g.persistentDamageZones = nil
+	g.replaceFrozenWater(nil)
+	g.identifiedMonster = nil
 	g.nextPersistentDamageZoneFieldID = 0
 	for _, b := range g.timedBuffs() {
 		*b.active = false

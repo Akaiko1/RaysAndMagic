@@ -276,6 +276,7 @@ func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionCon
 		if def == nil {
 			continue
 		}
+		agg.WeaponBaseDamageBonus += def.WeaponBaseDamageBonus
 		dv := reflect.ValueOf(def).Elem()
 		dt := dv.Type()
 		for i := 0; i < dv.NumField(); i++ {
@@ -670,6 +671,10 @@ func (g *MMGame) cardPoisonProc() (chancePct int, durationSec int) {
 
 func (g *MMGame) cardMeleeDmgPct() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardMeleeDmgPct })
+}
+
+func (g *MMGame) cardWeaponBaseDamageBonus() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.WeaponBaseDamageBonus })
 }
 
 func (g *MMGame) cardMaxHPBonus() int {

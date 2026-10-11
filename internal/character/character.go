@@ -79,6 +79,7 @@ type MMCharacter struct {
 	AdventureXP    map[string]AdventureExperience
 	Inventory      []items.Item // Personal bag; travels with this hero through roster changes.
 	RareClass      RareClassState
+	SpellState     SpellState
 	Name           string
 	Class          CharacterClass
 	Promotion      Promotion // elite status (Archmage/Lich); PromotionNone by default
@@ -105,6 +106,8 @@ type MMCharacter struct {
 	// BonusMaxHP is a flat MaxHP addition from an external source (the Jungle
 	// Idol Card), pushed the same way as BuffBonuses. Runtime-only.
 	BonusMaxHP int
+	// BonusWeaponBaseDamage is the active party card bonus, rebuilt on load.
+	BonusWeaponBaseDamage int
 
 	// Primary attributes
 	Might       int // Physical strength and melee damage
@@ -671,7 +674,8 @@ func (c *MMCharacter) RecalculateMaxStatsGrantingGain(cfg *config.Config) {
 
 // UpdateWithMode updates the character with knowledge of the current game mode
 // and reports whether an RT regeneration cadence completed this frame.
-func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) bool {
+// Optional absorbers reduce pending DoT damage before HP is deducted.
+func (c *MMCharacter) UpdateWithMode(turnBasedMode bool, absorbDoT ...func(int) int) bool {
 	// Turn-based mode: skip timer-based regen AND poison/burn - those advance
 	// once per party turn (TickPoisonTurn/TickBurnTurn, called from
 	// startPartyTurn) so deliberating over a move doesn't bleed real-time HP,
@@ -681,7 +685,7 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) bool {
 	}
 
 	// Use normal timer-based regeneration in real-time mode
-	return c.updateRegenAndPoison()
+	return c.updateRegenAndPoison(absorbDoT...)
 }
 
 // A stun carries both a RT (seconds->frames) and a TB (turns) counter; only the
@@ -718,21 +722,22 @@ func (c *MMCharacter) TickStunTurn() {
 // elapsedFrames of duration and deals the damage that span is worth (one tick
 // per second, so a three-second round bites three times). Mirrors
 // monster.TickPoisonTurn; called once per party turn from startPartyTurn.
-func (c *MMCharacter) TickPoisonTurn(elapsedFrames, tps int) {
+// Optional absorbers use the same damage path as UpdateWithMode.
+func (c *MMCharacter) TickPoisonTurn(elapsedFrames, tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, elapsedFrames, tps)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-	c.dotDamage(PoisonDamagePerTick * ticks)
+	c.dotDamage(PoisonDamagePerTick*ticks, absorbDoT...)
 }
 
 // TickBurnTurn advances ignite by one TB round, mirroring TickPoisonTurn.
-func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int) {
+func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, elapsedFrames, tps)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
-	c.dotDamage(BurnDamagePerTick * ticks)
+	c.dotDamage(BurnDamagePerTick*ticks, absorbDoT...)
 }
 
 // DoTTickTimers exposes the persisted sub-second cadence phase for poison and
@@ -757,10 +762,14 @@ func (c *MMCharacter) RestoreDoTTickTimers(poison, burn int) {
 
 // dotDamage lands DoT damage on a still-standing character; Unconscious is
 // set by the game loop's knockOut sweep, not here. A zero amount (no tick this
-// call) is a no-op.
-func (c *MMCharacter) dotDamage(amount int) {
+// call) is a no-op. Optional game-owned absorbers spend shared barriers without
+// importing combat rules or retaining runtime callbacks in saved characters.
+func (c *MMCharacter) dotDamage(amount int, absorbDoT ...func(int) int) {
 	if c.HitPoints <= 0 || amount <= 0 {
 		return
+	}
+	for _, absorb := range absorbDoT {
+		amount = absorb(amount)
 	}
 	c.HitPoints -= amount
 	if c.HitPoints < 0 {
@@ -770,13 +779,13 @@ func (c *MMCharacter) dotDamage(amount int) {
 
 // updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
 // via BuffBonuses).
-func (c *MMCharacter) updateRegenAndPoison() bool {
+func (c *MMCharacter) updateRegenAndPoison(absorbDoT ...func(int) int) bool {
 	tps := config.GetTargetTPS()
 	if tps <= 0 {
 		tps = config.DefaultTPS
 	}
-	c.updatePoison(tps)
-	c.updateBurn(tps)
+	c.updatePoison(tps, absorbDoT...)
+	c.updateBurn(tps, absorbDoT...)
 	c.tickStunFrames()
 
 	// If unconscious, skip regeneration and updates
@@ -791,14 +800,13 @@ func (c *MMCharacter) updateRegenAndPoison() bool {
 		c.spellRegenTimer = 0 // Reset timer
 		regenCadenceCompleted = true
 	}
-	// Cards and timed draughts share one HP regeneration cadence.
-	if c.BonusRegenPct+c.BuffHPRegenPct > 0 {
-		c.hpRegenTimer++
-		if c.hpRegenTimer >= ManaRegenIntervalFrames {
-			c.hpRegenTimer = 0
-			c.ApplyCardRegenTick()
-			regenCadenceCompleted = true
-		}
+	// Cards, carried supplies and draughts share one cadence, including before
+	// a supply is acquired. Moving a kit cannot reset or accelerate its ticks.
+	c.hpRegenTimer++
+	if c.hpRegenTimer >= ManaRegenIntervalFrames {
+		c.hpRegenTimer = 0
+		c.ApplyCardRegenTick()
+		regenCadenceCompleted = true
 	}
 	return regenCadenceCompleted
 }
@@ -863,7 +871,7 @@ func (c *MMCharacter) ApplyCardRegenTick() {
 	if !c.CanAct() {
 		return
 	}
-	percent := c.BonusRegenPct + c.BuffHPRegenPct
+	percent := c.BonusRegenPct + c.BuffHPRegenPct + c.PersonalInventoryRegenPct()
 	if percent <= 0 || c.HitPoints >= c.MaxHitPoints {
 		return
 	}
@@ -894,6 +902,13 @@ func (c *MMCharacter) ApplyPoison(frames int) {
 func (c *MMCharacter) CurePoison() {
 	status.Clear(&c.PoisonFramesRemaining, &c.poisonTickTimer)
 	c.RemoveCondition(ConditionPoisoned)
+}
+
+// CureDamageOverTime ends poison and burning without removing other controls.
+func (c *MMCharacter) CureDamageOverTime() {
+	c.CurePoison()
+	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
+	c.RemoveCondition(ConditionBurning)
 }
 
 // clearAfflictionClocks stops every running affliction timer. Callers own the
@@ -956,9 +971,9 @@ const (
 	BurnDamagePerTick   = 3
 )
 
-func (c *MMCharacter) updateBurn(tps int) {
+func (c *MMCharacter) updateBurn(tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, 1, tps)
-	c.dotDamage(BurnDamagePerTick * ticks)
+	c.dotDamage(BurnDamagePerTick*ticks, absorbDoT...)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
@@ -977,9 +992,9 @@ func (c *MMCharacter) IsStunned() bool {
 	return c != nil && (c.StunFramesRemaining > 0 || c.StunTurnsRemaining > 0)
 }
 
-func (c *MMCharacter) updatePoison(tps int) {
+func (c *MMCharacter) updatePoison(tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, 1, tps)
-	c.dotDamage(PoisonDamagePerTick * ticks)
+	c.dotDamage(PoisonDamagePerTick*ticks, absorbDoT...)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}

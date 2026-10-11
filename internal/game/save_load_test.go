@@ -12,6 +12,8 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/stash"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
 
@@ -1362,5 +1364,119 @@ func TestApplySaveEnforcesMonsterIDUniqueness(t *testing.T) {
 				t.Fatalf("loadNeedsResave = %v, want %v", gLoad.loadNeedsResave, tt.wantResave)
 			}
 		})
+	}
+}
+
+// Renames, classification and prices must reach every physical ownership path
+// without changing counts, identity, equipped slots or purchased stock.
+func TestSaveLoadItemCatalogRevisions(t *testing.T) {
+	g, _ := summonTileWorld(t)
+	cfg := g.config
+	storage.SetDataRootForTesting(t.TempDir())
+	t.Cleanup(func() { storage.SetDataRootForTesting("") })
+	w := g.world
+	wm := world.NewWorldManager(cfg)
+	wm.CurrentMapKey = "forest"
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	setTestWorldManager(t, wm)
+	active := character.CreateCharacter("Active", character.ClassCleric, cfg)
+	reserve := character.CreateCharacter("Reserve", character.ClassCleric, cfg)
+	captive := character.CreateCharacter("Captive", character.ClassCleric, cfg)
+	for _, member := range []*character.MMCharacter{active, reserve, captive} {
+		member.Skills[character.SkillLeather] = &character.Skill{Mastery: character.SkillMastery(1)}
+	}
+	g.party = &character.Party{Members: []*character.MMCharacter{active}, Reserve: []*character.MMCharacter{reserve}, Captive: []*character.MMCharacter{captive}}
+	cases := []struct {
+		key, oldName        string
+		oldType             items.ItemType
+		oldCategory         string
+		oldValue, wantValue int
+		slot                items.EquipSlot
+	}{
+		{"padded_greaves", "Padded Greaves", items.ItemArmor, "leather", 240, 240, items.SlotOffHand},
+		{"solstice_heatshield_mantle", "Heatshield Mantle", items.ItemArmor, "cloth", 2200, 2200, items.SlotCloak},
+		{"wolf_pelt", "Wolf Pelt", items.ItemTrinket, "", 12, 35, items.SlotMainHand},
+	}
+	chest := &stash.Stash{}
+	bag := GroundContainer{Kind: ContainerKindLootBag, ID: "catalog-revision", MapKey: "forest", X: 96, Y: 96}
+	expected := map[uint64]items.Item{}
+	for i, tc := range cases {
+		fresh := items.CreateItemFromYAML(tc.key)
+		legacy := func() items.Item {
+			it := items.CreateItemFromYAML(tc.key)
+			it.Name, it.Type, it.ArmorCategory = tc.oldName, tc.oldType, tc.oldCategory
+			it.Attributes["value"] = tc.oldValue
+			if it.Stackable() {
+				it.Quantity = 4
+			}
+			items.EnsureInstanceID(&it)
+			want := fresh
+			want.InstanceID = it.InstanceID
+			want.Quantity = it.Quantity
+			expected[it.InstanceID] = want
+			return it
+		}
+		g.party.Inventory = append(g.party.Inventory, legacy())
+		for _, member := range []*character.MMCharacter{active, reserve, captive} {
+			member.Inventory = append(member.Inventory, legacy())
+			if fresh.Type != items.ItemTrinket {
+				member.Equipment[tc.slot] = legacy()
+			}
+		}
+		bag.Items = append(bag.Items, legacy())
+		chest.Slots[i] = legacy()
+	}
+	g.groundContainers = []GroundContainer{bag}
+	if err := stash.Save(chest); err != nil {
+		t.Fatal(err)
+	}
+	arm := items.CreateItemFromYAML("padded_greaves")
+	w.NPCs = []*character.NPC{{Name: "Merchant", X: 96, Y: 96, RenderCategory: "npc", MerchantStock: []*character.MerchantStockItem{
+		{Item: arm, Quantity: 3}, {Item: arm, Quantity: 3},
+	}}}
+	save := g.buildSave(wm)
+	save.NPCStates[0].Stock = []NPCStockSave{{Name: "Padded Greaves", Quantity: 0}, {Name: "Padded Armguard", Quantity: 1}}
+	data, err := json.Marshal(save)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded GameSave
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	g.stash = nil
+	if err := g.applySave(wm, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	check := func(where string, it items.Item) {
+		t.Helper()
+		want, ok := expected[it.InstanceID]
+		if !ok {
+			t.Fatalf("%s: lost instance identity %d", where, it.InstanceID)
+		}
+		if it.Name != want.Name || it.Type != want.Type || it.ArmorCategory != want.ArmorCategory || it.Count() != want.Count() || it.Attributes["value"] != want.Attributes["value"] {
+			t.Fatalf("%s: restored %+v, want %+v", where, it, want)
+		}
+	}
+	for i, tc := range cases {
+		if g.party.Inventory[i].Attributes["value"] != tc.wantValue {
+			t.Fatalf("%s: authored resale mismatch", tc.key)
+		}
+		check("shared", g.party.Inventory[i])
+		check("ground", g.groundContainers[0].Items[i])
+		check("stash", g.stash.Slots[i])
+		for _, member := range []*character.MMCharacter{g.party.Members[0], g.party.Reserve[0], g.party.Captive[0]} {
+			check(member.Name+" inventory", member.Inventory[i])
+			if tc.oldType == items.ItemArmor {
+				it := member.Equipment[tc.slot]
+				check(member.Name+" equipment", it)
+				if !member.ItemFitsSlot(it, tc.slot) {
+					t.Fatalf("%s no longer fits its slot", tc.key)
+				}
+			}
+		}
+	}
+	if arm.Name != "Padded Armguard" || w.NPCs[0].MerchantStock[0].Quantity != 0 || w.NPCs[0].MerchantStock[1].Quantity != 1 {
+		t.Fatal("rename lost sold-out or duplicate-name merchant stock")
 	}
 }

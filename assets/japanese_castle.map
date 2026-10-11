@@ -13,27 +13,27 @@
 ==========#####=##################================
 ==========#@;@#=#::::::::::::H:::#================  >[npc:chest_golden], [npc:spell_lectern]
 ==========#;;;#=#H@H::::s::::H@::#=====BBBBBB=====  >[npc:chest_iron], [npc:chest_iron]
-==========#;Y;#=#:H::::::::::HHH:#=====B$::@B=====  >[npc:spell_lectern], [tile:vista_live]
+==========#@Y;#=#@H::::::::::HHH:#=====B$::@B=====  >[npc:castle_armor_stand], [npc:castle_armor_stand], [npc:spell_lectern], [tile:vista_live]
 ==========#####=#:HH:::::::::::::#=====B::Y:B=====
-================#::::::::::::HHH:#=====Bem:@B=====  >[npc:chest_golden]
+================#::::::::::::HHH@#=====Bem:@B=====  >[npc:castle_armor_stand], [npc:chest_golden]
 ================########::########=====BBBBBB=====
 =======================,,,,=======================
 ==%%%%%%%%%%=BBBBBBBBB=,,,,=%%%%%%%%%=BBBBBBBBBB==
-==%@:::::H:%=B:::::::B=,,,,=%:@H::::%=B@H:::Hm:B==  >[npc:sword_rack_1], [npc:sword_rack_5], [npc:sword_rack_2]
+==%@:::::H@%=B:::::::B=,,,,=%:@H::::%=B@H:::Hm:B==  >[npc:sword_rack_1], [npc:castle_medicine_cabinet], [npc:sword_rack_5], [npc:sword_rack_2]
 ==%H::H::e:%=BH:HHHH:B=,,,,=%:HH:n::%=B:H::H:::B==
 ==%HHHH:H:H%=B:::::H:B=,,,,=%::::HH:%=B:H::::H:B==
-==%:::::H::%=B:H:::H@B=,,,,=%::::H::%=B:::::HH:B==  >[npc:chest_wooden]
+==%:::::H::%=B@H:::H@B=,,,,=%::::H@:%=B:::::HH@B==  >[npc:castle_armor_stand], [npc:chest_wooden], [npc:castle_medicine_cabinet], [npc:castle_armor_stand]
 ==%%%%@%%%%%=BBBB,BBBB=,,,,=%%%%@%%%%=BBBB@BBBBB==  >[npc:wooden_door], [npc:wooden_door], [npc:wooden_door]
-=,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,=
-=,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,=
+=@,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,@=  >[npc:castle_armor_stand], [npc:castle_armor_stand]
+=@,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,@=  >[npc:castle_armor_stand], [npc:castle_armor_stand]
 ==%%%%@%%%%%=BBBB,BBBB=,,,,=%%%%,%%%%=BBBB@BBBBB==  >[npc:wooden_door], [npc:wooden_door]
-==%@H:a::::%=B::H::HHB=,,,,=%:@H::HH%=B@H::::::B==  >[npc:sword_rack_3], [npc:chest_wooden], [npc:sword_rack_4]
+==%@H:a::::%=B@:H::HHB=,,,,=%:@H::HH%=B@H::::::B==  >[npc:sword_rack_3], [npc:castle_medicine_cabinet], [npc:chest_wooden], [npc:sword_rack_4]
 ==%:H::::H:%=B:nH::::B=,,,,=%:H::m::%=B:H:n:HHHB==
-==%:H::::H:%=BH:H:HH:B=,a,,=%:H:::H:%=B:H:n::H:B==
-==%::::::H:%=BH::::H@B=,,,,=%:::::H:%=B:::::e::B==  >[npc:chest_wooden]
+==%:H::::H:%=BH:H:HH:B=,a,,=%:H:::H:%=B:H:n::H@B==  >[npc:castle_medicine_cabinet]
+==%::::::H@%=BH::::H@B=,,,,=%:::::H@%=B:::::e::B==  >[npc:castle_armor_stand], [npc:chest_wooden], [npc:castle_armor_stand]
 ==%%%%%%%%%%=BBBBBBBBB=,,,,=%%%%%%%%%=BBBBBBBBBB==
 =======================#..#=======================
-=======================#..#=======================
+==@====================#..#====================@==  >[npc:spell_lectern_cleric], [npc:spell_lectern_cleric]
 =................................................=
 =................................................=
 =..;aa;;L;;;;;.....................L;;;;e;;;;aL..=

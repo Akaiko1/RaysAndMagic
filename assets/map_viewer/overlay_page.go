@@ -23,6 +23,7 @@ const pageOverlay = 9
 type overlayPage struct {
 	catalogs                  map[string][]string
 	questDefs                 map[string]*quests.QuestDefinition
+	questProps                map[string]map[[2]int][]editorQuestProp
 	pendingNPC, pendingPicker string
 	choicePath                []int
 	documents                 map[string]*overlayDocument
@@ -734,9 +735,10 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 	m.Config = &mc
 	m.Data = d.state.Data
 	l := v.overlayLayout(d)
-	drawMapPanel(screen, m, l, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
+	v.drawMapPanel(screen, m, l)
 	drawFilledRect(screen, l.mapAreaX+2, l.mapAreaY+2, l.mapAreaW-4, 36, color.RGBA{20, 20, 35, 255})
 	game.DrawShadedText(screen, clipText(mc.Name, 224), l.mapAreaX+12, l.mapAreaY+12, overlayText)
+	v.drawQuestPropLegend(screen, m.Key, l.mapAreaX+12, l.mapAreaY+26, l.mapAreaW-24)
 	viewport := overlayMapViewport(l)
 	clip := screen.SubImage(image.Rect(viewport.x, viewport.y, viewport.x+viewport.w, viewport.y+viewport.h)).(*ebiten.Image)
 	drawBox := func(r [4]int, c color.RGBA, selected bool) {
@@ -817,6 +819,7 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 	if p.anchorSet {
 		drawBox([4]int{p.anchor[0], p.anchor[1], p.anchor[0], p.anchor[1]}, overlayAccent, true)
 	}
+	v.drawQuestPropReservations(clip, m, l, false)
 	mx, my := ebiten.CursorPosition()
 	help := "Wheel: zoom map or scroll panels. Right-drag: pan. Ctrl+S: save. Ctrl+Z: undo."
 	for _, w := range v.overlayWidgets(d) {
@@ -871,6 +874,9 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 	}
 	if tile, ok := overlayTileAt(l, mx, my); ok {
 		game.DrawPlainText(screen, fmt.Sprintf("Tile %d, %d", tile[0], tile[1]), g.mapArea.x, g.height-82)
+		if lines := v.questPropHoverLines(m.Key, tile[0], tile[1]); len(lines) > 0 && !p.dragging && p.modal == nil {
+			drawTooltipBox(screen, append([]string{fmt.Sprintf("Tile %d, %d", tile[0], tile[1])}, lines...), mx, my)
+		}
 	}
 	for i, line := range wrapTooltipLines(help, game.ShadedTextColumns(g.width-30)) {
 		if i >= 2 {

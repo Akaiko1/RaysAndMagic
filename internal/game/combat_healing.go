@@ -84,7 +84,10 @@ type healRankKey struct {
 }
 
 func healRank(def spells.SpellDefinition, id spells.SpellID) healRankKey {
-	return healRankKey{party: def.HealParty, amount: def.HealAmount, cost: def.SpellPointsCost, id: string(id)}
+	// Shared Life evens the pool out instead of healing everyone, so it ranks by
+	// its amount like a single-target heal rather than as a party heal.
+	party := def.HealParty && (def.Mechanic == nil || def.Mechanic.Kind != "shared_life")
+	return healRankKey{party: party, amount: def.HealAmount, cost: def.SpellPointsCost, id: string(id)}
 }
 
 func (k healRankKey) beats(other healRankKey) bool {
@@ -157,6 +160,9 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 	req := spellCastRequest{ID: spellID, Definition: def, Caster: caster,
 		Cost: cs.effectiveSpellCost(caster, def.SpellPointsCost), PlayerInitiated: true}
 	outcome := cs.executeSpellCast(req, func() spellCastOutcome {
+		if def.Mechanic != nil {
+			return cs.applySpellEffect(spellID, def, caster, true)
+		}
 		_, _, healAmount := cs.CalculateSpellHealing(spellID, caster)
 
 		// Party heal: restore everyone, ignore the single target.

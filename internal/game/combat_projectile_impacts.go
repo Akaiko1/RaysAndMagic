@@ -256,6 +256,7 @@ func (cs *CombatSystem) applyMonsterProjectileDamageAoE(src *monsterPkg.Monster3
 }
 
 func (cs *CombatSystem) forEachDamageablePartyMember(fn func(idx int, member *character.MMCharacter)) {
+	defer cs.partyDamageEvent()()
 	for idx, member := range cs.game.party.Members {
 		if member == nil || member.HitPoints <= 0 {
 			continue
@@ -348,7 +349,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		spellID := spells.SpellID(mp.SpellType)
 		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
 		weaponName = spellDef.Name
-		damageTypeStr = normalizeDamageTypeStr(spellDef.School)
+		damageTypeStr = advancedSpellDamageSchool(spellDef)
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
 		isBindSpell = spellDef.BindUndead
 		bindSeconds = spellDef.BindDurationSeconds
@@ -412,6 +413,16 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.burstSpellShot(spellShot, monster.X, monster.Y, monster)
 		return
 	}
+	// A spent fragment is still stopped by the body, but cannot deal more
+	// damage or trigger any riders after this cast's per-target hit limit.
+	var budget *spellVolleyHitBudget
+	if spellShot != nil {
+		budget = spellShot.HitBudget
+	}
+	if budget != nil && budget.hits[monster] >= budget.limit {
+		cs.game.collisionSystem.UnregisterEntity(entityID)
+		return
+	}
 
 	// Resolve the attacker the projectile was fired by (stamped at spawn) -
 	// selection may have auto-advanced (or the roster swapped) while it flew.
@@ -446,6 +457,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		trueDmg = ar.TrueDamage
 		attack = cs.newPartyWeaponAttack(damage, trueDmg, damageTypeStr, weaponDef, weaponName, true, isCrit, ar.CritChance)
 		attack.Attacker = attacker
+		attack.addPersonalSpellPayload(ar.FireAuraPercent, ar.FireAuraSchool, ar.VampiricPct)
 		attack.IgnoreDodge = ar.IgnoresDodge
 	} else {
 		trueDmg = spellShot.TrueDamage
@@ -460,7 +472,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	if cs.monsterPerfectDodges(monster, attack.IgnoreDodge) {
 		cs.breakPacifyOnHit(monster)
 		if trueDmg > 0 {
-			cs.applyTrueDamageThroughDodge(monster, attack.Packet, attacker, attackerName, weaponDef)
+			if budget != nil {
+				budget.hits[monster]++
+			}
+			cs.applyTrueDamageThroughDodge(monster, attack, attacker, attackerName, weaponDef)
 		} else {
 			cs.game.logCombat(logToneNone, "%s dodges the %s!", logMonsterName(monster), logSchoolWord(damageTypeStr, weaponName))
 		}
@@ -525,15 +540,24 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	if arrow, ok := projectile.(*Arrow); !ok || !arrow.Continuation {
 		attack = cs.consumeDodgeCharge(attack)
 	}
+	if budget != nil {
+		budget.hits[monster]++
+	}
 	hit := cs.applyPartyMonsterAttack(monster, attack)
 	actualDamage, isCrit := hit.Total(), hit.Critical
 	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, hit.SourceNormal)
 	cs.markMonsterHit(monster)
-	cs.game.logCombat(logToneGood, "%s%s hit %s for %s %s damage! %s", logCrit(isCrit), logSchoolWord(damageTypeStr, weaponName),
-		logMonsterName(monster), logDamage(actualDamage, damageTypeStr), logSchoolWord(damageTypeStr, damageTypeStr),
-		logHP(monster.HitPoints, monster.MaxHitPoints))
+	cs.game.reportDamage(logToneGood, damageLog{
+		Source:   logSchoolWord(damageTypeStr, weaponName),
+		Target:   monsterLogTarget(monster),
+		Amount:   actualDamage,
+		School:   damageTypeStr,
+		Critical: isCrit,
+		Kind:     damageLogProjectile,
+	})
 	shot, _ := projectile.(*Arrow)
 	executed := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, shot, func() {
+		cs.applyAdvancedSpellImpact(spellShot, monster)
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
 			cs.applyStun(monster, stunSeconds, stunTurns, true) // announces stun/resist itself
@@ -566,7 +590,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 // direct hit and every blast of the shot share it.
 func (cs *CombatSystem) spellProjectileAttack(mp *MagicProjectile) partyMonsterAttack {
 	def, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
-	school := normalizeDamageTypeStr(def.School)
+	school := advancedSpellDamageSchool(def)
 	parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}, school)
 	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(mp.Attacker, mp.SpellType), nil, def.Name, false, true, false)
 	attack.Critical = mp.Crit
@@ -606,7 +630,13 @@ func (cs *CombatSystem) applyPartySplashFrom(x, y float64, attack partyMonsterAt
 		cs.markMonsterHit(m)
 		primarySchool := attack.Packet.primarySchool()
 		cs.spawnMonsterHitBurst(m, primarySchool)
-		cs.game.logCombat(logToneGood, "%s splashes %s for %s damage.", logSchoolWord(primarySchool, attack.WeaponName), logMonsterName(m), logDamage(actual, primarySchool))
+		cs.game.reportDamage(logToneGood, damageLog{
+			Source: logSchoolWord(primarySchool, attack.WeaponName),
+			Target: monsterLogTarget(m),
+			Amount: actual,
+			School: primarySchool,
+			Kind:   damageLogSplash,
+		})
 		if !m.IsAlive() {
 			cs.finishWeaponKill(m, attack.WeaponDef, attack.Attacker)
 		}

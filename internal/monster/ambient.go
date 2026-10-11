@@ -37,6 +37,9 @@ func (m *Monster3D) CanAttackActor(target *Monster3D) bool {
 	if m.Bound {
 		return !target.IsPartyControlled() && !target.IsCaravan() && !target.IsInertSetPiece()
 	}
+	if m.BerserkFramesRemaining > 0 {
+		return !target.IsInertSetPiece()
+	}
 	if m.IsCaravan() {
 		return false
 	}

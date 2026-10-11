@@ -58,6 +58,9 @@ func (g *MMGame) effectEnabled(a *config.AdventureConfig, v *AdventureVisit, e c
 	}
 	return true
 }
+
+// damageEnvironment resolves both schools before reporting one combined hit
+// per member. Zero-damage ticks stay silent; the first school colors the total.
 func (g *MMGame) damageEnvironment(e config.EnvironmentEffect, ticks int) {
 	if g.combat == nil || ticks <= 0 {
 		return
@@ -73,7 +76,12 @@ func (g *MMGame) damageEnvironment(e config.EnvironmentEffect, ticks int) {
 			dealt += g.combat.damagePartyMemberElement(i, c, second*ticks, e.SecondarySchool, false)
 		}
 		if dealt > 0 {
-			g.logCombat(logToneBad, "%s hits %s for %d.", e.Name, logHeroName(c), dealt)
+			g.reportDamage(logToneBad, damageLog{
+				Source: logSchoolWord(e.School, e.Name),
+				Target: heroLogTarget(c),
+				Amount: dealt,
+				School: e.School,
+			})
 		}
 	})
 }

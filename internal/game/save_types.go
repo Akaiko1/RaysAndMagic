@@ -98,6 +98,7 @@ type GameSave struct {
 	CelestialBuffSpellID   string                     `json:"celestial_buff_spell_id,omitempty"`
 	TimedBuffSourceVersion int                        `json:"timed_buff_source_version,omitempty"`
 	PersistentDamageZones  []PersistentDamageZoneSave `json:"steam_zones,omitempty"`
+	FrozenWater            []FrozenWaterTile          `json:"frozen_water,omitempty"`
 	Traps                  []TrapSave                 `json:"traps,omitempty"`
 	WaterBreathingActive   bool                       `json:"water_breathing_active,omitempty"`
 	WaterBreathingDuration int                        `json:"water_breathing_duration,omitempty"`
@@ -142,6 +143,7 @@ type CharacterSave struct {
 	AdventureXP        map[string]character.AdventureExperience `json:"adventure_xp,omitempty"`
 	Inventory          []items.Item                             `json:"inventory,omitempty"`
 	RareClass          character.RareClassState                 `json:"rare_class,omitempty"`
+	SpellState         character.SpellState                     `json:"spell_state,omitempty"`
 	AutoDrinkCooldown  int                                      `json:"auto_drink_cooldown,omitempty"`
 	DesignatedTargetID string                                   `json:"designated_target_id,omitempty"`
 	DesignationFrames  int                                      `json:"designation_frames,omitempty"`
@@ -298,13 +300,17 @@ type MonsterSave struct {
 	// Pure party summons can replace their YAML stats at runtime from the
 	// summoner's mastery. Keep the snapshot optional so ordinary monsters still
 	// pick up current balance values from monsters.yaml after a load.
-	RuntimeStats            *MonsterRuntimeStatsSave `json:"runtime_stats,omitempty"`
-	Bound                   bool                     `json:"bound,omitempty"`
-	BoundFramesRemaining    int                      `json:"bound_frames_remaining,omitempty"`
-	Pacified                bool                     `json:"pacified,omitempty"`
-	PacifiedFramesRemaining int                      `json:"pacified_frames_remaining,omitempty"`
-	CharmedByParty          bool                     `json:"charmed_by_party,omitempty"`
-	WasAttacked             bool                     `json:"was_attacked,omitempty"`
+	RuntimeStats                   *MonsterRuntimeStatsSave `json:"runtime_stats,omitempty"`
+	Bound                          bool                     `json:"bound,omitempty"`
+	BoundFramesRemaining           int                      `json:"bound_frames_remaining,omitempty"`
+	FearFramesRemaining            int                      `json:"fear_frames_remaining,omitempty"`
+	SilenceImmunityFramesRemaining int                      `json:"silence_immunity_frames_remaining,omitempty"`
+	SilenceFramesRemaining         int                      `json:"silence_frames_remaining,omitempty"`
+	BerserkFramesRemaining         int                      `json:"berserk_frames_remaining,omitempty"`
+	Pacified                       bool                     `json:"pacified,omitempty"`
+	PacifiedFramesRemaining        int                      `json:"pacified_frames_remaining,omitempty"`
+	CharmedByParty                 bool                     `json:"charmed_by_party,omitempty"`
+	WasAttacked                    bool                     `json:"was_attacked,omitempty"`
 	// Aggro distinguishes active pursuit from permanent provocation. Nil means
 	// a legacy save whose old flags must be reconciled against the current scope.
 	Aggro                 *MonsterAggroSave `json:"aggro,omitempty"`

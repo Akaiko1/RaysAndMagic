@@ -207,6 +207,7 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 	// stale (zero) values until some unrelated change happened to recompute them.
 	outgoing.BuffBonuses = character.StatBonuses{}
 	outgoing.BonusMaxHP = 0
+	outgoing.BonusWeaponBaseDamage = 0
 	outgoing.BonusRegenPct = 0
 	outgoing.BuffHPRegenPct, outgoing.BuffManaRegenPct = 0, 0
 	outgoing.RecalculateMaxStatsKeepingCurrent(g.config)

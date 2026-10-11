@@ -79,6 +79,28 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
 		discard()
 	}
 	mat := floor(custom.w)
+    if mat == 15.0 {
+        // Destroy Undead: descending solar lightning, then heated gold ash
+        // travelling upward from the cast contact. Coordinates remain local
+        // to the world plane and ordinary wall-depth clipping still applies.
+        t:=custom.x
+        n:=campNoise(vec3(p.x*3,p.y*2-Time*.6,1.7))
+        front:=1-smoothstep(.02,.20,t)
+        extent:=smoothstep(front-.05,front+.06,p.y)
+        axis:=sin(p.y*19+Time*5)*.035+(n-.5)*.10
+        core:=exp(-abs(p.x-axis)*85)
+        glow:=exp(-abs(p.x-axis)*12)
+        forks:=exp(-abs(abs(p.x)-(.07+.18*pow(max(0,sin(p.y*11-Time*3)),3)))*80)
+        beam:=(core+glow*.36+forks*.20)*extent*(1-smoothstep(.20,.52,t))
+        dust:=vec2(p.x*18,p.y*26-Time*4)
+        cell:=floor(dust)
+        seed:=fract(sin(dot(cell,vec2(127.1,311.7)))*43758.5453)
+        ash:=exp(-length(fract(dust)-vec2(seed,.5))*19)*step(.76,seed)
+        ash*=exp(-abs(p.x)*4)*smoothstep(.12,.3,t)*(1-smoothstep(.70,1,p.y))
+        a:=clamp(beam+ash*.9,0,1)*color.a
+        rgb:=mix(vec3(1,.37,.015),vec3(1,.97,.78),clamp(core+ash,0,1))
+        return vec4(rgb*a,a)
+    }
     if mat == 10.0 {
         scale := color.a
         entry := vec3(p,custom.x/q)/scale
@@ -132,6 +154,23 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
     } else if mat == 12.0 {
         // Warm interior light behind the opaque window leadwork.
         rgb = color.rgb*(.77+fxNoise(p*28.0)*.18)
+    } else if mat == 13.0 {
+        // Dense blue ice, pale facet edges and trapped vertical fractures.
+        // Texture coordinates belong to the face and never swim with the camera.
+        n:=fxNoise(p*7.0)
+        seam:=pow(max(0,1.0-abs(sin(p.x*41.0+p.y*9.0+n*2.0))),18.0)
+        strata:=pow(max(0,sin(p.y*60.0+n*4.0)),22.0)
+        rgb=color.rgb*(.42+shade*.64)+vec3(.28,.37,.43)*(spec*1.4+seam*.34+strata*.11)
+        a*=.83+seam*.17
+    } else if mat == 14.0 {
+        // Frost crystallizes across a square tile; fine branches break the
+        // surface without inventing a circular footprint over adjacent tiles.
+        q:=p+vec2(fxNoise(p*5.0),fxNoise(p*5.0+7.0))*.045
+        vein:=pow(max(0,1.0-abs(sin(q.x*43.0+q.y*17.0))),18.0)
+        cross:=pow(max(0,1.0-abs(sin(q.x*19.0-q.y*38.0))),20.0)
+        edge:=1.0-smoothstep(.44,.50,max(abs(p.x),abs(p.y)))
+        rgb=mix(vec3(.19,.44,.62),vec3(.68,.91,1),max(vein,cross*.65))
+        a*=edge*(.55+max(vein,cross)*.40)
     }
     return vec4(rgb*a, a)
 }

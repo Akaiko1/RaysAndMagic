@@ -1006,6 +1006,125 @@ boss_loot:
 # Traps: trap_damage blasts every hero (element from trap_damage_types),
 # trap_ignite burns them; Disarm Trap avoids either at 40/60/80/100%.
 crates:
+  forest_hollow_stump:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: dawnleaf, weight: 40}
+      - {pool: item, item: mooncap, weight: 40}
+      - {pool: item, item: fairy_dust, weight: 20}
+
+  forest_hunters_bag:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: health_potion, weight: 40, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 40, quantity_min: 1, quantity_max: 5}
+      - {pool: gold, amount: 120, weight: 20}
+
+  highlands_traveler_cairn:
+    rolls: 1
+    roll_sources:
+      - {pool: loot_table, loot_table: outdoor_highlands_gear, weight: 40}
+      - {pool: item, item: health_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+      - {pool: gold, amount: 250, weight: 10}
+
+  cliffs_shed_scales:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: black_dragon_scale, weight: 25}
+      - {pool: item, item: red_dragon_scale, weight: 25}
+      - {pool: item, item: green_dragon_scale, weight: 25}
+      - {pool: item, item: gold_dragon_scale, weight: 25}
+
+  cliffs_scorched_pack:
+    rolls: 1
+    roll_sources:
+      - {pool: loot_table, loot_table: outdoor_cliffs_gear, weight: 50}
+      - {pool: item, item: health_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+
+  desert_buried_saddlebags:
+    rolls: 1
+    roll_sources:
+      - {pool: gold, amount: 220, weight: 40}
+      - {pool: item, item: mirage_salt, weight: 30}
+      - {pool: item, item: health_potion, weight: 15, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 15, quantity_min: 1, quantity_max: 5}
+
+  jungle_pitcher_plant:
+    rolls: 1
+    roll_sources:
+      - {pool: loot_table, loot_table: outdoor_jungle_gear, weight: 30}
+      - {pool: item, item: bitterroot, weight: 35}
+      - {pool: item, item: solstice_rain_pearl, weight: 35}
+
+  jungle_silk_cocoon:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: spider_silk, weight: 60}
+      - {pool: loot_table, loot_table: outdoor_jungle_gear, weight: 40}
+
+  approach_resin_growth:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: solstice_sun_resin, weight: 77}
+      - {pool: item, item: raw_amber, weight: 20}
+      - {pool: item, item: amber_talisman, weight: 3}
+
+  approach_calendar_disc:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: solstice_calendar_jade, weight: 97}
+      - {pool: item, item: ancient_calendar, weight: 3}
+
+  castle_medicine_cabinet:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: health_potion, weight: 30, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: mana_potion, weight: 25, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: antivenom, weight: 22, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: sake_flask, weight: 20, quantity_min: 1, quantity_max: 5}
+      - {pool: item, item: personal_medical_kit, weight: 3}
+
+  castle_armor_stand:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: o_yoroi, weight: 24}
+      - {pool: item, item: kabuto, weight: 24}
+      - {pool: item, item: silk_hakama, weight: 24}
+      - {pool: item, item: haori_cloak, weight: 24}
+      - {pool: item, item: scarlet_crane_do, weight: 1}
+      - {pool: item, item: night_heron_do, weight: 1}
+      - {pool: item, item: jade_tortoise_do, weight: 1}
+      - {pool: item, item: white_fox_do, weight: 1}
+
+  sakura_offering_bundle:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: sake_flask, weight: 48.5, quantity_min: 1, quantity_max: 5}
+      - {pool: gold, amount: 350, weight: 48.5}
+      - {pool: equipment_slot, equip_slot: ring, weight: 3}
+
+  sakura_collectible_leaves:
+    rolls: 1
+    roll_sources:
+      - {pool: item, item: sakura_leaf, weight: 97}
+      - {pool: item, item: spider_lily_obi, weight: 3}
+
+  highlands_mist_collector:
+    buff:
+      name: "Highland Mist"
+      status_icon: highland_mist
+      duration_seconds: 900
+      mana_regen_pct: 5
+
+  desert_solar_condenser:
+    buff:
+      name: "Desert Renewal"
+      status_icon: desert_renewal
+      duration_seconds: 600
+      hp_regen_pct: 5
+
   solstice_fire_cache:
     interaction_sound: "chest_open"
     loot_table: "solstice_fire_archive"
@@ -1196,6 +1315,35 @@ crates:
 # Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
 loot_tables:
+  outdoor_highlands_gear:
+    rolls: 1
+    entries:
+      - {type: weapon, key: steel_axe, weight: 1}
+      - {type: weapon, key: battle_staff, weight: 1}
+      - {type: weapon, key: long_bow, weight: 1}
+      - {type: item, key: belt_of_strength, weight: 1}
+      - {type: item, key: belt_of_speed, weight: 1}
+
+  outdoor_cliffs_gear:
+    rolls: 1
+    entries:
+      - {type: weapon, key: silver_sword, weight: 1}
+      - {type: weapon, key: gold_sword, weight: 1}
+      - {type: weapon, key: elven_bow, weight: 1}
+      - {type: weapon, key: archmage_staff, weight: 1}
+
+  outdoor_jungle_gear:
+    rolls: 1
+    entries:
+      - {type: weapon, key: jungle_machete, weight: 1}
+      - {type: weapon, key: obsidian_spear, weight: 1}
+      - {type: weapon, key: bone_warclub, weight: 1}
+      - {type: weapon, key: blowgun, weight: 1}
+      - {type: item, key: vinewoven_cloak, weight: 1}
+      - {type: item, key: jaguar_pelt_jerkin, weight: 1}
+      - {type: item, key: feathered_headdress, weight: 1}
+      - {type: item, key: serpent_idol_amulet, weight: 1}
+
   solstice_fire_signature:
     rolls: 1
     entries: [{"type": "weapon", "key": "solstice_thermal_lance", "weight": 1}, {"type": "item", "key": "solstice_heatshield_mantle", "weight": 1}, {"type": "item", "key": "solstice_ember_regulator_ring", "weight": 1}]

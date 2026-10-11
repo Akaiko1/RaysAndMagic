@@ -207,6 +207,25 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 				hit(e, m)
 			}
 		}, cadence(slowTurns)},
+		{"spell_once_expires", func(e env, m *monster.Monster3D, turn int) {
+			if turn != 1 {
+				return
+			}
+			d, err := spells.GetSpellDefinitionByID("slow")
+			if err != nil {
+				e.t.Fatal(err)
+			}
+			mechanic := *d.Mechanic
+			mechanic.DurationByMastery = []int{9, 9, 9, 9}
+			mechanic.RadiusTiles = 9 // Include the distant pursuit fixture.
+			d.Mechanic = &mechanic
+			if !e.g.combat.castResolvedSpell(d.ID, d, e.g.party.Members[0], 0, false, false) {
+				e.t.Fatal("Slow cast did not reach the scheduler fixture")
+			}
+			if m.SlowTurnsRemaining != 3 {
+				e.t.Fatal("Slow cast did not apply the authored duration")
+			}
+		}, cadence(3)},
 		{"save_before_skip", func(e env, m *monster.Monster3D, turn int) {
 			hit(e, m)
 			if turn == every {

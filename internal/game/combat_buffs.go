@@ -32,14 +32,28 @@ type TimedCombatBuff struct {
 	ResistSchool    string
 	ResistSchoolPct int
 	// ArmorBonus: flat party AC while active (stoneskin draught).
-	ArmorBonus   int
-	DodgePct     int
-	HPRegenPct   int
-	ManaRegenPct int
+	ArmorBonus    int
+	DodgePct      int
+	HPRegenPct    int
+	ManaRegenPct  int
+	Charges       int
+	Absorb        int
+	RangedWardPct int
+	ReflectionPct int
 }
 
 func (b TimedCombatBuff) buffSpellID() string  { return b.SpellID }
 func (b TimedCombatBuff) buffSourceID() string { return b.SourceID }
+
+func (b TimedCombatBuff) active() bool { return b.Frames > 0 || b.Charges > 0 || b.Absorb > 0 }
+
+// Negative HUD duration means budget-limited rather than time-limited.
+func (b TimedCombatBuff) statusDuration() int {
+	if b.Frames == 0 && (b.Charges > 0 || b.Absorb > 0) {
+		return -1
+	}
+	return b.Frames
+}
 
 // timedCombatBuffFromItem is the one item-definition -> runtime mapping for
 // timed draughts. Consumption and save restore must not copy this field list.
@@ -201,6 +215,8 @@ type CombatBuffSave struct {
 	// ResistSchool and ArmorBonus remain for migration of older draught saves.
 	ResistSchool string `json:"resist_school,omitempty"`
 	ArmorBonus   int    `json:"armor_bonus,omitempty"`
+	Charges      int    `json:"charges,omitempty"`
+	Absorb       int    `json:"absorb,omitempty"`
 }
 
 // buildCombatBuffSaves serializes the active buff list for saving.
@@ -211,6 +227,7 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 	out := make([]CombatBuffSave, len(buffs))
 	for i, b := range buffs {
 		out[i] = CombatBuffSave{
+			Charges: b.Charges, Absorb: b.Absorb,
 			SpellID:     b.SpellID,
 			CombatClock: b.CombatClock, TechniqueTier: b.TechniqueTier, DeferFirstTurnTick: b.DeferFirstTurnTick,
 			SourceID:        b.SourceID,
@@ -269,6 +286,7 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 	out := make([]TimedCombatBuff, len(saves))
 	for i, s := range saves {
 		b := TimedCombatBuff{
+			Charges: max(0, s.Charges), Absorb: max(0, s.Absorb),
 			SpellID:     s.SpellID,
 			CombatClock: s.CombatClock, TechniqueTier: s.TechniqueTier, DeferFirstTurnTick: s.DeferFirstTurnTick,
 			SourceID:        s.SourceID,
@@ -282,15 +300,13 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 		}
 		if d := config.Technique(s.SpellID); d != nil && (s.SpellID == "phase_veil" || s.SpellID == "quickening") {
 			b.CombatClock = true
-			if s.SpellID == "phase_veil" {
-				b.DodgePct = config.TierValue(d.Power, s.TechniqueTier)
-			} else {
-				b.RecoveryPct = config.TierValue(d.Power, s.TechniqueTier)
-				b.ExtraActions = config.TierValue(d.TBPower, s.TechniqueTier)
-			}
+			applyTechniqueBuff(&b, d, s.TechniqueTier)
 		}
 		// Static source data is re-derived so a YAML rebalance reaches old saves.
 		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(s.SpellID)); err == nil {
+			if def.Mechanic != nil {
+				restoreAdvancedBuff(&b, def)
+			}
 			b.OutDamageType = def.OutgoingDamageType
 			b.ResistSchool = def.ResistBuffSchool
 		} else if def, key, ok := savedCombatBuffItem(s); ok {
@@ -305,6 +321,9 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 				b.HPRegenPct = itemBuff.HPRegenPct
 				b.ManaRegenPct = itemBuff.ManaRegenPct
 			}
+		}
+		if def := config.CrateBuff(s.SpellID); def != nil {
+			applyCrateBuff(&b, def)
 		}
 		out[i] = b
 	}
@@ -346,14 +365,32 @@ func (g *MMGame) tickCombatBuffsTurn(frames int) {
 func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
 	var expired bool
 	g.combatBuffs, expired = tickBuffList(g, g.combatBuffs, elapsed, func(b *TimedCombatBuff, frames int) int {
+		if b.Frames == 0 {
+			return b.statusDuration()
+		}
 		if round && b.DeferFirstTurnTick {
 			b.DeferFirstTurnTick = false
 		} else {
 			b.Frames = g.remainingBuffFrames(b.SourceID, b.Frames, frames)
 		}
-		return b.Frames
+		if b.Frames == 0 {
+			b.Charges, b.Absorb = 0, 0
+		}
+		return b.statusDuration()
 	})
 	if expired {
 		g.applyPartyRegenBuffs()
 	}
+}
+
+func applyTechniqueBuff(b *TimedCombatBuff, d *config.TechniqueDefinition, tier int) {
+	if d.Key == "phase_veil" {
+		b.DodgePct = config.TierValue(d.Power, tier)
+	} else {
+		b.RecoveryPct, b.ExtraActions = config.TierValue(d.Power, tier), config.TierValue(d.TBPower, tier)
+	}
+}
+func applyCrateBuff(b *TimedCombatBuff, d *config.CrateBuffConfig) {
+	b.Frames = max(0, min(b.Frames, d.DurationSeconds*config.GetTargetTPS()))
+	b.HPRegenPct, b.ManaRegenPct = d.HPRegenPct, d.ManaRegenPct
 }

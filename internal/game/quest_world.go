@@ -505,7 +505,9 @@ func (g *MMGame) spawnQuestCompletionMonsters(arrival bool) {
 // world manager exists (minimal test setups).
 func (g *MMGame) worldByKey(mapKey string) *world.World3D {
 	if wm := world.GlobalWorldManager; wm != nil {
-		return wm.WorldByKey(mapKey)
+		w := wm.WorldByKey(mapKey)
+		g.bindFrozenWater(w) // arrival checks on another world must see its ice
+		return w
 	}
 	return g.world
 }

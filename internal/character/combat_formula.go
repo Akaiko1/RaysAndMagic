@@ -64,10 +64,14 @@ type WeaponBreakdown struct {
 	OrcishFury   int
 }
 
-// WeaponDamageAtNight changes only authored base damage; all additions retain
-// their normal order. Both gameplay and the live tooltip use this calculation.
+// WeaponDamageAtNight changes only base damage (authored plus item/card base
+// bonuses, which a night multiplier scales by design); all
+// additions retain their normal order. Gameplay and the live tooltip share it.
 func WeaponDamageAtNight(def *config.WeaponDefinitionConfig, c *MMCharacter, night bool) WeaponBreakdown {
 	f := WeaponDamageFormula(def)
+	if def != nil && c != nil {
+		f.Base += c.WeaponBaseDamageBonus()
+	}
 	if night && def != nil && def.NightBaseDamageMultiplier > 0 {
 		f.Base *= def.NightBaseDamageMultiplier
 	}
@@ -102,6 +106,10 @@ func SpellDurationAtTier(def spells.SpellDefinition, tier int) DurationBreakdown
 		return DurationBreakdown{}
 	}
 	out := DurationBreakdown{Base: def.Duration, MasteryPct: tier * SpellMasteryDurationBonusPct}
+	if def.Mechanic != nil && def.Mechanic.Kind == "frozen_ground" {
+		// Its mastery ladder controls roots; the authored crossing lifetime is fixed.
+		out.MasteryPct = 0
+	}
 	out.Seconds = out.Base * (100 + out.MasteryPct) / 100
 	return out
 }

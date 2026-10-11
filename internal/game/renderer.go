@@ -74,23 +74,26 @@ type Renderer struct {
 	// floorTextureIndexMap stores base/shore atlas indices and a transition profile.
 	// floorShoreMap stores distance to water at tile vertices. floorTexAtlas is a horizontal
 	// strip of all configured floor material variants.
-	floorShader          *ebiten.Shader
-	floorColorMap        *ebiten.Image
-	floorTextureIndexMap *ebiten.Image
-	floorShoreMap        *ebiten.Image
-	floorTexAtlas        *ebiten.Image
-	floorTexGroups       map[string]floorTextureGroup
-	floorTexCount        int
-	floorTexTileW        int
-	floorTexTileH        int
-	floorTexMaxMip       int    // deepest mip level packed into floorTexAtlas
-	floorTexturesKey     string // biome the floor textures were loaded for (cache key)
-	canopyShadeFactors   []float64
-	canopyShadeW         int
-	canopyShadeH         int
-	canopyViewerShade    float64 // smoothed PURE viewer shade factor (no ambient - see viewerShadeSmoothed)
-	canopyViewerFrame    int64
-	canopyViewerReady    bool
+	floorShader             *ebiten.Shader
+	floorColorMap           *ebiten.Image
+	floorTextureIndexMap    *ebiten.Image
+	floorTextureIndexPixels []byte // Retained for event-driven ice material updates.
+	frozenFloorTiles        [][2]int
+	actorSpell              actorSpellRenderer
+	floorShoreMap           *ebiten.Image
+	floorTexAtlas           *ebiten.Image
+	floorTexGroups          map[string]floorTextureGroup
+	floorTexCount           int
+	floorTexTileW           int
+	floorTexTileH           int
+	floorTexMaxMip          int    // deepest mip level packed into floorTexAtlas
+	floorTexturesKey        string // biome the floor textures were loaded for (cache key)
+	canopyShadeFactors      []float64
+	canopyShadeW            int
+	canopyShadeH            int
+	canopyViewerShade       float64 // smoothed PURE viewer shade factor (no ambient - see viewerShadeSmoothed)
+	canopyViewerFrame       int64
+	canopyViewerReady       bool
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
 	// a 64-float allocation each draw call.
 	floorLightsBuf [maxFloorShaderLights * 4]float32
@@ -4165,6 +4168,7 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	v := monsterStatusVisuals(s.monster, r.game.turnBasedMode && r.game.currentTurn == 1)
 	r.drawMonsterHeadBadges(screen, s, screenY, v)
 	r.drawAdditionalMonsterStatusFX(screen, s, screenY, v)
+	r.drawMonsterSpellVisuals(screen, s, screenY)
 	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
 		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
 	}
@@ -4711,9 +4715,17 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		}
 		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").
 		spellConfigName := magicProjectile.SpellType
-		spellGraphicsConfig, err := r.game.config.GetSpellGraphicsConfig(spellConfigName)
-		if err != nil {
+		spellGraphicsConfig, found := r.game.magicProjectileGraphics(magicProjectile)
+		if !found {
 			continue // Skip rendering if no graphics config
+		}
+		switch spellFxStyleKinds[spellGraphicsConfig.ProjectileFx] {
+		case spellPrismaticRay:
+			r.drawPrismaticTargetRay(screen, magicProjectile, spellGraphicsConfig)
+			continue
+		case spellShrapmetal:
+			r.drawShrapmetalFragment(screen, magicProjectile, spellGraphicsConfig)
+			continue
 		}
 
 		physical := magicProjectile
@@ -4758,6 +4770,14 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		centerX := float64(screenX)
 		centerY := float64(screenY) + float64(projectileSize)/2
 		fxProfile := r.spellFxProfile(spellConfigName, projectileColor)
+		if magicProjectile.VisualFx != "" {
+			fxProfile.style = magicProjectile.VisualFx
+		}
+		if magicProjectile.VisualColor != nil {
+			fxProfile.glowColor = projectileColor
+			fxProfile.trailColor = projectileColor
+			fxProfile.sparkColor = projectileColor
+		}
 		view := r.projectileView(magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY)
 		handX, handY, convergence := r.spellHandOffset(magicProjectile, fxProfile, view, screen.Bounds().Dx(), screen.Bounds().Dy())
 		centerX, centerY = centerX+handX, centerY+handY

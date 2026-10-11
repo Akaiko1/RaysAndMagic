@@ -4,6 +4,8 @@ package main
 var Phase float
 var Style float
 var Viewport vec2
+var Origin vec2
+var Pass float
 
 // Shared cached noise with wrapped bilinear taps at texel centers.
 // R is broad structure; G already contains three scales of detail.
@@ -19,13 +21,19 @@ func veilNoise(p vec2) vec2 {
 	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y)
 }
 
+//include advanced_life.kageinc
+//include advanced_kinetic.kageinc
+//include advanced_wards.kageinc
+//include advanced_cast.kageinc
+
 func Fragment(dst vec4, src vec2, color vec4) vec4 {
-	p := (dst.xy - imageDstOrigin() - Viewport*vec2(.5, .46)) / Viewport.y
+	p := (dst.xy - imageDstOrigin() - Origin - Viewport*vec2(.5, .46)) / Viewport.y
 	t := Phase
 	fade := smoothstep(0, .12, t) * (1 - smoothstep(.66, 1, t))
 	if fade <= 0 {
 		return vec4(0)
 	}
+	if Style >= 2 { return advancedCast(p, t, fade, Style) }
 	if Style < .5 {
 		// Advected folds gather from the edges; independent finer currents tear
 		// the folds into smoke. The central sightline stays partly transparent.
@@ -43,43 +51,46 @@ func Fragment(dst vec4, src vec2, color vec4) vec4 {
 		rgb := vec3(.018, .012, .037) + vec3(.16, .07, .27)*wisp + vec3(.07, .035, .13)*rib
 		return vec4(rgb*a, a)
 	}
-	// Polar advection gives depth to the aperture. Dark core, cyan flow,
-	// broken hot rim and escaping sparks have distinct visual roles.
-	p.x *= 1.40
+	// The aperture is a deep surface, not an outlined badge. Polar advection
+	// accelerates inward; the rim and the distant interior move independently.
+	p.x *= 1.18
 	r := length(p)
 	a := atan2(p.y, p.x)
-	opening := smoothstep(0, .37, t)
-	radius := .055 + .34*opening
-	if r > radius+.17 {
+	opening := smoothstep(.015, .28, t)*(1-smoothstep(.82,1,t))
+	radius := .015 + .34*opening
+	if r > radius+.095 {
 		return vec4(0)
 	}
 	direction := vec2(cos(a), sin(a))
-	n := veilNoise(direction*.22 + vec2(t*.12, -t*.09))
-	warped := r + (n.g-.5)*.024
-	d := abs(warped - radius)
-	core := exp(-d * 310)
-	halo := exp(-d * 48)
-	angle := a + r*15 - t*4.8
-	flowUV := vec2(cos(angle), sin(angle))*(.18+r*.65) + vec2(t*.06, -t*.07)
+	n := veilNoise(direction*.26+vec2(t*.07,-t*.04))
+	warped := r+(n.r-.5)*.018*opening
+	d := warped-radius
+	rim := exp(-pow(d/.028,2))
+	halo := exp(-abs(d)*39)*.35
+	depth := clamp(r/max(.015,radius),0,1)
+	angle := a+depth*4.5-t*2.2
+	flowUV := vec2(cos(angle),sin(angle))*(.08+depth*.45)+vec2(t*.10,-t*.045)
 	f := veilNoise(flowUV)
-	inside := 1 - smoothstep(radius-.014, radius+.005, r)
-	spiral := pow(max(0, sin(a*3+r*27-t*7+f.r*3)), 4)
-	depth := smoothstep(.035, radius, r)
-	filament := pow(max(0, 1-abs(f.g-.54)*8), 3) * depth
-	veil := inside * (.24 + .37*(1-depth))
-	fray := exp(-d*72) * pow(max(0, sin(a*19-t*10+n.r*7+r*48)), 4)
-	light := (core*.94 + halo*.43 + fray*.42) * (.58 + .42*n.r)
-	rgb := inside * (vec3(.009, .022, .064)*veil + vec3(.04, .34, .49)*spiral*depth*.65 + vec3(.10, .62, .72)*filament*.52)
-	rgb += vec3(.27, .69, .78)*halo*.32 + vec3(1, .74, .32)*light
+	inside := 1-smoothstep(-.008,.016,d)
+	spiral := pow(max(0,.5+.5*sin(a*3+depth*12-t*8+f.r*4)),2)
+	stream := spiral*smoothstep(.12,.85,depth)*(.45+.55*f.g)
+	// Dark gaps between broad luminous folds make the throat recede.
+	veil := inside*(.88-.15*depth)
+	light := rim*(.55+.45*n.g)+halo
+	rgb := inside*(vec3(.009,.014,.042)*veil+vec3(.08,.25,.55)*stream*.60)
+	rgb += mix(vec3(.19,.45,.91),vec3(.65,.86,1),n.g)*light*.9
+	// Sparse parallax points are embedded behind the inflowing surface.
+	stars:=pow(max(0,f.r-.68)*3.125,10)*(1-smoothstep(.2,.9,depth))*inside
+	rgb+=vec3(.53,.70,1)*stars*.55
 	// Stable sector identities, never frame-random particles.
 	sector := floor((a + 3.14159265) * 9)
 	seed := fract(sin(sector*127.1+19.3) * 43758.5453)
 	travel := fract(t*.8 + seed)
 	sa := (sector+.25+seed*.5)/9 - 3.14159265 + t*.05
-	sr := radius + .01 + travel*.11
+	sr := radius + .065*(1-travel)
 	sparkDist := length(p - vec2(cos(sa), sin(sa))*sr)
-	spark := exp(-sparkDist*550) * pow(1-travel, 2) * opening
-	rgb += vec3(.9, .70, .35) * spark
-	alpha := clamp(veil+inside*(spiral*.25+filament*.22)+light+halo*.26+spark, 0, 1) * fade
+	spark := exp(-sparkDist*420)*sin(travel*3.14159)*opening
+	rgb += vec3(.63,.81,1)*spark
+	alpha := clamp(veil+light*.80+spark,0,1)*fade
 	return vec4(min(rgb*fade, vec3(alpha)), alpha)
 }

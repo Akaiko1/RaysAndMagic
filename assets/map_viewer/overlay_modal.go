@@ -7,6 +7,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/game"
+	"ugataima/internal/quests"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -265,6 +266,11 @@ func (v *viewer) reloadOverlay(key string) {
 		fail(err)
 		return
 	}
+	questConfig, err := quests.LoadQuestConfig(overlayQuestsPath)
+	if err != nil {
+		fail(err)
+		return
+	}
 	maps, err := loadMaps(v.cfg)
 	if err != nil {
 		fail(err)
@@ -288,6 +294,7 @@ func (v *viewer) reloadOverlay(key string) {
 			fail(fmt.Errorf("Reload failed: %s", next.err))
 			return
 		}
+		v.setEditorQuestDefs(questConfig.Quests)
 		v.maps[v.mapIndex] = m
 		v.overlay.documents[key] = next
 		v.overlaySelect("settings", 0)

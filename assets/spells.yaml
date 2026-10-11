@@ -4,10 +4,9 @@
 # - Projectile physics (speed in tiles/sec, range in tiles)
 # - Visual appearance (colors, sizes, effects)
 #
-# DAMAGE NOTE: offensive spell damage is NOT specified here. It is derived
-# from spell_points_cost as: base = cost x spells.SpellDamagePerSP (default 3).
-# Designer-facing knob is therefore spell_points_cost - to make a spell hit
-# harder, raise its cost. Healing spells use heal_amount explicitly.
+# Damage normally derives its base from SP cost. damage_base overrides only
+# that base, retaining stat/mastery scaling; damage_source reuses a formula.
+# Exact damage_by_mastery ladders deliberately omit stat scaling.
 
 # Add new spells here without needing any code changes!
 
@@ -15,6 +14,501 @@
 # SPELL DEFINITIONS
 # =============================================================================
 spells:
+
+  # Advanced spells: the mechanic block is shared by runtime and effect summaries.
+  fire_aura:
+    name: "Fire Aura"
+    description: "Wreathes a chosen ally's attacks in stored flame."
+    school: fire
+    spell_points_cost: 8
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: fire_aura
+    graphics: {cast_overlay: fire_aura, cast_overlay_weapon: gold_sword, cast_overlay_scale: 0.5, target_cursor: cursor_fire_aura}
+    mechanic:
+      kind: "fire_aura"
+      power_by_mastery: [20, 30, 40, 50]
+      charges_by_mastery: [2, 3, 4, 5]
+      damage_school: "fire"
+      summary: "Enchants one ally's next {charges} weapon attacks with extra Fire damage equal to {power}% of their damage before defenses."
+
+  haste:
+    name: "Haste"
+    description: "Hastens every ally's hands, lending speed to spell and steel."
+    school: fire
+    spell_points_cost: 12
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: haste
+    graphics: {cast_overlay: haste, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "haste"
+      technique: "quickening"
+      autocast: "quickening"
+      summary: "The party recovers faster in real time and gains extra actions in turn-based combat. Does not stack with another haste effect."
+
+  shield:
+    name: "Shield"
+    description: "A wall of moving air blunts arrows and other weapon shots."
+    school: air
+    spell_points_cost: 16
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: shield
+    graphics: {cast_overlay: shield, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "shield"
+      power_by_mastery: [20, 30, 40, 50]
+      duration_by_mastery: [180, 240, 300, 360]
+      summary: "Party takes {power}% less ranged weapon damage for {duration}s; not spells or melee."
+
+  acid_burst:
+    name: "Acid Burst"
+    description: "Corrosive water eats through a foe's defenses."
+    school: water
+    spell_points_cost: 10
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: true
+    is_utility: false
+    status_icon: acid_burst
+    projectile_size: 12
+    physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
+    graphics: {max_size: 48, min_size: 3, base_size: 12, color: [110, 235, 120], projectile_fx: acid_burst}
+    mechanic:
+      kind: "acid_burst"
+      power_by_mastery: [5, 10, 15, 20]
+      duration_by_mastery: [6, 9, 12, 15]
+      damage_school: "water"
+      summary: "Corrodes the struck foe: -{power} armor for {duration}s."
+
+  frozen_ground:
+    name: "Frozen Ground"
+    description: "Ice roots foes ahead and lays a temporary crossing over water."
+    school: water
+    spell_points_cost: 14
+    cooldown_seconds: 2
+    duration: 180
+    is_projectile: false
+    is_utility: true
+    status_icon: frozen_ground
+    graphics: {world_fx: glacier}
+    mechanic:
+      kind: "frozen_ground"
+      duration_by_mastery: [6, 9, 12, 15]
+      radius_tiles: &forward_spell_range 7
+      cone_degrees: &forward_spell_cone 60
+      summary: "Roots foes in a {cone}-degree forward cone of {radius} tiles for {duration}s. Water in the cone remains frozen for {spell_duration}s."
+
+  vvoid_beacon:
+    name: "Vvoid's Beacon"
+    description: "Sets a remembered waypoint or returns the party to one."
+    school: water
+    spell_points_cost: 20
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: vvoid_beacon
+    graphics: {cast_overlay: town_portal, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "vvoid_beacon"
+      charges_by_mastery: [1, 2, 3, 4]
+      summary: "Remember up to {charges} locations and return to them. Dungeon beacons expire when that dungeon resets; blocked destinations cannot be reached."
+
+  slow:
+    name: "Slow"
+    description: "Heavy earth drags at nearby enemies' feet and weapons."
+    school: earth
+    spell_points_cost: 10
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: slow
+    graphics: {world_fx: earth_drag}
+    mechanic:
+      kind: "slow"
+      power_by_mastery: [20, 30, 40, 50]
+      duration_by_mastery: [6, 9, 12, 15]
+      radius_tiles: 7
+      summary: "Enemies within {radius} tiles move and attack {power}% slower in real time for {duration}s."
+
+  fate:
+    name: "Fate"
+    description: "Stores fortunate moments in one ally's next attacks."
+    school: spirit
+    spell_points_cost: 8
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: fate
+    graphics: {cast_overlay: fate, cast_overlay_scale: 0.5, target_cursor: cursor_fate}
+    mechanic:
+      kind: "fate"
+      power_by_mastery: [20, 30, 40, 50]
+      charges_by_mastery: [2, 3, 4, 5]
+      summary: "The next {charges} attacks by one ally gain +{power}% critical chance."
+
+  shared_life:
+    name: "Shared Life"
+    description: "Spreads the living party's strength between its members."
+    school: spirit
+    spell_points_cost: 12
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    heal_amount: 5
+    heal_party: true
+    status_icon: shared_life
+    graphics: {cast_overlay: shared_life, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "shared_life"
+      summary: "Adds healing, then redistributes the party's HP evenly among living allies, up to each one's maximum."
+
+  preservation:
+    name: "Preservation"
+    description: "Keeps the party on the threshold of death without healing its wounds."
+    school: spirit
+    spell_points_cost: 32
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: preservation
+    graphics: {cast_overlay: preservation, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "preservation"
+      charges_by_mastery: [1, 2, 3, 4]
+      summary: "Prevents a party member from dying, leaving them at 1 HP. Shares {charges} charges across the party."
+
+  turn_undead:
+    name: "Turn Undead"
+    description: "Compels the restless dead to flee the party."
+    school: spirit
+    spell_points_cost: 20
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: turn_undead
+    graphics: {world_fx: holy_dread}
+    mechanic:
+      kind: "turn_undead"
+      duration_by_mastery: [6, 9, 12, 15]
+      radius_tiles: 7
+      summary: "Undead within {radius} tiles flee for {duration}s. Taking damage does not break the effect."
+
+  feeblemind:
+    name: "Feeblemind"
+    description: "Silences the hostile magic gathered around the party."
+    school: mind
+    spell_points_cost: 24
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: feeblemind
+    graphics: {world_fx: mind_web}
+    mechanic:
+      kind: "feeblemind"
+      reapply_immunity_seconds: 6
+      duration_by_mastery: [6, 9, 12, 15]
+      radius_tiles: 7
+      summary: "Enemies within {radius} tiles cannot use spells or ranged bolts for {duration}s. Melee remains available."
+
+  berserk:
+    name: "Berserk"
+    description: "Turns a living foe's rage against whatever stands closest."
+    school: mind
+    spell_points_cost: 12
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: berserk
+    graphics: {world_fx: blood_frenzy}
+    mechanic:
+      kind: "berserk"
+      cone_degrees: 60
+      duration_by_mastery: [6, 9, 12, 15]
+      radius_tiles: 7
+      summary: "One living foe within {radius} tiles attacks its nearest target, including the party, for {duration}s."
+
+  mass_fear:
+    name: "Mass Fear"
+    description: "Sends the living fleeing from things only they can see."
+    school: mind
+    spell_points_cost: 24
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: mass_fear
+    graphics: {world_fx: dread_shroud}
+    mechanic:
+      kind: "mass_fear"
+      duration_by_mastery: [6, 9, 12, 15]
+      radius_tiles: 7
+      summary: "Living enemies within {radius} tiles flee for {duration}s. Damage does not break fear; undead are unaffected."
+
+  identify_monster:
+    name: "Identify Monster"
+    description: "Studies the exact strengths and weaknesses of a visible creature."
+    school: mind
+    spell_points_cost: 4
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: identify_monster
+    mechanic:
+      kind: "identify_monster"
+      radius_tiles: 12
+      summary: "Inspect a creature within {radius} tiles: vitality, defenses, attacks and abilities."
+
+  regeneration:
+    name: "Regeneration"
+    description: "Encourages every living ally's wounds to knit themselves closed."
+    school: body
+    spell_points_cost: 24
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: regeneration
+    graphics: {cast_overlay: regeneration}
+    mechanic:
+      kind: "regeneration"
+      power_by_mastery: [2, 2, 2, 3]
+      duration_by_mastery: [180, 240, 300, 360]
+      summary: "Every living ally regenerates {power}% of their maximum HP for {duration}s. Does not revive fallen allies."
+
+  body_purify:
+    name: "Purify"
+    description: "Washes poison, sickness and hostile enchantments from the party."
+    school: body
+    spell_points_cost: 12
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: purify
+    graphics: {cast_overlay: purify, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "purify"
+      technique: "purify"
+      autocast: "purify"
+      summary: "Removes every affliction except death, unconsciousness and eradication, and frees the party from root and slow."
+
+  protection_from_magic:
+    reuse_seconds: 15
+    name: "Protection from Magic"
+    description: "A shared ward turns aside hostile magical casts."
+    school: body
+    spell_points_cost: 32
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: protection_from_magic
+    graphics: {cast_overlay: protection_from_magic, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "protection_from_magic"
+      charges_by_mastery: [1, 2, 3, 4]
+      summary: "Protects all allies from {charges} enemy casts. Multiple hits from one cast spend only one charge."
+
+  flying_fist:
+    name: "Flying Fist"
+    description: "A spectral fist strikes with solid force and drives its target backward."
+    school: body
+    spell_points_cost: 10
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: true
+    is_utility: false
+    status_icon: flying_fist
+    projectile_size: 14
+    physics: {speed_tiles: 12, range_tiles: 7, hitbox: wide}
+    graphics: {max_size: 52, min_size: 4, base_size: 16, color: [100, 240, 140], projectile_fx: flying_fist}
+    mechanic:
+      kind: "flying_fist"
+      power_by_mastery: [1, 1, 1, 1]
+      damage_school: "body"
+      summary: "Deals Body damage and pushes the struck foe back {power} tile if the way is clear."
+
+  dispel_magic:
+    name: "Dispel Magic"
+    description: "Purifies allies and sweeps hostile spell shots from the air."
+    school: light
+    spell_points_cost: 16
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: dispel_magic
+    graphics: {cast_overlay: dispel_magic, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "dispel_magic"
+      technique: "purify"
+      autocast: "dispel_magic"
+      radius_tiles: 7
+      summary: "Cleanses the party's curable afflictions and movement hindrances, and destroys enemy magical projectiles within {radius} tiles."
+
+  destroy_undead:
+    name: "Destroy Undead"
+    description: "Burns an undead creature with concentrated daylight."
+    school: light
+    spell_points_cost: 28
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: destroy_undead
+    graphics: {world_fx: sun_pyre}
+    damage_base: 60
+    mechanic:
+      kind: "destroy_undead"
+      cone_degrees: 60
+      radius_tiles: 7
+      damage_school: "light"
+      instant_kill_chance: 0.25
+      summary: "Has a {instant_kill_chance}% chance to instantly destroy one undead within {radius} tiles; otherwise deals Light damage. Has no effect on living creatures."
+
+  prismatic_light:
+    name: "Prismatic Light"
+    description: "Splits a surge of radiance into a rainbow of target-seeking beams."
+    school: light
+    spell_points_cost: 20
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: prismatic_light
+    graphics:
+      target_flights:
+        projectile: ray_of_light
+        projectile_fx: prismatic_ray
+        duration_seconds: 0.45
+        size_scale: 2.5
+        palette: [[255, 75, 105], [75, 190, 255], [65, 235, 148], [160, 108, 255], [250, 232, 85], [255, 166, 55], [243, 108, 225]]
+    damage_source: ray_of_light
+    damage_divisor: 2
+    mechanic:
+      kind: "prismatic_light"
+      radius_tiles: 7
+      max_targets: 7
+      damage_school: "light"
+      summary: "Damages up to {max_targets} nearby visible enemies within {radius} tiles. Walls block the light."
+
+  celestial_armor:
+    name: "Celestial Armor"
+    description: "A shining barrier holds the party's next wounds at bay."
+    school: light
+    spell_points_cost: 18
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: celestial_armor
+    graphics: {cast_overlay: celestial_armor, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "celestial_armor"
+      power_by_mastery: [40, 65, 90, 120]
+      duration_by_mastery: [12, 15, 18, 24]
+      autocast: "celestial_armor"
+      summary: "Protects the party with a shared barrier that absorbs {power} damage. Lasts {duration}s."
+
+  shrapmetal:
+    name: "Shrapmetal"
+    description: "Scatters jagged metal fragments in a cone ahead."
+    school: dark
+    spell_points_cost: 14
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: true
+    is_utility: false
+    status_icon: shrapmetal
+    projectile_size: 8
+    physics: {speed_tiles: 14, range_tiles: *forward_spell_range, hitbox: standard}
+    graphics: {max_size: 64, min_size: 3, base_size: 24, color: [197, 203, 215], projectile_fx: shrapmetal}
+    damage_base: 12
+    mechanic:
+      kind: "shrapmetal"
+      projectiles_by_mastery: [3, 4, 5, 7]
+      cone_degrees: *forward_spell_cone
+      max_hits_per_target: 3
+      damage_school: "physical"
+      summary: "Fires {projectiles} fragments through a {cone}-degree cone ahead. Each enemy can be hit by up to {max_hits_per_target} fragments."
+
+  vampiric_weapon:
+    name: "Vampiric Weapon"
+    description: "Gives one ally's weapon a hunger that feeds its wielder."
+    school: dark
+    spell_points_cost: 20
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: vampiric_weapon
+    graphics: {cast_overlay: vampiric_weapon, cast_overlay_weapon: silver_sword, cast_overlay_scale: 0.5, target_cursor: cursor_vampiric_weapon}
+    mechanic:
+      kind: "vampiric_weapon"
+      power_by_mastery: [10, 15, 20, 25]
+      duration_by_mastery: [180, 240, 300, 360]
+      summary: "One ally recovers HP equal to {power}% of weapon damage dealt. Lasts {duration}s."
+
+  pain_reflection:
+    name: "Pain Reflection"
+    description: "Binds the party's suffering to those who cause it."
+    school: dark
+    spell_points_cost: 28
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: pain_reflection
+    graphics: {cast_overlay: pain_reflection, cast_overlay_scale: 0.5}
+    mechanic:
+      kind: "pain_reflection"
+      power_by_mastery: [20, 30, 40, 50]
+      duration_by_mastery: [60, 90, 120, 180]
+      summary: "Returns {power}% of damage taken to the attacker for {duration}s. Environmental damage and reflected hits do not trigger it."
+
+  souldrinker:
+    name: "Souldrinker"
+    description: "Drains nearby enemies to nourish the living party."
+    school: dark
+    spell_points_cost: 24
+    cooldown_seconds: 2
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    status_icon: souldrinker
+    graphics:
+      target_flights:
+        projectile: spirit_lash
+        projectile_fx: soul_wisp
+        return_to_party: true
+        size_scale: 1.4
+        palette: [[99, 232, 193], [142, 198, 245], [120, 238, 223]]
+    damage_base: 20
+    mechanic:
+      kind: "souldrinker"
+      power_by_mastery: [25, 30, 40, 50]
+      radius_tiles: 7
+      damage_school: "dark"
+      summary: "Drains visible enemies within {radius} tiles, restoring {power}% of the HP drained to living allies."
+
+
   fireball:
     # Basic spell properties
     name: "Fireball"

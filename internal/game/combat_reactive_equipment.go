@@ -103,6 +103,7 @@ func (g *MMGame) reactiveHitReduction(source *monsterPkg.Monster3D, target *char
 
 // Resolve one landed hit before HP loss, regardless of its attack dispatcher.
 func (cs *CombatSystem) resolveHeroHitDamage(source *monsterPkg.Monster3D, target *character.MMCharacter, amount int) int {
+	amount = cs.game.absorbCelestialDamage(amount)
 	return cs.redirectDamageThroughSacrifice(target, cs.game.reactiveHitReduction(source, target, amount))
 }
 

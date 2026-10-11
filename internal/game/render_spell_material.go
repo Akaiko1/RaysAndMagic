@@ -27,6 +27,11 @@ const (
 	spellPsiLance
 	spellLash
 	spellEye
+	spellAcid
+	spellFlyingFist
+	spellShrapmetal
+	spellSoulWisp
+	spellPrismaticRay
 )
 
 type spellProjection struct {
@@ -46,7 +51,7 @@ func (r *Renderer) drawSpellMaterialProjected(dst *ebiten.Image, x, y, size floa
 	if alpha <= 0 || size <= 0 || crit <= 0 || r.ensureWeaponMaterialShaders() != nil {
 		return
 	}
-	if isFacetedBolt(kind) || kind == spellHarm {
+	if isFacetedBolt(kind) || kind == spellHarm || kind == spellFlyingFist {
 		r.drawLitVolume(dst, x, y, size*math.Sqrt(crit), projection.axis, rgb, alpha, kind, 1)
 		return
 	}

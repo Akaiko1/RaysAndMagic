@@ -27,14 +27,19 @@ func (s SpellID) String() string {
 
 // SpellDefinition represents the complete definition of a spell loaded from YAML
 type SpellDefinition struct {
+	Mechanic              *config.SpellMechanicConfig
 	ID                    SpellID
 	Name                  string
 	Description           string
 	School                string
 	SpellPointsCost       int
 	Category              string
+	ReuseSeconds          int     // Personal lockout, shared across casting entry points.
 	CooldownSeconds       float64 // RT cast cooldown (seconds) at reference Speed; authored per spell (required)
 	DamageByMastery       []int   // exact damage per mastery tier (Novice..GM); wins over the cost formula
+	DamageBase            int
+	DamageSource          string
+	DamageDivisor         int
 	SummonMonster         string  // monster key summoned as a party ally
 	SummonMax             int     // live cap for this spell's summons
 	SummonHPByMastery     []int   // spawned HP per mastery tier (Novice..GM)
@@ -137,6 +142,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}
 
 	return SpellDefinition{
+		Mechanic:                           configDef.Mechanic,
 		ID:                                 spellID,
 		Name:                               configDef.Name,
 		Description:                        configDef.Description,
@@ -144,6 +150,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		SpellPointsCost:                    configDef.SpellPointsCost,
 		Category:                           strings.ToLower(strings.TrimSpace(configDef.Category)),
 		CooldownSeconds:                    configDef.CooldownSeconds,
+		ReuseSeconds:                       configDef.ReuseSeconds,
 		Duration:                           configDef.Duration,
 		DisintegrateChance:                 configDef.DisintegrateChance,
 		AoeRadiusTiles:                     configDef.AoeRadiusTiles,
@@ -180,6 +187,9 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		PartyAoeRadiusTiles:                configDef.PartyAoeRadiusTiles,
 		MapWide:                            configDef.MapWide,
 		DamageByMastery:                    configDef.DamageByMastery,
+		DamageBase:                         configDef.DamageBase,
+		DamageSource:                       configDef.DamageSource,
+		DamageDivisor:                      configDef.DamageDivisor,
 		SummonMonster:                      configDef.SummonMonster,
 		SummonMax:                          configDef.SummonMax,
 		SummonHPByMastery:                  configDef.SummonHPByMastery,
@@ -216,6 +226,20 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}, nil
 }
 
+// DamageType is the hit's element, which can differ from the school learned.
+// Combat and cards use this same authored override.
+func (d SpellDefinition) DamageType() string {
+	school := d.School
+	if d.Mechanic != nil && d.Mechanic.DamageSchool != "" {
+		school = d.Mechanic.DamageSchool
+	}
+	kind, err := damagecalc.ParseType(school)
+	if err != nil {
+		return damagecalc.Physical.String()
+	}
+	return kind.String()
+}
+
 // IsBuff reports whether this is a YAML-authored beneficial timed effect. Buff
 // spells deliberately have no personal real-time cooldown so a party can be
 // prepared without waiting between each cast.
@@ -229,6 +253,9 @@ func (d SpellDefinition) IsBuff() bool {
 // damage zones (Hot Steam) are flagged utility yet are clearly offensive.
 // Heals, revives, buffs and pure utility (vision/movement) all return false.
 func (d SpellDefinition) IsOffensive() bool {
+	if d.Mechanic.IsOffensive() {
+		return true
+	}
 	return d.IsProjectile ||
 		d.AoeRadiusTiles > 0 ||
 		d.StunRadiusTiles > 0 ||
@@ -245,7 +272,13 @@ func (d SpellDefinition) IsOffensive() bool {
 // with the current caster; all views come from effectLines, so wording cannot
 // drift.
 func (d SpellDefinition) CoreEffectLines() []string {
-	return d.effectLines(effectViewCore)
+	return d.CoreEffectLinesForMastery(-1)
+}
+
+// CoreEffectLinesForMastery resolves mechanic magnitudes for one hero; -1
+// preserves the full mastery ladder used by shops and editor catalogs.
+func (d SpellDefinition) CoreEffectLinesForMastery(tier int) []string {
+	return d.effectLinesAtMastery(effectViewCore, tier)
 }
 
 // CardEffectLines keeps base values but omits rows the editor renders separately.
@@ -261,6 +294,11 @@ func (d SpellDefinition) BuffMechanicLines() []string {
 
 type effectView uint8
 
+// TargetsAlly identifies personal enchantments, not party-wide support spells.
+func (d SpellDefinition) TargetsAlly() bool {
+	return d.Mechanic.TargetsAlly()
+}
+
 const (
 	effectViewCore effectView = iota
 	effectViewCard
@@ -268,8 +306,15 @@ const (
 )
 
 func (d SpellDefinition) effectLines(view effectView) []string {
+	return d.effectLinesAtMastery(view, -1)
+}
+
+func (d SpellDefinition) effectLinesAtMastery(view effectView, tier int) []string {
 	includeStructured := view == effectViewCard
 	var out []string
+	if d.Mechanic != nil {
+		out = append(out, d.Mechanic.SummaryText(tier))
+	}
 	// Every authored field states itself here, so the game tooltip, the editor
 	// card and the shop line can never disagree about a new spell.
 	if d.SummonMonster != "" {

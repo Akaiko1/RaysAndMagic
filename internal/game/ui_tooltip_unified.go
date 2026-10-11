@@ -197,6 +197,9 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 	}
 	preview := cs.calculateWeaponDamagePreview(item, char)
 	addDamageTotal(&dmg, "Total Damage", preview.Total, preview.True)
+	if aura, school := personalSpellDamage(char, "fire_aura"); aura > 0 {
+		dmg.AddDetail("%s", uitext.Text("weapon.fire_aura_detail", aura, school.String()))
+	}
 	dmg.Add("%s", damageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
 	if character.WeaponStrikeCount(def) > 1 {
 		dmg.Add("Strikes per attack: %d", character.WeaponStrikeCount(def))
@@ -275,8 +278,12 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 			crit.AddDetail("Flowing Staff: guaranteed critical hit")
 		} else if char != nil {
 			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(item, char)
-			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
+			fate := personalSpellPower(char, "fate")
+			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics + fate
 			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit)}
+			if fate > 0 {
+				parts = append(parts, uitext.Text("weapon.fate_detail", fate))
+			}
 			if luck > 0 {
 				parts = append(parts, fmt.Sprintf("Luck: +%d%%", luck))
 			}
@@ -404,6 +411,9 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		casting.Add("Strong Magic: also burns %d HP (never the last)", burn)
 	}
 	addSpellCooldown(&casting, def.ID, char, cs)
+	if def.ReuseSeconds > 0 {
+		casting.Add("%s", uitext.Text("spell.personal_reuse", def.ReuseSeconds, (def.ReuseSeconds+config.CombatRoundSeconds-1)/config.CombatRoundSeconds))
+	}
 	if def.IsProjectile {
 		if rng, okRng := cs.CalculateSpellRangeTiles(def.ID); okRng {
 			casting.Add("Range: %.0f tiles", rng)
@@ -469,7 +479,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 				// typed by the SPELL's own element (spellDamageParts), so the two
 				// words differ for a dual-school page.
 				dmg.AddDetail("%s Mastery - %s: +%d %s True Damage",
-					formatSchoolName(masterySchool), tierName, masteryBonus, formatSchoolName(def.School))
+					formatSchoolName(masterySchool), tierName, masteryBonus, formatSchoolName(def.DamageType()))
 			default:
 				dmg.AddDetail("%s Mastery - %s: +%d Damage", formatSchoolName(masterySchool), tierName, masteryBonus)
 			}
@@ -484,7 +494,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		addStrongMagicDetail(dmg)
 		// Active party buffs add a flat bonus after crit doubling; Heroism is
 		// physical-only, so spell schools get only all-damage buffs like Hour of Power.
-		total, outBonus := cs.spellPartsWithOutgoingBuff(parts, def.School)
+		total, outBonus := cs.spellPartsWithOutgoingBuff(parts, def.DamageType())
 		if outBonus > 0 {
 			dmg.AddDetail("Active party buff: +%d%s", outBonus, reach)
 		}
@@ -500,13 +510,16 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	}
 
 	dmg := ttSection{Title: "DAMAGE"}
+	if formula.Divisor > 1 {
+		dmg.AddDetail("%s", uitext.Text("spell.damage_scaling", 100/float64(formula.Divisor)))
+	}
 	totalCrit, criticalDamage := 0, 0
 	if formula.Kind == spells.DamageProjectile {
 		spellParts = cs.spellDamageParts(def.ID, char, breakdown.Total)
 		mult, base := formula.CostMultiplier, breakdown.Base
 		if mult > 1 {
 			dmg.AddDetail("Base (%d SP x %d x %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, mult, base)
-		} else if len(formula.MasteryLadder) == 4 {
+		} else if len(formula.MasteryLadder) == 4 || def.DamageBase > 0 || def.DamageSource != "" {
 			dmg.AddDetail("Base: %s", tierValueText(hero, tier, catalogLadder(catalog, baseOf)))
 		} else {
 			dmg.AddDetail("Base (%d SP x %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, base)
@@ -514,26 +527,30 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		statBreakdownDetails(&dmg, breakdown, char)
 		addCatalogMastery(&dmg, catalog, " Damage")
 		mastery = breakdown.Mastery
-		addDamageTail(&dmg, spellDamageTail{label: "Total Damage", splitTrue: true, masteryRow: true}, spellParts, mastery)
+		label := "Total Damage"
+		if def.Mechanic != nil && def.Mechanic.ProjectilesByMastery != nil {
+			label = uitext.Text("spell.damage_per_fragment")
+		}
+		addDamageTail(&dmg, spellDamageTail{label: label, splitTrue: true, masteryRow: true}, spellParts, mastery)
 		totalCrit = cs.totalCriticalChance(0, char)
 		if totalCrit > 0 {
 			critParts := spellCriticalParts(spellParts)
-			critParts, _ = cs.spellPartsWithOutgoingBuff(critParts, def.School)
+			critParts, _ = cs.spellPartsWithOutgoingBuff(critParts, def.DamageType())
 			criticalDamage = critParts.Total()
 		}
 	}
-	// Party/map nova (Inferno): explicit mastery scaling, all normal damage.
-	if formula.Kind == spells.DamageNova {
-		// The card quotes the packet the nova actually fires (tryCastPartyNova
-		// routes it through spellDamageParts too).
+	// Non-projectile hits use the same packet as their runtime delivery.
+	if formula.Kind == spells.DamageNova || formula.Kind == spells.DamageDirect {
+		// Both nova and direct mechanic dispatch route through spellDamageParts.
 		novaParts := cs.spellDamageParts(def.ID, char, breakdown.Total)
 		if len(def.DamageByMastery) == 4 && char != nil {
 			dmg.AddDetail("Base (%s): %d", tierName, breakdown.Base)
 		} else {
 			dmg.AddDetail("Base: %s", tierValueText(hero, tier, catalogLadder(catalog, baseOf)))
 		}
+		statBreakdownDetails(&dmg, breakdown, char)
 		addCatalogMastery(&dmg, catalog, "")
-		// The party is struck too: pierce and buffs reach the enemies only.
+		// Nova may strike the party too; pierce and buffs apply to enemies only.
 		addDamageTail(&dmg, spellDamageTail{label: "Damage", enemiesOnly: true, masteryRow: true, bareMastery: true}, novaParts, breakdown.Mastery)
 		for _, line := range spellAreaLines(def) {
 			dmg.Add("%s", line)
@@ -609,7 +626,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	}
 
 	if def.IsProjectile && !def.DealsNoDamage {
-		dmg.Add("%s", damageTypeAoELine(def.School, def.AoeRadiusTiles))
+		dmg.Add("%s", damageTypeAoELine(def.DamageType(), def.AoeRadiusTiles))
 	}
 	// Party projectiles add the card collection's disintegrate bonus at launch.
 	shown, cardDisintegrate := def, 0
@@ -627,7 +644,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		if char != nil {
 			durationSection.AddDetail("Base Duration: %ds", duration.Base)
 		}
-		if tier > 0 {
+		if duration.MasteryPct != 0 {
 			durationSection.AddDetail("%s Mastery - %s: +%d%%", formatSchoolName(masterySchool), tierName, duration.MasteryPct)
 		}
 		// A resolved TB round spends TurnBasedTurnSeconds of every timer.
@@ -785,11 +802,7 @@ func buildTechniqueTooltipUnifiedRows(d *config.TechniqueDefinition, char *chara
 		casting.Add("No RT cooldown - TB: 1 action")
 	}
 	if d.ReuseSeconds > 0 {
-		if d.FreeStep {
-			casting.Add("Reuse: %ds, shared by %s (TB: once per turn)", d.ReuseSeconds, strings.Join(techniqueStepNames(), " and "))
-		} else {
-			casting.Add("Reuse: %s", cardDurationText(fmt.Sprint(d.ReuseSeconds), pluralizeCount(tbRoundsForSeconds(d.ReuseSeconds), "round", "rounds")))
-		}
+		casting.Add("Reuse: %ds, shared by %s (TB: once per turn)", d.ReuseSeconds, strings.Join(techniqueStepNames(), " and "))
 	}
 	effect := ttSection{Title: "EFFECTS"}
 	tps := config.DefaultTPS

@@ -280,7 +280,11 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 		out = append(out, SpellRule{Kind: kind, Text: text})
 	}
 
-	school := config.TitleWords(def.School)
+	school := config.TitleWords(def.DamageType())
+	magicSchool := config.TitleWords(def.School)
+	if def.Mechanic != nil && config.GlobalConfig != nil && config.GlobalConfig.StatusEffects.ControlSaves.Applies(def.Mechanic.Kind) {
+		add(SpellRuleGeneral, config.GlobalConfig.StatusEffects.ControlSaves.Details)
+	}
 	switch {
 	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
 		add(SpellRuleDamage, uitext.Text("spell.area_mitigation", ArmorElementalMitigationCap, school))
@@ -298,17 +302,21 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 			add(SpellRuleGeneral, uitext.Text("spell.no_damage"))
 		}
 	case def.IsProjectile || def.ZoneRadiusTiles > 0:
-		add(SpellRuleDamage, uitext.Text("armor.elemental_reduction", ArmorElementalMitigationCap, school))
+		cap := ArmorElementalMitigationCap
+		if def.DamageType() == "physical" {
+			cap = ArmorPhysicalMitigationCap
+		}
+		add(SpellRuleDamage, uitext.Text("armor.elemental_reduction", cap, school))
 		if MagicSchoolID(def.School).IsElemental() {
 			add(SpellRuleMasteryPolicy, uitext.Text("spell.elemental_mastery_pierce", ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school))
 			// A spell whose damage is an authored per-tier ladder gets no mastery
 			// add-ons at all - the ladder IS the payload (same exclusion Inferno
 			// earns through mastery_damage_per_tier), so no GM true-damage split.
 			if len(def.DamageByMastery) != 4 {
-				add(SpellRuleMasteryPolicy, uitext.Text("spell.elemental_grandmaster_damage", school, int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school))
+				add(SpellRuleMasteryPolicy, uitext.Text("spell.elemental_grandmaster_damage", magicSchool, int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school))
 			}
 		} else {
-			add(SpellRuleMasteryPolicy, uitext.Text("spell.self_grandmaster_pierce", school, SelfMagicGMResistPiercePct, school))
+			add(SpellRuleMasteryPolicy, uitext.Text("spell.self_grandmaster_pierce", magicSchool, SelfMagicGMResistPiercePct, school))
 		}
 	}
 	if def.AoeRadiusTiles > 0 {
@@ -379,7 +387,7 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
-	dmg.Add("%s", DamageTypeAoELine(def.School, sd.AoeRadiusTiles))
+	dmg.Add("%s", DamageTypeAoELine(sd.DamageType(), sd.AoeRadiusTiles))
 	// Against the party a disintegrate roll eradicates the hero it hits; the
 	// monster-target immunities do not apply.
 	if sd.DisintegrateChance > 0 {

@@ -180,6 +180,9 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 		return
 	}
 	m.LimitPlayerEngagement(partyX, partyY)
+	if m.FearFramesRemaining > 0 {
+		m.State = StateFleeing
+	}
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
@@ -190,8 +193,10 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 		status.TickFrameRated(&m.StunFramesRemaining, &m.StunTurnsRemaining, &m.StunRate)
 		return
 	}
-	// Stun-free this frame: count toward clearing the stun diminishing-returns chain.
-	m.StunDR().ForgetFrame()
+	// Recovery starts only while free of every control in the shared chain.
+	if !m.ControlDRActive() {
+		m.StunDR().ForgetFrame()
+	}
 	// Rooted (bear trap): the FULL update runs - detection, state machine,
 	// attack cadence - but any displacement it produced is undone, so the
 	// monster fights from where it stands without being stunned.
@@ -391,6 +396,10 @@ func (m *Monster3D) BeginPlayerEngagement() {
 // banding and rendering as well as player combat.
 func (m *Monster3D) BeginCombatEngagement() {
 	if m == nil {
+		return
+	}
+	if m.FearFramesRemaining > 0 {
+		m.State = StateFleeing
 		return
 	}
 	m.ResetPathfinding()
@@ -1766,6 +1775,9 @@ func (m *Monster3D) fleeDurationFrames() int {
 // of an existing encounter, so cover does not erase it: current pursuit scope
 // and leash decide whether the monster rejoins the fight or wanders home.
 func (m *Monster3D) finishFleeIfExpired(playerX, playerY float64) bool {
+	if m.FearFramesRemaining > 0 {
+		return false
+	}
 	if m.StateTimer < m.fleeDurationFrames() {
 		return false
 	}

@@ -23,9 +23,28 @@ const (
 
 type buffFxAnim struct {
 	sprite   string
+	weapon   string
 	overlay  string
 	lifetime int
 	age      int
+	delay    int // Presentation-only queue; gameplay has already committed.
+	scale    float64
+}
+
+func (a buffFxAnim) screenScale() float64 {
+	if a.scale > 0 {
+		return a.scale
+	}
+	return 1
+}
+
+func (g *MMGame) regenerationCast() (buffFxAnim, bool) {
+	for i := len(g.buffFxAnims) - 1; i >= 0; i-- {
+		if a := g.buffFxAnims[i]; a.overlay == "regeneration" && a.delay == 0 {
+			return a, true
+		}
+	}
+	return buffFxAnim{}, false
 }
 
 func (a buffFxAnim) totalFrames() int {
@@ -38,7 +57,7 @@ func (a buffFxAnim) totalFrames() int {
 func (g *MMGame) playSpellCastFx(def *config.SpellDefinitionConfig) {
 	g.playBuffFx(def.BuffFxSprite)
 	if def.Graphics != nil && def.Graphics.CastOverlay != "" {
-		g.buffFxAnims = append(g.buffFxAnims, buffFxAnim{overlay: def.Graphics.CastOverlay, lifetime: max(1, g.config.GetTPS()*6/5)})
+		g.buffFxAnims = append(g.buffFxAnims, buffFxAnim{overlay: def.Graphics.CastOverlay, weapon: def.Graphics.CastOverlayWeapon, scale: def.Graphics.CastOverlayScale, lifetime: max(1, g.config.GetTPS()*6/5)})
 	}
 }
 
@@ -50,14 +69,31 @@ func (g *MMGame) playBuffFx(sprite string) {
 	g.buffFxAnims = append(g.buffFxAnims, buffFxAnim{sprite: sprite})
 }
 
+// queueAutocastFx keeps each committed autocast's visual group together and
+// schedules it after existing cast overlays. Effects and mana are never delayed.
+func (g *MMGame) queueAutocastFx(first int) {
+	wait := 0
+	for _, a := range g.buffFxAnims[:first] {
+		wait = max(wait, a.delay+a.totalFrames()-a.age)
+	}
+	for i := first; i < len(g.buffFxAnims); i++ {
+		g.buffFxAnims[i].delay = wait
+	}
+}
+
 // tickBuffFx ages the overlay animations and drops the finished ones.
 func (g *MMGame) tickBuffFx() {
+	g.expireSpellWorldVisuals()
 	if len(g.buffFxAnims) == 0 {
 		return
 	}
 	dst := g.buffFxAnims[:0]
 	for _, a := range g.buffFxAnims {
-		a.age++
+		if a.delay > 0 {
+			a.delay--
+		} else {
+			a.age++
+		}
 		if a.age < a.totalFrames() {
 			dst = append(dst, a)
 		}
@@ -75,6 +111,12 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 	sw := float64(r.game.worldWidth())
 	sh := float64(r.game.worldHeight())
 	for _, a := range r.game.buffFxAnims {
+		if a.delay > 0 {
+			continue
+		}
+		if a.overlay == "regeneration" {
+			continue // A party effect is drawn on each living hero's card.
+		}
 		if a.overlay != "" {
 			r.drawCastOverlay(screen, a)
 			continue
@@ -127,7 +169,25 @@ func (g *MMGame) validateBuffFxSprites() {
 	if _, err := os.Stat(filepath.Join("assets", "sprites")); err != nil {
 		return
 	}
+	if config.GlobalLoots != nil {
+		for key, crate := range config.GlobalLoots.Crates {
+			if crate.Buff != nil {
+				icon, _ := g.resolveStatusIconSprite(crate.Buff.StatusIcon)
+				if !g.sprites.HasSprite(icon) {
+					panic(fmt.Sprintf("crate %q: status_icon %q not found under assets/sprites", key, crate.Buff.StatusIcon))
+				}
+			}
+		}
+	}
 	for key, def := range config.GlobalSpells.Spells {
+		if def.Graphics != nil && def.Graphics.CastOverlayWeapon != "" {
+			if _, ok := weaponBodyModels[def.Graphics.CastOverlayWeapon]; !ok {
+				panic(fmt.Sprintf("spell %q: cast_overlay_weapon %q has no weapon model", key, def.Graphics.CastOverlayWeapon))
+			}
+		}
+		if def.Graphics != nil && def.Graphics.TargetCursor != "" && !g.sprites.HasSprite(def.Graphics.TargetCursor) {
+			panic(fmt.Sprintf("spell %q: target_cursor %q not found under assets/sprites", key, def.Graphics.TargetCursor))
+		}
 		if def.BuffFxSprite != "" && !g.sprites.HasSprite(def.BuffFxSprite) {
 			panic(fmt.Sprintf("spell %q: buff_fx_sprite %q not found under assets/sprites", key, def.BuffFxSprite))
 		}

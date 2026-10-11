@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"strings"
 
@@ -29,10 +28,10 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 // strongMagicPct is the caster's Strong Magic exchange percent for the given
 // spell: the share of the SP cost burned as HP at cast, and the share added to
 // the spell's damage. Zero when the passive does not apply: no skill, no
-// caster, or a spell that deals no damage (a control spell such as a stun,
-// charm or bind gains nothing, so it pays nothing).
+// caster, or a spell with no damage formula (a control spell such as a stun,
+// charm, bind, slow or fear gains nothing, so it pays nothing).
 func strongMagicPct(caster *character.MMCharacter, def spells.SpellDefinition) int {
-	if caster == nil || !def.IsOffensive() || def.DealsNoDamage || !caster.HasSkill(character.SkillStrongMagic) {
+	if caster == nil || !def.IsOffensive() || def.DamageFormula().Kind == spells.DamageNone || !caster.HasSkill(character.SkillStrongMagic) {
 		return 0
 	}
 	return character.StrongMagicPct(caster.SkillTier(character.SkillStrongMagic))
@@ -55,7 +54,11 @@ func (cs *CombatSystem) applyStrongMagicBurn(caster *character.MMCharacter, def 
 		return
 	}
 	caster.HitPoints -= burn
-	cs.game.AddCombatMessage(fmt.Sprintf("%s's Strong Magic burns %d HP for power!", caster.Name, burn))
+	cs.game.reportDamage(logToneBad, damageLog{
+		Target: heroLogTarget(caster),
+		Amount: burn,
+		Kind:   damageLogBurnCost,
+	})
 }
 
 // spellDamageParts is the ONE damage builder for every party/champion cast
@@ -110,6 +113,9 @@ func (cs *CombatSystem) spellMasteryDamageParts(spellID spells.SpellID, caster *
 		return parts
 	}
 	bonus := cs.spellMasteryBonus(caster, spellID)
+	if def.DamageSource != "" && def.DamageDivisor > 1 {
+		bonus /= def.DamageDivisor
+	}
 	if bonus > parts.Normal {
 		bonus = parts.Normal
 	}
@@ -214,7 +220,7 @@ func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *chara
 		return 100
 	}
 	baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(weapon, char)
-	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics
+	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics + personalSpellPower(char, "fate")
 	if total < 0 {
 		return 0
 	}

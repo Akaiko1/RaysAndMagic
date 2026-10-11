@@ -387,6 +387,10 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 			if c.Level < d.Level {
 				mark = fittingUIForm(second.w-6, fmt.Sprintf("Autocast at level %d", d.Level), fmt.Sprintf("At level %d", d.Level))
 			}
+			mx, my := uiCursorPosition()
+			if !ui.modalLayerOwnsInput() && isMouseHoveringBox(mx, my, second.x, second.y, second.right(), second.bottom()) {
+				ui.queueTooltip([]string{d.Name, d.Trigger, g.automaticCastCostText()}, mx+12, my+8)
+			}
 			key := d.Key
 			ui.rareBookButton(screen, second, mark, c.Level >= d.Level, func() {
 				if c.RareClass.Automatic == nil {
@@ -451,7 +455,7 @@ func techniqueMagnitude(c *character.MMCharacter, d *config.TechniqueDefinition,
 	case "quickening":
 		return fmt.Sprintf("%s | %s | %ss", uitext.Text("buff.rt_recovery", v(d.Power)), uitext.Text("buff.tb_pool", v(d.TBPower)), v(d.Duration))
 	case "purify":
-		return "All curable afflictions | No healing or revival"
+		return "Every affliction, root and slow | No healing or revival"
 	case "return_step":
 		if c == nil {
 			return "Any distance, same map"

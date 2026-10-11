@@ -126,6 +126,14 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 		mustNot []string
 		derive  func(spellCardEnv) (want, mustNot []string)
 	}{
+		{id: "body_purify", mustNot: []string{"Cleansing reuse"}},
+		{id: "dispel_magic", mustNot: []string{"Cleansing reuse"}},
+		{id: "flying_fist", want: []string{"Body Magic", "Body Damage", "Body Resistance"}, mustNot: []string{"Physical Damage", "physical damage"}},
+		{id: "shrapmetal", want: []string{"Dark Magic", "Physical Damage", "Physical Resistance", "Damage per fragment:"}, mustNot: []string{"Dark Damage", "Dark Resistance", "shown below", "shown above"}},
+		{id: "prismatic_light", want: []string{"Damage:", "Intellect", "Personality"}, mustNot: []string{"Ray of Light", "formula /"}},
+		{id: "frozen_ground", tier: character.MasteryGrandMaster, mustNot: []string{"+0%"}},
+		{name: "mass_fear/compact", id: "mass_fear", compact: true, want: []string{"Targets may resist."}, mustNot: []string{"Higher-level targets", "Resisted casts still spend mana"}},
+		{id: "mass_fear", want: []string{"Targets may resist.", "Higher-level targets"}, mustNot: []string{"Resisted casts still spend mana"}},
 		{id: "fireball", want: []string{"Reduced by target Armor " + armorCap + " and Fire Resistance",
 			"Bursts where it stops: on a target, a wall or at the end of its range", "a target that dodges escapes only its own hit"}, mustNot: []string{"tile AoE"},
 			derive: func(e spellCardEnv) ([]string, []string) {

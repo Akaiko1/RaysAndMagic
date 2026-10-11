@@ -26,7 +26,7 @@ type weaponMeshBuilder struct{ faces []modelFace }
 type bladeSection struct{ x, y, width, thickness float64 }
 
 func (m *weaponMeshBuilder) triangle(a, b, c, o [3]float64, col [3]int, material int) {
-	m.faces = append(m.faces, modelFace{a, b, c, o, col, material})
+	m.faces = append(m.faces, modelFace{a: a, b: b, c: c, origin: o, rgb: col, material: material})
 }
 func (m *weaponMeshBuilder) box(c, h [3]float64, bevel float64, col [3]int, material int) {
 	beveledBoxFaces(c, h, math.Min(bevel, math.Min(h[0], math.Min(h[1], h[2]))*.9), 0, func(a, b, d, o [3]float64) { m.triangle(a, b, d, o, col, material) })

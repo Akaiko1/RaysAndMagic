@@ -49,6 +49,11 @@ func telegraphDefinition(m *monster.Monster3D) *monster.TelegraphedAttack {
 	return monster.MonsterConfig.Monsters[m.Key].Telegraph
 }
 func (g *MMGame) telegraphAllowed(m *monster.Monster3D) bool {
+	if m != nil && m.SilenceFramesRemaining > 0 {
+		if a := telegraphDefinition(m); a != nil && a.School != "physical" {
+			return false
+		}
+	}
 	return m != nil && m.IsAlive() && !m.IsPartyControlled() && !m.Pacified && !m.BossDormant && m.CurrentAIBehavior().Caps().MayAttack && m.StunFramesRemaining == 0 && m.StunTurnsRemaining == 0 && !g.turnBasedMonsterStunned[m]
 }
 func (g *MMGame) telegraphLOS(m *monster.Monster3D, x, y float64) bool {
@@ -227,13 +232,15 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 	if s.TargetID == "" && m.TargetsParty() {
 		px, py := g.GetPlayerTilePosition()
 		if slices.Contains(s.Tiles, [2]int{px, py}) && g.telegraphLOS(m, g.camera.X, g.camera.Y) {
-			g.damageTelegraphParty(m, a.Name, a.School, parts)
+			unblocked := g.damageTelegraphParty(m, a.Name, a.School, parts)
 			g.observeOverwatchAttack(m)
-			switch a.Kind {
-			case "slow", "root":
-				g.applyTelegraphHinder(a.Kind)
-			case "push":
-				g.pushTelegraphParty(s.Direction)
+			if unblocked {
+				switch a.Kind {
+				case "slow", "root":
+					g.applyTelegraphHinder(a.Kind)
+				case "push":
+					g.pushTelegraphParty(s.Direction)
+				}
 			}
 		}
 	} else if s.TargetID != "" {
@@ -265,14 +272,28 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 
 // Telegraph hits remain undodgeable, with the same absorption policy as the
 // authored hazard. Retain the attacker for reflection and hit attribution.
-func (g *MMGame) damageTelegraphParty(source *monster.Monster3D, name, school string, parts damagecalc.Parts) {
+// False means the ward blocked the whole impact, including its control rider.
+// Zero damage from ordinary resistance still permits control. The member loop
+// shares one ward decision and spends no charge when no member can take damage.
+func (g *MMGame) damageTelegraphParty(source *monster.Monster3D, name, school string, parts damagecalc.Parts) bool {
 	defer g.beginProfileMonsterHit(source, name)()
+	blocked := false
 	g.combat.forEachDamageablePartyMember(func(i int, c *character.MMCharacter) {
+		if g.combat.magicWardBlocks(school, false, source != nil) {
+			blocked = true
+			return
+		}
 		dealt := g.combat.damagePartyMemberPartsFromSource(i, c, parts, school, false, source)
 		if dealt > 0 {
-			g.logCombat(logToneBad, "%s hits %s for %d.", name, logHeroName(c), dealt)
+			g.reportDamage(logToneBad, damageLog{
+				Source: logMonsterAs(source, name),
+				Target: heroLogTarget(c),
+				Amount: dealt,
+				School: school,
+			})
 		}
 	})
+	return !blocked
 }
 
 func (g *MMGame) moveTelegraphMonster(m *monster.Monster3D, dir [2]int, distance int) {

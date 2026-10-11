@@ -28,7 +28,7 @@ func (g *MMGame) harvestGround(x, y int) bool {
 		return false
 	}
 	t := w.Tiles[y][x]
-	if t == world.TileWater || t == world.TileDeepWater || t == world.TileForestStream {
+	if world.GlobalTileManager != nil && world.GlobalTileManager.IsWater(t) {
 		return false
 	}
 	return true

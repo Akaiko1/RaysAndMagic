@@ -62,6 +62,7 @@ func NewGameLoop(game *MMGame) *GameLoop {
 
 // Update handles all game logic updates for one frame
 func (gl *GameLoop) Update() error {
+	defer gl.game.syncIdentifyCursor()
 	// Click queues route this Update's edges through UI, then world input.
 	// Misses must expire here, including early returns: a later camera pose or
 	// widget must never acquire an old press. Holds have their own gesture state.
@@ -844,7 +845,7 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			duration: &g.waterBreathingDuration,
 			onExpire: func() {
 				// If still underwater when it lapses, surface the party.
-				if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
+				if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == underwaterMapKey {
 					g.gameLoop.returnFromUnderwater()
 				}
 			},
@@ -948,10 +949,12 @@ func (gl *GameLoop) updateControlledMonsters() {
 // advanceControlledMonsters is also called once after a resolved TB round.
 // Zero-duration controls are permanent, including card summons.
 func (g *MMGame) advanceControlledMonsters(elapsed int) {
+	g.advanceFrozenWater(elapsed)
 	if g.world == nil || elapsed <= 0 {
 		return
 	}
 	for _, m := range g.world.Monsters {
+		m.AdvanceSpellControls(elapsed)
 		if m.Bound && m.BoundFramesRemaining > 0 {
 			m.BoundFramesRemaining = max(0, m.BoundFramesRemaining-elapsed)
 			if m.BoundFramesRemaining == 0 {
@@ -977,9 +980,6 @@ func (g *MMGame) advanceControlledMonsters(elapsed int) {
 func (gl *GameLoop) returnFromUnderwater() {
 	// First switch back to the original map
 	returnMapKey := gl.game.underwaterReturnMap
-	if returnMapKey == "" {
-		returnMapKey = "main" // Fallback to main map
-	}
 
 	if err := gl.game.transitionToMap(mapTransition{mapKey: returnMapKey, pose: MapPose{
 		X: gl.game.underwaterReturnX, Y: gl.game.underwaterReturnY, Angle: gl.game.camera.Angle,

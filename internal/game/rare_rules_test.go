@@ -218,7 +218,11 @@ func TestRareRulesTechniqueMovementAndPersistence(t *testing.T) {
 					} else if !g.useTechnique(0, key, false, false) {
 						t.Fatal("manual technique failed")
 					}
-					if c.ActionsRemaining != 1 || g.partyTechniqueActionsUsed != 1 {
+					wantActions, wantTechniques := 1, 1
+					if automatic {
+						wantActions, wantTechniques = 2, 0
+					}
+					if c.ActionsRemaining != wantActions || g.partyTechniqueActionsUsed != wantTechniques {
 						t.Fatal("technique action was not recorded independently")
 					}
 					if attack == "after" {

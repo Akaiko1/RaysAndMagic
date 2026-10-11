@@ -57,3 +57,11 @@ item.device_jump: "Teleports the entire party %s tiles forward"
 item.device_recharge: "Recharge: %d seconds"
 item.device_cannot_act: "The selected hero cannot act yet."
 item.device_unavailable: "%s has no available use action."
+
+item.device_summon: "Summons a random monster near the party (target distance: %d tiles)"
+item.device_summon_failed: "The air resists; no space to summon."
+item.device_summon_success: "A ripple in the air answers your call."
+
+item.party_weapon_base_bonus: "Party weapons: +%d base damage of their own damage type."
+item.weapon_base_bonus: "Equipped weapons: +%d base damage of their own damage type."
+item.carried_regeneration: "In personal inventory: restore %d%% maximum HP per regeneration tick. Highest carried bonus applies."

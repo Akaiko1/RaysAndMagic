@@ -20,12 +20,12 @@ func (floors FloorResolution) At(x, y int) (TileType3D, bool) {
 
 // CanSupplyUnderFloor applies to original floors and to the original floor
 // carried through another object. Never classify the intervening prop as ground.
-// Movement flags do not determine appearance. Donors opt out in tile data;
-// ordinary/deep water and directional edges require explicit placement.
+// Water always requires explicit placement, including walkable streams. Other
+// donors can opt out in tile data; movement flags do not determine appearance.
 func (tm *TileManager) CanSupplyUnderFloor(tile TileType3D) bool {
 	d := tm.GetTileData(tile)
 	return d != nil && d.RenderType == config.TileRenderFloor &&
-		!d.ExcludeAsUnderFloor && !d.InheritsNeighbourFloor()
+		!tm.IsWater(tile) && !d.ExcludeAsUnderFloor && !d.InheritsNeighbourFloor()
 }
 
 // ResolveFloors propagates authored floors in simultaneous waves. Entities
@@ -71,7 +71,7 @@ func (tm *TileManager) ResolveFloors(tiles [][]TileType3D, entities map[[2]int]b
 				owner = TileEmpty
 			}
 			// An entity's inherited floor also becomes its movement tile. Visual
-			// scenery may inherit water/chasm color, but automatic spawn ground
+			// scenery may inherit chasm color, but automatic spawn ground
 			// must remain walkable. Explicit ground_tile bypasses this vote.
 			tile, ok := tm.voteUnderFloor(owner, x, y, floors.At, entities[cell])
 			choices[i] = FloorChoice{Tile: tile, OK: ok}

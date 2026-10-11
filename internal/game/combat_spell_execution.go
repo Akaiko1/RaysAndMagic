@@ -113,6 +113,15 @@ func weaponSpellEchoPct(caster *character.MMCharacter) int {
 }
 
 func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, announce bool) spellCastOutcome {
+	if result := cs.tryCastAdvancedSupport(spellID, spellDef, caster); result != castNotHandled {
+		return result
+	}
+	if result := cs.tryCastAdvancedOffense(spellID, spellDef, caster); result != castNotHandled {
+		if result == castCommitted {
+			cs.playSpellBuffFx(spellID)
+		}
+		return result
+	}
 	if result := cs.tryCastSpecialEffect(spellID, spellDef, caster); result != castNotHandled {
 		if result == castCommitted {
 			cs.playSpellBuffFx(spellID)

@@ -390,16 +390,19 @@ func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, button
 }
 
 // dispatchCharacterHubWorldAction closes the hub before a world-facing action
-// observes game state. Failed actions restore the hub so the player can correct
-// the selection; successful actions always return to the world. Mouse and
-// keyboard dispatch share this one transition.
+// observes game state. Refused actions restore the hub unless a follow-up modal
+// took ownership (target selection is not yet a committed action). The return
+// value still reports commitment, so opening a picker never spends an action.
+// Mouse and keyboard dispatch share this one transition.
 func (g *MMGame) dispatchCharacterHubWorldAction(action func() bool) bool {
 	wasOpen := g.menuOpen
 	g.menuOpen = false
 	if action() {
 		return true
 	}
-	g.menuOpen = wasOpen
+	if topModalLayerFor(g, false) == modalLayerNone {
+		g.menuOpen = wasOpen
+	}
 	return false
 }
 

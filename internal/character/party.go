@@ -247,10 +247,11 @@ func (p *Party) AddMember(character *MMCharacter) {
 
 // UpdateWithMode updates the party with knowledge of the current game mode and
 // reports whether any member completed an RT regeneration cadence.
-func (p *Party) UpdateWithMode(turnBasedMode bool) bool {
+// Optional absorbers are shared by every member's periodic damage.
+func (p *Party) UpdateWithMode(turnBasedMode bool, absorbDoT ...func(int) int) bool {
 	regenCadenceCompleted := false
 	for _, member := range p.Members {
-		if member.UpdateWithMode(turnBasedMode) {
+		if member.UpdateWithMode(turnBasedMode, absorbDoT...) {
 			regenCadenceCompleted = true
 		}
 	}

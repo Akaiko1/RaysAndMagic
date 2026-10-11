@@ -2,6 +2,7 @@ package game
 
 import (
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -50,6 +51,9 @@ func (g *MMGame) restoreSavedNPCs(wm *world.WorldManager, save *GameSave) {
 				if len(ns.Stock) > 0 {
 					cursor := make(map[string]int, len(ns.Stock))
 					for _, saved := range ns.Stock {
+						if def, _, ok := config.GetItemDefinitionByName(saved.Name); ok {
+							saved.Name = def.Name
+						}
 						from := cursor[saved.Name]
 						for i := from; i < len(npc.MerchantStock); i++ {
 							if npc.MerchantStock[i].Item.Name == saved.Name {

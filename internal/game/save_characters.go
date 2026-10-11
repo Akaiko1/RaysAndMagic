@@ -63,6 +63,7 @@ func normalizeItemFromConfig(item *items.Item) {
 	// Adopt the def's current type, so cards saved before they became their own
 	// type (was "trinket") migrate to items.ItemCard on load.
 	item.Type = template.Type
+	item.Name = template.Name
 	// The YAML definition is the single source of an item's attributes: ADOPT
 	// it wholesale, so rebalanced (or removed) values reach items saved before
 	// the change. Items carry no instance state in Attributes - merging only
@@ -166,6 +167,17 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		m.QuickSlots[qs.Slot] = &item
 	}
 	m.RareClass = cs.RareClass.Clone()
+	m.SpellState = cs.SpellState.Clone()
+	m.SpellState.AutoFrames = max(m.SpellState.AutoFrames, m.RareClass.AutoFrames)
+	m.RareClass.AutoFrames = 0
+	for id, frames := range m.SpellState.ReuseFrames {
+		d, ok := config.GetSpellDefinition(id)
+		if !ok || d.ReuseSeconds <= 0 || frames <= 0 {
+			delete(m.SpellState.ReuseFrames, id)
+			continue
+		}
+		m.SpellState.ReuseFrames[id] = min(frames, d.ReuseSeconds*config.GlobalConfig.GetTPS())
+	}
 	// Old saves represented one charged attack by a timer. Preserve that one
 	// attack as a permanent charge; newer counts never inherit an expiry.
 	if m.RareClass.FlowCharges == 0 && m.RareClass.FlowFrames > 0 {
@@ -253,6 +265,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 		}
 	}
 	cs.RareClass = m.RareClass.Clone()
+	cs.SpellState = m.SpellState.Clone()
 	cs.AutoDrinkCooldown = m.AutoDrinkCooldown
 	cs.DesignatedTargetID, cs.DesignationFrames = m.DesignatedTargetID, m.DesignationFrames
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining

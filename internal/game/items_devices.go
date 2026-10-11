@@ -64,6 +64,17 @@ func (g *MMGame) useDevice(item *items.Item, charIndex int) bool {
 		g.AddCombatMessage(uitext.Text("item.device_recharging", item.Name))
 		return false
 	}
+	if item.UseAction == "summon" && item.Attributes["summon_distance_tiles"] > 0 && item.Attributes["use_cooldown_seconds"] > 0 {
+		if !g.SummonRandomMonsterNearPlayer(float64(item.Attributes["summon_distance_tiles"])) {
+			g.AddCombatMessage(uitext.Text("item.device_summon_failed"))
+			return false
+		}
+		item.DeviceCooldownFrames = item.Attributes["use_cooldown_seconds"] * g.config.GetTPS()
+		g.combat.deviceClock.remaining = max(g.combat.deviceClock.remaining, item.DeviceCooldownFrames)
+		g.AddCombatMessage(uitext.Text("item.device_summon_success"))
+		g.consumeCharacterActionWithRTCooldown(charIndex, g.combat.CalculateActionCooldownFrames(g.party.Members[charIndex]))
+		return true
+	}
 	jump, ok := deviceJump(*item)
 	if !ok {
 		g.AddCombatMessage(uitext.Text("item.device_unavailable", item.Name))

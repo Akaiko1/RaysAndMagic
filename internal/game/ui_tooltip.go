@@ -330,7 +330,7 @@ func buildSpellComparisonRowsByID(itemID, equippedID spells.SpellID, char *chara
 		}
 		_, _, total := combatSystem.CalculateSpellDamage(def.ID, char)
 		parts := combatSystem.spellDamageParts(def.ID, char, total)
-		parts, _ = combatSystem.spellPartsWithOutgoingBuff(parts, def.School)
+		parts, _ = combatSystem.spellPartsWithOutgoingBuff(parts, def.DamageType())
 		return parts.Total()
 	}
 	for _, perTick := range []bool{false, true} {
@@ -397,7 +397,7 @@ func spellEffectsSummary(def spells.SpellDefinition, char *character.MMCharacter
 		}
 	}
 	if kind := def.DamageFormula().Kind; kind == spells.DamageNova || kind == spells.DamageZone {
-		lines = append(lines, damageTypeAoELine(def.School, 0))
+		lines = append(lines, damageTypeAoELine(def.DamageType(), 0))
 	}
 	lines = append(lines, spellAreaLines(def)...)
 	return strings.Join(lines, "; ")

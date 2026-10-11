@@ -47,30 +47,30 @@ V...Y.@:j.........O.............K.....QQQ.Y...V..V  >[npc:spell_lectern]
 V.GG...j:::.........O......VV....o.Y.QQQ.........V
 V.G........::........Y..............QQQ.Y....YVVVV
 V...........::.........O.....YY..Y.QQQ......V....V
-V.............::.........O...Y...QQQQ.Y..........V
+V.............::.........O...Y@..QQQQ.Y..........V  >[npc:jungle_pitcher_plant]
 V.............::.h.............QQQQQQQQ..KK......V
 V.YG.O.......d............O..QQQ.......QQQK..YV..V
 V.....G....................QQQ@........QQQ.......V  >[npc:chest_iron]
-V.Y................Y..G..QQQRRRRRRRRRR.QQQ.......V
-Vh...........Y...VV.....QQQ.R...:.dx.R.QQQ.V.....V
+V.Y...............@Y..G..QQQRRRRRRRRRR.QQQ.......V  >[npc:jungle_silk_cocoon]
+Vh...........Y...VV.....QQQ.R...:.dx.R.QQQ.V@....V  >[npc:jungle_pitcher_plant]
 V...VVVVVVV.............QQQ.R.iR.RRi.RxQQQ..V....V
 V.GV.......Vh.......VV..QQQ.RxR....R.R.QQQ....G..V
 V.GV.VVVVV.V............SSS.::R....R.R.QQQ.......V
-V..V.V...V.........O....QQQ.R.R.w..RxR.QQQ.Y.....V
-V..V...g@V.VG.........:.QQQ.R.R....R.R.QQQ..V....V  >[npc:chest_golden]
-V..V.V...V.V.....VV.....QQQQR.iRR.Ri::.SSS.......V
+V..V.V..@V.........O....QQQ.R.R.w..RxR.QQQ.Y.....V  >[npc:spell_lectern_light_dark]
+V..V...g.V.VG.........:.QQQ.R.R....R.R.QQQ..V....V
+V..V.V..@V.V.....VV.....QQQQR.iRR.Ri::.SSS.......V  >[npc:chest_golden]
 V..V.VVVVV.V.........G:.QQQQR.dx.:...RQQQK.......V
 V.h.VVVVVVV.Y...........QQQQRRRRRRRRRRQQQKK......V
 V...G................:....QQQ........QQQ...j.....V
 V.QQ............h.......VV.QQQ.....QQQ.RRR.......V
-V....................:.V....YQQQQQQ.....GR.....V.V
+V....................:.V@...YQQQQQQ.....GR@....V.V  >[npc:jungle_silk_cocoon], [npc:jungle_silk_cocoon]
 V.o..........GQQ..O.....VV...QQQQ.........RR.....V
 V....WWSWWW.....Y...:.......QQQY............RR...V
 V...WQQQQQQW...............YQQQ.....OVG.....GR...V
-V...WQQQQQQW.GRRG...:......QQQY.....V.V.....R....V
-V...WQQQ@QQW...............QQQ.......V....RR.....R  >[npc:chest_golden]
+V...WQQQQQQW.GRRG...:......QQQY.....V.V....@R....V  >[npc:spell_lectern_cleric]
+V...WQQQ@QQW...............QQQ.......V@...RR.....R  >[npc:chest_golden], [npc:jungle_pitcher_plant]
 V...WQQQQQQW.....o.:.....Y.QQQ.....V.V.V........@R  >[npc:solstice_jungle_entrance]
-V...WQQQQQQW.G.G............QQQ....V.O.GV........R
+V...WQQQQQQW.G@G............QQQ....V.O.GV........R  >[npc:jungle_silk_cocoon]
 V....WWWWWW...G....:........QQQ...GV.............R
 V...........o...............QQQ..................R
 V..YY..............:G......YQQQY.......V.........R
@@ -78,7 +78,7 @@ V.G................G@Y..V..VQQQ..................V  >[npc:chest_wooden]
 V,,,,,,,Y,Y,,,,,,,:G,OO,,,,,QQQ,,,.,.,.,.,,,,,,,,V
 V,,,,,,,,,,,O,,,,,RGRG,,,,OYQQQ,,.,.,.,.,.V,Y,,,,V
 V,,,,Y,,,,,,,,,,,:,,,,,,,,,,QQQYO,,,,,,,,,,,o,V,,V
-V,,,,Y,,,,j,,,,,,,,,,,,,,,,VQQQ,,,,,,,,,,,Y,,,,,,V
+V,,,@Y,,,,j,,,,,,,,,,,,,,,,VQQQ,,,,,,,,,,,Y,,,,,,V  >[npc:jungle_silk_cocoon]
 V,GY,,,,O,,,,G,,,,,,,,,,,,,YQQQY,,,,,,,,,,,,,,,V,V
 V,,,,,,,,,,Y,,QQG,,,,,,,,,,,QQQ,O,,,,,,,,,,RRRR,,V
 V,,G,,,,,,,,,GQQ,,,,,,,,,,,,SSS,,,,,,,,,,,,R,,R,,V
@@ -89,5 +89,5 @@ V,,,,,,,,,,,O,,,,,,,,,j,,,OYQQQ,,,,,Y,,,,,O,,,,Y,V
 V,,@,,,,,,,,,,,,,GG,,,,,,,,,QQQ,,Y,,,,,,,,,,,,,,,V  >[npc:tavern]
 V,,,,,,,,,,,,,,,,,,,,o,,Y,,YQQQ,Y,,,,,,,,,,VY,,,,V
 V,,,+,,,,,,,,,,,Y,j,,,,,,,,,QQQY,,,,,,,,,,,,,,,,,V
-V,,,,,,,,,,,,,,,,,,,,,,,O,,YQQQ,,,,,,,,,,,,,,,,,,V
+V,,,,,,,,,,,,,,,,,,,,,,,O@,YQQQ,,,,,,,,,,,,,,,,,,V  >[npc:jungle_pitcher_plant]
 VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV

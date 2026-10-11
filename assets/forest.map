@@ -26,38 +26,38 @@
 %..T.......T.CCCCCC.......T.....T.............WQQ%
 %..........T.CCCCCCl..T.........T.....T........WW%
 %tT.....T...CCCCCC@l..T.......T.....T..........@.%  >[npc:chest_wooden], [npc:seabright_gate]
-%....T.......CCCCCC.....T.........T.....T........%
+%....T.......CCCCCC.....T........@T.....T........%  >[npc:forest_hollow_stump]
 %..........T.......T.....T.......T...............%
 %tT.....T.......T.....T.......T.....T............%
-%....T.PPPPP...T.....T.PPPPPP..T.....T...........%
+%....T.PPPPP...T.....T@PPPPPP..T.....T...........%  >[npc:forest_hunters_bag]
 %SSSSSSSTSSSSSSSSSSSSSSSSSSSSSSSSSSSTSSSSSSSSS...%
 %....AP......T.....T.......T.....T...............=
 %.T..P..T.......T.....T.......T.....T...........P=
-%t...T...www...T.....T.....M...T.....T..........P-
+%t...T...www...T.....T@....M..@T.....T..........P-  >[npc:forest_hollow_stump], [npc:forest_hollow_stump]
 %..........T.......T.....T.......T..............P-
 %.AP....T.M.....T.....T.......T...T.............@D  >[stile:rteleporter]
 %tP..T....M....T....w..........T.....T..........P-
 %..........T.......TwwT..T.......T..............P-
-%.T.....T.......T..T@@T.......T.....T.....PP....P=  >[npc:campfire], [npc:barrel_red]
+%.T.....T......@T..T@@T.......T.....T.....PP....P=  >[npc:forest_hollow_stump], [npc:campfire], [npc:barrel_red]
 %....AP........T..TTTTTTT......T.....T....PP...P.=
 %t...P.....T......TAWWWAT...T.......T............%
-%.T.....T.......T.TWWWWWT..MM...T..ww.T....P.....%
+%.T.....T.......T@TWWWWWT..MM...T..ww.T....P.....%  >[npc:spell_lectern_cleric]
 %....T.........TTTTWWWWWTf....ww..T.w...T........%
-%t.P..www..T....T@.WW@WW.f..T.w.....T........P...%  >[npc:chest_iron], [npc:spell_trader_mage]
+%t.P..www..T...@T@.WW@WW.f..T.w.....T........P...%  >[npc:forest_hollow_stump], [npc:chest_iron], [npc:spell_trader_mage]
 %.AP....T.......TTTWWWWWTf......T.....T..........%
-%....T.........T..TWWWWWT...MM....T.....T........%
+%....T.........T.@TWWWWWT...MM....T.....T........%  >[npc:forest_hunters_bag]
 %t...M.....T......TAWWWAT...T.......T.......P....%
 %.T.....T...www.T.TTTTTTT.....T.....T.....P......%
-%....AP........T....T..........T.....T...........%
+%....AP........T....T.........@T....@T...........%  >[npc:forest_hollow_stump], [npc:forest_hollow_stump]
 %......M.M.T.............T.......T...............%
-%.AP....T.......T.....T.......T.....T...PP....P..%
+%.AP....T......@T.....T.......T.....T...PP....P..%  >[npc:forest_hollow_stump]
 %.P..T.........T.....T....www..T.....T...........%
 %..........T.......T.....T.......T............P..%
-%@T@@@..T....TTTTT....T.......T.....T.......@....%  >[npc:chest_iron], [npc:barrel_red], [npc:barrel_green], [npc:barrel_blue], [npc:abandoned_church]
+%@T@@@..T....TTTTT....T.......T@....T.......@....%  >[npc:chest_iron], [npc:barrel_red], [npc:barrel_green], [npc:barrel_blue], [npc:forest_hunters_bag], [npc:abandoned_church]
 %TTTTTTTTTTTTTK@KTTTTTTTTTTTTTTTTTTTTT...........%  >[npc:portal_gate_highlands]
 %SSSSSbSbSbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS...%
 %.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.........%
-%..P.T....P..g@T.....T...PP...@T@FFFFT...........%  >[npc:barrel_green], [npc:pile_of_old_boxes], [npc:chest_golden]
+%..P.T....P@.g@T.....T...PP...@T@FFFFT...........%  >[npc:forest_hollow_stump], [npc:barrel_green], [npc:pile_of_old_boxes], [npc:chest_golden]
 T..P.......T.g.....T...TTT.T.TTTTTTTT............%
 T.T.....T.......TT...TT.TM..T.TP..MMM............%
 T.P..T.Mggg....T..@..T........CCCCCC...........RR%  >[npc:tavern]
@@ -65,8 +65,8 @@ T.P...gggM.T...TT..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [t
 T.T.....T......FT..CCCCCC.....CCCCCC.........Pn@R%  >[npc:campfire]
 T.M..T.......P.TT..CCCCCC..+.................Pn@R%  >[npc:pile_of_old_boxes]
 T......T...T.......CCCCCC.....CCCCCC.........Pn@R%  >[npc:barrel_red]
-T.T.....TT.gg...T..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [tile:planks]
+T.T.....TT.gg..@T..CCCCCC.....CCCCCC..........@$R%  >[npc:forest_hunters_bag], [npc:pile_of_old_boxes], [tile:planks]
 TpFFpT..FFT@...TT..CCCCCC.....CCCCCC...........RR%  >[npc:barrel_blue]
 TpFFp...FF.TM......................@............R%  >[npc:forest_peasant_wenna]
-T@TTTTTTTT..Tg.TTP......PP.....................RR%  >[npc:spell_lectern]
+T@TTTTTTTT.@Tg@TTP......PP.....................RR%  >[npc:spell_lectern], [npc:forest_hunters_bag], [npc:forest_hollow_stump]
 TTTTTTTTTTTTTTTTTTTT%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

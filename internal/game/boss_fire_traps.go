@@ -180,6 +180,7 @@ func (g *MMGame) detonateBossFireTrap(owner *monsterPkg.Monster3D) {
 	hit := monsterCharacterHit{
 		Parts:      owner.OutgoingDamage(damagecalc.Parts{Normal: owner.TrapVolleyDamage}),
 		DamageType: monsterPkg.DamageFire.String(),
+		Hazard:     true,
 	}
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(owner, member, "Brood-fire trap", hit)

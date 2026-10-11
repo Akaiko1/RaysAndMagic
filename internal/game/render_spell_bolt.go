@@ -57,6 +57,9 @@ var directionalVolumeMeshes volumeMeshCache
 
 // Unknown bolt kinds keep the original generic bipyramid instead of vanishing.
 func directionalVolumeModel(kind int) int {
+	if kind == spellFlyingFist {
+		return spellHarm // Same clenched-hand geometry, independently shaded material.
+	}
 	if kind == spellHarm || isFacetedBolt(kind) {
 		return kind
 	}
@@ -64,8 +67,26 @@ func directionalVolumeModel(kind int) int {
 }
 func buildDirectionalVolumeMesh(kind int) []modelFace {
 	var mesh []modelFace
-	face := func(a, b, c, o [3]float64) { mesh = append(mesh, modelFace{a, b, c, o, [3]int{255, 255, 255}, 0}) }
-	if kind == spellHarm {
+	face := func(a, b, c, o [3]float64) {
+		mesh = append(mesh, modelFace{a: a, b: b, c: c, origin: o, rgb: [3]int{255, 255, 255}})
+	}
+	if kind == spellShrapmetal {
+		// A thin, broken triangular metal wedge. Front/back faces and bevels
+		// remain visible through tumble instead of a camera-facing paper shard.
+		outline := [3][2]float64{{-.82, -.46}, {.92, -.30}, {-.14, .77}}
+		var front, back [3][3]float64
+		for i, p := range outline {
+			front[i] = [3]float64{p[0], p[1], -.065}
+			back[i] = [3]float64{p[0] * .84, p[1] * .84, .065}
+		}
+		face(front[0], front[1], front[2], [3]float64{})
+		face(back[2], back[1], back[0], [3]float64{})
+		for i := 0; i < 3; i++ {
+			j := (i + 1) % 3
+			face(front[i], back[i], front[j], [3]float64{})
+			face(front[j], back[i], back[j], [3]float64{})
+		}
+	} else if kind == spellHarm {
 		// Chamfered solids form a clenched hand: palm, four folded fingers, a thumb
 		// crossing their lower joints, and a short wrist behind the knuckles.
 		addBox := func(center, half [3]float64, bevel, roll float64) {

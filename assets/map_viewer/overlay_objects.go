@@ -505,9 +505,9 @@ func overlayActivityTokens(a *quests.ActivityDefinition) []string {
 
 func (v *viewer) overlayQuestDefs() map[string]*quests.QuestDefinition {
 	if v.overlay.questDefs == nil {
-		v.overlay.questDefs = map[string]*quests.QuestDefinition{}
+		v.setEditorQuestDefs(map[string]*quests.QuestDefinition{})
 		if cfg, err := quests.LoadQuestConfig("assets/quests.yaml"); err == nil {
-			v.overlay.questDefs = cfg.Quests
+			v.setEditorQuestDefs(cfg.Quests)
 		}
 	}
 	return v.overlay.questDefs

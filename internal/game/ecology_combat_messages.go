@@ -31,14 +31,20 @@ func (g *MMGame) addActorCombatMessage(attacker, target *monster.Monster3D, form
 	if quietActorCombat(attacker, target) {
 		return
 	}
-	tone := logToneNone
+	g.logCombat(actorCombatTone(attacker, target), format, args...)
+}
+
+// actorCombatTone classifies both damage and non-damage actor messages by the
+// party's stake in the fight. Visibility remains quietActorCombat's concern.
+func actorCombatTone(attacker, target *monster.Monster3D) logTone {
 	switch {
 	case monsterIsPartyAlly(attacker):
-		tone = logToneGood
+		return logToneGood
 	case monsterIsPartyAlly(target):
-		tone = logToneBad
+		return logToneBad
+	default:
+		return logToneNone
 	}
-	g.logCombat(tone, format, args...)
 }
 
 // Remote encounters notify the live campaign, sharing one wall-clock cooldown

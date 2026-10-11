@@ -293,6 +293,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	}
 
 	ui.drawQueuedTooltips(screen)
+	ui.drawIdentifyCursor(screen)
 }
 
 // clearQueuedTooltips starts a frame with no tooltip queued.

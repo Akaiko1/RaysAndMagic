@@ -154,26 +154,30 @@ func TestResolveFloorsHonorsExcludedUnderFloorTiles(t *testing.T) {
 	if !ok {
 		t.Fatal("ancient tree tile not found")
 	}
-	stream, ok := tm.GetTileTypeFromKey("forest_stream")
+	basalt, ok := tm.GetTileTypeFromKey("dragon_cliffs_basalt_floor")
 	if !ok {
-		t.Fatal("forest stream tile not found")
+		t.Fatal("basalt tile not found")
 	}
 	grass, ok := tm.GetTileTypeFromKey("empty")
 	if !ok {
 		t.Fatal("default forest floor tile not found")
 	}
 
-	// Stream wins the ordinary weighted vote (four orthogonal neighbours), but
+	// Use a non-water donor so the owner-specific rule remains independently covered.
+	for _, owner := range []TileType3D{tree, ancientTree} {
+		tm.GetTileData(owner).ExcludedUnderFloorTiles = []string{"dragon_cliffs_basalt_floor"}
+	}
+	// Basalt wins the ordinary weighted vote (four orthogonal neighbours), but
 	// both forest tree variants must inherit the lone grass neighbour instead.
 	tiles := [][]TileType3D{
-		{grass, stream, stream},
-		{stream, tree, stream},
-		{stream, stream, stream},
+		{grass, basalt, basalt},
+		{basalt, tree, basalt},
+		{basalt, basalt, basalt},
 	}
 	rock, _ := tm.GetTileTypeFromKey("moss_rock")
 	tiles[1][1] = rock
-	if got, ok := tm.ResolveFloors(tiles, nil).At(1, 1); !ok || got != stream {
-		t.Fatalf("ordinary dominant floor = %v, %t; want forest stream %v, true", got, ok, stream)
+	if got, ok := tm.ResolveFloors(tiles, nil).At(1, 1); !ok || got != basalt {
+		t.Fatalf("ordinary dominant floor = %v, %t; want basalt %v, true", got, ok, basalt)
 	}
 	for _, owner := range []TileType3D{tree, ancientTree} {
 		tiles[1][1] = owner

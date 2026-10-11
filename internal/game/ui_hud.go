@@ -42,6 +42,8 @@ const (
 	partyProgressBadgeLift  = 12
 	partyAutoButtonMaxW     = 62
 	partyAutoButtonH        = 16
+	// Preserve the original Normal content origin. Personal badges use only
+	// the existing narrow portrait gutter and never move names or meters.
 	partyPanelContentLeft   = 83
 	partyEquipmentMinW      = 48 // the equipment column never shrinks below this
 	partyPanelContentRight  = 18
@@ -543,12 +545,12 @@ func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *
 // this frame. Every drawCard* call in the layer block below must be represented
 // here, or the card silently loses that effect.
 type partyCardEffectSet struct {
-	poison, burn, stun, timed bool
-	status                    statusVisuals
+	poison, burn, stun, timed, regeneration bool
+	status                                  statusVisuals
 }
 
 func (s partyCardEffectSet) any() bool {
-	return s.poison || s.burn || s.stun || s.timed || s.status != 0
+	return s.poison || s.burn || s.stun || s.timed || s.regeneration || s.status != 0
 }
 
 // layerCardFx are the timer-driven overlays that paint into the effect layer.
@@ -698,14 +700,19 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// reused layer clips them to the painted panel so they never cross the
 		// reserved cooldown/selection frames. The layer costs a render-target
 		// switch plus a full-card blit every frame, so an idle card skips it.
+		regen, showRegen := ui.game.regenerationCast()
 		fx := partyCardEffectSet{
-			poison: isPoisoned && !isDown,
-			burn:   isBurning && !isDown,
-			stun:   member.IsStunned() && !isDown,
-			timed:  ui.game.anyTimedCardFxActive(i),
-			status: ui.game.partyStatusVisuals(member),
+			poison:       isPoisoned && !isDown,
+			burn:         isBurning && !isDown,
+			stun:         member.IsStunned() && !isDown,
+			timed:        ui.game.anyTimedCardFxActive(i),
+			status:       ui.game.partyStatusVisuals(member),
+			regeneration: showRegen && !isDown,
 		}
 		if effects := ui.partyCardEffects(i, panelW, panelH, fx.any()); effects != nil {
+			if fx.regeneration && ui.game.gameLoop != nil && ui.game.gameLoop.renderer != nil {
+				ui.game.gameLoop.renderer.drawCastOverlayRegion(effects, regen, 0, 0, 0, float64(portraitColWidth), float64(panelH))
+			}
 			if fx.poison {
 				ui.drawCardPoisonBubbles(effects, 0, 0, panelW, panelH)
 			}
@@ -848,7 +855,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				ui.queueOverwatchTooltip(member, mouseX+12, mouseY+8)
 			}
 		}
-		ui.drawFlowingStaffCharges(screen, member, px, py, pw, mouseX, mouseY)
+		ui.drawPersonalSpellEffects(screen, member, px, py, pw, mouseX, mouseY)
 		if ui.game.partyMemberFocused(i) {
 			// Focus belongs to the portrait, not to the whole party slot. Its tip
 			// deliberately overlaps the authored top rim so the marker reads as
@@ -1224,7 +1231,7 @@ type spellStatusRailLayout struct {
 func (g *MMGame) spellStatusRail() (spellStatusRailLayout, bool) {
 	statuses := make([]*UtilitySpellStatus, 0, len(g.utilitySpellStatuses))
 	for _, status := range g.utilitySpellStatuses {
-		if status != nil && status.Duration > 0 {
+		if status != nil && status.Duration != 0 {
 			statuses = append(statuses, status)
 		}
 	}

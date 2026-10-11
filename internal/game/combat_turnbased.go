@@ -730,8 +730,8 @@ func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses 
 			return false
 		}
 	}
-	if tickTurnStatuses && m.StunTurnsRemaining <= 0 {
-		// Stun-free this turn: count toward clearing the diminishing-returns chain.
+	if tickTurnStatuses && !m.ControlDRActive() {
+		// Recovery starts only while free of every control in the shared chain.
 		m.StunDR().ForgetTurn()
 	}
 	if tickTurnStatuses && m.StunTurnsRemaining > 0 {

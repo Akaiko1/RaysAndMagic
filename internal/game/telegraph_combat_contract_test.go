@@ -414,3 +414,63 @@ func TestTelegraphChargeObservesMovementOnce(t *testing.T) {
 		t.Fatalf("reaction attempts=%d; want one movement and one attack observation", rolls)
 	}
 }
+
+// A telegraph impact spends one ward charge for the whole party, including
+// root/slow/push. Ordinary physical attacks and resisted-to-zero hits keep
+// their riders; exhausting the ward restores both damage and control.
+func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		for _, kind := range []string{"root", "slow", "push"} {
+			for _, school := range []string{"water", "physical"} {
+				t.Run(fmt.Sprintf("TB=%v/%s/%s", tb, kind, school), func(t *testing.T) {
+					g, gl, m := telegraphContractGame(t, tb)
+					g.gameLoop = gl
+					second := character.CreateCharacter("Second", character.ClassKnight, g.config)
+					isolateTrueDamageMember(second, 0)
+					second.HitPoints, second.MaxHitPoints = 10000, 10000
+					g.party.Members = append(g.party.Members, second)
+					g.combatBuffs = []TimedCombatBuff{{SpellID: "protection_from_magic", Frames: 1000, Charges: 1}}
+					a := &monster.TelegraphedAttack{Name: "Test impact", Kind: kind, School: school, DamagePercent: 100}
+					m.Telegraph = monster.TelegraphState{Tiles: [][2]int{{6, 6}}, Direction: [2]int{-1, 0}}
+					hasControl := func() bool {
+						x, _ := g.GetPlayerTilePosition()
+						return g.partyRoot.Frames > 0 || g.partyHinder.Slow > 0 || x != 6
+					}
+					g.resolveMonsterTelegraph(m, a)
+					if school == "water" {
+						for _, hero := range g.party.Members {
+							if hero.HitPoints != 10000 {
+								t.Fatal("ward leaked damage")
+							}
+						}
+						if hasControl() {
+							t.Fatal("ward leaked control")
+						}
+						if g.advancedBuff("protection_from_magic") != nil {
+							t.Fatal("shared impact did not exhaust its one charge")
+						}
+						g.resolveMonsterTelegraph(m, a)
+					} else if b := g.advancedBuff("protection_from_magic"); b == nil || b.Charges != 1 {
+						t.Fatal("physical non-spell impact spent a magic ward charge")
+					}
+					if !hasControl() {
+						t.Fatal("unblocked impact lost its rider")
+					}
+					for _, hero := range g.party.Members {
+						if hero.HitPoints != 9900 {
+							t.Fatalf("unblocked impact HP=%d, want 9900", hero.HitPoints)
+						}
+					}
+				})
+			}
+		}
+	}
+	// Elemental immunity is not ward immunity: zero damage must not cancel control.
+	g, _, m := telegraphContractGame(t, false)
+	g.combatBuffs = []TimedCombatBuff{{SpellID: "test_resist", Frames: 1000, ResistSchool: "water", ResistSchoolPct: 100}}
+	m.Telegraph = monster.TelegraphState{Tiles: [][2]int{{6, 6}}}
+	g.resolveMonsterTelegraph(m, &monster.TelegraphedAttack{Name: "Resisted root", Kind: "root", School: "water", DamagePercent: 100})
+	if g.party.Members[0].HitPoints != 10000 || g.partyRoot.Frames == 0 {
+		t.Fatal("resistance changed control policy")
+	}
+}

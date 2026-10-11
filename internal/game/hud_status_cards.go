@@ -29,6 +29,12 @@ func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardR
 		subtitle = spellSchoolsLabel(def) + " Magic"
 		plate = schoolPlateColor(def.School)
 		mechanics = def.BuffMechanicLines()
+		if def.Mechanic != nil {
+			mechanics = nil // advanced effects below use the live cast tier and budget
+		}
+	} else if b := config.CrateBuff(id); b != nil {
+		name = cmp.Or(name, b.Name)
+		subtitle = uitext.Text("buff.source_cache")
 	} else if d := config.Technique(id); d != nil {
 		name = cmp.Or(name, d.Name)
 		subtitle = uitext.Text("buff.source_technique")
@@ -53,10 +59,15 @@ func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardR
 			boundary = "dawn"
 		}
 		duration.Add("%s", uitext.Text("buff.until_phase", boundary))
+	} else if s.Duration < 0 {
+		duration.Add("%s", uitext.Text("advanced.until_spent"))
 	} else {
 		duration.Add("%s", uitext.Text("buff.remaining", g.buffRemainingText(s.Duration)))
 	}
-	sections := []ttSection{effects, duration}
+	sections := []ttSection{effects}
+	if providence || s.Duration != 0 {
+		sections = append(sections, duration)
+	}
 	if !providence {
 		usage := ttSection{Title: "USAGE"}
 		usage.Add("%s", uitext.Text("buff.double_click_dispel"))
@@ -68,6 +79,9 @@ func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardR
 // activeBuffEffectLines states what the running buff grants with the values it
 // was cast with (mastery included), in the wording of the card that grants it.
 func (g *MMGame) activeBuffEffectLines(id string) []string {
+	if b := config.CrateBuff(id); b != nil {
+		return b.EffectLines()
+	}
 	if def, ok := config.GetItemDefinition(id); ok && def.HasTimedBuff() {
 		return def.TimedBuffEffectLines() // the HUD owns the remaining duration
 	}
@@ -78,6 +92,15 @@ func (g *MMGame) activeBuffEffectLines(id string) []string {
 	b, ok := g.combatBuffByID(id)
 	if !ok {
 		return out
+	}
+	if def, err := spells.GetSpellDefinitionByID(spells.SpellID(id)); err == nil && def.Mechanic != nil {
+		if b.Charges > 0 {
+			out = append(out, uitext.Text("advanced.party_charges", b.Charges))
+		}
+		if b.Absorb > 0 {
+			out = append(out, uitext.Text("advanced.party_absorb", b.Absorb))
+		}
+		out = append(out, def.Mechanic.SummaryText(b.TechniqueTier))
 	}
 	if b.OutBonus > 0 {
 		out = append(out, uitext.Text("spell.party_deal_damage", spells.OutgoingDamageTarget(b.OutDamageType), b.OutBonus))

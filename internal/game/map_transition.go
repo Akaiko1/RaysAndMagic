@@ -19,6 +19,10 @@ const (
 	mapArrivalUnderwater
 )
 
+// underwaterMapKey is the depths map. Dives and beacon recalls record a
+// surfacing point; Water Breathing lapsing there surfaces the party.
+const underwaterMapKey = "water"
+
 type mapTransition struct {
 	arrivalTile    *[2]int
 	adventureWorld *world.World3D
@@ -61,6 +65,9 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 	if g.worldByKey(request.mapKey) == nil {
 		return fmt.Errorf("destination map is not loaded: %s", request.mapKey)
 	}
+	if request.mapKey == underwaterMapKey && !g.waterBreathingActive {
+		return fmt.Errorf("%s", uitext.Text("advanced.beacon_requires_water_breathing"))
+	}
 	if request.arrivalTile != nil {
 		if err := g.arrivalTileError(request.mapKey, *request.arrivalTile); err != nil {
 			return err
@@ -93,11 +100,12 @@ func (g *MMGame) transitionToMap(request mapTransition) error {
 	if a := g.adventureConfig(request.mapKey); a != nil && a.OpeningOwned {
 		g.adventure.Occupied = request.mapKey
 	}
-	pose := request.pose
-	switch request.arrival {
-	case mapArrivalUnderwater:
+	if request.mapKey == underwaterMapKey && originKey != underwaterMapKey {
 		g.underwaterReturnX, g.underwaterReturnY = origin.X, origin.Y
 		g.underwaterReturnMap = originKey
+	}
+	pose := request.pose
+	switch request.arrival {
 	case mapArrivalEntrance:
 		if g.mapReturnPoses == nil {
 			g.mapReturnPoses = make(map[string]MapPose)
@@ -158,6 +166,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 
 	// Update world reference and collision system
 	g.world = g.GetCurrentWorld()
+	g.syncFrozenWaterCollision()
 
 	g.registerVisitedTownPortalDestination() // Town Portal learns this map's destination
 	g.dropFlyWithoutOpenSky()                // wings fade indoors (dungeons have no sky)

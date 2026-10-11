@@ -37,7 +37,7 @@ func TestCardThornsMonsterDamageRoutes(t *testing.T) {
 						m.FireburstDamageMin, m.FireburstDamageMax, m.InfernoDamage, m.TrapVolleyDamage = 100, 100, 100, 100
 						switch route {
 						case "melee", "projectile":
-							cs.monsterHitCharacter(m, ch, m.Name, hitFromMonster(m, 100, "fire", route == "melee", 0, false, false))
+							cs.monsterHitCharacter(m, ch, m.Name, hitFromMonster(m, 100, "fire", false, 0, route == "melee", false))
 						case "fireburst":
 							cs.applyMonsterFireburst(m)
 						case "inferno":

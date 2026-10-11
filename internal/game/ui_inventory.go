@@ -269,6 +269,9 @@ func (ui *UISystem) drawItemIcon(screen *ebiten.Image, item items.Item, x, y, w,
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{150, 110, 52, 220})
 		drawCenteredUIText(screen, spellInitials(item.Name), iconX, iconY, iconSize, iconSize)
 	}
+	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
+		ui.drawSpellReuse(screen, actor, spells.SpellID(item.SpellEffect), iconX, iconY, iconSize)
+	}
 	if item.Type == items.ItemDevice {
 		drawDeviceCooldown(screen, item, iconX, iconY, iconSize)
 	}
@@ -400,7 +403,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		fmt.Sprintf("Level: %d", member.Level),
 		fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints),
 		fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints),
-		fmt.Sprintf("Experience: %d", member.Experience),
+		// Experience is the remainder toward the next level; show its target.
+		fmt.Sprintf("XP: %d / %d", member.Experience, xpStepCost(member.Level)),
 	}
 	for i, line := range profileLines {
 		lineColor := textColor
@@ -521,8 +525,11 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 
 	weaponLine := func(label string, slot items.EquipSlot, cooldownFrames int) string {
 		weapon, ok := member.Equipment[slot]
-		if !ok || lookupWeaponConfigByName(weapon.Name) == nil {
+		if !ok {
 			return label + ": None"
+		}
+		if lookupWeaponConfigByName(weapon.Name) == nil {
+			return label + ": " + weapon.Name // a shield or another non-weapon
 		}
 		preview := ui.game.combat.calculateWeaponDamagePreview(weapon, member)
 		crit := ui.game.combat.CalculateWeaponCritChance(weapon, member)
@@ -545,7 +552,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		{fmt.Sprintf("Perfect Dodge: %d%%", ui.game.combat.PerfectDodgeChance(member)), false},
 		{fmt.Sprintf("Physical resistance: -%d%%", m.ResistPct), false},
 		{fmt.Sprintf("Flat reduction: %d skill / %d buff", m.SkillFlat, m.FlatBuff), false},
-		{fmt.Sprintf("Projectile reflection: %d%%", member.ProjectileReflectPct()), false},
+		// The strongest reflector guards every hero, so the sheet shows the party value.
+		{fmt.Sprintf("Projectile reflection (party): %d%%", ui.game.partyProjectileReflectPct()), false},
 		{fmt.Sprintf("Melee thorns: %d%% phys / %d%% fire", ui.game.cardThornsPct()+weaponThornsPct(member), member.SetFieryRipostePct()), false},
 		{fmt.Sprintf("Status duration: %d%% / stun %d%%", clampHostileStatusDurationPct(member.ItemStatusDurationPct()), clampHostileStatusDurationPct(member.ItemStatusDurationPct()+member.SetStunDurationPct())), false},
 	}
@@ -673,10 +681,25 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 				continue
 			}
 
+			ui.spellAutocastControl(screen, currentChar, def, cardX, cardY, bl.cardW, bl.iconSize)
 			ui.handleSpellbookSpellClick(cardX, cardY, bl.cardW, bl.cardH, ui.game.selectedSchool, spellIndex)
-			ui.quickSpellCardDragSource(spellID, cardX, cardY, bl.cardW, bl.cardH)
+			ui.onDisplayedInput(uiCommandDrag, layoutRect{cardX, cardY, bl.cardW, bl.cardH}, func() {
+				// Checkbox ownership also excludes the press from the drag phase,
+				// which runs before queued click handlers consume the same gesture.
+				if def.Mechanic != nil && def.Mechanic.Autocast != "" {
+					box := spellAutocastRect(cardX, cardY, bl.cardW, bl.iconSize)
+					if isMouseHoveringBox(ui.game.dragStartX, ui.game.dragStartY, box.x, box.y, box.right(), box.bottom()) {
+						return
+					}
+				}
+				ui.quickSpellCardDragSource(spellID, cardX, cardY, bl.cardW, bl.cardH)
+			})
 			isSelected := spellIndex == ui.game.selectedSpell
 			isHovering := mouseX >= cardX && mouseX < cardX+bl.cardW && mouseY >= cardY && mouseY < cardY+bl.cardH
+			if def.Mechanic != nil && def.Mechanic.Autocast != "" {
+				b := spellAutocastRect(cardX, cardY, bl.cardW, bl.iconSize)
+				isHovering = isHovering && !isMouseHoveringBox(mouseX, mouseY, b.x, b.y, b.right(), b.bottom())
+			}
 			ui.drawSpellbookSpellCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, spellID, def, currentChar, selectedSchool, isSelected)
 
 			if isHovering {
@@ -744,6 +767,7 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 		drawCenteredUIText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
 	}
 
+	ui.drawSpellReuse(screen, currentChar, spellID, iconX, iconY, iconSize)
 	name := def.Name
 	nameY := y + iconSize + 8
 	statsY := nameY + uiTextCharHeight + 2
@@ -758,7 +782,13 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},
 		selected, equipped && string(quick.SpellEffect) == string(spellID), false, currentChar.SpellPoints >= cost, SchoolColor(school.String()))
 	drawCenteredUIText(screen, name, x+4, nameY, w-8, uiTextCharHeight)
-	drawCenteredUIText(screen, fmt.Sprintf("SP %d", cost), x+4, statsY, w-8, uiTextCharHeight)
+	costX, costW := x+4, w-8
+	if def.Mechanic != nil && def.Mechanic.Autocast != "" {
+		box := spellAutocastRect(x, y, w, iconSize)
+		costX = x + (x + w - box.right())
+		costW = box.x - costX - 4
+	}
+	drawCenteredUIText(screen, fmt.Sprintf("SP %d", cost), costX, statsY, costW, uiTextCharHeight)
 }
 
 func spellInitials(name string) string {

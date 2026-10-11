@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -37,11 +38,13 @@ type TestScenario struct {
 	SpeedTarget           int              `yaml:"speed_target"`
 	EnduranceTarget       int              `yaml:"endurance_target"`
 	LearnSchoolSpells     bool             `yaml:"learn_school_spells"`
+	SkillMastery          string           `yaml:"skill_mastery"`
 }
 type ScenarioMember struct {
 	Name      string            `yaml:"name"`
 	Class     string            `yaml:"class"`
 	Skills    map[string]string `yaml:"skills"`
+	Schools   map[string]string `yaml:"schools"`
 	Equipment []string          `yaml:"equipment"`
 }
 
@@ -71,12 +74,20 @@ func LoadTestScenarios(path string) (map[string]TestScenario, error) {
 			return nil, fmt.Errorf("invalid scenario %q", key)
 		}
 		// A bench party is a complete build: it owns the roster, stats and spells.
-		if s.BenchParty != "" && (len(s.Party) > 0 || s.Level == 0 || s.SpeedTarget > 0 || s.EnduranceTarget > 0 || s.LearnSchoolSpells) {
+		if s.BenchParty != "" && (len(s.Party) > 0 || s.Level == 0 || s.SpeedTarget > 0 || s.EnduranceTarget > 0 || s.LearnSchoolSpells || s.SkillMastery != "") {
 			return nil, fmt.Errorf("scenario %q: bench_party takes only a level and placement fields", key)
+		}
+		if _, ok := character.MasteryFromKey(s.SkillMastery); s.SkillMastery != "" && !ok {
+			return nil, fmt.Errorf("scenario %q: unknown skill_mastery %q", key, s.SkillMastery)
 		}
 		for _, m := range s.Party {
 			if _, ok := character.ClassFromKey(m.Class); !ok || m.Name == "" {
 				return nil, fmt.Errorf("scenario %q: invalid member %q", key, m.Class)
+			}
+			for school, tier := range m.Schools {
+				if _, ok := character.MasteryFromKey(tier); !ok || !slices.Contains(character.AllMagicSchools, character.MagicSchoolID(school)) {
+					return nil, fmt.Errorf("scenario %q: invalid school %q mastery %q", key, school, tier)
+				}
 			}
 			for skill, tier := range m.Skills {
 				if _, ok := character.SkillTypeFromKey(skill); !ok {
@@ -170,6 +181,11 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			return fmt.Errorf("scenario: unknown class %q", data.Class)
 		}
 		m := character.CreateCharacter(data.Name, class, g.config)
+		for key, tier := range data.Schools {
+			mastery, _ := character.MasteryFromKey(tier)
+			unlockSchool(m, character.MagicSchoolID(key))
+			m.MagicSchools[character.MagicSchoolID(key)].Mastery = mastery
+		}
 		for key, tier := range data.Skills {
 			skill, _ := character.SkillTypeFromKey(key)
 			mastery, _ := character.MasteryFromKey(tier)
@@ -179,7 +195,7 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			m.Skills[skill].Mastery = mastery
 		}
 		for _, key := range data.Equipment {
-			it, err := items.TryCreateItemFromYAML(key)
+			it, err := benchGear(key)
 			if err != nil {
 				return err
 			}
@@ -232,9 +248,21 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 		if s.LearnSchoolSpells {
 			learnAllSchoolSpells(m)
 		}
+		if s.SkillMastery != "" {
+			mastery, _ := character.MasteryFromKey(s.SkillMastery)
+			for _, skill := range m.Skills {
+				if skill != nil {
+					skill.Mastery = mastery
+				}
+			}
+		}
 		m.CalculateDerivedStats(g.config)
 		m.HitPoints = m.MaxHitPoints
 		m.SpellPoints = m.MaxSpellPoints
+	}
+	if s.SkillMastery != "" {
+		g.levelUpChoiceQueue = nil
+		g.closeLevelUpChoice()
 	}
 	g.awardGold(s.Gold)
 	for _, it := range loot {
@@ -268,7 +296,7 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			return err
 		}
 	}
-	g.AddCombatMessage("Test scenario ready. This is a fresh party; earned level-up choices remain available.")
+	g.AddCombatMessage(uitext.Text("scenario.ready"))
 	return nil
 }
 

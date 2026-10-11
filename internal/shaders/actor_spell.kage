@@ -1,0 +1,115 @@
+//kage:unit pixels
+package main
+
+// A growing silk net closes around a creature's head. Radial spokes and bowed
+// capture threads share junctions; energy travels along them, not across a badge.
+func mindWeb(p vec2, t, seed float) vec4 {
+	r:=length(p)
+	aa:=max(fwidth(r),.002)
+	if r>1 {return vec4(0)}
+	a:=atan2(p.y,p.x)+.12*sin(t*5+seed)
+	sector:=a*1.9098593
+	cell:=floor(sector)
+	f:=fract(sector)
+	// Ellipsoid shading, slightly irregular anchors and sagging silk keep it
+	// attached to a volume instead of a flat octagonal target marker.
+	edge:=.83+.045*sin(cell*2.3+seed)
+	cap:=r/(edge*(.88+.12*abs(2*f-1)))
+	bow:=sin(f*3.14159)*.045
+	loops:=(cap+bow)*5.0
+	dLoop:=abs(fract(loops+.5)-.5)/5.0
+	dSpoke:=min(f,1-f)*r*.524
+	d:=min(dLoop,dSpoke)
+	thread:=1-smoothstep(.002,.004+aa,d)
+	halo:=exp(-d*100)*.20
+	front:=smoothstep(0,.42,t)
+	growing:=smoothstep(1-front-.12,1-front+.02,cap)
+	inside:=(1-smoothstep(.91,1.0,cap))*smoothstep(.06,.14,r)
+	fade:=(1-smoothstep(.65,1,t))*smoothstep(0,.07,t)
+	charge:=pow(max(0,sin(cap*19-t*31+cell*.7+seed)),14)
+	junction:=exp(-dLoop*220)*exp(-dSpoke*180)
+	alpha:=(thread*.80+halo+junction*.30)*inside*growing*fade
+	rgb:=mix(vec3(.38,.15,.68),vec3(.89,.77,1),clamp(.45+charge*.65+p.x*.2,0,1))
+	rgb+=vec3(.2,.15,.24)*junction*charge
+	return vec4(min(rgb,vec3(1))*alpha,alpha)
+}
+
+func actorNoise(p vec2) vec2 {
+	size:=imageSrc0Size()
+	q:=fract(p)*size-.5
+	i,f:=floor(q),fract(q)
+	o:=imageSrc0Origin()+.5
+	a:=imageSrc0UnsafeAt(o+mod(i,size)).rg
+	b:=imageSrc0UnsafeAt(o+mod(i+vec2(1,0),size)).rg
+	c:=imageSrc0UnsafeAt(o+mod(i+vec2(0,1),size)).rg
+	d:=imageSrc0UnsafeAt(o+mod(i+vec2(1,1),size)).rg
+	return mix(mix(a,b,f.x),mix(c,d,f.x),f.y)
+}
+
+func Fragment(dst vec4,src vec2,color vec4,custom vec4) vec4 {
+	p:=src-imageSrc0Origin()
+	t,seed,style:=custom.x,custom.y,custom.z
+	if style<.5 {return mindWeb(p,t,seed)}
+	if max(abs(p.x),abs(p.y))>1 {return vec4(0)}
+	fade:=smoothstep(0,.09,t)*(1-smoothstep(.62,1,t))
+	rgb:=vec3(0)
+	a:=float(0)
+	if style<1.5 {
+		// Heavy mud grips the feet. Squashed ripples have a stationary outer
+		// bank, while sticky strands sag downward around the legs.
+		n:=actorNoise(p*vec2(.41,.24)+vec2(seed*.03,-t*.06))
+		r:=length(p*vec2(1,1.8))
+		bank:=smoothstep(.20,.35,r)*(1-smoothstep(.70,.96,r+n.x*.11))
+		fold:=pow(max(0,sin(r*24+n.x*5-t*4)),4)
+		rib:=pow(max(0,sin(p.x*18+n.y*5)),10)
+		sag:=.38+.20*sin(p.x*12+seed)+t*.22
+		strands:=rib*smoothstep(-.25,.05,p.y)*(1-smoothstep(sag,sag+.18,p.y))
+		rgb=mix(vec3(.12,.057,.019),vec3(.72,.43,.14),fold*.65+n.y*.25)
+		a=bank*(.36+fold*.38)+strands*.65
+	} else if style<2.5 {
+		// Three curved blood-red claw wounds tear down over the brow, opening
+		// in sequence and burning back from their tails. No camera overlay.
+		for i:=0;i<3;i++ {
+			k:=float(i)-1
+			front:=-.70+smoothstep(float(i)*.06,.42+float(i)*.06,t)*1.42
+			curve:=k*.31+.22*p.y*p.y-.12*p.y
+			d:=abs(p.x-curve)
+			width:=.055*max(0,sin((p.y+.8)*2.1))
+			span:=smoothstep(-.82,-.68,p.y)*(1-smoothstep(front-.1,front,p.y))
+			cut:=exp(-d/max(.008,width))*span
+			core:=exp(-d*110)*span
+			rgb+=vec3(.95,.014,.035)*cut+vec3(1,.58,.24)*core*.9
+			a+=cut*.8+core*.5
+		}
+	} else if style<3.5 {
+		// Sacred light strips a torn, rising shroud off the undead. The long
+		// gold fibres point away from its body, expressing forced flight.
+		n:=actorNoise(p*vec2(.32,.19)+vec2(seed*.04,t*.30))
+		curve:=.46+.11*sin(p.y*5+t*3)+n.x*.18
+		d:=abs(abs(p.x)-curve)
+		fold:=pow(max(0,sin(p.x*31+n.x*8-p.y*5)),6)
+		veil:=exp(-d*13)*(1-smoothstep(.55,1,abs(p.y)))
+		strands:=veil*fold
+		core:=exp(-d*80)*pow(max(0,sin(p.y*11+t*19+seed)),4)
+		rgb=vec3(.89,.46,.06)*veil*.30+vec3(1,.91,.60)*(strands*.8+core)
+		a=veil*.24+strands*.65+core*.8
+	} else {
+		// A hollow shadow closes around the victim: a broad hood, torn lower
+		// hem and two small hostile eyes. Its centre leaves the actor readable.
+		n:=actorNoise(p*vec2(.35,.29)+vec2(seed*.02,t*.18))
+		q:=p-vec2(0,-.24)
+		r:=length(q*vec2(1.3,1.1))
+		hood:=smoothstep(.44,.62,r)*(1-smoothstep(.85,1.05,r+n.x*.13))
+		hood*=1-smoothstep(.15,.85,p.y+n.y*.30)
+		fold:=pow(max(0,sin(p.x*24+n.x*8+p.y*6-t*2)),7)
+		eyes:=length((vec2(abs(p.x),p.y)-vec2(.23,-.37))/vec2(.11,.029))
+		eye:=exp(-eyes*eyes*2)
+		rgb=vec3(.025,.009,.043)*hood+vec3(.26,.10,.39)*hood*fold+vec3(.79,.41,1)*eye
+		a=hood*.80+eye*.9
+	}
+	a=clamp(a,0,.92)*fade
+	if style<1.5 {return vec4(rgb*a,a)}
+	return vec4(min(rgb*fade,vec3(a)),a)
+}
+
+//include panini.kageinc

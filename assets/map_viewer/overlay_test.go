@@ -914,12 +914,59 @@ func TestOverlayReloadStagesBeforeDiscard(t *testing.T) {
 	if v.overlay.modal == nil || !v.overlay.modal.confirm || !overlaySame(d.state, before) {
 		t.Fatal("reload discarded without confirmation")
 	}
+	mechanics, err := os.ReadFile(config.BossMechanicsPath)
+	if os.IsNotExist(err) {
+		mechanics = []byte("maps: {}\n")
+	} else if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(config.BossMechanicsPath, []byte("maps: [broken"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	v.overlay.modal.apply("")
 	if v.overlay.documents[d.key] != d || !overlaySame(d.state, before) || len(d.undo) == 0 || d.err == "" {
 		t.Fatal("failed reload discarded the draft")
+	}
+	if err := os.WriteFile(config.BossMechanicsPath, mechanics, 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldProps := slices.Clone(v.questPropsForMap("deep_jungle")[[2]int{3, 9}])
+	defs := overlayClone(v.overlayQuestDefs())
+	for i := range defs["unbroken_jungle"].ActivePropLayouts {
+		route := &defs["unbroken_jungle"].ActivePropLayouts[i]
+		if route.ID == "route_2" {
+			for j := range route.Props {
+				if route.Props[j].NPC == "pilgrim_sun2" {
+					route.Props[j].X = 4
+				}
+			}
+		}
+	}
+	// A malformed quest file must preserve both the draft and cached markers.
+	if err := os.WriteFile(overlayQuestsPath, []byte("quests: [broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	v.reloadOverlay(d.key)
+	if v.overlay.documents[d.key] != d || !overlaySame(d.state, before) || !slices.Equal(v.questPropsForMap("deep_jungle")[[2]int{3, 9}], oldProps) {
+		t.Fatal("failed quest reload changed draft or reservations")
+	}
+	raw, err := yaml.Marshal(map[string]any{"quests": defs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(overlayQuestsPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	v.reloadOverlay(d.key)
+	if v.overlay.documents[d.key] == d {
+		t.Fatalf("successful reload retained old draft: %s", d.err)
+	}
+	if len(v.questPropsForMap("deep_jungle")[[2]int{3, 9}]) != 0 {
+		t.Fatal("successful reload retained old quest reservation")
+	}
+	props := v.questPropsForMap("deep_jungle")[[2]int{4, 9}]
+	if len(props) != 1 || props[0].NPC != "pilgrim_sun2" {
+		t.Fatalf("successful reload missed moved quest reservation: %v", props)
 	}
 }
 
@@ -1085,5 +1132,51 @@ func TestOverlayBossChangeCarriesRewardAndQuests(t *testing.T) {
 		if key != d.key && slices.Contains(types, next) {
 			t.Fatalf("%s reward was rewritten too", key)
 		}
+	}
+}
+
+// All authored alternatives must remain visible without becoming map spawns.
+func TestQuestPropReservations(t *testing.T) {
+	v := overlayTestViewer(t)
+	for _, m := range v.maps {
+		before, err := yaml.Marshal(m.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cells := v.questPropsForMap(m.Key)
+		for id, def := range v.overlayQuestDefs() {
+			for _, layout := range def.PropLayouts() {
+				for _, prop := range layout.Props {
+					if prop.Map != m.Key {
+						continue
+					}
+					want := editorQuestProp{prop.NPC, id, def.Name, layout.ID}
+					if !slices.Contains(cells[[2]int{prop.X, prop.Y}], want) {
+						t.Errorf("missing %s/%s/%s on %s", id, layout.ID, prop.NPC, m.Key)
+					}
+				}
+			}
+		}
+		after, err := yaml.Marshal(m.Data)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("quest annotations changed map data for %s: %v", m.Key, err)
+		}
+	}
+	// The reported conflict belongs to an alternative, not the first route.
+	props := v.questPropsForMap("deep_jungle")[[2]int{3, 9}]
+	if len(props) != 1 || props[0].NPC != "pilgrim_sun2" || props[0].Layout != "route_2" {
+		t.Fatalf("missing second-route reservation: %+v", props)
+	}
+	if lines := v.questPropHoverLines("deep_jungle", 3, 9); !strings.Contains(strings.Join(lines, "\n"), "route_2") {
+		t.Fatalf("hover does not explain route: %v", lines)
+	}
+	if len(v.questPropsForMap("not-a-map")) != 0 {
+		t.Fatal("quest reservations leaked to another map")
+	}
+	// Saving quest changes invalidates questDefs; the derived index must follow.
+	v.overlay.questProps["not-a-map"] = map[[2]int][]editorQuestProp{{1, 1}: {{NPC: "stale"}}}
+	v.overlay.questDefs = nil
+	if len(v.questPropsForMap("not-a-map")) != 0 {
+		t.Fatal("quest reload retained stale reservations")
 	}
 }

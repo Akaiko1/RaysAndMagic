@@ -364,8 +364,7 @@ func (ui *UISystem) dispatchDisplayedInput() {
 		// A hero advancing or inventory changing invalidates widget commands,
 		// not a held world attack. Screen/modal changes have their own barrier.
 		ui.cancelWidgetPointerGestures()
-		ui.game.clearDrag()
-		ui.game.clearStashDrag()
+		ui.suspendDisplayedDrags()
 		return
 	}
 	ui.syncCharacterHubClickContext()
@@ -486,6 +485,10 @@ func uiItemIdentity(it items.Item) uint64 {
 // retarget an already carried item after reorder, stack merge or roster swap.
 type uiDragIdentity struct {
 	active      bool
+	screen      uiScreenIdentity
+	modal       modalLayerSnapshot
+	menuOpen    bool
+	tab         int
 	world       *world.World3D
 	party       *character.Party
 	actor       *character.MMCharacter
@@ -496,7 +499,10 @@ type uiDragIdentity struct {
 
 func (ui *UISystem) currentDragIdentity(stashDrag bool) uiDragIdentity {
 	g := ui.game
-	id := uiDragIdentity{world: g.world, party: g.party}
+	id := uiDragIdentity{
+		world: g.world, party: g.party, screen: ui.inputScreenIdentity(),
+		modal: ui.topModalSnapshot(), menuOpen: g.menuOpen, tab: int(g.currentTab),
+	}
 	if g.party == nil {
 		return id
 	}
@@ -601,4 +607,21 @@ func (ui *UISystem) captureDisplayedDrags() {
 	if !d.stashDrag.active {
 		d.stashDrag = ui.currentDragIdentity(true)
 	}
+}
+
+// A presentation stall invalidates drop geometry, not a captured source. Keep
+// held gestures until a complete frame can accept their release. Selection
+// highlights may change between Updates without changing that source's owner.
+func (ui *UISystem) suspendDisplayedDrags() {
+	ui.validateDisplayedDrags()
+	g, d := ui.game, &ui.displayedInput
+	if !g.dragPickedUp && (!g.dragArmed || !d.quickDrag.active) {
+		g.clearDrag()
+	}
+	if !g.stashDragPickedUp && (!g.stashDragArmed || !d.stashDrag.active) {
+		g.clearStashDrag()
+	}
+	// Never replay a drop against a layout that was not shown at release.
+	g.dragDropAt = 0
+	g.stashDragDrop = false
 }

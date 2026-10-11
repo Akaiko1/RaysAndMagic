@@ -16,7 +16,7 @@ type UtilitySpellStatus struct {
 }
 
 func (g *MMGame) setUtilityStatus(spellID spells.SpellID, duration int) {
-	if duration <= 0 {
+	if duration == 0 {
 		return
 	}
 	var iconToken, label string
@@ -27,6 +27,9 @@ func (g *MMGame) setUtilityStatus(spellID spells.SpellID, duration int) {
 		iconToken, label = def.StatusIcon, def.Name
 	} else if def, ok := config.GetItemDefinition(string(spellID)); ok && def.HasTimedBuff() {
 		iconToken, label = def.StatusIcon, def.Name
+	}
+	if b := config.CrateBuff(string(spellID)); b != nil {
+		iconToken, label = b.StatusIcon, b.Name
 	}
 	if iconToken == "" {
 		return
@@ -48,7 +51,7 @@ func (g *MMGame) setUtilityStatus(spellID spells.SpellID, duration int) {
 }
 
 func (g *MMGame) updateUtilityStatus(spellID spells.SpellID, duration int, active bool) {
-	if !active || duration <= 0 {
+	if !active || duration == 0 {
 		if g.utilitySpellStatuses != nil {
 			delete(g.utilitySpellStatuses, spellID)
 		}

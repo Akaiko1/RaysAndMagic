@@ -39,8 +39,7 @@ func fishWater(w *world.World3D, x, y int) bool {
 	if w == nil || world.GlobalTileManager == nil || x < 0 || y < 0 || x >= w.Width || y >= w.Height {
 		return false
 	}
-	d := world.GlobalTileManager.GetTileData(w.Tiles[y][x])
-	return d != nil && d.Type == "water"
+	return world.GlobalTileManager.IsWater(w.Tiles[y][x])
 }
 
 func (g *MMGame) fishRegionContains(key string, x, y int) bool {

@@ -19,7 +19,7 @@ func buildGauntlet(model int) []modelFace {
 		metal = [3]int{180, 112, 42}
 	}
 	box := func(c, h [3]float64, bevel, roll float64, rgb [3]int) {
-		beveledBoxFaces(c, h, bevel, roll, func(a, b, d, o [3]float64) { mesh = append(mesh, modelFace{a, b, d, o, rgb, 0}) })
+		beveledBoxFaces(c, h, bevel, roll, func(a, b, d, o [3]float64) { mesh = append(mesh, modelFace{a: a, b: b, c: d, origin: o, rgb: rgb}) })
 	}
 
 	// Elliptical sections form rounded finger joints and an open flared cuff.
@@ -27,7 +27,7 @@ func buildGauntlet(model int) []modelFace {
 	tube := func(sections []section, cy, cz float64, rgb [3]int) {
 		const sides = 12
 		emit := func(a, b, c [3]float64) {
-			mesh = append(mesh, modelFace{a, b, c, [3]float64{(a[0] + b[0] + c[0]) / 3, cy, cz}, rgb, 0})
+			mesh = append(mesh, modelFace{a: a, b: b, c: c, origin: [3]float64{(a[0] + b[0] + c[0]) / 3, cy, cz}, rgb: rgb})
 		}
 		for i := 0; i < len(sections)-1; i++ {
 			p, q := sections[i], sections[i+1]

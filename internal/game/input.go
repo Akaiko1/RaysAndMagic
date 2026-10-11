@@ -244,6 +244,8 @@ func (ih *InputHandler) handleTopModalInput() bool {
 	case modalLayerTownPortal:
 		if ih.keys.Consume(ebiten.KeyEscape) {
 			g.cancelTownPortalPicker()
+		} else if g.beaconPicker {
+			ih.handleBeaconInput()
 		}
 	case modalLayerPromotion:
 		// Not cancellable: the quest/phylactery already committed the promotion
@@ -1458,7 +1460,7 @@ func (ih *InputHandler) checkDeepWater() {
 
 	// Terrain passage and Walk on Water cross the surface without entering
 	// the underwater map. Check capabilities before water-breathing entry.
-	if ih.game.partyHasTerrainPassage() || ih.game.walkOnWaterEffective() {
+	if ih.game.partyHasTerrainPassage() || ih.game.walkOnWaterEffective() || ih.game.isFrozenWaterAt(x, y) {
 		return
 	}
 
@@ -1466,7 +1468,7 @@ func (ih *InputHandler) checkDeepWater() {
 	if ih.game.waterBreathingActive {
 		// Teleport to center of water map. The game owns arrival and autosave.
 		centerX, centerY := TileCenterFromTile(25, 25, tileSize)
-		if err := ih.game.transitionToMap(mapTransition{mapKey: "water", arrival: mapArrivalUnderwater, pose: MapPose{X: centerX, Y: centerY, Angle: ih.game.camera.Angle}}); err != nil {
+		if err := ih.game.transitionToMap(mapTransition{mapKey: underwaterMapKey, arrival: mapArrivalUnderwater, pose: MapPose{X: centerX, Y: centerY, Angle: ih.game.camera.Angle}}); err != nil {
 			ih.game.AddCombatMessage("Cannot enter the depths: " + err.Error())
 			return
 		}

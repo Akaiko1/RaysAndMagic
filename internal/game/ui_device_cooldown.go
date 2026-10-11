@@ -4,7 +4,9 @@ import (
 	"image/color"
 	"math"
 
+	"ugataima/internal/character"
 	"ugataima/internal/items"
+	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -13,7 +15,10 @@ import (
 // Reveal the square icon clockwise from twelve o'clock. The remaining sector
 // darkens the existing art; drawing never changes the item's gameplay clock.
 func drawDeviceCooldown(screen *ebiten.Image, item items.Item, x, y, size int) {
-	progress := deviceCooldownProgress(item)
+	drawIconCooldown(screen, deviceCooldownProgress(item), x, y, size)
+}
+
+func drawIconCooldown(screen *ebiten.Image, progress float64, x, y, size int) {
 	if progress >= 1 || size <= 0 {
 		return
 	}
@@ -40,4 +45,20 @@ func drawDeviceCooldown(screen *ebiten.Image, item items.Item, x, y, size int) {
 	edge(2 * math.Pi)
 	path.Close()
 	uiFillPath(screen, &path, nil, &vector.DrawPathOptions{ColorScale: statusColorScale(shade), AntiAlias: true})
+}
+
+// Spellbook and equipped spell slots read the same saved personal clock.
+func (ui *UISystem) drawSpellReuse(screen *ebiten.Image, c *character.MMCharacter, id spells.SpellID, x, y, size int) {
+	if c == nil {
+		return
+	}
+	remaining := c.SpellState.ReuseFrames[string(id)]
+	if remaining <= 0 {
+		return
+	}
+	d, err := spells.GetSpellDefinitionByID(id)
+	if err != nil || d.ReuseSeconds <= 0 {
+		return
+	}
+	drawIconCooldown(screen, 1-float64(remaining)/float64(d.ReuseSeconds*ui.game.config.GetTPS()), x, y, size)
 }

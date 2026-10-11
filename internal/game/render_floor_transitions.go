@@ -11,7 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Index-map B packs profile (bits 0-2), boundary (6), and shoreline
+// Index-map B packs profile (bits 0-2), frozen water (5), boundary (6), and shoreline
 // proximity (7); alpha stays opaque. Textures keep world-aligned UVs.
 // Byte contract shared with the Kage floor shader. Zero is deliberately hard:
 // old/untextured maps and unclassified groups retain their authored geometry.
@@ -27,6 +27,7 @@ const (
 
 const floorShoreReach = 2.0
 const floorBlendBoundary byte = 64
+const floorFrozenWater byte = 32
 const floorBlendShore byte = 128
 
 type floorMaterial struct {
@@ -180,6 +181,7 @@ func (r *Renderer) buildFloorColorMap(w, h int) {
 			}
 		}
 		r.floorColorMap, r.floorTextureIndexMap, r.floorShoreMap = nil, nil, nil
+		r.floorTextureIndexPixels, r.frozenFloorTiles = nil, nil
 		return
 	}
 	colors, indices, shore := r.prepareFloorMaps(w, h)
@@ -196,5 +198,44 @@ func (r *Renderer) buildFloorColorMap(w, h int) {
 			*pair.dst = ebiten.NewImage(pair.src.Bounds().Dx(), pair.src.Bounds().Dy())
 		}
 		(*pair.dst).WritePixels(pair.src.Pix)
+	}
+	r.floorTextureIndexPixels = indices.Pix
+	r.frozenFloorTiles = r.frozenFloorTiles[:0]
+	r.syncFrozenFloorMaterial()
+}
+
+// Ice changes only when cast, thawed, or loaded. Updating the existing material
+// map avoids another full-screen pass, per-frame world scans, and shader arrays.
+func (r *Renderer) syncFrozenFloorMaterial() {
+	if r.floorTextureIndexMap == nil || r.game == nil {
+		return
+	}
+	bounds := r.floorTextureIndexMap.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if len(r.floorTextureIndexPixels) != w*h*4 {
+		return
+	}
+	changed := len(r.frozenFloorTiles) != 0
+	for _, xy := range r.frozenFloorTiles {
+		r.floorTextureIndexPixels[(xy[1]*w+xy[0])*4+2] &^= floorFrozenWater
+	}
+	r.frozenFloorTiles = r.frozenFloorTiles[:0]
+	for _, ice := range r.game.frozenWater {
+		if ice.FramesRemaining <= 0 || !mapKeyOnCurrentWorld(ice.MapKey) {
+			continue
+		}
+		x, y := ice.X, ice.Y
+		if r.game.openWorldActive() && world.GlobalWorldManager != nil {
+			x, y = world.GlobalWorldManager.ProjectTile(ice.MapKey, x, y)
+		}
+		if x < 0 || y < 0 || x >= w || y >= h {
+			continue
+		}
+		r.floorTextureIndexPixels[(y*w+x)*4+2] |= floorFrozenWater
+		r.frozenFloorTiles = append(r.frozenFloorTiles, [2]int{x, y})
+		changed = true
+	}
+	if changed {
+		r.floorTextureIndexMap.WritePixels(r.floorTextureIndexPixels)
 	}
 }

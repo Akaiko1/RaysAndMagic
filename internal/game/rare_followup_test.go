@@ -507,20 +507,12 @@ func TestRarePathfindingAutocastAndProgression(t *testing.T) {
 	}
 }
 
-func TestRareFlowingStaffHUDGeometry(t *testing.T) {
-	for n := 0; n <= 4; n++ {
-		boxes := flowingStaffChargeRects(panelPortraitX, panelPortraitY, panelPortraitW, n)
-		if len(boxes) != n {
-			t.Fatalf("%d charges have %d glyphs", n, len(boxes))
-		}
-		badges := makePartyProgressionBadgeLayout(panelPortraitX, panelPortraitY, panelPortraitW, panelPortraitH, true, true)
-		for i, b := range boxes {
-			if b.x < panelPortraitX+panelPortraitW || b.right() >= partyPanelContentLeft || b.y < 0 || b.bottom() > badges.stat.y {
-				t.Fatal("charge icon overlaps portrait, stats or progression badges")
-			}
-			if i > 0 && boxes[i-1].bottom() > b.y {
-				t.Fatal("charges overlap")
-			}
+func TestPersonalBadgeHUDGeometry(t *testing.T) {
+	badges := makePartyProgressionBadgeLayout(panelPortraitX, panelPortraitY, panelPortraitW, panelPortraitH, true, true)
+	for row := 0; row < 4; row++ {
+		b := personalSpellBadgeRect(panelPortraitX, panelPortraitY, panelPortraitW, row)
+		if b.x < panelPortraitX+panelPortraitW || b.right() >= partyPanelContentLeft || b.y < 0 || b.bottom() > badges.stat.y {
+			t.Fatalf("personal badge %d overlaps portrait, text or progression: %+v", row, b)
 		}
 	}
 }

@@ -16,6 +16,14 @@ type modelFace struct {
 	a, b, c, origin [3]float64
 	rgb             [3]int
 	material        int
+	surface         *modelSurface
+}
+
+// Optional authored vertex normals/UVs keep curved surfaces smooth while the
+// geometric face normal still owns culling. Nil preserves faceted equipment.
+type modelSurface struct {
+	normals [3][3]float64
+	uv      [3][2]float64
 }
 
 // Compiled geometry keeps only unique vertices and outward unit normals.
@@ -29,6 +37,7 @@ type volumeMeshFace struct {
 	normal   [3]float64
 	rgb      [3]int
 	material int
+	surface  *modelSurface
 }
 type volumeMeshCache struct {
 	mu     sync.Mutex
@@ -64,7 +73,7 @@ func compileVolumeMesh(raw []modelFace) *volumeMesh {
 		if nx*(mx-f.origin[0])+ny*(my-f.origin[1])+nz*(mz-f.origin[2]) < 0 {
 			nx, ny, nz = -nx, -ny, -nz
 		}
-		face := volumeMeshFace{normal: [3]float64{nx / length, ny / length, nz / length}, rgb: f.rgb, material: f.material}
+		face := volumeMeshFace{normal: [3]float64{nx / length, ny / length, nz / length}, rgb: f.rgb, material: f.material, surface: f.surface}
 		for i, p := range [3][3]float64{a, b, c} {
 			index, ok := points[p]
 			if !ok {
@@ -101,6 +110,7 @@ type litVolumeFace struct {
 	normal   [3]float64
 	rgb      [3]int
 	material int
+	surface  *modelSurface
 }
 
 // Camera-local solids share perspective, face culling, ordering and submission.
@@ -158,7 +168,7 @@ func (r *Renderer) prepareCameraVolume(view image.Rectangle, x, y, size, alpha f
 			points[vertex].visible = true
 		}
 		order = append(order, volumeFaceOrder{mz, len(faces)})
-		faces = append(faces, litVolumeFace{f.vertices, [3]float64{nx, ny, nz}, [3]int{f.rgb[0] * tint[0] / 255, f.rgb[1] * tint[1] / 255, f.rgb[2] * tint[2] / 255}, materialBase + f.material})
+		faces = append(faces, litVolumeFace{f.vertices, [3]float64{nx, ny, nz}, [3]int{f.rgb[0] * tint[0] / 255, f.rgb[1] * tint[1] / 255, f.rgb[2] * tint[2] / 255}, materialBase + f.material, f.surface})
 	}
 
 	// Ebitengine's 2D target has no depth buffer. Sorting the visible triangles
@@ -200,11 +210,18 @@ func (r *Renderer) prepareCameraVolume(view image.Rectangle, x, y, size, alpha f
 	for _, entry := range order {
 		f := &faces[entry.index]
 		base := uint16(len(verts))
-		for _, vertex := range f.vertices {
+		for corner, vertex := range f.vertices {
 			p := points[vertex]
 			px, py := p.screenX, p.screenY
 			v := weaponMaterialVertex(px, py, p.u, p.v, f.rgb, faceAlpha)
 			v.Custom0, v.Custom1, v.Custom2, v.Custom3 = float32(f.normal[0]), float32(f.normal[1]), float32(f.normal[2]), float32(f.material)+.25
+			if s := f.surface; s != nil {
+				n := s.normals[corner]
+				v.Custom0 = float32(rotation[0][0]*n[0] + rotation[0][1]*n[1] + rotation[0][2]*n[2])
+				v.Custom1 = float32(rotation[1][0]*n[0] + rotation[1][1]*n[1] + rotation[1][2]*n[2])
+				v.Custom2 = float32(rotation[2][0]*n[0] + rotation[2][1]*n[1] + rotation[2][2]*n[2])
+				v.SrcX, v.SrcY = float32(s.uv[corner][0]), float32(s.uv[corner][1]*transform.uvY)
+			}
 			verts = append(verts, v)
 		}
 		indices = append(indices, base, base+1, base+2)

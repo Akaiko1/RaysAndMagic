@@ -151,7 +151,13 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		actual := cs.applyPartyMonsterAttack(target, attack).Total()
 		cs.markMonsterHit(target)
 		cs.spawnMonsterHitBurst(target, damageTypeStr)
-		cs.game.logCombat(logToneGood, "%s crushes %s for %s damage.", logSchoolWord(damageTypeStr, name), logMonsterName(target), logDamage(actual, damageTypeStr))
+		cs.game.reportDamage(logToneGood, damageLog{
+			Source: logSchoolWord(damageTypeStr, name),
+			Target: monsterLogTarget(target),
+			Amount: actual,
+			School: damageTypeStr,
+			Kind:   damageLogCrush,
+		})
 		if !target.IsAlive() {
 			cs.finishMonsterKill(target)
 			return

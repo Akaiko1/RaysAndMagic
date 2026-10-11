@@ -27,12 +27,12 @@ TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 T.@ARTRTA................@...............ATRTRTAAT  >[npc:chest_golden], [npc:pyramid_entrance]
 TTAA@.@..................................AA.T@TAAT  >[npc:dragon_statue_black], [npc:desert_pilgrim_sylwen], [npc:spell_lectern]
 TTAA.T.TA...................................@.TAAT  >[npc:dragon_statue_red]
-TTAA.T.TA................................AT.T.TAAT
+TT@A.T.TA................................AT.T.TA@T  >[npc:desert_buried_saddlebags], [npc:desert_buried_saddlebags]
 T................................................T
 T........n..n....................................T
 T.P......PPPP..........P.........................T
 T....n...PWW.................................PW..T
-T........PWW....P.............................P..T
+T........PWW....P@............................P..T  >[npc:desert_solar_condenser]
 T........PPPP..n....P............................T
 T.........n..............P....................@..T  >[npc:dunehold_gate]
 T................................................T
@@ -43,9 +43,9 @@ T..P..........P.......................P..........T
 T................................................T
 T................................................T
 T................................................T
-T.................................P..............T
+T.................................P@.............T  >[npc:desert_solar_condenser]
 T................................................T
-T....................AAAAAAA............@@.......T  >[npc:gladiator_gatekeeper], [npc:storage_clerk]
+T....................AAAAAAA@...........@@.......T  >[npc:desert_buried_saddlebags], [npc:gladiator_gatekeeper], [npc:storage_clerk]
 T$..................A.WWWWW@A....................T  >[npc:chest_wooden], [tile:planks]
 T$$................@.WWWWWWW............@........T  >[npc:desert_merchant], [npc:arena], [tile:planks], [tile:planks]
 T@k.....................@WW@.A...................T  >[npc:pile_of_old_boxes], [stile:rteleporter], [npc:campfire]
@@ -63,13 +63,13 @@ T..................P.............................T
 T................................................T
 T.................P@.............................T  >[npc:campfire]
 T..................................n..n..........T
-T..................P..............PPPP...........T
+T.................@P..............PPPP...........T  >[npc:desert_solar_condenser]
 T..............................n..PWW............T
 T.................................PWW............T
-T.................................PPPP..n........T
+T................................@PPPP..n........T  >[npc:desert_solar_condenser]
 T..................................n.............T
 T................................................T
 TTAA@....................................AA...TAAT  >[npc:dragon_statue_green]
 TTAA.....................................AT.@@TAAT  >[npc:dragon_statue_gold], [npc:chest_iron]
-T.@ARTRTA................................ATRTRTAAT  >[npc:chest_golden]
+T.@ARTRTA@...............................@TRTRTAAT  >[npc:chest_golden], [npc:desert_buried_saddlebags], [npc:desert_buried_saddlebags]
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT

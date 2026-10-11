@@ -71,7 +71,12 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 		cs.game.playMonsterSound(soundMonsterHit, target)
 		target.HitTintFrames = MonsterHitFlashFrames
 	}
-	cs.game.logCombat(logToneGood, "The reflected bolt hits %s for %s!", logMonsterName(target), logDamage(dealt, damageTypeStr))
+	cs.game.reportDamage(logToneGood, damageLog{
+		Source: logSchoolWord(damageTypeStr, "The reflected bolt"),
+		Target: monsterLogTarget(target),
+		Amount: dealt,
+		School: damageTypeStr,
+	})
 	if !target.IsAlive() {
 		cs.finishMonsterKill(target)
 	}
@@ -169,7 +174,12 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
 			target.HitTintFrames = MonsterHitFlashFrames
-			cs.game.addActorCombatMessage(srcMonster, target, "%s dodges, but %s lands %s true damage!", logMonsterName(target), logMonsterAs(srcMonster, sourceName), logTrueDamage(actual))
+			cs.game.reportActorDamage(srcMonster, target, damageLog{
+				Source: logMonsterAs(srcMonster, sourceName),
+				Target: monsterLogTarget(target),
+				Amount: actual,
+				Kind:   damageLogDodge,
+			})
 			if !target.IsAlive() {
 				kill()
 			}
@@ -198,7 +208,13 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 			cs.game.playMonsterSound(soundMonsterHit, target)
 		}
 		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt hits %s for %s!", logMonsterAs(srcMonster, sourceName), logMonsterName(target), logDamage(actual, packet.primarySchool()))
+		cs.game.reportActorDamage(srcMonster, target, damageLog{
+			Source: logMonsterAs(srcMonster, sourceName),
+			Target: monsterLogTarget(target),
+			Amount: actual,
+			School: packet.primarySchool(),
+			Kind:   damageLogBolt,
+		})
 	}
 	// The bolt's on-hit statuses land on a monster like on a hero.
 	if target.IsAlive() {

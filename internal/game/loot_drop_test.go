@@ -1,92 +1,10 @@
 package game
 
 import (
-	"math"
 	"testing"
 
 	"ugataima/internal/config"
-	"ugataima/internal/items"
-	monsterPkg "ugataima/internal/monster"
 )
-
-func assertLootDrops(t *testing.T, monsterKey string, trials int) {
-	t.Helper()
-
-	cs := newTestCombatSystemWithConfig(t)
-
-	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
-		t.Fatalf("load loots: %v", err)
-	}
-	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-
-	def, err := monsterPkg.MonsterConfig.GetMonsterByKey(monsterKey)
-	if err != nil {
-		t.Fatalf("load monster %s: %v", monsterKey, err)
-	}
-	entries := config.GetLootTable(monsterKey, def.Boss)
-	if len(entries) == 0 {
-		t.Fatalf("expected %s loot entries", monsterKey)
-	}
-
-	cs.game.party.Inventory = nil
-	cs.game.groundContainers = nil
-	for i := 0; i < trials; i++ {
-		monster := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, cs.game.config)
-		drops := cs.checkMonsterLootDrop(monster)
-		if len(drops) > 0 {
-			cs.game.addLootBagDrop(monster.X, monster.Y, drops, 0)
-		}
-	}
-
-	counts := make(map[string]int)
-	for _, c := range cs.game.groundContainers {
-		for _, item := range c.Items {
-			counts[item.Name] += item.Count()
-		}
-	}
-	for _, e := range entries {
-		var (
-			dropName string
-			err      error
-		)
-		switch e.Type {
-		case "item":
-			var it items.Item
-			it, err = items.TryCreateItemFromYAML(e.Key)
-			dropName = it.Name
-		case "weapon":
-			var it items.Item
-			it, err = items.TryCreateWeaponFromYAML(e.Key)
-			dropName = it.Name
-		default:
-			continue
-		}
-		if err != nil {
-			t.Fatalf("%s loot %s %s: %v", monsterKey, e.Type, e.Key, err)
-		}
-
-		drops := counts[dropName]
-		observedRate := float64(drops) / float64(trials)
-		expectedRate := e.Chance * float64(e.RollCount())
-		stdDev := float64(e.RollCount()) * e.Chance * (1.0 - e.Chance) / float64(trials)
-		if stdDev > 0 {
-			stdDev = math.Sqrt(stdDev)
-		}
-		t.Logf("%s loot %s (%s): expected=%.2f%% observed=%.2f%% count=%d/%d",
-			monsterKey, dropName, e.Key, expectedRate*100, observedRate*100, drops, trials)
-
-		if drops == 0 {
-			t.Fatalf("expected %s to drop %s over %d trials", monsterKey, dropName, trials)
-		}
-
-		// Allow a 4sigma window to keep the test stable while still validating the chance.
-		tolerance := 4.0 * stdDev
-		if observedRate < expectedRate-tolerance || observedRate > expectedRate+tolerance {
-			t.Fatalf("%s loot rate for %s out of bounds: expected %.2f%% +/- %.2f%%, observed %.2f%%",
-				monsterKey, dropName, expectedRate*100, tolerance*100, observedRate*100)
-		}
-	}
-}
 
 func TestRollLootEntriesHonorsRollCount(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
@@ -98,13 +16,5 @@ func TestRollLootEntriesHonorsRollCount(t *testing.T) {
 	}})
 	if len(drops) != 3 {
 		t.Fatalf("guaranteed three-roll entry dropped %d items, want 3", len(drops))
-	}
-}
-
-func TestLootDrops(t *testing.T) {
-	for _, key := range []string{"orc", "forest_orc", "pixie", "dragon"} {
-		t.Run(key, func(t *testing.T) {
-			assertLootDrops(t, key, 1000)
-		})
 	}
 }

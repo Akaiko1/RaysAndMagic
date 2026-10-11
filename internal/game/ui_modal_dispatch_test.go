@@ -88,9 +88,18 @@ func (h *displayedModalHarness) pointerStep() {
 }
 
 func TestDisplayedPointerGesturesReachUpdate(t *testing.T) {
-	for _, kind := range []string{"quick slot", "standalone stash", "tavern stash", "merchant"} {
+	for _, tc := range []struct {
+		kind    string
+		loading bool
+	}{
+		{"quick slot", false}, {"quick slot", true},
+		{"standalone stash", false}, {"standalone stash", true},
+		{"tavern stash", false}, {"tavern stash", true},
+		{"merchant", false}, {"merchant", true},
+	} {
+		kind := tc.kind
 		for _, outside := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/outside=%v", kind, outside), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/loading=%v/outside=%v", kind, tc.loading, outside), func(t *testing.T) {
 				h := newDisplayedModalHarness(t, 1024, 768)
 				g := h.g
 				fp := installFakePointer(t)
@@ -134,6 +143,20 @@ func TestDisplayedPointerGesturesReachUpdate(t *testing.T) {
 				fp.hold()
 				fp.moveTo(dx, dy)
 				h.pointerStep()
+				if tc.loading {
+					h.loop.renderer = &Renderer{game: g, mapRenderResourcesByMap: map[string]*mapRenderRegionResources{currentMapKey(): {}}}
+					h.loop.ensureResourceLoading()
+					t.Cleanup(h.loop.closeResourceLoading)
+					h.loop.loading.begin(time.Now())
+					// The same retirement runs when a speculative Draw misses a
+					// resource, before the next paused Update has sampled input.
+					h.loop.discardLoadingInput()
+					if err := h.loop.Update(); err != nil {
+						t.Fatal(err)
+					}
+					h.loop.closeResourceLoading()
+					h.loop.renderer = nil
+				}
 				fp.release()
 				h.pointerStep()
 				if g.dragSrc != dragNone || g.stashDragActive || g.stashDragDrop {
@@ -158,6 +181,99 @@ func TestDisplayedPointerGesturesReachUpdate(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestSpellbookDragAcrossPresentationStalls(t *testing.T) {
+	for _, scenario := range []string{"normal", "catch_up", "loading_armed", "loading_active", "loading_release", "loading_new_press", "loading_owner_changed", "loading_closed", "loading_tab_changed", "loading_resized"} {
+		t.Run(scenario, func(t *testing.T) {
+			h := newDisplayedModalHarness(t, 1024, 768)
+			g := h.g
+			g.menuOpen, g.currentTab, g.selectedChar = true, TabSpellbook, 0
+			caster := g.party.Members[0]
+			caster.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{}
+			caster.LearnSpell("firebolt")
+			g.selectedSchool, g.selectedSpell = 0, -1
+			bl := computeBookLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+			x, y := bl.cardPos(0)
+			_, slots := quickSlotRects(bl.quick.x, bl.quick.y, bl.quick.w)
+			dx, dy := slots[0].Min.X+3, slots[0].Min.Y+3
+			fp := installFakePointer(t)
+			fp.moveTo(x+bl.iconSize/2, y+bl.iconSize/2)
+			fp.press()
+			h.pointerStep()
+			if g.dragSrc != dragFromSpell || g.dragSpellID != "firebolt" {
+				t.Fatal("spellbook press did not capture the displayed spell")
+			}
+			fp.hold()
+			wantDrop := true
+			if scenario == "catch_up" {
+				for i := 0; i < 3; i++ {
+					if err := h.loop.Update(); err != nil {
+						t.Fatal(err)
+					}
+				}
+			} else if scenario != "normal" {
+				if scenario != "loading_armed" {
+					fp.moveTo(dx, dy)
+					h.pointerStep()
+				}
+				// Enter the real loading Update gate without a worker or sleeps:
+				// awaitingFrame stays set until the complete presentation returns.
+				h.loop.renderer = &Renderer{game: g, mapRenderResourcesByMap: map[string]*mapRenderRegionResources{currentMapKey(): {}}}
+				h.loop.ensureResourceLoading()
+				t.Cleanup(h.loop.closeResourceLoading)
+				h.loop.loading.begin(time.Now())
+				switch scenario {
+				case "loading_release":
+					fp.release()
+					wantDrop = false
+				case "loading_new_press":
+					fp.press()
+					wantDrop = false
+				case "loading_owner_changed":
+					g.selectedChar = 1
+					wantDrop = false
+				case "loading_closed":
+					g.menuOpen = false
+					wantDrop = false
+				case "loading_tab_changed":
+					g.currentTab = TabInventory
+					wantDrop = false
+				case "loading_resized":
+					g.config.Display.ScreenWidth++
+					wantDrop = false
+				}
+				for i := 0; i < 3; i++ {
+					if err := h.loop.Update(); err != nil {
+						t.Fatal(err)
+					}
+					if scenario == "loading_release" {
+						fp.idle()
+					} else {
+						fp.hold()
+					}
+				}
+				h.loop.closeResourceLoading()
+				h.loop.renderer = nil
+				g.menuOpen, g.selectedChar, g.currentTab = true, 0, TabSpellbook
+				g.config.Display.ScreenWidth = 1024
+			}
+			fp.moveTo(dx, dy)
+			h.pointerStep()
+			fp.release()
+			h.pointerStep()
+			got := caster.QuickSlots[0]
+			if wantDrop && (got == nil || got.SpellEffect != "firebolt") {
+				t.Fatal("held spell drag was lost across a presentation stall")
+			}
+			if !wantDrop && got != nil {
+				t.Fatal("cancelled gesture replayed a drop after loading")
+			}
+			if g.dragArmed || g.dragActive || g.dragDropAt != 0 {
+				t.Fatal("released gesture retained drag state")
+			}
+		})
 	}
 }
 

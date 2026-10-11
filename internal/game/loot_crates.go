@@ -91,6 +91,13 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 // effective-stat gain, never a base-stat write; MaxHP/MaxSP re-derive with the
 // gain granted to the current pools too).
 func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig) {
+	if b := crate.Buff; b != nil {
+		buff := TimedCombatBuff{SpellID: "crate:" + npc.Key, Frames: b.DurationSeconds * g.config.GetTPS()}
+		applyCrateBuff(&buff, b)
+		g.addCombatBuff(buff)
+		g.updateUtilityStatus(spells.SpellID(buff.SpellID), buff.Frames, true)
+		g.AddCombatMessage(b.Name + ": " + strings.Join(b.EffectLines(), "; "))
+	}
 	if crate.FreeRest {
 		g.restParty()
 		g.AddCombatMessage("The party rests by the warm fire - fully recovered!")
@@ -143,8 +150,12 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 	g.AddColoredCombatMessage(fmt.Sprintf("The %s detonates a hidden %s charge!", npc.Name, damageLabel), combatMessageOrange)
 	g.combat.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		dealt := g.combat.damagePartyMemberElement(idx, member, crate.TrapDamage, damageType, false) // a crate trap is no spell
-		g.AddCombatMessage(fmt.Sprintf("%s takes %d damage! (HP: %d/%d)",
-			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
+		g.reportDamage(logToneBad, damageLog{
+			Source: logAbility(npc.Name),
+			Target: heroLogTarget(member),
+			Amount: dealt,
+			School: damageType,
+		})
 	})
 }
 
@@ -220,6 +231,23 @@ func pickCrateRollSource(sources []config.CrateRollSource) (config.CrateRollSour
 
 func (g *MMGame) rollCrateSource(src config.CrateRollSource) crateRoll {
 	switch src.Pool {
+	case "item":
+		it, err := items.TryCreateItemFromYAML(src.ItemKey)
+		if err != nil {
+			return crateRoll{}
+		}
+		it.Quantity = max(1, src.QuantityMin)
+		if src.QuantityMax > it.Quantity {
+			it.Quantity += rand.Intn(src.QuantityMax - it.Quantity + 1)
+		}
+		return crateItemRoll(it, true)
+	case "equipment_slot":
+		keys := config.CrateEquipmentSlotKeys(src.EquipSlot, src.RarityTiers())
+		if len(keys) == 0 {
+			return crateRoll{}
+		}
+		it, err := items.TryCreateItemFromYAML(keys[rand.Intn(len(keys))])
+		return crateItemRoll(it, err == nil)
 	case "nothing":
 		return crateRoll{} // weighted empty slot - the crate held nothing this roll
 	case "map":

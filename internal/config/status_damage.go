@@ -20,7 +20,8 @@ func BurnPercent(boss bool) int {
 
 // StatusEffectsConfig holds cadence rules shared by every source of a status.
 type StatusEffectsConfig struct {
-	SlowSkipEveryTurns int `yaml:"slow_skip_every_turns"`
+	SlowSkipEveryTurns int               `yaml:"slow_skip_every_turns"`
+	ControlSaves       ControlSaveConfig `yaml:"control_saves"`
 }
 
 // SlowSkipEveryTurns is how many turn-based turns a slowed monster spends per
@@ -36,7 +37,7 @@ func (s StatusEffectsConfig) validate() error {
 	if s.SlowSkipEveryTurns < 2 {
 		return fmt.Errorf("status_effects: slow_skip_every_turns is required and must be at least 2")
 	}
-	return nil
+	return s.ControlSaves.validate()
 }
 
 func (s StatusDamageConfig) validate() error {

@@ -146,13 +146,12 @@ func (g *MMGame) confirmTownPortal(dest string) {
 		return
 	}
 	g.townPortalConfirming = caster
-	cast := g.combat.castPlayerSpell(id, def, caster, true)
+	cast := g.commitPickedSpell(caster, id, def)
 	g.townPortalConfirming = nil
 	if !cast {
 		return
 	}
 	g.menuOpen = false
-	g.consumeCharacterActionWithRTCooldown(idx, g.combat.SpellCooldownFrames(caster, id))
 	g.townPortalTeleport(dest)
 }
 
@@ -200,6 +199,22 @@ func nearestWalkableNeighbor(w *world.World3D, tileSize, px, py float64) (float6
 // into the destination list.
 func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 	g := ui.game
+	if g.allySpellSelecting {
+		ui.drawAllySpellTargeting(screen)
+		return
+	}
+	if g.identifySelecting {
+		ui.drawIdentifyTargeting(screen)
+		return
+	}
+	if g.identifiedMonster != nil {
+		ui.drawIdentifyMonster(screen)
+		return
+	}
+	if g.beaconPicker {
+		ui.drawBeaconPicker(screen)
+		return
+	}
 	dests := g.townPortalRows()
 	if len(dests) == 0 {
 		g.cancelTownPortalPicker()

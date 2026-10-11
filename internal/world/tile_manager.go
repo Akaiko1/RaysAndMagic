@@ -457,6 +457,12 @@ func (tm *TileManager) CanFlyOver(tileType TileType3D) bool {
 	return data != nil && (data.FlyOver || (data.Solid && data.Transparent))
 }
 
+// IsWater reports authored water, including walkable streams.
+func (tm *TileManager) IsWater(tile TileType3D) bool {
+	d := tm.GetTileData(tile)
+	return d != nil && d.Type == "water"
+}
+
 // IsBareFloor reports plain ground (type floor): no vegetation, props, water
 // or markers. Ecology populations spawn only here.
 func (tm *TileManager) IsBareFloor(tileType TileType3D) bool {

@@ -63,6 +63,7 @@ func (g *MMGame) applyPartyStatBonuses() {
 			continue
 		}
 		m.BuffBonuses = g.statBonuses
+		m.BonusWeaponBaseDamage = g.cardWeaponBaseDamageBonus()
 		m.BonusMaxHP = g.cardMaxHPBonus()  // Jungle Idol Card: flat party max HP
 		m.BonusRegenPct = g.cardRegenPct() // Troll Card(s): % max HP regen per tick
 		m.RecalculateMaxStatsKeepingCurrent(g.config)

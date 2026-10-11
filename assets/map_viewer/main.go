@@ -670,8 +670,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 
 	lay := v.computeLayout(m)
 
-	drawMapPanel(screen, m, lay, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
+	v.drawMapPanel(screen, m, lay)
 	v.drawOpenWorldHighlights(screen, m, lay)
+	v.drawQuestPropReservations(screen, m, lay, false)
+	v.drawMapHeader(screen, m, lay)
 	drawToolbar(screen, lay, v.brush)
 	v.drawCatalogSidebar(screen, m, lay)
 	v.drawCatalogControls(screen)
@@ -723,6 +725,7 @@ func (v *viewer) drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout
 
 	lines := []string{"TILE", fmt.Sprintf("Position: %d, %d", tileX, tileY)}
 	lines = append(lines, adventureHoverLines(m, tileX, tileY)...)
+	lines = append(lines, v.questPropHoverLines(m.Key, tileX, tileY)...)
 	for _, npc := range m.Data.NPCSpawns {
 		if npc.X != tileX || npc.Y != tileY {
 			continue
@@ -889,6 +892,11 @@ func (v *viewer) hoveredSprite(m mapInfo, lay layout) (caption, sprite string) {
 			if s := monsterSpriteForKey(spawn.MonsterKey); s != "" {
 				return spawn.MonsterKey, s
 			}
+		}
+	}
+	for _, prop := range v.questPropsForMap(m.Key)[[2]int{tileX, tileY}] {
+		if sprite := npcSpriteForKey(prop.NPC); sprite != "" {
+			return prop.NPC, sprite
 		}
 	}
 	if key := v.tileManager.GetTileKey(m.Data.Tiles[tileY][tileX]); key != "" {
@@ -1238,7 +1246,8 @@ func (v *viewer) toggleLegendCollapse(id string) {
 	v.rebuildLegend(false)
 }
 
-func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileManager, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
+func (v *viewer) drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout) {
+	tm, tileDataByKey, thumb := v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail
 	x, y, w, h := lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH
 	drawFilledRect(screen, x, y, w, h, color.RGBA{20, 20, 35, 255})
 	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{70, 70, 90, 255})
@@ -1294,17 +1303,23 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileMan
 		}
 	}
 
+	v.drawQuestPropReservations(clip, m, lay, true)
 	drawOverlays(clip, m, lay.originX, lay.originY, tileSize, thumb)
-	drawMapHeader(screen, m, x, y)
 }
 
-func drawMapHeader(screen *ebiten.Image, m mapInfo, x, y int) {
+func (v *viewer) drawMapHeader(screen *ebiten.Image, m mapInfo, l layout) {
+	x, y, w := l.mapAreaX, l.mapAreaY, l.mapAreaW
 	title := "Map Viewer"
 	if m.Config != nil {
 		title = fmt.Sprintf("%s (%s)", m.Config.Name, m.Key)
 	}
 	game.DrawPlainText(screen, title, x+12, y+8)
-	game.DrawPlainText(screen, "Left/Right (or A/D) to switch maps, Esc to quit", x+12, y+24)
+	if len(v.questPropsForMap(m.Key)) > 0 {
+		drawFilledRect(screen, x+8, y+22, min(w-16, 420), 18, color.RGBA{20, 20, 35, 255})
+		v.drawQuestPropLegend(screen, m.Key, x+12, y+24, w-24)
+	} else {
+		game.DrawPlainText(screen, "Left/Right (or A/D) to switch maps, Esc to quit", x+12, y+24)
+	}
 }
 
 // firstFrame returns the left h*h square of a horizontal animation sheet

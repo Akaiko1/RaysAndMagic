@@ -77,7 +77,7 @@ var statusVisualCatalog = []statusVisualEntry{
 	{visualDisease, "disease", "diseased", nil, heroStatusCondition(character.ConditionDiseased)},
 	{visualCurse, "curse", "cursed", nil, heroStatusCondition(character.ConditionCursed)},
 	{visualSleep, "sleep", "asleep", nil, heroStatusCondition(character.ConditionAsleep)},
-	{visualFear, "fear", "afraid", nil, heroStatusCondition(character.ConditionFear)},
+	{visualFear, "fear", "afraid", func(m *monster.Monster3D) { m.ApplyFear(statusStageFrames) }, heroStatusCondition(character.ConditionFear)},
 	{visualParalysis, "paralysis", "paralyzed", nil, heroStatusCondition(character.ConditionParalyzed)},
 	{visualStone, "stone", "stoned", nil, heroStatusCondition(character.ConditionStone)},
 }
@@ -112,6 +112,9 @@ func monsterStatusVisuals(m *monster.Monster3D, monsterTurn bool) statusVisuals 
 		v |= visualBind
 	} else if m.Pacified {
 		v |= visualCharm
+	}
+	if m.FearFramesRemaining > 0 {
+		v |= visualFear
 	}
 	if m.IsEnraged() {
 		v |= visualEnrage

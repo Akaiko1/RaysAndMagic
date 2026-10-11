@@ -225,9 +225,10 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 	if pct := strongMagicPct(caster, heal); pct != 0 {
 		t.Fatalf("a heal must not be boosted, got %d%%", pct)
 	}
-	// A spell that deals no damage gains nothing, so it pays nothing: every
-	// offensive spell without a damage path is flagged deals_no_damage, and
-	// every one that deals damage is boosted.
+	// A spell that deals no damage gains nothing, so it pays nothing: stuns are
+	// flagged deals_no_damage, control mechanics (slow, fear, berserk) have no
+	// damage at all, and every spell that deals damage is boosted.
+	// The oracle is the damage the game actually computes for the spell.
 	for key := range config.GlobalSpells.Spells {
 		def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
 		if err != nil || !def.IsOffensive() {
@@ -237,10 +238,11 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 		if pureStun && !def.DealsNoDamage {
 			t.Errorf("%s only stuns but is not marked deals_no_damage", key)
 		}
-		if got := strongMagicPct(caster, def); (got > 0) == def.DealsNoDamage {
-			t.Errorf("%s: Strong Magic %d%% with deals_no_damage=%v", key, got, def.DealsNoDamage)
+		damaging := def.DamageForMastery(0) > 0
+		if got := strongMagicPct(caster, def); (got > 0) != damaging {
+			t.Errorf("%s: Strong Magic %d%%, deals damage=%v", key, got, damaging)
 		}
-		if def.DealsNoDamage {
+		if !damaging {
 			caster.HitPoints = 100
 			cs.applyStrongMagicBurn(caster, def, 20)
 			if caster.HitPoints != 100 {

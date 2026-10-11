@@ -146,8 +146,13 @@ func (cs *CombatSystem) tryCastPartyNova(def spells.SpellDefinition, caster *cha
 		dealt := cs.applyPartyMonsterAttack(m, attack)
 		cs.markMonsterHit(m)
 		cs.spawnMonsterHitBurst(m, damageTypeStr)
-		cs.game.logCombat(logToneGood, "%s takes %s from %s! %s", logMonsterName(m), logDamage(dealt.Total(), damageTypeStr),
-			logSchoolWord(damageTypeStr, def.Name), logHP(m.HitPoints, m.MaxHitPoints))
+		cs.game.reportDamage(logToneGood, damageLog{
+			Source: logSchoolWord(damageTypeStr, def.Name),
+			Target: monsterLogTarget(m),
+			Amount: dealt.Total(),
+			School: damageTypeStr,
+			Kind:   damageLogIndirect,
+		})
 		if !m.IsAlive() {
 			cs.game.collisionSystem.UnregisterEntity(m.ID)
 			cs.finishMonsterKill(m)
@@ -180,8 +185,13 @@ func (cs *CombatSystem) tryCastPartyNova(def spells.SpellDefinition, caster *cha
 		// This is the party's own self-splash, not a hostile spell hit, so Spell
 		// Absorption cannot turn Inferno's drawback into healing.
 		dealt := cs.damagePartyMemberElement(idx, member, partySplash, damageTypeStr, false)
-		cs.game.logCombat(logToneBad, "%s is scorched for %s! %s",
-			logHeroName(member), logDamage(dealt, damageTypeStr), logHP(member.HitPoints, member.MaxHitPoints))
+		cs.game.reportDamage(logToneBad, damageLog{
+			Source: logSchoolWord(damageTypeStr, def.Name),
+			Target: heroLogTarget(member),
+			Amount: dealt,
+			School: damageTypeStr,
+			Kind:   damageLogScorch,
+		})
 		cs.game.TriggerPartyFlame(idx) // flame-particle overlay on the burned card
 	})
 	return true

@@ -1,4 +1,29 @@
 scenarios:
+  spells:
+    level: 50
+    skill_mastery: grandmaster
+    learn_school_spells: true
+    speed_target: 50
+    endurance_target: 50
+    gold: 50000
+    party:
+      - name: Lysander
+        class: sorcerer
+        schools: {fire: grandmaster, air: grandmaster, water: grandmaster, earth: grandmaster, light: grandmaster}
+        equipment: [archmage_staff, archmage_robe, feathered_headdress, cogleather_boots, haori_cloak, cogleather_gloves, belt_of_speed, kitsune_shrine_bell, onmyoji_talisman, foxfire_ofuda]
+      - name: Celestine
+        class: cleric
+        schools: {spirit: grandmaster, mind: grandmaster, body: grandmaster, light: grandmaster}
+        equipment: [lion_warhammer, elven_shield, ringmail_hauberk, ringmail_coif, ringmail_boots, isis_feather, ringmail_gloves, belt_of_speed, serpent_idol_amulet, onmyoji_talisman]
+      - name: Vaelith
+        class: sorcerer
+        schools: {fire: grandmaster, air: grandmaster, water: grandmaster, earth: grandmaster, dark: grandmaster}
+        equipment: [archmage_staff, archmage_robe, feathered_headdress, cogleather_boots, haori_cloak, cogleather_gloves, belt_of_speed, kitsune_shrine_bell, onmyoji_talisman, foxfire_ofuda]
+      - name: Elara
+        class: druid
+        schools: {fire: grandmaster, air: grandmaster, water: grandmaster, earth: grandmaster, spirit: grandmaster, mind: grandmaster, body: grandmaster}
+        equipment: [verdant_eye_scepter, padded_vest, padded_cap, padded_boots, stormfold_umbrella, padded_gloves, belt_of_speed, mirror_basin, onmyoji_talisman, rain_ward_ofuda]
+    items: [mana_potion, mana_potion, mana_potion, mana_potion, health_potion, health_potion]
   solstice:
     bench_party: seabright
     level: 20

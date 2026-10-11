@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"sort"
@@ -61,6 +62,20 @@ func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 	check := func(t *testing.T, catalog string, live func(tier int) string) {
 		t.Helper()
 		for _, line := range strings.Split(catalog, "\n") {
+			// New mechanic prose can contain a labelled duration after an
+			// earlier ladder. Compare that complete sentence at the chosen tier.
+			if colon := strings.Index(line, ": "); colon >= 0 && tierLadderPattern.MatchString(line[:colon]) {
+				ladders++
+				for tier := 0; tier < 4; tier++ {
+					expected := tierLadderPattern.ReplaceAllStringFunc(line, func(ladder string) string {
+						return strings.Split(ladder, "/")[tier]
+					})
+					if card := live(tier); !strings.Contains(card, expected) {
+						t.Fatalf("catalog prose tier %d wants %q; live card:\n%s", tier, expected, card)
+					}
+				}
+				continue
+			}
 			label, value, ok := strings.Cut(line, ": ")
 			if !ok || !tierLadderPattern.MatchString(value) {
 				continue
@@ -84,6 +99,17 @@ func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 			check(t, GetSpellTooltipRows(id, nil, nil, true).String(), func(tier int) string {
 				return GetSpellTooltipRows(id, casterAt(tier), cs, true).String()
 			})
+			// Mechanic prose is not restricted to the legacy "Label: value"
+			// layout, but every live card must still resolve its author's ladder.
+			def := config.GlobalSpells.Spells[key]
+			if def.Mechanic != nil {
+				for tier := 0; tier < 4; tier++ {
+					want := strings.ReplaceAll(def.Mechanic.SummaryText(tier), "{spell_duration}", fmt.Sprint(def.Duration))
+					if card := GetSpellTooltipRows(id, casterAt(tier), cs, true).String(); !strings.Contains(card, want) {
+						t.Fatalf("mastery %d card omits resolved mechanic %q:\n%s", tier, want, card)
+					}
+				}
+			}
 		})
 	}
 	for _, key := range trapKeys {

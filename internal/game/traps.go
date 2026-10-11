@@ -388,8 +388,12 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt int, sourceName string) {
 	cs.markMonsterHit(m)
 	cs.spawnHitSparks(m)
-	cs.game.logCombat(logToneGood, "%s takes %s damage from %s! %s",
-		logMonsterName(m), logDamage(dealt, ""), logAbility(sourceName), logHP(m.HitPoints, m.MaxHitPoints))
+	cs.game.reportDamage(logToneGood, damageLog{
+		Source: logAbility(sourceName),
+		Target: monsterLogTarget(m),
+		Amount: dealt,
+		Kind:   damageLogIndirect,
+	})
 }
 
 // finishIndirectKill handles a monster death from an autonomous source (trap,

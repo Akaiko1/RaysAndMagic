@@ -174,13 +174,27 @@ func TestRarePharmacologyCoherentSourceAndTooltip(t *testing.T) {
 
 func TestRareTechniqueAutocastTransaction(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, blocked := range []string{"none", "checkbox", "SP", "AP", "overlay", "guard"} {
+		for _, blocked := range []string{"none", "checkbox", "SP", "AP", "overlay", "guard", "stunned", "monster_phase", "focus"} {
 			t.Run(fmt.Sprintf("tb=%v/%s", tb, blocked), func(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
+				g.config.AutocastIntervalRounds = 3
 				g.selectedChar = 1
 				c.RareClass.Automatic = map[string]bool{"purify": true, "phase_veil": true, "quickening": true}
 				g.party.Members[1].Conditions = []character.Condition{character.ConditionPoisoned}
 				switch blocked {
+				case "stunned":
+					c.AddCondition(character.ConditionStunned)
+					c.StunFramesRemaining = 100
+				case "monster_phase":
+					if !tb {
+						t.Skip("RT has no monster phase")
+					}
+					g.currentTurn = 1
+				case "focus":
+					if tb {
+						t.Skip("focus applies only in RT")
+					}
+					g.focusedPartyMask = 2
 				case "checkbox":
 					c.RareClass.Automatic = nil
 				case "SP":
@@ -191,21 +205,17 @@ func TestRareTechniqueAutocastTransaction(t *testing.T) {
 				case "overlay":
 					g.menuOpen = true
 				case "guard":
-					c.RareClass.AutoFrames = 100
+					c.SpellState.AutoFrames = 100
 				}
-				ap, sp := c.ActionsRemaining, c.SpellPoints
+				ap, sp, recovery := c.ActionsRemaining, c.SpellPoints, c.RTCooldown
 				cost := g.techniqueSPCost(c, config.Technique("purify"))
 				otherAP := g.party.Members[1].ActionsRemaining
 				(&GameLoop{game: g}).updateAutomaticTechniques()
-				if blocked == "none" {
-					if g.party.Members[1].Purifiable() || c.SpellPoints != sp-cost || c.RareClass.AutoFrames != 3*g.config.GetTPS() {
+				if blocked == "none" || blocked == "AP" {
+					if g.party.Members[1].Purifiable() || c.SpellPoints != sp-cost || c.SpellState.AutoFrames != g.config.GetTPS()*9 {
 						t.Fatal("automatic cleanse not committed")
 					}
-					wantAP := ap
-					if tb {
-						wantAP--
-					}
-					if c.ActionsRemaining != wantAP || c.RTCooldown <= 0 {
+					if c.ActionsRemaining != ap || c.RTCooldown != recovery || g.spellInputCooldown != 0 || g.partyActionsUsed != 0 || g.partyTechniqueActionsUsed != 0 {
 						t.Fatal("incorrect actor action cost")
 					}
 					if g.selectedChar != 1 || g.party.Members[1].ActionsRemaining != otherAP {
@@ -557,7 +567,7 @@ func TestRareHarvestDawnSaveAndRoster(t *testing.T) {
 func TestRareSaveRealCharacterAndTurnState(t *testing.T) {
 	for _, class := range []character.CharacterClass{character.ClassAlchemist, character.ClassWayfarer} {
 		g, c := rareClassGame(t, class, true)
-		c.RareClass = character.RareClassState{KitGranted: true, Automatic: map[string]bool{"purify": true}, AutoFrames: 88, PurifyFrames: 123, FlowCharges: 3, FlowDistance: 13, Anchor: character.SpatialAnchor{MapKey: "forest", X: 50, Y: 90, Frames: 260}}
+		c.RareClass = character.RareClassState{KitGranted: true, Automatic: map[string]bool{"purify": true}, FlowCharges: 3, FlowDistance: 13, Anchor: character.SpatialAnchor{MapKey: "forest", X: 50, Y: 90, Frames: 260}}
 		key := "purify"
 		it, _ := config.TechniqueItem(key)
 		if class == character.ClassAlchemist {
@@ -880,7 +890,9 @@ func TestRareAutomaticSupportTriggers(t *testing.T) {
 					g.party.Members[1].HitPoints = 1
 				}
 				if state == "already_active" {
-					g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100})
+					d := config.Technique("quickening")
+					g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100,
+						RecoveryPct: config.TierValue(d.Power, 0), ExtraActions: config.TierValue(d.TBPower, 0)})
 				}
 				if state == "incapacitated" {
 					c.ApplyCharStun(120, 2)
@@ -1027,7 +1039,6 @@ func TestTechniqueCardsMatchTheirUse(t *testing.T) {
 					if !strings.Contains(card, fmt.Sprintf("Reuse: %ds", d.ReuseSeconds)) {
 						t.Fatalf("card lacks the %ds reuse lock:\n%s", d.ReuseSeconds, card)
 					}
-					g.party.Members[1].PoisonFramesRemaining = 100 // something for Purify to clear
 					if d.Key == "return_step" {
 						// Return needs the anchor a Fold leaves; then let space settle.
 						if !g.useTechnique(0, "fold_step", false, false) {
@@ -1038,10 +1049,7 @@ func TestTechniqueCardsMatchTheirUse(t *testing.T) {
 					if !g.useTechnique(0, d.Key, false, false) {
 						t.Fatal("use failed")
 					}
-					lock := c.RareClass.PurifyFrames
-					if d.FreeStep {
-						lock = g.spatialReuseFrames
-					}
+					lock := g.spatialReuseFrames
 					if lock != d.ReuseSeconds*tps {
 						t.Fatalf("use set a %d-frame lock, the card says %ds", lock, d.ReuseSeconds)
 					}

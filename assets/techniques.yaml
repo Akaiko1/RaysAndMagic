@@ -23,13 +23,12 @@ techniques:
     automatic: true
   - key: purify
     name: Purify
-    description: "Remove all curable afflictions from living allies and release party root. Never rouses the unconscious, heals or revives."
-    trigger: "A living ally has a removable affliction, or the party is rooted."
+    description: "Remove every affliction from living allies and free the party from root and slow. Never rouses the unconscious, heals or revives."
+    trigger: "A living ally has an affliction, or the party is rooted or slowed."
     icon: icon_technique_purify
     level: 2
     sp_cost: [12, 11, 10, 9]
     cooldown_seconds: 2
-    reuse_seconds: 6
     automatic: true
   - key: quickening
     name: Quickening

@@ -97,6 +97,8 @@ func TestValidateItemConfigRejectsIncompleteNewMechanics(t *testing.T) {
 		{"device without recharge", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1}},
 		{"device with negative range", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: -1, UseCooldownSeconds: 10}},
 		{"device behavior on potion", &ItemDefinitionConfig{Type: "consumable", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1, UseCooldownSeconds: 10}},
+		{"base damage without equipment or collection", &ItemDefinitionConfig{Type: "trinket", WeaponBaseDamageBonus: 15}},
+		{"negative card base damage", &ItemDefinitionConfig{Type: "card", WeaponBaseDamageBonus: -1}},
 		{"reflect over one hundred", &ItemDefinitionConfig{ProjectileReflectPct: 101}},
 		{"status below floor", &ItemDefinitionConfig{StatusDurationPct: MinHostileStatusDurationPct - 1}},
 		{"scale stack without cap", &ItemDefinitionConfig{ScaleStackAC: 1}},
@@ -284,6 +286,43 @@ func TestTurnBasedMouseHoldValidation(t *testing.T) {
 					t.Fatal("invalid mouse hold timing accepted")
 				}
 			})
+		}
+	}
+}
+
+// Slot pools share the existing rarity grammar, preserve explicit boss rewards,
+// and reject authored gates with no candidates before gameplay can roll them.
+func TestEquipmentSlotRarityValidation(t *testing.T) {
+	old := GlobalItems
+	t.Cleanup(func() { GlobalItems = old })
+	GlobalItems = &ItemSystemConfig{Items: map[string]*ItemDefinitionConfig{
+		"common":     {Type: "accessory", EquipSlot: "ring", Rarity: "common"},
+		"rare":       {Type: "accessory", EquipSlot: "ring", Rarity: "rare"},
+		"boss":       {Type: "accessory", EquipSlot: "ring", Rarity: "legendary", NoLoot: true},
+		"crafted":    {Type: "accessory", EquipSlot: "ring", Rarity: "unique", CraftedOnly: true},
+		"other_slot": {Type: "accessory", EquipSlot: "amulet", Rarity: "unique"},
+	}}
+	for _, tc := range []struct {
+		rarity, want string
+		valid        bool
+	}{
+		{"", "boss,common,rare", true}, {"rare", "rare", true},
+		{"common-rare", "common,rare", true}, {"rare+", "boss,rare", true},
+		{"unique", "", false}, {"ultra", "", false}, {"rare-common", "", false},
+	} {
+		src := CrateRollSource{Pool: "equipment_slot", EquipSlot: "ring", Weight: 100, Rarity: tc.rarity}
+		err := validateCrateRollSource(nil, "test_cache", 0, src)
+		if (err == nil) != tc.valid {
+			t.Fatalf("rarity=%q: %v", tc.rarity, err)
+		}
+		if !tc.valid {
+			if !strings.Contains(err.Error(), "test_cache") {
+				t.Fatal("error lost its content location", err)
+			}
+			continue
+		}
+		if got := strings.Join(CrateEquipmentSlotKeys(src.EquipSlot, src.RarityTiers()), ","); got != tc.want {
+			t.Errorf("rarity=%q: keys=%q want %q", tc.rarity, got, tc.want)
 		}
 	}
 }

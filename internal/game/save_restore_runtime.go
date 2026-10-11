@@ -97,6 +97,7 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 	g.celestialBuffSpellID = save.CelestialBuffSpellID
 	g.restoreCelestialProvidenceOwnership(save.TimedBuffSourceVersion)
 	g.persistentDamageZones = restorePersistentDamageZones(save.PersistentDamageZones, save.MapKey)
+	g.replaceFrozenWater(append([]FrozenWaterTile(nil), save.FrozenWater...))
 	g.reseedPersistentDamageZoneFieldIDs()
 	g.traps = restoreTraps(save.Traps, g.party)
 	g.waterBreathingActive = save.WaterBreathingActive
@@ -171,7 +172,8 @@ func (g *MMGame) restoreSavedEffectPresentation(wm *world.WorldManager, save *Ga
 		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
 	}
 	for _, b := range g.combatBuffs {
-		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
+		// statusDuration keeps a charge-only buff (Preservation) as "until spent".
+		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.statusDuration(), true)
 	}
 	g.syncPersistentDamageZoneStatuses()
 

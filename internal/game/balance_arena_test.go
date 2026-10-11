@@ -4,6 +4,7 @@ package game
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -360,8 +361,7 @@ func (a *balanceArena) revive() bool {
 	return false
 }
 
-// noteTechniques records the autocast techniques in effect: they announce
-// nothing, so the party's buffs and Purify's lock are what shows them.
+// noteTechniques records active buffs and successful cleansing uses.
 func (a *balanceArena) noteTechniques() {
 	g := a.g
 	for _, m := range g.party.Members {
@@ -374,9 +374,14 @@ func (a *balanceArena) noteTechniques() {
 				a.tally(m.Name, "technique:"+b.SpellID)
 			}
 		}
-		if m.RareClass.PurifyFrames > 0 && a.techSeen[m.Name+"purify"] == 0 {
-			a.techSeen[m.Name+"purify"] = 1
-			a.tally(m.Name, "technique:purify")
+		if a.techSeen[m.Name+"purify"] == 0 {
+			for _, entry := range g.combatLogHistory {
+				if strings.HasPrefix(entry.Text, m.Name+" uses Purify ") {
+					a.techSeen[m.Name+"purify"] = 1
+					a.tally(m.Name, "technique:purify")
+					break
+				}
+			}
 		}
 	}
 }

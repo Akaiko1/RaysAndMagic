@@ -6,6 +6,42 @@ frames:
   asian: assets/sprites/interface/icon_frames/icon_frame_asian.png
   boss: assets/sprites/interface/icon_frames/icon_frame_boss.png
 icons:
+  icon_spell_fire_aura: basic
+  icon_spell_haste: basic
+  icon_spell_shield: basic
+  icon_spell_acid_burst: basic
+  icon_spell_frozen_ground: basic
+  icon_spell_vvoid_beacon: basic
+  icon_spell_slow: basic
+  icon_spell_fate: basic
+  icon_spell_shared_life: basic
+  icon_spell_preservation: basic
+  icon_spell_turn_undead: basic
+  icon_spell_feeblemind: basic
+  icon_spell_berserk: basic
+  icon_spell_mass_fear: basic
+  icon_spell_identify_monster: basic
+  icon_spell_regeneration: basic
+  icon_spell_body_purify: basic
+  icon_spell_protection_from_magic: basic
+  icon_spell_flying_fist: basic
+  icon_spell_dispel_magic: basic
+  icon_spell_destroy_undead: basic
+  icon_spell_prismatic_light: basic
+  icon_spell_celestial_armor: basic
+  icon_spell_shrapmetal: basic
+  icon_spell_vampiric_weapon: basic
+  icon_spell_pain_reflection: basic
+  icon_spell_souldrinker: basic
+  icon_item_raw_amber: basic
+  icon_item_amber_talisman: basic
+  icon_item_ancient_calendar: basic
+  icon_item_personal_medical_kit: asian
+  icon_item_sakura_leaf: asian
+  icon_item_scarlet_crane_do: asian
+  icon_item_night_heron_do: asian
+  icon_item_jade_tortoise_do: asian
+  icon_item_white_fox_do: asian
   icon_weapon_duskneedle: basic
   icon_weapon_shellknocker: basic
   icon_weapon_rainfang: basic

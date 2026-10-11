@@ -72,42 +72,155 @@ item_sets:
     bonus_endurance: 20
 
 items:
+  scarlet_crane_do:
+    name: "Scarlet Crane Do"
+    type: "armor"
+    armor_category: "leather"
+    equip_slot: "armor"
+    armor_class_base: 7
+    endurance_scaling_divisor: 10
+    bonus_might: 8
+    resistances: {fire: 20}
+    description: "Crimson lacquered leather scales, brass edging and a crane crest"
+    flavor: "The crane crosses a burning field without folding its wings."
+    rarity: "legendary"
+    value: 1800
+    no_loot: true
+
+  night_heron_do:
+    name: "Night Heron Do"
+    type: "armor"
+    armor_category: "leather"
+    equip_slot: "armor"
+    armor_class_base: 6
+    endurance_scaling_divisor: 10
+    bonus_speed: 10
+    bonus_accuracy: 8
+    description: "Indigo leather lamellae with narrow shoulders and silver heron clasps"
+    flavor: "Its laces make less noise than falling rain."
+    rarity: "legendary"
+    value: 1800
+    no_loot: true
+
+  jade_tortoise_do:
+    name: "Jade Tortoise Do"
+    type: "armor"
+    armor_category: "leather"
+    equip_slot: "armor"
+    armor_class_base: 9
+    endurance_scaling_divisor: 10
+    bonus_endurance: 10
+    resistances: {earth: 20}
+    description: "Broad green leather lamellae with a tortoise-shell breastplate pattern"
+    flavor: "Patience outlasts the blade."
+    rarity: "legendary"
+    value: 1800
+    no_loot: true
+
+  white_fox_do:
+    name: "White Fox Do"
+    type: "armor"
+    armor_category: "leather"
+    equip_slot: "armor"
+    armor_class_base: 6
+    endurance_scaling_divisor: 10
+    bonus_intellect: 8
+    bonus_personality: 8
+    status_duration_pct: -20
+    description: "Ivory leather scales with red cords and a fox-shaped clasp"
+    flavor: "A curse finds few places to hold."
+    rarity: "legendary"
+    value: 1800
+    no_loot: true
+
+  raw_amber:
+    name: "Amber"
+    type: "trinket"
+    description: "Ancient resin with a fern sealed inside"
+    flavor: "A small piece of a summer that never ended."
+    rarity: "rare"
+    value: 2500
+    no_loot: true
+
+  amber_talisman:
+    name: "Amber Talisman"
+    type: "accessory"
+    equip_slot: "amulet"
+    description: "A sun-warmed amber pendant bound in bronze"
+    flavor: "Its warmth follows the weapon, whatever flame it carries."
+    weapon_base_damage_bonus: 10
+    rarity: "legendary"
+    value: 3000
+    no_loot: true
+
+  ancient_calendar:
+    name: "Ancient Calendar"
+    type: "device"
+    description: "A jade calendar whose rings recall forgotten creatures"
+    flavor: "One turn of the ring. One visitor from another hour."
+    use_action: "summon"
+    summon_distance_tiles: 2
+    use_cooldown_seconds: 300
+    rarity: "legendary"
+    value: 2500
+    no_loot: true
+
+  personal_medical_kit:
+    name: "Personal Medical Kit"
+    type: "trinket"
+    description: "A compact case of self-renewing herbal dressings"
+    flavor: "Keep it close. The stitching does the rest."
+    tooltip_usage: ["Keep in this hero's personal bag; duplicate kits do not stack"]
+    personal_inventory_regen_pct: 2
+    rarity: "legendary"
+    value: 2000
+    no_loot: true
+
+  sakura_leaf:
+    name: "Sakura Leaf"
+    type: "trinket"
+    description: "A delicate leaf gathered beneath the sacred cherry trees"
+    flavor: "Even fallen, it keeps the colour of the garden."
+    rarity: "common"
+    value: 120
+    no_loot: true
+
   moth_velvet_down:
     name: "Velvet Down"
     type: "trinket"
     description: "Soft moth down used as restorative stock in healing potions"
     rarity: "uncommon"
-    value: 45
+    value: 180
   moth_wing_dust:
     name: "Abrasive Wing Dust"
     type: "trinket"
     description: "Sharp wing scales used as the secondary material in Harm Flasks"
     rarity: "uncommon"
-    value: 45
+    value: 180
   scarab_amber_marrow:
     name: "Amber Marrow"
     type: "trinket"
     description: "Golden scarab marrow used as restorative stock in healing potions"
     rarity: "uncommon"
-    value: 45
+    value: 120
   scarab_serrated_chitin:
     name: "Serrated Chitin"
     type: "trinket"
     description: "Jagged shell fragments used as the secondary material in Harm Flasks"
     rarity: "uncommon"
-    value: 45
+    value: 120
   serpent_restorative_mucus:
     name: "Restorative Mucus"
     type: "trinket"
     description: "Cool serpent mucus used as restorative stock in healing potions"
     rarity: "uncommon"
-    value: 45
+    value: 150
   serpent_crystal_fang:
     name: "Crystal Fang"
     type: "trinket"
     description: "A brittle rain-serpent fang used as the secondary material in Harm Flasks"
     rarity: "uncommon"
-    value: 45
+    value: 150
   dusk_moth_card:
     name: "Dusk Moth Card"
     type: "card"
@@ -189,7 +302,7 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 25
+    value: 60
     no_loot: true
     harvest_sprite: "solstice_sun_resin"
   solstice_fire_ward:
@@ -287,7 +400,7 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 25
+    value: 60
     no_loot: true
     harvest_sprite: "solstice_rain_pearl"
   solstice_water_ward:
@@ -385,7 +498,7 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 25
+    value: 80
     no_loot: true
     harvest_sprite: "solstice_calendar_jade"
   solstice_earth_ward:
@@ -483,7 +596,7 @@ items:
     type: "trinket"
     description: "A material recovered from the Solstice installation."
     rarity: "common"
-    value: 25
+    value: 80
     no_loot: true
     harvest_sprite: "solstice_whisper_silk"
   solstice_air_ward:
@@ -542,7 +655,7 @@ items:
     no_loot: true
   solstice_heatshield_mantle:
     name: "Heatshield Mantle"
-    type: "armor"
+    type: "accessory"
     description: "Protective equipment from an elemental regulator."
     equip_slot: "cloak"
     armor_class_base: 0
@@ -552,7 +665,6 @@ items:
     bonus_endurance: 6
     resistances:
       fire: 25
-    armor_category: "cloth"
   solstice_ember_regulator_ring:
     name: "Ember Regulator Ring"
     type: "accessory"
@@ -747,7 +859,8 @@ items:
     value: 320
 
   padded_greaves:
-    name: "Padded Greaves"
+    name: "Padded Armguard"
+    legacy_names: ["Padded Greaves"]
     type: "armor"
     armor_category: "leather"
     description: "Buckled quilt guards strapped to the off arm"
@@ -1710,6 +1823,7 @@ items:
   kitsune_onmyoji_card:
     name: "Kitsune Onmyoji Card"
     type: "card"
+    weapon_base_damage_bonus: 15
     card_resist_bonus:
       mind: 15
       spirit: 15
@@ -2377,7 +2491,7 @@ items:
       - "Choose at a locked door"
       - "Consumed when it opens a door"
     rarity: "common"
-    value: 30
+    value: 120
     door_key: 1
 
   inlaid_key:
@@ -2830,7 +2944,7 @@ items:
     type: "trinket"
     description: "A small scrap of soft jungle fur"
     rarity: "common"
-    value: 8
+    value: 60
 
   rabbit_pelt:
     name: "Rabbit Pelt"
@@ -2853,21 +2967,21 @@ items:
     type: trinket
     description: "A glimmering scale shed by a leaping fish."
     rarity: common
-    value: 3
+    value: 5
 
   koi_scale:
     name: "Koi Scale"
     type: trinket
     description: "A glimmering scale shed by a leaping fish."
     rarity: common
-    value: 3
+    value: 5
 
   rainbow_salmon_scale:
     name: "Rainbow Salmon Scale"
     type: trinket
     description: "A glimmering scale shed by a leaping fish."
     rarity: common
-    value: 3
+    value: 5
 
 
   unbroken_headband:
@@ -2966,19 +3080,19 @@ items:
     type: trinket
     description: Dense woodland fur for restorative stock and slow-burning oil.
     rarity: common
-    value: 12
+    value: 35
   spider_silk:
     name: Spider Silk
     type: trinket
     description: Strong silken thread used to bind wounds and suspend abrasive mixtures.
     rarity: common
-    value: 18
+    value: 40
   fairy_dust:
     name: Fairy Dust
     type: trinket
     description: Golden dust whose lingering spark can restore a fallen life.
     rarity: rare
-    value: 90
+    value: 600
 
   # Alchemical reagents and distinct brewed products.
   dawnleaf:
@@ -2986,35 +3100,35 @@ items:
     type: trinket
     description: An alchemical reagent gathered in the wild.
     rarity: common
-    value: 2
+    value: 15
     harvest_sprite: alchemy_dawnleaf
   mooncap:
     name: Mooncap
     type: trinket
     description: An alchemical reagent gathered in the wild.
     rarity: common
-    value: 2
+    value: 15
     harvest_sprite: alchemy_mooncap
   bitterroot:
     name: Bitterroot
     type: trinket
     description: An alchemical reagent gathered in the wild.
     rarity: common
-    value: 2
+    value: 25
     harvest_sprite: alchemy_bitterroot
   embercap:
     name: Embercap
     type: trinket
     description: An alchemical reagent gathered in the wild.
     rarity: common
-    value: 2
+    value: 25
     harvest_sprite: alchemy_embercap
   grave_orchid:
     name: Grave Orchid
     type: trinket
     description: An alchemical reagent gathered in the wild.
     rarity: rare
-    value: 2
+    value: 300
     harvest_sprite: alchemy_grave_orchid
   brewed_health_potion:
     brew_color: [216, 54, 68]

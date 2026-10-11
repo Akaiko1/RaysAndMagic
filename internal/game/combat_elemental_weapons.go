@@ -196,5 +196,10 @@ func (cs *CombatSystem) elementalWeaponBonus(target *monster.Monster3D, amount i
 	cs.markMonsterHit(target)
 	x, y := cs.monsterVisualPos(target)
 	cs.game.createElementalAbilityImpact(x, y, school, target)
-	cs.game.logCombat(logToneGood, "%s hits %s for %s damage!", logSchoolWord(school, label), logMonsterName(target), logDamage(dealt, school))
+	cs.game.reportDamage(logToneGood, damageLog{
+		Source: logSchoolWord(school, label),
+		Target: monsterLogTarget(target),
+		Amount: dealt,
+		School: school,
+	})
 }

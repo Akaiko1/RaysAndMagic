@@ -122,3 +122,43 @@ Follow [shared verification](content-authoring.md#verification). Acquire the
 item through its intended source, equip/use/sell it as applicable, and reload a
 save. Check stack behavior, finite stock, set activation/removal, and that a
 generated pool does not accidentally include restricted rewards.
+
+## Specific cache rewards and blessings
+
+Additional `roll_sources` pools:
+
+| Pool | Required fields | Result |
+| --- | --- | --- |
+| `item` | `item: <item catalog key>` | One explicitly named item |
+| `equipment_slot` | `equip_slot: <slot>` | Random catalog equipment for that slot; optional `rarity` |
+
+`quantity_min` and `quantity_max` author an inclusive stack range where supported
+by the source. For potion caches use 1..5. A source weight is its chance per slot,
+not the quantity. Explicit item pools can grant an exclusive reward without
+adding that reward to the general catalog roll.
+
+A crate can grant a party blessing with `buff:` containing `name`, `status_icon`,
+positive `duration_seconds`, and `hp_regen_pct` and/or `mana_regen_pct` (0..100,
+at least one positive). Its icon must resolve to a shipped status sprite. The
+shared combat clock and regeneration cadence apply in RT and TB; loading derives
+power and duration limits from current YAML. Give the prop its unused/used art
+and editor/map availability; placement is a separate authoring decision.
+
+## Persistent item features
+
+- `legacy_names` accepts old display names when renaming an item. Conflicts are
+  rejected; saves normalize the item to its current definition and name.
+- `weapon_base_damage_bonus` adds to the base damage of each equipped weapon in
+  that weapon's element; author it on the applicable equipped item.
+- `personal_inventory_regen_pct` grants its personal owner regeneration while
+  carried in that hero's inventory. It uses the existing regeneration rule;
+  duplicate copies do not multiply the percentage.
+- Devices need explicit `use_action`. `jump` uses validated jump fields;
+  `summon` uses `summon_distance_tiles` and the shared random-summon path.
+  `use_cooldown_seconds` is the device's saved integer cooldown, displayed on
+  every inventory icon. Do not infer an action from `type: device` alone.
+
+For spell-bearing items, see [spell authoring](../how_to_add_a_new_spell.md).
+`autocast_interval_rounds` and `control_saves` belong to their shared gameplay
+configuration, not to copied item definitions. Reuse the cast transaction and
+its costs instead of implementing another spell path inside item use.

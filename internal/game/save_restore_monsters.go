@@ -79,13 +79,13 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					continue
 				}
 				x, y := ms.X, ms.Y
-				if sp, ok := sealedSpawn[key]; ok {
+				if sp, ok := sealedSpawn[key]; ok && !ms.QuestProgressIgnored {
 					x, y = sp[0], sp[1] // sealed boss -> back to its throne
 				}
 				m := monster.NewMonster3DFromConfig(x, y, key, g.config)
 				// Legacy saves had no home: adopt their position once. A sealed boss
 				// retains its authored throne instead of an obsolete saved anchor.
-				if _, sealed := sealedSpawn[key]; !sealed && ms.SpawnPosition != nil {
+				if _, sealed := sealedSpawn[key]; (!sealed || ms.QuestProgressIgnored) && ms.SpawnPosition != nil {
 					m.SpawnX, m.SpawnY = ms.SpawnPosition[0], ms.SpawnPosition[1]
 				}
 				adoptSavedMonsterID(m, ms.ID)
@@ -94,7 +94,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// player action on the first frame after load could damage a still-sealed
 				// boss before the flag is set. Uses the same completed-quest set as the
 				// throne snap-back above.
-				m.BossEvasive = m.IsBoss() && m.PassiveUntilQuest != "" && !completedQuests[m.PassiveUntilQuest]
+				m.BossEvasive = !ms.QuestProgressIgnored && m.IsBoss() && m.PassiveUntilQuest != "" && !completedQuests[m.PassiveUntilQuest]
 				m.BossDormant = m.BossEvasive && m.EvadeRadiusTiles == 0
 				m.HomeMap = ms.HomeMap
 				if m.HomeMap == "" {
@@ -131,6 +131,13 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				}
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
+				m.FearFramesRemaining = ms.FearFramesRemaining
+				m.SilenceFramesRemaining = max(0, ms.SilenceFramesRemaining)
+				m.SilenceImmunityFramesRemaining = max(0, ms.SilenceImmunityFramesRemaining)
+				m.BerserkFramesRemaining = ms.BerserkFramesRemaining
+				if m.FearFramesRemaining > 0 {
+					m.ApplyFear(m.FearFramesRemaining)
+				}
 				// Bind and Charm are mutually exclusive. New saves cannot contain
 				// both, but a defensive migration makes any older malformed state a
 				// bound ally rather than silently turning a card summon neutral.

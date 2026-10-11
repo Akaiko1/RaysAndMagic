@@ -160,6 +160,20 @@ func floorCellColor(q,tile vec2, material vec4, mip,texelsPerPixel,waterDistance
 	if material.b==1 {
 		base *= 1.0-0.18*(1.0-smoothstep(0.0,0.25,waterDistance))
 	}
+	if mod(floor(material.a/32.0),2.0)>0.0 {
+		// World-fixed frost and branching seams: no screen-space sliding or
+		// extra layer above actors. The normal floor depth/lighting still applies.
+		p := q*3.1
+		bend := floorNoise(p*.73)*1.8
+		branch := abs(sin(p.y*1.8-p.x*.43+bend*.8))
+		branch += smoothstep(.30,.64,floorNoise(p*.39))*.45
+		seam := min(abs(sin(p.x+p.y*.71+bend)),branch)
+		width := max(.035,texelsPerPixel/max(TexTileSize.x,1.0)*3.1)
+		crack := 1.0-smoothstep(0.0,width,seam)
+		frost := .5+.5*sin(p.x*1.7+p.y*2.3)
+		base = mix(base,vec3(.34,.65,.78),.78)
+		base += vec3(.19,.24,.25)*(crack*.8+frost*.2)
+	}
 	return base
 }
 

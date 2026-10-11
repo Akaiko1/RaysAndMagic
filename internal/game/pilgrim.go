@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
 	"math"
+	"slices"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -13,6 +14,10 @@ import (
 )
 
 func (g *MMGame) techniqueRefusal(idx int, key string) string {
+	return g.techniqueCastRefusal(idx, key, false)
+}
+
+func (g *MMGame) techniqueCastRefusal(idx int, key string, automatic bool) string {
 	d := config.Technique(key)
 	if d == nil || g.party == nil || idx < 0 || idx >= len(g.party.Members) {
 		return "Unknown technique."
@@ -20,6 +25,9 @@ func (g *MMGame) techniqueRefusal(idx int, key string) string {
 	c := g.party.Members[idx]
 	if c == nil || c.Class != character.ClassWayfarer || !c.HasSkill(character.SkillTranslocation) || !c.CanUseCombatAction() {
 		return "A capable Pilgrim is required."
+	}
+	if automatic && (!d.Automatic || !g.canAutocast(idx)) {
+		return "This Pilgrim is not ready."
 	}
 	if !g.turnBasedMode && !g.combatActorAllowed(idx) {
 		return "This Pilgrim is outside the focused party."
@@ -41,14 +49,11 @@ func (g *MMGame) techniqueRefusal(idx int, key string) string {
 		if g.spatialReuseFrames > 0 || (g.turnBasedMode && g.spatialStepThisTurn) {
 			return "Space has not settled yet."
 		}
-	} else if !g.canSpendCombatAction(idx) {
+	} else if !automatic && !g.canSpendCombatAction(idx) {
 		return "This Pilgrim is not ready."
 	}
 	if c.SpellPoints < g.techniqueSPCost(c, d) {
 		return "Not enough SP."
-	}
-	if key == "purify" && c.RareClass.PurifyFrames > 0 {
-		return "Purify is recovering."
 	}
 	if !d.FreeStep && !g.techniqueUseful(key) {
 		return "The party would not benefit."
@@ -58,7 +63,7 @@ func (g *MMGame) techniqueRefusal(idx int, key string) string {
 func (g *MMGame) techniqueUseful(key string) bool {
 	switch key {
 	case "purify":
-		if g.partyRooted() {
+		if g.partyRooted() || g.partyHinder.Slow > 0 {
 			return true
 		}
 		for _, c := range g.party.Members {
@@ -70,7 +75,7 @@ func (g *MMGame) techniqueUseful(key string) bool {
 		_, active := g.combatBuffByID(key)
 		return !active
 	case "quickening":
-		if _, active := g.combatBuffByID(key); active {
+		if _, active := g.partyTempoBuff(); active {
 			return false
 		}
 		if !g.turnBasedMode {
@@ -107,7 +112,7 @@ func (g *MMGame) techniqueCooldown(c *character.MMCharacter, d *config.Technique
 // useTechnique is the single manual/book/quick/autocast transaction. Rejection
 // spends nothing; an indexed commit never borrows the selected hero's action.
 func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) bool {
-	if reason := g.techniqueRefusal(idx, key); reason != "" {
+	if reason := g.techniqueCastRefusal(idx, key, automatic); reason != "" {
 		if announce {
 			g.AddCombatMessage(reason)
 		}
@@ -118,6 +123,7 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 	tier := c.SkillTier(character.SkillTranslocation)
 	tps := g.config.GetTPS()
 	cooldown := g.techniqueCooldown(c, d)
+	fxStart := len(g.buffFxAnims)
 	if d.FreeStep {
 		if !g.performSpatialStep(c, key, tier) {
 			if announce {
@@ -128,21 +134,11 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 	} else {
 		switch key {
 		case "purify":
-			for _, m := range g.party.Members {
-				m.Purify()
-			}
-			g.partyRoot = PartyRootState{}
-			g.partyHinder.Slow = 0
-			c.RareClass.PurifyFrames = d.ReuseSeconds * tps
+			g.purifyParty()
 		case "phase_veil", "quickening":
 			b := TimedCombatBuff{SpellID: key, Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, TechniqueTier: tier}
-			if key == "phase_veil" {
-				b.DodgePct = config.TierValue(d.Power, tier)
-			} else {
-				b.RecoveryPct = config.TierValue(d.Power, tier)
-				b.ExtraActions = config.TierValue(d.TBPower, tier)
-				b.DeferFirstTurnTick = g.turnBasedMode
-			}
+			applyTechniqueBuff(&b, d, tier)
+			b.DeferFirstTurnTick = key == "quickening"
 			g.addCombatBuff(b)
 			g.updateUtilityStatus(spells.SpellID(key), b.Frames, true)
 		}
@@ -150,21 +146,23 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 	cost := g.techniqueSPCost(c, d)
 	c.SpellPoints -= cost
 	if automatic {
-		c.RareClass.AutoFrames = 3 * tps
+		g.finishAutocast(c, fxStart)
 	}
 	mode := ""
 	if automatic {
 		mode = " automatically"
 	}
 	g.AddCombatMessage(fmt.Sprintf("%s uses %s%s (%d SP).", c.Name, d.Name, mode, cost))
-	if !d.FreeStep {
-		// Techniques spend the caster's action but never add a movement penalty.
+	if !automatic && !d.FreeStep {
+		// Manual techniques spend the caster's action but never add a movement penalty.
 		if g.turnBasedMode && g.currentTurn == 0 && c.ActionsRemaining > 0 {
 			g.partyTechniqueActionsUsed++
 		}
 		g.consumeCharacterActionWithRTCooldown(idx, cooldown)
 	}
-	g.spellInputCooldown = rtActionStagger
+	if !automatic {
+		g.spellInputCooldown = rtActionStagger
+	}
 	return true
 }
 func (g *MMGame) consumeCharacterActionWithRTCooldown(idx, cooldown int) {
@@ -211,7 +209,7 @@ func (g *MMGame) quickenRecoveryPct(c *character.MMCharacter) int {
 	if !g.isPartyMember(c) {
 		return 0
 	}
-	b, ok := g.combatBuffByID("quickening")
+	b, ok := g.partyTempoBuff()
 	if !ok {
 		return 0
 	}
@@ -224,6 +222,7 @@ func (g *MMGame) tickRareClassClocks(frames int) {
 			continue
 		}
 		c.RareClass.Tick(frames)
+		c.SpellState.Tick(frames)
 		if c.HasCondition(character.ConditionDead) || c.HasCondition(character.ConditionEradicated) {
 			c.RareClass.Anchor = character.SpatialAnchor{}
 		}
@@ -383,7 +382,79 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 	}
 	return true
 }
-func (g *MMGame) automaticTechniqueTrigger(key string) bool {
+func (g *MMGame) automaticCastDelayFrames() int {
+	return g.config.AutocastIntervalRounds * g.combatRoundFrames()
+}
+
+// canAutocast is independent of action points and recovery. Both spellbook
+// spells and Pilgrim techniques share one personal budget; old technique
+// budgets migrate into it when a save is restored.
+func (g *MMGame) canAutocast(index int) bool {
+	if g.party == nil || index < 0 || index >= len(g.party.Members) {
+		return false
+	}
+	c := g.party.Members[index]
+	if c == nil || !c.CanUseCombatAction() || c.SpellState.AutoFrames > 0 {
+		return false
+	}
+	if g.turnBasedMode {
+		return g.currentTurn == 0
+	}
+	return g.combatActorAllowed(index)
+}
+
+func (g *MMGame) finishAutocast(c *character.MMCharacter, fxStart int) {
+	c.SpellState.AutoFrames = g.automaticCastDelayFrames()
+	g.queueAutocastFx(fxStart)
+}
+
+// Spellbook autocasts use the same personal budget as class techniques.
+// They pay mana without spending an action or triggering action-only procs.
+func (g *MMGame) tryAutomaticSpell(index int) bool {
+	if !g.canAutocast(index) {
+		return false
+	}
+	c := g.party.Members[index]
+	var enabled []string
+	for id, on := range c.SpellState.Automatic {
+		if on {
+			enabled = append(enabled, id)
+		}
+	}
+	slices.Sort(enabled)
+	for _, id := range enabled {
+		d, err := spells.GetSpellDefinitionByID(spells.SpellID(id))
+		if err != nil || d.Mechanic == nil || d.Mechanic.Autocast == "" {
+			continue
+		}
+		if !characterKnowsSpellByID(c, d.ID) || c.SpellPoints < g.combat.effectiveSpellCost(c, d.SpellPointsCost) {
+			continue
+		}
+		if !g.automaticTechniqueTrigger(d.Mechanic.Autocast, d.Mechanic.RadiusTiles) {
+			continue
+		}
+		fxStart := len(g.buffFxAnims)
+		outcome := g.combat.castSpell(spellCastRequest{
+			ID: d.ID, Definition: d, Caster: c, Cost: g.combat.effectiveSpellCost(c, d.SpellPointsCost),
+			PlayerInitiated: true, Automatic: true,
+		})
+		if outcome != castCommitted {
+			continue
+		}
+		g.finishAutocast(c, fxStart)
+		return true
+	}
+	return false
+}
+
+func (g *MMGame) automaticTechniqueTrigger(key string, radius float64) bool {
+	if key == "dispel_magic" {
+		return g.techniqueUseful("purify") || g.hostileMagicNearby(radius)
+	}
+	if key == "celestial_armor" {
+		return g.advancedBuff(key) == nil && g.anyMonsterEngagingParty()
+	}
+
 	if key == "purify" {
 		return g.techniqueUseful(key)
 	}
@@ -422,13 +493,16 @@ func (gl *GameLoop) updateAutomaticTechniques() {
 		return
 	}
 	for i, c := range g.party.Members {
-		if c == nil || c.RareClass.AutoFrames > 0 {
+		if !g.canAutocast(i) {
 			continue
 		}
 		for _, key := range []string{"purify", "phase_veil", "quickening"} {
-			if c.RareClass.Automatic[key] && g.automaticTechniqueTrigger(key) && g.useTechnique(i, key, true, false) {
+			if c.RareClass.Automatic[key] && g.automaticTechniqueTrigger(key, 0) && g.useTechnique(i, key, true, false) {
 				return
 			}
+		}
+		if g.tryAutomaticSpell(i) {
+			return
 		}
 	}
 }

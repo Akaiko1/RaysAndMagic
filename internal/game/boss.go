@@ -28,7 +28,7 @@ func (cs *CombatSystem) bossDisabled(m *monsterPkg.Monster3D) bool {
 // PassiveUntilQuest gate and that quest is NOT yet completed. While evasive it
 // never attacks or chases - it only blinks away when the party closes in.
 func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
-	if m == nil || !m.IsBoss() || m.PassiveUntilQuest == "" {
+	if m == nil || !m.IsBoss() || m.QuestProgressIgnored || m.PassiveUntilQuest == "" {
 		return false
 	}
 	if cs.game.questManager == nil {
@@ -45,6 +45,10 @@ func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 // the party for aggro.
 func (cs *CombatSystem) runBossSpecials(m *monsterPkg.Monster3D, attackTick, turnBased bool) bool {
 	if m == nil || !m.IsBoss() {
+		return false
+	}
+	if m.FearFramesRemaining > 0 || m.SilenceFramesRemaining > 0 {
+		tickBossRecovery(m, turnBased)
 		return false
 	}
 	if cs.runAdventureBossAction(m, attackTick) {
@@ -102,6 +106,9 @@ func (cs *CombatSystem) bossActionTick(m *monsterPkg.Monster3D) bool {
 // melee-moment roll (attackTick) needs neither.
 func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, infernoRollDue bool) bool {
 	if m == nil || !m.IsBoss() {
+		return false
+	}
+	if m.SilenceFramesRemaining > 0 || m.FearFramesRemaining > 0 {
 		return false
 	}
 	// Latch any HP loss since last tick so the evasive blink can fire when hit.
@@ -411,8 +418,13 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 			true, // boss Inferno is a cast - absorbable
 			m,
 		)
-		cs.game.logCombat(logToneBad, "%s scorches %s for %s! %s", logSchoolWord(monsterPkg.DamageFire.String(), "Inferno"),
-			logHeroName(member), logDamage(dealt, monsterPkg.DamageFire.String()), logHP(member.HitPoints, member.MaxHitPoints))
+		cs.game.reportDamage(logToneBad, damageLog{
+			Source: logSchoolWord(monsterPkg.DamageFire.String(), "Inferno"),
+			Target: heroLogTarget(member),
+			Amount: dealt,
+			School: monsterPkg.DamageFire.String(),
+			Kind:   damageLogScorch,
+		})
 		cs.game.TriggerPartyFlame(idx)
 	})
 }

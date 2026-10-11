@@ -130,6 +130,7 @@ func (cs *CombatSystem) monsterPerfectDodges(target *monsterPkg.Monster3D, ignor
 // target and every AoE victim. Target-specific bonuses and defenses resolve
 // separately for each monster.
 type partyMonsterAttack struct {
+	VampiricPct          int
 	Packet               monsterDamagePacket
 	CriticalPacket       monsterDamagePacket
 	Critical             bool
@@ -296,11 +297,21 @@ func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, at
 		roll(max(1, 100-attack.BaseCritChance)) < bonus {
 		packet, critical = attack.CriticalPacket, true
 	}
+	beforeHP := target.HitPoints
 	parts := cs.applyMonsterDamagePacket(target, packet, cs.partyMonsterDamageOptions(attack, target))
+	settleVampiricHit(attack.Attacker, attack.VampiricPct, beforeHP-target.HitPoints)
 	if parts.Total() > 0 && (attack.IsMelee || attack.IsRanged) {
 		cs.game.playMonsterSound(soundMonsterHit, target)
 	}
 	return partyMonsterHit{Parts: parts, Critical: critical, SourceNormal: packet.normalDamage()}
+}
+
+// Drain pays only for HP actually removed, including true damage through dodge.
+func settleVampiricHit(attacker *character.MMCharacter, percent, lostHP int) {
+	if attacker == nil || attacker.HitPoints <= 0 || percent <= 0 || lostHP <= 0 {
+		return
+	}
+	attacker.HitPoints = min(attacker.MaxHitPoints, attacker.HitPoints+lostHP*percent/100)
 }
 
 // weaponDamagePreview is the source-side, unmitigated result shown by tooltips
@@ -350,6 +361,9 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 	}
 
 	party := cs != nil && cs.game != nil && cs.game.isPartyMember(char)
+	if party {
+		preview.True = cs.game.elementalDamageBuff(damagecalc.Parts{True: preview.True}, weaponDamageTypeStr(def)).True
+	}
 	resolve := func(critical bool) int {
 		damage := character.WeaponStrikeDamage(def, normal)
 		if isRanged {
@@ -360,15 +374,13 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		if party {
 			damage = cs.game.elementalDamageBuff(damagecalc.Parts{Normal: damage}, weaponDamageTypeStr(def)).Normal
 		}
+		damage += personalSpellDamageBonus(damage+preview.True, personalSpellPower(char, "fire_aura"))
 		if !isRanged {
 			damage = cs.weaponMeleeDamageAfterArmor(damage, party)
 		}
 		return damage
 	}
 	preview.Normal = resolve(false)
-	if party {
-		preview.True = cs.game.elementalDamageBuff(damagecalc.Parts{True: preview.True}, weaponDamageTypeStr(def)).True
-	}
 	preview.CriticalTotal = resolve(true) + preview.True
 	preview.Total = preview.Normal + preview.True
 	return preview

@@ -83,7 +83,7 @@ Strong Magic, criticals, and target defenses. See
 - AoE: `stun_radius_tiles` + `stun_duration_seconds`/`stun_duration_turns` (Stun/Darkness), `party_aoe_radius_tiles` (Inferno nova), `zone_radius_tiles` + `zone_tick_damage` + `zone_tick_seconds` (Hot Steam)
 - world: `water_walk`, `water_breathing`, `vision_bonus` (see note below), `awaken`
 - presentation: `message`, `status_icon` (HUD icon for active utility spells)
-- unknown fields are silently ignored by the YAML loader - typos won't error, they just do nothing
+- unknown fields are rejected by the strict YAML loader; fix typos before launch
 
 ### Vision bonus note
 The `vision_bonus` value is read for any utility spell, but the gameplay
@@ -135,3 +135,61 @@ spell's matching magic school to be open before learning it from an NPC.
 - Spell appears in spellbook or NPC trader list.
 - Casting works and shows expected effects.
 - Tooltips show the right values.
+
+## Advanced mechanics and shared timing
+
+The optional `mechanic:` block selects a registered effect, not a second spell
+implementation. `internal/config/spell_mechanics.go` owns classification and
+required fields. Add a new kind there, implement its effect through the existing
+cast transaction, and reuse its ally/offensive/party classification in consumers.
+The transaction owns mana, personal reuse and successful-cast accounting.
+
+Mastery arrays have four entries (Novice, Expert, Master, Grandmaster):
+`power_by_mastery`, `charges_by_mastery`, `duration_by_mastery` and
+`projectiles_by_mastery`. Author only fields used by that kind. Targeting uses
+`radius_tiles`, `cone_degrees` (full cone angle), `max_targets` and
+`max_hits_per_target`; execution uses `instant_kill_chance` in 0..1. Inspect a
+shipped spell of the same kind before extending one. Required projectile kinds
+must also set `is_projectile: true`.
+
+`mechanic.summary` describes the player effect; substitutions are resolved by
+`SummaryText`, including `{spell_duration}`. Keep UI wording in YAML. Mechanics
+must not charge Strong Magic HP unless they actually have a damage formula.
+
+New spell controls use one combat round = 3 seconds. Preserve separately authored
+weapon control conversions. `config.yaml`'s `control_saves` owns the resistance
+ladder and participating mechanics: Turn Undead and fear share stun diminishing
+returns; Feeblemind rolls resistance without DR. Feeblemind cannot refresh an
+active silence; `reapply_immunity_seconds` begins after silence ends and persists
+in saves.
+
+`mechanic.autocast` selects a supported shared trigger; `mechanic.technique`
+reuses a class technique's magnitude. `autocast_interval_rounds` in the shared
+technique configuration defines the personal automatic budget: automatic casts
+pay mana but no action or RT recovery, and share that budget with automatic
+class techniques. Manual casts retain normal action and recovery costs.
+
+Optional top-level `reuse_seconds` is a separate personal spell lockout, started
+only by a successful cast. It uses integer frames, advances by a combat round in
+TB, survives saves and mode changes, and is clamped to current content on load.
+It does not replace `cooldown_seconds` (hero action recovery). Spellbook and
+inventory spell icons show the same clockwise shade as reusable devices.
+
+## Additional damage and presentation fields
+
+- `damage_base` supplies a fixed base before the ordinary stat/mastery scaling.
+- `damage_source` borrows a named projectile's formula; `damage_divisor` must be
+  positive alongside it. Sources cannot chain. Do not combine these alternatives
+  with an incompatible mastery ladder or `deals_no_damage`.
+- `graphics.target_cursor` selects supported targeting presentation; it does not bypass
+  the shared reach, visibility or payment rules.
+- `graphics.world_fx` selects a registered world effect. `cast_overlay` and
+  `cast_overlay_scale` select and size the cast flourish. Sword overlays require
+  an authored `cast_overlay_weapon`, validated against the model catalog.
+- `graphics.target_flights` supplies visual-only flights for instant effects:
+  `projectile`, `palette`, `size_scale`, optional `projectile_fx`,
+  `return_to_party` and `duration_seconds`. Never apply a second damage event
+  when these rays arrive.
+
+Spell YAML decoding is strict. Unknown keys, missing required mechanic fields,
+invalid references, and malformed control-save message placeholders fail loading.

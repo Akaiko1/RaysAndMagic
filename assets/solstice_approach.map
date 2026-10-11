@@ -1,32 +1,32 @@
 GGGGGGGGGGVVVVVRRRRRRVVGGGGGGGGG
-GGGGGGGGGGV.....@.....VGGGGGGGGG  >[npc:solstice_vestibule_entrance]
+GGGGGGGGGGV@....@....@VGGGG@@@GG  >[npc:approach_calendar_disc], [npc:solstice_vestibule_entrance], [npc:approach_calendar_disc], [npc:approach_resin_growth], [npc:approach_resin_growth], [npc:approach_resin_growth]
 GGGGGGGGGGV...........VGGGGGGGGG
 GGGGGGGGGGV...........VVVVVVVVGG
-GQVVVVVVVVV..@.@.@.@.........VGG  >[npc:solstice_anchors_install_fire], [npc:solstice_anchors_install_water], [npc:solstice_anchors_install_earth], [npc:solstice_anchors_install_air]
-QQV.............@......qq....VGG  >[npc:solstice_schedule_alignment]
+GQVVVVVVVVV..@.@.@.@........@VGG  >[npc:solstice_anchors_install_fire], [npc:solstice_anchors_install_water], [npc:solstice_anchors_install_earth], [npc:solstice_anchors_install_air], [npc:approach_resin_growth]
+QQV@............@......qq....VGG  >[npc:approach_resin_growth], [npc:solstice_schedule_alignment]
 QQV.aa.........@.@...........VGG  >[npc:solstice_schedule_day_reading], [npc:solstice_schedule_night_reading]
 QQV...@..................@...VGG  >[npc:solstice_anchors_recover_fire], [npc:solstice_anchors_recover_air]
 QQV..........................VGG
 QQV........V..VVVVVVVV...@...VGG  >[npc:solstice_survey_marker_3]
-QQV........V..VQQQQQQV.......VGG
+QQV.......@V..VQQQQQQV@......VGG  >[npc:approach_resin_growth], [npc:approach_resin_growth]
 QQVVV..VVVVV..VQQQQQQVVVV..VVVGG
-QQQQV.........VQQ@QQQQQVV..VGGGG  >[npc:chest_golden]
+QQQQV.........VQQ@QQQQQV@..VGGGG  >[npc:chest_golden], [npc:approach_resin_growth]
 QQQQV...ee....VQQQQQQQQVV..VGGGG
-QQQQV.....@...VVVVVVVVVVV..VGGGG  >[npc:solstice_anchors_recover_earth]
+QQQQV.....@...VVVVVVVVVVV..VGGG@  >[npc:solstice_anchors_recover_earth], [npc:approach_calendar_disc]
 QQQQV.......@..............VGGGG  >[npc:solstice_survey_marker_2]
 QQQQV......................VGGGG
-QQQQV...@@....VVVVVVVVVVV..VGGGG  >[npc:solstice_expedition_instrument], [npc:solstice_expedition_page_1]
-QQQQV.........VQQVVVVVVVV..VGGGG
+QQQQV...@@....VVVVV@VVVVV..VGGGG  >[npc:solstice_expedition_instrument], [npc:solstice_expedition_page_1], [npc:approach_calendar_disc]
+QQQQV........@VQQVVVV@VV@..VGGGG  >[npc:approach_resin_growth], [npc:approach_resin_growth], [npc:approach_resin_growth]
 QGGVV..VVVVVVVV@@V.....VV..VGGGG  >[npc:barrel_red], [npc:barrel_red]
 GGGGV..VQQQQQQQ@QV.....VV..VVGGG  >[npc:barrel_red]
 GGGGV..VQQQ@@@QQQV.@@........VGG  >[npc:barrel_blue], [npc:barrel_blue], [npc:barrel_blue], [npc:solstice_expedition_page_2], [npc:solstice_expedition_page_3]
 VVVVV..VVVQQQQQQVV........cc.VGG
-VV.......VVVVVVVVV...........VGG
+VV@......VVVVVVVVV...........VGG  >[npc:approach_resin_growth]
 VV.....@.................@...VGG  >[npc:solstice_survey_marker_1], [npc:solstice_anchors_recover_water]
 VV..@........................VGG  >[npc:solstice_camp]
 VV.......VVVVVVVVVVVVV.......VGG
-VV..@.@..VGGGGGGGGGGGV.......VGG  >[npc:solstice_velna], [npc:solstice_tovan]
+VV..@.@..VGGGGGGGGGGGV@.....@VGG  >[npc:solstice_velna], [npc:solstice_tovan], [npc:approach_calendar_disc], [npc:approach_resin_growth]
 VV..+....VGGGGGGGGGGGVVVVVVVVVGG
-VV.@.....VGGGGGGGGGGGGGGGGGGGGGG  >[npc:solstice_approach_exit]
-VV.......VGGGGGGGGGGGGGGGGGGGGGG
+VV.@.....VGGGGGGG@GGGGGGGGGGGGGG  >[npc:solstice_approach_exit], [npc:approach_resin_growth]
+VV......@VGGGG@GGGGG@GGGGGGGGGGG  >[npc:approach_resin_growth], [npc:approach_resin_growth], [npc:approach_resin_growth]
 VVVVVVVVVVGGGGGGGGGGGGGGGGGGGGGG

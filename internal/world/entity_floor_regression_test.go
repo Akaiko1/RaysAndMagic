@@ -11,7 +11,7 @@ import (
 func TestAuthoredEntityGroundSurvivesRebuild(t *testing.T) {
 	tm := installTestTileManager(t)
 	for _, kind := range []string{"npc", "monster"} {
-		for _, key := range []string{"dragon_cliffs_bridge", "water", "dragon_cliffs_chasm_floor"} {
+		for _, key := range []string{"dragon_cliffs_bridge", "water", "forest_stream", "dragon_cliffs_chasm_floor"} {
 			t.Run(kind+"/"+key, func(t *testing.T) {
 				ground, _ := tm.GetTileTypeFromKey(key)
 				chasm, _ := tm.GetTileTypeFromKey("dragon_cliffs_chasm_floor")
@@ -93,7 +93,7 @@ func TestRemovedNPCGroundOverrides(t *testing.T) {
 	bootOpenWorldTest(t)
 	tm := GlobalTileManager
 	for _, override := range []string{"", "deep_water"} {
-		for _, donor := range []string{"forest_stream", "water", "dragon_cliffs_chasm_floor", "dragon_cliffs_bridge", "wall"} {
+		for _, donor := range []string{"forest_stream", "water", "dragon_cliffs_chasm_floor", "dragon_cliffs_bridge", "wall", "dragon_cliffs_basalt_floor"} {
 			for _, edited := range []bool{false, true} {
 				t.Run(fmt.Sprintf("override=%s/donor=%s/edited=%v", override, donor, edited), func(t *testing.T) {
 					tile, ok := tm.GetTileTypeFromKey(donor)
@@ -109,7 +109,7 @@ func TestRemovedNPCGroundOverrides(t *testing.T) {
 					}
 					md.RebuildFloors(tm, "forest")
 					want := TileEmpty
-					if donor == "forest_stream" {
+					if donor == "dragon_cliffs_basalt_floor" {
 						want = tile
 					}
 					if edited {

@@ -14,6 +14,197 @@
 # Maps sharing a biome share its palette. Placements do not change this at runtime.
 
 npcs:
+  forest_hollow_stump:
+    biomes: ["forest"]
+    name: "Hollow Stump"
+    type: "loot_crate"
+    sprite: "forest_hollow_stump"
+    visited_sprite: "forest_hollow_stump_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: small_prop
+
+  forest_hunters_bag:
+    biomes: ["forest"]
+    name: "Abandoned Hunter Bag"
+    type: "loot_crate"
+    sprite: "forest_hunters_bag"
+    visited_sprite: "forest_hunters_bag_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: small_prop
+
+  highlands_traveler_cairn:
+    biomes: ["highlands"]
+    name: "Traveller Cairn"
+    type: "loot_crate"
+    sprite: "highlands_traveler_cairn"
+    visited_sprite: "highlands_traveler_cairn_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: small_prop
+
+  highlands_mist_collector:
+    biomes: ["highlands"]
+    name: "Mist Collector"
+    type: "loot_crate"
+    sprite: "highlands_mist_collector"
+    visited_sprite: "highlands_mist_collector_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: medium_prop
+
+  cliffs_shed_scales:
+    biomes: ["dragon_cliffs"]
+    name: "Shed Dragon Hide"
+    type: "loot_crate"
+    sprite: "cliffs_shed_scales"
+    visited_sprite: "cliffs_shed_scales_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: tiny_prop
+
+  cliffs_scorched_pack:
+    biomes: ["dragon_cliffs"]
+    name: "Scorched Adventurer Pack"
+    type: "loot_crate"
+    sprite: "cliffs_scorched_pack"
+    visited_sprite: "cliffs_scorched_pack_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: small_prop
+
+  desert_buried_saddlebags:
+    biomes: ["desert"]
+    name: "Buried Saddlebags"
+    type: "loot_crate"
+    sprite: "desert_buried_saddlebags"
+    visited_sprite: "desert_buried_saddlebags_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: small_prop
+
+  desert_solar_condenser:
+    biomes: ["desert"]
+    name: "Solar Condenser"
+    type: "loot_crate"
+    sprite: "desert_solar_condenser"
+    visited_sprite: "desert_solar_condenser_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: medium_prop
+
+  jungle_pitcher_plant:
+    biomes: ["jungle"]
+    name: "Giant Pitcher Plant"
+    type: "loot_crate"
+    sprite: "jungle_pitcher_plant"
+    visited_sprite: "jungle_pitcher_plant_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: medium_prop
+
+  jungle_silk_cocoon:
+    biomes: ["jungle"]
+    name: "Silk-Wrapped Cache"
+    type: "loot_crate"
+    sprite: "jungle_silk_cocoon"
+    visited_sprite: "jungle_silk_cocoon_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: small_prop
+
+  approach_resin_growth:
+    biomes: ["jungle"]
+    name: "Ancient Resin Growth"
+    type: "loot_crate"
+    sprite: "approach_resin_growth"
+    visited_sprite: "approach_resin_growth_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: small_prop
+
+  approach_calendar_disc:
+    biomes: ["jungle"]
+    name: "Broken Calendar Disc"
+    type: "loot_crate"
+    sprite: "approach_calendar_disc"
+    visited_sprite: "approach_calendar_disc_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: tiny_prop
+
+  castle_medicine_cabinet:
+    biomes: ["japanese_castle"]
+    name: "Lacquered Medicine Cabinet"
+    type: "loot_crate"
+    sprite: "castle_medicine_cabinet"
+    visited_sprite: "castle_medicine_cabinet_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: small_prop
+
+  castle_armor_stand:
+    biomes: ["japanese_castle"]
+    name: "Samurai Armor Stand"
+    type: "loot_crate"
+    sprite: "castle_armor_stand"
+    visited_sprite: "castle_armor_stand_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: medium_prop
+
+  sakura_offering_bundle:
+    biomes: ["sakura_garden"]
+    name: "Offering Bundle"
+    type: "loot_crate"
+    sprite: "sakura_offering_bundle"
+    visited_sprite: "sakura_offering_bundle_used"
+    render_category: scenery
+    prompt_verb: search
+    transparent: true
+    no_spin: true
+    size_class: tiny_prop
+
+  sakura_collectible_leaves:
+    biomes: ["sakura_garden"]
+    name: "Fallen Sakura Leaves"
+    type: "loot_crate"
+    sprite: "sakura_fallen_petals"
+    render_category: scenery
+    prompt_verb: gather
+    transparent: true
+    size_class: tiny_prop
+    hide_when_visited: true
+
   thieves_guild:
     biomes: [forest, desert, highlands, dragon_cliffs, jungle, japanese_castle, sakura_garden]
     name: "Thieves' Guild"
@@ -562,7 +753,7 @@ npcs:
     sell_available: true
     shop_dialogue: true
     requires_quest: "solstice_expedition"
-    stock_refresh_weeks: 0
+    stock_refresh_weeks: 1
     inventory: [{"type": "item", "name": "Translocator", "cost": 25000, "quantity": 1}, {"type": "item", "name": "Heat Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Flow Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Anchor Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Vector Draught", "cost": 500, "quantity": 4}, {"type": "item", "name": "Mana Potion", "cost": 70, "quantity": 2}]
     dialogue:
       quest_greeting: "Recover the expedition instrument and pages for Velna first. Until then these supplies belong to the missing surveyors."
@@ -765,6 +956,7 @@ npcs:
           action: "leave"
   # Example of other NPC types for future expansion
   merchant_general:
+    stock_refresh_weeks: 1
     shop_display: merchant_display_supplies
     biomes: []
     name: "Trader Aelwen"
@@ -2459,11 +2651,19 @@ npcs:
       hour_of_power: { cost: 12000 }
       day_of_the_gods: { cost: 16000 }
       resurrect: { cost: 20000 }
+      dispel_magic: { cost: 16000 }
+      destroy_undead: { cost: 14000 }
+      prismatic_light: { cost: 18000 }
+      celestial_armor: { cost: 18000 }
       # Dark
       darkbolt: { cost: 10000 }
       bind_undead: { cost: 12000 }
       darkness: { cost: 16000 }
       disintegrate: { cost: 22000 }
+      shrapmetal: { cost: 14000 }
+      vampiric_weapon: { cost: 16000 }
+      pain_reflection: { cost: 18000 }
+      souldrinker: { cost: 22000 }
 
   # Overworld entrances show each complete town, matching Seabright's
   # city_exterior landmark. The gate-only art remains inside each town.
@@ -2556,6 +2756,7 @@ npcs:
   # the arena points shop + champions' board as dialog tabs (shared &arena_shop
   # block with the duel master inside).
   gladiator_gatekeeper:
+    stock_refresh_weeks: 1
     shop_display: merchant_display_armory
     biomes: ["desert"]
     name: "Arena Gatekeeper"
@@ -2600,7 +2801,7 @@ npcs:
         cost: 1500
         quantity: -1
       - type: "item"
-        name: "Padded Greaves"
+        name: "Padded Armguard"
         cost: 1500
         quantity: -1
       - type: "item"
@@ -2714,6 +2915,7 @@ npcs:
   # start_arena_duel picks the difficulty; the champion is rolled randomly from
   # the registry. Each tier can be challenged once per day (resets at sunrise).
   arena_duel_master:
+    stock_refresh_weeks: 1
     shop_display: merchant_display_armory
     biomes: ["arena"]
     name: "Arena Duel Master"
@@ -2985,7 +3187,36 @@ npcs:
     size_class: medium_prop
     hide_when_visited: true
     lectern:
-      pool: [fly, town_portal, fire_shield, stone_blossom, firewall, jump, earthquake, summon_ice_elemental]
+      pool: [fly, town_portal, fire_shield, stone_blossom, firewall, jump, earthquake, summon_ice_elemental, fire_aura, haste, shield, acid_burst, frozen_ground, vvoid_beacon, slow]
+
+  # Editor-only lecterns: define placement explicitly; never inject into maps.
+  spell_lectern_cleric:
+    biomes: []
+    name: "Advanced Cleric Tome"
+    type: "spell_lectern"
+    description: "A chained volume of advanced Spirit, Mind and Body magic"
+    sprite: "spell_lectern_cleric"
+    render_category: scenery
+    prompt_verb: study
+    transparent: true
+    size_class: medium_prop
+    hide_when_visited: true
+    lectern:
+      pool: [fate, shared_life, preservation, turn_undead, feeblemind, berserk, mass_fear, identify_monster, regeneration, body_purify, protection_from_magic, flying_fist]
+
+  spell_lectern_light_dark:
+    biomes: []
+    name: "Tome of Light and Dark"
+    type: "spell_lectern"
+    description: "Two opposing scripts share the pages of an ancient chained volume"
+    sprite: "spell_lectern_light_dark"
+    render_category: scenery
+    prompt_verb: study
+    transparent: true
+    size_class: medium_prop
+    hide_when_visited: true
+    lectern:
+      pool: [dispel_magic, destroy_undead, prismatic_light, celestial_armor, shrapmetal, vampiric_weapon, pain_reflection, souldrinker]
 
   arena_bones:
     biomes: ["arena"]
@@ -3138,6 +3369,7 @@ npcs:
 
   # Floor 1 trader: pays in gear for the hands the tower's horrors drop.
   clockmaker:
+    stock_refresh_weeks: 1
     shop_display: merchant_display_armory
     biomes: ["clock_tower_workshop"]
     name: "Odile the Clockmaker"

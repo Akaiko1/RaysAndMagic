@@ -71,6 +71,13 @@ func (d *ItemDefinitionConfig) ScalingStatBonusLines() []string {
 // two can never drift (tooltip parity contract).
 func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	var lines []string
+	if d.WeaponBaseDamageBonus > 0 && d.Type != "card" {
+		lines = append(lines, uitext.Text("item.weapon_base_bonus", d.WeaponBaseDamageBonus))
+	}
+	if d.PersonalInventoryRegenPct > 0 {
+		lines = append(lines, uitext.Text("item.carried_regeneration", d.PersonalInventoryRegenPct))
+	}
+
 	if len(d.AllowedClasses) > 0 {
 		names := make([]string, len(d.AllowedClasses))
 		for i, key := range d.AllowedClasses {
@@ -235,7 +242,7 @@ func (d *ItemDefinitionConfig) behaviorLines() []string {
 }
 
 // CardCollectionLines is what a monster card does while it is in the
-// collection, one effect per line; a card with no Card* field yet says so.
+// collection, one effect per line; a card with no supported effect yet says so.
 // Every card view (bag, shop, collector, Cards tab, editor) shows this list.
 func (d *ItemDefinitionConfig) CardCollectionLines() []string {
 	if lines := d.CardEffectLines(); len(lines) > 0 {
@@ -351,11 +358,14 @@ func EquipmentSetLines(setKey string) []string {
 }
 
 // CardEffectLines is the SINGLE SOURCE of a monster card's collection-effect
-// text, derived from its Card* fields. Shared by the item tooltip (via
+// text, derived from its card fields and shared item modifiers. Used by the item tooltip (via
 // SpecialEffectLines), the card collector dialog, and the Cards menu tab. ASCII only -
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string
+	if d.WeaponBaseDamageBonus > 0 {
+		p = append(p, uitext.Text("item.party_weapon_base_bonus", d.WeaponBaseDamageBonus))
+	}
 	if d.CardDodgeChargePct > 0 {
 		p = append(p, uitext.Text("item.dodge_charge", d.CardDodgeChargePct, d.CardDodgeChargeLimit))
 	}

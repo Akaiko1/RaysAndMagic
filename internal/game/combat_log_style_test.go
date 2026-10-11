@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/damage"
 	"ugataima/internal/monster"
 )
@@ -271,7 +272,7 @@ func TestLogLinesCarryTheirTone(t *testing.T) {
 	fight := func(attacker, target *monster.Monster3D) func(t *testing.T) *MMGame {
 		return func(t *testing.T) *MMGame {
 			g := bare()
-			g.addActorCombatMessage(attacker, target, "%s strikes %s for %s!", logMonsterName(attacker), logMonsterName(target), logDamage(9, "physical"))
+			g.reportActorDamage(attacker, target, damageLog{Source: logMonsterName(attacker), Target: monsterLogTarget(target), Amount: 9, School: "physical", Kind: damageLogStrike})
 			return g
 		}
 	}
@@ -280,9 +281,9 @@ func TestLogLinesCarryTheirTone(t *testing.T) {
 		text string
 		tone logTone
 	}{
-		"ally strikes": {fight(ally, foe), "Wolf strikes Ocelot for 9!", logToneGood},
-		"ally struck":  {fight(foe, ally), "Ocelot strikes Wolf for 9!", logToneBad},
-		"two foes":     {fight(foe, rival), "Ocelot strikes Kappa for 9!", logToneNone},
+		"ally strikes": {fight(ally, foe), "Wolf strikes Ocelot for 9! (HP: 0/0)", logToneGood},
+		"ally struck":  {fight(foe, ally), "Ocelot strikes Wolf for 9! (HP: 0/0)", logToneBad},
+		"two foes":     {fight(foe, rival), "Ocelot strikes Kappa for 9! (HP: 0/0)", logToneNone},
 		"level-up": {func(t *testing.T) *MMGame {
 			g := bare()
 			hero := character.CreateCharacter("Mara", character.ClassKnight, cfg)
@@ -306,5 +307,65 @@ func TestLogLinesCarryTheirTone(t *testing.T) {
 				t.Errorf("logged %q with tone %d, want %q with tone %d", e.Text, e.Tone, tc.text, tc.tone)
 			}
 		})
+	}
+}
+
+// Sequential production hits must log their own resolved amount and HP, not
+// the initial raw amount or the final HP after all follow-up damage.
+func TestDamageReportsCaptureResolvedHits(t *testing.T) {
+	g, hero := newThiefTestGame(t)
+	g.party.Members = []*character.MMCharacter{hero}
+	isolateTrueDamageMember(hero, 0)
+	hero.HitPoints, hero.MaxHitPoints = 1000, 1000
+	m := spawnTestMonsterAt(g, 2, 1)
+	m.HitPoints, m.MaxHitPoints, m.ArmorClass, m.PerfectDodge = 1000, 1000, 0, 0
+	m.Name = "Dummy"
+	m.Resistances = map[monster.DamageType]int{monster.DamageFire: 50}
+	g.combatLogHistory = nil
+	g.combat.elementalWeaponBonus(m, 100, "fire", "Flame")
+	g.combat.applyTrapDamage(m, 40, "fire", "Fire Trap")
+	g.damageEnvironment(config.EnvironmentEffect{Name: "Heat", School: "physical", Damage: 30}, 1)
+	var hits []string
+	for _, line := range g.combatLogHistory {
+		if strings.Contains(line.Text, "(HP:") {
+			hits = append(hits, line.Text)
+		}
+	}
+	want := []string{
+		"Flame hits Dummy for 50 damage! (HP: 950/1000)",
+		"Dummy takes 20 damage from Fire Trap! (HP: 930/1000)",
+		"Heat hits " + hero.Name + " for 30 damage! (HP: 970/1000)",
+	}
+	if strings.Join(hits, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("hit reports %q, want %q", hits, want)
+	}
+	if m.HitPoints != 930 || hero.HitPoints != 970 {
+		t.Fatalf("reporting changed HP: monster=%d hero=%d", m.HitPoints, hero.HitPoints)
+	}
+}
+
+// HP costs identify the payer; dodge-through damage retains its distinct
+// wording; critical overkill reports the packet total and zero remaining HP.
+func TestDamageReportSpecialEvents(t *testing.T) {
+	hero := &character.MMCharacter{Name: "Mara", HitPoints: 80, MaxHitPoints: 100}
+	foe := &monster.Monster3D{Name: "Ogre", MaxHitPoints: 100}
+	for _, tc := range []struct {
+		report damageLog
+		want   string
+	}{
+		{damageLog{Source: logHeroName(hero), Target: monsterLogTarget(foe), Amount: 120, School: "fire", Critical: true},
+			"Critical! Mara hits Ogre for 120 damage! (HP: 0/100)"},
+		{damageLog{Source: logHeroName(hero), Target: monsterLogTarget(foe), Amount: 20, Kind: damageLogDodge},
+			"Ogre dodges, but Mara lands 20 true damage! (HP: 0/100)"},
+		{damageLog{Source: logHeroText("Nyra"), Target: heroLogTarget(hero), Amount: 20, Kind: damageLogSacrifice},
+			"Mara sacrifices 20 HP to protect Nyra! (HP: 80/100)"},
+		{damageLog{Target: heroLogTarget(hero), Amount: 20, Kind: damageLogBurnCost},
+			"Mara's Strong Magic burns 20 HP for power! (HP: 80/100)"},
+	} {
+		g := &MMGame{}
+		g.reportDamage(logToneGood, tc.report)
+		if got := g.combatLogHistory[0].Text; got != tc.want {
+			t.Errorf("got %q, want %q", got, tc.want)
+		}
 	}
 }

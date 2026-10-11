@@ -615,6 +615,66 @@ func TestSpellLectern(t *testing.T) {
 	}
 }
 
+// Advanced lecterns teach from the same catalog as schools and promotions.
+func TestAdvancedLecternAcquisition(t *testing.T) {
+	g := crateTestGame(t)
+	for _, tc := range []struct {
+		key     string
+		schools []character.MagicSchoolID
+	}{
+		{"spell_lectern", []character.MagicSchoolID{character.MagicSchoolFire, character.MagicSchoolAir, character.MagicSchoolWater, character.MagicSchoolEarth}},
+		{"spell_lectern_cleric", []character.MagicSchoolID{character.MagicSchoolSpirit, character.MagicSchoolMind, character.MagicSchoolBody}},
+		{"spell_lectern_light_dark", []character.MagicSchoolID{character.MagicSchoolLight, character.MagicSchoolDark}},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			for _, member := range g.party.Members {
+				member.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{}
+			}
+			lectern := spawnCrate(t, g, tc.key, g.camera.X+64, g.camera.Y)
+			for _, id := range lectern.Lectern.Pool {
+				def, ok := config.GetSpellDefinition(id)
+				if !ok || !slices.Contains(tc.schools, character.MagicSchoolID(def.School)) {
+					t.Fatalf("%s contains a spell outside its schools: %s", tc.key, id)
+				}
+			}
+			g.useSpellLectern(lectern)
+			if lectern.Visited {
+				t.Fatal("unreadable advanced tome was consumed")
+			}
+			reader := g.party.Members[0]
+			for _, school := range tc.schools {
+				reader.MagicSchools[school] = &character.MagicSkill{}
+			}
+			for _, school := range tc.schools {
+				for _, key := range config.GetSpellsBySchool(string(school)) {
+					def, _ := config.GetSpellDefinition(key)
+					if def.Mechanic != nil && !slices.Contains(lectern.Lectern.Pool, key) {
+						t.Errorf("advanced tome omitted %s", key)
+					}
+				}
+			}
+			g.useSpellLectern(lectern)
+			learned := 0
+			for _, id := range lectern.Lectern.Pool {
+				if reader.KnowsSpell(spells.SpellID(id)) {
+					learned++
+				}
+			}
+			if !lectern.Visited || learned != 1 {
+				t.Fatalf("tome visited=%v, taught %d spells; want exactly one", lectern.Visited, learned)
+			}
+		})
+	}
+	merchant := character.NPCConfigInstance.NPCs["nomad_city_spells"]
+	for _, school := range []string{"light", "dark"} {
+		for _, key := range config.GetSpellsBySchool(school) {
+			if merchant.Spells[key] == nil {
+				t.Errorf("desert spell trader omitted %s", key)
+			}
+		}
+	}
+}
+
 // The lake-chest contract: a crate standing on deep water opens across water
 // (water tiles are transparent, so the LOS gate passes) while a wall on the
 // same ray still refuses the interaction.

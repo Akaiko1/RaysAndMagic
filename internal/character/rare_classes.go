@@ -16,8 +16,7 @@ type RareClassState struct {
 	FlowDistance float64         `json:"flow_distance,omitempty"`
 	KitGranted   bool            `json:"kit_granted,omitempty"`
 	Automatic    map[string]bool `json:"automatic,omitempty"`
-	AutoFrames   int             `json:"auto_frames,omitempty"`
-	PurifyFrames int             `json:"purify_frames,omitempty"`
+	AutoFrames   int             `json:"auto_frames,omitempty"` // Legacy input, migrated to SpellState on load.
 	FlowFrames   int             `json:"flow_frames,omitempty"` // Legacy save field; migrated to one persistent charge on load.
 	FlowCharges  int             `json:"flow_charges,omitempty"`
 	Anchor       SpatialAnchor   `json:"anchor,omitempty"`
@@ -36,8 +35,6 @@ func (r RareClassState) Clone() RareClassState {
 }
 
 func (r *RareClassState) Tick(frames int) {
-	r.AutoFrames = max(0, r.AutoFrames-frames)
-	r.PurifyFrames = max(0, r.PurifyFrames-frames)
 	r.Anchor.Frames = max(0, r.Anchor.Frames-frames)
 	if r.Anchor.Frames == 0 {
 		r.Anchor = SpatialAnchor{}
@@ -226,12 +223,16 @@ func (c *MMCharacter) Purifiable() bool {
 	}
 	return false
 }
+
+// purifiableCondition is every condition except death, unconsciousness and
+// eradication, which need revival rather than a cleanse. A new affliction is
+// purifiable without being listed here.
 func purifiableCondition(c Condition) bool {
 	switch c {
-	case ConditionPoisoned, ConditionDiseased, ConditionCursed, ConditionAsleep, ConditionFear, ConditionParalyzed, ConditionStone, ConditionBurning, ConditionStunned:
-		return true
+	case ConditionNormal, ConditionUnconscious, ConditionDead, ConditionEradicated:
+		return false
 	}
-	return false
+	return true
 }
 
 // Purify clears afflictions and their clocks, preserving HP/SP and unconsciousness.

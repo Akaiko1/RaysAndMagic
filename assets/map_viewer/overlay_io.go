@@ -388,7 +388,7 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 	}
 	if questsNext != nil {
 		d.questsBase = questsNext
-		v.overlay.questDefs = nil
+		v.setEditorQuestDefs(nil)
 	}
 	m.Config.RespawnDays = d.state.RespawnDays
 	m.Config.Adventure = overlayClone(&d.state.Adventure)

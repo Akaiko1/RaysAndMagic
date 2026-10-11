@@ -212,6 +212,8 @@ func (r *Renderer) collectWorldModels() {
 	m.order, m.nextFace = m.order[:0], 0
 	r.collectTrapModels()
 	r.collectPropModels()
+	r.collectGlacierModels()
+	r.collectSunPyres()
 	if len(m.faces) > 0 {
 		r.prepareWorldMaterial()
 	}
@@ -371,6 +373,9 @@ func (b *worldModelBuilder) projectTriangle(face *worldModelTriangle) {
 			// large enough to retain precision before the shader subtracts it.
 			vertex := weaponMaterialVertex(sx, sy, p.u*q*1024, p.v*q*1024, face.rgb, face.alpha*b.alpha)
 			vertex.Custom0, vertex.Custom1, vertex.Custom2, vertex.Custom3 = float32(shade), float32(spec), float32(q), float32(face.material)+.25
+			if face.material == worldSunPyre {
+				vertex.Custom0 = float32(b.progress)
+			}
 			if face.material == worldFlame {
 				vertex.Custom0 = float32(p.height / b.ts * q)
 				vertex.Custom1 = float32(face.alpha)

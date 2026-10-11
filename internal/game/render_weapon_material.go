@@ -233,15 +233,14 @@ func (r *Renderer) drawWeaponCharge(dst *ebiten.Image, x, y, size, dx, dy float6
 	// Both projections retain a round charged core. Only lateral shots trail.
 	if math.Hypot(dx, dy) > .01 {
 		nx, ny := projectilePerpendicular(dx, dy)
-		for strand := 0; strand < 2; strand++ {
-			lastX, lastY := x, y
-			for k := 1; k <= 12; k++ {
-				t := float64(k) / 12
-				off := math.Sin(t*5-phase*4+float64(strand)*math.Pi) * size * t * .55
-				px, py := x-dx*size*t*3+nx*off, y-dy*size*t*3+ny*off
-				r.weaponFxSegment(dst, lastX, lastY, px, py, size*.12*(1-t)+.6, rgb, alpha*(1-t)*.65, additiveGlowBlend)
-				lastX, lastY = px, py
-			}
+		// One projectile has one continuous wake, never two crossing strands.
+		lastX, lastY := x, y
+		for k := 1; k <= 12; k++ {
+			t := float64(k) / 12
+			off := math.Sin(t*5-phase*4) * size * t * .55
+			px, py := x-dx*size*t*3+nx*off, y-dy*size*t*3+ny*off
+			r.weaponFxSegment(dst, lastX, lastY, px, py, size*.12*(1-t)+.6, rgb, alpha*(1-t)*.65, additiveGlowBlend)
+			lastX, lastY = px, py
 		}
 	}
 	for i, p := range [4][2]float64{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {

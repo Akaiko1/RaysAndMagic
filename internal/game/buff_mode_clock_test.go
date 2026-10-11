@@ -14,7 +14,7 @@ import (
 // Every party buff family crosses RT, TB idle/initial/resolved turns, mode
 // switching and a serialized remainder. Legacy CombatClock=false is deliberate.
 func TestPartyBuffModeClockAndSave(t *testing.T) {
-	for _, kind := range []string{"heroism", "flame_ward_draught", "solstice_fire_advanced_ward", "bless", "torch_light", "wizard_eye", "walk_on_water", "fly", "water_breathing"} {
+	for _, kind := range []string{"crate:highlands_mist_collector", "crate:desert_solar_condenser", "heroism", "flame_ward_draught", "solstice_fire_advanced_ward", "bless", "torch_light", "wizard_eye", "walk_on_water", "fly", "water_breathing"} {
 		t.Run(kind, func(t *testing.T) {
 			cfg := loadTestConfig(t)
 			g := newTestGame(cfg, newTestWorldSized(cfg, 12, 12))
@@ -25,6 +25,12 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			duration := TurnBasedPeriodicEffectSeconds*cfg.GetTPS() + 17
 			expired := 0
 			switch kind {
+			case "crate:highlands_mist_collector", "crate:desert_solar_condenser":
+				if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+					t.Fatal(err)
+				}
+				d := config.CrateBuff(kind)
+				g.addCombatBuff(TimedCombatBuff{SpellID: kind, Frames: duration, HPRegenPct: d.HPRegenPct, ManaRegenPct: d.ManaRegenPct})
 			case "heroism":
 				g.addCombatBuff(TimedCombatBuff{SpellID: kind, Frames: duration, OutBonus: 10})
 			case "flame_ward_draught", "solstice_fire_advanced_ward":
@@ -122,7 +128,7 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			if _, ok := g.utilitySpellStatuses[spells.SpellID(kind)]; ok {
 				t.Fatal("expired HUD remains")
 			}
-			if kind != "heroism" && kind != "flame_ward_draught" && kind != "solstice_fire_advanced_ward" && kind != "bless" && expired != 1 {
+			if config.CrateBuff(kind) == nil && kind != "heroism" && kind != "flame_ward_draught" && kind != "solstice_fire_advanced_ward" && kind != "bless" && expired != 1 {
 				t.Fatalf("expiry callbacks=%d", expired)
 			}
 		})

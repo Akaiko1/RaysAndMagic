@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/world"
@@ -407,7 +408,14 @@ func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
 				return value
 			}
 			aspectFromWidth := category == catLandmark && rh.game.config.Graphics.Standee.Enabled
-			return value * rh.visibleHeightFrameScale(rh.game.activityNPCSprite(npc), aspectFromWidth)
+			spriteName := rh.game.activityNPCSprite(npc)
+			// Registered used-state art shares the original canvas scale: an
+			// opened lid or collapsed bag must not resize the whole object.
+			// Activity overrides still author their own visible-height class.
+			if npc.Visited && npc.VisitedSprite != "" && spriteName == strings.TrimSuffix(npc.VisitedSprite, ".png") {
+				spriteName = strings.TrimSuffix(npc.Sprite, ".png")
+			}
+			return value * rh.visibleHeightFrameScale(spriteName, aspectFromWidth)
 		}
 	}
 	return 1.0

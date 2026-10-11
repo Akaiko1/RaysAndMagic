@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math/rand"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
 	"ugataima/internal/spells"
@@ -21,6 +22,13 @@ const (
 // and cannot trigger effects that require a successful spell.
 func (o spellCastOutcome) handled() bool { return o == castNoEffect || o == castCommitted }
 
+// openCastPicker parks a player cast on the shared picker (ally target,
+// identify, beacon, Town Portal destination); nothing is paid until it confirms.
+func (g *MMGame) openCastPicker(caster *character.MMCharacter, id spells.SpellID) {
+	g.cancelTownPortalPicker()
+	g.townPortalPickerOpen, g.townPortalCaster, g.townPortalSpell = true, caster, id
+}
+
 type spellCastRequest struct {
 	ID              spells.SpellID
 	Definition      spells.SpellDefinition
@@ -29,6 +37,7 @@ type spellCastRequest struct {
 	Announce        bool
 	PlayerInitiated bool
 	ActionProcs     bool
+	Automatic       bool
 }
 
 // executeSpellCast owns eligibility and payment for both generic and targeted
@@ -43,6 +52,12 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 	}
 	if req.PlayerInitiated && !characterKnowsSpellByID(caster, req.ID) {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s has not learned %s.", caster.Name, def.Name))
+		return castRejected
+	}
+	if caster.SpellState.ReuseFrames[string(req.ID)] > 0 {
+		if !req.Automatic {
+			cs.game.AddCombatMessage(uitext.Text("spell.reuse_not_ready", def.Name))
+		}
 		return castRejected
 	}
 	if caster.SpellPoints < req.Cost {
@@ -61,14 +76,41 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 		return castRejected
 	}
 	// The destination is chosen first; nothing is paid until one is confirmed.
-	if def.TownPortal && req.PlayerInitiated && cs.game.townPortalConfirming == nil {
-		cs.game.townPortalPickerOpen, cs.game.townPortalCaster, cs.game.townPortalSpell = true, caster, req.ID
+	g := cs.game
+	if def.TargetsAlly() && req.PlayerInitiated && cs.spellTarget == nil {
+		g.openCastPicker(caster, req.ID)
+		g.allySpellSelecting, g.menuOpen = true, false
+		return castRejected
+	}
+	if def.Mechanic != nil && def.Mechanic.Kind == "identify_monster" && req.PlayerInitiated && g.identifyConfirming == nil {
+		g.openCastPicker(caster, req.ID)
+		g.identifySelecting, g.menuOpen = true, false
+		return castRejected
+	}
+	if def.Mechanic != nil && def.Mechanic.Kind == "vvoid_beacon" && req.PlayerInitiated && !g.beaconConfirming {
+		g.openCastPicker(caster, req.ID)
+		g.beaconPicker, g.beaconSelection = true, 0
+		return castRejected
+	}
+	if def.TownPortal && req.PlayerInitiated && g.townPortalConfirming == nil {
+		g.openCastPicker(caster, req.ID)
 		return castRejected
 	}
 	caster.SpellPoints -= req.Cost
 	outcome := effect()
 	if outcome != castCommitted {
 		caster.SpellPoints += req.Cost
+	} else if def.ReuseSeconds > 0 {
+		if caster.SpellState.ReuseFrames == nil {
+			caster.SpellState.ReuseFrames = make(map[string]int)
+		}
+		caster.SpellState.ReuseFrames[string(req.ID)] = def.ReuseSeconds * g.config.GetTPS()
+	}
+	// Manual spell alternatives to Pilgrim techniques spend an action without
+	// adding the weapon/cast movement penalty. Automatic casts spend neither.
+	if outcome == castCommitted && req.PlayerInitiated && !req.Automatic && def.Mechanic != nil && def.Mechanic.Technique != "" &&
+		cs.game.turnBasedMode && cs.game.currentTurn == 0 && caster.ActionsRemaining > 0 {
+		cs.game.partyTechniqueActionsUsed++
 	}
 	if outcome == castCommitted && req.PlayerInitiated && cs.game.playerProfile != nil {
 		d := &cs.game.playerProfile.Data
@@ -104,4 +146,15 @@ func (cs *CombatSystem) castSpell(req spellCastRequest) spellCastOutcome {
 		}
 	}
 	return outcome
+}
+
+// commitPickedSpell is the payment boundary for every deferred picker. Each
+// picker validates its own destination and sets its effect target first.
+func (g *MMGame) commitPickedSpell(caster *character.MMCharacter, id spells.SpellID, def spells.SpellDefinition) bool {
+	index := g.combat.findCharacterIndex(caster)
+	if caster == nil || !g.canSpendCombatAction(index) || !g.combat.castPlayerSpell(id, def, caster, true) {
+		return false
+	}
+	g.consumeCharacterActionWithRTCooldown(index, g.combat.SpellCooldownFrames(caster, id))
+	return true
 }

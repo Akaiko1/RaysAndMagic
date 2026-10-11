@@ -44,6 +44,9 @@ display:
 engine:
   tps: 120
 
+# Per-hero interval shared by automatic techniques and spells (one round = 3 seconds).
+autocast_interval_rounds: 2
+
 camping:
   # Keep all four heads below the crop, including on ultrawide displays.
   max_top_crop_fraction: 0.08
@@ -779,3 +782,21 @@ status_effects:
   # A slowed monster loses one turn in this many turn-based turns (RT slows
   # movement and attack cadence by the debuff's percent instead).
   slow_skip_every_turns: 3
+  control_saves:
+    mechanics: [turn_undead, mass_fear, feeblemind]
+    diminishing_mechanics: [turn_undead, mass_fear]
+    # Monster level minus caster level; Grandmaster, zero school resistance.
+    curve:
+      - {level_difference: -5, percent: 25}
+      - {level_difference: 0, percent: 40}
+      - {level_difference: 5, percent: 50}
+      - {level_difference: 10, percent: 60}
+      - {level_difference: 15, percent: 75}
+    min_percent: 25
+    max_percent: 75
+    mastery_penalty_percent: 5
+    resistance_weight: 0.5
+    resisted_message: "%s resists %s."
+    summary: "Targets may resist."
+    details: "Each target resists independently. Higher-level targets and greater resistance to this school increase the chance; spell mastery reduces it."
+    diminishing_summary: "Repeated fear and stun share diminishing returns."

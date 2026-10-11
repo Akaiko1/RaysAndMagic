@@ -30,6 +30,9 @@ func cooldownMultLine(label string, mult float64) string {
 
 const weaponStatusSecondsPerTurn = 2
 
+// CombatRoundSeconds is the shared real-time duration of a combat round.
+const CombatRoundSeconds = 3
+
 // WeaponStatusTurns converts the shared authored seconds field used by weapon
 // shred/root/slow/weaken into its turn-based clock.
 func WeaponStatusTurns(seconds int) int {
@@ -209,22 +212,23 @@ func TitleWords(s string) string {
 
 // Config holds all game configuration values
 type Config struct {
-	PlayerPotions *PotionPreferences  `yaml:"-" json:"-"`
-	StatusDamage  StatusDamageConfig  `yaml:"status_damage"`
-	StatusEffects StatusEffectsConfig `yaml:"status_effects"`
-	MonsterCombat MonsterCombatConfig `yaml:"monster_combat"`
-	Display       DisplayConfig       `yaml:"display"`
-	Engine        EngineConfig        `yaml:"engine"`
-	World         WorldConfig         `yaml:"world"`
-	Movement      MovementConfig      `yaml:"movement"`
-	Camera        CameraConfig        `yaml:"camera"`
-	UI            UIConfig            `yaml:"ui"`
-	Characters    CharacterConfig     `yaml:"characters"`
-	MonsterAI     MonsterAIConfig     `yaml:"monster_ai"`
-	Graphics      GraphicsConfig      `yaml:"graphics"`
-	Tiles         TileConfig          `yaml:"tiles"`
-	DayNight      DayNightConfig      `yaml:"day_night"`
-	Camping       CampingConfig       `yaml:"camping"`
+	AutocastIntervalRounds int                 `yaml:"autocast_interval_rounds"`
+	PlayerPotions          *PotionPreferences  `yaml:"-" json:"-"`
+	StatusDamage           StatusDamageConfig  `yaml:"status_damage"`
+	StatusEffects          StatusEffectsConfig `yaml:"status_effects"`
+	MonsterCombat          MonsterCombatConfig `yaml:"monster_combat"`
+	Display                DisplayConfig       `yaml:"display"`
+	Engine                 EngineConfig        `yaml:"engine"`
+	World                  WorldConfig         `yaml:"world"`
+	Movement               MovementConfig      `yaml:"movement"`
+	Camera                 CameraConfig        `yaml:"camera"`
+	UI                     UIConfig            `yaml:"ui"`
+	Characters             CharacterConfig     `yaml:"characters"`
+	MonsterAI              MonsterAIConfig     `yaml:"monster_ai"`
+	Graphics               GraphicsConfig      `yaml:"graphics"`
+	Tiles                  TileConfig          `yaml:"tiles"`
+	DayNight               DayNightConfig      `yaml:"day_night"`
+	Camping                CampingConfig       `yaml:"camping"`
 
 	// PlayerInterfaceSize is the saved interface preset key ("" until loaded).
 	PlayerInterfaceSize string `yaml:"-" json:"-"`
@@ -624,6 +628,7 @@ type SpellSystemConfig struct {
 
 // SpellDefinitionConfig represents a complete spell definition with embedded physics and graphics
 type SpellDefinitionConfig struct {
+	Mechanic *SpellMechanicConfig `yaml:"mechanic,omitempty"`
 	// Basic spell properties
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
@@ -641,12 +646,18 @@ type SpellDefinitionConfig struct {
 	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it.
 	// REQUIRED - validated at load, so no spell can fall back to a guessed cadence.
 	CooldownSeconds float64 `yaml:"cooldown_seconds,omitempty"`
+	ReuseSeconds    int     `yaml:"reuse_seconds,omitempty"` // Personal spell lockout, independent of action recovery.
 	// DamageByMastery authors the EXACT damage per mastery tier
 	// [Novice, Expert, Master, Grandmaster], for spells whose ladder is dictated
 	// rather than derived from SP cost (Earthquake 50/100/200/400 doubles; the
 	// cost-based MasteryScaledDamage cannot express that). Takes precedence over
 	// the cost formula wherever a spell authors it. Exactly 4 entries.
 	DamageByMastery []int `yaml:"damage_by_mastery,omitempty"`
+	// DamageBase changes only the base; ordinary stat and mastery scaling remain.
+	DamageBase int `yaml:"damage_base,omitempty"`
+	// DamageSource reuses another spell's complete formula before division.
+	DamageSource  string `yaml:"damage_source,omitempty"`
+	DamageDivisor int    `yaml:"damage_divisor,omitempty"`
 	// SummonMonster is the monster key a summon spell brings in as a party ally,
 	// capped at SummonMax live copies per caster-party. SummonHPByMastery and
 	// SummonDamageByMastery are per-tier ladders (Novice..GM) applied to the
@@ -1040,10 +1051,12 @@ type NPCRenderConfig struct {
 }
 
 type ProjectileRenderConfig struct {
-	MaxSize  int    `yaml:"max_size"`
-	MinSize  int    `yaml:"min_size"`
-	BaseSize int    `yaml:"base_size"`
-	Color    [3]int `yaml:"color"`
+	TargetCursor string `yaml:"target_cursor,omitempty"` // Unframed transparent art for ally selection.
+	WorldFx      string `yaml:"world_fx,omitempty"`      // World-anchored cast material, not a camera overlay.
+	MaxSize      int    `yaml:"max_size"`
+	MinSize      int    `yaml:"min_size"`
+	BaseSize     int    `yaml:"base_size"`
+	Color        [3]int `yaml:"color"`
 	// ProjectileFx selects a bespoke flying-body renderer (signature spells);
 	// empty = the school's default particle style.
 	ProjectileFx string `yaml:"projectile_fx,omitempty"`
@@ -1056,7 +1069,22 @@ type ProjectileRenderConfig struct {
 	NovaFx string `yaml:"nova_fx,omitempty"`
 	// CastOverlay selects a procedural screen-space flourish on a committed
 	// cast. It is visual only and never controls a spell's gameplay duration.
-	CastOverlay string `yaml:"cast_overlay,omitempty"`
+	CastOverlay       string  `yaml:"cast_overlay,omitempty"`
+	CastOverlayWeapon string  `yaml:"cast_overlay_weapon,omitempty"`
+	CastOverlayScale  float64 `yaml:"cast_overlay_scale,omitempty"`
+	// TargetFlights borrows one projectile's presentation for visual-only rays to
+	// the victims of an instant area spell. Damage still resolves at cast time.
+	TargetFlights *SpellTargetFlightsConfig `yaml:"target_flights,omitempty"`
+}
+
+// SpellTargetFlightsConfig authors visual flights without a second damage event.
+type SpellTargetFlightsConfig struct {
+	Projectile      string   `yaml:"projectile"`
+	Palette         [][3]int `yaml:"palette"`
+	ProjectileFx    string   `yaml:"projectile_fx,omitempty"`
+	ReturnToParty   bool     `yaml:"return_to_party,omitempty"`
+	SizeScale       float64  `yaml:"size_scale"`
+	DurationSeconds float64  `yaml:"duration_seconds,omitempty"` // Optional presentation duration, independent of damage.
 }
 
 type TileConfig struct {
@@ -1676,6 +1704,9 @@ func LoadConfig(filename string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if config.AutocastIntervalRounds <= 0 {
+		return nil, fmt.Errorf("autocast_interval_rounds must be positive")
+	}
 	if err := config.MonsterAI.Pursuit.validate(); err != nil {
 		return nil, err
 	}
@@ -1839,7 +1870,9 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	}
 
 	var spellConfig SpellSystemConfig
-	err = yaml.Unmarshal(data, &spellConfig)
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	err = decoder.Decode(&spellConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -1896,6 +1929,66 @@ func canonicalDamageIntMap(values map[string]int) (map[string]int, error) {
 // buff shapes or unknown typed-buff filters.
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
+		if def.Graphics != nil {
+			if def.Graphics.TargetCursor != "" && !def.Mechanic.TargetsAlly() {
+				return fmt.Errorf("spell %q: target_cursor requires an ally-targeted mechanic", id)
+			}
+			weaponOverlay := def.Graphics.CastOverlay == "fire_aura" || def.Graphics.CastOverlay == "vampiric_weapon"
+			if weaponOverlay != (def.Graphics.CastOverlayWeapon != "") {
+				return fmt.Errorf("spell %q: cast_overlay_weapon is required only for weapon enchantment overlays", id)
+			}
+			scale := def.Graphics.CastOverlayScale
+			if scale < 0 || math.IsNaN(scale) || math.IsInf(scale, 0) || scale > 0 && def.Graphics.CastOverlay == "" {
+				return fmt.Errorf("spell %q: cast_overlay_scale needs a cast overlay and a finite positive value", id)
+			}
+		}
+		if def.Mechanic.TargetsAlly() && (def.Graphics == nil || def.Graphics.TargetCursor == "") {
+			return fmt.Errorf("spell %q: ally-targeted mechanic requires graphics.target_cursor", id)
+		}
+		if def.DamageBase < 0 || def.DamageDivisor < 0 || (def.DamageDivisor > 0) != (def.DamageSource != "") {
+			return fmt.Errorf("spell %q: invalid damage base or source/divisor pair", id)
+		}
+		if def.DamageBase > 0 && (len(def.DamageByMastery) > 0 || def.DamageSource != "" || def.DealsNoDamage) {
+			return fmt.Errorf("spell %q: damage_base conflicts with another damage rule", id)
+		}
+		if def.DamageSource != "" {
+			source := cfg.Spells[def.DamageSource]
+			if source == nil || source.DamageSource != "" || source.DealsNoDamage || !source.IsProjectile || len(source.DamageByMastery) > 0 || len(def.DamageByMastery) > 0 || def.DealsNoDamage {
+				return fmt.Errorf("spell %q: damage_source must name an independent damaging projectile formula", id)
+			}
+		}
+		if def.Graphics != nil && def.Graphics.TargetFlights != nil {
+			rays := def.Graphics.TargetFlights
+			if rays.DurationSeconds < 0 || math.IsNaN(rays.DurationSeconds) || math.IsInf(rays.DurationSeconds, 0) {
+				return fmt.Errorf("spell %q: target_flights.duration_seconds must be finite and nonnegative", id)
+			}
+			if rays.SizeScale <= 0 || math.IsNaN(rays.SizeScale) || math.IsInf(rays.SizeScale, 0) {
+				return fmt.Errorf("spell %q: target_flights.size_scale must be finite and positive", id)
+			}
+			source := cfg.Spells[rays.Projectile]
+			if def.Mechanic == nil || (def.Mechanic.Kind != "prismatic_light" && def.Mechanic.Kind != "souldrinker") {
+				return fmt.Errorf("spell %q: target_flights requires an instant area damage mechanic", id)
+			}
+			if source == nil || !source.IsProjectile || source.Physics == nil || source.Physics.SpeedTiles <= 0 || source.Graphics == nil {
+				return fmt.Errorf("spell %q: target_flights.projectile must name a rendered moving projectile", id)
+			}
+			if math.IsNaN(source.Physics.SpeedTiles) || math.IsInf(source.Physics.SpeedTiles, 0) {
+				return fmt.Errorf("spell %q: target_flights source speed must be finite", id)
+			}
+			if len(rays.Palette) == 0 {
+				return fmt.Errorf("spell %q: target_flights.palette must not be empty", id)
+			}
+			for _, rgb := range rays.Palette {
+				for _, channel := range rgb {
+					if channel < 0 || channel > 255 {
+						return fmt.Errorf("spell %q: target_flights.palette channels must be in 0..255", id)
+					}
+				}
+			}
+		}
+		if err := validateSpellMechanic(def); err != nil {
+			return fmt.Errorf("spell '%s': %w", id, err)
+		}
 		if def.Physics != nil {
 			if err := def.Physics.validate(); err != nil {
 				return fmt.Errorf("spell '%s': %w", id, err)
@@ -1978,6 +2071,9 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		}
 		if !hasStunEffect && (def.StunDurationSeconds != 0 || def.StunDurationTurns != 0) {
 			return fmt.Errorf("spell '%s': stun durations require stun_chance or stun_radius_tiles", id)
+		}
+		if def.ReuseSeconds < 0 {
+			return fmt.Errorf("spell '%s': reuse_seconds cannot be negative", id)
 		}
 		isBuff := strings.EqualFold(strings.TrimSpace(def.Category), "buff")
 		switch {
@@ -2414,6 +2510,7 @@ type ItemDefinitionConfig struct {
 	Flask              *FlaskDefinition `yaml:"flask,omitempty"`
 	AllowedClasses     []string         `yaml:"allowed_classes,omitempty"`
 	Name               string           `yaml:"name"`
+	LegacyNames        []string         `yaml:"legacy_names,omitempty"`
 	Type               string           `yaml:"type"` // armor|accessory|consumable|quest|trinket|card|device
 	ArmorType          string           `yaml:"armor_category,omitempty"`
 	Description        string           `yaml:"description"`      // Gameplay-neutral summary (optional)
@@ -2500,7 +2597,9 @@ type ItemDefinitionConfig struct {
 
 	// PartyArmorBonus: flat AC granted to every OTHER party member while this
 	// item is equipped (the Parma's shield wall).
-	PartyArmorBonus int `yaml:"party_armor_bonus,omitempty"`
+	PartyArmorBonus           int `yaml:"party_armor_bonus,omitempty"`
+	WeaponBaseDamageBonus     int `yaml:"weapon_base_damage_bonus,omitempty"` // Equipped bearer, or active party for a collected card.
+	PersonalInventoryRegenPct int `yaml:"personal_inventory_regen_pct,omitempty"`
 	// ProjectileReflectPct: chance an incoming monster projectile is turned
 	// back at its shooter (Broodscale Aegis mirror-scale).
 	ProjectileReflectPct int `yaml:"projectile_reflect_pct,omitempty"`
@@ -2561,7 +2660,9 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 		return nil, err
 	}
 	var itemCfg ItemSystemConfig
-	if err := yaml.Unmarshal(data, &itemCfg); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&itemCfg); err != nil {
 		return nil, err
 	}
 	if err := resolveBrewedItems(&itemCfg); err != nil {
@@ -2593,6 +2694,20 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 		itemDefsByName[def.Name] = def
 		itemKeysByName[def.Name] = key
 	}
+	// Historical names share the same index so saved items and merchant stock
+	// resolve to one canonical definition. Never allow an ambiguous migration.
+	for key, def := range itemCfg.Items {
+		for _, name := range def.LegacyNames {
+			if name == "" || strings.TrimSpace(name) != name {
+				return nil, fmt.Errorf("item %q: legacy_names contains an empty or untrimmed name %q", key, name)
+			}
+			if prev, dup := itemKeysByName[name]; dup {
+				return nil, fmt.Errorf("item %q: legacy name %q conflicts with item %q", key, name, prev)
+			}
+			itemDefsByName[name] = def
+			itemKeysByName[name] = key
+		}
+	}
 
 	// Keep the catalog and lookup index in sync on every successful reload.
 	GlobalItems = &itemCfg
@@ -2623,6 +2738,12 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
 		if def == nil {
 			return fmt.Errorf("item '%s' has empty definition", key)
+		}
+		if def.WeaponBaseDamageBonus < 0 || def.PersonalInventoryRegenPct < 0 || def.PersonalInventoryRegenPct > 100 {
+			return fmt.Errorf("item %q: weapon_base_damage_bonus must be nonnegative and personal_inventory_regen_pct must be 0..100", key)
+		}
+		if def.WeaponBaseDamageBonus > 0 && def.EquipSlot == "" && def.Type != "card" {
+			return fmt.Errorf("item %q: weapon base damage bonus requires an equipment slot or card type", key)
 		}
 		if err := validateDeviceDefinition(key, def); err != nil {
 			return err
@@ -2863,6 +2984,7 @@ type LootTablesConfig struct {
 // sets the party burning for TrapIgniteSeconds (DefaultTrapIgniteSeconds when
 // unset). Disarm Trap mastery avoids either entirely at 40/60/80/100%.
 type CrateConfig struct {
+	Buff             *CrateBuffConfig  `yaml:"buff,omitempty"`
 	TreasureChest    bool              `yaml:"treasure_chest,omitempty"` // Chest loot provenance, independent of sprite or name.
 	Rolls            int               `yaml:"rolls"`
 	LootTable        string            `yaml:"loot_table,omitempty"`
@@ -2897,13 +3019,18 @@ const DefaultTrapIgniteSeconds = 10
 //   - loot_table: one roll of that named weighted pool, as authored;
 //   - gold / arena_points: a fixed amount; nothing: an empty slot.
 //
-// Rarity gates map and catalog in one field: "" any, "rare" exactly,
+// Rarity gates map, catalog and equipment_slot in one field: "" any, "rare" exactly,
 // "common-uncommon" a span, "uncommon+" that tier and up.
 type CrateRollSource struct {
-	Pool      string  `yaml:"pool"`                 // "map" | "catalog" | "loot_table" | "gold" | "arena_points" | "nothing"
+	ItemKey     string `yaml:"item,omitempty"`
+	EquipSlot   string `yaml:"equip_slot,omitempty"`
+	QuantityMin int    `yaml:"quantity_min,omitempty"`
+	QuantityMax int    `yaml:"quantity_max,omitempty"`
+
+	Pool      string  `yaml:"pool"`                 // "map" | "catalog" | "item" | "equipment_slot" | "loot_table" | "gold" | "arena_points" | "nothing"
 	Weight    float64 `yaml:"weight"`               // percent of every slot, in 0.1 steps; a crate's weights total 100
 	ItemType  string  `yaml:"item_type,omitempty"`  // catalog: armor|accessory|consumable|trinket|weapon|any
-	Rarity    string  `yaml:"rarity,omitempty"`     // map/catalog rarity gate (see above)
+	Rarity    string  `yaml:"rarity,omitempty"`     // map/catalog/equipment_slot rarity gate (see above)
 	Amount    int     `yaml:"amount,omitempty"`     // gold/arena_points: currency awarded instead of an item
 	LootTable string  `yaml:"loot_table,omitempty"` // loot_table: key in loot_tables
 }
@@ -3148,6 +3275,9 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c == nil {
 			return fmt.Errorf("crate %q is empty", key)
 		}
+		if err := validateCrateBuff(key, c.Buff); err != nil {
+			return err
+		}
 		c.InteractionSound = strings.TrimSpace(c.InteractionSound)
 		if len(c.TrapDamageTypes) > 0 && c.TrapDamage <= 0 {
 			return fmt.Errorf("crate %q: trap_damage_types requires trap_damage", key)
@@ -3176,9 +3306,9 @@ func validateCrates(lt *LootTablesConfig) error {
 			}
 			continue
 		}
-		hasOtherEffect := c.FreeRest || c.BonusStat != ""
+		hasOtherEffect := c.FreeRest || c.BonusStat != "" || c.Buff != nil
 		if c.Rolls <= 0 && !hasOtherEffect {
-			return fmt.Errorf("crate %q: rolls must be > 0 (or set loot_table / free_rest / bonus_stat)", key)
+			return fmt.Errorf("crate %q: rolls must be > 0 (or set loot_table / free_rest / bonus_stat / buff)", key)
 		}
 		if c.Rolls > 0 && len(c.RollSources) == 0 {
 			return fmt.Errorf("crate %q: needs roll_sources (or set loot_table)", key)
@@ -3203,6 +3333,10 @@ var catalogItemTypes = map[string]bool{"armor": true, "accessory": true, "consum
 
 func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string, idx int, src CrateRollSource) error {
 	where := fmt.Sprintf("crate %q roll_sources[%d]", crate, idx)
+	if err := validateDirectCrateSource(where, src); err != nil {
+		return err
+	}
+
 	if (src.LootTable != "") != (src.Pool == "loot_table") {
 		return fmt.Errorf("%s: loot_table names the pool of a loot_table source, and only of one", where)
 	}
@@ -3214,6 +3348,13 @@ func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string,
 		return fmt.Errorf("%s: %v", where, err)
 	}
 	switch src.Pool {
+	case "item":
+		return nil
+	case "equipment_slot":
+		if len(CrateEquipmentSlotKeys(src.EquipSlot, tiers)) == 0 {
+			return fmt.Errorf("%s: no equipment matches equip_slot=%q rarity=%q", where, src.EquipSlot, src.Rarity)
+		}
+		return nil
 	case "nothing", "map":
 		if src.ItemType != "" || src.Amount != 0 || src.Pool == "nothing" && src.Rarity != "" {
 			return fmt.Errorf("%s: pool %s takes no item_type or amount", where, src.Pool)
@@ -3244,7 +3385,7 @@ func validateCrateRollSource(tables map[string]*WeightedLootTable, crate string,
 		}
 		return nil
 	default:
-		return fmt.Errorf("%s: pool must be \"nothing\", \"map\", \"catalog\", \"loot_table\", \"gold\", or \"arena_points\"", where)
+		return fmt.Errorf("%s: pool must be nothing, map, catalog, item, equipment_slot, loot_table, gold, or arena_points", where)
 	}
 }
 

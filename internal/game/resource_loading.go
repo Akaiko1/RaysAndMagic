@@ -231,23 +231,14 @@ func (gl *GameLoop) loadingBarrier() bool {
 func (gl *GameLoop) discardLoadingInput() {
 	if gl.ui != nil {
 		gl.ui.dropQueuedClicks()
-		// Widget gestures retire; a held mouse attack only pauses. Loading is
-		// not a scene change, and the hold resumes on its target afterwards.
+		// Captured item/spell drags and held attacks pause on their owners.
+		// Loading invalidates commands, but is not itself a scene change.
 		gl.ui.cancelWidgetPointerGestures()
+		gl.ui.suspendDisplayedDrags()
 		gl.ui.displayedInput.ready = false
 	}
 	if gl.inputHandler != nil {
 		gl.inputHandler.keys.BeginFrame()
-	}
-	// Retire ordinary drag gestures so their release cannot act on the first
-	// complete frame. Picked-up split fragments retain their inventory owner.
-	gl.game.dragDropAt = 0
-	gl.game.stashDragDrop = false
-	if !gl.game.dragPickedUp {
-		gl.game.clearDrag()
-	}
-	if !gl.game.stashDragPickedUp {
-		gl.game.clearStashDrag()
 	}
 }
 
@@ -259,12 +250,24 @@ func (gl *GameLoop) tickLoadingPause() {
 }
 
 // HandleInput does not run on a loading tick, so the pointer edges it would read
-// are read here. A release or a fresh press ends the held attack; a held button
-// only pauses it. A fresh press also lifts the block, unless it acted on a layer
-// not redrawn yet: the click that closed a menu stays claimed until release.
+// are read here. A release or a fresh press ends held attacks and ordinary
+// drags; an unchanged held button only pauses them. A fresh press also lifts
+// the attack block, unless it acted on a layer not redrawn yet: the click that
+// closed a menu stays claimed until release.
 func (gl *GameLoop) endMouseGestureOnSkippedInput() {
+	if pointerLeftPressed() && !pointerLeftJustPressed() {
+		return
+	}
+	// A release while commands are unavailable cancels, never defers a drop.
+	// Split fragments were explicitly picked up and do not depend on a hold.
+	if !gl.game.dragPickedUp {
+		gl.game.clearDrag()
+	}
+	if !gl.game.stashDragPickedUp {
+		gl.game.clearStashDrag()
+	}
 	ih := gl.inputHandler
-	if ih == nil || pointerLeftPressed() && !pointerLeftJustPressed() {
+	if ih == nil {
 		return
 	}
 	ih.cancelMouseAttack()
