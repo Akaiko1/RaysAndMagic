@@ -646,11 +646,22 @@ func characterKnowsSpellByID(char *character.MMCharacter, spellID spells.SpellID
 	return char != nil && char.KnowsSpell(spellID)
 }
 
+// spellDisplayName names any timed-status source: spell, crate buff, technique or draught.
 func spellDisplayName(spellID spells.SpellID) string {
+	id := string(spellID)
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
 		return def.Name
 	}
-	return string(spellID)
+	if b := config.CrateBuff(id); b != nil {
+		return b.Name
+	}
+	if d := config.Technique(id); d != nil {
+		return d.Name
+	}
+	if def, ok := config.GetItemDefinition(id); ok {
+		return def.Name
+	}
+	return id
 }
 
 func upgradeSkillMastery(char *character.MMCharacter, skillType character.SkillType) bool {

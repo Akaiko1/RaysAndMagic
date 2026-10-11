@@ -49,7 +49,7 @@ func telegraphDefinition(m *monster.Monster3D) *monster.TelegraphedAttack {
 	return monster.MonsterConfig.Monsters[m.Key].Telegraph
 }
 func (g *MMGame) telegraphAllowed(m *monster.Monster3D) bool {
-	if m != nil && m.SilenceFramesRemaining > 0 {
+	if m.IsSilenced() {
 		if a := telegraphDefinition(m); a != nil && a.School != "physical" {
 			return false
 		}

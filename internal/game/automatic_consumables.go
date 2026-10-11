@@ -62,7 +62,7 @@ func (g *MMGame) updateAutomaticConsumables() {
 		if used {
 			seconds := rules.IntervalSeconds
 			if g.turnBasedMode {
-				seconds = max(seconds, float64(TurnBasedPeriodicEffectSeconds))
+				seconds = max(seconds, float64(config.CombatRoundSeconds))
 			}
 			ch.AutoDrinkCooldown = max(1, int(math.Ceil(seconds*float64(g.config.GetTPS()))))
 		}

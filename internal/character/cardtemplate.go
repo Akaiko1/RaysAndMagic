@@ -342,9 +342,10 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 		add(SpellRuleDamage, uitext.Text("spell.bloom_dodge"))
 	}
 	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
-		if def.StatBonusGrandmaster > def.StatBonus {
+		durationGrows := len(def.DurationByMastery) == 4 && def.DurationByMastery[3] > def.DurationByMastery[0]
+		if durationGrows && def.StatBonusGrandmaster > def.StatBonus {
 			add(SpellRuleDuration, uitext.Text("spell.mastery_duration_and_bonus"))
-		} else {
+		} else if durationGrows {
 			add(SpellRuleDuration, uitext.Text("spell.mastery_duration_only"))
 		}
 	}

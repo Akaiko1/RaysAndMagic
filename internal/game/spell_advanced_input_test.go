@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -160,7 +161,11 @@ func TestIdentifyTargetingOwnsPointerAndPayment(t *testing.T) {
 }
 
 func TestAllySpellTargetingOwnsPointerAndPayment(t *testing.T) {
-	for _, id := range []spells.SpellID{"fire_aura", "fate", "vampiric_weapon"} {
+	for _, tc := range []struct {
+		id       spells.SpellID
+		recovers bool // combat_buff keeps its RT cooldown; a plain buff has none
+	}{{"fire_aura", true}, {"fate", true}, {"vampiric_weapon", false}} {
+		id := tc.id
 		for _, tb := range []bool{false, true} {
 			for _, choice := range []string{"other", "self", "empty", "dead", "cancel"} {
 				t.Run(fmt.Sprintf("%s/TB=%v/%s", id, tb, choice), func(t *testing.T) {
@@ -217,8 +222,16 @@ func TestAllySpellTargetingOwnsPointerAndPayment(t *testing.T) {
 						if len(g.party.Members[index].SpellState.Effects) != 1 || g.allySpellSelecting || g.gameplayPausedByOverlay() || c.SpellPoints != sp-g.combat.effectiveSpellCost(c, d.SpellPointsCost) {
 							t.Fatal("card click did not enchant the chosen hero, pay once and resume")
 						}
-						if tb && c.ActionsRemaining != actions-1 || !tb && c.RTCooldown <= 0 {
-							t.Fatal("cast cost charged to wrong action owner")
+						wantActions := actions
+						if tb {
+							wantActions--
+						}
+						if c.ActionsRemaining != wantActions || (c.RTCooldown != 0) != tc.recovers {
+							t.Fatalf("personal buff must cost one TB action; RT recovery=%d, want recovery=%v", c.RTCooldown, tc.recovers)
+						}
+						card := GetSpellTooltipRows(id, c, g.combat, true).String()
+						if !strings.Contains(card, "Target: One Ally") || strings.Contains(card, "Target: Entire Party") || strings.Contains(card, "No RT cooldown") == tc.recovers {
+							t.Fatalf("personal buff tooltip misrepresents targeting or recovery: %s", card)
 						}
 						paid := c.SpellPoints
 						g.confirmAllySpell(index)

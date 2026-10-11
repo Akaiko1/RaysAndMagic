@@ -45,7 +45,7 @@ func spellAreaLines(def spells.SpellDefinition) []string {
 		}
 		lines = append(lines, "A monster that walks in is hit at once")
 		lines = append(lines, fmt.Sprintf("RT: one tick every %.0fs", def.ZoneTickSeconds))
-		if ticks := int(float64(TurnBasedPeriodicEffectSeconds) / def.ZoneTickSeconds); def.ZoneTickSeconds > 0 && ticks > 1 {
+		if ticks := int(float64(config.CombatRoundSeconds) / def.ZoneTickSeconds); def.ZoneTickSeconds > 0 && ticks > 1 {
 			lines = append(lines, fmt.Sprintf("TB: %d ticks per monster turn", ticks))
 		} else {
 			lines = append(lines, "TB: one tick per monster turn")
@@ -115,7 +115,7 @@ func addSpellCooldown(sec *ttSection, id spells.SpellID, ch *character.MMCharact
 		if base, ok := baseCastCooldownSeconds(id); ok && base > 0 {
 			sec.Add("Base cooldown: %.2fs", base)
 			sec.AddDetail("Scales with caster Speed - TB: %s", tb)
-		} else if isSpell && def.IsBuff() {
+		} else if isSpell && !def.HasRTCooldown() {
 			sec.Add("No RT cooldown - TB: %s", tb)
 		}
 		return
@@ -123,7 +123,7 @@ func addSpellCooldown(sec *ttSection, id spells.SpellID, ch *character.MMCharact
 	cd := cs.spellCooldownBreakdown(ch, id)
 	if cd.TotalFrames <= 0 {
 		// Buffs have no personal RT cooldown; a TB cast still spends the action.
-		if isSpell && def.IsBuff() {
+		if isSpell && !def.HasRTCooldown() {
 			sec.Add("No RT cooldown - TB: %s", tb)
 		}
 		return

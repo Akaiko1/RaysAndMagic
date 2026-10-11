@@ -910,6 +910,9 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		if err := ValidateEcologyContent(cfg, quests.GlobalQuestManager); err != nil {
 			panic(err)
 		}
+		if err := ValidateCardDrops(); err != nil {
+			panic(err)
+		}
 	}
 
 	// Create a 4-character party
@@ -1505,10 +1508,11 @@ func (g *MMGame) safePartyDestination(x, y float64) (float64, float64) {
 		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
 			return x, y
 		}
-		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWater(tile) {
-			if g.walkOnWaterEffective() || g.waterBreathingActive || g.isFrozenWaterAt(x, y) {
-				return x, y
-			}
+		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWater(tile) && g.isFrozenWaterAt(x, y) {
+			return x, y
+		}
+		if world.IsSwimmableWater(tile) && (g.walkOnWaterEffective() || g.waterBreathingActive) {
+			return x, y
 		}
 	}
 	return g.FindNearestWalkableTileMustSucceed(x, y)
@@ -2859,7 +2863,7 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 	// member ticked to 0 HP reads as unable to act this round even when the card
 	// would have saved them, and the KO message lags a frame behind its cause.
 	if len(initial) == 0 || !initial[0] {
-		for range TurnBasedPeriodicEffectSeconds {
+		for range config.CombatRoundSeconds {
 			for _, m := range g.party.Members {
 				m.TickPoisonTurn(tps, tps, g.absorbCelestialDamage)
 			}

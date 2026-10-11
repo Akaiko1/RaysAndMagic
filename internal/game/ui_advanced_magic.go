@@ -21,7 +21,7 @@ func spellAutocastRect(x, y, w, iconSize int) layoutRect {
 // Keep the toggle beside the SP cost, outside the spell art and name.
 // Displayed-input registration precedes the whole-card click/drag handlers.
 func (ui *UISystem) spellAutocastControl(screen *ebiten.Image, c *character.MMCharacter, d spells.SpellDefinition, x, y, w, iconSize int) {
-	if d.Mechanic == nil || d.Mechanic.Autocast == "" {
+	if !d.HasAutocast() {
 		return
 	}
 	box := spellAutocastRect(x, y, w, iconSize)
@@ -75,9 +75,8 @@ func (ui *UISystem) spellAutocastControl(screen *ebiten.Image, c *character.MMCh
 const (
 	personalSpellBadgeIconSize = 12
 	personalSpellBadgeCountW   = 6
-	personalSpellBadgePadding  = 0
 	personalSpellBadgeWidth    = 18
-	personalSpellBadgeHeight   = personalSpellBadgeIconSize + 2*personalSpellBadgePadding
+	personalSpellBadgeHeight   = personalSpellBadgeIconSize
 )
 
 // Personal effects and Flowing Staff share the original portrait gutter.
@@ -91,10 +90,10 @@ func (ui *UISystem) drawPersonalSpellEffects(screen *ebiten.Image, c *character.
 	draw := func(icon, label, detail string, charges int, staff bool, accent color.Color) {
 		box := personalSpellBadgeRect(px, py, pw, row)
 		if charges <= 0 {
-			box.w = personalSpellBadgeIconSize + 2*personalSpellBadgePadding
+			box.w = personalSpellBadgeIconSize
 		}
 		row++
-		iconBox := layoutRect{box.x + personalSpellBadgePadding, box.y + personalSpellBadgePadding, personalSpellBadgeIconSize, personalSpellBadgeIconSize}
+		iconBox := layoutRect{box.x, box.y, personalSpellBadgeIconSize, personalSpellBadgeIconSize}
 		drawFilledRect(screen, box.x, box.y, box.w, box.h, color.RGBA{8, 12, 18, 255})
 		drawRectBorder(screen, box.x, box.y, box.w, box.h, 1, color.RGBA{72, 78, 87, 255})
 		drawFilledRect(screen, box.x, box.y+2, 1, box.h-4, accent)
@@ -118,20 +117,20 @@ func (ui *UISystem) drawPersonalSpellEffects(screen *ebiten.Image, c *character.
 		}
 	}
 	if n := c.FlowingStaffCharges(); n > 0 {
-		draw("", "Flowing Staff", uitext.Text("advanced.flowing_staff_effect", character.FlowingStaffPct(c.SkillTier(character.SkillFlowingStaff))), n, true, color.RGBA{86, 238, 209, 255})
+		draw("", character.SkillFlowingStaff.String(), uitext.Text("advanced.flowing_staff_effect", character.FlowingStaffPct(c.SkillTier(character.SkillFlowingStaff))), n, true, color.RGBA{86, 238, 209, 255})
 	}
 	for _, e := range c.SpellState.Effects {
 		d, ok := config.GetSpellDefinition(e.SpellID)
 		if !ok || d.Mechanic == nil {
 			continue
 		}
-		detail := d.Mechanic.SummaryText(e.Tier)
+		detail := d.Mechanic.SummaryText(e.Tier, d.DurationByMastery)
 		if e.Frames > 0 {
-			detail += " | " + uitext.Text("advanced.remaining", (e.Frames+ui.game.config.GetTPS()-1)/ui.game.config.GetTPS())
+			detail += " | " + uitext.Text("buff.remaining", ui.game.buffRemainingText(e.Frames))
 		}
 		// The authored targeting glyph is deliberately readable without a book
 		// frame at this scale; reuse it instead of shrinking a detailed square.
-		icon := "icon_spell_" + e.SpellID
+		icon := spellTooltipIconName(spells.SpellID(e.SpellID))
 		if d.Graphics != nil && d.Graphics.TargetCursor != "" {
 			icon = d.Graphics.TargetCursor
 		}

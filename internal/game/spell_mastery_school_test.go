@@ -68,13 +68,13 @@ func TestSchoolsOnlySpellStillScoresMastery(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	def := spells.SpellDefinition{
 		ID: "schools_only_test", Name: "Schools Only", Schools: []string{"air", "earth"},
-		Duration: 100, ResistBuffSchool: "",
+		DurationByMastery: []int{100, 131, 157, 199}, ResistBuffSchool: "",
 	}
 	if def.School != "" {
 		t.Fatal("fixture: this test is about a spell with NO primary school")
 	}
 	config.GlobalSpells.Spells[string(def.ID)] = &config.SpellDefinitionConfig{
-		Name: def.Name, Schools: def.Schools, Duration: def.Duration,
+		Name: def.Name, Schools: def.Schools, DurationByMastery: def.DurationByMastery,
 	}
 	t.Cleanup(func() { delete(config.GlobalSpells.Spells, string(def.ID)) })
 
@@ -87,8 +87,8 @@ func TestSchoolsOnlySpellStillScoresMastery(t *testing.T) {
 	if got := cs.spellMasteryBonus(air, def.ID); got != wantBonus {
 		t.Errorf("mastery bonus = %d, want %d", got, wantBonus)
 	}
-	// Duration bonus: the same skill lengthens the buff.
-	wantSeconds := def.Duration * (100 + int(character.MasteryGrandMaster)*SpellMasteryDurationBonusPct) / 100
+	// The held school selects the explicit, non-linear duration ladder.
+	wantSeconds := 199
 	if got := cs.CalculateSpellDurationSeconds(def.ID, air); got != wantSeconds {
 		t.Errorf("duration = %ds, want %ds", got, wantSeconds)
 	}

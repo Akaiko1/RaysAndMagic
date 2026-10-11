@@ -408,8 +408,8 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		}
 	case def.HealAmount > 0:
 		subtitle += fmt.Sprintf("  Base heal %d", def.HealAmount)
-	case def.Duration > 0:
-		subtitle += fmt.Sprintf("  Base duration %ds", def.Duration)
+	case sdErr == nil && len(sd.DurationByMastery) > 0:
+		subtitle += fmt.Sprintf("  Novice duration %ds", sd.DurationSeconds(0))
 	}
 
 	if def.MonsterOnly {

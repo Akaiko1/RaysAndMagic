@@ -6,16 +6,32 @@ import (
 	"ugataima/internal/shaders"
 )
 
-// Shared dispatch for validation and rendering. The numbers select material
-// branches in cast_overlay.kage, not spell IDs or gameplay behavior.
-var castOverlayStyles = map[string]float32{
-	"darkness": 0, "town_portal": 1,
-	"fire_aura": 2, "haste": 3, "shield": 4,
-	"fate": 7, "shared_life": 8, "preservation": 9,
-	"regeneration": 15, "purify": 16,
-	"protection_from_magic": 17, "dispel_magic": 18,
-	"celestial_armor": 21, "vampiric_weapon": 22,
-	"pain_reflection": 23,
+// Shared dispatch for validation and rendering. Presentation only: no spell
+// IDs or gameplay behavior.
+type castOverlayStyle struct {
+	material   float32 // branch in cast_overlay.kage
+	object     int     // camera-local mesh drawn with the pass, castNoObject for none
+	passInside bool    // the pass is painted inside the object's depth, between its back and front
+	weapon     bool    // back and front flame passes wrap the cast_overlay_weapon model
+	partyCards bool    // drawn on each living hero's card instead of the view
+}
+
+var castOverlayStyles = map[string]castOverlayStyle{
+	"darkness":              {material: 0},
+	"town_portal":           {material: 1},
+	"fire_aura":             {material: 2, weapon: true},
+	"haste":                 {material: 3, object: castHourglass},
+	"shield":                {material: 4},
+	"fate":                  {material: 7},
+	"shared_life":           {material: 8},
+	"preservation":          {material: 9, object: castWing, passInside: true},
+	"regeneration":          {material: 15, partyCards: true},
+	"purify":                {material: 16},
+	"protection_from_magic": {material: 17},
+	"dispel_magic":          {material: 18},
+	"celestial_armor":       {material: 21, object: castCuirass},
+	"vampiric_weapon":       {material: 22, weapon: true},
+	"pain_reflection":       {material: 23},
 }
 
 type castOverlayRenderer struct {
@@ -37,24 +53,23 @@ func (a buffFxAnim) objectPhase() (phase, alpha float64) {
 }
 
 func (r *Renderer) drawCastOverlay(dst *ebiten.Image, a buffFxAnim) {
-	if a.overlay == "fire_aura" || a.overlay == "vampiric_weapon" {
+	style := castOverlayStyles[a.overlay]
+	if style.weapon {
 		r.drawCastOverlayPass(dst, a, -1)
 		r.drawEnchantedSword(dst, a)
 		r.drawCastOverlayPass(dst, a, 1)
 		return
 	}
-	if a.overlay == "preservation" {
-		r.drawCastObject(dst, a, castWing)
-		r.drawCastOverlayPass(dst, a, 0)
+	pass := func() { r.drawCastOverlayPass(dst, a, 0) }
+	if style.object == castNoObject {
+		pass()
 		return
 	}
-	r.drawCastOverlayPass(dst, a, 0)
-	switch a.overlay {
-	case "celestial_armor":
-		r.drawCastObject(dst, a, castCuirass)
-	case "haste":
-		r.drawCastObject(dst, a, castHourglass)
+	if !style.passInside {
+		pass()
+		pass = nil
 	}
+	r.drawCastObject(dst, a, style.object, pass)
 }
 
 func (r *Renderer) drawEnchantedSword(dst *ebiten.Image, a buffFxAnim) {
@@ -96,12 +111,13 @@ func (r *Renderer) drawCastOverlayRegion(dst *ebiten.Image, a buffFxAnim, pass f
 	w, h := float32(width), float32(height)
 	s.phase[0] = float32(a.age) / float32(a.totalFrames())
 	s.pass[0] = pass
-	s.style[0] = castOverlayStyles[a.overlay]
+	style := castOverlayStyles[a.overlay]
+	s.style[0] = style.material
 	s.viewport = [2]float32{float32(w), float32(h)}
 	s.origin = [2]float32{float32(x), float32(y)}
 	s.opts.Images[0] = r.ensureFireNoise()
 	x0, y0, x1, y1 := float32(0), float32(0), float32(w), float32(h)
-	if a.overlay == "fire_aura" || a.overlay == "vampiric_weapon" {
+	if style.weapon {
 		// Match the flame's bounded domain instead of shading two full screens.
 		x0, x1 = float32(w)*.5-float32(h)*.26, float32(w)*.5+float32(h)*.26
 		y0, y1 = float32(h)*.06, float32(h)*.86

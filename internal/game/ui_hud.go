@@ -545,12 +545,12 @@ func (ui *UISystem) cardPortrait(name string, w, h int, usePartyAperture bool) *
 // this frame. Every drawCard* call in the layer block below must be represented
 // here, or the card silently loses that effect.
 type partyCardEffectSet struct {
-	poison, burn, stun, timed, regeneration bool
-	status                                  statusVisuals
+	poison, burn, stun, timed, castOverlay bool
+	status                                 statusVisuals
 }
 
 func (s partyCardEffectSet) any() bool {
-	return s.poison || s.burn || s.stun || s.timed || s.regeneration || s.status != 0
+	return s.poison || s.burn || s.stun || s.timed || s.castOverlay || s.status != 0
 }
 
 // layerCardFx are the timer-driven overlays that paint into the effect layer.
@@ -700,18 +700,18 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// reused layer clips them to the painted panel so they never cross the
 		// reserved cooldown/selection frames. The layer costs a render-target
 		// switch plus a full-card blit every frame, so an idle card skips it.
-		regen, showRegen := ui.game.regenerationCast()
+		overlay, showOverlay := ui.game.partyCardCast()
 		fx := partyCardEffectSet{
-			poison:       isPoisoned && !isDown,
-			burn:         isBurning && !isDown,
-			stun:         member.IsStunned() && !isDown,
-			timed:        ui.game.anyTimedCardFxActive(i),
-			status:       ui.game.partyStatusVisuals(member),
-			regeneration: showRegen && !isDown,
+			poison:      isPoisoned && !isDown,
+			burn:        isBurning && !isDown,
+			stun:        member.IsStunned() && !isDown,
+			timed:       ui.game.anyTimedCardFxActive(i),
+			status:      ui.game.partyStatusVisuals(member),
+			castOverlay: showOverlay && !isDown,
 		}
 		if effects := ui.partyCardEffects(i, panelW, panelH, fx.any()); effects != nil {
-			if fx.regeneration && ui.game.gameLoop != nil && ui.game.gameLoop.renderer != nil {
-				ui.game.gameLoop.renderer.drawCastOverlayRegion(effects, regen, 0, 0, 0, float64(portraitColWidth), float64(panelH))
+			if fx.castOverlay && ui.game.gameLoop != nil && ui.game.gameLoop.renderer != nil {
+				ui.game.gameLoop.renderer.drawCastOverlayRegion(effects, overlay, 0, 0, 0, float64(portraitColWidth), float64(panelH))
 			}
 			if fx.poison {
 				ui.drawCardPoisonBubbles(effects, 0, 0, panelW, panelH)

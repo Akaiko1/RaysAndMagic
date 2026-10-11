@@ -180,7 +180,7 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 		return
 	}
 	m.LimitPlayerEngagement(partyX, partyY)
-	if m.FearFramesRemaining > 0 {
+	if m.IsAfraid() {
 		m.State = StateFleeing
 	}
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
@@ -398,7 +398,7 @@ func (m *Monster3D) BeginCombatEngagement() {
 	if m == nil {
 		return
 	}
-	if m.FearFramesRemaining > 0 {
+	if m.IsAfraid() {
 		m.State = StateFleeing
 		return
 	}
@@ -1775,7 +1775,7 @@ func (m *Monster3D) fleeDurationFrames() int {
 // of an existing encounter, so cover does not erase it: current pursuit scope
 // and leash decide whether the monster rejoins the fight or wanders home.
 func (m *Monster3D) finishFleeIfExpired(playerX, playerY float64) bool {
-	if m.FearFramesRemaining > 0 {
+	if m.IsAfraid() {
 		return false
 	}
 	if m.StateTimer < m.fleeDurationFrames() {

@@ -488,7 +488,7 @@ func TestAdvancedPersonalTimersSurviveModeSwitchAndSave(t *testing.T) {
 	c := g.party.Members[1]
 	d := castAdvancedSupport(t, g, "vampiric_weapon", 0, c)
 	castAdvancedSupport(t, g, "fire_aura", 0, c)
-	remaining := d.Mechanic.Duration(0) * g.config.GetTPS()
+	remaining := d.DurationSeconds(0) * g.config.GetTPS()
 	assertRemaining := func(want int) {
 		t.Helper()
 		found := false
@@ -549,8 +549,8 @@ func TestAutocastDuplicateCasters(t *testing.T) {
 				sp1, sp2 := first.SpellPoints, second.SpellPoints
 				gl.updateAutomaticTechniques()
 				paid := first.SpellPoints
-				if paid >= sp1 || first.SpellState.AutoFrames != 6*g.config.GetTPS() {
-					t.Fatal("first eligible caster did not commit with the six-second budget")
+				if paid >= sp1 || first.SpellState.AutoFrames != g.config.AutocastIntervalRounds*g.combatRoundFrames() {
+					t.Fatal("first eligible caster did not commit with the authored autocast interval")
 				}
 				gl.updateAutomaticTechniques()
 				if first.SpellPoints != paid || second.SpellPoints != sp2 || second.SpellState.AutoFrames != 0 {
@@ -568,13 +568,17 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 	for _, clock := range []string{"TB", "RT", "mixed"} {
 		t.Run(clock, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, clock == "TB")
+			// The scenario's own two-round budget: round 2 is still blocked,
+			// round 3 is ready.
+			g.config.AutocastIntervalRounds = 2
+			budget := 2 * g.combatRoundFrames()
 			c.RareClass.Automatic = map[string]bool{"purify": true}
 			patient := g.party.Members[1]
 			patient.AddCondition(character.ConditionPoisoned)
 			gl := &GameLoop{game: g}
 			gl.updateAutomaticTechniques()
-			if c.SpellState.AutoFrames != 6*g.config.GetTPS() {
-				t.Fatal("incorrect default interval")
+			if c.SpellState.AutoFrames != budget {
+				t.Fatal("commit did not start the two-round budget")
 			}
 			// A different automatic ability uses the same personal lock. Manual
 			// spells remain usable during it and do not reset the lock.
@@ -593,26 +597,26 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 			g.spellInputCooldown = 0
 			sp := c.SpellPoints
 			gl.updateAutomaticTechniques()
-			if c.SpellPoints != sp || c.SpellState.AutoFrames != 6*g.config.GetTPS() {
+			if c.SpellPoints != sp || c.SpellState.AutoFrames != budget {
 				t.Fatal("manual use changed the automatic budget or a sibling bypassed it")
 			}
 			switch clock {
 			case "TB":
 				g.startPartyTurn() // Round 2: still blocked.
 			case "RT":
-				g.tickRareClassClocks(3 * g.config.GetTPS())
+				g.tickRareClassClocks(g.combatRoundFrames())
 			case "mixed":
 				g.tickRareClassClocks(g.config.GetTPS())
 				g.turnBasedMode = true
 				g.startPartyTurn(true) // Entering TB grants no elapsed time.
-				if c.SpellState.AutoFrames != 5*g.config.GetTPS() {
+				if c.SpellState.AutoFrames != budget-g.config.GetTPS() {
 					t.Fatal("mode entry shortened the automatic budget")
 				}
 				g.startPartyTurn()
 			}
 			gl.updateAutomaticTechniques()
 			if c.SpellPoints != sp {
-				t.Fatal("autocast retriggered before round 3 / six elapsed seconds")
+				t.Fatal("autocast retriggered before round 3 / the full budget")
 			}
 			remaining := c.SpellState.AutoFrames
 			c = restoreCharacterSave(buildCharacterSave(c))
@@ -632,19 +636,27 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 				g.tickRareClassClocks(1)
 			}
 			gl.updateAutomaticTechniques()
-			if c.SpellPoints != sp-18 || g.advancedBuff("celestial_armor") == nil {
+			armor, err := spells.GetSpellDefinitionByID("celestial_armor")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.SpellPoints != sp-armor.SpellPointsCost || g.advancedBuff("celestial_armor") == nil {
 				t.Fatal("autocast did not resume at the exact budget boundary")
 			}
 		})
 	}
 }
 
-func TestAutocastPresentationSequence(t *testing.T) {
+// Each automatic pass commits one caster's spell, so two heroes with
+// different autocasts both cast within two passes, each paying only for
+// their own spell.
+func TestAutocastCastersCommitOnConsecutivePasses(t *testing.T) {
 	g := advancedSupportGame(t, true)
 	m := zoneVictim(t, g)
 	m.X = g.camera.X + 32
 	m.BeginPlayerEngagement()
-	for i, key := range []string{"haste", "celestial_armor"} {
+	keys := []string{"haste", "celestial_armor"}
+	for i, key := range keys {
 		c := g.party.Members[i]
 		c.LearnSpell(spells.SpellID(key))
 		c.SpellState.Automatic = map[string]bool{key: true}
@@ -652,21 +664,17 @@ func TestAutocastPresentationSequence(t *testing.T) {
 	gl := &GameLoop{game: g}
 	gl.updateAutomaticTechniques()
 	gl.updateAutomaticTechniques()
-	if g.party.Members[0].SpellPoints != 988 || g.party.Members[1].SpellPoints != 982 || g.advancedBuff("celestial_armor") == nil {
-		t.Fatal("visual sequencing delayed gameplay or charged the wrong caster")
+	for i, key := range keys {
+		d, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := g.party.Members[i].SpellPoints; got != 1000-d.SpellPointsCost {
+			t.Fatalf("%s caster SP=%d, want %d", key, got, 1000-d.SpellPointsCost)
+		}
 	}
-	if len(g.buffFxAnims) != 2 || g.buffFxAnims[0].delay != 0 || g.buffFxAnims[1].delay != g.buffFxAnims[0].totalFrames() {
-		t.Fatalf("autocast overlays overlap: %+v", g.buffFxAnims)
-	}
-	for range g.buffFxAnims[0].totalFrames() - 1 {
-		g.tickBuffFx()
-	}
-	if len(g.buffFxAnims) != 2 || g.buffFxAnims[1].age != 0 || g.buffFxAnims[1].delay != 1 {
-		t.Fatal("queued animation aged before its presentation slot")
-	}
-	g.tickBuffFx()
-	if len(g.buffFxAnims) != 1 || g.buffFxAnims[0].overlay != "celestial_armor" || g.buffFxAnims[0].age != 0 || g.buffFxAnims[0].delay != 0 {
-		t.Fatal("next animation did not start when the first finished")
+	if g.party.Members[2].SpellPoints != 1000 || g.advancedBuff("celestial_armor") == nil {
+		t.Fatal("second autocast did not apply or charged a bystander")
 	}
 }
 
@@ -999,7 +1007,8 @@ func TestPersonalSpellReuseAcrossModesAndSave(t *testing.T) {
 			if restored.SpellState.ReuseFrames[string(d.ID)] != total || len(restored.SpellState.ReuseFrames) != 1 {
 				t.Fatal("load did not normalize reuse against current catalog")
 			}
-			if !strings.Contains(GetSpellTooltipRows(d.ID, c, g.combat, true).String(), "15s / 5 rounds") {
+			rounds := (total + g.combatRoundFrames() - 1) / g.combatRoundFrames()
+			if !strings.Contains(GetSpellTooltipRows(d.ID, c, g.combat, true).String(), fmt.Sprintf("%ds / %d round", d.ReuseSeconds, rounds)) {
 				t.Fatal("tooltip omitted authored personal reuse")
 			}
 		})

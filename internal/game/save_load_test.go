@@ -1480,3 +1480,53 @@ func TestSaveLoadItemCatalogRevisions(t *testing.T) {
 		t.Fatal("rename lost sold-out or duplicate-name merchant stock")
 	}
 }
+
+// A renamed monster or card still loads from a save written under its former
+// key: the Medusa became the Jellyfish (legacy_keys on both definitions).
+func TestSaveLoad_RenamedKeysMigrate(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wSave := newTestWorld(cfg)
+	wSave.Monsters = append(wSave.Monsters, monster.NewMonster3DFromConfig(64, 64, "jellyfish", cfg), monster.NewMonster3DFromConfig(128, 64, "jellyfish", cfg))
+	wmSave := world.NewWorldManager(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+	wmSave.CurrentMapKey = "forest"
+	save := newTestGame(cfg, wSave).buildSave(wmSave)
+	// One keyed save under the old key, one name-only legacy save.
+	rename := func(list []MonsterSave) {
+		for i := range list {
+			if list[i].Key == "jellyfish" {
+				list[i].Key, list[i].Name = "medusa", "Medusa"
+				if list[i].X > 100 {
+					list[i].Key = ""
+				}
+			}
+		}
+	}
+	rename(save.Monsters)
+	for _, list := range save.MapMonsters {
+		rename(list)
+	}
+	save.Party.CardCollection = []string{"medusa_card"}
+	save.Party.CardCollectionItems = nil
+
+	wLoad := newTestWorld(cfg)
+	wmLoad := world.NewWorldManager(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+	wmLoad.CurrentMapKey = "forest"
+	gLoad := newTestGame(cfg, wLoad)
+	if err := gLoad.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	restored := 0
+	for _, m := range wLoad.Monsters {
+		if m.Key == "jellyfish" {
+			restored++
+		}
+	}
+	if restored != 2 {
+		t.Fatalf("old-key and old-name monsters restored %d times, want both as jellyfish", restored)
+	}
+	if gLoad.cardSlots[0].key != "jellyfish_card" {
+		t.Fatalf("old-key card slot = %q, want jellyfish_card", gLoad.cardSlots[0].key)
+	}
+}

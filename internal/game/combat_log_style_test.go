@@ -346,26 +346,70 @@ func TestDamageReportsCaptureResolvedHits(t *testing.T) {
 
 // HP costs identify the payer; dodge-through damage retains its distinct
 // wording; critical overkill reports the packet total and zero remaining HP.
+// Asserted on the pieces a line carries, not on the English template.
 func TestDamageReportSpecialEvents(t *testing.T) {
 	hero := &character.MMCharacter{Name: "Mara", HitPoints: 80, MaxHitPoints: 100}
 	foe := &monster.Monster3D{Name: "Ogre", MaxHitPoints: 100}
-	for _, tc := range []struct {
-		report damageLog
-		want   string
-	}{
-		{damageLog{Source: logHeroName(hero), Target: monsterLogTarget(foe), Amount: 120, School: "fire", Critical: true},
-			"Critical! Mara hits Ogre for 120 damage! (HP: 0/100)"},
-		{damageLog{Source: logHeroName(hero), Target: monsterLogTarget(foe), Amount: 20, Kind: damageLogDodge},
-			"Ogre dodges, but Mara lands 20 true damage! (HP: 0/100)"},
-		{damageLog{Source: logHeroText("Nyra"), Target: heroLogTarget(hero), Amount: 20, Kind: damageLogSacrifice},
-			"Mara sacrifices 20 HP to protect Nyra! (HP: 80/100)"},
-		{damageLog{Target: heroLogTarget(hero), Amount: 20, Kind: damageLogBurnCost},
-			"Mara's Strong Magic burns 20 HP for power! (HP: 80/100)"},
-	} {
+	report := func(t *testing.T, hit damageLog) combatLogEntry {
+		t.Helper()
 		g := &MMGame{}
-		g.reportDamage(logToneGood, tc.report)
-		if got := g.combatLogHistory[0].Text; got != tc.want {
-			t.Errorf("got %q, want %q", got, tc.want)
+		g.reportDamage(logToneGood, hit)
+		if len(g.combatLogHistory) != 1 {
+			t.Fatalf("logged %d lines, want 1", len(g.combatLogHistory))
 		}
+		return g.combatLogHistory[0]
+	}
+	hasPiece := func(segs []coloredTextSegment, want coloredTextSegment) bool {
+		for _, s := range segs {
+			if s.text == want.text && sameColor(s.color, want.color) {
+				return true
+			}
+		}
+		return false
+	}
+	critMark := logCrit(true).logSegments()[0].text
+	for name, tc := range map[string]struct {
+		hit    damageLog
+		pieces []coloredTextSegment // who is named, in side colors, and the amount
+		hp     logPart              // the payer's / target's post-hit HP
+	}{
+		"critical overkill": {damageLog{Source: logHeroName(hero), Target: monsterLogTarget(foe), Amount: 120, School: "fire", Critical: true},
+			[]coloredTextSegment{{"Mara", logHero}, {"Ogre", logEnemy}, {"120", logSchoolColor("fire")}}, logHP(0, 100)},
+		"dodge-through": {damageLog{Source: logHeroName(hero), Target: monsterLogTarget(foe), Amount: 20, Kind: damageLogDodge},
+			[]coloredTextSegment{{"Mara", logHero}, {"Ogre", logEnemy}, {"20", logTrue}}, logHP(0, 100)},
+		"sacrifice": {damageLog{Source: logHeroText("Nyra"), Target: heroLogTarget(hero), Amount: 20, Kind: damageLogSacrifice},
+			[]coloredTextSegment{{"Mara", logHero}, {"Nyra", logHero}, {"20", logTrue}}, logHP(80, 100)},
+		"burn cost": {damageLog{Target: heroLogTarget(hero), Amount: 20, Kind: damageLogBurnCost},
+			[]coloredTextSegment{{"Mara", logHero}, {"20", logTrue}}, logHP(80, 100)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := report(t, tc.hit)
+			if e.Tone != logToneGood {
+				t.Fatalf("tone %d, want %d", e.Tone, logToneGood)
+			}
+			segs := e.logLineSegments()
+			for _, want := range tc.pieces {
+				if !hasPiece(segs, want) {
+					t.Errorf("line %q lacks %q in %v", e.Text, want.text, want.color)
+				}
+			}
+			hp := tc.hp.logSegments()
+			tail := segs[max(0, len(segs)-len(hp)):]
+			for i := range hp {
+				if i >= len(tail) || tail[i].text != hp[i].text || !sameColor(tail[i].color, hp[i].color) {
+					t.Fatalf("line %q does not end with HP %q", e.Text, hp)
+				}
+			}
+			if got := strings.HasPrefix(e.Text, critMark); got != tc.hit.Critical {
+				t.Fatalf("line %q critical marker=%v, want %v", e.Text, got, tc.hit.Critical)
+			}
+			if tc.hit.Kind != "" && tc.hit.Source != nil {
+				plain := tc.hit
+				plain.Kind = damageLogHit
+				if report(t, plain).Text == e.Text {
+					t.Fatalf("%s reads as a plain hit: %q", tc.hit.Kind, e.Text)
+				}
+			}
+		})
 	}
 }

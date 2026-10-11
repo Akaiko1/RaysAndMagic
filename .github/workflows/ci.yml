@@ -41,12 +41,6 @@ jobs:
         if: matrix.shard == 0
         run: python3 .github/scripts/test-race-shard_test.py
 
-      - name: Validate monster animation pixels
-        if: matrix.shard == 0
-        # The !race sweep decodes every authored sheet. Gameplay animation
-        # wiring and concurrent resource loading remain in the race shards.
-        run: xvfb-run --auto-servernum go test -count=1 -timeout 15m -run '^TestMonsterAnimation(Assets|Pixels)$' ./internal/game
-
       - name: Tests with race detector
         # Ebitengine 2.10 is pure Go, but still needs desktop runtime
         # libraries and a display/graphics context. xvfb-run supplies
@@ -55,3 +49,10 @@ jobs:
         # exceeds 15m on CI. Each group keeps the same timeout and detector.
         # Shard 0 also runs every other package.
         run: xvfb-run --auto-servernum bash .github/scripts/test-race-shard.sh ${{ matrix.shard }} ${{ strategy.job-total }}
+
+      - name: Validate monster animation pixels
+        # After the race shard and independent of it, so neither failure hides the other.
+        if: matrix.shard == 0 && !cancelled()
+        # The !race sweep decodes every authored sheet. Gameplay animation
+        # wiring and concurrent resource loading remain in the race shards.
+        run: xvfb-run --auto-servernum go test -count=1 -timeout 15m -run '^TestMonsterAnimation(Assets|Pixels)$' ./internal/game

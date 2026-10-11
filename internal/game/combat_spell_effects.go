@@ -115,7 +115,7 @@ func (cs *CombatSystem) tryCastPartyNova(def spells.SpellDefinition, caster *cha
 		radius = def.PartyAoeRadiusTiles * float64(cs.game.config.GetTileSize())
 	}
 	cx, cy := cs.game.camera.X, cs.game.camera.Y
-	damageTypeStr := normalizeDamageTypeStr(def.School)
+	damageTypeStr := def.DamageType()
 	// The nova's packet goes through the SAME builder as projectiles, zones and
 	// mortars (spellDamageParts), so Strong Magic and any future packet-level
 	// modifier reach it - a direct CalculatePartyNovaDamage total would silently

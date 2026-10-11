@@ -12,7 +12,7 @@ import (
 // A zero duration is a paid resisted attempt, not a refundable lack of targets.
 func (cs *CombatSystem) spellControlDuration(def spells.SpellDefinition, caster *character.MMCharacter, m *monster.Monster3D, turns, frames int) (int, int) {
 	rule := cs.game.config.StatusEffects.ControlSaves
-	if def.Mechanic.Kind == "feeblemind" && (m.SilenceFramesRemaining > 0 || m.SilenceImmunityFramesRemaining > 0) {
+	if def.Mechanic.Kind == "feeblemind" && (m.IsSilenced() || m.SilenceImmunityFramesRemaining > 0) {
 		cs.game.logCombat(logToneNone, rule.ResistedMessage, logMonsterName(m), logSchoolWord(def.School, def.Name))
 		return 0, 0
 	}

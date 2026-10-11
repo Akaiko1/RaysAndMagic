@@ -150,6 +150,6 @@ func deviceCooldownProgress(item items.Item) float64 {
 }
 
 func deviceCooldownTurns(item items.Item) int {
-	round := config.GetTargetTPS() * TurnBasedPeriodicEffectSeconds
+	round := config.GetTargetTPS() * config.CombatRoundSeconds
 	return (max(0, item.DeviceCooldownFrames) + round - 1) / round
 }

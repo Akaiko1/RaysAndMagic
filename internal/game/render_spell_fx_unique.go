@@ -62,12 +62,18 @@ func validateProjectileFxStyles() {
 			}
 		}
 		if style := def.Graphics.CastOverlay; style != "" {
-			if _, ok := castOverlayStyles[style]; !ok {
+			entry, ok := castOverlayStyles[style]
+			if !ok {
 				panic(fmt.Sprintf("spell %q: unknown cast_overlay style %q", key, style))
 			}
 			if def.IsProjectile {
 				panic(fmt.Sprintf("spell %q: cast_overlay requires a non-projectile spell", key))
 			}
+			if entry.weapon != (def.Graphics.CastOverlayWeapon != "") {
+				panic(fmt.Sprintf("spell %q: cast_overlay_weapon is required exactly for weapon enchantment overlays", key))
+			}
+		} else if def.Graphics.CastOverlayWeapon != "" {
+			panic(fmt.Sprintf("spell %q: cast_overlay_weapon needs a weapon enchantment overlay", key))
 		}
 		if def.Graphics.ProjectileFx != "" {
 			if _, ok := spellFxStyleKinds[def.Graphics.ProjectileFx]; !ok {

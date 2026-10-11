@@ -137,7 +137,7 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m == nil || m.IsInertSetPiece() || m.IsFish() {
 		return AIBehaviorInert
 	}
-	if m.FearFramesRemaining > 0 {
+	if m.IsAfraid() {
 		return AIBehaviorFleeing
 	}
 	if m.Bound {
@@ -891,7 +891,7 @@ func (m *Monster3D) GetTurnBasedAttackCount() int {
 }
 
 func (m *Monster3D) HasRangedAttack() bool {
-	return (m.ProjectileSpell != "" || m.ProjectileWeapon != "") && m.SilenceFramesRemaining == 0
+	return (m.ProjectileSpell != "" || m.ProjectileWeapon != "") && !m.IsSilenced()
 }
 
 // TickRootTurn consumes one TB turn of a root effect; the monster stays

@@ -1109,12 +1109,14 @@ items:
     rarity: "legendary"
     value: 800
 
-  medusa_card:
-    name: "Medusa Card"
+  jellyfish_card:
+    name: "Jellyfish Card"
+    legacy_names: ["Medusa Card"]
+    legacy_keys: ["medusa_card"]
     type: "card"
     card_walk_on_water: true
     description: "A rare monster card prized by collectors"
-    flavor: "A stamped parchment card showing a glowing sea medusa."
+    flavor: "A stamped parchment card showing a glowing sea jellyfish."
     rarity: "legendary"
     value: 500
 

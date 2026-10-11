@@ -38,9 +38,10 @@ func (a buffFxAnim) screenScale() float64 {
 	return 1
 }
 
-func (g *MMGame) regenerationCast() (buffFxAnim, bool) {
+// partyCardCast returns the newest started party-card overlay.
+func (g *MMGame) partyCardCast() (buffFxAnim, bool) {
 	for i := len(g.buffFxAnims) - 1; i >= 0; i-- {
-		if a := g.buffFxAnims[i]; a.overlay == "regeneration" && a.delay == 0 {
+		if a := g.buffFxAnims[i]; castOverlayStyles[a.overlay].partyCards && a.delay == 0 {
 			return a, true
 		}
 	}
@@ -114,8 +115,8 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 		if a.delay > 0 {
 			continue
 		}
-		if a.overlay == "regeneration" {
-			continue // A party effect is drawn on each living hero's card.
+		if castOverlayStyles[a.overlay].partyCards {
+			continue
 		}
 		if a.overlay != "" {
 			r.drawCastOverlay(screen, a)

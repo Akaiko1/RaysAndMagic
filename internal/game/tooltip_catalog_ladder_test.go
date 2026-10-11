@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"regexp"
 	"slices"
 	"sort"
@@ -62,9 +61,12 @@ func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 	check := func(t *testing.T, catalog string, live func(tier int) string) {
 		t.Helper()
 		for _, line := range strings.Split(catalog, "\n") {
-			// New mechanic prose can contain a labelled duration after an
-			// earlier ladder. Compare that complete sentence at the chosen tier.
-			if colon := strings.Index(line, ": "); colon >= 0 && tierLadderPattern.MatchString(line[:colon]) {
+			// Mechanic prose states its ladders in a sentence, with or without a
+			// labelled duration after them. Compare that complete sentence at
+			// the chosen tier.
+			colon := strings.Index(line, ": ")
+			prose := colon < 0 && tierLadderPattern.MatchString(line)
+			if prose || colon >= 0 && tierLadderPattern.MatchString(line[:colon]) {
 				ladders++
 				for tier := 0; tier < 4; tier++ {
 					expected := tierLadderPattern.ReplaceAllStringFunc(line, func(ladder string) string {
@@ -99,14 +101,24 @@ func TestCatalogLaddersMatchEveryTier(t *testing.T) {
 			check(t, GetSpellTooltipRows(id, nil, nil, true).String(), func(tier int) string {
 				return GetSpellTooltipRows(id, casterAt(tier), cs, true).String()
 			})
-			// Mechanic prose is not restricted to the legacy "Label: value"
-			// layout, but every live card must still resolve its author's ladder.
+			// The catalog states each authored mechanic ladder its summary
+			// names; check above then holds every live tier to that ladder.
 			def := config.GlobalSpells.Spells[key]
-			if def.Mechanic != nil {
-				for tier := 0; tier < 4; tier++ {
-					want := strings.ReplaceAll(def.Mechanic.SummaryText(tier), "{spell_duration}", fmt.Sprint(def.Duration))
-					if card := GetSpellTooltipRows(id, casterAt(tier), cs, true).String(); !strings.Contains(card, want) {
-						t.Fatalf("mastery %d card omits resolved mechanic %q:\n%s", tier, want, card)
+			if m := def.Mechanic; m != nil {
+				catalog := GetSpellTooltipRows(id, nil, nil, true).String()
+				for placeholder, ladder := range map[string][]int{
+					"{power}": m.PowerByMastery, "{charges}": m.ChargesByMastery, "{projectiles}": m.ProjectilesByMastery,
+					"{extra_actions}": m.ExtraActionsByMastery, "{duration}": def.DurationByMastery,
+				} {
+					if !strings.Contains(m.Summary, placeholder) {
+						continue
+					}
+					parts := make([]string, len(ladder))
+					for i, v := range ladder {
+						parts[i] = strconv.Itoa(v)
+					}
+					if want := strings.Join(parts, "/"); len(ladder) != 4 || !strings.Contains(catalog, want) {
+						t.Fatalf("catalog omits authored %s ladder %v:\n%s", placeholder, ladder, catalog)
 					}
 				}
 			}

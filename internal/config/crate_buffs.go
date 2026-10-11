@@ -24,8 +24,13 @@ func validateCrateBuff(key string, b *CrateBuffConfig) error {
 	return nil
 }
 
+const cratePrefix = "crate:"
+
+// CrateID is a crate's scoped identity: its status buff and its adventure loot slot.
+func CrateID(key string) string { return cratePrefix + key }
+
 func CrateBuff(id string) *CrateBuffConfig {
-	key, ok := strings.CutPrefix(id, "crate:")
+	key, ok := strings.CutPrefix(id, cratePrefix)
 	if !ok {
 		return nil
 	}

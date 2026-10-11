@@ -5,6 +5,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"math"
 	"slices"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -20,43 +21,43 @@ func (g *MMGame) techniqueRefusal(idx int, key string) string {
 func (g *MMGame) techniqueCastRefusal(idx int, key string, automatic bool) string {
 	d := config.Technique(key)
 	if d == nil || g.party == nil || idx < 0 || idx >= len(g.party.Members) {
-		return "Unknown technique."
+		return uitext.Text("technique.refusal_unknown")
 	}
 	c := g.party.Members[idx]
 	if c == nil || c.Class != character.ClassWayfarer || !c.HasSkill(character.SkillTranslocation) || !c.CanUseCombatAction() {
-		return "A capable Pilgrim is required."
+		return uitext.Text("technique.refusal_no_pilgrim")
 	}
 	if automatic && (!d.Automatic || !g.canAutocast(idx)) {
-		return "This Pilgrim is not ready."
+		return uitext.Text("technique.refusal_not_ready")
 	}
 	if !g.turnBasedMode && !g.combatActorAllowed(idx) {
-		return "This Pilgrim is outside the focused party."
+		return uitext.Text("technique.refusal_unfocused")
 	}
 	if c.Level < d.Level {
-		return fmt.Sprintf("%s requires level %d.", d.Name, d.Level)
+		return uitext.Text("technique.refusal_level", d.Name, d.Level)
 	}
 	if g.combat != nil && g.combat.partyInsideSolidTerrain() {
-		return "There is no room to use a technique here."
+		return uitext.Text("technique.refusal_no_room")
 	}
 	if d.FreeStep {
 		// A step moves the party, and a rooted party cannot move (as with Jump).
 		if g.partyRooted() {
-			return "The party is rooted in place."
+			return uitext.Text("technique.refusal_rooted")
 		}
 		if g.turnBasedMode && g.currentTurn != 0 {
-			return "Wait for the party phase."
+			return uitext.Text("technique.refusal_party_phase")
 		}
 		if g.spatialReuseFrames > 0 || (g.turnBasedMode && g.spatialStepThisTurn) {
-			return "Space has not settled yet."
+			return uitext.Text("technique.refusal_space")
 		}
 	} else if !automatic && !g.canSpendCombatAction(idx) {
-		return "This Pilgrim is not ready."
+		return uitext.Text("technique.refusal_not_ready")
 	}
 	if c.SpellPoints < g.techniqueSPCost(c, d) {
-		return "Not enough SP."
+		return uitext.Text("technique.refusal_sp")
 	}
 	if !d.FreeStep && !g.techniqueUseful(key) {
-		return "The party would not benefit."
+		return uitext.Text("technique.refusal_no_benefit")
 	}
 	return ""
 }
@@ -424,7 +425,7 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 	slices.Sort(enabled)
 	for _, id := range enabled {
 		d, err := spells.GetSpellDefinitionByID(spells.SpellID(id))
-		if err != nil || d.Mechanic == nil || d.Mechanic.Autocast == "" {
+		if err != nil || !d.HasAutocast() {
 			continue
 		}
 		if !characterKnowsSpellByID(c, d.ID) || c.SpellPoints < g.combat.effectiveSpellCost(c, d.SpellPointsCost) {

@@ -1299,8 +1299,10 @@ monsters:
     resistances: {}
 
   # Water-specific monsters
-  medusa:
-    name: "Medusa"
+  jellyfish:
+    name: "Jellyfish"
+    legacy_keys: ["medusa"]
+    legacy_names: ["Medusa"]
     level: 11
     max_hit_points: 360
     armor_class: 38
@@ -1314,7 +1316,7 @@ monsters:
     speed: 1.4
     gold_min: 25
     gold_max: 80
-    sprite: "medusa"
+    sprite: "jellyfish"
     letter: "m"
     biomes: ["water"]
     flying: true

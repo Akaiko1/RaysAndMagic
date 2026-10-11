@@ -100,7 +100,7 @@ func (g *MMGame) activeBuffEffectLines(id string) []string {
 		if b.Absorb > 0 {
 			out = append(out, uitext.Text("advanced.party_absorb", b.Absorb))
 		}
-		out = append(out, def.Mechanic.SummaryText(b.TechniqueTier))
+		out = append(out, def.Mechanic.SummaryText(b.TechniqueTier, def.DurationByMastery))
 	}
 	if b.OutBonus > 0 {
 		out = append(out, uitext.Text("spell.party_deal_damage", spells.OutgoingDamageTarget(b.OutDamageType), b.OutBonus))
@@ -137,7 +137,7 @@ func statBonusLines(b stats.StatBonuses) []string {
 func (g *MMGame) buffRemainingText(frames int) string {
 	tps := max(1, g.config.GetTPS())
 	seconds := (max(0, frames) + tps - 1) / tps
-	return cardDurationText(strconv.Itoa(seconds), pluralizeCount(tbRoundsForSeconds(seconds), "round", "rounds"))
+	return cardDurationText(strconv.Itoa(seconds), pluralizeCount(config.CombatRounds(seconds), "round", "rounds"))
 }
 
 // campStatusCardRows is the camp button's hover card. Its last line says whether

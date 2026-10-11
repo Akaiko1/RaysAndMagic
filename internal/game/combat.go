@@ -2747,7 +2747,7 @@ func (cs *CombatSystem) spawnMonsterRangedAttackNormal(monster *monsterPkg.Monst
 // attack). Shared by the melee and ranged paths so a new whole-party attack is
 // added in ONE place, not copy-pasted into both in the right order.
 func (cs *CombatSystem) tryMonsterAoeAttack(monster *monsterPkg.Monster3D) bool {
-	if monster == nil || monster.SilenceFramesRemaining > 0 || cs.attackOriginBlocked(monster.X, monster.Y) {
+	if monster == nil || monster.IsSilenced() || cs.attackOriginBlocked(monster.X, monster.Y) {
 		return false
 	}
 	if cs.tryMonsterDragonBreath(monster) {
@@ -2779,7 +2779,7 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 // Piercing Shot and the separate breath/fireburst actions are authored whole-
 // party attacks; they do not redirect their victim list to a single summon.
 func (cs *CombatSystem) tryMonsterAttackSpecial(monster *monsterPkg.Monster3D, target monsterAttackDestination) bool {
-	if monster == nil || monster.SilenceFramesRemaining > 0 || !monster.IsAlive() || cs.attackOriginBlocked(monster.X, monster.Y) {
+	if monster == nil || monster.IsSilenced() || !monster.IsAlive() || cs.attackOriginBlocked(monster.X, monster.Y) {
 		return false
 	}
 	if cs.championTryCastSpell(monster, target) || cs.tryMonsterAllyHeal(monster) {
@@ -2875,7 +2875,7 @@ func (cs *CombatSystem) pickMonsterAllyHealTarget(healer *monsterPkg.Monster3D) 
 // the given owner, dispatching to its spell or weapon projectile. Returns true if
 // one was spawned. Fireburst (party-only AoE) is handled by the caller.
 func (cs *CombatSystem) spawnMonsterRangedAttackAt(monster *monsterPkg.Monster3D, targetX, targetY float64, owner ProjectileOwner) bool {
-	if monster == nil || monster.SilenceFramesRemaining > 0 || !cs.attackLineClear(monster.X, monster.Y, targetX, targetY) {
+	if monster == nil || monster.IsSilenced() || !cs.attackLineClear(monster.X, monster.Y, targetX, targetY) {
 		return false
 	}
 	if monster.ProjectileSpell != "" {
@@ -3838,7 +3838,7 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 	if m == nil {
 		return nil
 	}
-	if m.BerserkFramesRemaining > 0 && m.FearFramesRemaining == 0 {
+	if m.BerserkFramesRemaining > 0 && !m.IsAfraid() {
 		return cs.nearestBerserkFoe(m)
 	}
 	if foe := cs.game.caravanFoe(m); foe != nil {

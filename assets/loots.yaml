@@ -7,6 +7,11 @@
 #                crate slots)
 #   loot_groups: shared material groups for monster drops
 
+# The one card drop rule: a boss: true monster drops its card at `boss`, every
+# other monster at `monster`, one roll each. The boot rejects any card entry
+# in `loots` that disagrees, so author the same value there.
+card_drop_chance: {boss: 0.03, monster: 0.01}
+
 loots:
   solstice_ember_elemental: [{"type": "item", "key": "solstice_living_ember", "chance": 0.4}]
   solstice_cinder_hound: [{"type": "item", "key": "solstice_heat_resistant_fang", "chance": 0.4}]
@@ -237,10 +242,10 @@ loots:
       key: "forest_spider_card"
       chance: 0.01
 
-  medusa:
+  jellyfish:
     - type: "item"
-      key: "medusa_card"
-      chance: 0.03
+      key: "jellyfish_card"
+      chance: 0.01
     - type: "item"
       key: "serpentscale_gauntlets"
       chance: 0.05
@@ -314,7 +319,7 @@ loots:
       chance: 0.04
     - type: "item"
       key: "thief_bug_card"
-      chance: 0.03
+      chance: 0.01
 
   golden_thief_bug:
     - type: "item"
@@ -328,7 +333,7 @@ loots:
       chance: 0.08
     - type: "item"
       key: "golden_thief_bug_card"
-      chance: 0.01
+      chance: 0.03
 
   # Pyramid dungeon mobs.
   mummy:
@@ -406,7 +411,7 @@ loots:
       chance: 0.08
     - type: "item"
       key: "puma_card"
-      chance: 0.03
+      chance: 0.01
 
   elf_archer:
     - type: "weapon"
@@ -465,7 +470,7 @@ loots:
       chance: 0.03
     - type: "item"
       key: "archmage_card"
-      chance: 0.03
+      chance: 0.01
 
   lich:
     - type: "item"
@@ -479,7 +484,7 @@ loots:
       chance: 0.03
     - type: "item"
       key: "lich_card"
-      chance: 0.03
+      chance: 0.01
 
   # Elemental dragons - each hoards a signature gem (base dragon: ruby, above).
   dragon_red:
@@ -627,7 +632,7 @@ loots:
       chance: 0.12
     - type: "item"
       key: "ningyo_card"
-      chance: 0.03
+      chance: 0.01
     - type: "item"
       key: "haori_cloak"
       chance: 0.05
@@ -756,7 +761,7 @@ loots:
       chance: 0.18
     - type: "item"
       key: "ocelot_card"
-      chance: 0.03
+      chance: 0.01
 
   jungle_goblin:
     - type: "weapon"
@@ -778,7 +783,7 @@ loots:
       chance: 0.04
     - type: "item"
       key: "masked_huntress_card"
-      chance: 0.03
+      chance: 0.01
 
   masked_serpent_dancer:
     - type: "item"

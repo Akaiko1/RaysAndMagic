@@ -124,10 +124,13 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 	for _, school := range character.AllMagicSchools {
 		text := magicMasteryTooltipRows(school).String()
 		assertSkillGrandMasterSection(t, text, true)
-		for _, want := range []string{"0/20/40/60%", "0/5/10/15", "Standard spell damage/healing"} {
+		for _, want := range []string{"durations follow each spell's mastery values", "0/5/10/15", "Standard spell damage/healing"} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s missing %q: %s", school, want, text)
 			}
+		}
+		if strings.Contains(text, "0/20/40/60%") {
+			t.Errorf("%s advertises the retired universal duration multiplier", school)
 		}
 	}
 	// Each distinct flask geometry is stated once; one shared geometry is "All flasks".

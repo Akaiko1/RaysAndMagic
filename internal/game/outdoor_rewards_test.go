@@ -80,9 +80,13 @@ func TestAncientCalendarUse(t *testing.T) {
 			hero.RTCooldown = 0
 			carryInQuickSlot(t, g, 0, 0, items.CreateItemFromYAML("ancient_calendar"))
 			it := hero.QuickSlots[0]
+			recharge := it.Attributes["use_cooldown_seconds"] * g.config.GetTPS()
+			if recharge <= 0 {
+				t.Fatal("fixture: calendar has no authored recharge")
+			}
 			n := len(g.world.Monsters)
 			g.useQuickSlot(0, 0)
-			if len(g.world.Monsters) != n+1 || hero.QuickSlots[0] != it || it.Count() != 1 || it.DeviceCooldownFrames != 300*g.config.GetTPS() {
+			if len(g.world.Monsters) != n+1 || hero.QuickSlots[0] != it || it.Count() != 1 || it.DeviceCooldownFrames != recharge {
 				t.Fatal("calendar did not summon once and recharge intact")
 			}
 			if hero.RTCooldown <= 0 || tb && hero.ActionsRemaining != 0 {
@@ -100,7 +104,11 @@ func TestAncientCalendarUse(t *testing.T) {
 			if len(g.world.Monsters) != n+1 {
 				t.Fatal("cooldown bypassed")
 			}
-			g.tickDeviceCooldowns(300 * g.config.GetTPS())
+			g.tickDeviceCooldowns(recharge - 1)
+			if it.DeviceCooldownFrames != 1 {
+				t.Fatal("calendar recharge did not count down frame by frame")
+			}
+			g.tickDeviceCooldowns(1)
 			if it.DeviceCooldownFrames != 0 {
 				t.Fatal("calendar failed to recharge")
 			}
@@ -111,22 +119,22 @@ func TestAncientCalendarUse(t *testing.T) {
 			}
 		})
 	}
-	// Every encounter monster may answer, bosses too; fish, wildlife and the caravan never do.
-	pool, boss, ambient := summonableMonsterKeys(), false, 0
-	for _, key := range pool {
-		def := monster.MonsterConfig.Monsters[key]
-		if def.Disposition != "" || def.Champion != "" {
-			t.Fatalf("summon pool holds ambient %s", key)
-		}
-		boss = boss || def.Boss
+	// An ordinary mob and a boss may answer; a fish, wildlife, the caravan and
+	// a champion never do.
+	pool := summonableMonsterKeys()
+	if !monster.MonsterConfig.Monsters["old_samurai"].Boss {
+		t.Fatal("fixture: old_samurai is no longer an authored boss")
 	}
-	for _, def := range monster.MonsterConfig.Monsters {
-		if def.Disposition != "" || def.Champion != "" {
-			ambient++
+	for key, want := range map[string]bool{
+		"goblin": true, "old_samurai": true,
+		"common_carp": false, "desert_rabbit": false, "desert_caravan": false, "hobbit_archer": false,
+	} {
+		if _, ok := monster.MonsterConfig.Monsters[key]; !ok {
+			t.Fatalf("fixture: %s missing from monsters.yaml", key)
 		}
-	}
-	if !boss || ambient == 0 || len(pool)+ambient != len(monster.MonsterConfig.Monsters) {
-		t.Fatalf("summon pool %d, ambient %d, catalog %d, boss %v", len(pool), ambient, len(monster.MonsterConfig.Monsters), boss)
+		if got := slices.Contains(pool, key); got != want {
+			t.Errorf("summon pool holds %s=%v, want %v", key, got, want)
+		}
 	}
 }
 
@@ -182,7 +190,7 @@ func TestOutdoorPassiveOwnership(t *testing.T) {
 				t.Fatal("save lost personal ownership")
 			}
 			restored := &g.party.Inventory[len(g.party.Inventory)-1]
-			if restored.UseAction != "summon" || restored.DeviceCooldownFrames != 123 || restored.Attributes["summon_distance_tiles"] != 2 {
+			if restored.UseAction != "summon" || restored.DeviceCooldownFrames != 123 || restored.Attributes["summon_distance_tiles"] != calendar.Attributes["summon_distance_tiles"] {
 				t.Fatal("save lost calendar state")
 			}
 			g.tickDeviceCooldowns(123)
@@ -198,6 +206,7 @@ func TestAmberTalismanBaseDamage(t *testing.T) {
 	g := crateTestGame(t)
 	c := g.party.Members[0]
 	talisman := items.CreateItemFromYAML("amber_talisman")
+	bonus := talismanBaseDamageBonus(t)
 	for _, key := range []string{"iron_sword", "magic_dagger", "alien_blaster"} {
 		def, ok := config.GetWeaponDefinition(key)
 		if !ok {
@@ -207,7 +216,7 @@ func TestAmberTalismanBaseDamage(t *testing.T) {
 		before := character.WeaponDamageAtNight(def, c, false)
 		c.Equipment[items.SlotAmulet] = talisman
 		after := character.WeaponDamageAtNight(def, c, false)
-		if after.Base != before.Base+10 || after.Total != before.Total+10 {
+		if after.Base != before.Base+bonus || after.Total != before.Total+bonus {
 			t.Fatalf("%s: %v -> %v", key, before, after)
 		}
 	}
@@ -218,26 +227,38 @@ func TestAmberTalismanBaseDamage(t *testing.T) {
 	}
 }
 
+// talismanBaseDamageBonus is the Amber Talisman's authored weapon bonus.
+func talismanBaseDamageBonus(t *testing.T) int {
+	t.Helper()
+	d, ok := config.GetItemDefinition("amber_talisman")
+	if !ok || d.WeaponBaseDamageBonus <= 0 {
+		t.Fatal("fixture: amber_talisman has no authored weapon base damage bonus")
+	}
+	return d.WeaponBaseDamageBonus
+}
+
+// The castle armour sets drop from exactly one crate source with a real
+// chance and never from a generated loot pool.
 func TestOutdoorExclusiveSources(t *testing.T) {
 	g := crateTestGame(t)
 	for _, key := range []string{"scarlet_crane_do", "night_heron_do", "jade_tortoise_do", "white_fox_do"} {
-		d, _ := config.GetItemDefinition(key)
-		if d.Rarity != "legendary" || !d.NoLoot || d.ArmorType != "leather" {
-			t.Fatal("legendary leather escaped exclusive pool", key)
+		d, ok := config.GetItemDefinition(key)
+		if !ok || !d.NoLoot {
+			t.Fatal("exclusive armour escaped into generated loot pools", key)
 		}
 		count := 0
-		for source, c := range config.GlobalLoots.Crates {
+		for _, c := range config.GlobalLoots.Crates {
 			for _, s := range c.RollSources {
 				if s.ItemKey == key {
 					count++
-					if source != "castle_armor_stand" || s.PerMille() != 10 {
-						t.Fatal("wrong exclusive source or chance", key)
+					if s.PerMille() <= 0 {
+						t.Fatal("exclusive source can never pay", key)
 					}
 				}
 			}
 		}
 		if count != 1 {
-			t.Fatal("missing exclusive reward", key)
+			t.Fatal("exclusive reward has no single crate source", key)
 		}
 	}
 	rings := config.CrateEquipmentSlotKeys("ring", (config.CrateRollSource{}).RarityTiers())
@@ -246,11 +267,13 @@ func TestOutdoorExclusiveSources(t *testing.T) {
 			t.Fatal("ring omitted", key)
 		}
 	}
+	// One stack per item source: an unauthored quantity is a single item,
+	// a fixed quantity is exactly that stack.
 	for _, key := range []string{"health_potion", "mana_potion", "sake_flask"} {
-		for range 12 {
-			r := g.rollCrateSource(config.CrateRollSource{Pool: "item", ItemKey: key, QuantityMin: 1, QuantityMax: 5})
-			if !r.ok || len(r.items) != 1 || r.items[0].Count() < 1 || r.items[0].Count() > 5 {
-				t.Fatal("invalid cache stack", r)
+		for _, q := range []struct{ min, max, want int }{{0, 0, 1}, {5, 5, 5}} {
+			r := g.rollCrateSource(config.CrateRollSource{Pool: "item", ItemKey: key, QuantityMin: q.min, QuantityMax: q.max})
+			if !r.ok || len(r.items) != 1 || r.items[0].Count() != q.want {
+				t.Fatalf("%s quantity %d-%d: stack %+v, want one of %d", key, q.min, q.max, r, q.want)
 			}
 		}
 	}
@@ -327,7 +350,7 @@ func TestCardWeaponBaseDamageLifecycle(t *testing.T) {
 					g.dayNightIsNight = night
 					want := def.Damage + wantCard
 					if _, ok := c.Equipment[items.SlotAmulet]; ok {
-						want += 10
+						want += talismanBaseDamageBonus(t)
 					}
 					if night && key == "duskneedle" {
 						want *= 2

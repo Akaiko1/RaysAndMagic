@@ -125,9 +125,7 @@ func restoreAdvancedBuff(b *TimedCombatBuff, d spells.SpellDefinition) {
 	}
 	switch m.Kind {
 	case "haste":
-		if t := config.Technique(m.Technique); t != nil {
-			applyTechniqueBuff(b, t, tier)
-		}
+		b.RecoveryPct, b.ExtraActions = m.Power(tier), m.ExtraActions(tier)
 	case "shield":
 		b.RangedWardPct = m.Power(tier)
 	case "regeneration":
@@ -149,23 +147,18 @@ func (cs *CombatSystem) tryCastAdvancedSupport(id spells.SpellID, d spells.Spell
 		return castNotHandled
 	}
 	g, tier := cs.game, character.SpellMasteryTier(caster, d)
-	frames := m.Duration(tier) * g.config.GetTPS()
-	if frames == 0 && d.Duration > 0 {
-		frames = cs.CalculateSpellDurationFrames(id, caster)
-	}
+	frames := d.DurationSeconds(tier) * g.config.GetTPS()
 	switch {
 	case m.TargetsAlly():
 		target := cs.personalSpellTarget(caster)
-		if target == nil || target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
+		if !target.IsLiving() {
 			return castRejected
 		}
 		target.SpellState.Set(character.PersonalSpellEffect{SpellID: string(id), Tier: tier, Charges: m.Charges(tier), Frames: frames})
 	case m.IsPartyBuff():
-		if m.Kind == "haste" {
-			if !g.techniqueUseful("quickening") {
-				return castRejected
-			}
-			frames = config.TierValue(config.Technique(m.Technique).Duration, tier) * g.config.GetTPS()
+		if m.Kind == "haste" && !g.techniqueUseful("quickening") {
+			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
+			return castRejected
 		}
 		b := TimedCombatBuff{SpellID: string(id), Frames: frames, TechniqueTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == "haste"}
 		if m.Kind == "celestial_armor" {
@@ -176,6 +169,7 @@ func (cs *CombatSystem) tryCastAdvancedSupport(id spells.SpellID, d spells.Spell
 		g.updateUtilityStatus(id, b.statusDuration(), true)
 	case m.Kind == "purify" || m.Kind == "dispel_magic":
 		if !g.techniqueUseful("purify") && (m.Kind != "dispel_magic" || !g.hostileMagicNearby(m.RadiusTiles)) {
+			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
 			return castRejected
 		}
 		g.purifyParty()
@@ -220,18 +214,30 @@ func (g *MMGame) purifyParty() {
 }
 
 func (g *MMGame) hostileMagicNearby(radius float64) bool {
+	found := false
+	g.eachDispellableProjectile(radius, func(*bool, string) bool {
+		found = true
+		return false
+	})
+	return found
+}
+
+// eachDispellableProjectile visits hostile magic in flight within radius tiles
+// (spells and magical arrows) until visit returns false.
+func (g *MMGame) eachDispellableProjectile(radius float64, visit func(active *bool, id string) bool) {
 	limit := radius * float64(g.config.GetTileSize())
-	for _, p := range g.magicProjectiles {
-		if g.dispellableProjectile(p.Active, p.LifeTime, p.Owner, true, p.X, p.Y, limit) {
-			return true
+	for i := range g.magicProjectiles {
+		p := &g.magicProjectiles[i]
+		if g.dispellableProjectile(p.Active, p.LifeTime, p.Owner, true, p.X, p.Y, limit) && !visit(&p.Active, p.ID) {
+			return
 		}
 	}
-	for _, p := range g.arrows {
-		if g.dispellableProjectile(p.Active, p.LifeTime, p.Owner, !isPhysicalDamageType(p.DamageType), p.X, p.Y, limit) {
-			return true
+	for i := range g.arrows {
+		p := &g.arrows[i]
+		if g.dispellableProjectile(p.Active, p.LifeTime, p.Owner, !isPhysicalDamageType(p.DamageType), p.X, p.Y, limit) && !visit(&p.Active, p.ID) {
+			return
 		}
 	}
-	return false
 }
 
 // A hostile spell is magical even when its damage school is physical. Weapon
@@ -244,26 +250,21 @@ func (g *MMGame) dispellableProjectile(active bool, lifetime int, owner Projecti
 }
 
 func (g *MMGame) dispelHostileProjectiles(radius float64) {
-	limit := radius * float64(g.config.GetTileSize())
-	for i := range g.magicProjectiles {
-		p := &g.magicProjectiles[i]
-		if g.dispellableProjectile(p.Active, p.LifeTime, p.Owner, true, p.X, p.Y, limit) {
-			p.Active = false
-			g.collisionSystem.UnregisterEntity(p.ID)
-		}
-	}
-	for i := range g.arrows {
-		p := &g.arrows[i]
-		if g.dispellableProjectile(p.Active, p.LifeTime, p.Owner, !isPhysicalDamageType(p.DamageType), p.X, p.Y, limit) {
-			p.Active = false
-			g.collisionSystem.UnregisterEntity(p.ID)
-		}
-	}
+	g.eachDispellableProjectile(radius, func(active *bool, id string) bool {
+		*active = false
+		g.collisionSystem.UnregisterEntity(id)
+		return true
+	})
 }
 
 // Divide a finite healing pool without wasting shares on full or fallen allies.
 func (cs *CombatSystem) distributePartyHealing(pool int) {
-	indices := alivePartyIndices(cs.game.party.Members)
+	var indices []int
+	for i, c := range cs.game.party.Members {
+		if c.IsLiving() {
+			indices = append(indices, i)
+		}
+	}
 	sort.SliceStable(indices, func(i, j int) bool {
 		a, b := cs.game.party.Members[indices[i]], cs.game.party.Members[indices[j]]
 		return a.MaxHitPoints-a.HitPoints < b.MaxHitPoints-b.HitPoints
@@ -282,7 +283,7 @@ func (cs *CombatSystem) sharePartyLife(bonus int) bool {
 	var living []*character.MMCharacter
 	pool := bonus
 	for _, c := range cs.game.party.Members {
-		if c != nil && c.HitPoints > 0 && !c.HasCondition(character.ConditionDead) && !c.HasCondition(character.ConditionEradicated) {
+		if c.IsLiving() {
 			living = append(living, c)
 			pool += c.HitPoints
 		}
@@ -330,13 +331,8 @@ func (cs *CombatSystem) magicWardBlocks(school string, hostileSpell, monsterOwne
 	if cs.magicWardDepth > 0 && cs.magicWardDecision != 0 {
 		return cs.magicWardDecision == 1
 	}
-	b := cs.game.advancedBuff("protection_from_magic")
-	blocked := b != nil && b.Charges > 0
+	blocked := cs.game.spendPartyBuffCharge("protection_from_magic")
 	if blocked {
-		b.Charges--
-		if b.Charges == 0 {
-			b.Frames = 0
-		}
 		cs.game.AddCombatMessage(uitext.Text("advanced.magic_blocked"))
 	}
 	if cs.magicWardDepth > 0 {
@@ -359,16 +355,25 @@ func (g *MMGame) preserveFromLethal(c *character.MMCharacter, damage int) int {
 }
 
 func (g *MMGame) spendPreservation(c *character.MMCharacter) bool {
-	if b := g.advancedBuff("preservation"); b != nil && b.Charges > 0 {
-		b.Charges--
-		if b.Charges == 0 {
-			b.Frames = 0
-		}
-		c.CureDamageOverTime()
-		g.AddCombatMessage(uitext.Text("advanced.preserved", c.Name))
-		return true
+	if !g.spendPartyBuffCharge("preservation") {
+		return false
 	}
-	return false
+	c.CureDamageOverTime()
+	g.AddCombatMessage(uitext.Text("advanced.preserved", c.Name))
+	return true
+}
+
+// spendPartyBuffCharge spends one charge of a party buff; its last charge ends it.
+func (g *MMGame) spendPartyBuffCharge(id string) bool {
+	b := g.advancedBuff(id)
+	if b == nil || b.Charges <= 0 {
+		return false
+	}
+	b.Charges--
+	if b.Charges == 0 {
+		b.Frames = 0
+	}
+	return true
 }
 
 func (g *MMGame) absorbCelestialDamage(amount int) int {

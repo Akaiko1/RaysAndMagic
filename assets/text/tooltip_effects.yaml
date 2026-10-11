@@ -179,7 +179,7 @@ skill.natural_healer: "HP healed by healing spells +%s%%. Does not improve reviv
 skill.trapper: "Trap damage +0/%d/%d/%d, plus (Intellect + Accuracy)/%d. Control duration: +0/%d/%d/%ds RT; +%s turns TB."
 skill.sleight_of_hand: "Melee hits: %d/%d/%d/%d%% pickpocket chance. Steal an item or gold once per enemy; its loot on death is unaffected."
 skill.sacrifice: "Takes %s%% of the damage allies would suffer from hits. Your defenses do not reduce this transferred damage. Excludes damage over time. Only the strongest protector able to act in the party applies."
-skill.meditation: "SP regen +0/%d/%d/%d every %ds in real time or %d rounds in turn-based."
+skill.meditation: "SP regen +0/%d/%d/%d every %.0fs in real time or %d rounds in turn-based."
 skill.strong_magic: "Damaging spells deal +%s%% damage and also cost HP equal to %s%% of their SP cost, always leaving at least 1 HP. Non-damaging spells are unaffected."
 skill.pharmacology: "Party recovery from potions and other restoratives: HP +%s%% + Alchemist Intellect/3; SP +%s%%. Uses the strongest bonus from an Alchemist able to act in your party. Stacks with Field Medicine. Does not improve revival potions."
 skill.alchemy: "Items per batch:\nRestoratives and throwing flasks: %s\nProtective draughts: %s\nEmpowering draughts: %s\nRevival potions: %s"

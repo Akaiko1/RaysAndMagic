@@ -177,7 +177,7 @@ func resolveSavedCardSlots(save PartySave, shared *stash.Stash) (slots [MaxCardS
 		if slots[i].key != "" || i >= len(save.CardCollection) {
 			continue
 		}
-		key := save.CardCollection[i]
+		key := config.CanonicalItemKey(save.CardCollection[i])
 		if cardDef(key) == nil {
 			continue
 		}
@@ -268,6 +268,36 @@ func (g *MMGame) cardCollectionEffectLines() []string {
 	return lines
 }
 
+// ValidateCardDrops enforces loots.yaml card_drop_chance on every monster
+// table: a boss: true monster drops its card at the boss rate, any other at
+// the monster rate, one roll each. Needs the monster and item catalogs.
+func ValidateCardDrops() error {
+	loots := config.GlobalLoots
+	if loots == nil || monsterPkg.MonsterConfig == nil {
+		return nil
+	}
+	rule := loots.CardDropChance
+	for key, entries := range loots.Loots {
+		def, known := monsterPkg.MonsterConfig.Monsters[key]
+		for _, e := range entries {
+			if item, ok := config.GetItemDefinition(e.Key); e.Type != "item" || !ok || item.Type != "card" {
+				continue
+			}
+			want := rule.Monster
+			if known && def.Boss {
+				want = rule.Boss
+			}
+			if want <= 0 {
+				return fmt.Errorf("loots.yaml: card_drop_chance is required for monster cards")
+			}
+			if e.Chance != want || e.RollCount() != 1 {
+				return fmt.Errorf("loots %q: card %q drops at %g x%d; card_drop_chance wants %g once", key, e.Key, e.Chance, e.RollCount(), want)
+			}
+		}
+	}
+	return nil
+}
+
 // foldCardDefs is the pure fold behind cardCollectionAggregate (see its doc).
 func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionConfig {
 	agg := &config.ItemDefinitionConfig{}
@@ -276,6 +306,7 @@ func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionCon
 		if def == nil {
 			continue
 		}
+		// Shared with equipment (Amber Talisman), so it carries no Card prefix.
 		agg.WeaponBaseDamageBonus += def.WeaponBaseDamageBonus
 		dv := reflect.ValueOf(def).Elem()
 		dt := dv.Type()

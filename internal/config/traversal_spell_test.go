@@ -17,22 +17,22 @@ func TestLoadSpellConfigValidatesTraversalFlags(t *testing.T) {
 		{"fly", "fly: true\n    terrain_passage: true", ""},
 		{"passage", "terrain_passage: true", ""},
 		{"missing_passage", "fly: true", "fly requires terrain_passage"},
-		{"instant_passage", "terrain_passage: true\n    duration: 0", "terrain_passage requires a timed utility spell"},
+		{"instant_passage", "terrain_passage: true\n    duration_by_mastery: []", "requires duration_by_mastery"},
 		{"non_utility", "terrain_passage: true\n    is_utility: false", "terrain_passage requires a timed utility spell"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Avoid duplicate YAML keys so validation, rather than parsing, fails.
-			utility, duration := true, 10
+			utility, duration := true, "[10, 12, 14, 16]"
 			flags := tc.flags
-			if strings.Contains(flags, "duration: 0") {
-				duration = 0
+			if strings.Contains(flags, "duration_by_mastery: []") {
+				duration = "[]"
 				flags = "terrain_passage: true"
 			}
 			if strings.Contains(flags, "is_utility: false") {
 				utility = false
 				flags = "terrain_passage: true"
 			}
-			source := fmt.Sprintf("spells:\n  test:\n    category: buff\n    is_utility: %v\n    duration: %d\n    %s\n", utility, duration, flags)
+			source := fmt.Sprintf("spells:\n  test:\n    category: buff\n    is_utility: %v\n    duration_by_mastery: %s\n    %s\n", utility, duration, flags)
 			path := filepath.Join(t.TempDir(), "spells.yaml")
 			if err := os.WriteFile(path, []byte(source), 0600); err != nil {
 				t.Fatal(err)

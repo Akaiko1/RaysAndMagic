@@ -108,7 +108,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		srcMonster = mp.SourceMonster
 		owner = mp.Owner
 		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
-		dmgTypeStr = normalizeDamageTypeStr(spellDef.School)
+		dmgTypeStr = spellDef.DamageType()
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
 	case "arrow":
 		ar := projectile.(*Arrow)

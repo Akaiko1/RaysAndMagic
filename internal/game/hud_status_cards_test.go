@@ -259,7 +259,7 @@ func TestBuffStatusCardFollowsTheCastersMastery(t *testing.T) {
 				}
 				rows, _ := g.buffStatusCardRows(g.utilitySpellStatuses[def.ID])
 				card := rows.Lines()
-				seconds := character.SpellDurationAtTier(def, int(tier)).Seconds
+				seconds := def.DurationSeconds(int(tier))
 				for _, want := range []string{ladders[key](def, int(tier)), "Remaining: " + strconv.Itoa(seconds) + "s"} {
 					if !slices.ContainsFunc(card, func(line string) bool { return strings.HasPrefix(line, want) }) {
 						t.Fatalf("tier %d card lacks %q:\n%s", tier, want, strings.Join(card, "\n"))

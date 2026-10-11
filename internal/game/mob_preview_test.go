@@ -76,7 +76,7 @@ func TestMobPreviewStageClearance(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(p.g.Shutdown)
-	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	keys := catalogMonsterKeys()
 	slices.Sort(keys)
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
@@ -289,7 +289,7 @@ func TestMobPreview_ChampionMirroredBeforeFirstFrame(t *testing.T) {
 	if tier == nil {
 		t.Fatalf("default champion tier %q missing", config.ChampionDefaultTier)
 	}
-	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	keys := catalogMonsterKeys()
 	slices.Sort(keys)
 	checked := 0
 	for _, key := range keys {

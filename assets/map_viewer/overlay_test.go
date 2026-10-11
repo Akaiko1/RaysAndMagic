@@ -1143,29 +1143,37 @@ func TestQuestPropReservations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cells := v.questPropsForMap(m.Key)
-		for id, def := range v.overlayQuestDefs() {
-			for _, layout := range def.PropLayouts() {
-				for _, prop := range layout.Props {
-					if prop.Map != m.Key {
-						continue
-					}
-					want := editorQuestProp{prop.NPC, id, def.Name, layout.ID}
-					if !slices.Contains(cells[[2]int{prop.X, prop.Y}], want) {
-						t.Errorf("missing %s/%s/%s on %s", id, layout.ID, prop.NPC, m.Key)
-					}
-				}
-			}
-		}
+		v.questPropsForMap(m.Key)
 		after, err := yaml.Marshal(m.Data)
 		if err != nil || !bytes.Equal(before, after) {
 			t.Fatalf("quest annotations changed map data for %s: %v", m.Key, err)
 		}
 	}
-	// The reported conflict belongs to an alternative, not the first route.
-	props := v.questPropsForMap("deep_jungle")[[2]int{3, 9}]
-	if len(props) != 1 || props[0].NPC != "pilgrim_sun2" || props[0].Layout != "route_2" {
-		t.Fatalf("missing second-route reservation: %+v", props)
+	// Named reservations from assets/quests.yaml: first and alternative routes
+	// of both multi-route quests, each shown on its own map only. The jungle
+	// (3, 9) cell is the reported conflict: it belongs to an alternative.
+	defs := v.overlayQuestDefs()
+	for _, tc := range []struct {
+		mapKey, otherMap string
+		x, y             int
+		want             editorQuestProp
+	}{
+		{"desert", "deep_jungle", 15, 6, editorQuestProp{NPC: "pilgrim_sluice_spring", Quest: "unbroken_desert", Layout: "route_1"}},
+		{"desert", "deep_jungle", 39, 36, editorQuestProp{NPC: "pilgrim_sluice_travelers", Quest: "unbroken_desert", Layout: "route_2"}},
+		{"deep_jungle", "desert", 3, 9, editorQuestProp{NPC: "pilgrim_sun2", Quest: "unbroken_jungle", Layout: "route_2"}},
+		{"deep_jungle", "desert", 4, 43, editorQuestProp{NPC: "pilgrim_moon2", Quest: "unbroken_jungle", Layout: "route_3"}},
+	} {
+		def := defs[tc.want.Quest]
+		if def == nil {
+			t.Fatalf("fixture: quest %s missing", tc.want.Quest)
+		}
+		tc.want.Name = def.Name
+		if got := v.questPropsForMap(tc.mapKey)[[2]int{tc.x, tc.y}]; len(got) != 1 || got[0] != tc.want {
+			t.Errorf("%s (%d, %d) reservations %+v, want %+v", tc.mapKey, tc.x, tc.y, got, tc.want)
+		}
+		if slices.Contains(v.questPropsForMap(tc.otherMap)[[2]int{tc.x, tc.y}], tc.want) {
+			t.Errorf("%s reservation leaked to %s", tc.want.NPC, tc.otherMap)
+		}
 	}
 	if lines := v.questPropHoverLines("deep_jungle", 3, 9); !strings.Contains(strings.Join(lines, "\n"), "route_2") {
 		t.Fatalf("hover does not explain route: %v", lines)

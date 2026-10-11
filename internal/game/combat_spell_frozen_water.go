@@ -2,7 +2,9 @@ package game
 
 import (
 	"math"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
+	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -77,13 +79,13 @@ func (cs *CombatSystem) freezeWaterCone(def spells.SpellDefinition) bool {
 		for i := range g.frozenWater {
 			ice := &g.frozenWater[i]
 			if ice.MapKey == key && ice.X == lx && ice.Y == ly {
-				ice.FramesRemaining = max(ice.FramesRemaining, def.Duration*g.config.GetTPS())
+				ice.FramesRemaining = max(ice.FramesRemaining, def.Mechanic.WaterFreezeSeconds*g.config.GetTPS())
 				found = true
 				break
 			}
 		}
 		if !found {
-			g.frozenWater = append(g.frozenWater, FrozenWaterTile{key, lx, ly, def.Duration * g.config.GetTPS()})
+			g.frozenWater = append(g.frozenWater, FrozenWaterTile{key, lx, ly, def.Mechanic.WaterFreezeSeconds * g.config.GetTPS()})
 		}
 		changed = true
 	})
@@ -108,10 +110,72 @@ func (cs *CombatSystem) forEachFrozenConeTile(def spells.SpellDefinition, visit 
 			if Distance(x, y, wx, wy) > a.RadiusTiles*ts || !cs.attackLineClear(x, y, wx, wy) {
 				continue
 			}
-			if math.Cos(math.Atan2(wy-y, wx-x)-cs.partyAttackAngle()) < math.Cos(a.ConeDegrees*math.Pi/360) {
+			if !cs.inPartyCone(x, y, wx, wy, a.ConeDegrees) {
 				continue
 			}
 			visit(tx, ty)
+		}
+	}
+}
+
+// settleStrandedMonsters moves every monster and ally whose terrain no longer
+// holds it (thawed Frozen Ground) to the nearest tile it can stand on, as
+// settleAshore does for the party. Runs on thaw and when a world becomes current.
+func (g *MMGame) settleStrandedMonsters() {
+	if g.world == nil || g.collisionSystem == nil || g.config == nil {
+		return
+	}
+	g.syncFrozenWaterCollision()
+	ts := float64(g.config.GetTileSize())
+	// Stranded is judged on terrain alone; the landing must also be clear of
+	// solid entities (NPCs, props), so nobody is set down inside one.
+	stands := func(m *monster.Monster3D, x, y float64) bool {
+		return g.collisionSystem.CanOccupyTilesWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying)
+	}
+	lands := func(m *monster.Monster3D, x, y float64) bool {
+		return g.collisionSystem.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying)
+	}
+	// Only water strands an actor this way; authored or arboreal footing is left alone.
+	inWater := func(m *monster.Monster3D) bool {
+		e := g.collisionSystem.GetEntityByID(m.ID)
+		if e == nil || e.BoundingBox == nil || world.GlobalTileManager == nil {
+			return false
+		}
+		minX, minY, maxX, maxY := e.BoundingBox.GetBounds()
+		for ty := TileIndex(minY, ts); ty <= TileIndex(maxY-0.001, ts); ty++ {
+			for tx := TileIndex(minX, ts); tx <= TileIndex(maxX-0.001, ts); tx++ {
+				if tx >= 0 && ty >= 0 && tx < g.world.Width && ty < g.world.Height && world.GlobalTileManager.IsWater(g.world.Tiles[ty][tx]) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, m := range g.world.Monsters {
+		if m == nil || !m.IsAlive() || m.IsFish() || m.Arbor.Phase != "" || !inWater(m) || stands(m, m.X, m.Y) {
+			continue
+		}
+		cx, cy := TileIndex(m.X, ts), TileIndex(m.Y, ts)
+		for r := 1; r < max(g.world.Width, g.world.Height); r++ {
+			bestX, bestY, best := 0.0, 0.0, math.Inf(1)
+			for ty := cy - r; ty <= cy+r; ty++ {
+				for tx := cx - r; tx <= cx+r; tx++ {
+					if max(absInt(tx-cx), absInt(ty-cy)) != r {
+						continue
+					}
+					x, y := TileCenterFromTile(tx, ty, ts)
+					if d := Distance(m.X, m.Y, x, y); d < best && lands(m, x, y) {
+						bestX, bestY, best = x, y, d
+					}
+				}
+			}
+			if !math.IsInf(best, 1) {
+				g.releaseMonsterAttackPost(m)
+				m.X, m.Y = bestX, bestY
+				m.ResetPathfinding()
+				g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+				break
+			}
 		}
 	}
 }
@@ -148,8 +212,9 @@ func (g *MMGame) advanceFrozenWater(elapsed int) {
 	g.frozenWater = kept
 	if len(kept) != oldCount {
 		g.invalidateFrozenWaterNavigation()
+		g.settleStrandedMonsters()
 	}
 	if wasOnIce && !g.isFrozenWaterAt(g.camera.X, g.camera.Y) && !g.walkOnWaterEffective() && !g.waterBreathingActive && !g.partyHasTerrainPassage() && g.world != nil && g.world.IsTileBlockingTerrainAt(TileIndex(g.camera.X, g.config.GetTileSize()), TileIndex(g.camera.Y, g.config.GetTileSize())) {
-		g.settleAshore("The ice melts - the party returns to shore.")
+		g.settleAshore(uitext.Text("advanced.ice_melts"))
 	}
 }

@@ -81,8 +81,11 @@ func TestOtherSpellControlsKeepFullDurationWithoutDR(t *testing.T) {
 				ih := NewInputHandler(g)
 				pressKeys(ih, ebiten.KeyF)
 				frames := map[string]int{"slow": m.SlowFramesRemaining, "frozen_ground": m.RootFramesRemaining, "feeblemind": m.SilenceFramesRemaining, "berserk": m.BerserkFramesRemaining}[id]
-				if frames != 720 {
-					t.Fatalf("guaranteed control lasted %d frames, want full 720", frames)
+				def, _ := spells.GetSpellDefinitionByID(spells.SpellID(id))
+				c := g.party.Members[0]
+				full := def.DurationSeconds(int(c.MagicSchools[c.SpellSchoolFor(def)].Mastery)) * g.config.GetTPS()
+				if full <= 0 || frames != full {
+					t.Fatalf("guaranteed control lasted %d frames, want the full authored %d", frames, full)
 				}
 				if m.StunDRMemoryTurns != 4 || m.StunDRMemoryFrames != 960 {
 					t.Fatal("guaranteed effect changed the DR chain")

@@ -97,6 +97,9 @@ type Renderer struct {
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
 	// a 64-float allocation each draw call.
 	floorLightsBuf [maxFloorShaderLights * 4]float32
+	// Fire zones' heat glow on the floor (x, y, radius, intensity per source).
+	floorHeatBuf [maxFloorHeatSources * 4]float32
+	heatSources  []LightSource
 	// Reusable uniforms map for the floor shader (values mutated in place).
 	floorUniforms map[string]any
 	// Shared DrawImageOptions for per-column/per-sprite draws (see sharedDrawOpts).
@@ -763,6 +766,8 @@ func (r *Renderer) updateActiveLights() {
 			Intensity: wallTorchLightIntensity * wallTorchFlicker(tp.seed, r.game.frameCount),
 		})
 	}
+
+	r.collectFireHeat(tile)
 
 	// The floor shader takes at most maxFloorShaderLights; with torch-lined
 	// halls the list can exceed that, and blind truncation would drop the
@@ -1945,6 +1950,17 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 // the shader's squared-distance early-out makes 32 affordable.
 const maxFloorShaderLights = 32
 
+// maxFloorHeatSources bounds the fire cells whose heat tints the floor; the
+// nearest are kept.
+const maxFloorHeatSources = 8
+
+// Fire zones glow warm on the floor around them instead of drawing flames on
+// neighbouring tiles: radius in tiles past the cell, peak strength.
+const (
+	fireHeatGlowTiles    = 1.9
+	fireHeatGlowStrength = .42
+)
+
 // drawSimpleFloorCeiling renders the perspective floor entirely on the GPU
 // via a Kage shader (see floorShaderSrc). Per-fragment work: reverse-project
 // screen -> world -> tile, look up base color, optionally blend a hash-selected
@@ -2000,6 +2016,15 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	for i := lightCount * 4; i < len(lights); i++ {
 		lights[i] = 0
 	}
+	heat := r.floorHeatBuf[:]
+	heatCount := min(len(r.heatSources), maxFloorHeatSources)
+	for i := range heat {
+		heat[i] = 0
+	}
+	for i := 0; i < heatCount; i++ {
+		h := r.heatSources[i]
+		heat[i*4], heat[i*4+1], heat[i*4+2], heat[i*4+3] = float32(h.X), float32(h.Y), float32(h.Radius), float32(h.Intensity)
+	}
 
 	// Reuse the uniforms map and its nested slices across frames - rebuilding
 	// a ~20-key map[string]any (plus five small slices) every frame was pure
@@ -2025,6 +2050,8 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 			"MaxMip":        make([]float32, 1),
 			"LightCount":    make([]float32, 1),
 			"Lights":        r.floorLightsBuf[:],
+			"HeatCount":     make([]float32, 1),
+			"Heat":          r.floorHeatBuf[:],
 		}
 	}
 	uniforms := r.floorUniforms
@@ -2057,6 +2084,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	setFloat("TexCount", float32(r.floorTexCount))
 	setFloat("MaxMip", float32(r.floorTexMaxMip))
 	setFloat("LightCount", float32(lightCount))
+	setFloat("HeatCount", float32(heatCount))
 
 	x0 := float32(0)
 	x1 := float32(screenWidth)
@@ -4216,7 +4244,7 @@ func (r *Renderer) drawMonsterBurnFlames(screen *ebiten.Image, s UnifiedSpriteRe
 		off := ((float64(i)+0.5)/float64(monsterFlameColumns) - 0.5) * tile * .5
 		r.drawFirePlume(screen, s.monsterRenderX+rx*off, s.monsterRenderY+ry*off,
 			.16, auraRiseFraction*monsterFlameRiseMultiplier, maxDepth, flameBaseAlpha,
-			flameCoreColor, salt, i)
+			flameCoreColor, salt, i, firePlumeTongues)
 	}
 }
 

@@ -47,7 +47,7 @@ func (cs *CombatSystem) runBossSpecials(m *monsterPkg.Monster3D, attackTick, tur
 	if m == nil || !m.IsBoss() {
 		return false
 	}
-	if m.FearFramesRemaining > 0 || m.SilenceFramesRemaining > 0 {
+	if m.IsAfraid() || m.IsSilenced() {
 		tickBossRecovery(m, turnBased)
 		return false
 	}
@@ -108,7 +108,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 	if m == nil || !m.IsBoss() {
 		return false
 	}
-	if m.SilenceFramesRemaining > 0 || m.FearFramesRemaining > 0 {
+	if m.IsSilenced() || m.IsAfraid() {
 		return false
 	}
 	// Latch any HP loss since last tick so the evasive blink can fire when hit.

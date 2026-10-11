@@ -35,7 +35,7 @@ func turnBasedPeriodicEffectFrames(tps int) int {
 	if tps <= 0 {
 		tps = config.GetTargetTPS()
 	}
-	return tps * TurnBasedPeriodicEffectSeconds
+	return tps * config.CombatRoundSeconds
 }
 
 // Game-only mastery constants (not needed by the editor) stay here.
@@ -116,9 +116,6 @@ const (
 
 	// ArmorPierceRangedChancePct lives in character/catalog.go (tooltip SSoT).
 	ArmorPierceRangedChancePct = character.ArmorPierceRangedChancePct
-
-	// SpellMasteryDurationBonusPct lives in character/catalog.go (tooltip SSoT).
-	SpellMasteryDurationBonusPct = character.SpellMasteryDurationBonusPct
 )
 
 // Combat reach distances in tiles. Multiplied by tile size at call time.
@@ -146,11 +143,6 @@ const (
 	// turn-based mode between SP regeneration ticks. Each tick adds
 	// CalculateManaRegenAmount SP to every able-bodied member.
 	TurnBasedSpRegenEveryNRounds = config.RegenerationRounds
-
-	// TurnBasedPeriodicEffectSeconds is the RT-time equivalent consumed by one
-	// TB round for periodic damage effects. Poison and burn still deal one tick
-	// per round; Hot Steam's authored three-second cadence also becomes one tick.
-	TurnBasedPeriodicEffectSeconds = character.TurnBasedTurnSeconds
 
 	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
 	// monster action pass and the anti-kite extra pass.

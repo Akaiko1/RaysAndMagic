@@ -91,23 +91,26 @@ func (r *Renderer) drawShrapmetalFragment(dst *ebiten.Image, shot MagicProjectil
 	r.drawCameraVolume(dst, cx, cy, size, 1, pose, r.weaponBodyShader, &r.weaponMaterialOpts, mesh, graphics.Color, meshMetal, false)
 }
 
-func directionalSpellKind(kind int) bool {
-	switch kind {
-	case spellIce, spellVoidNeedle, spellFireDart, spellShadow, spellHarm, spellLight, spellFlyingFist, spellSoulWisp:
-		return true
-	}
-	return false
+// Flight presentation per material silhouette. A pointed body foreshortens
+// along its flight axis; a fromHand body leaves the caster's hand.
+var spellFlightShapes = map[int]struct{ pointed, fromHand bool }{
+	spellIce:        {pointed: true, fromHand: true},
+	spellVoidNeedle: {pointed: true, fromHand: true},
+	spellFireDart:   {pointed: true, fromHand: true},
+	spellShadow:     {pointed: true, fromHand: true},
+	spellHarm:       {pointed: true, fromHand: true},
+	spellLight:      {pointed: true, fromHand: true},
+	spellFlyingFist: {pointed: true, fromHand: true},
+	spellSoulWisp:   {pointed: true}, // flies from the target back to the party
 }
 
+func directionalSpellKind(kind int) bool { return spellFlightShapes[kind].pointed }
+
 // Like outgoing arrows, pointed spells leave the hand in profile, converge on
-// the target sightline and expose their end face.
+// the target sightline and expose their end face. Only authored styles qualify.
 func (r *Renderer) spellHandOffset(shot MagicProjectile, p projectileFxProfile, view projectileView, width, height int) (float64, float64, float64) {
-	switch p.style {
-	case "ice_shard", "void_needle", "fire_dart", "shadow_bolt", "harm", "ray_of_light", "flying_fist":
-	default:
-		return 0, 0, 0
-	}
-	if shot.Owner != ProjectileOwnerPlayer || view.incoming() {
+	kind, ok := spellFxStyleKinds[p.style]
+	if !ok || !spellFlightShapes[kind].fromHand || shot.Owner != ProjectileOwnerPlayer || view.incoming() {
 		return 0, 0, 0
 	}
 	convergence := bowHandConvergence(view.distance, float64(r.game.config.GetTileSize())) * view.faceWeight()

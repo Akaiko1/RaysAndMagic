@@ -296,6 +296,12 @@ func (c *MMCharacter) HasWeaponInEitherHand() bool {
 // CanAct reports whether this character is alive and conscious. It is used for
 // targeting and round bookkeeping; actor-specific gates additionally account
 // for statuses such as stun.
+// IsLiving reports a hero with HP left who is neither dead nor eradicated.
+// Allied spells and shared healing pools target living heroes.
+func (c *MMCharacter) IsLiving() bool {
+	return c != nil && c.HitPoints > 0 && !c.HasCondition(ConditionDead) && !c.HasCondition(ConditionEradicated)
+}
+
 func (c *MMCharacter) CanAct() bool {
 	if c == nil || c.HitPoints <= 0 {
 		return false

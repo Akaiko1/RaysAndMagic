@@ -5,7 +5,6 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	uitext "ugataima/assets/text"
-	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -126,7 +125,7 @@ func (g *MMGame) validAllySpellTarget(index int) bool {
 		return false
 	}
 	c := g.party.Members[index]
-	return c != nil && c.HitPoints > 0 && !c.HasCondition(character.ConditionDead) && !c.HasCondition(character.ConditionEradicated)
+	return c.IsLiving()
 }
 
 func (ih *InputHandler) handleAllySpellInput() {

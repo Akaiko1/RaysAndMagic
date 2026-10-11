@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"ugataima/internal/collision"
 	"ugataima/internal/monster"
@@ -65,7 +66,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 			}
 			w.Monsters = make([]*monster.Monster3D, 0, len(monsters))
 			for _, ms := range monsters {
-				key := ms.Key
+				key := monster.MonsterConfig.CanonicalKey(ms.Key)
 				if key == "" {
 					key = findMonsterKeyByName(ms.Name)
 				}
@@ -135,7 +136,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.SilenceFramesRemaining = max(0, ms.SilenceFramesRemaining)
 				m.SilenceImmunityFramesRemaining = max(0, ms.SilenceImmunityFramesRemaining)
 				m.BerserkFramesRemaining = ms.BerserkFramesRemaining
-				if m.FearFramesRemaining > 0 {
+				if m.IsAfraid() {
 					m.ApplyFear(m.FearFramesRemaining)
 				}
 				// Bind and Charm are mutually exclusive. New saves cannot contain
@@ -510,7 +511,7 @@ func findMonsterKeyByName(name string) string {
 		return ""
 	}
 	for key, def := range monster.MonsterConfig.Monsters {
-		if def.Name == name {
+		if def.Name == name || slices.Contains(def.LegacyNames, name) {
 			return key
 		}
 	}

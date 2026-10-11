@@ -16,7 +16,7 @@ func (g *MMGame) hasHarvestAlchemist() bool {
 		return false
 	}
 	for _, c := range g.party.Members {
-		if c != nil && c.Class == character.ClassAlchemist && c.HitPoints > 0 && !c.HasCondition(character.ConditionDead) && !c.HasCondition(character.ConditionEradicated) {
+		if c.IsLiving() && c.Class == character.ClassAlchemist {
 			return true
 		}
 	}

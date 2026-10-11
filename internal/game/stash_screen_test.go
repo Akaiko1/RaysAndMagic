@@ -125,14 +125,14 @@ func TestStashTransfer_ChestToChestSwap(t *testing.T) {
 // into a card slot, but a non-card is refused (stays in the bag, slot untouched).
 func TestStashCardSlot_OnlyCards(t *testing.T) {
 	g := stashTestGame(t)
-	g.party.AddItem(items.Item{Name: "Medusa Card", Type: items.ItemCard})
+	g.party.AddItem(items.Item{Name: "Jellyfish Card", Type: items.ItemCard})
 	g.party.AddItem(items.Item{Name: "Belt of Strength", Type: items.ItemAccessory})
 
 	// Card -> card slot 0: accepted.
 	g.stashDragFrom = stashDragInvBase + 0
 	g.resolveStashDrop(stashAddr{stashKindCard, 0})
-	if g.stash.CardSlots[0].Name != "Medusa Card" {
-		t.Fatalf("card slot 0 = %q, want Medusa Card", g.stash.CardSlots[0].Name)
+	if g.stash.CardSlots[0].Name != "Jellyfish Card" {
+		t.Fatalf("card slot 0 = %q, want Jellyfish Card", g.stash.CardSlots[0].Name)
 	}
 
 	// Non-card -> card slot 1: rejected. The belt is now bag index 0 (the card left).

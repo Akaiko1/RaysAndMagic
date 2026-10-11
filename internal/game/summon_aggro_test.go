@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"sort"
 	"testing"
 
 	damagecalc "ugataima/internal/damage"
@@ -274,8 +273,7 @@ func activeBossKeys(t *testing.T) []string {
 	t.Helper()
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	probe, _, _ := tbBehaviorGame(t, 5, 5)
-	keys := monsterPkg.MonsterConfig.GetAllMonsterKeys()
-	sort.Strings(keys)
+	keys := catalogMonsterKeys()
 	bossKeys := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if monsterPkg.NewMonster3DFromConfig(0, 0, key, probe.config).IsBoss() {

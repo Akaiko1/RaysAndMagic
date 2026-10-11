@@ -96,17 +96,10 @@ const (
 	ArmorMitigationK            = 45
 	ArmorPhysicalMitigationCap  = 75
 	ArmorElementalMitigationCap = 33
-	// TurnBasedTurnSeconds is the real-time equivalent one turn-based round
-	// consumes for periodic effects (DoTs, damage zones). Shared with the game's
-	// TurnBasedPeriodicEffectSeconds so cards can state ticks per turn.
-	TurnBasedTurnSeconds = config.CombatRoundSeconds
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing. Buff magnitudes scale through their own
-	// *_grandmaster fields; duration via SpellMasteryDurationBonusPct.
+	// *_grandmaster fields; durations use explicit YAML mastery ladders.
 	MasterySpellEffectPerLevel = spells.MasterySpellEffectPerLevel
-	// SpellMasteryDurationBonusPct: +% spell duration per mastery tier above
-	// Novice (100/120/140/160% of the YAML duration).
-	SpellMasteryDurationBonusPct = 20
 	// SelfMagicGMResistPiercePct: a Grandmaster Body/Mind/Spirit caster's
 	// damaging spells ignore this % of the matching resistance. Elemental
 	// schools, including Light/Dark, use Elemental Mastery instead.
@@ -380,8 +373,7 @@ func MagicMasteryDescription(school MagicSchoolID) string {
 
 func MagicMasteryReference(school MagicSchoolID) MasteryReference {
 	r := MasteryReference{Effects: uitext.Text("skill.magic",
-		MasterySpellEffectPerLevel, 2*MasterySpellEffectPerLevel, 3*MasterySpellEffectPerLevel,
-		SpellMasteryDurationBonusPct, 2*SpellMasteryDurationBonusPct, 3*SpellMasteryDurationBonusPct)}
+		MasterySpellEffectPerLevel, 2*MasterySpellEffectPerLevel, 3*MasterySpellEffectPerLevel)}
 	if school.IsElemental() {
 		r.Grandmaster = uitext.Text("skill.elemental_magic_grandmaster", int(MasteryGrandMaster)*MasterySpellEffectPerLevel, school.DisplayName())
 	} else {
@@ -482,7 +474,7 @@ func (s SkillType) effectDescription() string {
 	case SkillFieldMedicine:
 		return uitext.Text("skill.field_medicine", masteryProgression(FieldMedicineRestorePct), masteryProgression(FieldMedicinePoisonReductionPct))
 	case SkillDesignateTarget:
-		return uitext.Text("skill.designate_target", masteryProgression(DesignationSeconds), masteryProgression(func(tier int) int { return DesignationSeconds(tier) / TurnBasedTurnSeconds }), masteryProgression(DesignationCritPct))
+		return uitext.Text("skill.designate_target", masteryProgression(DesignationSeconds), masteryProgression(func(tier int) int { return DesignationSeconds(tier) / config.CombatRoundSeconds }), masteryProgression(DesignationCritPct))
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster, SkillMartialArts:
 		lead := uitext.Text("skill.weapon_permission", weaponNoun(s))
 		if s == SkillMartialArts {
@@ -498,7 +490,7 @@ func (s SkillType) effectDescription() string {
 	case SkillBodybuilding:
 		return uitext.Text("skill.bodybuilding", BodybuildingHPPerTier, 2*BodybuildingHPPerTier, 3*BodybuildingHPPerTier)
 	case SkillMeditation:
-		return uitext.Text("skill.meditation", MeditationRegenPerTier, 2*MeditationRegenPerTier, 3*MeditationRegenPerTier, config.RegenerationIntervalFrames/config.DefaultTPS, config.RegenerationRounds)
+		return uitext.Text("skill.meditation", MeditationRegenPerTier, 2*MeditationRegenPerTier, 3*MeditationRegenPerTier, config.RegenerationIntervalSeconds(), config.RegenerationRounds)
 	case SkillLearning:
 		return uitext.Text("skill.learning", LearningXPPctPerTier, 2*LearningXPPctPerTier, 3*LearningXPPctPerTier)
 	case SkillArmsMaster:

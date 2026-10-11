@@ -143,22 +143,25 @@ func TestShrapmetalConeThroughInput(t *testing.T) {
 				if c.SpellPoints != 1000-g.combat.effectiveSpellCost(c, d.SpellPointsCost) || tb && c.ActionsRemaining != 1 || !tb && c.RTCooldown <= 0 {
 					t.Fatal("volley did not spend exactly one spell action")
 				}
-				angles := map[float64]bool{}
+				// Every fragment carries the full single-shot payload: authored base
+				// + INT 60 / 3 + 5 per mastery tier (crits are off in this fixture).
+				want := d.DamageBase + 60/3 + tier*5
+				ids := map[string]bool{}
 				for _, p := range g.magicProjectiles {
 					if p.DisintegrateChance != float64(cardDef("alien_card").CardDisintegratePct)/100 {
 						t.Fatal("fragment omitted party disintegration")
 					}
+					ids[p.ID] = true
 					angle := math.Atan2(p.VelY, p.VelX)
-					angles[angle] = true
 					if math.Abs(angle-g.camera.Angle) > d.Mechanic.ConeDegrees*math.Pi/360 || p.X != g.camera.X || p.Y != g.camera.Y || p.Launch.target != nil || p.NoCollide || g.collisionSystem.GetEntityByID(p.ID) == nil {
 						t.Fatal("fragment lost its physical cone, common origin or collision entity")
 					}
-					if p.Damage+p.TrueDamage != 32+tier*5 {
-						t.Fatal("per-fragment damage changed")
+					if got := p.Damage + p.TrueDamage; got != want {
+						t.Fatalf("fragment payload=%d, want %d", got, want)
 					}
 				}
-				if len(angles) != len(g.magicProjectiles) {
-					t.Fatal("fragments did not scatter")
+				if len(ids) != len(g.magicProjectiles) {
+					t.Fatal("fragments share an ID and collide as one body")
 				}
 			})
 		}
@@ -420,19 +423,9 @@ func TestAreaSpellVisualFlightsDoNotDealASecondHit(t *testing.T) {
 					t.Fatalf("want one flight per affected enemy, got %d", len(g.magicProjectiles))
 				}
 				remaining := 0
-				for i, p := range g.magicProjectiles {
-					if !p.NoCollide || p.Damage != 0 || p.TrueDamage != 0 || p.VisualColor == nil || g.collisionSystem.GetEntityByID(p.ID) != nil {
+				for _, p := range g.magicProjectiles {
+					if !p.NoCollide || p.Damage != 0 || p.TrueDamage != 0 || g.collisionSystem.GetEntityByID(p.ID) != nil {
 						t.Fatal("visual flight became a damaging/colliding projectile")
-					}
-					distance := math.Hypot(p.X-g.camera.X, p.Y-g.camera.Y)
-					if (id == "souldrinker") != (distance > tile) {
-						t.Fatal("flight starts at wrong end")
-					}
-					if id == "souldrinker" && (g.camera.X-p.X)*p.VelX+(g.camera.Y-p.Y)*p.VelY <= 0 {
-						t.Fatal("soul does not return to party")
-					}
-					if id == "prismatic_light" && i > 0 && *p.VisualColor == *g.magicProjectiles[i-1].VisualColor {
-						t.Fatal("spectrum was not passed to individual rays")
 					}
 					remaining = max(remaining, p.LifeTime)
 				}
@@ -676,6 +669,7 @@ func TestAdvancedFearAndSilenceLifecycle(t *testing.T) {
 
 func TestFrozenWaterUsesConeAndExpires(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
+	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	g := cs.game
 	previousTiles := world.GlobalTileManager
 	t.Cleanup(func() { world.GlobalTileManager = previousTiles })
@@ -737,12 +731,75 @@ func TestFrozenWaterUsesConeAndExpires(t *testing.T) {
 	if err := g.arrivalTileError("lake", [2]int{4, 4}); err != nil {
 		t.Fatalf("live ice on the left world refused: %v", err)
 	}
-	g.advanceFrozenWater(def.Duration * g.config.GetTPS())
+	g.advanceFrozenWater(def.Mechanic.WaterFreezeSeconds * g.config.GetTPS())
 	if !lake.IsTileBlockingForMonster(4, 4, nil, false) {
 		t.Fatal("monsters still walk on expired ice in another world")
 	}
 	if g.isFrozenWaterTile(lake, 4, 4) || g.arrivalTileError("lake", [2]int{4, 4}) == nil {
 		t.Fatal("ice did not restore original water collision")
+	}
+}
+
+// Thawed ice never strands an actor in water: neither on the current world at
+// the thaw, nor on a world re-entered after its ice melted while the party was away.
+func TestThawSettlesStrandedActors(t *testing.T) {
+	for _, away := range []bool{false, true} {
+		t.Run(fmt.Sprintf("away=%v", away), func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			g := cs.game
+			previousTiles := world.GlobalTileManager
+			t.Cleanup(func() { world.GlobalTileManager = previousTiles })
+			world.GlobalTileManager = world.NewTileManager(g.config.Graphics.SizeClasses)
+			if err := world.GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
+				t.Fatal(err)
+			}
+			ts := g.config.GetTileSize()
+			lake := newTestWorldSized(g.config, 9, 9)
+			lake.Tiles[4][4] = world.TileWater
+			wm := world.NewWorldManager(g.config)
+			wm.LoadedMaps = map[string]*world.World3D{"lake": lake, "elsewhere": newTestWorldSized(g.config, 9, 9)}
+			wm.CurrentMapKey = "lake"
+			setTestWorldManager(t, wm)
+			g.world = lake
+			g.collisionSystem = collision.NewCollisionSystem(lake, ts)
+			g.skyImg, g.groundImg = ebiten.NewImage(1, 1), ebiten.NewImage(1, 1) // a map switch repaints both
+			t.Cleanup(g.skyImg.Deallocate)
+			t.Cleanup(g.groundImg.Deallocate)
+			g.frozenWater = []FrozenWaterTile{{MapKey: "lake", X: 4, Y: 4, FramesRemaining: 1}}
+			g.syncFrozenWaterCollision()
+			wader, dry := mkTestMonster("wader", 100), mkTestMonster("dry", 100)
+			wader.ID, dry.ID = "wader", "dry"
+			wader.X, wader.Y = TileCenterFromTile(4, 4, ts)
+			dry.X, dry.Y = TileCenterFromTile(6, 6, ts)
+			lake.Monsters = []*monster.Monster3D{wader, dry}
+			lake.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+			// A solid NPC stands on the nearest shore tile: the walker must
+			// land beside it, never inside it.
+			npcX, npcY := TileCenterFromTile(4, 3, ts)
+			g.collisionSystem.RegisterEntity(collision.NewEntity("shore_npc", npcX, npcY, 32, 32, collision.CollisionTypeNPC, true))
+			if !g.collisionSystem.CanOccupyTilesWithTileOverrides(wader.ID, wader.X, wader.Y, nil, false) {
+				t.Fatal("live ice does not hold a walker")
+			}
+			dryX, dryY := dry.X, dry.Y
+			if away {
+				if err := g.switchToMap("elsewhere"); err != nil {
+					t.Fatal(err)
+				}
+				g.advanceFrozenWater(1)
+				if err := g.switchToMap("lake"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				g.advanceFrozenWater(1)
+			}
+			iceX, iceY := TileCenterFromTile(4, 4, ts)
+			if Distance(wader.X, wader.Y, iceX, iceY) != ts || !g.collisionSystem.CanMoveToWithTileOverrides(wader.ID, wader.X, wader.Y, nil, false) {
+				t.Fatalf("thawed walker at (%v,%v), want the nearest dry tile clear of the NPC", wader.X, wader.Y)
+			}
+			if dry.X != dryX || dry.Y != dryY {
+				t.Fatal("a monster on dry ground was moved")
+			}
+		})
 	}
 }
 

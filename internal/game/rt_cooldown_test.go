@@ -1,10 +1,13 @@
 package game
 
 import (
+	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"testing"
 
+	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -64,7 +67,7 @@ func sortedSpellDefs(t *testing.T) []spells.SpellDefinition {
 // TestSpellCooldownFrames_MatchesAuthoredSeconds checks that at the reference
 // Speed every cooldown-bearing spell's RT cooldown equals its authored
 // cooldown_seconds (xTPS), proving the safety clamp no longer crushes the long
-// spells. YAML-category buffs are tested separately because they intentionally
+// spells. Persistent buffs are tested separately because they intentionally
 // have no personal RT cooldown.
 func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
 	cs := newSpellCooldownTestSystem(t)
@@ -88,62 +91,95 @@ func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
 	}
 }
 
-func TestSpellCooldownFrames_BuffsHaveNoRTCooldown(t *testing.T) {
+// A plain buff has no RT recovery; a combat_buff keeps its authored cooldown.
+func TestSpellCooldownFrames_BuffCategories(t *testing.T) {
 	cs := newSpellCooldownTestSystem(t)
 	caster := charWithSpeed(SpellCooldownSpeedRefSpeed)
 
-	buffs := 0
+	seen := map[string]int{}
 	for _, def := range sortedSpellDefs(t) {
 		if !def.IsBuff() {
 			continue
 		}
-		buffs++
-		if got := cs.SpellCooldownFrames(caster, def.ID); got != 0 {
-			t.Errorf("%s RT cooldown = %d, want 0", def.ID, got)
+		seen[def.Category]++
+		got := cs.SpellCooldownFrames(caster, def.ID)
+		if def.Category == config.SpellCategoryBuff && got != 0 {
+			t.Errorf("%s buff RT cooldown = %d, want 0", def.ID, got)
+		}
+		if def.Category == config.SpellCategoryCombatBuff && got <= 0 {
+			t.Errorf("%s combat buff lost its RT cooldown", def.ID)
 		}
 	}
-	if buffs == 0 {
-		t.Fatalf("no category %q spells loaded", spells.SpellCategoryBuff)
+	if seen[config.SpellCategoryBuff] == 0 || seen[config.SpellCategoryCombatBuff] == 0 {
+		t.Fatalf("both buff categories must be exercised, got %v", seen)
 	}
 }
 
-func TestRTBuffCommit_UsesOnlyInputStagger(t *testing.T) {
-	cs := newSpellCooldownTestSystem(t)
-	game := cs.game
-	game.turnBasedMode = false
-	caster := &character.MMCharacter{
-		HitPoints:   1,
-		SpellPoints: 15,
-		Equipment: map[items.EquipSlot]items.Item{
-			items.SlotSpell: {Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect("bless"), SpellCost: 15},
-		},
+// Exercise the real book and quick-slot input paths, not just a classifier or
+// commit helper. Ally-picker payment/cancellation is covered in
+// TestAllySpellTargetingOwnsPointerAndPayment; reuse and save/load in
+// TestPersonalSpellReuseAcrossModesAndSave. Categories themselves are not saved.
+func TestSpellInputRecoveryByEffect(t *testing.T) {
+	newCombat := newTestCombatFactory(t)
+	previous := config.GlobalTechniques
+	t.Cleanup(func() { config.GlobalTechniques = previous })
+	if err := config.LoadTechniques("../../assets/techniques.yaml"); err != nil {
+		t.Fatal(err)
 	}
-	game.party = &character.Party{Members: []*character.MMCharacter{caster}}
-
-	NewInputHandler(game).commitRTAction(rtActCast, cs.SpellCooldownFrames(caster, "bless"))
-
-	if caster.RTCooldown != 0 {
-		t.Errorf("Bless set RT cooldown %d, want 0", caster.RTCooldown)
-	}
-	if game.spellInputCooldown != rtActionStagger {
-		t.Errorf("buff input stagger = %d, want %d", game.spellInputCooldown, rtActionStagger)
-	}
-}
-
-func TestTBBuffCommit_StillConsumesAction(t *testing.T) {
-	cs := newSpellCooldownTestSystem(t)
-	game := cs.game
-	game.turnBasedMode = true
-	caster := &character.MMCharacter{HitPoints: 1, ActionsRemaining: 1, Equipment: map[items.EquipSlot]items.Item{}}
-	game.party = &character.Party{Members: []*character.MMCharacter{caster}}
-
-	game.consumeSelectedCharActionWithRTCooldown(cs.SpellCooldownFrames(caster, "bless"))
-
-	if caster.ActionsRemaining != 0 || game.partyActionsUsed != 1 {
-		t.Errorf("TB buff action state = remaining:%d used:%d, want 0/1", caster.ActionsRemaining, game.partyActionsUsed)
-	}
-	if caster.RTCooldown != 0 {
-		t.Errorf("TB buff committed RT cooldown %d, want 0", caster.RTCooldown)
+	for _, tc := range []struct {
+		id         string
+		noRecovery bool // category: buff; combat_buff and ordinary casts recover
+	}{
+		{"bless", true}, // Legacy timed buff.
+		{"shield", true}, {"regeneration", true}, {"pain_reflection", true},
+		{"haste", false}, {"preservation", false}, {"protection_from_magic", false}, {"celestial_armor", false},
+		{"body_purify", false}, {"dispel_magic", false}, {"shared_life", false}, {"firebolt", false},
+	} {
+		for _, tb := range []bool{false, true} {
+			for _, book := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/TB=%v/book=%v", tc.id, tb, book), func(t *testing.T) {
+					g := newCombat(t).game
+					installFakePointer(t)
+					g.appScreen, g.turnBasedMode = AppScreenInGame, tb
+					g.menuOpen, g.currentTab, g.selectedSpell = book, TabSpellbook, 0
+					for _, c := range g.party.Members {
+						isolateTrueDamageMember(c, 0)
+						c.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{}
+						c.HitPoints, c.MaxHitPoints, c.ActionsRemaining, c.RTCooldown = 50, 100, 3, 0
+					}
+					g.party.Members[1].AddCondition(character.ConditionPoisoned)
+					equipSpellAndPrepareCaster(t, g.combat, tc.id, 1000, 30)
+					c := g.party.Members[0]
+					c.RecalculateMaxStatsKeepingCurrent(g.config)
+					d, _ := spells.GetSpellDefinitionByID(spells.SpellID(tc.id))
+					cost := g.combat.effectiveSpellCost(c, d.SpellPointsCost)
+					sp, actions := c.SpellPoints, c.ActionsRemaining
+					pressKeys(NewInputHandler(g), ebiten.KeyF)
+					if c.SpellPoints != sp-cost || g.menuOpen {
+						t.Fatalf("cast did not commit once and close book: SP=%d, want %d, menu=%v", c.SpellPoints, sp-cost, g.menuOpen)
+					}
+					used := 0
+					if tb {
+						used = 1
+					}
+					if c.ActionsRemaining != actions-used || g.partyActionsUsed != used {
+						t.Fatalf("wrong action cost: remaining=%d used=%d", c.ActionsRemaining, g.partyActionsUsed)
+					}
+					if (c.RTCooldown == 0) != tc.noRecovery {
+						t.Fatalf("personal recovery=%d; want none=%v", c.RTCooldown, tc.noRecovery)
+					}
+					if !tb && !book && g.spellInputCooldown != rtActionStagger {
+						t.Fatalf("input stagger=%d, want %d", g.spellInputCooldown, rtActionStagger)
+					}
+					for _, viewer := range []*character.MMCharacter{nil, c} {
+						card := GetSpellTooltipRows(d.ID, viewer, g.combat, true).String()
+						if strings.Contains(card, "No RT cooldown") != tc.noRecovery {
+							t.Fatalf("tooltip recovery disagrees with buff behavior: %s", card)
+						}
+					}
+				})
+			}
+		}
 	}
 }
 

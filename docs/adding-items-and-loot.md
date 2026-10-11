@@ -43,7 +43,10 @@ See matching shipped draughts before adding one.
 Sets live in the same file under `item_sets`; pieces use `set: <key>`.
 `pieces_required` counts equipped pieces on one wearer. For a mixed item/weapon
 set use `required_pieces` with exact keys. Cards use `type: card` and supported
-`card_*` attributes; their bonuses apply through the collection system.
+`card_*` attributes; their bonuses apply through the collection system. A
+monster's card drops at `card_drop_chance` from `assets/loots.yaml` (bosses at
+`boss`, every other monster at `monster`, one roll); the boot rejects a card
+entry that disagrees.
 
 Add `assets/sprites/interface/items/icon_item_<key>.png` for a normal catalog
 item. Special inventory types (weapons, spells, traps) have their own icon lookup;

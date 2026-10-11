@@ -353,7 +353,7 @@ func buildSpellComparisonRowsByID(itemID, equippedID spells.SpellID, char *chara
 	}
 
 	if itemDef.IsUtility || equippedDef.IsUtility {
-		if itemDef.Duration > 0 || equippedDef.Duration > 0 {
+		if len(itemDef.DurationByMastery) > 0 || len(equippedDef.DurationByMastery) > 0 {
 			itemDur := combatSystem.CalculateSpellDurationSeconds(itemDef.ID, char)
 			eqDur := combatSystem.CalculateSpellDurationSeconds(equippedDef.ID, char)
 			if itemDur != eqDur {
@@ -443,10 +443,6 @@ func cardDurationText(seconds, rounds string) string {
 }
 
 // tbRoundsForSeconds rounds a real-time span up to whole TB rounds.
-func tbRoundsForSeconds(seconds int) int {
-	return (seconds + character.TurnBasedTurnSeconds - 1) / character.TurnBasedTurnSeconds
-}
-
 func spellSchoolsLabel(def spells.SpellDefinition) string {
 	schools := def.SchoolList()
 	names := make([]string, 0, len(schools))

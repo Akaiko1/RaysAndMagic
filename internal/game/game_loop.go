@@ -756,7 +756,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 
 	// Walk-on-water / water-breathing / fly drive world flags every frame.
 	if gl.game.world != nil {
-		// The Medusa Card grants permanent walk-on-water on top of the spell.
+		// The Jellyfish Card grants permanent walk-on-water on top of the spell.
 		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterEffective())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
 		gl.game.world.SetTerrainPassageActive(gl.game.partyHasTerrainPassage())

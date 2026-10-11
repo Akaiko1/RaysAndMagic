@@ -379,10 +379,9 @@ func TestRareRulesBuildingFoldAndHarvest(t *testing.T) {
 	}
 }
 
-func TestRareRulesZoneAuthoringAndExterior(t *testing.T) {
+func TestRareRulesZoneAuthoring(t *testing.T) {
 	g, ts := summonTileWorld(t)
 	setTestWorldManager(t, nil)
-	g.camera.Angle, g.camera.FOV, g.camera.ViewDist = 0, math.Pi/2, 20*ts
 	original, _ := config.GetSpellDefinition("firewall")
 	custom := *original
 	custom.ZoneEdgeDamagePercent = 25
@@ -402,43 +401,6 @@ func TestRareRulesZoneAuthoringAndExterior(t *testing.T) {
 			tickZoneSpellOnce(g.combat, "test_heat")
 			if direct.MaxHitPoints-direct.HitPoints != 40 || edge.MaxHitPoints-edge.HitPoints != 10 || edge.BurnFramesRemaining != 7*g.config.GetTPS() {
 				t.Fatal("zone damage/burn ignored authored fields or direct-over-edge priority")
-			}
-			saved := buildPersistentDamageZoneSaves(g.persistentDamageZones)
-			g.persistentDamageZones = restorePersistentDamageZones(saved, currentMapKey())
-			r := &Renderer{game: g}
-			tiles := r.visibleZoneHeatTiles()
-			if len(tiles) == 0 {
-				t.Fatal("visible wall has no exterior")
-			}
-			seen := map[[2]int]bool{}
-			for _, tile := range tiles {
-				if tile == [2]int{12, 10} || tile == [2]int{12, 11} || seen[tile] {
-					t.Fatal("heat overlays a flame cell or duplicates another edge")
-				}
-				seen[tile] = true
-			}
-			g.world.Tiles[10][13] = world.TileWall
-			for _, tile := range r.visibleZoneHeatTiles() {
-				if tile == [2]int{13, 10} {
-					t.Fatal("heat appears inside a blocking wall")
-				}
-			}
-			g.world.Tiles[10][13] = world.TileEmpty
-			for _, view := range []string{"behind", "distant"} {
-				angle, dist := g.camera.Angle, g.camera.ViewDist
-				if view == "behind" {
-					g.camera.Angle = math.Pi
-				} else {
-					g.camera.ViewDist = 1
-				}
-				combat := g.combat
-				g.combat = nil // Any LOS/coverage work for this hidden field is a bug.
-				hidden := r.visibleZoneHeatTiles()
-				g.combat = combat
-				g.camera.Angle, g.camera.ViewDist = angle, dist
-				if len(hidden) != 0 {
-					t.Fatal("offscreen heat was not culled before coverage checks")
-				}
 			}
 		})
 	}

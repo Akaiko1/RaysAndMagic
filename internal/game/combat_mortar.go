@@ -69,7 +69,7 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		StunChance:  spellDef.StunChance,
 		StunSeconds: spellDef.StunDurationSeconds,
 		StunTurns:   spellDef.StunDurationTurns,
-		School:      spellDef.School,
+		School:      spellDef.DamageType(),
 	})
 	if announce {
 		cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", spellDef.Name))

@@ -1,10 +1,10 @@
 package game
 
 import (
+	"cmp"
 	"math"
-	"ugataima/internal/config"
+	"slices"
 	damagecalc "ugataima/internal/damage"
-	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -32,7 +32,6 @@ type zoneVisualKind uint8
 
 const (
 	zoneVisualFlame zoneVisualKind = iota
-	zoneVisualHeat
 	zoneVisualSteam
 	zoneVisualTrapFlame
 )
@@ -64,11 +63,6 @@ func (r *Renderer) collectPersistentDamageZoneEffects(sprites []UnifiedSpriteRen
 	}
 	ts := float64(r.game.config.GetTileSize())
 
-	for _, key := range r.visibleZoneHeatTiles() {
-		tx, ty := key[0], key[1]
-		x, y := (float64(tx)+.5)*ts, (float64(ty)+.5)*ts
-		add(zoneVisual{kind: zoneVisualHeat, x: x, y: y, maxDepth: flameFadeTiles * ts})
-	}
 	for zi := range r.game.persistentDamageZones {
 		z := &r.game.persistentDamageZones[zi]
 		if z.FramesLeft <= 0 || z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) {
@@ -81,10 +75,7 @@ func (r *Renderer) collectPersistentDamageZoneEffects(sprites []UnifiedSpriteRen
 		}
 		// A FIRE zone burns instead of bubbling. Keyed off the spell's school, so
 		// any future fire zone gets flames without another YAML knob.
-		flame := false
-		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(z.SpellID)); err == nil {
-			flame = normalizeDamageTypeStr(def.School) == string(damagecalc.Fire)
-		}
+		flame := spellDamageTypeStr(z.SpellID) == string(damagecalc.Fire)
 		// Fade reference. Deriving it from the radius suits a wide blob (Hot Steam
 		// is 3 tiles across) but blacks out a NARROW cell: Firewall's cells are
 		// 0.55 tiles, so a radius-derived depth faded the wall to nothing two tiles
@@ -108,13 +99,16 @@ func (r *Renderer) collectPersistentDamageZoneEffects(sprites []UnifiedSpriteRen
 				if Distance(z.X, z.Y, cxw, cyw) > z.Radius {
 					continue
 				}
-				// A wall zone emits along its axis only: a flat curtain of fire.
+				// A wall zone burns along its axis in two staggered rows, so the
+				// blaze has depth from any angle instead of a flat curtain.
 				if flame && (z.AxisX != 0 || z.AxisY != 0) {
-					for i := 0; i < flameWallColumns; i++ {
-						f := (float64(i)+0.5)/float64(flameWallColumns) - 0.5
-						wx := z.X + z.AxisX*f*ts
-						wy := z.Y + z.AxisY*f*ts
-						add(zoneVisual{kind: zoneVisualFlame, x: wx, y: wy, maxDepth: maxDepth})
+					for row := -1.0; row <= 1; row += 2 {
+						for i := 0; i < flameWallColumns; i++ {
+							f := (float64(i)+0.5+.25*row)/float64(flameWallColumns) - 0.5
+							wx := z.X + z.AxisX*f*ts - z.AxisY*row*flameWallDepth*ts
+							wy := z.Y + z.AxisY*f*ts + z.AxisX*row*flameWallDepth*ts
+							add(zoneVisual{kind: zoneVisualFlame, x: wx, y: wy, maxDepth: maxDepth})
+						}
 					}
 					continue
 				}
@@ -142,10 +136,33 @@ func (r *Renderer) collectPersistentDamageZoneEffects(sprites []UnifiedSpriteRen
 	return sprites
 }
 
+// collectFireHeat lists the fire cells in reach, nearest first, as softly
+// flickering heat sources the floor shader tints warm.
+func (r *Renderer) collectFireHeat(tile float64) {
+	r.heatSources = r.heatSources[:0]
+	cam := r.game.camera
+	for i := range r.game.persistentDamageZones {
+		z := &r.game.persistentDamageZones[i]
+		if z.FramesLeft <= 0 || z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) || spellDamageTypeStr(z.SpellID) != string(damagecalc.Fire) {
+			continue
+		}
+		radius := z.Radius + fireHeatGlowTiles*tile
+		if dx, dy := z.X-cam.X, z.Y-cam.Y; dx*dx+dy*dy > (cam.ViewDist+radius)*(cam.ViewDist+radius) {
+			continue
+		}
+		clock := r.weaponMaterialClock() + auraHash(int(z.X), int(z.Y), 7, 9)*11
+		flicker := .88 + .08*math.Sin(clock*5.3) + .04*math.Sin(clock*11.7)
+		r.heatSources = append(r.heatSources, LightSource{X: z.X, Y: z.Y, Radius: radius, Intensity: fireHeatGlowStrength * flicker})
+	}
+	if len(r.heatSources) > maxFloorHeatSources {
+		slices.SortFunc(r.heatSources, func(a, b LightSource) int {
+			return cmp.Compare(Distance(a.X, a.Y, cam.X, cam.Y), Distance(b.X, b.Y, cam.X, cam.Y))
+		})
+	}
+}
+
 func (r *Renderer) drawZoneVisual(screen *ebiten.Image, v zoneVisual) {
 	switch v.kind {
-	case zoneVisualHeat:
-		r.drawZonePlume(screen, v.x, v.y, .75, .3, v.maxDepth, .3, flameCoreColor)
 	case zoneVisualFlame:
 		r.emitFlameColumn(screen, v.x, v.y, v.maxDepth)
 	case zoneVisualTrapFlame:
@@ -153,72 +170,6 @@ func (r *Renderer) drawZoneVisual(screen *ebiten.Image, v zoneVisual) {
 	case zoneVisualSteam:
 		r.emitSteamColumn(screen, v.x, v.y, v.tileX, v.tileY, v.slot, v.maxDepth)
 	}
-}
-
-// visibleZoneHeatTiles computes the exterior of the whole live flame field,
-// not each cell independently. Culling precedes terrain/door ray checks.
-func (r *Renderer) visibleZoneHeatTiles() [][2]int {
-	g := r.game
-	ts := float64(g.config.GetTileSize())
-	core := map[[2]int]bool{}
-	var zones []*PersistentDamageZone
-	for i := range g.persistentDamageZones {
-		z := &g.persistentDamageZones[i]
-		def, _ := config.GetSpellDefinition(z.SpellID)
-		if z.FramesLeft <= 0 || z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) || def == nil || normalizeDamageTypeStr(def.School) != string(damagecalc.Fire) {
-			continue
-		}
-		cx, cy := TileIndex(z.X, ts), TileIndex(z.Y, ts)
-		reach := int(z.Radius/ts) + 1
-		for dy := -reach; dy <= reach; dy++ {
-			for dx := -reach; dx <= reach; dx++ {
-				x, y := (float64(cx+dx)+.5)*ts, (float64(cy+dy)+.5)*ts
-				if z.coversMonster(x, y, ts) {
-					core[[2]int{cx + dx, cy + dy}] = true
-				}
-			}
-		}
-		if def.ZoneEdgeTiles > 0 && z.isWallCell() {
-			zones = append(zones, z)
-		}
-	}
-	var tiles [][2]int
-	drawn := map[[2]int]bool{}
-	for _, z := range zones {
-		def, _ := config.GetSpellDefinition(z.SpellID)
-		reach := def.ZoneEdgeTiles
-		// A conservative field bound keeps visible edge tiles when the core is offscreen.
-		if !r.zoneHeatVisible(z.X, z.Y, float64(reach+1)*ts) {
-			continue
-		}
-		cx, cy := TileIndex(z.X, ts), TileIndex(z.Y, ts)
-		for dy := -reach; dy <= reach; dy++ {
-			for dx := -reach; dx <= reach; dx++ {
-				key := [2]int{cx + dx, cy + dy}
-				x, y := (float64(key[0])+.5)*ts, (float64(key[1])+.5)*ts
-				if core[key] || drawn[key] || !r.zoneHeatVisible(x, y, ts/2) {
-					continue
-				}
-				if g.combat.zoneDamageBand(z, x, y, ts) == 1 {
-					drawn[key] = true
-					tiles = append(tiles, key)
-				}
-			}
-		}
-	}
-	return tiles
-}
-
-func (r *Renderer) zoneHeatVisible(x, y, margin float64) bool {
-	cam := r.game.camera
-	dx, dy := x-cam.X, y-cam.Y
-	limit := min(cam.ViewDist, flameFadeTiles*float64(r.game.config.GetTileSize())) + margin
-	if dx*dx+dy*dy > limit*limit {
-		return false
-	}
-	forward := dx*math.Cos(cam.Angle) + dy*math.Sin(cam.Angle)
-	side := -dx*math.Sin(cam.Angle) + dy*math.Cos(cam.Angle)
-	return forward+margin > 0 && math.Abs(side) <= max(0, forward)*math.Tan(r.game.viewFOV()/2)+margin
 }
 
 // emitSteamColumn draws one rising bubble at a sampled point inside a steam-zone
@@ -250,7 +201,8 @@ func (r *Renderer) emitSteamColumn(screen *ebiten.Image, wx, wy float64, tx, ty,
 const (
 	flameSamplesPerAxis = 2    // columns per tile axis
 	flameBaseAlpha      = 0.85 // opacity of the smaller burning-creature plumes
-	flameWallColumns    = 3    // overlapping shader plumes across one tile of the wall
+	flameWallColumns    = 3    // overlapping blaze columns across one tile of the wall, per row
+	flameWallDepth      = .16  // half the spacing of the wall's two rows, in tiles
 	flameFadeTiles      = 16.0 // a burning wall must still read from across a room
 )
 
@@ -267,7 +219,8 @@ func monsterFlameMaxDepth(tileSize float64) float64 {
 	return monsterFlameFadeTiles * tileSize
 }
 
-// emitFlameColumn draws one independently moving plume within a fire zone.
+// emitFlameColumn draws one column of a fire zone's blaze. Wide columns
+// overlap their neighbours so the zone burns as one fire.
 func (r *Renderer) emitFlameColumn(screen *ebiten.Image, wx, wy, maxDepth float64) {
-	r.drawZonePlume(screen, wx, wy, .42, 2.8, maxDepth, .92, flameCoreColor)
+	r.drawFirePlume(screen, wx, wy, .55, 3.0, maxDepth, 1, flameCoreColor, int(wx), int(wy), firePlumeBlaze)
 }

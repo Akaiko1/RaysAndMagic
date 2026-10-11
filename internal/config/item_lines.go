@@ -125,7 +125,7 @@ func (d *ItemDefinitionConfig) TimedBuffEffectLines() []string {
 		if d.BuffManaRegenPct > 0 {
 			recovery = append(recovery, uitext.Text("item.regeneration_mana", d.BuffManaRegenPct))
 		}
-		lines = append(lines, uitext.Text("item.party_regeneration_draught", strings.Join(recovery, uitext.Text("item.regeneration_join")), float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds))
+		lines = append(lines, uitext.Text("item.party_regeneration_draught", strings.Join(recovery, uitext.Text("item.regeneration_join")), RegenerationIntervalSeconds(), RegenerationRounds))
 	}
 	if d.BuffArmorClass > 0 {
 		lines = append(lines, uitext.Text("item.party_stoneskin", d.BuffArmorClass))
@@ -224,7 +224,7 @@ func (d *ItemDefinitionConfig) behaviorLines() []string {
 			lines = append(lines, uitext.Text("item.revives_a_fallen_ally"))
 		}
 	}
-	if d.SummonDistanceTiles > 0 {
+	if d.SummonDistanceTiles > 0 && d.UseAction == "" { // devices state it in DeviceEffectLines
 		lines = append(lines, uitext.Text("item.summons_tiles_away", d.SummonDistanceTiles))
 	}
 	if d.OpensMap {
@@ -421,7 +421,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, uitext.Text("item.on_direct_hit_disintegrate_undead_and_dragons", d.CardDisintegratePct))
 	}
 	if d.CardRegenPct != 0 {
-		p = append(p, uitext.Text("item.regenerate_max_hp_per_regeneration_tick", d.CardRegenPct, float64(RegenerationIntervalFrames)/float64(GetTargetTPS()), RegenerationRounds))
+		p = append(p, uitext.Text("item.regenerate_max_hp_per_regeneration_tick", d.CardRegenPct, RegenerationIntervalSeconds(), RegenerationRounds))
 	}
 	if d.CardDoubleAttackPct != 0 {
 		p = append(p, uitext.Text("item.on_melee_attack_strike_again", d.CardDoubleAttackPct))

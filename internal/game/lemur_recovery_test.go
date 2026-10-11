@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -59,7 +60,7 @@ func TestLemurCharmTrajectoryLifecycle(t *testing.T) {
 					g.turnBasedMode = turn
 					// Keep Charm active throughout both 240-round trajectory probes.
 					// Its lifetime now advances with resolved TB rounds as well as RT.
-					g.combat.applyPacify(m, (2*240+1)*TurnBasedPeriodicEffectSeconds, "Charm")
+					g.combat.applyPacify(m, (2*240+1)*config.CombatRoundSeconds, "Charm")
 					before, x, y := m.Arbor, m.X, m.Y
 					for _, saved := range []bool{false, true} {
 						if saved {

@@ -76,45 +76,32 @@ func TestResolvedSpellFormulaCells(t *testing.T) {
 	}
 }
 
-func TestAdvancedSpellDamageScaling(t *testing.T) {
+// deals_no_damage strips the damage of every authored spell that would
+// otherwise carry one. Per-tier damage is asserted through the real cast in
+// internal/game (TestAdvancedDamageScalesThroughProductionCast).
+func TestDealsNoDamageStripsAuthoredDamage(t *testing.T) {
 	old := config.GlobalSpells
 	t.Cleanup(func() { config.GlobalSpells = old })
 	cfg, err := config.LoadSpellConfig("../../assets/spells.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for id, authored := range cfg.Spells {
-		if authored.Mechanic == nil {
+	damaging := 0
+	for id := range cfg.Spells {
+		def, err := GetSpellDefinitionByID(SpellID(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if def.DealsNoDamage || def.DamageFormula().Kind == DamageNone {
 			continue
 		}
-		t.Run(id, func(t *testing.T) {
-			def, err := GetSpellDefinitionByID(SpellID(id))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for tier := 0; tier < 4; tier++ {
-				want := 0
-				if len(authored.DamageByMastery) == 4 {
-					want = authored.DamageByMastery[tier]
-				} else if authored.DamageSource != "" {
-					source := cfg.Spells[authored.DamageSource]
-					want = (source.SpellPointsCost*3*max(1, source.DamageCostMultiplier) + 999/3 + 999/3 + tier*5) / authored.DamageDivisor
-				} else if authored.IsProjectile || authored.DamageBase > 0 {
-					base := authored.DamageBase
-					if base == 0 {
-						base = authored.SpellPointsCost * 3 * max(1, authored.DamageCostMultiplier)
-					}
-					want = base + 999/3 + tier*5
-				}
-				got := def.DamageFormula().Evaluate(stats.StatBonuses{Intellect: 999, Personality: 999}, tier).Total
-				if got != want {
-					t.Fatalf("mastery %d resolved damage %d, authored %d", tier, got, want)
-				}
-			}
-			def.DealsNoDamage = true
-			if def.DamageFormula().Kind != DamageNone {
-				t.Fatal("non-damaging spell gained damage")
-			}
-		})
+		damaging++
+		def.DealsNoDamage = true
+		if f := def.DamageFormula(); f.Kind != DamageNone || f.Evaluate(stats.StatBonuses{Intellect: 999, Personality: 999}, 3).Total != 0 {
+			t.Errorf("%s keeps damage under deals_no_damage", id)
+		}
+	}
+	if damaging == 0 {
+		t.Fatal("fixture: no damaging spell in the catalog")
 	}
 }

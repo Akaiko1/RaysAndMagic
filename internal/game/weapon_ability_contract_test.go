@@ -3,7 +3,6 @@ package game
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 	"testing"
 
@@ -287,8 +286,7 @@ func TestWeaponAndCardBonusTargetContract(t *testing.T) {
 func TestElvenBowAllAuthoredDragonFamilies(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	keys := monsterPkg.MonsterConfig.GetAllMonsterKeys()
-	sort.Strings(keys)
+	keys := catalogMonsterKeys()
 	dragons := 0
 	for _, key := range keys {
 		if monsterPkg.NewMonster3DFromConfig(0, 0, key, cs.game.config).MonsterType != monsterPkg.TypeDragon {

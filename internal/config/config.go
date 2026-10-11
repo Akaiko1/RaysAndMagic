@@ -33,6 +33,11 @@ const weaponStatusSecondsPerTurn = 2
 // CombatRoundSeconds is the shared real-time duration of a combat round.
 const CombatRoundSeconds = 3
 
+// CombatRounds converts real-time seconds to whole TB rounds, rounding up.
+func CombatRounds(seconds int) int {
+	return (seconds + CombatRoundSeconds - 1) / CombatRoundSeconds
+}
+
 // WeaponStatusTurns converts the shared authored seconds field used by weapon
 // shred/root/slow/weaken into its turn-based clock.
 func WeaponStatusTurns(seconds int) int {
@@ -626,6 +631,15 @@ type SpellSystemConfig struct {
 	Spells map[string]*SpellDefinitionConfig `yaml:"spells"`
 }
 
+// Spell categories mark timed or charged beneficial effects in YAML. Both
+// spend mana and TB actions; a buff has no personal RT recovery, while a short
+// or charge-spent combat_buff keeps its authored cooldown so it cannot be
+// refilled on demand mid-fight.
+const (
+	SpellCategoryBuff       = "buff"
+	SpellCategoryCombatBuff = "combat_buff"
+)
+
 // SpellDefinitionConfig represents a complete spell definition with embedded physics and graphics
 type SpellDefinitionConfig struct {
 	Mechanic *SpellMechanicConfig `yaml:"mechanic,omitempty"`
@@ -639,12 +653,13 @@ type SpellDefinitionConfig struct {
 	// school the learner has.
 	Schools         []string `yaml:"schools,omitempty"`
 	SpellPointsCost int      `yaml:"spell_points_cost"`
-	// Category selects optional cast behavior. "buff" is a beneficial timed
-	// effect with no per-character real-time cooldown.
+	// Category explicitly marks beneficial effects, timed or charged, personal or
+	// party-wide: "buff" has no personal RT recovery, "combat_buff" keeps its
+	// cooldown_seconds. Mana, TB action costs and any reuse timer still apply.
 	Category string `yaml:"category,omitempty"`
 	// CooldownSeconds is the real-time cast cooldown for this spell at the
 	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it.
-	// REQUIRED - validated at load, so no spell can fall back to a guessed cadence.
+	// Required for non-buffs and forbidden for buffs (zero recovery by rule).
 	CooldownSeconds float64 `yaml:"cooldown_seconds,omitempty"`
 	ReuseSeconds    int     `yaml:"reuse_seconds,omitempty"` // Personal spell lockout, independent of action recovery.
 	// DamageByMastery authors the EXACT damage per mastery tier
@@ -680,7 +695,7 @@ type SpellDefinitionConfig struct {
 	// SparesParty exempts the caster's own party from a party-centred nova
 	// (Earthquake shakes the ground under monsters only; Inferno does not).
 	SparesParty        bool    `yaml:"spares_party,omitempty"`
-	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
+	DurationByMastery  []int   `yaml:"duration_by_mastery,omitempty"` // Exact gameplay seconds, Novice..Grandmaster; omit for instant/charged effects.
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes a projectile spell splash damage to
 	// every monster within this many tiles of the primary target. The splash
@@ -1594,6 +1609,12 @@ func GetTargetTPS() int {
 	return DefaultTPS
 }
 
+// RegenerationIntervalSeconds is the real-time spacing of regeneration ticks,
+// which are counted in frames, at the configured TPS.
+func RegenerationIntervalSeconds() float64 {
+	return float64(RegenerationIntervalFrames) / float64(GetTargetTPS())
+}
+
 var GlobalConfig *Config
 var GlobalSpells *SpellSystemConfig
 var GlobalWeapons *WeaponSystemConfig
@@ -1927,64 +1948,83 @@ func canonicalDamageIntMap(values map[string]int) (map[string]int, error) {
 
 // validateSpellAuthoring fails fast on malformed spell authoring: invalid stat
 // buff shapes or unknown typed-buff filters.
+// validateSpellGraphics checks presentation fields that gameplay depends on:
+// ally cursors, overlay scale and target flights.
+func validateSpellGraphics(def *SpellDefinitionConfig, all map[string]*SpellDefinitionConfig) error {
+	if def.Mechanic.TargetsAlly() && (def.Graphics == nil || def.Graphics.TargetCursor == "") {
+		return fmt.Errorf("ally-targeted mechanic requires graphics.target_cursor")
+	}
+	g := def.Graphics
+	if g == nil {
+		return nil
+	}
+	if g.TargetCursor != "" && !def.Mechanic.TargetsAlly() {
+		return fmt.Errorf("target_cursor requires an ally-targeted mechanic")
+	}
+	if scale := g.CastOverlayScale; scale < 0 || math.IsNaN(scale) || math.IsInf(scale, 0) || scale > 0 && g.CastOverlay == "" {
+		return fmt.Errorf("cast_overlay_scale needs a cast overlay and a finite positive value")
+	}
+	rays := g.TargetFlights
+	if rays == nil {
+		return nil
+	}
+	if rays.DurationSeconds < 0 || math.IsNaN(rays.DurationSeconds) || math.IsInf(rays.DurationSeconds, 0) {
+		return fmt.Errorf("target_flights.duration_seconds must be finite and nonnegative")
+	}
+	if rays.SizeScale <= 0 || math.IsNaN(rays.SizeScale) || math.IsInf(rays.SizeScale, 0) {
+		return fmt.Errorf("target_flights.size_scale must be finite and positive")
+	}
+	if def.Mechanic == nil || (def.Mechanic.Kind != "prismatic_light" && def.Mechanic.Kind != "souldrinker") {
+		return fmt.Errorf("target_flights requires an instant area damage mechanic")
+	}
+	source := all[rays.Projectile]
+	if source == nil || !source.IsProjectile || source.Physics == nil || source.Physics.SpeedTiles <= 0 || source.Graphics == nil {
+		return fmt.Errorf("target_flights.projectile must name a rendered moving projectile")
+	}
+	if math.IsNaN(source.Physics.SpeedTiles) || math.IsInf(source.Physics.SpeedTiles, 0) {
+		return fmt.Errorf("target_flights source speed must be finite")
+	}
+	if len(rays.Palette) == 0 {
+		return fmt.Errorf("target_flights.palette must not be empty")
+	}
+	for _, rgb := range rays.Palette {
+		for _, channel := range rgb {
+			if channel < 0 || channel > 255 {
+				return fmt.Errorf("target_flights.palette channels must be in 0..255")
+			}
+		}
+	}
+	return nil
+}
+
+// validateSpellDamageRule checks that at most one damage rule is authored and
+// that a borrowed formula names an independent damaging projectile.
+func validateSpellDamageRule(def *SpellDefinitionConfig, all map[string]*SpellDefinitionConfig) error {
+	if def.DamageBase < 0 || def.DamageDivisor < 0 || (def.DamageDivisor > 0) != (def.DamageSource != "") {
+		return fmt.Errorf("invalid damage base or source/divisor pair")
+	}
+	if def.DamageBase > 0 && (len(def.DamageByMastery) > 0 || def.DamageSource != "" || def.DealsNoDamage) {
+		return fmt.Errorf("damage_base conflicts with another damage rule")
+	}
+	if def.DamageSource != "" {
+		source := all[def.DamageSource]
+		if source == nil || source.DamageSource != "" || source.DealsNoDamage || !source.IsProjectile || len(source.DamageByMastery) > 0 || len(def.DamageByMastery) > 0 || def.DealsNoDamage {
+			return fmt.Errorf("damage_source must name an independent damaging projectile formula")
+		}
+	}
+	return nil
+}
+
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
-		if def.Graphics != nil {
-			if def.Graphics.TargetCursor != "" && !def.Mechanic.TargetsAlly() {
-				return fmt.Errorf("spell %q: target_cursor requires an ally-targeted mechanic", id)
-			}
-			weaponOverlay := def.Graphics.CastOverlay == "fire_aura" || def.Graphics.CastOverlay == "vampiric_weapon"
-			if weaponOverlay != (def.Graphics.CastOverlayWeapon != "") {
-				return fmt.Errorf("spell %q: cast_overlay_weapon is required only for weapon enchantment overlays", id)
-			}
-			scale := def.Graphics.CastOverlayScale
-			if scale < 0 || math.IsNaN(scale) || math.IsInf(scale, 0) || scale > 0 && def.Graphics.CastOverlay == "" {
-				return fmt.Errorf("spell %q: cast_overlay_scale needs a cast overlay and a finite positive value", id)
-			}
+		if err := validateSpellDuration(def); err != nil {
+			return fmt.Errorf("spell %q: %w", id, err)
 		}
-		if def.Mechanic.TargetsAlly() && (def.Graphics == nil || def.Graphics.TargetCursor == "") {
-			return fmt.Errorf("spell %q: ally-targeted mechanic requires graphics.target_cursor", id)
+		if err := validateSpellGraphics(def, cfg.Spells); err != nil {
+			return fmt.Errorf("spell %q: %w", id, err)
 		}
-		if def.DamageBase < 0 || def.DamageDivisor < 0 || (def.DamageDivisor > 0) != (def.DamageSource != "") {
-			return fmt.Errorf("spell %q: invalid damage base or source/divisor pair", id)
-		}
-		if def.DamageBase > 0 && (len(def.DamageByMastery) > 0 || def.DamageSource != "" || def.DealsNoDamage) {
-			return fmt.Errorf("spell %q: damage_base conflicts with another damage rule", id)
-		}
-		if def.DamageSource != "" {
-			source := cfg.Spells[def.DamageSource]
-			if source == nil || source.DamageSource != "" || source.DealsNoDamage || !source.IsProjectile || len(source.DamageByMastery) > 0 || len(def.DamageByMastery) > 0 || def.DealsNoDamage {
-				return fmt.Errorf("spell %q: damage_source must name an independent damaging projectile formula", id)
-			}
-		}
-		if def.Graphics != nil && def.Graphics.TargetFlights != nil {
-			rays := def.Graphics.TargetFlights
-			if rays.DurationSeconds < 0 || math.IsNaN(rays.DurationSeconds) || math.IsInf(rays.DurationSeconds, 0) {
-				return fmt.Errorf("spell %q: target_flights.duration_seconds must be finite and nonnegative", id)
-			}
-			if rays.SizeScale <= 0 || math.IsNaN(rays.SizeScale) || math.IsInf(rays.SizeScale, 0) {
-				return fmt.Errorf("spell %q: target_flights.size_scale must be finite and positive", id)
-			}
-			source := cfg.Spells[rays.Projectile]
-			if def.Mechanic == nil || (def.Mechanic.Kind != "prismatic_light" && def.Mechanic.Kind != "souldrinker") {
-				return fmt.Errorf("spell %q: target_flights requires an instant area damage mechanic", id)
-			}
-			if source == nil || !source.IsProjectile || source.Physics == nil || source.Physics.SpeedTiles <= 0 || source.Graphics == nil {
-				return fmt.Errorf("spell %q: target_flights.projectile must name a rendered moving projectile", id)
-			}
-			if math.IsNaN(source.Physics.SpeedTiles) || math.IsInf(source.Physics.SpeedTiles, 0) {
-				return fmt.Errorf("spell %q: target_flights source speed must be finite", id)
-			}
-			if len(rays.Palette) == 0 {
-				return fmt.Errorf("spell %q: target_flights.palette must not be empty", id)
-			}
-			for _, rgb := range rays.Palette {
-				for _, channel := range rgb {
-					if channel < 0 || channel > 255 {
-						return fmt.Errorf("spell %q: target_flights.palette channels must be in 0..255", id)
-					}
-				}
-			}
+		if err := validateSpellDamageRule(def, cfg.Spells); err != nil {
+			return fmt.Errorf("spell %q: %w", id, err)
 		}
 		if err := validateSpellMechanic(def); err != nil {
 			return fmt.Errorf("spell '%s': %w", id, err)
@@ -1997,7 +2037,7 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		if def.Fly && !def.TerrainPassage {
 			return fmt.Errorf("spell '%s': fly requires terrain_passage", id)
 		}
-		if def.TerrainPassage && (!def.IsUtility || def.Duration <= 0) {
+		if def.TerrainPassage && (!def.IsUtility || len(def.DurationByMastery) == 0) {
 			return fmt.Errorf("spell '%s': terrain_passage requires a timed utility spell", id)
 		}
 		if def.School != "" {
@@ -2075,13 +2115,29 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		if def.ReuseSeconds < 0 {
 			return fmt.Errorf("spell '%s': reuse_seconds cannot be negative", id)
 		}
-		isBuff := strings.EqualFold(strings.TrimSpace(def.Category), "buff")
+		category := strings.ToLower(strings.TrimSpace(def.Category))
+		switch category {
+		case "", SpellCategoryBuff, SpellCategoryCombatBuff:
+		default:
+			return fmt.Errorf("spell '%s': unsupported category %q", id, def.Category)
+		}
+		isBuff := category != ""
+		// Check the authored flag, never infer or fill it in at runtime.
+		if m := def.Mechanic; m != nil && isBuff != (m.IsPartyBuff() || m.TargetsAlly()) {
+			return fmt.Errorf("spell '%s': mechanic %q requires category buff or combat_buff exactly for personal/party enchantments", id, m.Kind)
+		}
+		if def.Mechanic == nil && isBuff != def.HasTimedUtilityEffect() {
+			return fmt.Errorf("spell '%s': a timed utility effect requires category buff or combat_buff, and a buff requires one", id)
+		}
+		if isBuff && !def.IsUtility {
+			return fmt.Errorf("spell '%s': a buff must be a utility spell", id)
+		}
 		switch {
-		case isBuff && def.CooldownSeconds != 0:
+		case category == SpellCategoryBuff && def.CooldownSeconds != 0:
 			// Buffs return a zero RT cooldown before this field is read, so an
 			// authored value would silently do nothing.
-			return fmt.Errorf("spell '%s': category buff must not author cooldown_seconds (buffs have no real-time cooldown)", id)
-		case !isBuff && def.CooldownSeconds <= 0:
+			return fmt.Errorf("spell '%s': buff must not author cooldown_seconds (use combat_buff to keep a real-time recovery)", id)
+		case category != SpellCategoryBuff && def.CooldownSeconds <= 0:
 			return fmt.Errorf("spell '%s': cooldown_seconds is required and must be > 0", id)
 		}
 		if def.MasteryDamagePerTier < 0 {
@@ -2089,15 +2145,6 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		}
 		if def.MasteryDamagePerTier > 0 && !def.MapWide && def.PartyAoeRadiusTiles <= 0 {
 			return fmt.Errorf("spell '%s': mastery_damage_per_tier requires map_wide or party_aoe_radius_tiles", id)
-		}
-		switch strings.ToLower(strings.TrimSpace(def.Category)) {
-		case "":
-		case "buff":
-			if !def.IsUtility || def.Duration <= 0 {
-				return fmt.Errorf("spell '%s': category %q requires a timed utility spell", id, def.Category)
-			}
-		default:
-			return fmt.Errorf("spell '%s': unsupported category %q", id, def.Category)
 		}
 		if len(def.StatBonuses) > 0 {
 			if def.StatBonus != 0 || def.StatBonusGrandmaster != 0 {
@@ -2511,7 +2558,8 @@ type ItemDefinitionConfig struct {
 	AllowedClasses     []string         `yaml:"allowed_classes,omitempty"`
 	Name               string           `yaml:"name"`
 	LegacyNames        []string         `yaml:"legacy_names,omitempty"`
-	Type               string           `yaml:"type"` // armor|accessory|consumable|quest|trinket|card|device
+	LegacyKeys         []string         `yaml:"legacy_keys,omitempty"` // former keys, for saves that stored the key
+	Type               string           `yaml:"type"`                  // armor|accessory|consumable|quest|trinket|card|device
 	ArmorType          string           `yaml:"armor_category,omitempty"`
 	Description        string           `yaml:"description"`      // Gameplay-neutral summary (optional)
 	Flavor             string           `yaml:"flavor,omitempty"` // Short artistic line for tooltip
@@ -2693,6 +2741,18 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 		}
 		itemDefsByName[def.Name] = def
 		itemKeysByName[def.Name] = key
+	}
+	claimedKeys := make(map[string]string)
+	for key, def := range itemCfg.Items {
+		for _, old := range def.LegacyKeys {
+			if _, live := itemCfg.Items[old]; live || old == "" {
+				return nil, fmt.Errorf("item %q: legacy key %q is empty or still a live item", key, old)
+			}
+			if prev, dup := claimedKeys[old]; dup {
+				return nil, fmt.Errorf("items %q and %q both claim legacy key %q", prev, key, old)
+			}
+			claimedKeys[old] = key
+		}
 	}
 	// Historical names share the same index so saved items and merchant stock
 	// resolve to one canonical definition. Never allow an ambiguous migration.
@@ -2945,6 +3005,23 @@ func GetItemDefinition(itemKey string) (*ItemDefinitionConfig, bool) {
 	return def, ok
 }
 
+// CanonicalItemKey maps a renamed item's former key (legacy_keys) to its
+// current key; any other key is returned unchanged.
+func CanonicalItemKey(key string) string {
+	if GlobalItems == nil {
+		return key
+	}
+	if _, ok := GlobalItems.Items[key]; ok {
+		return key
+	}
+	for current, def := range GlobalItems.Items {
+		if slices.Contains(def.LegacyKeys, key) {
+			return current
+		}
+	}
+	return key
+}
+
 func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) {
 	def, ok := itemDefByName[name]
 	if !ok {
@@ -2956,8 +3033,9 @@ func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) 
 // ---------------- Loot Tables ----------------
 
 type LootTablesConfig struct {
-	Loots      map[string][]LootEntry `yaml:"loots"`
-	LootGroups map[string][]LootEntry `yaml:"loot_groups,omitempty"`
+	CardDropChance CardDropChance         `yaml:"card_drop_chance"`
+	Loots          map[string][]LootEntry `yaml:"loots"`
+	LootGroups     map[string][]LootEntry `yaml:"loot_groups,omitempty"`
 	// BossLoot is appended to the normal loot table of every YAML-classified
 	// boss. This keeps universal boss drops data-driven without giving kills,
 	// theft, crates, and editor views divergent tables.
@@ -2970,6 +3048,13 @@ type LootTablesConfig struct {
 	// Crates: loot behavior per loot_crate NPC key (chests placed via @).
 	// Loot lives HERE, with all other loot, not on the NPC definition.
 	Crates map[string]*CrateConfig `yaml:"crates"`
+}
+
+// CardDropChance is the single drop rule for monster cards: boss: true
+// monsters drop theirs at Boss, every other monster at Monster.
+type CardDropChance struct {
+	Boss    float64 `yaml:"boss"`
+	Monster float64 `yaml:"monster"`
 }
 
 // CrateConfig is one chest's loot + trap behavior. Tier semantics are data:
@@ -3167,6 +3252,9 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	}
 	if err := validateCrates(&loots); err != nil {
 		return nil, err
+	}
+	if r := loots.CardDropChance; r.Boss < 0 || r.Boss > 1 || r.Monster < 0 || r.Monster > 1 {
+		return nil, fmt.Errorf("card_drop_chance values must lie in 0..1")
 	}
 	GlobalLoots = &loots
 	return &loots, nil

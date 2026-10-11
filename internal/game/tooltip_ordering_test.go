@@ -122,8 +122,8 @@ func TestTooltipOrderedSpellResults(t *testing.T) {
 							t.Fatal(card)
 						}
 					}
-					if def.Duration > 0 {
-						want := character.SpellDurationBreakdown(def, ch).Seconds
+					if def.Mechanic == nil && len(def.DurationByMastery) > 0 {
+						want := character.SpellDurationSeconds(def, ch)
 						if !strings.Contains(card, fmt.Sprintf("Current Duration: %ds", want)) {
 							t.Fatal(card)
 						}

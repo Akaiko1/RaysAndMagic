@@ -330,7 +330,7 @@ tiles:
   # Water biome variants
   coral_reef:
     name: "Coral Reef"
-    type: "water"
+    type: "nature"
     solid: true
     transparent: false
     walkable: false
@@ -345,7 +345,7 @@ tiles:
 
   large_coral:
     name: "Large Coral Formation"
-    type: "water"
+    type: "nature"
     solid: true
     transparent: false
     walkable: false

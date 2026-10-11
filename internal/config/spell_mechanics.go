@@ -15,37 +15,37 @@ type SpellMechanicConfig struct {
 	Kind                   string  `yaml:"kind"`
 	PowerByMastery         []int   `yaml:"power_by_mastery,omitempty"`
 	ChargesByMastery       []int   `yaml:"charges_by_mastery,omitempty"`
-	DurationByMastery      []int   `yaml:"duration_by_mastery,omitempty"`
+	WaterFreezeSeconds     int     `yaml:"water_freeze_seconds,omitempty"` // Crossing lifetime, independent of the root timer.
 	RadiusTiles            float64 `yaml:"radius_tiles,omitempty"`
 	ConeDegrees            float64 `yaml:"cone_degrees,omitempty"`
 	MaxTargets             int     `yaml:"max_targets,omitempty"`
 	ProjectilesByMastery   []int   `yaml:"projectiles_by_mastery,omitempty"`
-	MaxHitsPerTarget       int     `yaml:"max_hits_per_target,omitempty"` // Per cast, shared by all projectiles.
-	InstantKillChance      float64 `yaml:"instant_kill_chance,omitempty"` // Probability in 0..1, before fallback damage.
+	ExtraActionsByMastery  []int   `yaml:"extra_actions_by_mastery,omitempty"` // Party bonus actions per TB round.
+	MaxHitsPerTarget       int     `yaml:"max_hits_per_target,omitempty"`      // Per cast, shared by all projectiles.
+	InstantKillChance      float64 `yaml:"instant_kill_chance,omitempty"`      // Probability in 0..1, before fallback damage.
 	Autocast               string  `yaml:"autocast,omitempty"`
 	Technique              string  `yaml:"technique,omitempty"`
 	DamageSchool           string  `yaml:"damage_school,omitempty"`
-	SpellDuration          int     `yaml:"-"`
 	Summary                string  `yaml:"summary"`
 }
 
 type spellMechanicRule struct {
-	offensive, personal, party                                                   bool
-	power, charges, duration, radius, cone, damage, percent, targets, projectile bool
+	offensive, personal, party                                                                 bool
+	power, charges, duration, radius, cone, damage, percent, targets, projectile, extraActions bool
 }
 
 var spellMechanicRules = map[string]spellMechanicRule{
 	"fire_aura":             {personal: true, power: true, charges: true, percent: true},
 	"fate":                  {personal: true, power: true, charges: true, percent: true},
 	"vampiric_weapon":       {personal: true, power: true, duration: true, percent: true},
-	"haste":                 {party: true},
+	"haste":                 {party: true, power: true, duration: true, percent: true, extraActions: true},
 	"shield":                {party: true, power: true, duration: true, percent: true},
 	"regeneration":          {party: true, power: true, duration: true, percent: true},
 	"pain_reflection":       {party: true, power: true, duration: true, percent: true},
 	"preservation":          {party: true, charges: true},
 	"protection_from_magic": {party: true, charges: true},
 	"celestial_armor":       {party: true, power: true, duration: true},
-	"acid_burst":            {offensive: true, power: true, duration: true, damage: true, projectile: true},
+	"acid_burst":            {offensive: true, power: true, duration: true, damage: true, projectile: true, percent: true},
 	"flying_fist":           {offensive: true, power: true, damage: true, projectile: true},
 	"frozen_ground":         {offensive: true, duration: true, radius: true, cone: true},
 	"slow":                  {offensive: true, power: true, duration: true, radius: true, percent: true},
@@ -86,19 +86,19 @@ func (m *SpellMechanicConfig) Charges(tier int) int {
 	return spellMasteryValue(m.ChargesByMastery, tier)
 }
 
+// ExtraActions returns the party's bonus actions per TB round.
+func (m *SpellMechanicConfig) ExtraActions(tier int) int {
+	return spellMasteryValue(m.ExtraActionsByMastery, tier)
+}
+
 // Projectiles returns the authored number of physical shots in one cast.
 func (m *SpellMechanicConfig) Projectiles(tier int) int {
 	return spellMasteryValue(m.ProjectilesByMastery, tier)
 }
 
-// Duration returns this effect's authored duration in gameplay seconds.
-func (m *SpellMechanicConfig) Duration(tier int) int {
-	return spellMasteryValue(m.DurationByMastery, tier)
-}
-
 // SummaryText substitutes the same authored values that production mechanics use.
 // A negative tier shows the full mastery ladder for character-independent views.
-func (m *SpellMechanicConfig) SummaryText(tier int) string {
+func (m *SpellMechanicConfig) SummaryText(tier int, durations []int) string {
 	format := func(values []int) string {
 		if tier >= 0 {
 			return strconv.Itoa(spellMasteryValue(values, tier))
@@ -110,13 +110,14 @@ func (m *SpellMechanicConfig) SummaryText(tier int) string {
 		return strings.Join(parts, "/")
 	}
 	text := strings.NewReplacer(
-		"{spell_duration}", strconv.Itoa(m.SpellDuration),
+		"{water_freeze_seconds}", strconv.Itoa(m.WaterFreezeSeconds),
 		"{power}", format(m.PowerByMastery), "{charges}", format(m.ChargesByMastery),
-		"{duration}", format(m.DurationByMastery),
+		"{duration}", format(durations),
 		"{radius}", strconv.FormatFloat(m.RadiusTiles, 'f', -1, 64),
 		"{cone}", strconv.FormatFloat(m.ConeDegrees, 'f', -1, 64),
 		"{max_targets}", strconv.Itoa(m.MaxTargets),
 		"{projectiles}", format(m.ProjectilesByMastery),
+		"{extra_actions}", format(m.ExtraActionsByMastery),
 		"{max_hits_per_target}", strconv.Itoa(m.MaxHitsPerTarget),
 		"{instant_kill_chance}", strconv.FormatFloat(m.InstantKillChance*100, 'f', -1, 64),
 	).Replace(m.Summary)
@@ -126,10 +127,10 @@ func (m *SpellMechanicConfig) SummaryText(tier int) string {
 			text += " " + GlobalConfig.StatusEffects.ControlSaves.DiminishingSummary
 		}
 	}
-	if len(m.DurationByMastery) > 0 {
-		turns := make([]int, len(m.DurationByMastery))
-		for i, seconds := range m.DurationByMastery {
-			turns[i] = (seconds + CombatRoundSeconds - 1) / CombatRoundSeconds
+	if len(durations) > 0 {
+		turns := make([]int, len(durations))
+		for i, seconds := range durations {
+			turns[i] = CombatRounds(seconds)
 		}
 		text += uitext.Text("advanced.summary_tb_duration", format(turns))
 	}
@@ -137,21 +138,45 @@ func (m *SpellMechanicConfig) SummaryText(tier int) string {
 		text += uitext.Text("advanced.summary_slow", SlowSkipEveryTurns())
 	}
 	if m.Kind == "regeneration" {
-		text += uitext.Text("advanced.summary_regeneration", RegenerationIntervalFrames/DefaultTPS, RegenerationRounds)
+		text += uitext.Text("advanced.summary_regeneration", RegenerationIntervalSeconds(), RegenerationRounds)
 	}
 	if m.ReapplyImmunitySeconds > 0 {
-		text += uitext.Text("advanced.summary_immunity", m.ReapplyImmunitySeconds, (m.ReapplyImmunitySeconds+CombatRoundSeconds-1)/CombatRoundSeconds)
-	}
-	if t := Technique(m.Technique); t != nil {
-		if m.Kind == "haste" {
-			turns := make([]int, 4)
-			for i, seconds := range t.Duration {
-				turns[i] = (seconds + CombatRoundSeconds - 1) / CombatRoundSeconds
-			}
-			text += uitext.Text("advanced.summary_haste", format(t.Power[:]), format(t.TBPower[:]), format(t.Duration[:]), format(turns))
-		}
+		text += uitext.Text("advanced.summary_immunity", m.ReapplyImmunitySeconds, CombatRounds(m.ReapplyImmunitySeconds))
 	}
 	return text
+}
+
+// validateSpellDuration validates the single spell lifetime ladder. Independent
+// riders (stun, charm and frozen water) retain their explicitly authored clocks.
+func validateSpellDuration(def *SpellDefinitionConfig) error {
+	values := def.DurationByMastery
+	if len(values) != 0 && len(values) != 4 {
+		return fmt.Errorf("duration_by_mastery requires four gameplay-second values (Novice..Grandmaster)")
+	}
+	for i, seconds := range values {
+		if seconds <= 0 || i > 0 && seconds < values[i-1] {
+			return fmt.Errorf("duration_by_mastery[%d]=%d must be positive and nondecreasing", i, seconds)
+		}
+	}
+	if def.Mechanic == nil {
+		timed := def.HasTimedUtilityEffect() || def.ZoneRadiusTiles > 0
+		if timed && len(values) == 0 {
+			return fmt.Errorf("a timed utility effect or zone requires duration_by_mastery")
+		}
+		if !timed && len(values) > 0 {
+			return fmt.Errorf("duration_by_mastery requires a timed utility effect, zone or timed mechanic")
+		}
+	}
+	return nil
+}
+
+// HasTimedUtilityEffect reports a non-mechanic utility field that runs on the
+// spell's lifetime ladder (stat, defense, travel and vision buffs).
+func (def *SpellDefinitionConfig) HasTimedUtilityEffect() bool {
+	return def.StatBonus > 0 || len(def.StatBonuses) > 0 ||
+		def.ResistBuffPct > 0 || def.ResistBuffSchoolPct > 0 || def.OutgoingDamageBonus > 0 || def.IncomingDamageReduction > 0 ||
+		def.WaterWalk || def.WaterBreathing || def.Fly || def.TerrainPassage ||
+		def.LightRadiusTiles > 0 || def.RadarRadiusTiles > 0
 }
 
 func validateSpellMechanic(def *SpellDefinitionConfig) error {
@@ -159,15 +184,13 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 	if m == nil {
 		return nil
 	}
-	m.SpellDuration = def.Duration
 	rule, ok := spellMechanicRules[m.Kind]
 	if !ok {
 		return fmt.Errorf("unknown mechanic kind %q", m.Kind)
 	}
 	for name, values := range map[string][]int{
 		"power_by_mastery": m.PowerByMastery, "charges_by_mastery": m.ChargesByMastery,
-		"duration_by_mastery":    m.DurationByMastery,
-		"projectiles_by_mastery": m.ProjectilesByMastery,
+		"projectiles_by_mastery": m.ProjectilesByMastery, "extra_actions_by_mastery": m.ExtraActionsByMastery,
 	} {
 		if len(values) != 0 && len(values) != 4 {
 			return fmt.Errorf("mechanic.%s requires four mastery entries", name)
@@ -226,8 +249,8 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 	if m.Kind == "destroy_undead" && m.InstantKillChance <= 0 {
 		return fmt.Errorf("destroy_undead requires instant_kill_chance")
 	}
-	if m.Kind == "frozen_ground" && def.Duration <= 0 {
-		return fmt.Errorf("frozen_ground requires a positive water-freeze duration")
+	if m.WaterFreezeSeconds < 0 || (m.Kind == "frozen_ground") != (m.WaterFreezeSeconds > 0) {
+		return fmt.Errorf("mechanic.water_freeze_seconds must be positive for frozen_ground and omitted otherwise")
 	}
 	if m.Kind == "shared_life" && (def.HealAmount <= 0 || !def.HealParty || def.TargetSelf) {
 		return fmt.Errorf("shared_life requires heal_amount for its distributed healing pool")
@@ -239,11 +262,12 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 	}{
 		{"power_by_mastery", power, len(m.PowerByMastery) == 4},
 		{"charges_by_mastery", charges, len(m.ChargesByMastery) == 4},
-		{"duration_by_mastery", duration, len(m.DurationByMastery) == 4},
+		{"duration_by_mastery", duration, len(def.DurationByMastery) == 4},
 		{"radius_tiles", radius, m.RadiusTiles > 0},
 		{"cone_degrees", cone, m.ConeDegrees > 0},
 		{"max_targets", targets, m.MaxTargets > 0},
 		{"projectiles_by_mastery", m.Kind == "shrapmetal", len(m.ProjectilesByMastery) == 4},
+		{"extra_actions_by_mastery", rule.extraActions, len(m.ExtraActionsByMastery) == 4},
 		{"max_hits_per_target", m.Kind == "shrapmetal", m.MaxHitsPerTarget > 0},
 		{"damage_school", damage || m.Kind == "fire_aura", m.DamageSchool != ""},
 	} {
@@ -274,15 +298,19 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 		token     string
 		available bool
 	}{
-		{"power", power}, {"charges", charges}, {"duration", duration}, {"radius", radius}, {"cone", cone}, {"max_targets", targets}, {"spell_duration", def.Duration > 0},
+		{"power", power}, {"charges", charges}, {"duration", duration}, {"radius", radius}, {"cone", cone}, {"max_targets", targets}, {"water_freeze_seconds", m.WaterFreezeSeconds > 0},
 		{"instant_kill_chance", m.Kind == "destroy_undead"},
-		{"projectiles", m.Kind == "shrapmetal"}, {"max_hits_per_target", m.Kind == "shrapmetal"},
+		{"projectiles", m.Kind == "shrapmetal"}, {"max_hits_per_target", m.Kind == "shrapmetal"}, {"extra_actions", rule.extraActions},
 	} {
 		if strings.Contains(m.Summary, "{"+field.token+"}") && !field.available {
 			return fmt.Errorf("mechanic.summary references absent %s", field.token)
 		}
 	}
-	if strings.ContainsAny(m.SummaryText(-1), "{}") {
+	// The card omits a separate duration section for mechanics, so the summary owns it.
+	if duration && !strings.Contains(m.Summary, "{duration}") {
+		return fmt.Errorf("mechanic.summary must state {duration}")
+	}
+	if strings.ContainsAny(m.SummaryText(-1, def.DurationByMastery), "{}") {
 		return fmt.Errorf("mechanic.summary contains unknown placeholders")
 	}
 	return nil

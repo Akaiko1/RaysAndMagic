@@ -524,8 +524,8 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 		t.Errorf("100 incoming with %d%% resist should be %d, got %d", cast.resistPct, want, got)
 	}
 	buff, ok := game.combatBuffByID("day_of_the_gods")
-	if want := cast.def.Duration * game.config.GetTPS(); !ok || buff.Frames != want {
-		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Frames, ok, want, cast.def.Duration)
+	if want := cast.def.DurationByMastery[0] * game.config.GetTPS(); !ok || buff.Frames != want {
+		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Frames, ok, want, cast.def.DurationByMastery[0])
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"ugataima/internal/character"
 	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -147,7 +146,7 @@ func TestZone_TurnBasedTickCountAndEntryOrder(t *testing.T) {
 	walksIn.X, walksIn.Y = g.camera.X-8*float64(g.config.GetTileSize()), g.camera.Y
 	g.refreshMonsterCollisionState(walksIn)
 
-	ticksPerTurn := int(character.TurnBasedTurnSeconds / def.ZoneTickSeconds)
+	ticksPerTurn := int(config.CombatRoundSeconds / def.ZoneTickSeconds)
 	perTick := zone.TickDamage
 	before := standing.HitPoints
 

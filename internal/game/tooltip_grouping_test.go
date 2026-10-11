@@ -120,7 +120,6 @@ func TestTooltipResultsAndExceptionsStayTogether(t *testing.T) {
 		{"spell", "fireball", "CRITICAL", "Chance:", "Luck:", "Critical Damage:"},
 		{"spell", "firewall", "DAMAGE PER TICK", "Total per tick:", "Base (", "Reduced by target Armor"},
 		{"spell", "heal_other", "HEALING", "Total Healing:", "Base:", "Natural Healer:"},
-		{"spell", "hour_of_power", "DURATION", "Current Duration:", "Base Duration:", "Light Mastery -"},
 		{"trap", "cleave_trap", "DAMAGE", "Total Damage:", "Base:", "Reduced by target Armor"},
 		{"trap", "bear_trap", "CONTROL", "Total Root:", "Base Root:", "Prevents movement but not attacks"},
 		{"trap", "stasis_trap", "CONTROL", "Total Stun:", "Base Stun:", "Trapper -"},

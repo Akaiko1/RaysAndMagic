@@ -1,16 +1,65 @@
+// flameWisp is a torn-off flame tongue: a small teardrop, round at its base
+// and drawn to a point at the top, that sways, shrinks and fades as it rises.
+// q is the offset from the wisp's base in equally scaled units with y UP;
+// size is its height and life runs 0..1. Returns its opacity.
+func flameWisp(q vec2, size, life float) float {
+	h := size * (1.0 - 0.55*life)
+	w := h * 0.30
+	u := q.y / h
+	x := q.x - sin(u*4.0+life*9.0)*w*0.7*max(u, 0.0)
+	r := w * pow(max(0.0, 1.0-u), 1.3)
+	if u < 0.0 {
+		r = w * sqrt(max(0.0, 1.0-(u/0.30)*(u/0.30)))
+	}
+	body := 1.0 - smoothstep(r*0.35, r+0.0001, abs(x))
+	return body * step(u, 1.0) * pow(1.0-life, 1.2) * smoothstep(0.0, 0.12, life)
+}
+
+// preservationFlame is the ghost light the wings embrace, in the place and at
+// the size of the old candle (screen .51-.75 of the viewport height): a heavy
+// round body, a thin tip that burns actively, and sparks that tear off it.
 func preservationFlame(p vec2,t,fade float) vec4 {
-	// The model's wick is at 0.5124 screen-height; the overlay origin is .46.
-	h:=.0524-p.y
-	if h < -.01 || h>.18 || abs(p.x)>.09 {return vec4(0)}
-	n:=veilNoise(vec2(p.x*5,h*3-t*.75))
-	width:=.032*pow(max(0,1-h/.18),.8)
-	d:=abs(p.x+(n.r-.5)*h*.19)/max(.001,width)
-	body:=smoothstep(-.012,.002,h)*(1-smoothstep(.65,1.45,d+n.g*.30))
-	core:=pow(max(0,1-d),2)*(1-smoothstep(.025,.11,h))
-	glow:=exp(-length(vec2(p.x*1.6,p.y-.006))*40)*.23
-	a:=clamp((body*.9+glow)*fade,0,.98)
-	col:=mix(vec3(1,.26,.014),vec3(1,.94,.65),core)
-	return vec4(col*a,a)
+	if abs(p.x)>.13 || p.y < -.16 || p.y > .32 {return vec4(0)}
+	grow:=.45+.55*smoothstep(.02,.28,t)
+	R:=.066*grow
+	baseY:=.218
+	H:=(.20+.022*sin(t*23)+.014*sin(t*41+1.3))*grow
+	dy:=p.y-baseY
+	h:=-dy/H
+	n:=veilNoise(vec2(p.x*4.5,p.y*2.4-t*2.6))
+	// The tip sways and licks; the heavy base barely moves.
+	hh:=max(h,0)
+	x:=p.x-(n.r-.5)*.08*hh*hh-.014*sin(t*16+hh*6)*hh
+	r:=float(0)
+	if dy>0 {
+		r=sqrt(max(0,R*R-dy*dy))
+	} else {
+		r=R*pow(max(0,1-h),1.3)*(1+.30*(n.g-.5)*h)
+	}
+	d:=abs(x)/max(r,.0004)
+	body:=(1-smoothstep(.62,1.04,d))*step(h,1.05)
+	// Tongues of light flow up through the translucent body.
+	tongue:=veilNoise(vec2(x*6.5,p.y*3.6-t*4.2)).g
+	core:=exp(-length(vec2(x/(R*.55),(dy+R*.25)/(R*.9)))*1.6)*(1-smoothstep(.55,1,h))
+	halo:=exp(-max(0,abs(x)-r)*38)*smoothstep(1.25,.2,h)*(1-smoothstep(0,.06,dy-R))
+	col:=mix(vec3(1,.52,.12),vec3(1,.82,.36),smoothstep(.25,.75,tongue))
+	col=mix(col,vec3(1,.97,.84),core)
+	a:=body*(.58+.26*tongue+.40*core)+halo*.38
+	rgb:=col*a
+	// Torn-off tongues leave the tip, rise, drift and burn out (y flips to up).
+	for i:=0;i<6;i++ {
+		k:=float(i)
+		life:=fract(t*2.4+k*.381)
+		seed:=fract(sin(k*91.7)*437.5)
+		tip:=vec2(0,baseY-H*.80)
+		pos:=tip+vec2((seed-.5)*.028+sin(life*7+k)*.012*life,-life*(.10+.05*seed))
+		q:=p-pos
+		wisp:=flameWisp(vec2(q.x,-q.y),.032,life)*.85
+		rgb+=vec3(1,.74,.30)*wisp*(1-a)
+		a=max(a,wisp)
+	}
+	a=clamp(a*fade,0,.95)
+	return vec4(min(rgb*fade,vec3(a)),a)
 }
 
 func advancedWard(p vec2,t,fade,style float) vec4 {
@@ -95,15 +144,41 @@ func advancedWard(p vec2,t,fade,style float) vec4 {
 	return vec4(min(rgb*fade,vec3(alpha)),alpha)
 }
 
+// celestialSparks is the icon's gold orbit behind the cuirass with three
+// four-point stars riding it. The cuirass anchor sits at .43 of the viewport
+// height with a .25-height model scale, so its centre is p.y = -.03.
 func celestialSparks(p vec2,t,fade float) vec4 {
-	if abs(p.x)>.33 || abs(p.y)>.42 {return vec4(0)}
-	energy:=float(0)
-	for i:=0;i<12;i++ {
+	c:=vec2(0,-.105)
+	radii:=vec2(.235,.19)
+	q:=p-c
+	tilt:=.10
+	q=vec2(q.x*cos(tilt)+q.y*sin(tilt),-q.x*sin(tilt)+q.y*cos(tilt))
+	if abs(q.x)>.29 || abs(q.y)>.25 {return vec4(0)}
+	e:=length(q/radii)
+	d:=(e-1)*min(radii.x,radii.y)
+	// The orbit is drawn around from the top as the cast opens.
+	theta:=atan2(q.y/radii.y,q.x/radii.x)
+	sweep:=fract((theta+1.5708)/6.28319)
+	drawn:=1-smoothstep(-.02,.02,sweep-smoothstep(.04,.34,t))
+	ring:=exp(-pow(d/.0028,2))*drawn
+	rgb:=vec3(.86,.67,.31)*ring*.85
+	a:=ring*.78
+	star:=float(0)
+	for i:=0;i<3;i++ {
 		k:=float(i)
-		u:=fract(k*.173+t*.7)
-		pos:=vec2(.27*cos(k*2.4)-.06*u,.27-u*.57)
-		d:=p-pos
-		energy+=exp(-length(d*vec2(1,1.8))*330)*sin(u*3.14159)
+		at:=-1.5708+k*2.0944+.35*t
+		pos:=vec2(cos(at)*radii.x,sin(at)*radii.y)
+		s:=q-pos
+		twinkle:=.75+.25*sin(t*18+k*2.1)
+		size:=1.0
+		if i==0 {size=1.45} // the crown star above the gorget leads
+		arms:=max(exp(-abs(s.x)*420/size)*exp(-abs(s.y)*48/size),exp(-abs(s.y)*420/size)*exp(-abs(s.x)*48/size))
+		core:=exp(-length(s)*150/size)
+		star+=(arms+core)*twinkle*smoothstep(.08+k*.06,.20+k*.06,t)
 	}
-	return spellLight(vec3(.68,.88,1),energy,energy,fade)
+	star=min(star,1)
+	rgb+=vec3(.86,.93,1)*star
+	a=max(a,star)
+	a*=fade
+	return vec4(min(rgb*fade,vec3(a)),a)
 }

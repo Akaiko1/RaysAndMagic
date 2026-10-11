@@ -368,7 +368,7 @@ func (w *World3D) isTileBlockingTerrain(tileX, tileY int) bool {
 		isWalkable := GlobalTileManager.IsWalkable(tile)
 
 		// Special case: if walk on water OR water breathing is active and this is a water tile, allow movement
-		if !isWalkable && (w.walkOnWaterActive || w.waterBreathingActive) && (tile == TileWater || tile == TileDeepWater) {
+		if !isWalkable && (w.walkOnWaterActive || w.waterBreathingActive) && IsSwimmableWater(tile) {
 			return false // Allow movement on water
 		}
 
@@ -388,6 +388,10 @@ func (w *World3D) isTileBlockingTerrain(tileX, tileY int) bool {
 		return false
 	}
 }
+
+// IsSwimmableWater is the open water Walk on Water and Water Breathing let the
+// party cross; reefs and decorative pools stay blocked.
+func IsSwimmableWater(tile TileType3D) bool { return tile == TileWater || tile == TileDeepWater }
 
 // isFrozenWaterTerrain is the shared ice exception for all movers. The runtime
 // callback supplies duration/map state; the tile catalog owns water identity.

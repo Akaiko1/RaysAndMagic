@@ -217,10 +217,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 			return castRejected
 		}
 
-		duration := 0
-		if spellDef.Duration > 0 {
-			duration = cs.CalculateSpellDurationFrames(spellID, caster)
-		}
+		duration := cs.CalculateSpellDurationFrames(spellID, caster)
 		timedBuffActivated := cs.activateUtilityTimedBuff(spellID, spellDef, result, duration) == timedBuffApplied
 
 		// Stat-buff spells (Bless, ...) announce the ACTUAL granted bonus -

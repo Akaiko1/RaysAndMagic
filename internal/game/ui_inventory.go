@@ -686,7 +686,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 			ui.onDisplayedInput(uiCommandDrag, layoutRect{cardX, cardY, bl.cardW, bl.cardH}, func() {
 				// Checkbox ownership also excludes the press from the drag phase,
 				// which runs before queued click handlers consume the same gesture.
-				if def.Mechanic != nil && def.Mechanic.Autocast != "" {
+				if def.HasAutocast() {
 					box := spellAutocastRect(cardX, cardY, bl.cardW, bl.iconSize)
 					if isMouseHoveringBox(ui.game.dragStartX, ui.game.dragStartY, box.x, box.y, box.right(), box.bottom()) {
 						return
@@ -696,7 +696,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 			})
 			isSelected := spellIndex == ui.game.selectedSpell
 			isHovering := mouseX >= cardX && mouseX < cardX+bl.cardW && mouseY >= cardY && mouseY < cardY+bl.cardH
-			if def.Mechanic != nil && def.Mechanic.Autocast != "" {
+			if def.HasAutocast() {
 				b := spellAutocastRect(cardX, cardY, bl.cardW, bl.iconSize)
 				isHovering = isHovering && !isMouseHoveringBox(mouseX, mouseY, b.x, b.y, b.right(), b.bottom())
 			}
@@ -783,7 +783,7 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 		selected, equipped && string(quick.SpellEffect) == string(spellID), false, currentChar.SpellPoints >= cost, SchoolColor(school.String()))
 	drawCenteredUIText(screen, name, x+4, nameY, w-8, uiTextCharHeight)
 	costX, costW := x+4, w-8
-	if def.Mechanic != nil && def.Mechanic.Autocast != "" {
+	if def.HasAutocast() {
 		box := spellAutocastRect(x, y, w, iconSize)
 		costX = x + (x + w - box.right())
 		costW = box.x - costX - 4

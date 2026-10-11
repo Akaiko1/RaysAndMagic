@@ -181,7 +181,7 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 			targetIndex = cs.game.selectedChar
 		}
 		target := cs.game.party.Members[targetIndex]
-		if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
+		if !target.IsLiving() {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
 			return castRejected
 		}

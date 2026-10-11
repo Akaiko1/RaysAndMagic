@@ -14,7 +14,7 @@ func TestTraversalBuffValidationRunsAtBoot(t *testing.T) {
 	cfg := setupPreviewSandboxTest(t)
 	const id = "review_unregistered_passage"
 	spellConfig := config.GlobalSpells
-	spellConfig.Spells[id] = &config.SpellDefinitionConfig{IsUtility: true, Duration: 10, TerrainPassage: true}
+	spellConfig.Spells[id] = &config.SpellDefinitionConfig{IsUtility: true, DurationByMastery: []int{10, 12, 14, 16}, TerrainPassage: true}
 	t.Cleanup(func() { delete(spellConfig.Spells, id) })
 	defer func() {
 		failure := recover()
@@ -43,7 +43,7 @@ func TestTraversalBuffRegistryValidationAndActivation(t *testing.T) {
 			g.gameLoop = gl
 			cfg := config.GlobalSpells
 			const id = "review_traversal"
-			cfg.Spells[id] = &config.SpellDefinitionConfig{IsUtility: true, Duration: 10, Fly: tc.fly, TerrainPassage: true}
+			cfg.Spells[id] = &config.SpellDefinitionConfig{IsUtility: true, DurationByMastery: []int{10, 12, 14, 16}, Fly: tc.fly, TerrainPassage: true}
 			t.Cleanup(func() { delete(cfg.Spells, id) })
 			active, frames := false, 0
 			gl.timedBuffRegistry = g.buildTimedBuffs()

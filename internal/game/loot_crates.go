@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -71,7 +72,7 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 		g.springCrateTrap(npc, crate)
 	}
 	g.applyCrateEffects(npc, crate)
-	if loot, ok := g.adventureLoot(currentMapKey(), "crate:"+npc.Key); ok {
+	if loot, ok := g.adventureLoot(currentMapKey(), config.CrateID(npc.Key)); ok {
 		g.grantCrateLoot(npc, loot.Items, loot.Gold, loot.ArenaPoints)
 		return
 	}
@@ -92,11 +93,11 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 // gain granted to the current pools too).
 func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig) {
 	if b := crate.Buff; b != nil {
-		buff := TimedCombatBuff{SpellID: "crate:" + npc.Key, Frames: b.DurationSeconds * g.config.GetTPS()}
+		buff := TimedCombatBuff{SpellID: config.CrateID(npc.Key), Frames: b.DurationSeconds * g.config.GetTPS()}
 		applyCrateBuff(&buff, b)
 		g.addCombatBuff(buff)
 		g.updateUtilityStatus(spells.SpellID(buff.SpellID), buff.Frames, true)
-		g.AddCombatMessage(b.Name + ": " + strings.Join(b.EffectLines(), "; "))
+		g.AddCombatMessage(uitext.Text("crate.buff_applied", b.Name, strings.Join(b.EffectLines(), uitext.Text("crate.buff_join"))))
 	}
 	if crate.FreeRest {
 		g.restParty()
@@ -411,7 +412,11 @@ func (g *MMGame) grantCrateLoot(npc *character.NPC, loot []items.Item, gold, are
 	g.recordProfileLootSource(loot, crate != nil && crate.TreasureChest)
 	for _, it := range loot {
 		g.party.AddItem(it)
-		g.AddColoredCombatMessage(fmt.Sprintf("Found %s!", it.Name), lootMessageColor([]items.Item{it}))
+		label := it.Name
+		if n := it.Count(); n > 1 {
+			label = fmt.Sprintf("%s x%d", it.Name, n) // the merchant's stack wording
+		}
+		g.AddColoredCombatMessage(fmt.Sprintf("Found %s!", label), lootMessageColor([]items.Item{it}))
 	}
 	if gold > 0 {
 		g.awardGold(gold)

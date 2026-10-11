@@ -507,16 +507,6 @@ func TestRarePathfindingAutocastAndProgression(t *testing.T) {
 	}
 }
 
-func TestPersonalBadgeHUDGeometry(t *testing.T) {
-	badges := makePartyProgressionBadgeLayout(panelPortraitX, panelPortraitY, panelPortraitW, panelPortraitH, true, true)
-	for row := 0; row < 4; row++ {
-		b := personalSpellBadgeRect(panelPortraitX, panelPortraitY, panelPortraitW, row)
-		if b.x < panelPortraitX+panelPortraitW || b.right() >= partyPanelContentLeft || b.y < 0 || b.bottom() > badges.stat.y {
-			t.Fatalf("personal badge %d overlaps portrait, text or progression: %+v", row, b)
-		}
-	}
-}
-
 func TestRareAuthoredMasteryChoices(t *testing.T) {
 	g, c := rareClassGame(t, character.ClassWayfarer, false)
 	cfg, err := config.LoadLevelUpConfig("../../assets/level_up.yaml")

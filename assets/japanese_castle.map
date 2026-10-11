@@ -7,6 +7,7 @@
 # sky ships _day/_night variants, so Fly holds here (currentMapHasOpenSky).
 # gate: fly (11,2) chest_golden - NW pocket, walled in granite
 # gate: fly (13,2) spell_lectern - NW pocket, beside the chest
+# gate: fly (11,4) castle_armor_stand - NW pocket, below the chest
 # gate: fly (43,4) spell_lectern - NE pocket behind the vista wall
 # gate: fly (43,6) chest_golden - NE pocket, guarded inside by 2 mobs
 ==================================================

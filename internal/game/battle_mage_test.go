@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 func absorptionTestMember(cs *CombatSystem, tier character.SkillMastery) *character.MMCharacter {
@@ -228,8 +230,13 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 	// A spell that deals no damage gains nothing, so it pays nothing: stuns are
 	// flagged deals_no_damage, control mechanics (slow, fear, berserk) have no
 	// damage at all, and every spell that deals damage is boosted.
-	// The oracle is the damage the game actually computes for the spell.
+	// The oracle is the damage a real cast carries, not the damage formula.
+	var keys []string
 	for key := range config.GlobalSpells.Spells {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
 		def, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
 		if err != nil || !def.IsOffensive() {
 			continue
@@ -238,17 +245,19 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 		if pureStun && !def.DealsNoDamage {
 			t.Errorf("%s only stuns but is not marked deals_no_damage", key)
 		}
-		damaging := def.DamageForMastery(0) > 0
-		if got := strongMagicPct(caster, def); (got > 0) != damaging {
-			t.Errorf("%s: Strong Magic %d%%, deals damage=%v", key, got, damaging)
-		}
-		if !damaging {
-			caster.HitPoints = 100
-			cs.applyStrongMagicBurn(caster, def, 20)
-			if caster.HitPoints != 100 {
-				t.Errorf("%s deals no damage but Strong Magic burned %d HP", key, 100-caster.HitPoints)
+		t.Run("cast/"+key, func(t *testing.T) {
+			damaging := castDamageCarried(t, def) > 0
+			if got := strongMagicPct(caster, def); (got > 0) != damaging {
+				t.Errorf("Strong Magic %d%%, deals damage=%v", got, damaging)
 			}
-		}
+			if !damaging {
+				caster.HitPoints = 100
+				cs.applyStrongMagicBurn(caster, def, 20)
+				if caster.HitPoints != 100 {
+					t.Errorf("deals no damage but Strong Magic burned %d HP", 100-caster.HitPoints)
+				}
+			}
+		})
 	}
 
 	tests := []struct {
@@ -294,6 +303,49 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 			t.Fatalf("HP after GM cast = %d, want %d (burn == full cost)", caster.HitPoints, want)
 		}
 	})
+}
+
+// castDamageCarried casts def through the real cast path, without Strong
+// Magic, at an adjacent goblin (undead for the undead-only spells) and returns
+// the damage the cast carried: the target's HP lost plus the payload on every
+// projectile, zone and mortar the cast left behind.
+func castDamageCarried(t *testing.T, def spells.SpellDefinition) int {
+	t.Helper()
+	g, _ := summonTileWorld(t)
+	setTestWorldManager(t, nil)
+	g.combat.controlSaveRoll = func() float64 { return 0.99 } // effects, not saves
+	equipSpellAndPrepareCaster(t, g.combat, string(def.ID), 200, 30)
+	g.camera.Angle = 0
+	if def.OutdoorOnly {
+		// Open-ground spells need a sky map; the sky check stats assets/ from the repo root.
+		t.Chdir("../..")
+		setTestWorldManager(t, &world.WorldManager{
+			MapConfigs:    map[string]*config.MapConfig{"arena": {SkyTexture: "arena_panorama"}},
+			CurrentMapKey: "arena",
+		})
+	}
+	mon := monsterPkg.NewMonster3DFromConfig(g.camera.X+g.config.GetTileSize(), g.camera.Y, "goblin", g.config)
+	mon.MaxHitPoints, mon.HitPoints, mon.PerfectDodge, mon.Resistances = 500, 500, 0, nil
+	if def.Mechanic != nil && (def.Mechanic.Kind == "destroy_undead" || def.Mechanic.Kind == "turn_undead") {
+		mon.MonsterType = monsterPkg.TypeUndead
+	}
+	g.world.Monsters = []*monsterPkg.Monster3D{mon}
+	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+	g.combat.castResolvedSpell(def.ID, def, g.party.Members[0], def.SpellPointsCost, false, false)
+	carried := mon.MaxHitPoints - mon.HitPoints
+	for _, p := range g.magicProjectiles {
+		carried += p.Damage + p.TrueDamage
+	}
+	for _, a := range g.arrows {
+		carried += a.Damage + a.TrueDamage
+	}
+	for _, z := range g.persistentDamageZones {
+		carried += z.TickDamage + z.TrueTickDamage
+	}
+	for _, m := range g.pendingMortars {
+		carried += m.Damage + m.TrueDamage
+	}
+	return carried
 }
 
 // Strong Magic must reach the packet that actually FLIES, for every cast form:

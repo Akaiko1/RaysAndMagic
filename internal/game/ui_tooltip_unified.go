@@ -412,7 +412,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	}
 	addSpellCooldown(&casting, def.ID, char, cs)
 	if def.ReuseSeconds > 0 {
-		casting.Add("%s", uitext.Text("spell.personal_reuse", def.ReuseSeconds, (def.ReuseSeconds+config.CombatRoundSeconds-1)/config.CombatRoundSeconds))
+		casting.Add("%s", uitext.Text("spell.personal_reuse", def.ReuseSeconds, config.CombatRounds(def.ReuseSeconds)))
 	}
 	if def.IsProjectile {
 		if rng, okRng := cs.CalculateSpellRangeTiles(def.ID); okRng {
@@ -424,6 +424,8 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		}
 	}
 	switch {
+	case def.TargetsAlly():
+		casting.Add("Target: One Ally")
 	case def.HealParty || def.IsBuff() || def.StatBonus > 0 || len(def.StatBonuses) > 0:
 		casting.Add("Target: Entire Party")
 	case def.TargetSelf:
@@ -639,17 +641,11 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		effects.AddDetail("Cards: +%d%% disintegrate chance", cardDisintegrate)
 	}
 	durationSection := ttSection{Title: "DURATION"}
-	if def.Duration > 0 {
-		duration := character.SpellDurationBreakdown(def, char)
-		if char != nil {
-			durationSection.AddDetail("Base Duration: %ds", duration.Base)
-		}
-		if duration.MasteryPct != 0 {
-			durationSection.AddDetail("%s Mastery - %s: +%d%%", formatSchoolName(masterySchool), tierName, duration.MasteryPct)
-		}
-		// A resolved TB round spends TurnBasedTurnSeconds of every timer.
-		seconds := tierValues(func(t int) int { return character.SpellDurationAtTier(def, t).Seconds })
-		rounds := tierValues(func(t int) int { return tbRoundsForSeconds(seconds[t]) })
+	// Advanced summaries already include their authored effect duration.
+	if def.Mechanic == nil && len(def.DurationByMastery) > 0 {
+		// A resolved TB round spends config.CombatRoundSeconds of every timer.
+		seconds := tierValues(func(t int) int { return def.DurationSeconds(t) })
+		rounds := tierValues(func(t int) int { return config.CombatRounds(seconds[t]) })
 		turns := tierCountText(rounds, "round", "rounds")
 		if hero {
 			turns = pluralizeCount(config.TierValue(rounds, tier), "round", "rounds")
@@ -707,7 +703,7 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 	addSpellCooldown(&placement, spells.SpellID(key), char, cs)
 	placement.Add("Range: %d tiles", TrapPlaceRangeTiles)
 	// A trap ages one round's worth of seconds per turn-based round.
-	rounds := (def.LifetimeSeconds + character.TurnBasedTurnSeconds - 1) / character.TurnBasedTurnSeconds
+	rounds := config.CombatRounds(def.LifetimeSeconds)
 	placement.AddDetail("Armed Lifetime: %ds RT / %s TB", def.LifetimeSeconds, pluralizeCount(rounds, "round", "rounds"))
 
 	tier, tierName := masteryTier(char, character.SkillTrapper)

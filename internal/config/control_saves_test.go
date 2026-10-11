@@ -15,19 +15,36 @@ func TestControlSaveCurveAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cfg Config
-	if err = yaml.Unmarshal(original, &cfg); err != nil {
-		t.Fatal(err)
+	// The test's own rule: the curve floor (20) sits above min_percent (10)
+	// so the two clamps read apart. Expected chances are hand-computed.
+	rule := ControlSaveConfig{
+		Mechanics:             []string{"turn_undead", "mass_fear", "feeblemind"},
+		DiminishingMechanics:  []string{"turn_undead", "mass_fear"},
+		Curve:                 []ControlSavePoint{{-4, 20}, {0, 40}, {10, 70}},
+		MinPercent:            10,
+		MaxPercent:            80,
+		MasteryPenaltyPercent: 5,
+		ResistanceWeight:      0.5,
+		ResistedMessage:       "%s resists %s.",
+		Summary:               "summary",
+		Details:               "details",
+		DiminishingSummary:    "diminishing",
 	}
-	rule := cfg.StatusEffects.ControlSaves
 	for _, tc := range []struct {
 		difference, deficit, resistance int
 		want                            float64
 	}{
-		{-50, 0, 0, 25}, {-5, 0, 0, 25}, {-2, 0, 0, 34}, {0, 0, 0, 40},
-		{3, 0, 0, 46}, {5, 0, 0, 50}, {10, 0, 0, 60}, {12, 0, 0, 66},
-		{15, 0, 0, 75}, {100, 0, 0, 75}, {0, 3, 0, 55}, {0, 2, 0, 50},
-		{0, 1, 0, 45}, {0, 0, 40, 60}, {0, 3, 100, 75}, {-5, 0, -50, 25},
+		{-20, 0, 0, 20}, // below the curve: its first point
+		{-4, 0, 0, 20},
+		{-2, 0, 0, 30}, // halfway from 20 to 40
+		{0, 0, 0, 40},
+		{3, 0, 0, 49}, // 40 + 30 * 3/10
+		{10, 0, 0, 70},
+		{100, 0, 0, 70},   // above the curve: its last point
+		{0, 2, 0, 50},     // + 2 tiers * 5
+		{0, 0, 40, 60},    // + 40 resistance * 0.5
+		{10, 3, 0, 80},    // 85 clamps to max_percent
+		{-20, 0, -40, 10}, // 0 clamps to min_percent
 	} {
 		if got := rule.Chance(tc.difference, tc.deficit, tc.resistance); got != tc.want {
 			t.Errorf("%+v: got %g", tc, got)
@@ -37,8 +54,9 @@ func TestControlSaveCurveAndValidation(t *testing.T) {
 		name string
 		edit func(*ControlSaveConfig)
 	}{
+		{"valid", func(*ControlSaveConfig) {}},
 		{"missing", func(c *ControlSaveConfig) { *c = ControlSaveConfig{} }},
-		{"unordered", func(c *ControlSaveConfig) { c.Curve[1].LevelDifference = -5 }},
+		{"unordered", func(c *ControlSaveConfig) { c.Curve[1].LevelDifference = c.Curve[0].LevelDifference }},
 		{"decreasing", func(c *ControlSaveConfig) { c.Curve[2].Percent = 30 }},
 		{"nan", func(c *ControlSaveConfig) { c.ResistanceWeight = math.NaN() }},
 		{"infinity", func(c *ControlSaveConfig) { c.MasteryPenaltyPercent = math.Inf(1) }},
@@ -65,7 +83,14 @@ func TestControlSaveCurveAndValidation(t *testing.T) {
 			if err = os.WriteFile(path, encoded, 0600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = LoadConfig(path); err == nil || !strings.Contains(err.Error(), "control_saves") {
+			_, err = LoadConfig(path)
+			if tc.name == "valid" {
+				if err != nil {
+					t.Fatalf("valid control config rejected: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "control_saves") {
 				t.Fatalf("invalid control config accepted: %v", err)
 			}
 		})

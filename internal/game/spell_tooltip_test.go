@@ -100,8 +100,8 @@ func (e spellCardEnv) stunSpan() string {
 }
 
 func (e spellCardEnv) duration() string {
-	seconds := character.SpellDurationBreakdown(e.def, e.char).Seconds
-	rounds := (seconds + character.TurnBasedTurnSeconds - 1) / character.TurnBasedTurnSeconds
+	seconds := character.SpellDurationSeconds(e.def, e.char)
+	rounds := config.CombatRounds(seconds)
 	return fmt.Sprintf("Current Duration: %ds (TB: %s)", seconds, pluralizeCount(rounds, "round", "rounds"))
 }
 

@@ -24,6 +24,11 @@ Do not invent unsupported fields or describe effects only in tooltip prose.
 Distances ending in `_tiles` and monster radii use tiles (normally 64 world
 pixels). Author durations in seconds where the schema asks for seconds; turn
 durations are separate. Do not assume 60 frames is one second: use configured TPS.
+Timed spells author exact Novice/Expert/Master/Grandmaster seconds in top-level
+`duration_by_mastery`; there is no implicit duration multiplier. Omit it for
+instant/charge-only effects. Do not reintroduce `duration` or a nested mechanic
+ladder. See [spell duration authoring](../how_to_add_a_new_spell.md#duration-authoring)
+for independent control and frozen-water clocks.
 Use `graphics.size_classes` for world sprite sizes, not retired raw size fields.
 Collision sizes are classes too: a monster body comes from its `size_class`
 (`world.monster_bodies`, capped at 48 px so it fits 1-wide corridors) and a

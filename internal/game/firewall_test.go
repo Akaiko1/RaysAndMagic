@@ -43,7 +43,7 @@ func TestFirewall_LaysAuthoredWallAcrossTheFacing(t *testing.T) {
 	}
 	tps := g.config.GetTPS()
 	wantInterval := int(def.ZoneTickSeconds * float64(tps))
-	wantLife := character.SpellDurationAtTier(def, tier).Seconds * tps
+	wantLife := def.DurationSeconds(tier) * tps
 	ys := map[float64]bool{}
 	for i := range g.persistentDamageZones {
 		z := &g.persistentDamageZones[i]

@@ -283,7 +283,7 @@ func TestMonsterDeathFlight(t *testing.T) {
 // animations through the runtime sprite manager and source prewarm plan.
 func TestMonsterAnimationAssets(t *testing.T) {
 	g := deathTestGame(t)
-	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	keys := catalogMonsterKeys()
 	slices.Sort(keys)
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {

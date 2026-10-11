@@ -666,7 +666,7 @@ graphics:
       - projectile_harm_flask
       # Purple/magenta creatures
       - octopus
-      - medusa
+      - jellyfish
       - alien
       - archmage
       - lich
@@ -712,7 +712,7 @@ graphics:
       - icon_item_lich_king_crown
       - icon_item_lich_card
       - icon_item_archmage_card
-      - icon_item_medusa_card
+      - icon_item_jellyfish_card
       - icon_item_soul_phylactery_gem
       - icon_weapon_book_of_darkness
       - icon_weapon_battle_staff

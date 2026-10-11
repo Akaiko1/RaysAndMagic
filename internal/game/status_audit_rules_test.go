@@ -193,7 +193,7 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 	// A slow one turn shorter than the cadence, reapplied as it lapses.
 	shortTurns := every - 1
 	shortSlow := func(m *monster.Monster3D) {
-		m.ApplySlow(trident.SlowPct, shortTurns*TurnBasedPeriodicEffectSeconds*config.GetTargetTPS(), shortTurns)
+		m.ApplySlow(trident.SlowPct, shortTurns*config.CombatRoundSeconds*config.GetTargetTPS(), shortTurns)
 	}
 	scenarios := []struct {
 		name   string
@@ -216,7 +216,7 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 				e.t.Fatal(err)
 			}
 			mechanic := *d.Mechanic
-			mechanic.DurationByMastery = []int{9, 9, 9, 9}
+			d.DurationByMastery = []int{9, 9, 9, 9}
 			mechanic.RadiusTiles = 9 // Include the distant pursuit fixture.
 			d.Mechanic = &mechanic
 			if !e.g.combat.castResolvedSpell(d.ID, d, e.g.party.Members[0], 0, false, false) {
@@ -288,7 +288,7 @@ func TestSlowSkippedTurnStillTicksRoot(t *testing.T) {
 	m := monster.NewMonster3DFromConfig(400, 400, "goblin", g.config)
 	g.world.Monsters = []*monster.Monster3D{m}
 	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.combat.applyMonsterRoot(m, 5, 5*TurnBasedPeriodicEffectSeconds*g.config.GetTPS())
+	g.combat.applyMonsterRoot(m, 5, 5*config.CombatRoundSeconds*g.config.GetTPS())
 	for turn := 1; turn <= 3; turn++ {
 		m.ApplySlow(30, 10*g.config.GetTPS(), 5)
 		runOneMonsterTurn(g, gl)

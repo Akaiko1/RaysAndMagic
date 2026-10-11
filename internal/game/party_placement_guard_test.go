@@ -33,6 +33,14 @@ func TestSafePartyDestinationTable(t *testing.T) {
 	wall := func(g *MMGame) { g.world.Tiles[5][5] = world.TileWall }
 	water := func(g *MMGame) { g.world.Tiles[5][5] = world.TileDeepWater }
 	fly := func(g *MMGame) { g.flyActive = true }
+	breathe := func(g *MMGame) { g.waterBreathingActive = true }
+	reef := func(g *MMGame) {
+		coral, ok := world.GlobalTileManager.GetTileTypeFromKey("coral_reef")
+		if !ok {
+			panic("coral_reef tile missing")
+		}
+		g.world.Tiles[5][5] = coral
+	}
 	tests := []struct {
 		name   string
 		setup  []func(g *MMGame)
@@ -45,6 +53,8 @@ func TestSafePartyDestinationTable(t *testing.T) {
 		{"deep water ejects an unprotected party", []func(*MMGame){water}, [2]int{5, 5}, [2]float64{}, false},
 		{"walk on water keeps deep water", []func(*MMGame){water, func(g *MMGame) { g.walkOnWaterActive = true }}, [2]int{5, 5}, [2]float64{}, true},
 		{"stale world water flag keeps nothing", []func(*MMGame){water, func(g *MMGame) { g.world.SetWalkOnWaterActive(true) }}, [2]int{5, 5}, [2]float64{}, false},
+		{"water breathing keeps deep water", []func(*MMGame){water, breathe}, [2]int{5, 5}, [2]float64{}, true},
+		{"water breathing clamps off a solid reef", []func(*MMGame){reef, breathe}, [2]int{5, 5}, [2]float64{}, false},
 		// Fly ignores terrain entirely; its expiry has its own eject.
 		{"fly ignores a wall", []func(*MMGame){wall, fly}, [2]int{5, 5}, [2]float64{}, true},
 		// The border ring and out-of-bounds are solid even to Fly.

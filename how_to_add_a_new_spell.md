@@ -18,8 +18,7 @@ spells:
     description: "Launches a shard of ice"
     school: "water"
     spell_points_cost: 6   # damage derives from this: cost x 3 (SpellDamagePerSP)
-    cooldown_seconds: 1.0  # required for every castable spell (forbidden on category: buff)
-    duration: 0
+    cooldown_seconds: 1.0  # required except on category: buff
     projectile_size: 12
     is_projectile: true
     is_utility: false
@@ -45,7 +44,6 @@ spells:
     school: "body"
     spell_points_cost: 8
     cooldown_seconds: 1.5
-    duration: 0
     heal_amount: 35
     is_projectile: false
     is_utility: true
@@ -68,6 +66,43 @@ formula and shared tooltip builders for the final damage, including true damage,
 Strong Magic, criticals, and target defenses. See
 [damage and hit scope](docs/content-authoring.md#damage-and-hit-scope).
 
+## Duration authoring
+
+Author the exact lifetime in gameplay seconds at spell level:
+
+```yaml
+spells:
+  bless:
+    name: "Bless"
+    school: spirit
+    spell_points_cost: 15
+    category: buff
+    is_utility: true
+    stat_bonus: 5
+    duration_by_mastery: [300, 360, 420, 480]
+```
+
+The four entries are Novice, Expert, Master and Grandmaster. They must be positive
+and nondecreasing. There is no automatic duration multiplier. Repeat the same
+value four times for a fixed lifetime; omit the field for instant or charge-only
+effects. The obsolete `duration` field and nested `mechanic.duration_by_mastery`
+are rejected, including `duration: 0`.
+
+Runtime casts, fields, projectile riders and tooltips read the same ladder via
+`SpellDefinition.DurationSeconds`; caster-based callers resolve school mastery
+through `character.SpellDurationSeconds`. Convert seconds to frames with configured
+TPS and to TB rounds with the shared combat clock. Never add another mastery
+multiplier or recompute a saved remaining timer from a full lifetime.
+
+Haste authors its own duration, `power_by_mastery` (RT recovery %) and
+`extra_actions_by_mastery` (party bonus actions per TB round); the Quickening
+technique keeps separate values in `assets/techniques.yaml`. Its
+`mechanic.technique` link only shares Quickening's eligibility and no-stacking rule. Frozen Ground's main ladder
+controls roots; `mechanic.water_freeze_seconds` separately controls how long its
+water crossing lasts, without mastery scaling. Existing stun RT/TB durations,
+Charm/Bind timers, reuse, action recovery and visual animation timings remain
+independent fields with their own units; they are not spell-lifetime multipliers.
+
 ## Supported projectile fields
 
 - `projectile_size`, `cooldown_seconds`
@@ -79,7 +114,7 @@ Strong Magic, criticals, and target defenses. See
 ## Supported utility fields
 
 - healing: `heal_amount`, `heal_party` (Mass Heal), `revive` + `full_heal` (Resurrect), `revive_hp_pct` (Raise Dead)
-- party buffs: `stat_bonus`, `resist_buff_pct`, `outgoing_damage_bonus`, `incoming_damage_reduction`, `duration`
+- party buffs: `stat_bonus`, `resist_buff_pct`, `outgoing_damage_bonus`, `incoming_damage_reduction`, `duration_by_mastery`
 - AoE: `stun_radius_tiles` + `stun_duration_seconds`/`stun_duration_turns` (Stun/Darkness), `party_aoe_radius_tiles` (Inferno nova), `zone_radius_tiles` + `zone_tick_damage` + `zone_tick_seconds` (Hot Steam)
 - world: `water_walk`, `water_breathing`, `vision_bonus` (see note below), `awaken`
 - presentation: `message`, `status_icon` (HUD icon for active utility spells)
@@ -106,8 +141,13 @@ and `summon_ice_elemental` for mastery-scaled allied summons. Inspect the exact
 keys in [spells.yaml](assets/spells.yaml) before copying. Adding a field alone
 cannot create a new casting form.
 
-Castable spells require positive `cooldown_seconds`. `category: buff` spells
-forbid that field and instead need a supported beneficial timed effect. A new
+Castable spells require positive `cooldown_seconds`. Every timed or charged
+enchantment (a timed utility field or a personal/party mechanic) needs a
+category, and only those may have one. `category: buff` (long preparation
+effects such as Bless or Shield) forbids `cooldown_seconds` and has no RT
+recovery; `category: combat_buff` (short or charge-spent effects such as
+Celestial Armor, Haste or Preservation) keeps its required cooldown so it
+cannot be refilled on demand. An instant spell may not author `duration_by_mastery`. A new
 school must be supported by the canonical school catalog; spelling one in YAML
 is not enough.
 
@@ -145,16 +185,19 @@ cast transaction, and reuse its ally/offensive/party classification in consumers
 The transaction owns mana, personal reuse and successful-cast accounting.
 
 Mastery arrays have four entries (Novice, Expert, Master, Grandmaster):
-`power_by_mastery`, `charges_by_mastery`, `duration_by_mastery` and
-`projectiles_by_mastery`. Author only fields used by that kind. Targeting uses
+`power_by_mastery`, `charges_by_mastery` and `projectiles_by_mastery`
+live in the mechanic block; `duration_by_mastery` lives at spell level. Author
+only fields used by that kind. Targeting uses
 `radius_tiles`, `cone_degrees` (full cone angle), `max_targets` and
 `max_hits_per_target`; execution uses `instant_kill_chance` in 0..1. Inspect a
 shipped spell of the same kind before extending one. Required projectile kinds
 must also set `is_projectile: true`.
 
 `mechanic.summary` describes the player effect; substitutions are resolved by
-`SummaryText`, including `{spell_duration}`. Keep UI wording in YAML. Mechanics
-must not charge Strong Magic HP unless they actually have a damage formula.
+`SummaryText`: `{duration}` reads the spell-level mastery ladder, and
+`{water_freeze_seconds}` reads Frozen Ground's independent crossing lifetime.
+Keep UI wording in YAML. Mechanics must not charge Strong Magic HP unless they
+actually have a damage formula.
 
 New spell controls use one combat round = 3 seconds. Preserve separately authored
 weapon control conversions. `config.yaml`'s `control_saves` owns the resistance

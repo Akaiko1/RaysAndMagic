@@ -90,28 +90,9 @@ func WeaponDamageAtNight(def *config.WeaponDefinitionConfig, c *MMCharacter, nig
 	return out
 }
 
-// DurationBreakdown preserves authored seconds and the applied mastery bonus.
-type DurationBreakdown struct {
-	Base       int
-	MasteryPct int
-	Seconds    int
-}
-
-func SpellDurationBreakdown(def spells.SpellDefinition, c *MMCharacter) DurationBreakdown {
-	return SpellDurationAtTier(def, SpellMasteryTier(c, def))
-}
-
-func SpellDurationAtTier(def spells.SpellDefinition, tier int) DurationBreakdown {
-	if def.Duration <= 0 {
-		return DurationBreakdown{}
-	}
-	out := DurationBreakdown{Base: def.Duration, MasteryPct: tier * SpellMasteryDurationBonusPct}
-	if def.Mechanic != nil && def.Mechanic.Kind == "frozen_ground" {
-		// Its mastery ladder controls roots; the authored crossing lifetime is fixed.
-		out.MasteryPct = 0
-	}
-	out.Seconds = out.Base * (100 + out.MasteryPct) / 100
-	return out
+// SpellDurationSeconds resolves the caster's school mastery against authored seconds.
+func SpellDurationSeconds(def spells.SpellDefinition, c *MMCharacter) int {
+	return def.DurationSeconds(SpellMasteryTier(c, def))
 }
 
 // SpellFormulaTiers evaluates a spell formula for a statless caster at every

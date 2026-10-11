@@ -22,7 +22,7 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			g.combat = NewCombatSystem(g)
 			gl := &GameLoop{game: g}
 			g.gameLoop = gl
-			duration := TurnBasedPeriodicEffectSeconds*cfg.GetTPS() + 17
+			duration := config.CombatRoundSeconds*cfg.GetTPS() + 17
 			expired := 0
 			switch kind {
 			case "crate:highlands_mist_collector", "crate:desert_solar_condenser":

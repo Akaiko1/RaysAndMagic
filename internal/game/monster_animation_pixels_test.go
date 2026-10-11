@@ -16,7 +16,7 @@ import (
 // loader and TestMonsterAnimationAssets still run with the detector enabled.
 func TestMonsterAnimationPixels(t *testing.T) {
 	g := deathTestGame(t)
-	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	keys := catalogMonsterKeys()
 	slices.Sort(keys)
 	seen := make(map[graphics.SpriteResourceRequest]bool)
 	for _, key := range keys {

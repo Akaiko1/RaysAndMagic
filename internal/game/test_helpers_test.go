@@ -1,7 +1,9 @@
 package game
 
 import (
+	"maps"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -57,6 +59,11 @@ func setTestWorldManager(t *testing.T, manager *world.WorldManager) {
 	t.Cleanup(func() {
 		world.GlobalWorldManager = previous
 	})
+}
+
+// catalogMonsterKeys lists every loaded monster key in a stable order.
+func catalogMonsterKeys() []string {
+	return slices.Sorted(maps.Keys(monster.MonsterConfig.Monsters))
 }
 
 func newTestWorld(cfg *config.Config) *world.World3D {

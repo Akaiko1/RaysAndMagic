@@ -11,14 +11,17 @@ import (
 	"ugataima/internal/stats"
 )
 
+// DurationSeconds selects authored gameplay seconds without applying a hidden multiplier.
+// Casts, projectiles and UI all resolve the same optional mastery ladder.
+func (d SpellDefinition) DurationSeconds(tier int) int {
+	if len(d.DurationByMastery) == 0 {
+		return 0
+	}
+	return config.TierValue([4]int(d.DurationByMastery), tier)
+}
+
 // SpellID represents dynamic spell identifiers loaded from YAML
 type SpellID string
-
-const (
-	// SpellCategoryBuff marks a beneficial timed spell that has no personal
-	// cooldown in real-time mode. Turn-based casts still spend an action.
-	SpellCategoryBuff = "buff"
-)
 
 // String returns the string representation of a spell ID
 func (s SpellID) String() string {
@@ -35,7 +38,7 @@ type SpellDefinition struct {
 	SpellPointsCost       int
 	Category              string
 	ReuseSeconds          int     // Personal lockout, shared across casting entry points.
-	CooldownSeconds       float64 // RT cast cooldown (seconds) at reference Speed; authored per spell (required)
+	CooldownSeconds       float64 // RT recovery at reference Speed; authored for non-buffs only.
 	DamageByMastery       []int   // exact damage per mastery tier (Novice..GM); wins over the cost formula
 	DamageBase            int
 	DamageSource          string
@@ -52,7 +55,7 @@ type SpellDefinition struct {
 	ZoneBurnSeconds       float64 // zone hits ignite the victim for this long
 	StandeeDestroyChance  float64 // chance to topple a crossed-standee tile it hits
 	SparesParty           bool    // party-centred nova that does not hurt the party
-	Duration              int     // Duration in seconds (0 for instant spells)
+	DurationByMastery     []int   // Exact gameplay seconds, Novice..Grandmaster; empty for instant/charged effects.
 	DisintegrateChance    float64
 	AoeRadiusTiles        float64 // 0 = single-target; >0 = splash radius in tiles
 	ProjectileSize        int
@@ -151,7 +154,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		Category:                           strings.ToLower(strings.TrimSpace(configDef.Category)),
 		CooldownSeconds:                    configDef.CooldownSeconds,
 		ReuseSeconds:                       configDef.ReuseSeconds,
-		Duration:                           configDef.Duration,
+		DurationByMastery:                  configDef.DurationByMastery,
 		DisintegrateChance:                 configDef.DisintegrateChance,
 		AoeRadiusTiles:                     configDef.AoeRadiusTiles,
 		ProjectileSize:                     configDef.ProjectileSize,
@@ -240,11 +243,21 @@ func (d SpellDefinition) DamageType() string {
 	return kind.String()
 }
 
-// IsBuff reports whether this is a YAML-authored beneficial timed effect. Buff
-// spells deliberately have no personal real-time cooldown so a party can be
-// prepared without waiting between each cast.
+// IsBuff reads the explicit YAML category for timed and charged enchantments
+// (buff or combat_buff). Combat and presentation consume the same validated authoring.
 func (d SpellDefinition) IsBuff() bool {
-	return d.Category == SpellCategoryBuff
+	return d.Category == config.SpellCategoryBuff || d.Category == config.SpellCategoryCombatBuff
+}
+
+// HasAutocast reports a mechanic the caster may set to cast itself.
+func (d SpellDefinition) HasAutocast() bool {
+	return d.Mechanic != nil && d.Mechanic.Autocast != ""
+}
+
+// HasRTCooldown is false only for a plain buff; a combat_buff keeps its
+// authored recovery. Every cast still costs mana and a TB action.
+func (d SpellDefinition) HasRTCooldown() bool {
+	return d.Category != config.SpellCategoryBuff
 }
 
 // IsOffensive reports whether this spell harms or disables enemies - i.e. it
@@ -313,7 +326,7 @@ func (d SpellDefinition) effectLinesAtMastery(view effectView, tier int) []strin
 	includeStructured := view == effectViewCard
 	var out []string
 	if d.Mechanic != nil {
-		out = append(out, d.Mechanic.SummaryText(tier))
+		out = append(out, d.Mechanic.SummaryText(tier, d.DurationByMastery))
 	}
 	// Every authored field states itself here, so the game tooltip, the editor
 	// card and the shop line can never disagree about a new spell.

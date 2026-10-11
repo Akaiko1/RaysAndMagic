@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,6 +17,11 @@ import (
 type MonsterDefinition struct {
 	Telegraph *TelegraphedAttack `yaml:"telegraphed_attack,omitempty"`
 	Arboreal  *ArborealConfig    `yaml:"arboreal,omitempty"`
+	// LegacyKeys and LegacyNames are a renamed monster's former key and display
+	// name; saves written before the rename (keyed, or name-only legacy saves)
+	// restore it under its current key.
+	LegacyKeys  []string `yaml:"legacy_keys,omitempty"`
+	LegacyNames []string `yaml:"legacy_names,omitempty"`
 
 	Disposition  string   `yaml:"disposition,omitempty"`
 	Prey         []string `yaml:"prey,omitempty"`
@@ -175,6 +181,32 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	universalLetters := make(map[string][]string)
 	biomeLetters := make(map[string]map[string][]string)
 	var conflicts []string
+
+	// A former key or name must never shadow a live monster or belong to two.
+	claimed, claimedNames, liveNames := make(map[string]string), make(map[string]string), make(map[string]bool)
+	for _, def := range config.Monsters {
+		liveNames[def.Name] = true
+	}
+	for key, def := range config.Monsters {
+		for _, old := range def.LegacyKeys {
+			if _, live := config.Monsters[old]; live || old == "" {
+				return fmt.Errorf("monster %q: legacy key %q is empty or still a live monster", key, old)
+			}
+			if prev, dup := claimed[old]; dup {
+				return fmt.Errorf("monsters %q and %q both claim legacy key %q", prev, key, old)
+			}
+			claimed[old] = key
+		}
+		for _, old := range def.LegacyNames {
+			if old == "" || liveNames[old] {
+				return fmt.Errorf("monster %q: legacy name %q is empty or still a live monster's name", key, old)
+			}
+			if prev, dup := claimedNames[old]; dup {
+				return fmt.Errorf("monsters %q and %q both claim legacy name %q", prev, key, old)
+			}
+			claimedNames[old] = key
+		}
+	}
 
 	// Creature types gate immunities and revenge rallies by exact comparison,
 	// so they are canonical (lowercase, trimmed) from load on.
@@ -528,6 +560,20 @@ func MustLoadMonsterConfig(filename string) *MonsterYAMLConfig {
 }
 
 // GetMonsterByKey returns monster definition by key
+// CanonicalKey maps a renamed monster's former key (legacy_keys) to its
+// current key; any other key is returned unchanged.
+func (c *MonsterYAMLConfig) CanonicalKey(key string) string {
+	if _, ok := c.Monsters[key]; ok {
+		return key
+	}
+	for current, def := range c.Monsters {
+		if slices.Contains(def.LegacyKeys, key) {
+			return current
+		}
+	}
+	return key
+}
+
 func (c *MonsterYAMLConfig) GetMonsterByKey(key string) (*MonsterDefinition, error) {
 	monster, exists := c.Monsters[key]
 	if !exists {
@@ -561,15 +607,6 @@ func monsterSupportsBiome(biomes []string, biome string) bool {
 		}
 	}
 	return false
-}
-
-// GetAllMonsterKeys returns all monster keys
-func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
-	keys := make([]string, 0, len(c.Monsters))
-	for key := range c.Monsters {
-		keys = append(keys, key)
-	}
-	return keys
 }
 
 // SetupMonsterFromConfig configures a monster from YAML definition

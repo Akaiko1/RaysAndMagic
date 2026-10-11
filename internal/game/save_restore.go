@@ -48,6 +48,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.restoreSavedEffectPresentation(wm, save)
 	g.restoreSavedQuests(save)
 	g.restoreTerrainChanges(save.TerrainChanges)
+	g.settleStrandedMonsters() // after ice and terrain are restored
 	// A position saved on an older map layout can sit inside what is now a
 	// wall; clamp it to walkable ground. Runs here, after the buff restore
 	// above, so water/Fly saves keep their legal mid-lake or airborne spot.

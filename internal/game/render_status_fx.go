@@ -113,7 +113,7 @@ func monsterStatusVisuals(m *monster.Monster3D, monsterTurn bool) statusVisuals 
 	} else if m.Pacified {
 		v |= visualCharm
 	}
-	if m.FearFramesRemaining > 0 {
+	if m.IsAfraid() {
 		v |= visualFear
 	}
 	if m.IsEnraged() {

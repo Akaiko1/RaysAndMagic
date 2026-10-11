@@ -182,7 +182,7 @@ func TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound(t *testing.T) {
 	g := cs.game
 	g.turnBasedMode = true
 	tps := g.config.GetTPS()
-	wantStep := TurnBasedPeriodicEffectSeconds * tps
+	wantStep := config.CombatRoundSeconds * tps
 
 	member := g.party.Members[0]
 	member.HitPoints, member.MaxHitPoints = 100, 100
@@ -193,7 +193,7 @@ func TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound(t *testing.T) {
 		t.Fatalf("party DoT remainder = poison %d burn %d, want %d each",
 			member.PoisonFramesRemaining, member.BurnFramesRemaining, wantStep)
 	}
-	wantTicks := TurnBasedPeriodicEffectSeconds
+	wantTicks := config.CombatRoundSeconds
 	if want := 100 - wantTicks*(character.PoisonDamagePerTick+character.BurnDamagePerTick); member.HitPoints != want {
 		t.Fatalf("party DoTs must deal %d ticks each per round: HP=%d, want %d", wantTicks, member.HitPoints, want)
 	}
@@ -448,7 +448,7 @@ func TestTurnBasedDoTResolvesTickByTick(t *testing.T) {
 	g := cs.game
 	g.turnBasedMode = true
 	tps := g.config.GetTPS()
-	round := TurnBasedPeriodicEffectSeconds * tps
+	round := config.CombatRoundSeconds * tps
 
 	member := g.party.Members[0]
 	member.MaxHitPoints, member.HitPoints = 100, 1

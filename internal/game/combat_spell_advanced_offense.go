@@ -13,10 +13,9 @@ import (
 	"ugataima/internal/spells"
 )
 
-// advancedSpellTarget selects the explicitly aimed enemy, or the closest enemy
-// in the forward cone. Range and walls are checked even for explicit targeting.
-// advancedSpellTarget is the nearest eligible victim in the forward cone (or
-// the aimed one). An ineligible monster in front never shadows a valid target.
+// advancedSpellTarget selects the explicitly aimed enemy, or the nearest eligible
+// victim in the forward cone; an ineligible monster in front never shadows a
+// valid target. Range and walls are checked even for explicit targeting.
 func (cs *CombatSystem) advancedSpellTarget(radius, coneDegrees float64, eligible func(*monster.Monster3D) bool) *monster.Monster3D {
 	x, y := cs.logicalCameraXY()
 	var result *monster.Monster3D
@@ -35,8 +34,7 @@ func (cs *CombatSystem) advancedSpellTarget(radius, coneDegrees float64, eligibl
 			}
 			continue
 		}
-		angle := math.Atan2(m.Y-y, m.X-x) - cs.partyAttackAngle()
-		if math.Cos(angle) < math.Cos(coneDegrees*math.Pi/360) {
+		if !cs.inPartyCone(x, y, m.X, m.Y, coneDegrees) {
 			continue
 		}
 		if result == nil || d < best {
@@ -46,12 +44,14 @@ func (cs *CombatSystem) advancedSpellTarget(radius, coneDegrees float64, eligibl
 	return result
 }
 
-func advancedSpellVictim(m *monster.Monster3D) bool {
-	return m != nil && m.IsAlive() && !m.IsDamageInvulnerable() && !m.IsPartyControlled() && !m.IsFish() && !m.IsCaravan()
+// inPartyCone reports whether (tx,ty) lies within the full coneDegrees arc
+// centred on the party's attack heading from (x,y).
+func (cs *CombatSystem) inPartyCone(x, y, tx, ty, coneDegrees float64) bool {
+	return math.Cos(math.Atan2(ty-y, tx-x)-cs.partyAttackAngle()) >= math.Cos(coneDegrees*math.Pi/360)
 }
 
-func advancedSpellDamageSchool(def spells.SpellDefinition) string {
-	return def.DamageType()
+func advancedSpellVictim(m *monster.Monster3D) bool {
+	return m != nil && m.IsAlive() && !m.IsDamageInvulnerable() && !m.IsPartyControlled() && !m.IsFish() && !m.IsCaravan()
 }
 
 func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) spellCastOutcome {
@@ -60,9 +60,8 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 		return castNotHandled
 	}
 	tier := casterSpellMasteryTier(caster, def)
-	frames := a.Duration(tier) * cs.game.config.GetTPS()
-	turnFrames := cs.game.combatRoundFrames()
-	turns := max(1, (frames+turnFrames-1)/turnFrames)
+	frames := def.DurationSeconds(tier) * cs.game.config.GetTPS()
+	turns := max(1, config.CombatRounds(def.DurationSeconds(tier)))
 	x, y := cs.logicalCameraXY()
 	radius := a.RadiusTiles * cs.game.config.GetTileSize()
 	area := areaReach{x: x, y: y, radius: radius}
@@ -101,7 +100,7 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 		return castCommitted
 	case "slow", "frozen_ground", "turn_undead", "mass_fear", "feeblemind":
 		cs.forEachAreaVictim(area, advancedSpellVictim, func(m *monster.Monster3D) {
-			if a.Kind == "frozen_ground" && math.Cos(math.Atan2(m.Y-y, m.X-x)-cs.partyAttackAngle()) < math.Cos(a.ConeDegrees*math.Pi/360) {
+			if a.Kind == "frozen_ground" && !cs.inPartyCone(x, y, m.X, m.Y, a.ConeDegrees) {
 				return
 			}
 			if (a.Kind == "turn_undead" || a.Kind == "mass_fear") && (m.MonsterType == monster.TypeUndead) != (a.Kind == "turn_undead") {
@@ -220,7 +219,7 @@ func (cs *CombatSystem) advancedSpellDamage(id spells.SpellID, def spells.SpellD
 	}
 	_, _, total := cs.CalculateSpellDamage(id, caster)
 	parts := cs.spellDamageParts(id, caster, total)
-	school := advancedSpellDamageSchool(def)
+	school := def.DamageType()
 	parts, _ = cs.spellPartsWithOutgoingBuff(parts, school)
 	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(caster, string(id)), nil, def.Name, false, true, false)
 	attack.Attacker = caster
@@ -254,11 +253,10 @@ func (cs *CombatSystem) applyAdvancedSpellImpact(p *MagicProjectile, m *monster.
 	}
 	a := def.Mechanic
 	tier := casterSpellMasteryTier(p.Attacker, def)
-	frames := a.Duration(tier) * cs.game.config.GetTPS()
-	turnFrames := cs.game.combatRoundFrames()
+	frames := def.DurationSeconds(tier) * cs.game.config.GetTPS()
 	switch a.Kind {
 	case "acid_burst":
-		m.ApplyArmorShred(a.Power(tier), frames, max(1, (frames+turnFrames-1)/turnFrames))
+		m.ApplyArmorShred(a.Power(tier), frames, max(1, config.CombatRounds(def.DurationSeconds(tier))))
 	case "flying_fist":
 		cs.pushElementalTarget(m, float64(a.Power(tier)))
 	}

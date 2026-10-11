@@ -156,16 +156,16 @@ func (cs *CombatSystem) CalculateSpellHealing(spellID spells.SpellID, char *char
 	return result.Base + result.Mastery, result.StatBonus, result.Total
 }
 
-// CalculateSpellDurationSeconds returns duration in seconds with mastery bonus applied.
+// CalculateSpellDurationSeconds returns duration in seconds at the caster's authored mastery tier.
 func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, char *character.MMCharacter) int {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return 0
 	}
-	return character.SpellDurationBreakdown(def, char).Seconds
+	return character.SpellDurationSeconds(def, char)
 }
 
-// CalculateSpellDurationFrames returns duration in frames with mastery bonus applied.
+// CalculateSpellDurationFrames returns duration in frames at the caster's authored mastery tier.
 func (cs *CombatSystem) CalculateSpellDurationFrames(spellID spells.SpellID, char *character.MMCharacter) int {
 	if cs == nil || cs.game == nil {
 		return 0
@@ -560,7 +560,7 @@ func baseCastCooldownSeconds(id spells.SpellID) (float64, bool) {
 		return def.CooldownSeconds, true
 	}
 	if def, err := spells.GetSpellDefinitionByID(id); err == nil {
-		if def.IsBuff() {
+		if !def.HasRTCooldown() {
 			return 0, true
 		}
 		return def.CooldownSeconds, true

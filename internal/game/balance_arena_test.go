@@ -4,7 +4,6 @@ package game
 
 import (
 	"math"
-	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -178,10 +177,11 @@ func (a *balanceArena) fight(partyKey string, level int, foes []string) balanceF
 		// between frames: autocast techniques get their window first. A
 		// monster turn can open and resolve inside one frame, so the turn is
 		// observed after the decision and again after the frame.
+		purify := a.probePurify()
 		g.gameLoop.updateExploration()
 		g.levelUpChoiceQueue = g.levelUpChoiceQueue[:0]
 		logVersion = a.captureLog(&result, logVersion)
-		a.noteTechniques()
+		a.noteTechniques(purify)
 		if a.onFrame != nil {
 			a.onFrame()
 		}
@@ -361,8 +361,25 @@ func (a *balanceArena) revive() bool {
 	return false
 }
 
-// noteTechniques records active buffs and successful cleansing uses.
-func (a *balanceArena) noteTechniques() {
+// purifyProbe is the state a Purify autocast changes: the party had something
+// to cleanse, and each Wayfarer's automatic budget was ready or running.
+type purifyProbe struct {
+	useful     bool
+	autoFrames map[string]int
+}
+
+func (a *balanceArena) probePurify() purifyProbe {
+	p := purifyProbe{useful: a.g.techniqueUseful("purify"), autoFrames: map[string]int{}}
+	for _, m := range a.g.party.Members {
+		p.autoFrames[m.Name] = m.SpellState.AutoFrames
+	}
+	return p
+}
+
+// noteTechniques records active buffs and successful cleansing uses. A
+// Purify use is read from state: the hero's automatic budget restarted
+// during the frame and the party no longer has anything to cleanse.
+func (a *balanceArena) noteTechniques(before purifyProbe) {
 	g := a.g
 	for _, m := range g.party.Members {
 		if m.Class != character.ClassWayfarer {
@@ -374,14 +391,10 @@ func (a *balanceArena) noteTechniques() {
 				a.tally(m.Name, "technique:"+b.SpellID)
 			}
 		}
-		if a.techSeen[m.Name+"purify"] == 0 {
-			for _, entry := range g.combatLogHistory {
-				if strings.HasPrefix(entry.Text, m.Name+" uses Purify ") {
-					a.techSeen[m.Name+"purify"] = 1
-					a.tally(m.Name, "technique:purify")
-					break
-				}
-			}
+		restarted := before.autoFrames[m.Name] == 0 && m.SpellState.AutoFrames > 0
+		if a.techSeen[m.Name+"purify"] == 0 && restarted && before.useful && !g.techniqueUseful("purify") {
+			a.techSeen[m.Name+"purify"] = 1
+			a.tally(m.Name, "technique:purify")
 		}
 	}
 }

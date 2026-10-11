@@ -4,7 +4,6 @@ import (
 	"image"
 	"image/color"
 	"sort"
-	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	uitext "ugataima/assets/text"
@@ -133,7 +132,7 @@ func (ui *UISystem) drawIdentifyMonster(screen *ebiten.Image) {
 	}
 	sort.Strings(keys)
 	for _, school := range keys {
-		lines = append(lines, uitext.Text("identify.resistance", strings.ToUpper(school[:1])+school[1:], m.Resistances[monster.DamageType(school)]))
+		lines = append(lines, uitext.Text("identify.resistance", formatSchoolName(school), m.Resistances[monster.DamageType(school)]))
 	}
 	if len(keys) == 0 {
 		lines = append(lines, uitext.Text("identify.no_resists"))

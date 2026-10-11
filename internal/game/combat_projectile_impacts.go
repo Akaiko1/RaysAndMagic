@@ -349,7 +349,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		spellID := spells.SpellID(mp.SpellType)
 		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
 		weaponName = spellDef.Name
-		damageTypeStr = advancedSpellDamageSchool(spellDef)
+		damageTypeStr = spellDef.DamageType()
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
 		isBindSpell = spellDef.BindUndead
 		bindSeconds = spellDef.BindDurationSeconds
@@ -590,7 +590,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 // direct hit and every blast of the shot share it.
 func (cs *CombatSystem) spellProjectileAttack(mp *MagicProjectile) partyMonsterAttack {
 	def, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
-	school := advancedSpellDamageSchool(def)
+	school := def.DamageType()
 	parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}, school)
 	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(mp.Attacker, mp.SpellType), nil, def.Name, false, true, false)
 	attack.Critical = mp.Crit

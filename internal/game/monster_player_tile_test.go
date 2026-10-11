@@ -13,7 +13,7 @@ import (
 func ordinaryMeleeMonsterKeys(t *testing.T) []string {
 	t.Helper()
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	keys := catalogMonsterKeys()
 	slices.Sort(keys)
 	var out []string
 	for _, key := range keys {

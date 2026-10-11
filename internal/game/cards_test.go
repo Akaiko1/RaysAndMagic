@@ -100,20 +100,20 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 	g := cs.game
 	ocelot, huntress, samurai := cardDef("ocelot_card"), cardDef("masked_huntress_card"), cardDef("samurai_card")
 	speed := ocelot.CardStatBonuses["speed"]
-	if speed <= 0 || huntress.CardRangedDmgPct <= 0 || samurai.CardMeleeTrueDmg <= 0 || !cardDef("medusa_card").CardWalkOnWater {
-		t.Fatal("fixture: ocelot/huntress/samurai/medusa cards lost their effect fields")
+	if speed <= 0 || huntress.CardRangedDmgPct <= 0 || samurai.CardMeleeTrueDmg <= 0 || !cardDef("jellyfish_card").CardWalkOnWater {
+		t.Fatal("fixture: ocelot/huntress/samurai/jellyfish cards lost their effect fields")
 	}
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "ocelot_card"          // Speed
 	g.cardSlots[1].key = "masked_huntress_card" // ranged %
 	g.cardSlots[2].key = "samurai_card"         // true melee
-	g.cardSlots[3].key = "medusa_card"          // walk on water
+	g.cardSlots[3].key = "jellyfish_card"       // walk on water
 
 	if g.cardStatBonuses().Speed != speed || g.cardRangedDmgPct() != huntress.CardRangedDmgPct || g.cardMeleeTrueDmg() != samurai.CardMeleeTrueDmg {
 		t.Fatalf("aggregates: speed=%d ranged=%d true=%d", g.cardStatBonuses().Speed, g.cardRangedDmgPct(), g.cardMeleeTrueDmg())
 	}
 	if !g.hasCardWalkOnWater() {
-		t.Error("medusa card should grant walk-on-water")
+		t.Error("jellyfish card should grant walk-on-water")
 	}
 
 	// Stacking is additive.
@@ -134,7 +134,7 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 	// Effect text is derived from the card's fields.
 	for key, want := range map[string]string{
 		"ocelot_card":          fmt.Sprintf("%+d Speed", speed),
-		"medusa_card":          "Walk on water",
+		"jellyfish_card":       "Walk on water",
 		"samurai_card":         fmt.Sprintf("+%d true melee damage", samurai.CardMeleeTrueDmg),
 		"masked_huntress_card": fmt.Sprintf("+%d%% ranged damage", huntress.CardRangedDmgPct),
 	} {
@@ -922,7 +922,7 @@ func TestInventoryCardIndices_EnumeratesPastOnePage(t *testing.T) {
 	g := cs.game
 	g.party.Inventory = nil
 	keys := []string{
-		"medusa_card", "puma_card", "archmage_card", "lich_card", "thief_bug_card",
+		"jellyfish_card", "puma_card", "archmage_card", "lich_card", "thief_bug_card",
 		"samurai_card", "ningyo_card", "ocelot_card", "gorilla_titan_card",
 		"masked_huntress_card", "orc_warlord_card",
 	}

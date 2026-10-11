@@ -31,23 +31,24 @@ const worldSunPyre = 15
 // The registry owns both validation and actor-relative placement. World meshes
 // have no actor material; their geometry joins the ordinary scene painter.
 var spellWorldStyles = map[string]struct {
-	mechanic  string
-	material  int
-	y, rx, ry float64
+	mechanic       string
+	material       int
+	y, rx, ry      float64
+	outlivesTarget bool // stays at the cast contact after a lethal hit
 }{
 	"glacier":      {mechanic: "frozen_ground", material: -1},
-	"sun_pyre":     {mechanic: "destroy_undead", material: -1},
-	"mind_web":     {"feeblemind", 0, .13, .28, .23},
-	"earth_drag":   {"slow", 1, .85, .55, .24},
-	"blood_frenzy": {"berserk", 2, .15, .34, .34},
-	"holy_dread":   {"turn_undead", 3, .43, .58, .65},
-	"dread_shroud": {"mass_fear", 4, .40, .55, .63},
+	"sun_pyre":     {mechanic: "destroy_undead", material: -1, outlivesTarget: true},
+	"mind_web":     {mechanic: "feeblemind", material: 0, y: .13, rx: .28, ry: .23},
+	"earth_drag":   {mechanic: "slow", material: 1, y: .85, rx: .55, ry: .24},
+	"blood_frenzy": {mechanic: "berserk", material: 2, y: .15, rx: .34, ry: .34},
+	"holy_dread":   {mechanic: "turn_undead", material: 3, y: .43, rx: .58, ry: .65},
+	"dread_shroud": {mechanic: "mass_fear", material: 4, y: .40, rx: .55, ry: .63},
 }
 
 func (g *MMGame) expireSpellWorldVisuals() {
 	dst := g.spellWorldVisuals[:0]
 	for _, v := range g.spellWorldVisuals {
-		if v.world == g.world && g.frameCount >= v.born && float64(g.frameCount-v.born)/float64(g.config.GetTPS()) < spellWorldVisualSeconds && (v.target == nil || v.target.IsAlive() || v.kind == "sun_pyre") {
+		if v.world == g.world && g.frameCount >= v.born && float64(g.frameCount-v.born)/float64(g.config.GetTPS()) < spellWorldVisualSeconds && (v.target == nil || v.target.IsAlive() || spellWorldStyles[v.kind].outlivesTarget) {
 			dst = append(dst, v)
 		}
 	}

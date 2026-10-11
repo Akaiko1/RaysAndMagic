@@ -1,3 +1,15 @@
+# Solstice Approach (biome: jungle) - 32x32 survey camp before the Solstice vestibule
+# Jump-gated rewards (a one-tile vault over the fern ring or the pond hedge):
+# gate: jump (27,1) approach_resin_growth - north fern ring, west
+# gate: jump (28,1) approach_resin_growth - north fern ring, middle
+# gate: jump (29,1) approach_resin_growth - north fern ring, east
+# gate: jump (31,14) approach_calendar_disc - east edge
+# gate: jump (15,19) barrel_red - south pond edge
+# gate: jump (16,19) barrel_red - south pond edge
+# gate: jump (15,20) barrel_red - south pond edge
+# gate: jump (17,29) approach_resin_growth - south fern ring, east
+# gate: jump (14,30) approach_resin_growth - south fern ring, west
+# gate: jump (20,30) approach_resin_growth - south fern ring, far east
 GGGGGGGGGGVVVVVRRRRRRVVGGGGGGGGG
 GGGGGGGGGGV@....@....@VGGGG@@@GG  >[npc:approach_calendar_disc], [npc:solstice_vestibule_entrance], [npc:approach_calendar_disc], [npc:approach_resin_growth], [npc:approach_resin_growth], [npc:approach_resin_growth]
 GGGGGGGGGGV...........VGGGGGGGGG

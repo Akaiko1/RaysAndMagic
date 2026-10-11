@@ -43,6 +43,8 @@ var TexTileSize vec2
 var MaxMip float
 var LightCount float
 var Lights [32]vec4
+var HeatCount float
+var Heat [8]vec4 // fire cells: x, y, radius, strength
 
 // sampleFloorMip does one sharp-bilinear tap inside a texture's atlas cell at
 // the given mip level. Level k's strip starts at y = TexH*2*(1-0.5^k) with
@@ -339,8 +341,23 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
 	if brightness > 1.0 {
 		brightness = 1.0
 	}
-
-	return vec4(rgb*brightness, 1.0)
+	// Fire zones throw a warm glow on the ground around them, added over the
+	// lighting so it reads by day as well as in the dark.
+	heat := 0.0
+	for i := 0; i < 8; i++ {
+		if float(i) >= HeatCount {
+			break
+		}
+		H := Heat[i]
+		hdx := floorX - H.x
+		hdy := floorY - H.y
+		h2 := hdx*hdx + hdy*hdy
+		if h2 < H.z*H.z {
+			f := 1.0 - sqrt(h2)/H.z
+			heat += H.w * f * f
+		}
+	}
+	return vec4(min(rgb*brightness+vec3(1.0, 0.46, 0.12)*min(heat, 0.7), vec3(1.0)), 1.0)
 }
 
 //include panini.kageinc

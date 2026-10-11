@@ -196,6 +196,7 @@ func (g *MMGame) switchToMap(targetMapKey string) error {
 		// Register new world monsters
 		g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 		g.registerMapStaticCollision()
+		g.settleStrandedMonsters() // ice may have thawed here while the party was away
 	}
 
 	// Update visual systems
