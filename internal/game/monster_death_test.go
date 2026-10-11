@@ -303,19 +303,17 @@ func TestMonsterAnimationAssets(t *testing.T) {
 			requests := mapRenderSourceRequests(mapRenderPrewarmPlan{monsterSprites: []mapMonsterPrewarmResource{{key: key, spriteName: name}}})
 			for _, kind := range kinds {
 				resolved := kind + "_r"
-				a := g.sprites.GetAnimation(name, resolved)
-				if a == nil {
+				count := g.sprites.AnimationFrameCount(name, resolved)
+				if count == 0 {
 					resolved = kind + "_l"
-					a = g.sprites.GetAnimation(name, resolved)
+					count = g.sprites.AnimationFrameCount(name, resolved)
 				}
-				if a == nil || len(a.Frames) != 4 {
+				if count != 4 {
 					t.Fatalf("%s/%s: missing four-frame animation", key, kind)
 				}
-				for _, frame := range a.Frames {
-					if frame.Bounds().Dx() != 512 || frame.Bounds().Dy() != 512 {
-						t.Fatalf("%s/%s: changed logical frame size", key, resolved)
-					}
-				}
+				// Full pixel decoding, frame bounds and the per-sheet attack
+				// window live in the non-race sweep. The combat animation
+				// lifecycle tests still exercise that path under -race.
 				// Both facings stream, whichever one the sheet authors.
 				for _, side := range []string{kind + "_r", kind + "_l"} {
 					found := false
@@ -325,12 +323,6 @@ func TestMonsterAnimationAssets(t *testing.T) {
 					if !found {
 						t.Fatalf("%s missing from source prewarm", side)
 					}
-				}
-			}
-			if !passive && !fish {
-				g.armMonsterAttackAnimation(m)
-				if m.AttackAnimFrames != animationDurationFrames(g.config.GetTPS(), AuthoredMonsterAttackFPS, 4) {
-					t.Fatal("authored attack did not receive the full animation window")
 				}
 			}
 			m.HitPoints = 0

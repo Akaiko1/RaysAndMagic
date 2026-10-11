@@ -19,13 +19,9 @@ import (
 func bootOpenWorldGame(t *testing.T, unified bool) (*MMGame, *world.WorldManager, *config.Config) {
 	t.Helper()
 
-	cfg, err := config.LoadConfig("config.yaml")
-	if err != nil {
-		t.Fatalf("config: %v", err)
-	}
-	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
-		t.Fatalf("spells: %v", err)
-	}
+	cfg := testConfigCatalog(t, "config.yaml")
+	config.GlobalConfig = cfg
+	config.GlobalSpells = testSpellCatalog(t, "assets/spells.yaml")
 	if _, err := config.LoadWeaponConfig("assets/weapons.yaml"); err != nil {
 		t.Fatalf("weapons: %v", err)
 	}
@@ -49,11 +45,9 @@ func bootOpenWorldGame(t *testing.T, unified bool) (*MMGame, *world.WorldManager
 	if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
 		t.Fatalf("special tiles: %v", err)
 	}
-	if _, err := config.LoadTrapConfig("assets/traps.yaml"); err != nil {
-		t.Fatalf("traps: %v", err)
-	}
+	config.GlobalTrapConfig = testTrapCatalog(t, "assets/traps.yaml")
 	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
-	monster.MustLoadMonsterConfig("assets/monsters.yaml")
+	monster.MonsterConfig = testMonsterCatalog(t, "assets/monsters.yaml")
 	if err := character.LoadNPCConfig("assets/npcs.yaml"); err != nil {
 		t.Fatalf("npcs: %v", err)
 	}

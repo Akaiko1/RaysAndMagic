@@ -36,51 +36,56 @@ func (t *testTileChecker) GetWorldBounds() (int, int) {
 
 func newTestCombatSystemWithConfig(t *testing.T) *CombatSystem {
 	t.Helper()
-	setTestWorldManager(t, nil)
+	return newTestCombatFactory(t)(t)
+}
 
-	cfg, err := config.LoadConfig("../../config.yaml")
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
+// A serial table may reuse its loaded catalogs when it restores every authored
+// override in subtest cleanup. Party, world, collision and combat state are
+// always constructed afresh; ordinary callers load their own catalogs above.
+func newTestCombatFactory(t *testing.T) func(*testing.T) *CombatSystem {
+	t.Helper()
+
+	cfg := testConfigCatalog(t, "../../config.yaml")
+	config.GlobalConfig = cfg
+	config.GlobalSpells = testSpellCatalog(t, "../../assets/spells.yaml")
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
 		t.Fatalf("load weapons: %v", err)
 	}
 	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
 		t.Fatalf("load items: %v", err)
 	}
-	if _, err := config.LoadTrapConfig("../../assets/traps.yaml"); err != nil {
-		t.Fatalf("load traps: %v", err)
-	}
+	config.GlobalTrapConfig = testTrapCatalog(t, "../../assets/traps.yaml")
 	if _, err := config.LoadLevelUpConfig("../../assets/level_up.yaml"); err != nil {
 		t.Fatalf("load level-up choices: %v", err)
 	}
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
 
-	game := &MMGame{
-		config: cfg,
-		camera: &FirstPersonCamera{
-			X:        0,
-			Y:        0,
-			Angle:    0,
-			FOV:      squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight()),
-			ViewDist: cfg.GetViewDistance(),
-		},
-		party: character.NewParty(cfg),
-		world: &world.World3D{},
+	return func(t *testing.T) *CombatSystem {
+		t.Helper()
+		setTestWorldManager(t, nil)
+		game := &MMGame{
+			config: cfg,
+			camera: &FirstPersonCamera{
+				X:        0,
+				Y:        0,
+				Angle:    0,
+				FOV:      squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight()),
+				ViewDist: cfg.GetViewDistance(),
+			},
+			party: character.NewParty(cfg),
+			world: &world.World3D{},
+		}
+		stripNewClassSkillsForLegacyFixtures(game.party)
+		game.selectedChar = 0
+		game.collisionSystem = collision.NewCollisionSystem(&testTileChecker{width: 100, height: 100}, float64(cfg.GetTileSize()))
+		game.collisionSystem.RegisterEntity(collision.NewEntity("player", game.camera.X, game.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
+
+		cs := NewCombatSystem(game)
+		game.combat = cs
+
+		return cs
 	}
-	stripNewClassSkillsForLegacyFixtures(game.party)
-	game.selectedChar = 0
-	game.collisionSystem = collision.NewCollisionSystem(&testTileChecker{width: 100, height: 100}, float64(cfg.GetTileSize()))
-	game.collisionSystem.RegisterEntity(collision.NewEntity("player", game.camera.X, game.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
-
-	cs := NewCombatSystem(game)
-	game.combat = cs
-
-	return cs
 }
 
 func TestMonsterRangedAttack_SpawnsWeaponProjectile(t *testing.T) {

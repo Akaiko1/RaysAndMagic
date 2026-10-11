@@ -25,35 +25,25 @@ func testTileSizeClasses() map[string]float64 {
 func loadTestConfig(t testing.TB) *config.Config {
 	t.Helper()
 
-	cfg, err := config.LoadConfig("../../config.yaml")
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
+	cfg := testConfigCatalog(t, "../../config.yaml")
+	config.GlobalConfig = cfg
 	if key := os.Getenv("RAM_TEST_UI_FONT"); key != "" {
 		cfg.Display.DefaultFont = key // games built from this config keep the suite's font
 	}
-	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
+	config.GlobalSpells = testSpellCatalog(t, "../../assets/spells.yaml")
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
 		t.Fatalf("load weapons: %v", err)
 	}
 	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
 		t.Fatalf("load items: %v", err)
 	}
-	if err := config.LoadTechniques("../../assets/techniques.yaml"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := config.LoadAlchemyConfig("../../assets/alchemy_recipes.yaml"); err != nil {
-		t.Fatal(err)
-	}
+	config.GlobalTechniques = testTechniqueCatalog(t, "../../assets/techniques.yaml")
+	config.GlobalAlchemy = testAlchemyCatalog(t, "../../assets/alchemy_recipes.yaml")
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
-	if _, err := config.LoadTrapConfig("../../assets/traps.yaml"); err != nil {
-		t.Fatalf("load traps: %v", err)
-	}
+	config.GlobalTrapConfig = testTrapCatalog(t, "../../assets/traps.yaml")
 	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
-	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	monster.MonsterConfig = testMonsterCatalog(t, "../../assets/monsters.yaml")
 	return cfg
 }
 

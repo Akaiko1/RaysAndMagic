@@ -20,13 +20,14 @@ import (
 // Proc fixtures use 100% to prove wiring without probabilistic failures. The
 // separate launch test checks the unchanged authored percentages and snapshots.
 func TestWeaponDisintegrateCombatContract(t *testing.T) {
+	newCombat := newTestCombatFactory(t)
 	for _, key := range []string{"kage_kunai", "serpent_fang", "alien_blaster"} {
 		for _, tb := range []bool{false, true} {
 			for _, off := range []bool{false, true} {
 				for _, source := range []string{"weapon", "card", "both", "neither"} {
 					for _, targetState := range []string{"landed", "undead", "dragon", "warded", "sealed", "dodged", "summon"} {
 						t.Run(fmt.Sprintf("%s/TB=%v/off=%v/%s/%s", key, tb, off, source, targetState), func(t *testing.T) {
-							cs := newTestCombatSystemWithConfig(t)
+							cs := newCombat(t)
 							g := cs.game
 							g.turnBasedMode = tb
 							def, _ := config.GetWeaponDefinition(key)
