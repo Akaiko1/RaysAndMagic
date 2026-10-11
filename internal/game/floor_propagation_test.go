@@ -197,7 +197,7 @@ func TestDragonCliffsChasmLecternWithFly(t *testing.T) {
 
 func TestFloorPropagationSaveRestore(t *testing.T) {
 	t.Chdir("../..")
-	g, wm, _ := bootOpenWorldGame(t, true)
+	g, wm, cfg := bootOpenWorldGame(t, true)
 	r := g.gameLoop.renderer
 	tm := world.GlobalTileManager
 	// The saved terrain patch supplies a basalt source four objects away from
@@ -221,6 +221,43 @@ func TestFloorPropagationSaveRestore(t *testing.T) {
 				Before: tm.GetTileKey(g.world.Tiles[wy][wx]), After: after})
 		}
 	}
+	// Give an actual authored monster one walkable-water donor. This also
+	// exercises recipient metadata copied into the stitched world, and its
+	// reuse when saved terrain is replayed (no floor metadata is serialized).
+	mc := wm.MapConfigs["forest"]
+	md, err := world.NewMapLoaderWithBiome(cfg, mc.Biome).LoadMap("assets/" + mc.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	monsterX, monsterY := -1, -1
+	for _, spawn := range md.MonsterSpawns {
+		if spawn.X <= 0 || spawn.Y <= 0 || spawn.X >= md.Width-1 || spawn.Y >= md.Height-1 {
+			continue
+		}
+		if _, authored := md.AuthoredEntityGround(spawn.X, spawn.Y); authored {
+			continue
+		}
+		monsterX, monsterY = wm.ProjectTile("forest", spawn.X, spawn.Y)
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				if dx == 0 && dy == 0 {
+					continue
+				}
+				x, y := spawn.X+dx, spawn.Y+dy
+				wx, wy := wm.ProjectTile("forest", x, y)
+				after := "dragon_cliffs_chasm_edge"
+				if dx == -1 && dy == 0 {
+					after = "forest_stream"
+				}
+				changes = append(changes, TerrainChange{Map: "forest", X: x, Y: y,
+					Before: tm.GetTileKey(g.world.Tiles[wy][wx]), After: after})
+			}
+		}
+		break
+	}
+	if monsterX < 0 {
+		t.Fatal("no authored monster with inherited ground to exercise save restoration")
+	}
 	g.restoreTerrainChanges(changes)
 	save := g.buildSave(wm)
 	x, y := wm.ProjectTile("dragon_cliffs", 9, 5)
@@ -235,6 +272,9 @@ func TestFloorPropagationSaveRestore(t *testing.T) {
 			}
 			if got := r.floorTextureGroupForTile(x, y, g.world.Tiles[y][x]); got != "basalt" {
 				t.Fatalf("%s lost propagated material: %s", entry, got)
+			}
+			if got := tm.GetTileKey(g.world.Tiles[monsterY][monsterX]); got != "forest_stream" {
+				t.Fatalf("%s lost monster water inheritance: %s", entry, got)
 			}
 		})
 	}

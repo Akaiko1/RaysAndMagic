@@ -130,7 +130,7 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 		t.Fatalf("under-entity tile = %v, want default cobble %v", got, cobble)
 	}
 
-	// Automatic entity ground stays walkable; water requires an explicit override.
+	// Automatic NPC ground stays dry and walkable; water needs an explicit override.
 	md = load(t, "WWW\nW@W  >[npc:merchant]\nWWW\n")
 	if got := md.Tiles[1][1]; got != cobble {
 		t.Fatalf("under-entity tile = %v, want walkable fallback %v", got, cobble)

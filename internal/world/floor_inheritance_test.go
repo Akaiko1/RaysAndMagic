@@ -17,23 +17,35 @@ func TestEntityFloorEligibilityPreservesWalkability(t *testing.T) {
 	data := tm.GetTileData(source)
 	original := *data
 	t.Cleanup(func() { *data = original })
-	for _, walkable := range []bool{false, true} {
-		for _, solid := range []bool{false, true} {
-			for _, excluded := range []bool{false, true} {
-				t.Run(fmt.Sprintf("walkable=%v/solid=%v/excluded=%v", walkable, solid, excluded), func(t *testing.T) {
-					*data = original
-					data.Walkable, data.Solid, data.ExcludeAsUnderFloor = walkable, solid, excluded
-					md := &MapData{Width: 2, Height: 1, Tiles: [][]TileType3D{{source, TileEmpty}},
-						NPCSpawns: []NPCSpawn{{X: 1, NPCKey: "floor_test_npc"}}}
-					md.RebuildFloors(tm, "dragon_cliffs")
-					chosen, ok := md.Floors.At(1, 0)
-					if ok != (walkable && !excluded) || ok && chosen != source {
-						t.Fatalf("unsafe automatic floor: got %v/%v", chosen, ok)
+	for _, kind := range []string{"npc", "monster"} {
+		for _, water := range []bool{false, true} {
+			for _, walkable := range []bool{false, true} {
+				for _, solid := range []bool{false, true} {
+					for _, excluded := range []bool{false, true} {
+						t.Run(fmt.Sprintf("%s/water=%v/walkable=%v/solid=%v/excluded=%v", kind, water, walkable, solid, excluded), func(t *testing.T) {
+							*data = original
+							if water {
+								data.Type = "water"
+							}
+							data.Walkable, data.Solid, data.ExcludeAsUnderFloor = walkable, solid, excluded
+							md := &MapData{Width: 2, Height: 1, Tiles: [][]TileType3D{{source, TileEmpty}}}
+							if kind == "monster" {
+								md.MonsterSpawns = []MonsterSpawn{{X: 1, MonsterKey: "floor_test_mob"}}
+							} else {
+								md.NPCSpawns = []NPCSpawn{{X: 1, NPCKey: "floor_test_npc"}}
+							}
+							md.RebuildFloors(tm, "dragon_cliffs")
+							chosen, ok := md.Floors.At(1, 0)
+							want := walkable && !excluded && (!water || kind == "monster")
+							if ok != want || ok && chosen != source {
+								t.Fatalf("unsafe automatic floor: got %v/%v", chosen, ok)
+							}
+							if tm.IsWalkable(source) != walkable || tm.IsSolid(source) != solid {
+								t.Fatal("choosing appearance changed the donor's movement flags")
+							}
+						})
 					}
-					if tm.IsWalkable(source) != walkable || tm.IsSolid(source) != solid {
-						t.Fatal("choosing appearance changed the donor's movement flags")
-					}
-				})
+				}
 			}
 		}
 	}
@@ -79,7 +91,16 @@ func TestMapLoaderFloorPropagation(t *testing.T) {
 		{"monster over chasm bottom", "CRRRaE\n", "dragon_cliffs_floor", 4, false},
 		{"water through entity chain", "WaR@aE  >[npc:chest]\n", "dragon_cliffs_floor", 4, false},
 		{"stream through entity chain", "SR@E  >[npc:chest]\n", "dragon_cliffs_floor", 2, false},
-		{"explicit stream ground", "V@E  >[npc:chest@forest_stream]\n", "forest_stream", 1, false},
+		{"monster inherits stream", "SaE\n", "dragon_cliffs_stream", 1, true},
+		{"keyed monster inherits stream", "S@E  >[monster:floor_test_mob]\n", "dragon_cliffs_stream", 1, true},
+		{"stream through monster chain", "SaaaE\n", "dragon_cliffs_stream", 3, true},
+		{"stream stops at NPC", "Sa@E  >[npc:chest]\n", "dragon_cliffs_floor", 2, false},
+		{"stream cannot cross NPC", "Sa@aE  >[npc:chest]\n", "dragon_cliffs_floor", 3, false},
+		{"stream cannot cross scenery", "SRaE\n", "dragon_cliffs_floor", 2, false},
+		{"monster rejects blocked water", "WaE\n", "dragon_cliffs_floor", 1, false},
+		{"monster rejects deep water", "QaE\n", "dragon_cliffs_floor", 1, false},
+		{"explicit monster water stays authored", "V@E  >[monster:floor_test_mob@deep_water]\n", "deep_water", 1, true},
+		{"explicit stream ground", "V@E  >[npc:chest@forest_stream]\n", "forest_stream", 1, true},
 		{"deep water through marker", "QR@@E  >[stile:vteleporter], [npc:chest]\n", "dragon_cliffs_floor", 3, false},
 		{"no source fallback", "ER@RE  >[npc:chest]\n", "dragon_cliffs_floor", 2, false},
 		{"edge cannot carry floor", "VER@  >[npc:chest]\n", "dragon_cliffs_floor", 3, false},
@@ -120,6 +141,11 @@ func TestMapLoaderFloorPropagation(t *testing.T) {
 			if got := tm.GetTileKey(w.Tiles[0][tc.x]); got != tc.want {
 				t.Fatalf("world rebuild changed chosen ground to %s", got)
 			}
+			md = md.Clone()
+			md.RebuildFloors(tm, "dragon_cliffs")
+			if got := tm.GetTileKey(md.Tiles[0][tc.x]); got != tc.want {
+				t.Fatalf("editor rebuild changed chosen ground to %s", got)
+			}
 		})
 	}
 }
@@ -140,13 +166,15 @@ func TestFloorPropagationPolicies(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		tiles    [][]TileType3D
-		entities map[[2]int]bool
+		entities map[[2]int]FloorRecipient
 		x, y     int
 		want     TileType3D
 		ok       bool
 	}{
 		{"water cannot propagate", [][]TileType3D{{tile("water"), rock, rock}}, nil, 2, 0, TileEmpty, false},
 		{"stream cannot propagate", [][]TileType3D{{stream, rock, rock}}, nil, 2, 0, TileEmpty, false},
+		{"stream from monster cannot enter scenery", [][]TileType3D{{stream, grass, rock}}, map[[2]int]FloorRecipient{{1, 0}: FloorMonster}, 2, 0, TileEmpty, false},
+		{"scenery still finds land beside wet monster", [][]TileType3D{{stream, grass, rock, basalt}}, map[[2]int]FloorRecipient{{1, 0}: FloorMonster}, 2, 0, basalt, true},
 		{"land beside stream wins", [][]TileType3D{{stream, rock, rock, grass}}, nil, 1, 0, grass, true},
 		{"deep water cannot propagate", [][]TileType3D{{tile("deep_water"), rock, rock}}, nil, 2, 0, TileEmpty, false},
 		{"land beside water wins", [][]TileType3D{{tile("water"), rock, rock, grass}}, nil, 1, 0, grass, true},
@@ -155,10 +183,10 @@ func TestFloorPropagationPolicies(t *testing.T) {
 		{"excluded source cannot pass tree", [][]TileType3D{{stream, rock, tree, rock}}, nil, 3, 0, TileEmpty, false},
 		{"same-wave tie stays stable", [][]TileType3D{{grass, rock, rock, rock, basalt}}, nil, 2, 0, grass, true},
 		{"nearer source resolves first", [][]TileType3D{{grass, rock, rock, rock, rock, basalt}}, nil, 3, 0, basalt, true},
-		{"monster placeholder waits", [][]TileType3D{{basalt, rock, grass, rock}}, map[[2]int]bool{{2, 0}: true}, 3, 0, basalt, true},
+		{"monster placeholder waits", [][]TileType3D{{basalt, rock, grass, rock}}, map[[2]int]FloorRecipient{{2, 0}: FloorMonster}, 3, 0, basalt, true},
 		{"eight-neighbour propagation", [][]TileType3D{{basalt, edge, edge}, {edge, rock, edge}, {edge, edge, rock}}, nil, 2, 2, basalt, true},
 		{"orthogonal votes outweigh diagonal", [][]TileType3D{{basalt, grass, basalt}, {edge, rock, edge}, {edge, grass, edge}}, nil, 1, 1, grass, true},
-		{"no fallback seeds", [][]TileType3D{{edge, grass, rock}}, map[[2]int]bool{{1, 0}: true}, 2, 0, TileEmpty, false},
+		{"no fallback seeds", [][]TileType3D{{edge, grass, rock}}, map[[2]int]FloorRecipient{{1, 0}: FloorNPC}, 2, 0, TileEmpty, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := tm.ResolveFloors(tc.tiles, tc.entities).At(tc.x, tc.y)
@@ -200,14 +228,15 @@ func TestFloorPropagationStitchedEntities(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for cell := range md.entityFloors {
+		for cell, floor := range md.entityFloors {
 			x, y := wm.ProjectTile(region.MapKey, cell[0], cell[1])
 			if _, exists := w.entityFloors[[2]int{x, y}]; !exists {
 				continue // Authored gate NPCs are removed when stitching.
 			}
 			checked++
-			if tm.GetTileData(w.Tiles[y][x]).ExcludeAsUnderFloor || tm.IsWater(w.Tiles[y][x]) {
-				t.Errorf("%s auto entity at %v inherited an edge", region.MapKey, cell)
+			tile := w.Tiles[y][x]
+			if tm.GetTileData(tile).ExcludeAsUnderFloor || !tm.IsWalkable(tile) || (tm.IsWater(tile) && floor.Recipient != FloorMonster) {
+				t.Errorf("%s auto entity at %v inherited ineligible ground %s", region.MapKey, cell, tm.GetTileKey(tile))
 			}
 		}
 	}

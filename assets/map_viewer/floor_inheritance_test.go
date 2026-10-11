@@ -24,6 +24,9 @@ func TestEditorFloorPropagation(t *testing.T) {
 		{"explicit edge stays authored", "VRRR@E  >[npc:chest_wooden@dragon_cliffs_chasm_edge_b]\n", "dragon_cliffs_chasm_edge_b"},
 		{"special marker", "VR@R@E  >[stile:vteleporter], [npc:chest_wooden]\n", "dragon_cliffs_basalt_floor"},
 		{"general object", "VR$R@E  >[tile:planks], [npc:chest_wooden]\n", "dragon_cliffs_basalt_floor"},
+		{"monster beside stream", "EEES@E  >[monster:orc]\n", "dragon_cliffs_stream"},
+		{"object beside stream", "EEES@E  >[npc:chest_wooden]\n", "dragon_cliffs_floor"},
+		{"monster beside deep water", "EEEQ@E  >[monster:orc]\n", "dragon_cliffs_floor"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "floor.map")
@@ -58,6 +61,19 @@ func TestEditorFloorPropagation(t *testing.T) {
 				t.Fatal(err)
 			}
 			compareMapData(t, md, reloaded)
+			if tc.want == "dragon_cliffs_stream" {
+				// Derived water must not become an explicit @ground suffix in the
+				// saved map: changing the neighbouring terrain must still work.
+				if reloaded.MonsterSpawns[0].GroundTile != "" {
+					t.Fatal("saved inherited water as authored monster ground")
+				}
+				land, _ := tm.GetTileTypeFromKey("dragon_cliffs_basalt_floor")
+				reloaded.Tiles[0][3] = land
+				reloaded.RebuildFloors(tm, "dragon_cliffs")
+				if reloaded.Tiles[0][4] != land {
+					t.Fatal("reloaded monster kept stale water after a terrain edit")
+				}
+			}
 		})
 	}
 }

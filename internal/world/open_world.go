@@ -802,7 +802,7 @@ func applyOpenWorldRemovals(npcSpawns *[]NPCSpawn, stileSpawns *[]SpecialTileSpa
 					if data.entityFloors == nil {
 						data.entityFloors = make(map[[2]int]entityFloor)
 					}
-					data.entityFloors[[2]int{spawn.X, spawn.Y}] = entityFloor{Tile: defTile, Fallback: defTile}
+					data.entityFloors[[2]int{spawn.X, spawn.Y}] = entityFloor{Tile: defTile, Fallback: defTile, Recipient: FloorNPC}
 					clearedGround = true
 				}
 				continue
