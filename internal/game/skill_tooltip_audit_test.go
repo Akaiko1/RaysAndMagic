@@ -59,7 +59,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillPathfinding:         {"5/10/15/20%", "Party RT movement speed", "Best capable active guide", "attack and cast while running"},
 	}
 	for _, s := range []character.SkillType{character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear, character.SkillBow, character.SkillMace, character.SkillStaff, character.SkillMartialArts, character.SkillBlaster} {
-		cases[s] = []string{"0/3/6/9 true damage", "resistance applies", "+7% crit", "ignore Perfect Dodge"}
+		cases[s] = []string{"0/3/6/9 true damage", "resistance applies", "+7% crit", "25% of normal damage still lands through Perfect Dodge"}
 	}
 	for _, s := range []character.SkillType{character.SkillLeather, character.SkillChain, character.SkillPlate} {
 		cases[s] = []string{"0/2/4/6 AC per equipped piece", "+5% Perfect Dodge", "once per armor type"}

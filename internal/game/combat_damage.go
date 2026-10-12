@@ -61,20 +61,32 @@ func (p monsterDamagePacket) withTrue(n int) monsterDamagePacket {
 	return out
 }
 
-func (p monsterDamagePacket) trueOnly() monsterDamagePacket {
+// throughDodgeParts is what a Perfect Dodge lets through: the true damage, and
+// WeaponGMDodgeGrazePct of the normal damage when a Grandmaster's hit grazes.
+func throughDodgeParts(parts damagecalc.Parts, grazes bool) damagecalc.Parts {
+	normal := 0
+	if grazes {
+		normal = parts.Normal * character.WeaponGMDodgeGrazePct / 100
+	}
+	return damagecalc.Parts{Normal: normal, True: parts.True}
+}
+
+// throughDodge is throughDodgeParts for every school of a packet; schools with
+// nothing left drop out, so an empty packet means the dodge took it all.
+func (p monsterDamagePacket) throughDodge(grazes bool) monsterDamagePacket {
 	out := monsterDamagePacket{Components: make([]monsterDamageComponent, 0, len(p.Components))}
 	for _, component := range p.Components {
-		if component.Parts.True <= 0 {
+		component.Parts = throughDodgeParts(component.Parts, grazes)
+		if component.Parts.Total() <= 0 {
 			continue
 		}
-		component.Parts.Normal = 0
 		out.Components = append(out.Components, component)
 	}
 	return out
 }
 
 type monsterDamageOptions struct {
-	IsRanged       bool
+	Projectile     bool // a projectile hit (or its splash): may pierce armor (physicalProjectilePierces)
 	IgnoreArmor    bool
 	ArmorPiercePct int
 	// PostArmorNormal preserves the established combat order: armor first,
@@ -98,7 +110,7 @@ func (cs *CombatSystem) applyMonsterDamagePacket(target *monsterPkg.Monster3D, p
 		parts := component.Parts
 		if parts.Normal > 0 {
 			if !options.IgnoreArmor {
-				parts.Normal = applyMonsterArmor(parts.Normal, component.School.String(), armorClass, options.IsRanged)
+				parts.Normal = cs.applyMonsterArmor(parts.Normal, component.School.String(), armorClass, options.Projectile, target.ArmorMelted())
 			}
 			if options.PostArmorNormal != nil {
 				parts.Normal = options.PostArmorNormal(parts.Normal)
@@ -129,8 +141,8 @@ func armorAfterPierce(armorClass, piercePct int) int {
 	return armorClass * (100 - piercePct) / 100
 }
 
-func (cs *CombatSystem) monsterPerfectDodges(target *monsterPkg.Monster3D, ignoresDodge bool) bool {
-	if target == nil || ignoresDodge {
+func (cs *CombatSystem) monsterPerfectDodges(target *monsterPkg.Monster3D) bool {
+	if target == nil {
 		return false
 	}
 	chance := cs.game.bossMechanicValue(target, "perfect_dodge", target.PerfectDodge)
@@ -153,7 +165,8 @@ type partyMonsterAttack struct {
 	IsRanged             bool
 	IsSpell              bool
 	IsMelee              bool
-	IgnoreDodge          bool
+	Projectile           bool // a weapon shot or spell bolt, or its splash
+	GrazesDodge          bool
 	IgnoreArmor          bool
 	ArmorIgnoreChancePct int
 }
@@ -200,6 +213,7 @@ func (cs *CombatSystem) newPartyMonsterAttack(
 		IsRanged:   isRanged,
 		IsSpell:    isSpell,
 		IsMelee:    isMelee,
+		Projectile: isRanged,
 	}
 }
 
@@ -247,7 +261,7 @@ func (cs *CombatSystem) partyMonsterDamageOptions(attack partyMonsterAttack, tar
 	}
 
 	return monsterDamageOptions{
-		IsRanged:       attack.IsRanged,
+		Projectile:     attack.Projectile,
 		IgnoreArmor:    ignoreArmor,
 		ArmorPiercePct: weaponArmorPiercePct(attack.WeaponDef),
 		PostArmorNormal: func(damage int) int {
@@ -274,11 +288,10 @@ func weaponArmorPiercePct(def *config.WeaponDefinitionConfig) int {
 func (cs *CombatSystem) monsterWeaponDamageOptions(
 	def *config.WeaponDefinitionConfig,
 	target *monsterPkg.Monster3D,
-	isRanged, ignoreArmor bool,
+	projectile bool,
 ) monsterDamageOptions {
 	return monsterDamageOptions{
-		IsRanged:       isRanged,
-		IgnoreArmor:    ignoreArmor,
+		Projectile:     projectile,
 		ArmorPiercePct: weaponArmorPiercePct(def),
 		PostArmorNormal: func(damage int) int {
 			damage = applyRoundedMultiplier(damage, cs.weaponBonusMultiplier(def, target), true)

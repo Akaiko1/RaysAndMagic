@@ -129,7 +129,7 @@ func TestInvulnerableBossAbsorbsPoisonInBothModes(t *testing.T) {
 }
 
 func TestPounceCooldownCarriesAcrossModes(t *testing.T) {
-	m := &Monster3D{PounceCooldownSeconds: 4}
+	m := &Monster3D{Abilities: Abilities{Pounce: PounceAbility{CooldownSeconds: 4}}}
 	const tps = 120
 	m.ArmPounceCooldown(tps, 2)
 	if m.PounceCDFrames != 4*tps || m.PounceCDTurns != 2 {

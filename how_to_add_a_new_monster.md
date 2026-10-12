@@ -31,8 +31,6 @@ monsters:
     attack_radius: 1       # tiles
     speed: 1.1
     animate_when_idle: false # optional; true loops the walking sheet at rest
-    gold_min: 25
-    gold_max: 80
     sprite: "goblin"       # assets/sprites/mobs/goblin.png
     biomes: [forest]
     letter: "v"            # lowercase, unique in its biome scope (see "Biome restriction")
@@ -45,6 +43,15 @@ Key requirements:
   within its biome scope - see "Biome restriction" below.
 - `sprite` must exist in `assets/sprites/mobs/` (without `.png`).
 - `alert_radius` and `attack_radius` are in tiles.
+- `speed` is the one movement speed (real time: pixels per 60 Hz frame).
+  Turn-based combat turns it into steps per
+  movement action, `speed / monster_ai.turn_step_speed` (2.0 in
+  `config.yaml`). The rate can be fractional: the remainder carries over, so
+  2.4 walks 1, 1, 2, 1, 1 and 3.0 walks 2, 1, 2, 1, 2. A walking monster
+  moves at least one tile and at most 4 per action, and a walk stops where
+  the monster can strike. `speed: 0` never moves. Wildlife and caravans
+  stroll instead: they have no one-tile floor, so below 2.0 they idle some
+  turns. The editor's Mobs page shows the rate and the first five rounds.
 
 ## Biome scope
 
@@ -82,15 +89,71 @@ Set `projectile_weapon` to a weapon key or `projectile_spell` to a spell key,
 plus `ranged_attack_range` in tiles. Use a supported projectile definition and
 check both combat modes; a display name is not a catalog key.
 
-## Step 4: Optional special effects
-Supported fields (from `monsters.yaml`):
+## Step 4: Optional flags and abilities
+Plain flags stay top-level keys:
 - `perfect_dodge`
-- `fireburst_chance`, `fireburst_damage_min`, `fireburst_damage_max`
-- `poison_chance`, `poison_duration_seconds`
 - `flying`
 - `passive_until_attacked` (won't aggro until struck)
-- `pounce_range_tiles`, `pounce_cooldown_seconds` (leap to melee from range, e.g. puma)
-- `attack_cooldown_multiplier`, `attacks_per_round`
+- `attack_cooldown_multiplier`: the one attack speed (default 1; 0.5 attacks
+  twice as often). Real time scales the attack cooldown by it. Turn-based
+  combat turns it into swings per attack action, `1 / multiplier`, which can
+  be fractional: the remainder carries over to the next action, so 0.7 (1.43)
+  swings 1, 2, 1, 2, 1. Enrage's `cooldown_mult` multiplies the rate the same
+  way. A monster always swings at least once per action, at most 8 times.
+  There is no separate attacks-per-round field. Champions are the exception:
+  they always swing twice per turn-based action. The editor's Mobs page shows
+  the rate to two decimals and the first five rounds.
+
+Every combat ability lives in one `abilities:` map, one entry per kind. A
+kind you leave out is absent; there are no per-ability on/off flags.
+
+```yaml
+monsters:
+  ice_troll:
+    name: "Ice Troll"
+    level: 7
+    max_hit_points: 160
+    armor_class: 11
+    experience: 190
+    damage_min: 17
+    damage_max: 25
+    alert_radius: 3
+    attack_radius: 1
+    speed: 1.1
+    sprite: "goblin"
+    biomes: [forest]
+    letter: "v"
+    size_class: large
+    resistances: {}
+    abilities:
+      stun: {chance: 0.15, seconds: 2, turns: 1}
+      melt_armor: {chance: 0.25}
+```
+
+| Kind | Fields | Effect |
+|---|---|---|
+| `telegraph` | `name`, `kind`, `school`, `shape`, `range`, `cooldown_seconds`, `cooldown_rounds`, `warning_seconds`, `warning_rounds`, `damage_percent`; optional `duration_seconds` + `duration_rounds`, `sustain_damage`, `below_hp_percent` | A marked-tile attack the party sees coming and can step out of. `kind`: strike, charge, slow, root, shield, push, retreat. `shape`: lane, burst, cone, target. `school`: fire, water, earth, air. See the solstice monsters. |
+| `root_party` | `chance`, `seconds`, `turns` | An attack roots the whole party. |
+| `rear_blink` | `chance`, `range_tiles` | A ranged attacker blinks behind the party and strikes. Needs a ranged attack; `range_tiles` runs from 2 up to `ranged_attack_range`. |
+| `pounce` | `range_tiles`, `cooldown_seconds` | Leaps to melee from range, e.g. the puma. |
+| `poison` | `chance`, `duration_seconds` | A hit poisons the target. |
+| `ignite` | `chance`, `duration_seconds` | A hit sets the target on fire. |
+| `stun` | `chance`, `seconds`, `turns` | A hit stuns the target. |
+| `dispel` | `chance` | A hit strips a buff from the party. |
+| `melt_armor` | `chance` | A melee or projectile hit melts the struck target's armor (heroes and party allies): for 5 TB rounds / 15 s, armor reduces physical damage by at most 33%. It refreshes and never stacks; breath, novas, telegraphs and traps never melt armor; Purify cleanses it. |
+| `fireburst` | `chance`, `damage_min`, `damage_max` | A fire blast instead of the normal attack. |
+| `dragon_breath` | `chance`, `damage_type` | The attack hits every living party member in that school. |
+| `piercing_shot` | `chance`, `targets` | An armor-piercing shot at several party members. |
+| `ally_heal` | `chance`, `amount`, `radius_tiles` | Heals itself or a nearby ally instead of attacking. |
+
+A `chance` is in (0, 1]. Each kind's fields are validated at load: a kind
+without its magnitude (poison without `duration_seconds`, stun without
+`seconds` and `turns`) fails startup. The loader is strict: an unknown kind or
+field anywhere in a monster entry fails the load, including a flat key from the
+old schema such as `poison_chance`.
+
+The editor's Mobs page lists a monster's abilities under ABILITIES, after its
+ATTACK lines, and can group the catalog by ability.
 
 ### Boss kit (all data-driven; see golden_thief_bug)
 - `boss: true` - a disintegrate proc deals 100 true damage to a boss
@@ -98,25 +161,44 @@ Supported fields (from `monsters.yaml`):
 - `type: "formless"` - a boss-only type (it fails the load without
   `boss: true`) that blocks Bind Undead and Charm. A boss does not have to
   be formless.
-- `ignores_armor` - melee and projectile hits bypass party armor class;
-  abilities (breath, novas, telegraphs, traps) are still mitigated by armor
-- `inferno_chance` + `inferno_damage` - party-wide fire nova
-- `teleport_at_hp` + `teleport_chance` - low-HP blink to a random tile
 - `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` -
   evades (blinks away, never attacks) until the named quest completes
 
-Paired boss fields are validated at load: a chance without its magnitude (or an
-evasive phase without its tuning) fails startup. Beware: any OTHER unknown YAML
-field is silently ignored - a typo won't error, the feature just won't work.
+Five ability kinds need `boss: true`:
+
+| Kind | Fields | Effect |
+|---|---|---|
+| `trap_volley` | `count`, `radius_tiles`, `interval_seconds`, `interval_turns`, `damage` | Sows fire traps around itself on a cadence; each new volley replaces the old field. |
+| `inferno` | `chance`, `damage`, `range_tiles` | A party-wide fire nova within `range_tiles`. |
+| `teleport` | `at_hp`, `chance` | At or below `at_hp` it may blink to a random tile. |
+| `summon` | `chance`, `monsters`; optional `first_guaranteed`, `count` (default 1), `max` (0 = no cap) | Rallies adds picked from `monsters` (monster keys). |
+| `enrage` | `at_hp`, `damage_mult` and/or `cooldown_mult` | At or below `at_hp` it hits harder and/or faster. |
+
+`at_hp` values are absolute HP; scale them with `max_hit_points`. An evasive
+phase without its tuning fails startup like an ability without its magnitude.
+
+### Adding a new ability kind
+Add a field to `monster.Abilities` and a row to `abilityRows`
+(`internal/monster/abilities.go`): the row carries validation, the editor and
+Identify line, and the kind name the editor groups by. Then write its combat
+consumer with a combat-log line, and add a row to `balanceAbilities`
+(`internal/game/balance_coverage_test.go`) so the balance sweep can see it fire;
+the sweep marks an ability without a row as UNTRACKED.
 
 ## Step 5: Add loot
 Loot is controlled by `assets/loots.yaml` using the monster key.
 Loot drops into a bag on the ground and must be picked up by the player.
+The monster's gold is the table's `gold` entry: `min` to `max` coins, rolled
+when it spawns and dropped in the same bag. A table has at most one, and it
+takes no `chance`. An item entry may also add `min`/`max`: when it lands, that
+many units drop (1-4 potions below; gear drops as separate pieces).
 
 Example:
 ```yaml
 loots:
   ice_troll:
+    - {type: gold, min: 25, max: 80}
+    - {type: item, key: health_potion, chance: 0.3, min: 1, max: 4}
     - type: "weapon"
       key: "elven_bow"
       chance: 0.05

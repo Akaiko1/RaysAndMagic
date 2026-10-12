@@ -164,9 +164,10 @@ spells:
     school: spirit
     spell_points_cost: 12
     cooldown_seconds: 2
+    reuse_seconds: 9   # personal lockout of the spell, as Mass Heal: 3 TB rounds
     is_projectile: false
     is_utility: true
-    heal_amount: 5
+    heal_amount: 30
     heal_party: true
     status_icon: shared_life
     graphics: {cast_overlay: shared_life, cast_overlay_scale: 0.5}

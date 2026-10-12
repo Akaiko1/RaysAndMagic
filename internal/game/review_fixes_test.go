@@ -264,17 +264,17 @@ func TestWeakenScalesWholeOutgoingPacketOnce(t *testing.T) {
 			}},
 		{name: "inferno", pct: 50, normal: 40, trueDmg: 20, carriesTrue: true, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.InfernoDamage = 40
+				m.Abilities.Inferno.Damage = 40
 				cs.applyMonsterInferno(m)
 			})},
 		{name: "fireburst", pct: 50, normal: 40, trueDmg: 20, carriesTrue: true, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.FireburstDamageMin, m.FireburstDamageMax = 40, 40
+				m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax = 40, 40
 				cs.applyMonsterFireburst(m)
 			})},
 		{name: "trap_field", pct: 50, normal: 40, trueDmg: 20, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.TrapVolleyDamage = 40
+				m.Abilities.TrapVolley.Damage = 40
 				cs.game.detonateBossFireTrap(m)
 			})},
 	} {
@@ -450,11 +450,7 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 	}
 
 	mon := monsterPkg.MonsterDefinition{
-		TrapVolleyCount:           20,
-		TrapVolleyRadiusTiles:     15,
-		TrapVolleyIntervalSeconds: 10,
-		TrapVolleyIntervalTurns:   3,
-		TrapVolleyDamage:          40,
+		Abilities: monsterPkg.Abilities{TrapVolley: monsterPkg.TrapVolleyAbility{Count: 20, RadiusTiles: 15, IntervalSeconds: 10, IntervalTurns: 3, Damage: 40}},
 	}
 	var lines []string
 	for _, l := range mon.CombatEffectLines() {
@@ -485,12 +481,12 @@ func TestShippedMonsterCatalogReferencesResolve(t *testing.T) {
 		name, want string
 		breakRef   func(t *testing.T) *monsterPkg.MonsterYAMLConfig
 	}{
-		{"boss summon", "summon_monsters", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
+		{"boss summon", "abilities.summon.monsters", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
 			bad := &monsterPkg.MonsterYAMLConfig{Monsters: map[string]monsterPkg.MonsterDefinition{}}
 			for k, v := range shipped.Monsters {
 				bad.Monsters[k] = v
 			}
-			bad.Monsters["summoner"] = monsterPkg.MonsterDefinition{SummonMonsters: []string{"missing"}}
+			bad.Monsters["summoner"] = monsterPkg.MonsterDefinition{Abilities: monsterPkg.Abilities{Summon: monsterPkg.SummonAbility{Monsters: []string{"missing"}}}}
 			return bad
 		}},
 		{"summon spell", "summon_monster", func(t *testing.T) *monsterPkg.MonsterYAMLConfig {
@@ -897,7 +893,7 @@ func TestBossTrapCooldownCarriesAcrossCombatModes(t *testing.T) {
 	if len(g.bossFireTraps) == 0 {
 		t.Fatal("first trap volley did not sow a field")
 	}
-	if boss.TrapVolleyCDFrames <= 0 || boss.TrapVolleyTurnCD != boss.TrapVolleyIntervalTurns ||
+	if boss.TrapVolleyCDFrames <= 0 || boss.TrapVolleyTurnCD != boss.Abilities.TrapVolley.IntervalTurns ||
 		boss.TrapVolleyCDRate <= 0 {
 		t.Fatalf("initial cooldown = %d frames/%d turns at rate %d",
 			boss.TrapVolleyCDFrames, boss.TrapVolleyTurnCD, boss.TrapVolleyCDRate)
@@ -906,9 +902,9 @@ func TestBossTrapCooldownCarriesAcrossCombatModes(t *testing.T) {
 	for i := 0; i < boss.TrapVolleyCDRate; i++ {
 		g.combat.tryBossTrapVolley(boss, false)
 	}
-	if boss.TrapVolleyTurnCD != boss.TrapVolleyIntervalTurns-1 {
+	if boss.TrapVolleyTurnCD != boss.Abilities.TrapVolley.IntervalTurns-1 {
 		t.Fatalf("RT elapsed time left %d TB turns, want %d",
-			boss.TrapVolleyTurnCD, boss.TrapVolleyIntervalTurns-1)
+			boss.TrapVolleyTurnCD, boss.Abilities.TrapVolley.IntervalTurns-1)
 	}
 
 	g.combat.tryBossTrapVolley(boss, true)
@@ -916,9 +912,9 @@ func TestBossTrapCooldownCarriesAcrossCombatModes(t *testing.T) {
 		t.Fatalf("first TB pass after switch left %d turns, want 1", boss.TrapVolleyTurnCD)
 	}
 	g.combat.tryBossTrapVolley(boss, true)
-	if boss.TrapVolleyTurnCD != boss.TrapVolleyIntervalTurns {
+	if boss.TrapVolleyTurnCD != boss.Abilities.TrapVolley.IntervalTurns {
 		t.Fatalf("due TB pass did not re-arm cooldown: got %d, want %d",
-			boss.TrapVolleyTurnCD, boss.TrapVolleyIntervalTurns)
+			boss.TrapVolleyTurnCD, boss.Abilities.TrapVolley.IntervalTurns)
 	}
 }
 

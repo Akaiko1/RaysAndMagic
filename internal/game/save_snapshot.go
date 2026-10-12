@@ -175,11 +175,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			rootHeldThisTurn, slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
 			poisonTickTimer, burnTickTimer := mon.DoTTickTimers()
 			saveEntry := MonsterSave{
-				AmbientThreat:     mon.Threat,
-				Arbor:             mon.Arbor,
-				Population:        mon.Population,
-				AmbientMoveCredit: mon.AmbientMoveCredit,
-				ID:                mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
+				AmbientThreat: mon.Threat,
+				Arbor:         mon.Arbor,
+				Population:    mon.Population,
+				ID:            mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				FearFramesRemaining:            mon.FearFramesRemaining,
 				SilenceFramesRemaining:         mon.SilenceFramesRemaining,
@@ -225,6 +224,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ArmorShredFrames:        mon.ArmorShredFramesRemaining,
 				ArmorShredTurns:         mon.ArmorShredTurnsRemaining,
 				ArmorShredRate:          mon.ArmorShredRate,
+				ArmorMelt:               mon.ArmorMelt.Saved(),
 				BurnFramesRemaining:     mon.BurnFramesRemaining,
 				BurnTickTimer:           burnTickTimer,
 				TrapVolleyCD:            mon.TrapVolleyCDFrames,
@@ -247,6 +247,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				PounceCDFrames:          mon.PounceCDFrames,
 				PounceCDTurns:           mon.PounceCDTurns,
 				PounceCDRate:            mon.PounceCDRate,
+				TurnBasedSwingCarry:     mon.TurnBasedSwingCarry,
+				TurnBasedStepCarry:      mon.TurnBasedStepCarry,
 				BossCD:                  mon.BossCD,
 				InfernoCD:               mon.InfernoCDFrames,
 				BossHurtPending:         mon.BossHurtPending,

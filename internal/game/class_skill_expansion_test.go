@@ -150,10 +150,10 @@ func TestBlasterRequiresAndUsesBlasterMastery(t *testing.T) {
 		t.Fatal("alien_blaster missing")
 	}
 	archer.Skills[character.SkillBlaster].Mastery = character.MasteryGrandMaster
-	trueDamage, ignoresDodge := cs.weaponMasteryStrike(archer, blaster)
-	if trueDamage != 3*MasteryWeaponTrueDamagePerTier || !ignoresDodge {
+	trueDamage, grazesDodge := cs.weaponMasteryStrike(archer, blaster)
+	if trueDamage != 3*MasteryWeaponTrueDamagePerTier || !grazesDodge {
 		t.Fatalf("GM Blaster mastery = (%d,%v), want (%d,true)",
-			trueDamage, ignoresDodge, 3*MasteryWeaponTrueDamagePerTier)
+			trueDamage, grazesDodge, 3*MasteryWeaponTrueDamagePerTier)
 	}
 }
 

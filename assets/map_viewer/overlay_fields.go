@@ -36,6 +36,23 @@ func overlayInt(label string, p *int, help string) overlayField {
 		return nil
 	}}
 }
+
+// overlayExclusiveInt is overlayInt for one of two alternatives: a positive
+// value clears the other, so flat and percent damage never coexist.
+func overlayExclusiveInt(label string, p, other *int, help string) overlayField {
+	f := overlayInt(label, p, help)
+	apply := f.apply
+	f.apply = func(s string) error {
+		if err := apply(s); err != nil {
+			return err
+		}
+		if *p > 0 {
+			*other = 0
+		}
+		return nil
+	}
+	return f
+}
 func overlayFloat(label string, p *float64, help string) overlayField {
 	return overlayField{label: label, value: strconv.FormatFloat(*p, 'f', -1, 64), help: help, apply: func(s string) error {
 		n, e := strconv.ParseFloat(strings.TrimSpace(s), 64)
@@ -165,10 +182,10 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 		if e.Kind == "transfer" {
 			fields = append(fields, overlayInt("Receiver column", &e.Destination[0], "Destination must be walkable and outside the source."), overlayInt("Receiver row", &e.Destination[1], "Destination must be safe."), overlayAction("Pick receiver on map", "Click the destination tile.", func() { p.tool = "receiver" }), overlayString("Fires with lane", &e.TriggerLane, "Optional: wait until this boss lane fires.", append([]string{""}, lanes...)...), overlayString("Tile colour", &e.School, "Colours the transfer tiles by school. No damage.", "", "physical", "fire", "water", "earth", "air"))
 		} else {
-			fields = append(fields, overlayInt("Damage", &e.Damage, "Per entry for traps, per strike for lanes, per second for occupation."), overlayString("Damage school", &e.School, "Resistance used against the damage.", "physical", "fire", "water", "earth", "air"), overlayString("Second school", &e.SecondarySchool, "Optional: split the damage equally between two schools.", "", "physical", "fire", "water", "earth", "air"))
+			fields = append(fields, overlayExclusiveInt("Damage", &e.Damage, &e.DamagePercent, "Per entry for traps, per strike for lanes, per second for occupation. Setting it clears the percent."), overlayExclusiveInt("Damage (% of boss attack)", &e.DamagePercent, &e.Damage, "Instead of Damage: a percent of the boss's attack at the visit's level, so it grows with the chamber."), overlayString("Damage school", &e.School, "Resistance used against the damage.", "physical", "fire", "water", "earth", "air"), overlayString("Second school", &e.SecondarySchool, "Optional: split the damage equally between two schools.", "", "physical", "fire", "water", "earth", "air"))
 		}
 		if e.Kind == "lane" {
-			fields = append(fields, overlayInt("Lingering damage per second", &e.SustainDamage, "Damage per second on the struck tiles afterwards. 0: only the strike hurts."), overlayFloat("Lingering time (seconds)", &e.DurationSeconds, "Real-time lifetime of the lingering field."), overlayInt("Lingering time (rounds)", &e.DurationRounds, "Turn-based lifetime of the lingering field."))
+			fields = append(fields, overlayExclusiveInt("Lingering damage per second", &e.SustainDamage, &e.SustainPercent, "Damage per second on the struck tiles afterwards. 0: only the strike hurts."), overlayExclusiveInt("Lingering damage (% of boss attack)", &e.SustainPercent, &e.SustainDamage, "Instead of the flat lingering damage: a percent of the boss's attack per second."), overlayFloat("Lingering time (seconds)", &e.DurationSeconds, "Real-time lifetime of the lingering field."), overlayInt("Lingering time (rounds)", &e.DurationRounds, "Turn-based lifetime of the lingering field."))
 		}
 		if e.Kind == "lane" || e.BossBelowPercent > 0 {
 			help := "Time between the announcement and the strike, to leave the marked tiles."

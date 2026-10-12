@@ -103,8 +103,8 @@ func aggro(m *monsterPkg.Monster3D) {
 // noSummons strips the summon kit so it can't preempt the ability under test
 // (a handled summon returns true and skips the normal attack).
 func noSummons(m *monsterPkg.Monster3D) {
-	m.SummonChance = 0
-	m.SummonFirstGuaranteed = false
+	m.Abilities.Summon.Chance = 0
+	m.Abilities.Summon.FirstGuaranteed = false
 }
 
 // TestMonsterSpecialAbilityWiring: every boss ability plus dragon breath, each
@@ -122,8 +122,8 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 			name: "gtb-inferno", key: "golden_thief_bug", tileX: 3,
 			prep: func(m *monsterPkg.Monster3D) {
 				aggro(m)
-				m.InfernoChance = 1.0
-				m.TeleportChance = 0
+				m.Abilities.Inferno.Chance = 1.0
+				m.Abilities.Teleport.Chance = 0
 			},
 			want: "Inferno scorches",
 		},
@@ -131,9 +131,9 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 			name: "gtb-lowhp-blink", key: "golden_thief_bug", tileX: 3,
 			prep: func(m *monsterPkg.Monster3D) {
 				aggro(m)
-				m.InfernoChance = 0
-				m.TeleportChance = 1.0
-				m.HitPoints = m.TeleportAtHP // at the low-HP threshold
+				m.Abilities.Inferno.Chance = 0
+				m.Abilities.Teleport.Chance = 1.0
+				m.HitPoints = m.Abilities.Teleport.AtHP // at the low-HP threshold
 			},
 			want: "blinks away in a golden flash",
 		},
@@ -146,7 +146,7 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 		},
 		{
 			name: "samurai-summon", key: "old_samurai", tileX: 3,
-			prep: aggro, // config: summon_first_guaranteed
+			prep: aggro, // config: abilities.summon.first_guaranteed
 			want: "raises the war-banner",
 		},
 		{
@@ -154,7 +154,7 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 			prep: func(m *monsterPkg.Monster3D) {
 				aggro(m)
 				noSummons(m)
-				m.HitPoints = m.EnrageAtHP // at the enrage threshold
+				m.HitPoints = m.Abilities.Enrage.AtHP // at the enrage threshold
 			},
 			want: "flies into a furious rage",
 		},
@@ -170,7 +170,7 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 			prep: func(m *monsterPkg.Monster3D) {
 				m.BossAggro = true
 				noSummons(m)
-				m.HitPoints = m.EnrageAtHP
+				m.HitPoints = m.Abilities.Enrage.AtHP
 			},
 			want: "flies into a furious rage",
 		},
@@ -186,13 +186,13 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 			prep: func(m *monsterPkg.Monster3D) {
 				m.BossAggro = true
 				noSummons(m)
-				m.FireburstChance = 1.0
+				m.Abilities.Fireburst.Chance = 1.0
 			},
 			want: "casts Fireburst",
 		},
 		{
 			name: "dragon-breath", key: "dragon_gold", tileX: 5, // in range 4, on the row
-			prep: func(m *monsterPkg.Monster3D) { m.DragonBreathChance = 1.0 },
+			prep: func(m *monsterPkg.Monster3D) { m.Abilities.DragonBreath.Chance = 1.0 },
 			want: "breathes",
 		},
 	}
@@ -225,8 +225,8 @@ func TestRealTimeBossSpecialUsesNormalAttackCadence(t *testing.T) {
 	boss := spawnSpecialsMonster(g, "golden_thief_bug", 3, 2)
 	aggro(boss)
 	noSummons(boss)
-	boss.InfernoChance = 1
-	boss.TeleportChance = 0
+	boss.Abilities.Inferno.Chance = 1
+	boss.Abilities.Teleport.Chance = 0
 	boss.State = monsterPkg.StateAttacking
 	boss.StateTimer = 1
 	if !g.tryClaimMonsterAttackPost(boss) {

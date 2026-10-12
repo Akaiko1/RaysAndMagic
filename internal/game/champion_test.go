@@ -63,7 +63,7 @@ func TestChampionBuilds(t *testing.T) {
 
 // TestApplyChampionStatsMirror verifies the static mirror: boss HP pool stays
 // authored (not the character's), two TB swings, ranged weapon with weapon-
-// physics range, GM dodge-pierce, character dodge chance, weapon reach.
+// physics range, GM dodge graze, character dodge chance, weapon reach.
 func TestApplyChampionStatsMirror(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	primeTestChampions(t, cs.game)
@@ -84,8 +84,8 @@ func TestApplyChampionStatsMirror(t *testing.T) {
 	if m.DamageMin <= 0 || m.DamageMin != m.DamageMax {
 		t.Errorf("mirror damage band = [%d,%d], want equal and positive", m.DamageMin, m.DamageMax)
 	}
-	if m.AttacksPerRound != 2 {
-		t.Errorf("champion TB swings = %d, want 2", m.AttacksPerRound)
+	if got := m.TurnBasedAttackRate(); got != 2 {
+		t.Errorf("champion TB swings = %.2f, want 2", got)
 	}
 	if !m.HasRangedAttack() {
 		t.Error("archer champion should be ranged (main-hand bow as projectile)")
@@ -100,8 +100,8 @@ func TestApplyChampionStatsMirror(t *testing.T) {
 	if got, want := m.GetAttackRangePixels(), bow.Physics.RangeTiles*ts; got != want {
 		t.Errorf("archer range = %.0fpx, want weapon physics %.0fpx", got, want)
 	}
-	if !m.IgnoresDodge {
-		t.Error("GM bow mastery must pierce Perfect Dodge")
+	if !m.GrazesDodge {
+		t.Error("GM bow mastery must graze through Perfect Dodge")
 	}
 	if m.PerfectDodge <= 0 {
 		t.Error("champion PerfectDodge must derive from character luck")

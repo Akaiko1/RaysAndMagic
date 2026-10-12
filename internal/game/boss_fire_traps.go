@@ -11,8 +11,8 @@ import (
 )
 
 // The Brood Mother's fire-trap field. One boss owns one field: every volley
-// interval she re-sows trap_volley_count fire traps on random walkable tiles
-// within trap_volley_radius_tiles of herself, and the NEW volley replaces the
+// interval she re-sows abilities.trap_volley.count fire traps on random walkable
+// tiles within its radius_tiles of herself, and the NEW volley replaces the
 // old field (user spec). A party member's tile igniting consumes that trap and
 // burns the whole party. Positions are tile coords on the current world.
 
@@ -69,7 +69,7 @@ func restoreBossFireTraps(saves []bossFireTrap, fallbackMapKey string, wm *world
 // tryBossTrapVolley is called from the boss action paths and owns both cadence
 // counters: RT ticks frames, while TB ticks once per monster pass.
 func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D, turnBased bool) {
-	if m == nil || m.TrapVolleyCount <= 0 || !m.IsAlive() || cs.bossDisabled(m) || cs.bossEvasive(m) {
+	if m == nil || m.Abilities.TrapVolley.Count <= 0 || !m.IsAlive() || cs.bossDisabled(m) || cs.bossEvasive(m) {
 		return
 	}
 	// A provoked boss owns the field; a passive nesting mother sows nothing until
@@ -112,13 +112,13 @@ func (g *MMGame) sowBossTrapField(m *monsterPkg.Monster3D) {
 	}
 	ts := float64(g.config.GetTileSize())
 	cx, cy := TileIndex(m.X, ts), TileIndex(m.Y, ts)
-	radius := m.TrapVolleyRadiusTiles
+	radius := m.Abilities.TrapVolley.RadiusTiles
 	extent := int(math.Ceil(radius))
-	seen := make(map[[2]int]bool, m.TrapVolleyCount)
-	field := make([]bossFireTrap, 0, m.TrapVolleyCount)
+	seen := make(map[[2]int]bool, m.Abilities.TrapVolley.Count)
+	field := make([]bossFireTrap, 0, m.Abilities.TrapVolley.Count)
 	// Random rejection sampling with a generous attempt budget; a cramped
 	// arena simply gets a thinner field.
-	for attempts := 0; attempts < m.TrapVolleyCount*10 && len(field) < m.TrapVolleyCount; attempts++ {
+	for attempts := 0; attempts < m.Abilities.TrapVolley.Count*10 && len(field) < m.Abilities.TrapVolley.Count; attempts++ {
 		dx := rand.Intn(2*extent+1) - extent
 		dy := rand.Intn(2*extent+1) - extent
 		// Euclidean radius, matching the game-wide convention - a square would
@@ -178,7 +178,7 @@ func (g *MMGame) detonateBossFireTrap(owner *monsterPkg.Monster3D) {
 	g.addScreenShake(3, 5)
 	// The field carries authored trap damage only, not the owner's true_damage.
 	hit := monsterCharacterHit{
-		Parts:      owner.OutgoingDamage(damagecalc.Parts{Normal: owner.TrapVolleyDamage}),
+		Parts:      owner.OutgoingDamage(damagecalc.Parts{Normal: owner.Abilities.TrapVolley.Damage}),
 		DamageType: monsterPkg.DamageFire.String(),
 		Hazard:     true,
 	}

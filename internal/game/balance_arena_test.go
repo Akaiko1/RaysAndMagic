@@ -237,23 +237,8 @@ func (a *balanceArena) prepareParty() {
 				}
 			}
 		}
-		for _, school := range m.MagicSchools {
-			for _, id := range school.KnownSpells {
-				def, err := spells.GetSpellDefinitionByID(id)
-				fightBuff := def.IsBuff() && (def.StatBonus != 0 || len(def.StatBonuses) > 0 || def.ResistBuffPct != 0 ||
-					def.ResistBuffSchoolPct != 0 || def.OutgoingDamageBonus != 0 || def.IncomingDamageReduction != 0)
-				if err != nil || !(fightBuff || (def.SummonMonster != "" && !a.noSummons)) {
-					continue
-				}
-				g.combat.castPlayerSpell(id, def, m, false)
-			}
-		}
 	}
-	// Buffed out of combat, then rested: buffs that raise max HP or SP leave
-	// the party full, not short of its new maximum.
-	for _, m := range g.party.Members {
-		m.HitPoints, m.SpellPoints = m.MaxHitPoints, m.MaxSpellPoints
-	}
+	castFightBuffs(g, !a.noSummons)
 }
 
 // unseal puts a quest-gated boss in the state the player meets it: its gating

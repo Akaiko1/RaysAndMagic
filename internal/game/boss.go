@@ -99,7 +99,7 @@ func (cs *CombatSystem) bossActionTick(m *monsterPkg.Monster3D) bool {
 // once-per-attack moment when an aggressive boss may blink (low HP) or cast
 // Inferno. Returns true when it handled the monster's action this tick (caller
 // skips the normal attack); false lets the normal melee/ranged attack proceed
-// (which honours IgnoresArmor).
+// (which can melt armor: abilities.melt_armor).
 // infernoRollDue tells updateBoss that an AT-RANGE nova roll is allowed this
 // tick: RT passes it when the per-monster inferno cooldown elapsed, TB once per
 // monster pass. The nova's own authored radius still gates it either way, and a
@@ -135,7 +135,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 	// Aggressive. Enrage is a passive HP-threshold state announced once here; its
 	// mechanical effect (harder/faster hits) is applied live in
 	// GetAttackDamage/AttackCooldownFrames, so it is save-safe.
-	if m.EnrageAtHP > 0 && !m.Enraged && m.IsEnraged() {
+	if m.Abilities.Enrage.AtHP > 0 && !m.Enraged && m.IsEnraged() {
 		m.Enraged = true
 		cs.game.logCombat(logToneBad, "%s flies into a %s!", logMonsterName(m), logKeyword("damage", "furious rage"))
 	}
@@ -149,10 +149,10 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 	// the SummonMax cap (a passed roll would spawn nothing and fall through anyway).
 	hurtProvoke := m.BossHurtPending && !cs.bossDisabled(m)
 	m.BossHurtPending = false
-	if (attackTick || hurtProvoke) && len(m.SummonMonsters) > 0 &&
-		(m.SummonMax <= 0 || cs.countLiveSummons(m) < m.SummonMax) {
-		guaranteed := m.SummonFirstGuaranteed && !m.SummonFirstDone
-		if guaranteed || (m.SummonChance > 0 && rand.Float64() < m.SummonChance) {
+	if (attackTick || hurtProvoke) && len(m.Abilities.Summon.Monsters) > 0 &&
+		(m.Abilities.Summon.Max <= 0 || cs.countLiveSummons(m) < m.Abilities.Summon.Max) {
+		guaranteed := m.Abilities.Summon.FirstGuaranteed && !m.SummonFirstDone
+		if guaranteed || (m.Abilities.Summon.Chance > 0 && rand.Float64() < m.Abilities.Summon.Chance) {
 			if cs.summonBossAdds(m) {
 				m.SummonFirstDone = true
 				return true
@@ -161,12 +161,12 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 	}
 
 	// The low-HP blink still fires only at the melee attack moment. Inferno is a
-	// RANGED nova (inferno_range_tiles) and may also roll from a distance, so it
+	// RANGED nova (abilities.inferno.range_tiles) and may also roll from a distance, so it
 	// is handled after this gate.
 	if !attackTick {
 		return cs.tryBossRangedInferno(m, infernoRollDue)
 	}
-	if m.TeleportAtHP > 0 && m.HitPoints <= m.TeleportAtHP && rand.Float64() < m.TeleportChance {
+	if m.Abilities.Teleport.AtHP > 0 && m.HitPoints <= m.Abilities.Teleport.AtHP && rand.Float64() < m.Abilities.Teleport.Chance {
 		if cs.blinkMonsterRandom(m) {
 			cs.game.logCombat(logToneBad, "%s %s in a golden flash!", logMonsterName(m), logAbility("blinks away"))
 			return true
@@ -174,23 +174,23 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 	}
 	// Melee moment: the nova can replace the normal hit, as long as the party is
 	// inside its authored reach (always true at melee range for a sane radius).
-	if m.InfernoChance > 0 && cs.bossInfernoInRange(m) && rand.Float64() < m.InfernoChance {
+	if m.Abilities.Inferno.Chance > 0 && cs.bossInfernoInRange(m) && rand.Float64() < m.Abilities.Inferno.Chance {
 		cs.applyMonsterInferno(m)
 		m.InfernoCDFrames = cs.bossInfernoRollCooldownFrames()
 		return true
 	}
-	return false // proceed to the normal attack (armor-piercing if IgnoresArmor)
+	return false // proceed to the normal attack (it may melt armor: abilities.melt_armor)
 }
 
 // bossInfernoInRange reports whether the party is inside the nova's authored
-// radius. A boss with inferno_chance but no radius cannot reach the party at all
+// radius. A boss with an inferno chance but no radius cannot reach the party at all
 // (load validation rejects that combination, so this is a belt-and-suspenders
 // guard against hand-built test monsters).
 func (cs *CombatSystem) bossInfernoInRange(m *monsterPkg.Monster3D) bool {
-	if m.InfernoRangeTiles <= 0 || cs.attackOriginBlocked(m.X, m.Y) {
+	if m.Abilities.Inferno.RangeTiles <= 0 || cs.attackOriginBlocked(m.X, m.Y) {
 		return false
 	}
-	reach := m.InfernoRangeTiles * float64(cs.game.config.GetTileSize())
+	reach := m.Abilities.Inferno.RangeTiles * float64(cs.game.config.GetTileSize())
 	return Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= reach
 }
 
@@ -202,10 +202,10 @@ func (cs *CombatSystem) bossInfernoRollCooldownFrames() int {
 }
 
 // tryBossRangedInferno rolls the nova from OUTSIDE melee reach: the party must be
-// within inferno_range_tiles and the caller's cooldown must have elapsed. Returns true
+// within abilities.inferno.range_tiles and the caller's cooldown must have elapsed. Returns true
 // when the nova fired and consumed the boss's action this tick.
 func (cs *CombatSystem) tryBossRangedInferno(m *monsterPkg.Monster3D, rollDue bool) bool {
-	if m.InfernoChance <= 0 || cs.bossDisabled(m) {
+	if m.Abilities.Inferno.Chance <= 0 || cs.bossDisabled(m) {
 		return false
 	}
 	if !rollDue || m.InfernoCDFrames > 0 || !cs.bossInfernoInRange(m) {
@@ -214,7 +214,7 @@ func (cs *CombatSystem) tryBossRangedInferno(m *monsterPkg.Monster3D, rollDue bo
 	// The cooldown is armed by the ATTEMPT, not only by a hit, so a failed roll
 	// cannot be retried every frame.
 	m.InfernoCDFrames = cs.bossInfernoRollCooldownFrames()
-	if rand.Float64() >= m.InfernoChance {
+	if rand.Float64() >= m.Abilities.Inferno.Chance {
 		return false
 	}
 	cs.applyMonsterInferno(m)
@@ -225,19 +225,19 @@ func (cs *CombatSystem) tryBossRangedInferno(m *monsterPkg.Monster3D, rollDue bo
 // from SummonMonsters spawned ~2 tiles out on walkable tiles, hostile on arrival.
 // Honours SummonMax (live summons of THIS boss). Returns true if any spawned.
 func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
-	if len(m.SummonMonsters) == 0 {
+	if len(m.Abilities.Summon.Monsters) == 0 {
 		return false
 	}
 	liveSummons := cs.countLiveSummons(m)
-	if m.SummonMax > 0 && liveSummons >= m.SummonMax {
+	if m.Abilities.Summon.Max > 0 && liveSummons >= m.Abilities.Summon.Max {
 		return false
 	}
-	n := m.SummonCount
+	n := m.Abilities.Summon.Count
 	if n < 1 {
 		n = 1
 	}
-	if m.SummonMax > 0 && liveSummons+n > m.SummonMax {
-		n = m.SummonMax - liveSummons
+	if m.Abilities.Summon.Max > 0 && liveSummons+n > m.Abilities.Summon.Max {
+		n = m.Abilities.Summon.Max - liveSummons
 	}
 	tile := float64(cs.game.config.GetTileSize())
 	spawned := 0
@@ -246,7 +246,7 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 		maxAttempts = 12
 	}
 	for attempts := 0; spawned < n && attempts < maxAttempts; attempts++ {
-		key := m.SummonMonsters[rand.Intn(len(m.SummonMonsters))]
+		key := m.Abilities.Summon.Monsters[rand.Intn(len(m.Abilities.Summon.Monsters))]
 		angle := rand.Float64() * 2 * math.Pi
 		tx := m.X + math.Cos(angle)*2*tile
 		ty := m.Y + math.Sin(angle)*2*tile
@@ -409,7 +409,7 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	cs.game.logCombat(logToneBad, "%s erupts in a %s!", logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "wave of fire"))
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		parts := cs.monsterOutgoingDamage(m, damagecalc.Parts{Normal: m.InfernoDamage, True: m.TrueDamage})
+		parts := cs.monsterOutgoingDamage(m, damagecalc.Parts{Normal: m.Abilities.Inferno.Damage, True: m.TrueDamage})
 		dealt := cs.damagePartyMemberPartsFromSource(
 			idx,
 			member,

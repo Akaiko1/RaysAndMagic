@@ -181,20 +181,20 @@ func championHandWeapon(ch *character.MMCharacter, offHand bool) items.Item {
 }
 
 // applyChampionHandRiders stamps the STRIKING weapon's per-hit effects onto the
-// mob just before its hits resolve: weapon-mastery true damage and GM
-// dodge-pierce for that weapon's category, plus the weapon's own YAML on-hit
+// mob just before its hits resolve: weapon-mastery true damage and the GM
+// dodge graze for that weapon's category, plus the weapon's own YAML on-hit
 // riders. Stun seconds follow the weapon-stun convention of one second per TB
 // turn (see config.go weapon stun doc / tryApplyWeaponStun).
 func (cs *CombatSystem) applyChampionHandRiders(m *monster.Monster3D, ch *character.MMCharacter, wd *config.WeaponDefinitionConfig) {
 	if wd == nil {
 		return
 	}
-	trueDmg, ignoreDodge := cs.weaponMasteryStrike(ch, wd)
+	trueDmg, grazesDodge := cs.weaponMasteryStrike(ch, wd)
 	m.TrueDamage = trueDmg
-	m.IgnoresDodge = ignoreDodge
-	m.StunCharChance = wd.StunChance
-	m.StunCharTurns = wd.StunTurns
-	m.StunCharSeconds = wd.StunTurns
+	m.GrazesDodge = grazesDodge
+	m.Abilities.Stun.Chance = wd.StunChance
+	m.Abilities.Stun.Turns = wd.StunTurns
+	m.Abilities.Stun.Seconds = wd.StunTurns
 }
 
 // championSwingDamage is the ONE champion hit formula: stamp the striking
@@ -262,7 +262,7 @@ func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, d
 	if wd != nil {
 		armorPiercePct = wd.ArmorPiercePct
 	}
-	hit := hitFromMonster(m, damage, damageType, m.IgnoresArmor, 0, true, false)
+	hit := hitFromMonster(m, damage, damageType, false, 0, true, false)
 	hit.ArmorPiercePct = armorPiercePct
 	return hit
 }
@@ -330,7 +330,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		// action) the party if it stands in the same blast.
 		blast := cs.pointBlast(m.X, m.Y, wd.AoeRadiusTiles)
 		cs.forEachAreaVictim(blast, func(o *monster.Monster3D) bool { return o.Bound }, func(o *monster.Monster3D) {
-			cs.strikeMonsterPacketFor(m, o, packet, wd, false, hit.IgnoresArmor, hit.IgnoresDodge, false)
+			cs.strikeMonsterPacketFor(m, o, packet, wd, false, hit.GrazesDodge, false)
 		})
 		partyCaught = cs.reachesParty(blast)
 	} else {
@@ -537,10 +537,11 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 
 	// Real-time cadence: choose the cooldown multiplier so AttackCooldownFrames()
 	// resolves to the character's weapon cooldown (Speed + weapon + dual-wield).
+	// Turn-based swings ignore it: champions have their own fixed rule,
+	// monster.ChampionTurnBasedSwings.
 	if base := g.config.MonsterAI.AttackCooldown; base > 0 {
 		m.AttackCooldownMultiplier = float64(cs.WeaponCooldownFrames(ch)) / float64(base)
 	}
-	m.AttacksPerRound = 2 // champions always get two turn-based swings
 
 	// Ranged champions loose their MAIN-HAND weapon as a projectile; range then
 	// comes from the weapon's own physics (GetAttackRangePixels), like the party.
@@ -593,51 +594,6 @@ func (cs *CombatSystem) recordChampionVictory(m *monster.Monster3D) {
 	// guards about kill credit (quest_progress_ignored, pure summons) which have
 	// nothing to do with duels.
 	cs.game.creditArenaDuelWin(m)
-	cs.rollChampionSetDrops(m)
-}
-
-// rollChampionSetDrops rolls the armor-set trophy a fallen champion can yield
-// (any tier): each SET listed in champions.yaml `set_drops:` rolls ONCE in turn
-// at its authored percent, and the FIRST success ends the rolling by dropping a
-// RANDOM piece of that set. So `pct` is the set's real per-kill drop chance,
-// independent of how many pieces the set has (a per-piece roll would inflate it
-// to 1-(1-pct)^n). Set membership comes from items.yaml `set:` keys.
-func (cs *CombatSystem) rollChampionSetDrops(m *monster.Monster3D) {
-	ladder := config.ChampionSetDrops()
-	if len(ladder) == 0 {
-		return
-	}
-	for _, drop := range ladder {
-		if rand.Intn(100) >= drop.Pct {
-			continue
-		}
-		keys := itemKeysOfSet(drop.Set)
-		if len(keys) == 0 {
-			continue // empty set (content edit): fall through to the next rung
-		}
-		it, err := items.TryCreateItemFromYAML(keys[rand.Intn(len(keys))])
-		if err != nil {
-			continue
-		}
-		cs.game.AddColoredCombatMessage(fmt.Sprintf("%s's %s drops on the sand!", m.Name, it.Name), combatMessageGold)
-		cs.game.addMonsterLootDrop(m, []items.Item{it}, 0)
-		return // first successful set ends the rolling: one piece max per kill
-	}
-}
-
-// itemKeysOfSet lists items.yaml keys carrying the given set key, sorted.
-func itemKeysOfSet(set string) []string {
-	if config.GlobalItems == nil {
-		return nil
-	}
-	var keys []string
-	for key, def := range config.GlobalItems.Items {
-		if def != nil && def.Set == set {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // arenaTierSpentToday reports whether the difficulty was already challenged
@@ -979,7 +935,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
 		}
 		// Champion spells use the spell's own damage packet. Weapon mastery true
-		// damage and dodge-pierce belong only to weapon strikes.
+		// damage and the dodge graze belong only to weapon strikes.
 		x, y, owner := cs.monsterAttackAim(m, target)
 		cs.spawnMonsterSpellProjectileDamage(
 			m,

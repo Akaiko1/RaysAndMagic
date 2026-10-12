@@ -21,6 +21,11 @@ func (v *viewer) mobCatalogLayout() mobCatalogLayout {
 	return mobCatalogLayout{rect{16, 142, lw - 16, h - 174}, rect{lw + 16, 142, w - lw - dw - 48, h - 174}, rect{w - dw, 142, dw - 16, h - 174}}
 }
 
+// mobAbilityTabSections are the stat-sheet sections the Abilities tab shows:
+// how the monster fights (its attack, authored abilities, champion kit) and
+// the behaviour that frames it.
+var mobAbilityTabSections = map[string]bool{"ATTACK": true, "ABILITIES": true, "CHAMPION": true, "BEHAVIOR": true}
+
 func mobCatalogGroup(d monster.MonsterDefinition, mode string) []string {
 	switch mode {
 	case "Biome":
@@ -33,6 +38,16 @@ func mobCatalogGroup(d monster.MonsterDefinition, mode string) []string {
 			return []string{titleCase(d.Type)}
 		}
 		return []string{"Other creatures"}
+	case "Ability":
+		// One group per authored ability kind (monsters.yaml abilities:).
+		var groups []string
+		for _, kind := range d.AbilityKinds() {
+			groups = append(groups, titleCase(strings.ReplaceAll(kind, "_", " ")))
+		}
+		if len(groups) == 0 {
+			return []string{"No abilities"}
+		}
+		return groups
 	default:
 		if d.Boss {
 			return []string{"Bosses"}
@@ -43,7 +58,7 @@ func mobCatalogGroup(d monster.MonsterDefinition, mode string) []string {
 		if !d.HasAttackStats() {
 			return []string{"Non-combatants"}
 		}
-		if d.Telegraph != nil {
+		if d.Abilities.Telegraph != nil {
 			return []string{"Telegraphed attacks"}
 		}
 		if d.ProjectileSpell != "" || d.ProjectileWeapon != "" {
@@ -62,7 +77,7 @@ func (v *viewer) buildMobCatalogRows() []catalogEntryRow {
 	groups := map[string][]catalogEntryRow{}
 	for i, key := range mobsPage.keys {
 		d := v.monsterCfg.Monsters[key]
-		search := key + " " + d.Name + " " + d.Type + " " + strings.Join(d.Biomes, " ")
+		search := key + " " + d.Name + " " + d.Type + " " + strings.Join(d.Biomes, " ") + " " + strings.Join(d.AbilityKinds(), " ")
 		if !strings.Contains(strings.ToLower(search), strings.ToLower(v.browser.mobQuery)) {
 			continue
 		}
@@ -100,7 +115,7 @@ func (v *viewer) mobCatalogControls() []catalogControl {
 		{rect{16, 80, l.list.w - 104, 30}, "Search name, key, biome", "mob", nil},
 		v.catalogFoldControl(rect{l.list.x + l.list.w - 96, 80, 96, 30}, v.mobCatalogRows),
 		{rect{l.stage.x, 80, 150, 30}, "Group: " + group, "", func() {
-			v.catalogChoose("Group monsters", []string{"Role", "Biome", "Type"}, func(s string) { v.browser.mobGroup = s; mobsPage.scroll = 0 })
+			v.catalogChoose("Group monsters", []string{"Role", "Biome", "Type", "Ability"}, func(s string) { v.browser.mobGroup = s; mobsPage.scroll = 0 })
 		}},
 		{rect{l.stage.x + 158, 80, 160, 30}, order, "", func() {
 			v.catalogChoose("Sort monsters", []string{"Level", "Level descending", "Name"}, func(s string) { v.browser.mobSort = s; mobsPage.scroll = 0 })
@@ -142,11 +157,11 @@ func (v *viewer) mobDetailRows() []infoLine {
 		include := false
 		switch tab {
 		case "Abilities":
-			include = section == "ABILITIES" || section == "CHAMPION" || section == "BEHAVIOR"
+			include = mobAbilityTabSections[section]
 		case "Drops":
 			include = section == "DROPS"
 		default:
-			include = section != "ABILITIES" && section != "DROPS" && section != "BEHAVIOR" && section != "CHAMPION"
+			include = !mobAbilityTabSections[section] && section != "DROPS"
 		}
 		if include {
 			if !row.header {

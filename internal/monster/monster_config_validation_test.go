@@ -15,17 +15,17 @@ func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
 	}{
 		{
 			name:    "chance_without_threshold",
-			def:     MonsterDefinition{Name: "X", Boss: true, TeleportChance: 0.1},
-			wantErr: "teleport_chance but no teleport_at_hp",
+			def:     MonsterDefinition{Name: "X", Boss: true, Abilities: Abilities{Teleport: TeleportAbility{Chance: 0.1}}},
+			wantErr: "ability teleport needs at_hp",
 		},
 		{
 			name:    "threshold_without_chance",
-			def:     MonsterDefinition{Name: "X", Boss: true, TeleportAtHP: 300},
-			wantErr: "teleport_at_hp but no teleport_chance",
+			def:     MonsterDefinition{Name: "X", Boss: true, Abilities: Abilities{Teleport: TeleportAbility{AtHP: 300}}},
+			wantErr: "ability teleport needs a chance in (0,1]",
 		},
 		{
 			name: "complete_pair_ok",
-			def:  MonsterDefinition{Name: "X", Boss: true, TeleportAtHP: 300, TeleportChance: 0.1},
+			def:  MonsterDefinition{Name: "X", Boss: true, Abilities: Abilities{Teleport: TeleportAbility{AtHP: 300, Chance: 0.1}}},
 		},
 	}
 	for _, tc := range cases {
@@ -62,16 +62,14 @@ func TestValidateMonsterConfiguration_StunRequiresBothModeClocks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
 				"stunner": {
-					Name:            "Stunner",
-					SizeClass:       "person",
-					StunCharChance:  0.5,
-					StunCharSeconds: tc.seconds,
-					StunCharTurns:   tc.turns,
+					Name:      "Stunner",
+					SizeClass: "person",
+					Abilities: Abilities{Stun: TimedStatusAbility{Chance: 0.5, Seconds: tc.seconds, Turns: tc.turns}},
 				},
 			}}
 			err := validateMonsterConfiguration(cfg)
 			if tc.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "stun_char_seconds and stun_char_turns") {
+				if err == nil || !strings.Contains(err.Error(), "ability stun needs positive seconds and turns") {
 					t.Fatalf("incomplete stun clocks should fail clearly, got %v", err)
 				}
 				return

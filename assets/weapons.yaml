@@ -20,6 +20,7 @@ weapons:
     night_base_damage_multiplier: 2
     physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
     graphics: {projectile_fx: duskneedle, max_size: 22, min_size: 3, base_size: 12, color: [165, 140, 195]}
+
   shellknocker:
     name: "Shellknocker"
     description: "A broad scarab-shell axe that hardens its wielder's guard on impact"
@@ -33,6 +34,7 @@ weapons:
     hit_shell_absorption: 15
     melee: {arc_type: 3, animation_frames: 12}
     graphics: {slash_fx: shellknocker, slash_color: [190, 155, 70], slash_width: 38, slash_length: 60}
+
   rainfang:
     name: "Rainfang"
     description: "A crystalline serpent fang that releases pockets of scalding rain"
@@ -46,6 +48,7 @@ weapons:
     attack_zone_proc: {spell: hot_steam, chance_pct: 3, intellect: 50}
     melee: {arc_type: 1, animation_frames: 6}
     graphics: {slash_fx: rainfang, slash_color: [125, 205, 215], slash_width: 24, slash_length: 38}
+
   solstice_thermal_lance:
     name: "Thermal Lance"
     description: "The obsidian point drives heat into its target; the bronze collar vents on the third strike."
@@ -67,6 +70,7 @@ weapons:
       slash_color: [210, 105, 45]
       slash_width: 32
       slash_length: 48
+
   solstice_flowstaff:
     name: "Flowstaff"
     description: "A caged blue reservoir releases a restless current that leaps between nearby foes."
@@ -91,6 +95,7 @@ weapons:
       min_size: 4
       base_size: 15
       color: [65, 155, 170]
+
   solstice_anchor_hammer:
     name: "Anchor Hammer"
     description: "Each blow of the squared jade head weighs more heavily on the same foe."
@@ -113,6 +118,7 @@ weapons:
       slash_color: [140, 155, 80]
       slash_width: 32
       slash_length: 48
+
   solstice_transfer_blade:
     name: "Transfer Blade"
     description: "The bronze collar stores three strikes, then hurls the foe away in a burst of force."

@@ -816,10 +816,15 @@ func mapMonsterStatLines(def monster.MonsterDefinition) []string {
 		lines = append(lines, "Disposition: "+def.Disposition)
 	}
 	if def.HasAttackStats() {
-		lines = append(lines, fmt.Sprintf("Damage: %d-%d   TB attacks: %d", def.DamageMin, def.DamageMax,
-			monster.TurnBasedAttackCount(def.AttacksPerRound, def.AttackCooldownMult)))
+		lines = append(lines, fmt.Sprintf("Damage: %d-%d   %s", def.DamageMin, def.DamageMax,
+			tbRateText("attacks", monster.TurnBasedAttackRate(false, def.AttackCooldownMult, 0, false))))
 	} else {
 		lines = append(lines, "Does not attack")
+	}
+	if def.Speed > 0 {
+		lines = append(lines, tbRateText("moves", tbMoveRate(def, def.Speed)))
+	} else {
+		lines = append(lines, tbStationaryText)
 	}
 	return lines
 }

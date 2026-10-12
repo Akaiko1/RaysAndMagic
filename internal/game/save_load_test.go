@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/stash"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
@@ -243,6 +244,7 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	member.StunFramesRemaining = 361
 	member.StunTurnsRemaining = 4
 	member.StunRate = 120
+	member.ArmorMelt = status.DualClock{Frames: 361, Turns: 4, Rate: 120}
 
 	mob := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
 	mob.ID = "rated-clock-mob"
@@ -256,6 +258,7 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	mob.ArmorShredFramesRemaining = 361
 	mob.ArmorShredTurnsRemaining = 4
 	mob.ArmorShredRate = 120
+	mob.ArmorMelt = status.DualClock{Frames: 361, Turns: 4, Rate: 120}
 	mob.PounceCDFrames = 361
 	mob.PounceCDTurns = 2
 	mob.PounceCDRate = 240
@@ -263,7 +266,9 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	mob.SoakFrames = 361
 	mob.SoakTurns = 4
 	mob.SoakRate = 120
-	mob.InfernoCDFrames = 240 // ranged-nova cooldown: a reload must not refresh it
+	mob.InfernoCDFrames = 240      // ranged-nova cooldown: a reload must not refresh it
+	mob.TurnBasedSwingCarry = 0.25 // banked TB swing fraction: save/load per turn must not reset it
+	mob.TurnBasedStepCarry = -0.25 // banked TB step fraction, same contract
 	worldSave.Monsters = []*monster.Monster3D{mob}
 
 	raw, err := json.Marshal(game.buildSave(wmSave))
@@ -296,6 +301,9 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	if loadedMember.StunRate != 120 {
 		t.Fatalf("character stun rate = %d, want 120", loadedMember.StunRate)
 	}
+	if want := (status.DualClock{Frames: 361, Turns: 4, Rate: 120}); loadedMember.ArmorMelt != want || loaded.party.Members[1].ArmorMelted() {
+		t.Fatalf("character melt after load = %+v (unmelted member melted: %v), want %+v", loadedMember.ArmorMelt, loaded.party.Members[1].ArmorMelted(), want)
+	}
 	loadedMember.TickStunTurn()
 	if loadedMember.StunFramesRemaining != 241 || loadedMember.StunTurnsRemaining != 3 {
 		t.Fatalf("character clock after load/tick = %d frames/%d turns, want 241/3",
@@ -303,6 +311,9 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	}
 
 	loadedMob := worldLoad.Monsters[0]
+	if loadedMob.TurnBasedSwingCarry != 0.25 || loadedMob.TurnBasedStepCarry != -0.25 {
+		t.Errorf("TB carries = swing %v / step %v after reload, want 0.25 / -0.25", loadedMob.TurnBasedSwingCarry, loadedMob.TurnBasedStepCarry)
+	}
 	if loadedMob.InfernoCDFrames != 240 {
 		t.Errorf("inferno cadence = %d frames after reload, want 240 (a reload must not hand the boss a fresh nova roll)",
 			loadedMob.InfernoCDFrames)
@@ -312,6 +323,9 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 		t.Fatalf("monster rates after load = stun:%d root:%d shred:%d pounce:%d soak:%d",
 			loadedMob.StunRate, loadedMob.RootRate, loadedMob.ArmorShredRate,
 			loadedMob.PounceCDRate, loadedMob.SoakRate)
+	}
+	if want := (status.DualClock{Frames: 361, Turns: 4, Rate: 120}); loadedMob.ArmorMelt != want {
+		t.Fatalf("monster melt after load = %+v, want %+v", loadedMob.ArmorMelt, want)
 	}
 	loadedMob.TickRootTurn()
 	if loadedMob.RootFramesRemaining != 61 || loadedMob.RootTurnsRemaining != 1 {
@@ -1137,27 +1151,27 @@ func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
 		hasPierce, hasHeals bool
 	}
 	read := func(m *monster.Monster3D) specials {
-		return specials{m.PiercingShotChance, m.PiercingShotTargets, m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels,
-			m.PiercingShotChance > 0, m.AllyHealChance > 0}
+		return specials{m.Abilities.PiercingShot.Chance, m.Abilities.PiercingShot.Targets, m.Abilities.AllyHeal.Chance, m.Abilities.AllyHeal.Amount, m.AllyHealRadiusPixels(),
+			m.Abilities.PiercingShot.Chance > 0, m.Abilities.AllyHeal.Chance > 0}
 	}
 	wSave := newTestWorld(cfg)
 	want := map[string]specials{}
 	pierce, heal := 0, 0
 	for _, key := range sortedMapKeys(monster.MonsterConfig.Monsters) {
 		def := monster.MonsterConfig.Monsters[key]
-		if def.PiercingShotChance <= 0 && def.AllyHealChance <= 0 {
+		if def.Abilities.PiercingShot.Chance <= 0 && def.Abilities.AllyHeal.Chance <= 0 {
 			continue
 		}
 		m := monster.NewMonster3DFromConfig(64+float64(len(want))*32, 64, key, cfg)
 		want[key] = read(m)
-		if def.PiercingShotChance > 0 {
+		if def.Abilities.PiercingShot.Chance > 0 {
 			pierce++
 		}
-		if def.AllyHealChance > 0 {
+		if def.Abilities.AllyHeal.Chance > 0 {
 			heal++
 		}
-		m.PiercingShotChance, m.PiercingShotTargets = 0, 0
-		m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels = 0, 0, 0
+		m.Abilities.PiercingShot = monster.PiercingShotAbility{}
+		m.Abilities.AllyHeal = monster.AllyHealAbility{}
 		wSave.Monsters = append(wSave.Monsters, m)
 	}
 	if pierce == 0 || heal == 0 {

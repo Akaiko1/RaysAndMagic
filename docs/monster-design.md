@@ -64,10 +64,19 @@ hits.
 | 50 | 4099 | 241 | 265 | 5333 | 14601 | 205 |
 
 Keep `damage_min` and `damage_max` at about 0.8x and 1.2x of the average,
-as the shipped monsters do. A double striker (`attacks_per_round: 2`) keeps
-its per-hit damage on the curve, so it deals twice the curve each turn.
+as the shipped monsters do. A double striker (`attack_cooldown_multiplier:
+0.5`, two swings per turn-based action) keeps its per-hit damage on the
+curve, so it deals twice the curve each turn. Swings per action are
+`1 / attack_cooldown_multiplier`, fractional and accumulating (0.7 averages
+1.43), never below one; scale damage by that average, not by a rounded count.
 
-`enrage_at_hp` and `teleport_at_hp` are absolute HP values. When you change
+Movement follows the same rule: turn-based steps per action are
+`speed / monster_ai.turn_step_speed` (2.0), fractional and accumulating, one
+to four tiles. Speed 2.0 and below walks one tile a round, so only faster
+monsters close distance faster in turn-based combat; pick a value that shows
+its extra step within five rounds (2.4 or more).
+
+`abilities.enrage.at_hp` and `abilities.teleport.at_hp` are absolute HP values. When you change
 `max_hit_points`, scale them by the same factor so they trigger at the same
 fraction of HP.
 
@@ -220,7 +229,9 @@ The sweep does not cover these yet:
 
 1. Pick the archetype and the level its stats should mean.
 2. Read HP, damage and experience off the curves for that archetype.
-3. Add the kit. Each ability needs its log line and its paired fields.
+3. Add the kit: each ability is one entry of its `abilities:` map (see
+   [How to add a new monster](../how_to_add_a_new_monster.md)) and needs its
+   log line.
 4. Place the monster: its pack size and its neighbours make its encounters.
 5. Run the sweep at its levels and read its cells: the holes, the biggest
    hits and its coverage line.

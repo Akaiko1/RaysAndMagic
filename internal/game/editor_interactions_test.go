@@ -26,7 +26,7 @@ func TestEditorBossMechanicsRuntimeAndSave(t *testing.T) {
 	}
 	a := wm.MapConfigs[key].Adventure
 	a.Boss.HealPercent = 5
-	a.Boss.HealCapPercent = 25
+	a.Boss.HealCeilingPercent = 60
 	a.Controls = []config.EnvironmentControl{{ID: "first", StopHealing: true}, {ID: "second", StopHealing: true}}
 	config.GlobalBossMechanics = &config.BossMechanicsConfig{Maps: map[string][]config.BossMechanic{key: {
 		{ID: "crit", Stat: "critical_chance", Base: 100, Reductions: map[string]int{"first": 100}},
@@ -96,8 +96,8 @@ func TestEditorBossMechanicsRuntimeAndSave(t *testing.T) {
 						}
 						// Resolve the produced attack through the actual party hit sink.
 						hero.HitPoints = hero.MaxHitPoints
+						noPartyDodge(t, g.combat)
 						hit.IgnoresArmor = true
-						hit.IgnoresDodge = true
 						before := hero.HitPoints
 						g.combat.monsterHitCharacter(boss, hero, boss.Name, hit)
 						if hero.HitPoints >= before {
@@ -108,7 +108,7 @@ func TestEditorBossMechanicsRuntimeAndSave(t *testing.T) {
 						}
 						attacker := &monster.Monster3D{ID: "test_ally", Name: "Ally", HitPoints: 100, MaxHitPoints: 100, SummonedBy: "party"}
 						before = boss.HitPoints
-						g.combat.strikeMonsterFor(attacker, boss, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 10, True: 3}, DamageType: "physical", IgnoresArmor: true}, nil, false)
+						g.combat.strikeMonsterFor(attacker, boss, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 10, True: 3}, DamageType: "physical"}, nil, false)
 						want := 13
 						if stage.dodge == 100 {
 							want = 3
@@ -116,23 +116,44 @@ func TestEditorBossMechanicsRuntimeAndSave(t *testing.T) {
 						if before-boss.HitPoints != want {
 							t.Fatalf("reload=%v: incoming damage %d, want %d", reload, before-boss.HitPoints, want)
 						}
-						// Dodge-piercing attacks retain their existing bypass.
+						// A Grandmaster's hit grazes through the boss's dodge.
 						before = boss.HitPoints
-						g.combat.strikeMonsterFor(attacker, boss, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 10}, DamageType: "physical", IgnoresArmor: true, IgnoresDodge: true}, nil, false)
-						if before-boss.HitPoints != 10 {
-							t.Fatal("ignore-dodge attack was evaded")
+						g.combat.strikeMonsterFor(attacker, boss, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 10}, DamageType: "physical", GrazesDodge: true}, nil, false)
+						want = 10
+						if stage.dodge == 100 {
+							want = 10 * character.WeaponGMDodgeGrazePct / 100
+						}
+						if before-boss.HitPoints != want {
+							t.Fatalf("reload=%v: grazing attack dealt %d, want %d", reload, before-boss.HitPoints, want)
 						}
 						boss.HitPoints = 500
 						visit := g.adventureVisit(key)
+						// Two rounds heal 5% each, then the 60% ceiling stops it.
+						// Time advances the way each mode feeds it: a round per
+						// monster pass in TB, one second at a time in RT.
 						visit.HealCarry = 0
-						visit.BossHealed = 0
-						g.tickEnvironment(6, tb)
+						rounds := func(n int) {
+							for range n {
+								if tb {
+									g.tickEnvironment(config.CombatRoundSeconds, true)
+									continue
+								}
+								for range config.CombatRoundSeconds {
+									g.tickEnvironment(1, false)
+								}
+							}
+						}
+						rounds(2)
 						expected := 500
 						if stage.heals {
-							expected = 550
+							expected = 600
 						}
 						if boss.HitPoints != expected {
 							t.Fatalf("reload=%v: regen HP=%d want %d", reload, boss.HitPoints, expected)
+						}
+						rounds(1)
+						if boss.HitPoints != expected {
+							t.Fatalf("reload=%v: regen passed its ceiling: HP=%d want %d", reload, boss.HitPoints, expected)
 						}
 					}
 				})
@@ -154,13 +175,13 @@ func TestEditorArmorControlsSurviveLoadAndRespawn(t *testing.T) {
 	mc.Adventure = &config.AdventureConfig{
 		Boss: &config.AdventureBoss{Monster: "solstice_talura", ArmorFloor: 20},
 		Controls: []config.EnvironmentControl{
-			{ID: "brace", ArmorReduction: 18}, {ID: "release", ArmorReduction: 100},
+			{ID: "brace", ArmorReductionPercent: 25}, {ID: "release", ArmorReductionPercent: 100},
 		},
 	}
 	for _, tc := range []struct {
 		name         string
 		level, armor int
-	}{{"ordinary", 0, 48}, {"scaled visit", 56, 68}} {
+	}{{"ordinary", 0, 95}, {"scaled visit", 56, 134}} {
 		t.Run(tc.name, func(t *testing.T) {
 			g.adventureVisit(key)
 			g.adventure.Visits[key] = &AdventureVisit{Level: tc.level}
@@ -176,7 +197,7 @@ func TestEditorArmorControlsSurviveLoadAndRespawn(t *testing.T) {
 			for _, stage := range []struct {
 				control string
 				armor   int
-			}{{"brace", tc.armor - 18}, {"release", 20}} {
+			}{{"brace", tc.armor * 75 / 100}, {"release", 20}} {
 				dialogActions["adventure_control"](&InputHandler{game: g}, nil, &character.NPCDialogueChoice{Control: stage.control})
 				boss.HitPoints = 123
 				for reload := 0; reload < 2; reload++ {

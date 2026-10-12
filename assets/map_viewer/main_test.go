@@ -117,7 +117,7 @@ func TestMobInfoShowsOnlyMonsterFacingStun(t *testing.T) {
 		def          monster.MonsterDefinition
 		want, absent []string
 	}{
-		{"own stun wins", monster.MonsterDefinition{ProjectileSpell: "fixture_bolt", StunCharChance: .1, StunCharSeconds: 4, StunCharTurns: 2},
+		{"own stun wins", monster.MonsterDefinition{ProjectileSpell: "fixture_bolt", Abilities: monster.Abilities{Stun: monster.TimedStatusAbility{Chance: .1, Seconds: 4, Turns: 2}}},
 			[]string{"Ranged spell: Fixture Bolt (air)", "Stun: 10% (4s / 2 turns)", "Projectile stun: 10% on hit, 4s / 2 turn(s)"},
 			[]string{"20%"}},
 		{"spell stun rides the projectile", monster.MonsterDefinition{ProjectileSpell: "fixture_bolt"},
@@ -148,43 +148,51 @@ func TestMobInfo_UsesMonsterCombatEffectLines(t *testing.T) {
 		t.Fatalf("load spells: %v", err)
 	}
 	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
-	withEffects := 0
+	withAbilities := 0
 	for key, def := range monster.MonsterConfig.Monsters {
 		t.Run(key, func(t *testing.T) {
-			var want []infoLine
-			for _, line := range def.CombatEffectLines() {
-				var col color.Color = mobStatDefault
-				if line.School != "" {
-					col = game.SchoolColor(line.School)
-				}
-				want = append(want, infoLine{text: strings.TrimSpace(line.Text), col: col})
-			}
 			rows := buildMobInfo(key, def)
-			header := -1
-			for i, row := range rows {
-				if row.header && row.text == "ABILITIES" {
-					header = i
+			// Each formatter's rows open their own section, in order.
+			for _, section := range []struct {
+				header string
+				lines  []monster.EffectLine
+			}{
+				{"ATTACK", def.AttackLines()},
+				{"ABILITIES", def.AbilityLines()},
+				{"BEHAVIOR", def.BehaviorLines()},
+			} {
+				header := -1
+				for i, row := range rows {
+					if row.header && row.text == section.header {
+						header = i
+					}
 				}
-			}
-			if len(want) == 0 {
-				if header >= 0 {
-					t.Fatal("ABILITIES header without combat effect lines")
+				if len(section.lines) == 0 {
+					if header >= 0 && section.header != "BEHAVIOR" {
+						t.Fatalf("%s header without its lines", section.header)
+					}
+					continue
 				}
-				return
-			}
-			withEffects++
-			if header < 0 || len(rows) < header+1+len(want) {
-				t.Fatalf("ABILITIES section missing or short: %d rows after header %d, want %d", len(rows), header, len(want))
-			}
-			for i, w := range want {
-				if got := rows[header+1+i]; got.text != w.text || got.col != w.col {
-					t.Fatalf("ability row %d = %q %v, want %q %v", i, got.text, got.col, w.text, w.col)
+				if section.header == "ABILITIES" {
+					withAbilities++
+				}
+				if header < 0 || len(rows) < header+1+len(section.lines) {
+					t.Fatalf("%s section missing or short: %d rows after header %d, want %d", section.header, len(rows), header, len(section.lines))
+				}
+				for i, line := range section.lines {
+					var col color.Color = mobStatDefault
+					if line.School != "" {
+						col = game.SchoolColor(line.School)
+					}
+					if got := rows[header+1+i]; got.text != strings.TrimSpace(line.Text) || got.col != col {
+						t.Fatalf("%s row %d = %q %v, want %q %v", section.header, i, got.text, got.col, line.Text, col)
+					}
 				}
 			}
 		})
 	}
-	if withEffects == 0 {
-		t.Fatal("no shipped monster has combat effect lines")
+	if withAbilities == 0 {
+		t.Fatal("no shipped monster has an ability")
 	}
 }
 
@@ -194,15 +202,23 @@ func TestMobInfo_ShowsEffectiveCadenceAndAuthoredAbilities(t *testing.T) {
 		def          monster.MonsterDefinition
 		want, absent []string
 	}{
-		{"default cadence", monster.MonsterDefinition{}, []string{"TB attacks: 1"}, []string{"RT attack cooldown", "Enraged TB attacks"}},
-		{"fast cooldown doubles TB swings", monster.MonsterDefinition{AttackCooldownMult: .6}, []string{"TB attacks: 2", "RT attack cooldown: x0.60"}, nil},
-		{"explicit attacks per round win", monster.MonsterDefinition{AttacksPerRound: 3, AttackCooldownMult: .6}, []string{"TB attacks: 3"}, nil},
+		// TB swings are fractional and accumulate; the sheet plays the first five
+		// rounds from a fresh carry (expected sequences worked out by hand).
+		{"default cadence", monster.MonsterDefinition{}, []string{"TB attacks/round: 1.00", "First 5 rounds: 1 1 1 1 1 = 5 (avg 1.00)"}, []string{"RT attack cooldown", "Enraged TB attacks"}},
+		{"0.6 cooldown averages 1.67 swings", monster.MonsterDefinition{AttackCooldownMult: .6}, []string{"TB attacks/round: 1.67", "First 5 rounds: 2 1 2 2 1 = 8 (avg 1.60)", "RT attack cooldown: x0.60"}, nil},
+		{"0.7 cooldown alternates", monster.MonsterDefinition{AttackCooldownMult: .7}, []string{"TB attacks/round: 1.43", "First 5 rounds: 1 2 1 2 1 = 7 (avg 1.40)"}, nil},
+		{"slow cooldown keeps one swing", monster.MonsterDefinition{AttackCooldownMult: 1.8}, []string{"TB attacks/round: 1.00", "First 5 rounds: 1 1 1 1 1 = 5"}, nil},
+		{"very fast cooldown is capped", monster.MonsterDefinition{AttackCooldownMult: .1}, []string{"TB attacks/round: 8.00"}, nil},
 		{"enraged cadence and summons", monster.MonsterDefinition{
-			EnrageAtHP: 50, EnrageCooldownMult: .5,
-			SummonMonsters: []string{"goblin"}, SummonChance: .18, SummonFirstGuaranteed: true,
-		}, []string{"TB attacks: 1", "Enraged TB attacks: 2", "first guaranteed, then 18%"}, nil},
-		{"capped aggro rally", monster.MonsterDefinition{AttackCooldownMult: .5, RallyOnAggroTiles: 15, RallyMaxTargets: 4}, []string{"TB attacks: 2", "Aggro rally: up to 4 mobs within 15 tiles"}, nil},
+			Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"goblin"}, Chance: .18, FirstGuaranteed: true}, Enrage: monster.EnrageAbility{AtHP: 50, CooldownMult: .7}},
+		}, []string{"TB attacks/round: 1.00", "Enraged TB attacks/round: 1.43", "First 5 rounds: 1 2 1 2 1 = 7 (avg 1.40)", "first guaranteed, then 18%"}, nil},
+		{"capped aggro rally", monster.MonsterDefinition{AttackCooldownMult: .5, RallyOnAggroTiles: 15, RallyMaxTargets: 4}, []string{"TB attacks/round: 2.00", "Aggro rally: up to 4 mobs within 15 tiles"}, nil},
 		{"uncapped aggro rally", monster.MonsterDefinition{RallyOnAggroTiles: 15}, []string{"Aggro rally: every mob within 15 tiles"}, []string{"up to"}},
+		// Movement uses the same rule: speed / turn_step_speed (2.0), one tile minimum.
+		{"step speed walks one tile", monster.MonsterDefinition{Speed: 2}, []string{"TB moves/round: 1.00"}, nil},
+		{"fast walker banks an extra tile", monster.MonsterDefinition{Speed: 2.4}, []string{"TB moves/round: 1.20", "First 5 rounds: 1 1 2 1 1 = 6 (avg 1.20)"}, nil},
+		{"stationary", monster.MonsterDefinition{Speed: 0}, []string{"TB moves/round: 0 (stationary)"}, []string{"TB moves/round: 1"}},
+		{"ambient stroller may idle", monster.MonsterDefinition{Speed: 0.7, Disposition: monster.DispositionCaravan}, []string{"TB moves/round: 0.35", "First 5 rounds: 0 1 0 0 1 = 2 (avg 0.40)"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.def.Name = "Fixture"

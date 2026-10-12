@@ -37,6 +37,26 @@ const CombatRoundSeconds = 3
 // proc adds this much true damage to the hit instead.
 const DisintegrateBossTrueDamage = 100
 
+// ArmorMeltRounds: a melt-armor hit (abilities.melt_armor) melts the struck
+// target's armor for this many TB rounds, or the same span in RT.
+const ArmorMeltRounds = 5
+
+// Armor mitigation - a PERCENTAGE model with diminishing returns, for party and
+// monster armor alike:
+//
+//	physical% = min(ArmorPhysicalMitigationCap, 100*AC/(AC+ArmorMitigationK))
+//	elemental% = physical% * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
+//
+// Elemental is the SAME curve scaled down, so it reaches its 33% cap at the
+// exact AC where physical reaches 75% - not capping out far earlier. Melted
+// armor meets physical hits on the elemental curve. K sets the curve (AC == K
+// gives 50% pre-cap).
+const (
+	ArmorMitigationK            = 45
+	ArmorPhysicalMitigationCap  = 75
+	ArmorElementalMitigationCap = 33
+)
+
 // CombatRounds converts real-time seconds to whole TB rounds, rounding up.
 func CombatRounds(seconds int) int {
 	return (seconds + CombatRoundSeconds - 1) / CombatRoundSeconds
@@ -863,6 +883,9 @@ type MonsterAIConfig struct {
 	// Movement parameters
 	NormalSpeedMultiplier float64 `yaml:"normal_speed_multiplier"`
 	FleeSpeedMultiplier   float64 `yaml:"flee_speed_multiplier"`
+	// TurnStepSpeed is the monster speed that walks one tile per turn-based
+	// movement action; see GetTurnStepSpeed.
+	TurnStepSpeed float64 `yaml:"turn_step_speed"`
 
 	// Vision distance used while fleeing
 	FleeDistanceTiles float64 `yaml:"flee_distance_tiles"`
@@ -1610,6 +1633,20 @@ func (c *Config) GetTPS() int {
 	return DefaultTPS
 }
 
+// DefaultTurnStepSpeed backs GetTurnStepSpeed when no config is loaded.
+const DefaultTurnStepSpeed = 2.0
+
+// GetTurnStepSpeed is the monster speed worth one tile per turn-based movement
+// action. A monster's turn-based steps per action are its speed divided by
+// this (monster.TurnBasedStepRate), so slower monsters take one step and
+// faster ones accumulate extra steps.
+func (c *Config) GetTurnStepSpeed() float64 {
+	if c != nil && c.MonsterAI.TurnStepSpeed > 0 {
+		return c.MonsterAI.TurnStepSpeed
+	}
+	return DefaultTurnStepSpeed
+}
+
 func GetTargetTPS() int {
 	if GlobalConfig != nil {
 		return GlobalConfig.GetTPS()
@@ -1757,6 +1794,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if err := config.MonsterAI.Pursuit.validate(); err != nil {
 		return nil, err
+	}
+	if config.MonsterAI.TurnStepSpeed <= 0 {
+		return nil, fmt.Errorf("monster_ai.turn_step_speed must be positive")
 	}
 	if err := config.UI.TurnBasedMouseHold.validate(); err != nil {
 		return nil, err
@@ -3063,6 +3103,9 @@ type LootTablesConfig struct {
 	CardDropChance CardDropChance         `yaml:"card_drop_chance"`
 	Loots          map[string][]LootEntry `yaml:"loots"`
 	LootGroups     map[string][]LootEntry `yaml:"loot_groups,omitempty"`
+	// MonsterGold is each monster's gold entry, split out of its Loots table at
+	// load so every item consumer reads drops only.
+	MonsterGold map[string]GoldRange `yaml:"-"`
 	// BossLoot is appended to the normal loot table of every YAML-classified
 	// boss. This keeps universal boss drops data-driven without giving kills,
 	// theft, crates, and editor views divergent tables.
@@ -3226,10 +3269,69 @@ func CrateSoundKeys() []string {
 }
 
 type LootEntry struct {
-	Type   string  `yaml:"type"` // weapon|item
+	Type   string  `yaml:"type"` // weapon|item|harvest|set|table|first_of|gold
 	Key    string  `yaml:"key"`
 	Chance float64 `yaml:"chance"`
 	Rolls  int     `yaml:"rolls,omitempty"` // independent attempts; 0 defaults to one
+	// Min and Max: a gold entry's coin range, or how many units an item, weapon,
+	// harvest or set entry drops when it lands (one when omitted).
+	Min int `yaml:"min,omitempty"`
+	Max int `yaml:"max,omitempty"`
+	// Of is a first_of entry's resolved group: its entries roll in order and
+	// the first success is the entry's one drop.
+	Of []LootEntry `yaml:"-"`
+}
+
+// ItemSetPieces lists the items.yaml keys of one item set, sorted: a `set`
+// loot entry drops one of them at random.
+func ItemSetPieces(set string) []string {
+	if GlobalItems == nil {
+		return nil
+	}
+	var keys []string
+	for key, def := range GlobalItems.Items {
+		if def != nil && def.Set == set {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// GoldRange is the coin a monster carries, rolled once when it spawns and
+// dropped in its loot bag.
+type GoldRange struct{ Min, Max int }
+
+// MonsterGold is the monster's gold entry from its loots.yaml table.
+func MonsterGold(monsterKey string) (GoldRange, bool) {
+	if GlobalLoots == nil {
+		return GoldRange{}, false
+	}
+	gold, ok := GlobalLoots.MonsterGold[monsterKey]
+	return gold, ok
+}
+
+// splitMonsterGold moves each monster table's one gold entry into MonsterGold.
+func splitMonsterGold(lt *LootTablesConfig) error {
+	lt.MonsterGold = map[string]GoldRange{}
+	for key, entries := range lt.Loots {
+		drops := entries[:0:0]
+		for _, e := range entries {
+			if e.Type != "gold" {
+				drops = append(drops, e)
+				continue
+			}
+			if _, dup := lt.MonsterGold[key]; dup {
+				return fmt.Errorf("loots.%s: one gold entry per table", key)
+			}
+			if e.Key != "" || e.Chance != 0 || e.Rolls != 0 || e.Min < 0 || e.Max <= 0 || e.Max < e.Min {
+				return fmt.Errorf("loots.%s: gold needs only min and max (0 <= min <= max, max > 0)", key)
+			}
+			lt.MonsterGold[key] = GoldRange{e.Min, e.Max}
+		}
+		lt.Loots[key] = drops
+	}
+	return nil
 }
 
 func (e LootEntry) RollCount() int {
@@ -3268,6 +3370,9 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := expandMonsterLootGroups(&loots); err != nil {
 		return nil, err
 	}
+	if err := splitMonsterGold(&loots); err != nil {
+		return nil, err
+	}
 	if err := validateMonsterLoot(&loots); err != nil {
 		return nil, err
 	}
@@ -3288,6 +3393,20 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 }
 
 func validateLootEntry(scope string, index int, e LootEntry) error {
+	if e.Type == "first_of" {
+		if len(e.Of) == 0 {
+			return fmt.Errorf("%s[%d]: first_of needs a non-empty loot group", scope, index)
+		}
+		for i, child := range e.Of {
+			if err := validateLootEntry(fmt.Sprintf("%s[%d].%s", scope, index, e.Key), i, child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if (e.Min != 0 || e.Max != 0) && (e.Min < 1 || e.Max < e.Min) {
+		return fmt.Errorf("%s[%d] %q: a drop quantity needs 1 <= min <= max", scope, index, e.Key)
+	}
 	if e.Chance < 0 || e.Chance > 1 {
 		return fmt.Errorf("%s[%d] %q: chance must be in [0,1]", scope, index, e.Key)
 	}
@@ -3319,8 +3438,15 @@ func validateLootCatalogReference(scope, entryType, key string) error {
 		if err := ValidateOrdinaryItemGrant(key); err != nil {
 			return fmt.Errorf("%s: %w", scope, err)
 		}
+	case "set":
+		if GlobalItems == nil {
+			return fmt.Errorf("%s %q: items not loaded", scope, key)
+		}
+		if GetItemSet(key) == nil || len(ItemSetPieces(key)) == 0 {
+			return fmt.Errorf("%s: unknown or empty item set %q", scope, key)
+		}
 	default:
-		return fmt.Errorf("%s %q has bad type %q (want weapon|item)", scope, key, entryType)
+		return fmt.Errorf("%s %q has bad type %q (want weapon|item|set)", scope, key, entryType)
 	}
 	return nil
 }

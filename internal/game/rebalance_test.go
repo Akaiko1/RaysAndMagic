@@ -12,7 +12,7 @@ import (
 func gmSkill() *character.Skill { return &character.Skill{Mastery: character.MasteryGrandMaster} }
 
 // TestWeaponMasteryStrike_TrueDamageAndDodge: weapon mastery yields per-tier true
-// damage; only a Grandmaster makes the strike ignore Perfect Dodge.
+// damage; only a Grandmaster's strike grazes through Perfect Dodge.
 func TestWeaponMasteryStrike_TrueDamageAndDodge(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	weaponDef := lookupWeaponConfigByName(items.CreateWeaponFromYAML("iron_sword").Name) // category: sword
@@ -22,18 +22,18 @@ func TestWeaponMasteryStrike_TrueDamageAndDodge(t *testing.T) {
 	m := cs.game.party.Members[0]
 
 	delete(m.Skills, character.SkillSword)
-	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != 0 || ignore {
-		t.Errorf("no skill -> (%d,%v), want (0,false)", td, ignore)
+	if td, grazes := cs.weaponMasteryStrike(m, weaponDef); td != 0 || grazes {
+		t.Errorf("no skill -> (%d,%v), want (0,false)", td, grazes)
 	}
 
 	m.Skills[character.SkillSword] = expertSkill() // tier 1
-	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != MasteryWeaponTrueDamagePerTier || ignore {
-		t.Errorf("Expert -> (%d,%v), want (%d,false)", td, ignore, MasteryWeaponTrueDamagePerTier)
+	if td, grazes := cs.weaponMasteryStrike(m, weaponDef); td != MasteryWeaponTrueDamagePerTier || grazes {
+		t.Errorf("Expert -> (%d,%v), want (%d,false)", td, grazes, MasteryWeaponTrueDamagePerTier)
 	}
 
 	m.Skills[character.SkillSword] = gmSkill() // tier 3
-	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != 3*MasteryWeaponTrueDamagePerTier || !ignore {
-		t.Errorf("GM -> (%d,%v), want (%d,true)", td, ignore, 3*MasteryWeaponTrueDamagePerTier)
+	if td, grazes := cs.weaponMasteryStrike(m, weaponDef); td != 3*MasteryWeaponTrueDamagePerTier || !grazes {
+		t.Errorf("GM -> (%d,%v), want (%d,true)", td, grazes, 3*MasteryWeaponTrueDamagePerTier)
 	}
 }
 

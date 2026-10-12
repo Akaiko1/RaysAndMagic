@@ -213,7 +213,7 @@ func (c *MMCharacter) Purifiable() bool {
 	if c == nil || c.HasCondition(ConditionDead) || c.HasCondition(ConditionEradicated) {
 		return false
 	}
-	if c.PoisonFramesRemaining > 0 || c.BurnFramesRemaining > 0 || c.IsStunned() {
+	if c.PoisonFramesRemaining > 0 || c.BurnFramesRemaining > 0 || c.IsStunned() || c.ArmorMelted() {
 		return true
 	}
 	for _, condition := range c.Conditions {

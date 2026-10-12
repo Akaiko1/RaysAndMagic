@@ -61,11 +61,11 @@ const (
 const (
 	// Armor mitigation (percentage, diminishing returns) - shared by party AND
 	// monster armor via armorMitigationPctFromAC. Canonical values in
-	// character/catalog.go. Physical caps at 75%; elemental is the same curve
+	// config/config.go. Physical caps at 75%; elemental is the same curve
 	// scaled to reach its 33% cap at the same AC.
-	ArmorMitigationK            = character.ArmorMitigationK
-	ArmorPhysicalMitigationCap  = character.ArmorPhysicalMitigationCap
-	ArmorElementalMitigationCap = character.ArmorElementalMitigationCap
+	ArmorMitigationK            = config.ArmorMitigationK
+	ArmorPhysicalMitigationCap  = config.ArmorPhysicalMitigationCap
+	ArmorElementalMitigationCap = config.ArmorElementalMitigationCap
 
 	// MaxStatValue is the cap a character's base stat can reach (the stat +button
 	// and AUTO distribution both stop here). A mechanics constant, kept out of the
@@ -151,7 +151,7 @@ const (
 	// BossInfernoRangedRollSeconds is how often a boss may roll its nova from
 	// OUTSIDE melee reach (inside reach the nova replaces a normal hit and rides
 	// the attack cadence). Cooldown policy, not per-boss content - the reach itself
-	// is authored per monster as inferno_range_tiles.
+	// is authored per monster as abilities.inferno.range_tiles.
 	BossInfernoRangedRollSeconds = 2
 
 	// TurnBasedPounceCooldownTurns is the TB counterpart of a monster's authored

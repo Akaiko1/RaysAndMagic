@@ -12,6 +12,8 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -491,10 +493,11 @@ func TestGoldenCarapace_NonPhysicalImmunity(t *testing.T) {
 	}
 }
 
-// ignores_armor removes the party's armor class from melee and projectile hits
-// only; every ability keeps it. Each row enters through the game's own attack
-// path and compares one armoured hero with the same hero unarmoured.
-func TestIgnoresArmor_OnlyMeleeAndProjectilesSkipPartyArmor(t *testing.T) {
+// A melting monster's melee and projectile hits melt the struck hero's armor
+// for config.ArmorMeltRounds (TB) or the same span in RT; its abilities do not,
+// and a monster without the melt_armor ability never does. Each row enters through
+// the game's own attack path.
+func TestMeltArmor_MeleeAndProjectilesMelt(t *testing.T) {
 	const damage, hp = 100, 10000
 	project := func(cs *CombatSystem, m *monsterPkg.Monster3D, spell bool) {
 		x, y := cs.game.camera.X, cs.game.camera.Y
@@ -508,33 +511,197 @@ func TestIgnoresArmor_OnlyMeleeAndProjectilesSkipPartyArmor(t *testing.T) {
 		cs.CheckProjectilePlayerCollisions()
 	}
 	rows := []struct {
-		name          string
-		bypassesArmor bool
-		deliver       func(cs *CombatSystem, m *monsterPkg.Monster3D)
+		name    string
+		melts   bool
+		deliver func(cs *CombatSystem, m *monsterPkg.Monster3D)
 	}{
 		{"melee", true, func(cs *CombatSystem, m *monsterPkg.Monster3D) { cs.applyMonsterMeleeDamage(m) }},
 		{"spell projectile", true, func(cs *CombatSystem, m *monsterPkg.Monster3D) { project(cs, m, true) }},
 		{"weapon projectile", true, func(cs *CombatSystem, m *monsterPkg.Monster3D) { project(cs, m, false) }},
 		{"dragon breath", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-			m.DragonBreathChance, m.DragonBreathDamageType = 1, "fire"
+			m.Abilities.DragonBreath.Chance, m.Abilities.DragonBreath.DamageType = 1, "fire"
 			cs.applyMonsterMeleeDamage(m)
 		}},
 		{"inferno", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-			m.InfernoDamage = damage
+			m.Abilities.Inferno.Damage = damage
 			cs.applyMonsterInferno(m)
 		}},
 		{"fireburst", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-			m.FireburstDamageMin, m.FireburstDamageMax = damage, damage
+			m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax = damage, damage
 			cs.applyMonsterFireburst(m)
 		}},
 	}
 	newCombat := newTestCombatFactory(t)
 	for _, row := range rows {
+		for _, melter := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/melt_armor=%v", row.name, melter), func(t *testing.T) {
+				cs := newCombat(t)
+				cs.elementalAttackRoll = func() float64 { return 1 } // no elemental melee proc
+				hero := cs.game.party.Members[0]
+				for _, other := range cs.game.party.Members[1:] {
+					other.HitPoints = 0
+					other.AddCondition(character.ConditionDead)
+				}
+				hero.Luck = 0
+				hero.MaxHitPoints, hero.HitPoints = hp, hp
+				attacker := &monsterPkg.Monster3D{ID: "melt_attacker", Name: "Attacker", DamageMin: damage, DamageMax: damage}
+				if melter {
+					attacker.Abilities.MeltArmor.Chance = 1
+				}
+				row.deliver(cs, attacker)
+				if hp-hero.HitPoints <= 0 {
+					t.Fatal("fixture: the delivery did not land")
+				}
+				want := melter && row.melts
+				if hero.ArmorMelted() != want {
+					t.Fatalf("armor melted = %v, want %v", hero.ArmorMelted(), want)
+				}
+				frames := cs.game.config.GetTPS() * config.CombatRoundSeconds * config.ArmorMeltRounds
+				if want && (hero.ArmorMelt.Frames != frames || hero.ArmorMelt.Turns != config.ArmorMeltRounds) {
+					t.Fatalf("melt clock %+v, want %d frames / %d rounds", hero.ArmorMelt, frames, config.ArmorMeltRounds)
+				}
+			})
+		}
+	}
+}
+
+// Melted armor blunts a physical hit only as far as an elemental one, on a
+// hero and on a monster; elemental hits and sound armor are unchanged. The
+// melt runs out after its rounds in TB and its span in RT, on the real clocks,
+// and a Purify cleanses it. A melting monster melts a party ally's armor too.
+func TestMeltedArmorMeetsPhysicalHitsLikeElementalOnes(t *testing.T) {
+	const damage = 100
+	cs := newTestCombatSystemWithConfig(t)
+	tps := cs.game.config.GetTPS()
+	frames := tps * config.CombatRoundSeconds * config.ArmorMeltRounds
+	hero := cs.game.party.Members[0]
+	hero.Equipment = map[items.EquipSlot]items.Item{}
+	hero.Skills[character.SkillLeather] = &character.Skill{Mastery: character.MasteryNovice}
+	equipArmorPieces(t, hero, "leather_armor")
+	physical, elemental := cs.armorMitigationPct(hero, true), cs.armorMitigationPct(hero, false)
+	if physical <= elemental || elemental <= 0 {
+		t.Fatalf("fixture: physical %d%% must exceed elemental %d%% > 0", physical, elemental)
+	}
+	took := func(school string) int {
+		return cs.mitigateCharacterDamageParts(damagecalc.Parts{Normal: damage}, school, hero, false).Normal
+	}
+	soundPhysical, soundFire := took("physical"), took("fire")
+	hero.MeltArmor(frames, config.ArmorMeltRounds)
+	if got := cs.armorMitigationPct(hero, true); got != elemental {
+		t.Errorf("melted armor stops %d%% of a physical hit, want the elemental %d%%", got, elemental)
+	}
+	if got := took("physical"); got <= soundPhysical || got != damage*(100-elemental)/100 {
+		t.Errorf("melted armor let %d of a physical hit through, want %d", got, damage*(100-elemental)/100)
+	}
+	if got := took("fire"); got != soundFire {
+		t.Errorf("melted armor changed a fire hit: %d, want %d", got, soundFire)
+	}
+
+	t.Run("monster armor", func(t *testing.T) {
+		hit := func(melted bool, school string) int {
+			m := mkTestMonster("Melt target", 1000)
+			m.ArmorClass = 40
+			if melted {
+				m.MeltArmor(frames, config.ArmorMeltRounds)
+			}
+			return cs.applyMonsterDamagePacket(m, singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, school, 0), monsterDamageOptions{}).Total()
+		}
+		if sound, melted, fire := hit(false, "physical"), hit(true, "physical"), hit(false, "fire"); melted <= sound || melted != fire {
+			t.Errorf("melted monster armor let %d through (sound %d), want the elemental %d", melted, sound, fire)
+		}
+		if hit(true, "fire") != hit(false, "fire") {
+			t.Error("melted monster armor changed a fire hit")
+		}
+	})
+	t.Run("a melting monster melts an ally's armor", func(t *testing.T) {
+		attacker := &monsterPkg.Monster3D{ID: "melter", Name: "Melter", HitPoints: 100, MaxHitPoints: 100, Abilities: monsterPkg.Abilities{MeltArmor: monsterPkg.ChanceAbility{Chance: 1}}}
+		ally := mkTestMonster("Ally", 1000)
+		cs.strikeMonsterPacketFor(attacker, ally, singleMonsterDamagePacket(damagecalc.Parts{Normal: 10}, "physical", 0), nil, false, false, false)
+		if !ally.ArmorMelted() {
+			t.Fatal("the struck ally's armor is whole")
+		}
+	})
+	t.Run("expiry and cleanse", func(t *testing.T) {
+		hero.MeltArmor(frames, config.ArmorMeltRounds)
+		for range frames - 1 {
+			hero.UpdateWithMode(character.PartyClock{})
+		}
+		if !hero.ArmorMelted() {
+			t.Fatal("the melt ended early in RT")
+		}
+		hero.UpdateWithMode(character.PartyClock{})
+		if hero.ArmorMelted() {
+			t.Fatal("the melt outlived its RT span")
+		}
+		hero.MeltArmor(frames, config.ArmorMeltRounds)
+		cs.game.turnBasedMode = true
+		for range config.ArmorMeltRounds - 1 {
+			cs.game.startPartyTurn()
+		}
+		if !hero.ArmorMelted() {
+			t.Fatal("the melt ended early in TB")
+		}
+		cs.game.startPartyTurn()
+		if hero.ArmorMelted() {
+			t.Fatal("the melt outlived its rounds in TB")
+		}
+		m := mkTestMonster("Melt target", 1000)
+		m.MeltArmor(frames, config.ArmorMeltRounds)
+		for range config.ArmorMeltRounds {
+			cs.game.tickMonsterTurnStatuses(m, true)
+		}
+		if m.ArmorMelted() {
+			t.Fatal("a monster's melt outlived its rounds in TB")
+		}
+		cs.game.turnBasedMode = false
+		hero.MeltArmor(frames, config.ArmorMeltRounds)
+		if !hero.Purify() || hero.ArmorMelted() {
+			t.Fatal("Purify left the armor melted")
+		}
+	})
+}
+
+// Every physical projectile may pierce armor entirely (ArmorPierceRangedChancePct),
+// whoever fired it and whoever it hits; melee, spells and elemental shots never
+// do. Each hero row enters through the game's own attack path: an armoured hero
+// with the pierce roll landing and missing, against the same hero unarmoured.
+func TestPhysicalProjectilesPierceArmor(t *testing.T) {
+	const damage, hp = 100, 10000
+	shoot := func(school string) func(cs *CombatSystem, m *monsterPkg.Monster3D) {
+		return func(cs *CombatSystem, m *monsterPkg.Monster3D) {
+			x, y := cs.game.camera.X, cs.game.camera.Y
+			cs.game.arrows = append(cs.game.arrows, Arrow{ID: "pierce_arrow", X: x, Y: y, Damage: damage, LifeTime: 10, Active: true, DamageType: school, Owner: ProjectileOwnerMonster, SourceName: m.Name, SourceMonster: m})
+			cs.game.collisionSystem.RegisterEntity(collision.NewEntity("pierce_arrow", x, y, 8, 8, collision.CollisionTypeProjectile, false))
+			cs.CheckProjectilePlayerCollisions()
+		}
+	}
+	cast := func(spell string) func(cs *CombatSystem, m *monsterPkg.Monster3D) {
+		return func(cs *CombatSystem, m *monsterPkg.Monster3D) {
+			x, y := cs.game.camera.X, cs.game.camera.Y
+			cs.game.magicProjectiles = append(cs.game.magicProjectiles, MagicProjectile{ID: "pierce_bolt", X: x, Y: y, Damage: damage, LifeTime: 10, Active: true, SpellType: spell, Owner: ProjectileOwnerMonster, SourceName: m.Name, SourceMonster: m})
+			cs.game.collisionSystem.RegisterEntity(collision.NewEntity("pierce_bolt", x, y, 8, 8, collision.CollisionTypeProjectile, false))
+			cs.CheckProjectilePlayerCollisions()
+		}
+	}
+	rows := []struct {
+		name    string
+		pierces bool
+		deliver func(cs *CombatSystem, m *monsterPkg.Monster3D)
+	}{
+		{"monster physical arrow", true, shoot("physical")},
+		{"monster fire arrow", false, shoot("fire")},
+		{"monster melee", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) { cs.applyMonsterMeleeDamage(m) }},
+		{"monster fire bolt", false, cast("firebolt")},
+		{"monster physical spell bolt (Shrapmetal)", true, cast("shrapmetal")},
+	}
+	newCombat := newTestCombatFactory(t)
+	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
-			loss := func(ignoresArmor, armored bool) int {
+			loss := func(armored bool, roll int) int {
 				t.Helper()
 				cs := newCombat(t)
 				cs.elementalAttackRoll = func() float64 { return 1 } // no elemental melee proc
+				cs.projectilePierceRoll = func(int) int { return roll }
 				hero := cs.game.party.Members[0]
 				for _, other := range cs.game.party.Members[1:] {
 					other.HitPoints = 0
@@ -544,33 +711,70 @@ func TestIgnoresArmor_OnlyMeleeAndProjectilesSkipPartyArmor(t *testing.T) {
 				hero.Equipment = map[items.EquipSlot]items.Item{}
 				if armored {
 					equipArmorPieces(t, hero, "leather_armor")
-					if cs.armorMitigationPct(hero, false) <= 0 {
-						t.Fatal("setup: the armour mitigates no elemental damage")
-					}
-				}
-				if chance := cs.PerfectDodgeChance(hero); chance != 0 {
-					t.Fatalf("setup: perfect dodge %d%%, want 0", chance)
 				}
 				hero.MaxHitPoints, hero.HitPoints = hp, hp
-				m := &monsterPkg.Monster3D{ID: "armor_rule_attacker", Name: "Attacker", DamageMin: damage, DamageMax: damage, IgnoresArmor: ignoresArmor}
-				row.deliver(cs, m)
+				row.deliver(cs, &monsterPkg.Monster3D{ID: "pierce_attacker", Name: "Attacker", DamageMin: damage, DamageMax: damage})
 				return hp - hero.HitPoints
 			}
-			bare, armored := loss(false, false), loss(false, true)
-			flagBare, flagArmored := loss(true, false), loss(true, true)
-			if bare == 0 || armored >= bare {
-				t.Fatalf("positive control: armoured hero took %d, unarmoured %d; armour must mitigate this delivery", armored, bare)
+			bare, missed, landed := loss(false, 0), loss(true, 99), loss(true, 0)
+			if bare == 0 || missed >= bare {
+				t.Fatalf("positive control: armoured hero took %d, unarmoured %d; armour must mitigate this delivery", missed, bare)
 			}
-			if flagBare != bare {
-				t.Errorf("ignores_armor changed an unarmoured hit: %d, want %d", flagBare, bare)
-			}
-			want := armored
-			if row.bypassesArmor {
+			want := missed
+			if row.pierces {
 				want = bare
 			}
-			if flagArmored != want {
-				t.Errorf("ignores_armor hit on armour took %d, want %d (bypasses armor: %v)", flagArmored, want, row.bypassesArmor)
+			if landed != want {
+				t.Errorf("pierce roll landing: armoured hero took %d, want %d (pierces: %v)", landed, want, row.pierces)
 			}
 		})
 	}
+	// Monster targets: the party's own shots through their impact path, and a
+	// melee packet at the shared mitigation boundary.
+	t.Run("monster targets", func(t *testing.T) {
+		cs := newTestCombatSystemWithConfig(t)
+		bolt := func(spell string) func(m *monsterPkg.Monster3D) {
+			return func(m *monsterPkg.Monster3D) {
+				cs.applyProjectileDamage(&MagicProjectile{Active: true, LifeTime: 1, Damage: damage, SpellType: spell, Owner: ProjectileOwnerPlayer, Attacker: cs.game.party.Members[0]}, "magic_projectile", m, m.ID)
+			}
+		}
+		for _, tc := range []struct {
+			name    string
+			pierces bool
+			deliver func(m *monsterPkg.Monster3D)
+		}{
+			{"party physical arrow", true, func(m *monsterPkg.Monster3D) {
+				cs.applyProjectileDamage(&Arrow{Active: true, LifeTime: 1, Damage: damage, DamageType: "physical", BowKey: "elven_bow", Owner: ProjectileOwnerPlayer}, "arrow", m, m.ID)
+			}},
+			{"party Shrapmetal fragment", true, bolt("shrapmetal")},
+			{"party fire bolt", false, bolt("firebolt")},
+			{"party Harm Flask splash", true, func(m *monsterPkg.Monster3D) {
+				m.X, m.Y = cs.game.camera.X+128, cs.game.camera.Y
+				cs.game.world.Monsters = []*monsterPkg.Monster3D{m}
+				cs.detonateFlask(&MagicProjectile{Active: true, LifeTime: 1, Damage: damage, FlaskKey: "harm_flask", FlaskRadius: 64, Owner: ProjectileOwnerPlayer, Attacker: cs.game.party.Members[0]}, m.X, m.Y)
+			}},
+			{"physical melee packet", false, func(m *monsterPkg.Monster3D) {
+				cs.applyMonsterDamagePacket(m, singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, "physical", 0), monsterDamageOptions{})
+			}},
+		} {
+			hit := func(armor, roll int) int {
+				cs.projectilePierceRoll = func(int) int { return roll }
+				m := mkTestMonster("Pierce target", 1000)
+				m.ID, m.ArmorClass = "pierce_target", armor
+				tc.deliver(m)
+				return m.MaxHitPoints - m.HitPoints
+			}
+			bare, missed, landed := hit(0, 0), hit(40, 99), hit(40, 0)
+			if missed >= bare {
+				t.Fatalf("%s: positive control: armour took nothing off (%d of %d)", tc.name, missed, bare)
+			}
+			want := missed
+			if tc.pierces {
+				want = bare
+			}
+			if landed != want {
+				t.Errorf("%s: pierce roll landing dealt %d, want %d", tc.name, landed, want)
+			}
+		}
+	})
 }

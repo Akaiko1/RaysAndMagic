@@ -429,7 +429,7 @@ func TestCaravanArrivalMatchesMovement(t *testing.T) {
 			if tc.move {
 				for tick := 0; tick < 30 && g.ecology.Checkpoint == 1; tick++ {
 					g.prepareAmbientTarget(m)
-					m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, false)
+					m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, false, nil)
 					g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 					g.updateEcology()
 				}
@@ -680,7 +680,7 @@ func TestCaravanWaitsAtBlockedMapEntrance(t *testing.T) {
 			for i := 0; i < 20; i++ {
 				g.updateEcology()
 				g.refreshMonsterAIState()
-				m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, turn)
+				m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, turn, nil)
 			}
 			w, _ := g.ecologyActor()
 			if w != start || m.X != x || m.Y != y {
@@ -736,7 +736,7 @@ func TestAmbientActorsAreNeutralToCampAndHostileHealing(t *testing.T) {
 				t.Fatal("neutral actor blocked camping")
 			}
 			healer := monster.NewMonster3DFromConfig(animal.X, animal.Y, "goblin", g.config)
-			healer.AllyHealRadiusPixels = 10 * tile
+			healer.Abilities.AllyHeal.RadiusTiles = 10
 			if got := g.combat.pickMonsterAllyHealTarget(healer); got != nil {
 				t.Fatal("hostile healer selected neutral actor")
 			}

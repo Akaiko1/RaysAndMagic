@@ -63,6 +63,7 @@ resolve without first installing the examples above:
 ```yaml
 loots:
   goblin:
+    - {type: gold, min: 3, max: 12}
     - type: item
       key: health_potion
       chance: 0.15
@@ -83,7 +84,9 @@ loot_tables:
 
 | Source | Meaning |
 | --- | --- |
-| `loots.<monster key>` | Each entry rolls independently; `chance` is 0..1, omitted `rolls` means one attempt |
+| `loots.<monster key>` | Each entry rolls independently; `chance` is 0..1, omitted `rolls` means one attempt. An item, weapon, harvest or set entry may add `min`/`max` (1 <= min <= max): when it lands it drops that many units, one stack for consumables and trinkets, separate pieces for gear (one when omitted). One optional `{type: gold, min, max}` entry is the coin the monster carries, rolled at spawn; `boss_loot`, `loot_groups` and `type: table` references never carry gold |
+| `loot_groups.<group>` | Shared entries: `{type: table, key: <group>}` merges a group into a table; `{type: first_of, key: <group>}` rolls the group in order and keeps only the first success (the champion trophy) |
+| `{type: set, key: <item set>}` | One random piece of an `item_sets` set, at the entry's `chance` |
 | `boss_loot` | Entries appended to each YAML-classified boss's normal drops |
 | `loot_tables.<pool>` | Each roll makes a weighted pick; weights are relative, not percentages |
 | `crates.<NPC key>` | Loot/trap behavior for a `loot_crate` NPC; use a named `loot_table` or complete `roll_sources` |

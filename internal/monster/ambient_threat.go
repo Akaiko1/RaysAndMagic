@@ -61,11 +61,8 @@ func (m *Monster3D) advanceAmbientThreat(turn bool) bool {
 	}
 	dt := 1 / float64(max(1, tps))
 	if turn {
-		speed := m.Speed
-		if config.GlobalEcology != nil {
-			speed = config.GlobalEcology.TurnStepSpeed
-		}
-		dt = m.tileSize() / (60 * max(.01, speed))
+		// One turn is the time a turn_step_speed walker needs for one tile.
+		dt = m.tileSize() / (60 * m.turnStepSpeed())
 	}
 	m.Threat.Seconds -= dt
 	if m.Threat.Seconds > 0 {

@@ -236,6 +236,18 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 	m.AITargetX, m.AITargetY = tx, ty
 	return true
 }
+
+// ambientStepPerception re-runs ambient perception between a fast ambient
+// monster's steps, as RT does every frame: a threat or prey that comes into
+// view mid-walk ends the walk, so the next action reacts to it.
+func (g *MMGame) ambientStepPerception(m *monster.Monster3D) func() bool {
+	return func() bool {
+		flee, foe := m.AmbientFlee, m.AIFoe
+		g.prepareAmbientTarget(m)
+		return m.AmbientFlee == flee && m.AIFoe == foe
+	}
+}
+
 func (g *MMGame) caravanFoe(m *monster.Monster3D) *monster.Monster3D {
 	if m.IsAmbient() || m.IsPartyControlled() || m.IsInertSetPiece() || m.BossEvasive {
 		return nil

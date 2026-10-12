@@ -39,8 +39,15 @@ func adventureHoverLines(m mapInfo, x, y int) []string {
 		lines = append(lines, "", e.Name, "Effect: "+e.ID+" ("+e.Kind+")")
 		if e.Kind == "transfer" {
 			lines = append(lines, fmt.Sprintf("Receiver: %d, %d", e.Destination[0], e.Destination[1]))
+		} else if e.DamagePercent > 0 {
+			lines = append(lines, fmt.Sprintf("Damage: %d%% of boss attack, %s", e.DamagePercent, e.School))
 		} else {
 			lines = append(lines, fmt.Sprintf("Damage: %d %s", e.Damage, e.School))
+		}
+		if e.SustainPercent > 0 {
+			lines = append(lines, fmt.Sprintf("Lingering: %d%% of boss attack per second", e.SustainPercent))
+		} else if e.SustainDamage > 0 {
+			lines = append(lines, fmt.Sprintf("Lingering: %d per second", e.SustainDamage))
 		}
 		if e.WarningSeconds > 0 {
 			lines = append(lines, fmt.Sprintf("Warning: %.1fs / %d rounds", e.WarningSeconds, e.WarningRounds))

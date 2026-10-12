@@ -126,7 +126,7 @@ func (d *overlayDocument) addEffect(kind string, box [4]int) int {
 	case "lane":
 		e.WarningSeconds, e.WarningRounds, e.DurationSeconds, e.DurationRounds = 1.25, 1, 4, 2
 	case "transfer":
-		e.Damage = 0
+		e.Damage, e.DamagePercent = 0, 0
 		e.School = ""
 		e.Destination = [2]int{min(d.state.Data.Width-1, box[2]+1), box[1]}
 	}
@@ -423,7 +423,7 @@ func (v *viewer) validateOverlay(d *overlayDocument) error {
 		if !inside(e.Rect[0], e.Rect[1]) || !inside(e.Rect[2], e.Rect[3]) {
 			return fmt.Errorf("%s extends outside the map", e.Name)
 		}
-		if e.SustainDamage < 0 || e.WarningRounds < 0 || e.DurationRounds < 0 || e.RearmRounds < 0 {
+		if e.SustainDamage < 0 || e.DamagePercent < 0 || e.SustainPercent < 0 || e.WarningRounds < 0 || e.DurationRounds < 0 || e.RearmRounds < 0 {
 			return fmt.Errorf("%s: values cannot be negative", e.Name)
 		}
 		if e.Kind == "transfer" {
@@ -488,9 +488,6 @@ func (v *viewer) validateOverlay(d *overlayDocument) error {
 		return err
 	}
 	if b := a.Boss; b != nil && b.HealPercent > 0 {
-		if b.HealPercent > 100 || b.HealCapPercent <= 0 {
-			return fmt.Errorf("Regeneration needs a rate of 1..100 and positive total healing budget")
-		}
 		if !slices.ContainsFunc(a.Controls, func(c config.EnvironmentControl) bool { return c.StopHealing }) {
 			return fmt.Errorf("Regeneration needs at least one linked switch")
 		}
@@ -518,9 +515,12 @@ func (d *overlayDocument) changeKind(index int, kind string) error {
 		}
 	}
 	e.Kind = kind
+	if kind != "lane" {
+		e.SustainDamage, e.SustainPercent = 0, 0 // lingering damage belongs to lanes
+	}
 	if kind != "transfer" {
 		e.TriggerLane = ""
-		if e.Damage <= 0 {
+		if e.Damage <= 0 && e.DamagePercent <= 0 {
 			e.Damage = 25
 		}
 		if e.School == "" {
@@ -533,7 +533,7 @@ func (d *overlayDocument) changeKind(index int, kind string) error {
 	case "lane":
 		e.WarningSeconds, e.WarningRounds, e.DurationSeconds, e.DurationRounds = 1.25, 1, 4, 2
 	case "transfer":
-		e.Damage, e.SustainDamage = 0, 0
+		e.Damage, e.SustainDamage, e.DamagePercent, e.SustainPercent = 0, 0, 0, 0
 		e.School, e.SecondarySchool = "", ""
 		e.Destination = [2]int{min(d.state.Data.Width-1, e.Rect[2]+1), e.Rect[1]}
 	}

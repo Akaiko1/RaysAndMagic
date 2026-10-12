@@ -110,8 +110,13 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 	}
 	m.State = monster.StateAttacking
 	if cadence == monsterAttackTurn {
-		for hit := 0; hit < m.GetTurnBasedAttackCount() && cs.monsterAttackStillValid(m, target, cadence); hit++ {
-			if !spent {
+		// Swings per action are fractional and accumulate (turn_based_cadence.go).
+		// They are drawn on the first swing, so an attack revoked before it lands
+		// keeps the banked fraction; later swings stop if the target becomes invalid.
+		swings := 1
+		for hit := 0; hit < swings && cs.monsterAttackStillValid(m, target, cadence); hit++ {
+			if hit == 0 {
+				swings = m.TakeTurnBasedSwings()
 				cs.game.armMonsterAttackAnimation(m)
 			}
 			cs.deliverMonsterAttack(m, target)

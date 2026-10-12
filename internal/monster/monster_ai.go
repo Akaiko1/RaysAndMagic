@@ -168,6 +168,7 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
 	m.TickBurn()            // Drakefang ignite; independent clock, stacks with poison
 	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
+	m.ArmorMelt.TickFrame() // a melting monster's hit decays regardless of stun/root state
 	m.TickElementalMarks(false)
 	m.TickSlowFrame()   // Tarn Trident silt decays regardless of stun/root state
 	m.TickWeakenFrame() // Scalebreaker roar decays regardless of stun/root state
@@ -230,7 +231,7 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	}
 
 	if m.CurrentAIBehavior() == AIBehaviorAmbient {
-		m.UpdateAmbient(collisionChecker, targetX, targetY, false)
+		m.UpdateAmbient(collisionChecker, targetX, targetY, false, nil)
 		return
 	}
 
@@ -1701,43 +1702,14 @@ func (m *Monster3D) AttackCooldownFrames() int {
 // slow) to one real-time hand stream, so a champion's off hand obeys the same
 // rule as its main hand.
 func (m *Monster3D) ScaleAttackCooldown(cd int) int {
-	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
-		cd = int(math.Round(float64(cd) * m.EnrageCooldownMult))
+	if m.IsEnraged() && m.Abilities.Enrage.CooldownMult > 0 {
+		cd = int(math.Round(float64(cd) * m.Abilities.Enrage.CooldownMult))
 	}
 	cd = int(math.Round(float64(cd) * m.SlowCadenceFactor()))
 	if cd < 1 {
 		cd = 1
 	}
 	return cd
-}
-
-// TurnBasedAttacksForCooldownMultiplier maps a real-time attack-cooldown
-// multiplier to the turn-based swing count that keeps the two modes at parity.
-// Power-of-two buckets keep the count integer: mult >= 1 -> 1, [0.5,1) -> 2,
-// [0.25,0.5) -> 4, ... (capped at 8).
-//
-// Presentation tools use this exported function too, so authored monster sheets
-// cannot drift from the cadence the combat loop executes.
-func TurnBasedAttacksForCooldownMultiplier(mult float64) int {
-	if mult <= 0 {
-		return 1
-	}
-	n := 1
-	for mult < 1.0 && n < 8 {
-		n *= 2
-		mult *= 2
-	}
-	return n
-}
-
-// TurnBasedAttackCount resolves the authored static cadence. An explicit
-// attacks_per_round value owns TB behavior; otherwise the RT cooldown
-// multiplier supplies the equivalent number of swings.
-func TurnBasedAttackCount(attacksPerRound int, cooldownMultiplier float64) int {
-	if attacksPerRound > 0 {
-		return attacksPerRound
-	}
-	return TurnBasedAttacksForCooldownMultiplier(cooldownMultiplier)
 }
 
 func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, playerY float64) {

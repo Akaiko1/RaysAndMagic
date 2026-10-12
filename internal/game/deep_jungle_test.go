@@ -11,8 +11,8 @@ import (
 
 // Gorilla Titan rallies its escort via the shared boss summon kit (data-driven
 // summon_* fields in monsters.yaml). Verifies the wiring end-to-end: each rally
-// adds summon_count of its own summon_monsters, tagged SummonedBy, up to
-// summon_max and never past it.
+// adds abilities.summon.count of its own summon monsters, tagged SummonedBy, up
+// to summon max and never past it.
 func TestGorillaTitan_SummonsEscortUpToCap(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
@@ -46,39 +46,39 @@ func TestGorillaTitan_SummonsEscortUpToCap(t *testing.T) {
 	gorilla := monsterPkg.NewMonster3DFromConfig(gx, gy, "gorilla_titan", cs.game.config)
 	cs.game.registerSpawnedMonster(gorilla)
 
-	// The data wiring landed, and summon_chance>0 routes it through the boss kit.
+	// The data wiring landed, and a summon chance > 0 routes it through the boss kit.
 	def := monsterPkg.MonsterConfig.Monsters["gorilla_titan"]
-	if len(def.SummonMonsters) == 0 || def.SummonCount <= 0 || def.SummonMax <= 0 {
-		t.Fatalf("gorilla_titan must author a capped escort: monsters=%v count=%d max=%d", def.SummonMonsters, def.SummonCount, def.SummonMax)
+	if len(def.Abilities.Summon.Monsters) == 0 || def.Abilities.Summon.Count <= 0 || def.Abilities.Summon.Max <= 0 {
+		t.Fatalf("gorilla_titan must author a capped escort: monsters=%v count=%d max=%d", def.Abilities.Summon.Monsters, def.Abilities.Summon.Count, def.Abilities.Summon.Max)
 	}
-	if !slices.Equal(gorilla.SummonMonsters, def.SummonMonsters) || gorilla.SummonCount != def.SummonCount || gorilla.SummonMax != def.SummonMax {
-		t.Fatalf("summon wiring = %v %d/%d, want %v %d/%d", gorilla.SummonMonsters, gorilla.SummonCount, gorilla.SummonMax,
-			def.SummonMonsters, def.SummonCount, def.SummonMax)
+	if !slices.Equal(gorilla.Abilities.Summon.Monsters, def.Abilities.Summon.Monsters) || gorilla.Abilities.Summon.Count != def.Abilities.Summon.Count || gorilla.Abilities.Summon.Max != def.Abilities.Summon.Max {
+		t.Fatalf("summon wiring = %v %d/%d, want %v %d/%d", gorilla.Abilities.Summon.Monsters, gorilla.Abilities.Summon.Count, gorilla.Abilities.Summon.Max,
+			def.Abilities.Summon.Monsters, def.Abilities.Summon.Count, def.Abilities.Summon.Max)
 	}
 	if !gorilla.IsBoss() {
-		t.Fatal("a monster with summon_chance>0 should use the boss kit")
+		t.Fatal("a monster with a summon chance > 0 should use the boss kit")
 	}
 
-	// Rally until the cap: each rally adds summon_count, tagged to this gorilla.
-	for live := 0; live < def.SummonMax; {
+	// Rally until the cap: each rally adds summon count, tagged to this gorilla.
+	for live := 0; live < def.Abilities.Summon.Max; {
 		if !cs.summonBossAdds(gorilla) {
 			t.Fatalf("gorilla should summon its escort at %d live", live)
 		}
-		live = min(def.SummonMax, live+def.SummonCount)
+		live = min(def.Abilities.Summon.Max, live+def.Abilities.Summon.Count)
 		if got := cs.countLiveSummons(gorilla); got != live {
 			t.Fatalf("live summons = %d, want %d", got, live)
 		}
 	}
 	for _, m := range cs.game.world.Monsters {
-		if m.SummonedBy == gorilla.ID && !slices.Contains(def.SummonMonsters, m.Key) {
-			t.Errorf("summon %q is not in summon_monsters %v", m.Key, def.SummonMonsters)
+		if m.SummonedBy == gorilla.ID && !slices.Contains(def.Abilities.Summon.Monsters, m.Key) {
+			t.Errorf("summon %q is not in abilities.summon.monsters %v", m.Key, def.Abilities.Summon.Monsters)
 		}
 	}
 
 	// Cap holds: with the escort full, another rally adds nothing.
 	cs.summonBossAdds(gorilla)
-	if got := cs.countLiveSummons(gorilla); got != def.SummonMax {
-		t.Fatalf("summon cap breached: %d live, want %d", got, def.SummonMax)
+	if got := cs.countLiveSummons(gorilla); got != def.Abilities.Summon.Max {
+		t.Fatalf("summon cap breached: %d live, want %d", got, def.Abilities.Summon.Max)
 	}
 }
 
@@ -143,14 +143,14 @@ func TestOrcWarlord_DeathRalliesHumansOnly(t *testing.T) {
 	if orc.DeathRalliesType != "human" {
 		t.Fatalf("orc death_rallies_type = %q, want \"human\"", orc.DeathRalliesType)
 	}
-	if len(orc.SummonMonsters) == 0 {
+	if len(orc.Abilities.Summon.Monsters) == 0 {
 		t.Fatal("orc_hero_boss lost its summon roster")
 	}
 
 	// The Warlord's own retainers are the humans he rallies.
 	game.world.Monsters = []*monsterPkg.Monster3D{orc}
 	var humans []*monsterPkg.Monster3D
-	for i, key := range orc.SummonMonsters {
+	for i, key := range orc.Abilities.Summon.Monsters {
 		m := monsterPkg.NewMonster3DFromConfig(float64(12+i)*ts, 12*ts, key, game.config)
 		if m.MonsterType != orc.DeathRalliesType {
 			t.Fatalf("summon %s is type %q, want the rallied %q", key, m.MonsterType, orc.DeathRalliesType)

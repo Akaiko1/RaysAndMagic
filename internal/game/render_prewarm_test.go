@@ -2000,8 +2000,8 @@ func TestMonsterPrewarmScoresCoverEntireSummonGraph(t *testing.T) {
 		{
 			name: "unscored chain stays in deterministic tail",
 			definitions: map[string]monster.MonsterDefinition{
-				"root":   {Sprite: "root_sprite", SummonMonsters: []string{"middle"}},
-				"middle": {Sprite: "middle_sprite", SummonMonsters: []string{"leaf"}},
+				"root":   {Sprite: "root_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"middle"}}}},
+				"middle": {Sprite: "middle_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"leaf"}}}},
 				"leaf":   {Sprite: "leaf_sprite"},
 			},
 			seeds:        map[string]float64{"root": math.Inf(1)},
@@ -2011,10 +2011,10 @@ func TestMonsterPrewarmScoresCoverEntireSummonGraph(t *testing.T) {
 		{
 			name: "diamond propagates later better path",
 			definitions: map[string]monster.MonsterDefinition{
-				"far_root":  {Sprite: "far_sprite", SummonMonsters: []string{"shared"}},
-				"near_root": {Sprite: "near_sprite", SummonMonsters: []string{"bridge"}},
-				"bridge":    {Sprite: "bridge_sprite", SummonMonsters: []string{"shared"}},
-				"shared":    {Sprite: "shared_sprite", SummonMonsters: []string{"leaf"}},
+				"far_root":  {Sprite: "far_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"shared"}}}},
+				"near_root": {Sprite: "near_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"bridge"}}}},
+				"bridge":    {Sprite: "bridge_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"shared"}}}},
+				"shared":    {Sprite: "shared_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"leaf"}}}},
 				"leaf":      {Sprite: "leaf_sprite"},
 			},
 			seeds: map[string]float64{"far_root": 100, "near_root": 2},
@@ -2027,8 +2027,8 @@ func TestMonsterPrewarmScoresCoverEntireSummonGraph(t *testing.T) {
 		{
 			name: "cycle terminates and accepts an improved seed",
 			definitions: map[string]monster.MonsterDefinition{
-				"a": {Sprite: "a_sprite", SummonMonsters: []string{"b"}},
-				"b": {Sprite: "b_sprite", SummonMonsters: []string{"a"}},
+				"a": {Sprite: "a_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"b"}}}},
+				"b": {Sprite: "b_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"a"}}}},
 			},
 			seeds:      map[string]float64{"a": 20, "b": 3},
 			wantScores: map[string]float64{"a_sprite": 3, "b_sprite": 3},
@@ -2078,7 +2078,7 @@ func TestPlanWalkWiresSummonGraphScoresIntoStreaming(t *testing.T) {
 		world.GlobalWorldManager = previousWorldManager
 	})
 	monster.MonsterConfig = &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{
-		"root":  {Sprite: "root_sprite", SummonMonsters: []string{"child"}},
+		"root":  {Sprite: "root_sprite", Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"child"}}}},
 		"child": {Sprite: "child_sprite"},
 	}}
 	world.GlobalWorldManager = nil

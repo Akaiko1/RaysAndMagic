@@ -7,6 +7,7 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 // GameSave captures minimal persistent state for save/load
@@ -189,6 +190,7 @@ type CharacterSave struct {
 	StunDRStacks          int                `json:"stun_dr_stacks,omitempty"`
 	StunDRMemoryTurns     int                `json:"stun_dr_memory_turns,omitempty"`
 	StunDRMemoryFrames    int                `json:"stun_dr_memory_frames,omitempty"`
+	ArmorMelt             *status.DualClock  `json:"armor_melt,omitempty"`
 	// ActionsRemaining preserves mid-round turn-based state so save/reload
 	// can't be used to refill action slots. It also survives an RT save made
 	// while a Tab-suspended TB turn is waiting to resume.
@@ -283,12 +285,11 @@ type MonsterAggroSave struct {
 }
 
 type MonsterSave struct {
-	Telegraph         monster.TelegraphState `json:"telegraph,omitzero"`
-	BandInstance      string                 `json:"band_instance,omitempty"`
-	AmbientThreat     monster.AmbientThreat  `json:"ambient_threat,omitzero"`
-	Arbor             monster.ArborealState  `json:"arboreal,omitzero"`
-	Population        string                 `json:"population,omitempty"`
-	AmbientMoveCredit float64                `json:"ambient_move_credit,omitempty"`
+	Telegraph     monster.TelegraphState `json:"telegraph,omitzero"`
+	BandInstance  string                 `json:"band_instance,omitempty"`
+	AmbientThreat monster.AmbientThreat  `json:"ambient_threat,omitzero"`
+	Arbor         monster.ArborealState  `json:"arboreal,omitzero"`
+	Population    string                 `json:"population,omitempty"`
 
 	ID        string  `json:"id,omitempty"`
 	Key       string  `json:"key"`
@@ -352,6 +353,7 @@ type MonsterSave struct {
 	ArmorShredFrames    int                                    `json:"armor_shred_frames,omitempty"`
 	ArmorShredTurns     int                                    `json:"armor_shred_turns,omitempty"`
 	ArmorShredRate      int                                    `json:"armor_shred_rate,omitempty"`
+	ArmorMelt           *status.DualClock                      `json:"armor_melt,omitempty"`
 	BurnFramesRemaining int                                    `json:"burn_frames_remaining,omitempty"`
 	BurnTickTimer       int                                    `json:"burn_tick_timer,omitempty"`
 	TrapVolleyCD        int                                    `json:"trap_volley_cd,omitempty"`
@@ -373,6 +375,8 @@ type MonsterSave struct {
 	PounceCDFrames      int                                    `json:"pounce_cd_frames,omitempty"`
 	PounceCDTurns       int                                    `json:"pounce_cd_turns,omitempty"`
 	PounceCDRate        int                                    `json:"pounce_cd_rate,omitempty"`
+	TurnBasedSwingCarry float64                                `json:"tb_swing_carry,omitempty"` // fractional TB swing banked between attack actions
+	TurnBasedStepCarry  float64                                `json:"tb_step_carry,omitempty"`  // fractional TB step banked between movement actions
 	BossCD              int                                    `json:"boss_cd,omitempty"`
 	InfernoCD           int                                    `json:"inferno_cd,omitempty"`
 	BossHurtPending     bool                                   `json:"boss_hurt_pending,omitempty"`

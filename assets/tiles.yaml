@@ -13,6 +13,7 @@ tiles:
     wall_color: [210, 105, 45]
     letter: "X"
     biomes: ["solstice_fire"]
+
   solstice_water_wall:
     name: "Water Service Wall"
     type: "wall"
@@ -26,6 +27,7 @@ tiles:
     wall_color: [65, 155, 170]
     letter: "X"
     biomes: ["solstice_water"]
+
   solstice_earth_wall:
     name: "Earth Service Wall"
     type: "wall"
@@ -39,6 +41,7 @@ tiles:
     wall_color: [140, 155, 80]
     letter: "X"
     biomes: ["solstice_earth"]
+
   solstice_vestibule_wall:
     name: "Earth Service Wall"
     type: "wall"
@@ -50,6 +53,7 @@ tiles:
     wall_color: [140, 155, 80]
     letter: "X"
     biomes: ["solstice_vestibule"]
+
   solstice_air_wall:
     name: "Air Service Wall"
     type: "wall"
@@ -63,6 +67,7 @@ tiles:
     wall_color: [155, 195, 215]
     letter: "X"
     biomes: ["solstice_air"]
+
   solstice_fire_service_wall:
     name: "Fire Regulator Panel"
     type: "wall"
@@ -139,6 +144,7 @@ tiles:
     floor_color: [20, 25, 30]
     letter: "~"
     biomes: ["solstice_fire", "solstice_water", "solstice_earth", "solstice_air", "solstice_vestibule"]
+
   solstice_lava:
     name: "Thermal Channel"
     type: "floor"
@@ -151,6 +157,7 @@ tiles:
     floor_color: [230, 88, 25]
     letter: "L"
     biomes: ["solstice_fire", "solstice_water", "solstice_earth", "solstice_air"]
+
   solstice_shallow:
     name: "Circulation Channel"
     type: "floor"
@@ -163,6 +170,7 @@ tiles:
     floor_color: [45, 125, 145]
     letter: "S"
     biomes: ["solstice_fire", "solstice_water", "solstice_earth", "solstice_air"]
+
   solstice_plate:
     name: "Pressure Plate"
     type: "floor"
@@ -2597,6 +2605,7 @@ tiles:
     render_type: "standee"
     wall_mounted: true
     short_label: "lever"
+
   wall_portrait:
     name: "Noble Portrait"
     type: "wall_decor"
@@ -2608,6 +2617,7 @@ tiles:
     render_type: "standee"
     wall_mounted: true
     short_label: "portrait"
+
   wall_landscape:
     name: "Castle Landscape"
     type: "wall_decor"
@@ -2619,6 +2629,7 @@ tiles:
     render_type: "standee"
     wall_mounted: true
     short_label: "landscape"
+
   wall_dragon:
     name: "Dragon Painting"
     type: "wall_decor"
@@ -2630,6 +2641,7 @@ tiles:
     render_type: "standee"
     wall_mounted: true
     short_label: "dragon_art"
+
   wall_sigil:
     name: "Arcane Sigil"
     type: "wall_decor"
@@ -2641,6 +2653,7 @@ tiles:
     render_type: "standee"
     wall_mounted: true
     short_label: "sigil"
+
   wall_skull:
     name: "Glowing Skull"
     type: "wall_decor"
@@ -2652,6 +2665,7 @@ tiles:
     render_type: "standee"
     wall_mounted: true
     short_label: "skull"
+
   wall_anim_portrait:
     name: "Haunted Portrait"
     type: "wall_decor"
@@ -2663,6 +2677,7 @@ tiles:
     render_type: "standee"
     wall_mounted: true
     short_label: "portrait_live"
+
   wall_anim_landscape:
     name: "Living Vista"
     type: "wall_decor"

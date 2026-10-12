@@ -14,12 +14,20 @@ import (
 
 // balanceAbility is one authored monster ability and how a fight shows it:
 // a line naming the monster, a line naming none (a struck hero, a field), or
-// (neither set) the monster's state.
+// (neither set) the monster's state. name is the abilities: kind; behaviour
+// rows outside that map set authored.
 type balanceAbility struct {
 	name     string
 	authored func(d monster.MonsterDefinition) bool
 	foeLine  func(line, foe string) bool
 	bareLine func(line string, heroes map[string]string) bool
+}
+
+func (ab balanceAbility) authors(d monster.MonsterDefinition) bool {
+	if ab.authored != nil {
+		return ab.authored(d)
+	}
+	return slices.Contains(d.AbilityKinds(), ab.name)
 }
 
 // heroLine matches a line opening with "<hero><phrase>" for any of the
@@ -46,34 +54,31 @@ func foePrefix(format string) func(line, foe string) bool {
 }
 
 var balanceAbilities = []balanceAbility{
-	{name: "piercing_shot", authored: func(d monster.MonsterDefinition) bool { return d.PiercingShotChance > 0 }, foeLine: foeLine("<foe> fires a Piercing Shot!")},
-	{name: "dragon_breath", authored: func(d monster.MonsterDefinition) bool { return d.DragonBreathChance > 0 }, foeLine: foePrefix("<foe> breathes ")},
-	{name: "fireburst", authored: func(d monster.MonsterDefinition) bool { return d.FireburstChance > 0 },
-		foeLine: func(l, f string) bool {
-			return foeLine("<foe> erupts in a wave of fire!")(l, f) || foeLine("<foe> casts Fireburst!")(l, f)
-		}},
-	{name: "trap_volley", authored: func(d monster.MonsterDefinition) bool { return d.TrapVolleyCount > 0 },
-		bareLine: func(l string, _ map[string]string) bool { return l == "The ground erupts in brood-fire!" }},
-	{name: "inferno", authored: func(d monster.MonsterDefinition) bool { return d.InfernoChance > 0 },
-		bareLine: func(l string, _ map[string]string) bool { return strings.HasPrefix(l, "Inferno scorches ") }},
-	{name: "pounce", authored: func(d monster.MonsterDefinition) bool { return d.PounceRangeTiles > 0 }, foeLine: foeLine("<foe> pounces at the party!")},
-	{name: "poison", authored: func(d monster.MonsterDefinition) bool { return d.PoisonChance > 0 }, bareLine: heroLine(" is poisoned!")},
-	{name: "ignite", authored: func(d monster.MonsterDefinition) bool { return d.IgniteChance > 0 }, bareLine: heroLine(" bursts into flames!", " catches fire!")},
-	{name: "stun", authored: func(d monster.MonsterDefinition) bool { return d.StunCharChance > 0 }, bareLine: heroLine(" is stunned!")},
-	{name: "dispel", authored: func(d monster.MonsterDefinition) bool { return d.DispelChance > 0 },
-		foeLine: func(l, f string) bool {
-			return strings.HasPrefix(l, f+" rips ") && strings.HasSuffix(l, " from the party!")
-		}},
-	{name: "root", authored: func(d monster.MonsterDefinition) bool { return d.RootPartyChance > 0 }, foeLine: foeLine("<foe> roots the party in place!")},
-	{name: "rear_blink", authored: func(d monster.MonsterDefinition) bool { return d.RearBlinkChance > 0 }, foeLine: foeLine("<foe> slips behind the party!")},
-	{name: "teleport", authored: func(d monster.MonsterDefinition) bool { return d.TeleportAtHP > 0 }, foeLine: foeLine("<foe> blinks away in a golden flash!")},
-	{name: "ally_heal", authored: func(d monster.MonsterDefinition) bool { return d.AllyHealChance > 0 }, foeLine: foePrefix("<foe> mends ")},
-	{name: "summon", authored: func(d monster.MonsterDefinition) bool { return len(d.SummonMonsters) > 0 },
-		foeLine: foeLine("<foe> raises the war-banner - retainers rush to its side!")},
+	{name: "telegraph", foeLine: foePrefix("<foe> prepares ")},
+	{name: "piercing_shot", foeLine: foeLine("<foe> fires a Piercing Shot!")},
+	{name: "dragon_breath", foeLine: foePrefix("<foe> breathes ")},
+	{name: "fireburst", foeLine: func(l, f string) bool {
+		return foeLine("<foe> erupts in a wave of fire!")(l, f) || foeLine("<foe> casts Fireburst!")(l, f)
+	}},
+	{name: "trap_volley", bareLine: func(l string, _ map[string]string) bool { return l == "The ground erupts in brood-fire!" }},
+	{name: "inferno", bareLine: func(l string, _ map[string]string) bool { return strings.HasPrefix(l, "Inferno scorches ") }},
+	{name: "pounce", foeLine: foeLine("<foe> pounces at the party!")},
+	{name: "poison", bareLine: heroLine(" is poisoned!")},
+	{name: "ignite", bareLine: heroLine(" bursts into flames!", " catches fire!")},
+	{name: "stun", bareLine: heroLine(" is stunned!")},
+	{name: "melt_armor", bareLine: heroLine("'s armor melts!")},
+	{name: "dispel", foeLine: func(l, f string) bool {
+		return strings.HasPrefix(l, f+" rips ") && strings.HasSuffix(l, " from the party!")
+	}},
+	{name: "root_party", foeLine: foeLine("<foe> roots the party in place!")},
+	{name: "rear_blink", foeLine: foeLine("<foe> slips behind the party!")},
+	{name: "teleport", foeLine: foeLine("<foe> blinks away in a golden flash!")},
+	{name: "ally_heal", foeLine: foePrefix("<foe> mends ")},
+	{name: "summon", foeLine: foeLine("<foe> raises the war-banner - retainers rush to its side!")},
 	{name: "alarm_rally", authored: func(d monster.MonsterDefinition) bool { return d.RallyOnAggroTiles > 0 }, foeLine: foePrefix("<foe> rings out")},
 	{name: "death_rally", authored: func(d monster.MonsterDefinition) bool { return d.DeathRalliesType != "" },
 		foeLine: foePrefix("<foe> falls - its retainers turn on you")},
-	{name: "enrage", authored: func(d monster.MonsterDefinition) bool { return d.EnrageAtHP > 0 }},
+	{name: "enrage"},
 }
 
 // balanceCoverage collects, over a sweep, which authored monster abilities
@@ -145,10 +150,10 @@ func (c *balanceCoverage) add(f balanceFight) {
 		}
 		def := monster.MonsterConfig.Monsters[key]
 		for _, ab := range balanceAbilities {
-			if !ab.authored(def) {
+			if !ab.authors(def) {
 				continue
 			}
-			authors := func(k string) bool { return ab.authored(monster.MonsterConfig.Monsters[k]) }
+			authors := func(k string) bool { return ab.authors(monster.MonsterConfig.Monsters[k]) }
 			switch {
 			case ab.foeLine != nil:
 				names := balanceTellingNames(keysByName, key, authors)
@@ -221,8 +226,10 @@ func (c *balanceCoverage) report() {
 	for _, key := range sortedKeys(c.fights) {
 		def := monster.MonsterConfig.Monsters[key]
 		var parts, missing []string
+		tracked := map[string]bool{}
 		for _, ab := range balanceAbilities {
-			if !ab.authored(def) {
+			tracked[ab.name] = true
+			if !ab.authors(def) {
 				continue
 			}
 			n, told := c.fired[key][ab.name], c.told[key][ab.name]
@@ -231,12 +238,22 @@ func (c *balanceCoverage) report() {
 				missing = append(missing, ab.name)
 			}
 		}
-		if len(parts) == 0 {
+		// An ability without a row here is invisible to the sweep.
+		var untracked []string
+		for _, kind := range def.AbilityKinds() {
+			if !tracked[kind] {
+				untracked = append(untracked, kind)
+			}
+		}
+		if len(parts)+len(untracked) == 0 {
 			continue
 		}
 		line := fmt.Sprintf("  %-24s %s", key, strings.Join(parts, ", "))
 		if len(missing) > 0 {
 			line += "   NEVER: " + strings.Join(missing, ", ")
+		}
+		if len(untracked) > 0 {
+			line += "   UNTRACKED: " + strings.Join(untracked, ", ")
 		}
 		fmt.Println(line)
 	}

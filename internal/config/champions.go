@@ -49,25 +49,6 @@ type ChampionDefinition struct {
 type ChampionSystemConfig struct {
 	Tiers     map[string]*ChampionTier       `yaml:"tiers"`
 	Champions map[string]*ChampionDefinition `yaml:"champions"`
-	// SetDrops: the champion trophy ladder, IN AUTHORED ORDER - every piece of
-	// every listed set rolls in turn at its set's percent, and the first
-	// success ends the rolling (one piece max per kill). A list, not a map:
-	// the roll order is gameplay data and must be author-controlled.
-	SetDrops []ChampionSetDrop `yaml:"set_drops,omitempty"`
-}
-
-// ChampionSetDrop is one rung of the trophy ladder.
-type ChampionSetDrop struct {
-	Set string `yaml:"set"`
-	Pct int    `yaml:"pct"`
-}
-
-// ChampionSetDrops returns the trophy ladder in authored order.
-func ChampionSetDrops() []ChampionSetDrop {
-	if GlobalChampionConfig == nil {
-		return nil
-	}
-	return GlobalChampionConfig.SetDrops
 }
 
 // ChampionDefaultTier is the tier assumed when a champion mob carries no
@@ -109,6 +90,27 @@ func ChampionKeys() []string {
 	return keys
 }
 
+// ChampionTierNames returns the difficulty tiers from easiest to hardest
+// (by character level, then name). The tiers are a YAML map, so this is the
+// one place that gives them an order.
+func ChampionTierNames() []string {
+	if GlobalChampionConfig == nil {
+		return nil
+	}
+	names := make([]string, 0, len(GlobalChampionConfig.Tiers))
+	for name := range GlobalChampionConfig.Tiers {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		a, b := GlobalChampionConfig.Tiers[names[i]], GlobalChampionConfig.Tiers[names[j]]
+		if a.Level != b.Level {
+			return a.Level < b.Level
+		}
+		return names[i] < names[j]
+	})
+	return names
+}
+
 // LoadChampionConfig reads and structurally validates assets/champions.yaml.
 // Deeper validation (class/skill/item keys, buildability, equip gates) happens
 // when the characters are built at startup - it needs the class, weapon and
@@ -147,19 +149,6 @@ func validateChampionConfig(cfg *ChampionSystemConfig) error {
 	}
 	if cfg.Tiers[ChampionDefaultTier] == nil {
 		return fmt.Errorf("champion tiers must include %q (the default for tierless spawns)", ChampionDefaultTier)
-	}
-	for _, drop := range cfg.SetDrops {
-		if drop.Set == "" {
-			return fmt.Errorf("champion set_drops: every entry needs a set key")
-		}
-		if drop.Pct <= 0 || drop.Pct > 100 {
-			return fmt.Errorf("champion set_drops %q: pct must be in (0,100], got %d", drop.Set, drop.Pct)
-		}
-		// Set keys are validated against items.yaml at boot when both configs
-		// are loaded (isolated tests may load champions alone).
-		if GlobalItems != nil && GetItemSet(drop.Set) == nil {
-			return fmt.Errorf("champion set_drops references unknown item set %q", drop.Set)
-		}
 	}
 	for name, t := range cfg.Tiers {
 		if t == nil || t.Level <= 0 || t.Mastery == "" || t.HP <= 0 {

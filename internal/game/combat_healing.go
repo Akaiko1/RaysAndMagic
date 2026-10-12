@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"slices"
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
@@ -70,65 +71,96 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	return cs.castKnownHealOn(spellID, def, targetIndex)
 }
 
-// bestKnownHealSpell returns the most powerful heal spell the caster knows and
-// can cast now (not under its reuse lockout) across all their magic schools:
-// party heals first (Mass Heal's 10-per-member outvalues a 20 single-target),
-// then the larger HealAmount, then the pricier spell, then ID for a stable pick
-// over map-ordered spellbooks. False if none.
-// healRank orders known heals for bestKnownHealSpell. Party reach dominates raw
-// magnitude, then magnitude, then cost; the ID tail keeps the choice stable.
-type healRankKey struct {
-	party  bool
-	amount int
-	cost   int
-	id     string
+// healReach is a heal's place in the triage chain: a heal that mends every
+// member, the shared pool (Shared Life), one ally, then the caster alone.
+type healReach uint8
+
+const (
+	healReachParty healReach = iota
+	healReachPool
+	healReachAlly
+	healReachSelf
+)
+
+func healReachOf(def spells.SpellDefinition) healReach {
+	switch {
+	case def.Mechanic != nil && def.Mechanic.Kind == "shared_life":
+		return healReachPool
+	case def.HealParty:
+		return healReachParty
+	case def.TargetSelf:
+		return healReachSelf
+	default:
+		return healReachAlly
+	}
 }
 
-func healRank(def spells.SpellDefinition, id spells.SpellID) healRankKey {
-	// Shared Life evens the pool out instead of healing everyone, so it ranks by
-	// its amount like a single-target heal rather than as a party heal.
-	party := def.HealParty && (def.Mechanic == nil || def.Mechanic.Kind != "shared_life")
-	return healRankKey{party: party, amount: def.HealAmount, cost: def.SpellPointsCost, id: string(id)}
+// healChainBefore orders two heals in the chain: by reach, then the larger
+// HealAmount, then the pricier spell; the ID keeps map-ordered spellbooks
+// in one stable order.
+func healChainBefore(a, b spells.SpellDefinition) bool {
+	if ra, rb := healReachOf(a), healReachOf(b); ra != rb {
+		return ra < rb
+	}
+	if a.HealAmount != b.HealAmount {
+		return a.HealAmount > b.HealAmount
+	}
+	if a.SpellPointsCost != b.SpellPointsCost {
+		return a.SpellPointsCost > b.SpellPointsCost
+	}
+	return a.ID < b.ID
 }
 
-func (k healRankKey) beats(other healRankKey) bool {
-	if k.party != other.party {
-		return k.party
-	}
-	if k.amount != other.amount {
-		return k.amount > other.amount
-	}
-	if k.cost != other.cost {
-		return k.cost > other.cost
-	}
-	return k.id < other.id
-}
-
-func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spells.SpellID, bool) {
-	var bestID spells.SpellID
-	var best spells.SpellDefinition
-	found := false
+// knownHealChain is every heal the caster knows, in the order triage (C key,
+// Space) tries them. A self-only heal joins only when it is the caster's one
+// heal: whoever has another heals the party with it.
+func knownHealChain(caster *character.MMCharacter) []spells.SpellDefinition {
+	var chain []spells.SpellDefinition
 	for _, school := range caster.MagicSchools {
 		if school == nil {
 			continue
 		}
 		for _, id := range school.KnownSpells {
-			def, err := spells.GetSpellDefinitionByID(id)
-			// A heal under its personal reuse lockout waits; the next best serves.
-			if err != nil || !def.IsHeal() || !caster.SpellState.Reusable(string(id)) {
-				continue
-			}
-			better := !found || healRank(def, id).beats(healRank(best, bestID))
-			if better {
-				bestID, best, found = id, def, true
+			if def, err := spells.GetSpellDefinitionByID(id); err == nil && def.IsHeal() &&
+				!slices.ContainsFunc(chain, func(d spells.SpellDefinition) bool { return d.ID == def.ID }) {
+				chain = append(chain, def)
 			}
 		}
 	}
-	return bestID, found
+	if slices.ContainsFunc(chain, func(d spells.SpellDefinition) bool { return healReachOf(d) != healReachSelf }) {
+		chain = slices.DeleteFunc(chain, func(d spells.SpellDefinition) bool { return healReachOf(d) == healReachSelf })
+	}
+	slices.SortFunc(chain, func(a, b spells.SpellDefinition) int {
+		if healChainBefore(a, b) {
+			return -1
+		}
+		if healChainBefore(b, a) {
+			return 1
+		}
+		return 0
+	})
+	return chain
 }
 
-// CastBestHealOnTarget casts the selected character's strongest known heal
-// (see bestKnownHealSpell) - bound to the C key. Party heals hit everyone; self-only heals (e.g.
+// healCastableNow: not under its personal reuse lockout, and payable.
+func (cs *CombatSystem) healCastableNow(caster *character.MMCharacter, def spells.SpellDefinition) bool {
+	return caster.SpellState.Reusable(string(def.ID)) && caster.SpellPoints >= cs.effectiveSpellCost(caster, def.SpellPointsCost)
+}
+
+// bestKnownHealSpell returns the first heal of the caster's chain it can cast
+// now; a heal under its reuse lockout or past the purse hands over to the
+// next. False if none.
+func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spells.SpellID, bool) {
+	for _, def := range knownHealChain(caster) {
+		if cs.healCastableNow(caster, def) {
+			return def.ID, true
+		}
+	}
+	return "", false
+}
+
+// CastBestHealOnTarget casts the first castable heal of the selected
+// character's chain (see bestKnownHealSpell) - bound to the C key. Party heals hit everyone; self-only heals (e.g.
 // First Aid) ignore the requested target and heal the caster; other heals use
 // targetIndex (resolved from the mouse by the caller). Returns whether a heal
 // fired plus the spell used (for the real-time cooldown).

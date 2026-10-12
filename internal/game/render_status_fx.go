@@ -32,6 +32,7 @@ const (
 	visualFear
 	visualParalysis
 	visualStone
+	visualMelt
 )
 
 // statusBadgeVisuals are drawn as a small marker above the head, never as
@@ -73,13 +74,15 @@ var statusVisualCatalog = []statusVisualEntry{
 	{visualShred, "shred", "armor shredded", func(m *monster.Monster3D) { m.ApplyArmorShred(50, statusStageFrames, statusStageTurns) }, nil},
 	{visualCharm, "charm", "charmed", func(m *monster.Monster3D) { m.Pacified, m.PacifiedFramesRemaining = true, statusStageFrames }, nil},
 	{visualBind, "bind", "bound", func(m *monster.Monster3D) { m.Bound, m.BoundFramesRemaining = true, statusStageFrames }, nil},
-	{visualEnrage, "enrage", "enraged", func(m *monster.Monster3D) { m.EnrageAtHP = max(1, m.HitPoints) }, nil},
+	{visualEnrage, "enrage", "enraged", func(m *monster.Monster3D) { m.Abilities.Enrage.AtHP = max(1, m.HitPoints) }, nil},
 	{visualDisease, "disease", "diseased", nil, heroStatusCondition(character.ConditionDiseased)},
 	{visualCurse, "curse", "cursed", nil, heroStatusCondition(character.ConditionCursed)},
 	{visualSleep, "sleep", "asleep", nil, heroStatusCondition(character.ConditionAsleep)},
 	{visualFear, "fear", "afraid", func(m *monster.Monster3D) { m.ApplyFear(statusStageFrames) }, heroStatusCondition(character.ConditionFear)},
 	{visualParalysis, "paralysis", "paralyzed", nil, heroStatusCondition(character.ConditionParalyzed)},
 	{visualStone, "stone", "stoned", nil, heroStatusCondition(character.ConditionStone)},
+	{visualMelt, "melt", "armor melted", func(m *monster.Monster3D) { m.MeltArmor(statusStageFrames, statusStageTurns) },
+		func(_ *MMGame, h *character.MMCharacter) { h.MeltArmor(statusStageFrames, statusStageTurns) }},
 }
 
 func statusVisualEntryFor(flag statusVisuals) (statusVisualEntry, bool) {
@@ -107,6 +110,9 @@ func monsterStatusVisuals(m *monster.Monster3D, monsterTurn bool) statusVisuals 
 	}
 	if m.ArmorShredPct > 0 && (m.ArmorShredFramesRemaining > 0 || m.ArmorShredTurnsRemaining > 0) {
 		v |= visualShred
+	}
+	if m.ArmorMelted() {
+		v |= visualMelt
 	}
 	if m.Bound && !isPurePartySummon(m) {
 		v |= visualBind
@@ -142,6 +148,9 @@ func (g *MMGame) partyStatusVisuals(m *character.MMCharacter) statusVisuals {
 	if m.IsIncapacitated() {
 		return v
 	}
+	if m.ArmorMelted() {
+		v |= visualMelt
+	}
 	for _, c := range m.Conditions {
 		switch c {
 		case character.ConditionDiseased:
@@ -173,6 +182,9 @@ func (g *MMGame) partyConditionLabel(m *character.MMCharacter) string {
 	}
 	if g.partyHinder.Slow > 0 && !m.HasCondition(character.ConditionDead) && !m.HasCondition(character.ConditionEradicated) {
 		parts = append([]string{"Slowed"}, parts...)
+	}
+	if m.ArmorMelted() && !m.HasCondition(character.ConditionDead) && !m.HasCondition(character.ConditionEradicated) {
+		parts = append(parts, "Armor melted")
 	}
 	if len(parts) == 0 {
 		return "OK"
@@ -380,6 +392,26 @@ func (c statusCanvas) draw(v statusVisuals) {
 	statusPathPool.Put(b)
 }
 
+// splitShield is the armor-loss motif: a visibly split shield with flakes
+// falling from its broken seam. Its colour names the loss.
+func (c statusCanvas) splitShield(f float64, col color.RGBA) {
+	c.stroke(.80, .32, .67, .38, .018, col)
+	c.stroke(.67, .38, .71, .55, .018, col)
+	c.stroke(.71, .55, .79, .62, .018, col)
+	c.stroke(.86, .34, .96, .40, .018, col)
+	c.stroke(.96, .40, .91, .57, .018, col)
+	c.stroke(.91, .57, .85, .62, .018, col)
+	c.stroke(.81, .34, .77, .45, .015, col)
+	c.stroke(.77, .45, .84, .49, .015, col)
+	c.stroke(.84, .49, .80, .60, .015, col)
+	for i := 0; i < 3; i++ {
+		ph := math.Mod(f*.01+float64(i)/3, 1)
+		flake := col
+		flake.A = uint8(190 * (1 - ph))
+		c.dot(.76+float64(i)*.05, .64+ph*.19, .016, flake)
+	}
+}
+
 func (c statusCanvas) build(v statusVisuals) {
 	f := c.clock
 	if v&visualRoot != 0 {
@@ -457,23 +489,10 @@ func (c statusCanvas) build(v statusVisuals) {
 		}
 	}
 	if v&visualShred != 0 {
-		rust := color.RGBA{245, 175, 99, 240}
-		// A visibly split shield with flakes falling from its broken seam.
-		c.stroke(.80, .32, .67, .38, .018, rust)
-		c.stroke(.67, .38, .71, .55, .018, rust)
-		c.stroke(.71, .55, .79, .62, .018, rust)
-		c.stroke(.86, .34, .96, .40, .018, rust)
-		c.stroke(.96, .40, .91, .57, .018, rust)
-		c.stroke(.91, .57, .85, .62, .018, rust)
-		c.stroke(.81, .34, .77, .45, .015, rust)
-		c.stroke(.77, .45, .84, .49, .015, rust)
-		c.stroke(.84, .49, .80, .60, .015, rust)
-		for i := 0; i < 3; i++ {
-			ph := math.Mod(f*.01+float64(i)/3, 1)
-			col := rust
-			col.A = uint8(190 * (1 - ph))
-			c.dot(.76+float64(i)*.05, .64+ph*.19, .016, col)
-		}
+		c.splitShield(f, color.RGBA{245, 175, 99, 240}) // rust: armor shredded
+	}
+	if v&visualMelt != 0 {
+		c.splitShield(f, color.RGBA{236, 64, 46, 240}) // molten red: armor melted
 	}
 	if v&visualCharm != 0 {
 		rose := color.RGBA{255, 148, 196, 235}

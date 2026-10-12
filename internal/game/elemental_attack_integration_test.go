@@ -25,7 +25,7 @@ func TestElementalCommitClocksAndInvalidActions(t *testing.T) {
 				m.X, m.Y = g.camera.X+g.config.GetTileSize(), g.camera.Y
 				m.AttackRadius = g.config.GetTileSize()
 				m.DamageMin, m.DamageMax = 20, 20
-				m.AttacksPerRound = 3
+				m.AttackCooldownMultiplier = 1.0 / 3 // three TB swings per action
 				m.State = monster.StateAttacking
 				m.StateTimer = 1
 				m.IsEngagingPlayer = true
@@ -51,7 +51,7 @@ func TestElementalCommitClocksAndInvalidActions(t *testing.T) {
 				if state == "valid" {
 					want = 1
 					if cadence == monsterAttackTurn {
-						want = m.GetTurnBasedAttackCount()
+						want = 3
 					}
 				}
 				if committed != (want > 0) || rolls != want {
@@ -80,17 +80,17 @@ func TestElementalSpecialsAndChampionsStayExcluded(t *testing.T) {
 			m.DamageMin, m.DamageMax = 10, 10
 			switch special {
 			case "breath":
-				m.DragonBreathChance = 1
-				m.DragonBreathDamageType = "fire"
+				m.Abilities.DragonBreath.Chance = 1
+				m.Abilities.DragonBreath.DamageType = "fire"
 				cs.applyMonsterMeleeDamage(m)
 			case "fireburst":
-				m.FireburstChance = 1
+				m.Abilities.Fireburst.Chance = 1
 				cs.applyMonsterMeleeDamage(m)
 			case "piercing":
-				m.PiercingShotChance = 1
+				m.Abilities.PiercingShot.Chance = 1
 				cs.applyMonsterMeleeDamage(m)
 			case "inferno":
-				m.InfernoDamage = 20
+				m.Abilities.Inferno.Damage = 20
 				cs.applyMonsterInferno(m)
 			}
 			if len(cs.game.elementalAttackEffects) > 0 {

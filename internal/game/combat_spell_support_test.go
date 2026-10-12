@@ -226,7 +226,7 @@ func TestAdvancedMagicWardSharesCastBudget(t *testing.T) {
 					g := advancedSupportGame(t, tb)
 					d := castAdvancedSupport(t, g, "protection_from_magic", tier, nil)
 					m := mkTestMonster("Ward tester", 10000)
-					m.FireburstDamageMin, m.FireburstDamageMax, m.InfernoDamage = 100, 100, 100
+					m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax, m.Abilities.Inferno.Damage = 100, 100, 100
 					attack := func() {
 						if route == "fireburst" {
 							g.combat.applyMonsterFireburst(m)
@@ -694,7 +694,7 @@ func TestShieldAndPainReflectionSkipHazards(t *testing.T) {
 						pct = b.RangedWardPct + b.ReflectionPct
 					}
 					m := mkTestMonster("Attacker", 1000)
-					m.FireburstDamageMin, m.FireburstDamageMax, m.TrapVolleyDamage = 100, 100, 100
+					m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax, m.Abilities.TrapVolley.Damage = 100, 100, 100
 					switch route {
 					case "melee", "weapon projectile":
 						g.combat.monsterHitCharacter(m, ch, m.Name, hitFromMonster(m, 100, "physical", false, 0, route == "melee", false))
@@ -725,39 +725,68 @@ func TestShieldAndPainReflectionSkipHazards(t *testing.T) {
 	}
 }
 
-// Heal triage (C key, Space) casts the best real heal it can cast now. Shared
-// Life evens the pool out instead of healing everyone, so it never outranks a
-// direct heal, while a true party heal still does and Shared Life remains a
-// last resort. A heal under its reuse lockout hands over to the next best.
-func TestHealTriageRanksSharedLifeAsRedistribution(t *testing.T) {
+// Heal triage (C key, Space) walks one chain: a heal that mends every member
+// (Mass Heal), the shared pool (Shared Life), one ally (Heal), and the
+// caster's First Aid only when it is the caster's one heal. A heal under its
+// reuse lockout or past the purse hands over to the next; Space prefers the
+// quick-slotted heal, but a slotted First Aid waits like the book's.
+func TestHealTriageChain(t *testing.T) {
 	for _, tc := range []struct {
+		name           string
+		space          bool // Space (SmartAttack) instead of the C key
 		known, reusing []string
-		want           string
+		slotted        string // Space: the quick-slotted spell
+		short          bool   // SP one short of the first heal of the chain
+		want           string // "" = no heal is cast
 	}{
-		{[]string{"heal_other", "shared_life"}, nil, "heal_other"},
-		{[]string{"heal_other", "mass_heal"}, nil, "mass_heal"},
-		{[]string{"shared_life"}, nil, "shared_life"},
-		{[]string{"heal_other", "mass_heal"}, []string{"mass_heal"}, "heal_other"},
+		{name: "party heal leads", known: []string{"heal_other", "mass_heal", "shared_life"}, want: "mass_heal"},
+		{name: "the pool outranks one ally", known: []string{"heal_other", "shared_life"}, want: "shared_life"},
+		{name: "Mass Heal resting hands to the pool", known: []string{"mass_heal", "shared_life", "heal_other"}, reusing: []string{"mass_heal"}, want: "shared_life"},
+		{name: "both party heals resting hand to Heal", known: []string{"mass_heal", "shared_life", "heal_other"}, reusing: []string{"mass_heal", "shared_life"}, want: "heal_other"},
+		{name: "a short purse hands to a cheaper heal", known: []string{"mass_heal", "heal_other"}, short: true, want: "heal_other"},
+		{name: "Heal beats First Aid", known: []string{"heal", "heal_other"}, want: "heal_other"},
+		{name: "First Aid waits while another heal rests", known: []string{"heal", "mass_heal"}, reusing: []string{"mass_heal"}, want: ""},
+		{name: "First Aid serves a caster with no other heal", known: []string{"heal"}, want: "heal"},
+		{name: "Space: the slotted heal leads", space: true, known: []string{"mass_heal", "heal_other"}, slotted: "heal_other", want: "heal_other"},
+		{name: "Space: a slotted First Aid waits for the chain", space: true, known: []string{"heal", "heal_other"}, slotted: "heal", want: "heal_other"},
+		{name: "Space: a short purse hands to a cheaper heal", space: true, known: []string{"mass_heal", "heal_other"}, short: true, want: "heal_other"},
+		{name: "Space: First Aid stays out while Mass Heal rests", space: true, known: []string{"heal", "mass_heal"}, reusing: []string{"mass_heal"}, want: ""},
 	} {
-		t.Run(tc.want+"/"+strings.Join(tc.known, "+")+"/reusing="+strings.Join(tc.reusing, "+"), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			g := advancedSupportGame(t, false)
 			caster := g.party.Members[0]
 			for _, key := range tc.known {
-				d, err := spells.GetSpellDefinitionByID(spells.SpellID(key))
-				if err != nil {
-					t.Fatal(err)
-				}
-				caster.LearnSpell(d.ID)
+				caster.LearnSpell(spells.SpellID(key))
 			}
 			caster.SpellState.ReuseFrames = map[string]int{}
 			for _, key := range tc.reusing {
 				caster.SpellState.ReuseFrames[key] = 1
 			}
-			wounded := g.party.Members[1]
-			wounded.HitPoints = wounded.MaxHitPoints / 2
+			if tc.short {
+				first, err := spells.GetSpellDefinitionByID(spells.SpellID(tc.known[0]))
+				if err != nil {
+					t.Fatal(err)
+				}
+				caster.SpellPoints = g.combat.effectiveSpellCost(caster, first.SpellPointsCost) - 1
+			}
+			if tc.slotted != "" {
+				caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(tc.slotted)}
+			}
+			// The caster and an ally are both wounded, so a self-only heal has
+			// its target too.
+			for _, m := range g.party.Members[:2] {
+				m.HitPoints = m.MaxHitPoints / 2
+			}
 			g.selectedChar = 0
-			cast, id := g.combat.CastBestHealOnTarget(1)
-			if !cast || string(id) != tc.want {
+			var cast bool
+			var id spells.SpellID
+			if tc.space {
+				_, id = g.combat.SmartAttack()
+				cast = id != ""
+			} else {
+				cast, id = g.combat.CastBestHealOnTarget(1)
+			}
+			if cast != (tc.want != "") || string(id) != tc.want {
 				t.Fatalf("triage cast=%v %q, want %q", cast, id, tc.want)
 			}
 		})

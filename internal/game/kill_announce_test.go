@@ -24,7 +24,7 @@ func TestEveryKillIsAnnouncedOnceWithItsExperience(t *testing.T) {
 	}
 	strike := func(attacker *monsterPkg.Monster3D, dmg int) func(g *MMGame, m *monsterPkg.Monster3D) {
 		return func(g *MMGame, m *monsterPkg.Monster3D) {
-			g.combat.strikeMonsterPacketFor(attacker, m, singleMonsterDamagePacket(damagecalc.Parts{True: dmg}, "physical", 0), nil, false, true, true, false)
+			g.combat.strikeMonsterPacketFor(attacker, m, singleMonsterDamagePacket(damagecalc.Parts{True: dmg}, "physical", 0), nil, false, true, false)
 		}
 	}
 	summon := &monsterPkg.Monster3D{ID: "ally", Name: "Wolf", SummonedBy: spellSummonOwnerPrefix + "summon_wolf", HitPoints: 50, MaxHitPoints: 50}
@@ -58,7 +58,7 @@ func TestEveryKillIsAnnouncedOnceWithItsExperience(t *testing.T) {
 			g.world.Monsters = append(g.world.Monsters, &s)
 			return &s
 		}, kill: func(g *MMGame, m *monsterPkg.Monster3D) {
-			g.combat.strikeMonsterPacketFor(g.world.Monsters[0], m, singleMonsterDamagePacket(damagecalc.Parts{True: 500}, "physical", 0), nil, false, true, true, false)
+			g.combat.strikeMonsterPacketFor(g.world.Monsters[0], m, singleMonsterDamagePacket(damagecalc.Parts{True: 500}, "physical", 0), nil, false, true, false)
 		}, blow: "Goblin strikes Wolf", want: "Wolf is slain!", tone: logToneBad, killed: true},
 		"finished twice": {kill: func(g *MMGame, m *monsterPkg.Monster3D) {
 			m.HitPoints = 0

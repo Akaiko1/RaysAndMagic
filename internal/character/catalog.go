@@ -26,6 +26,9 @@ const (
 	MasteryWeaponTrueDamagePerTier = 3
 	// WeaponGMCritBonus: extra crit % a Grandmaster gets with their mastered weapon.
 	WeaponGMCritBonus = 7
+	// WeaponGMDodgeGrazePct: a Grandmaster's hit that meets a Perfect Dodge
+	// still lands this share of its normal damage (true damage lands whole).
+	WeaponGMDodgeGrazePct = 25
 	// MasteryArmorACPerLevel: bonus armor class per armor-mastery level.
 	MasteryArmorACPerLevel = 2
 	// ArmorGMDodgeBonus: extra Perfect-Dodge % per GM-mastered armor type worn.
@@ -82,20 +85,9 @@ const (
 	WeaponPrimaryStatDivisor = 3
 	// WeaponSecondaryStatDivisor: bonus_stat_secondary adds stat/this.
 	WeaponSecondaryStatDivisor = 4
-	// ArmorPierceRangedChancePct: a ranged physical hit ON A MONSTER (from the
-	// party or from another monster) has this % chance to ignore its armor
-	// entirely. Monster shots never pierce party armor, by design: only a
-	// weapon's own armor_pierce_pct does.
+	// ArmorPierceRangedChancePct: a physical projectile hit has this % chance
+	// to ignore the target's armor entirely - party, monster or ally shot alike.
 	ArmorPierceRangedChancePct = 33
-	// Party armor mitigation - a PERCENTAGE model with diminishing returns:
-	//   physical% = min(ArmorPhysicalMitigationCap, 100*AC/(AC+ArmorMitigationK))
-	//   elemental% = physical% * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
-	// Elemental is the SAME curve scaled down, so it reaches its 33% cap at the
-	// exact AC where physical reaches 75% - not capping out far earlier.
-	// K sets the curve (AC == K gives 50% pre-cap).
-	ArmorMitigationK            = 45
-	ArmorPhysicalMitigationCap  = 75
-	ArmorElementalMitigationCap = 33
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing. Buff magnitudes scale through their own
 	// *_grandmaster fields; durations use explicit YAML mastery ladders.
@@ -441,7 +433,7 @@ func (s SkillType) Reference() MasteryReference {
 func (s SkillType) grandmasterDescription() string {
 	switch s {
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillBlaster, SkillMartialArts:
-		return uitext.Text("skill.weapon_grandmaster", WeaponGMCritBonus)
+		return uitext.Text("skill.weapon_grandmaster", WeaponGMCritBonus, WeaponGMDodgeGrazePct)
 	case SkillLeather, SkillChain, SkillPlate:
 		return ArmorGMDodgeRule() + "."
 	case SkillShield:

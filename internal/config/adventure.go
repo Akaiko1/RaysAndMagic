@@ -25,16 +25,21 @@ type AdventureSchedule struct {
 	Days                 [][2]string `yaml:"days"`
 }
 type EnvironmentEffect struct {
-	RequiresControl  string  `yaml:"requires_control,omitempty"`
-	TriggerLane      string  `yaml:"trigger_lane,omitempty"`
-	ID               string  `yaml:"id"`
-	Kind             string  `yaml:"kind"` // occupation, trap, transfer, or lane
-	Name             string  `yaml:"name"`
-	Rect             [4]int  `yaml:"rect"` // inclusive x0,y0,x1,y1
-	School           string  `yaml:"school,omitempty"`
-	SecondarySchool  string  `yaml:"secondary_school,omitempty"`
-	Damage           int     `yaml:"damage,omitempty"`
-	SustainDamage    int     `yaml:"sustain_damage,omitempty"`
+	RequiresControl string `yaml:"requires_control,omitempty"`
+	TriggerLane     string `yaml:"trigger_lane,omitempty"`
+	ID              string `yaml:"id"`
+	Kind            string `yaml:"kind"` // occupation, trap, transfer, or lane
+	Name            string `yaml:"name"`
+	Rect            [4]int `yaml:"rect"` // inclusive x0,y0,x1,y1
+	School          string `yaml:"school,omitempty"`
+	SecondarySchool string `yaml:"secondary_school,omitempty"`
+	Damage          int    `yaml:"damage,omitempty"`
+	SustainDamage   int    `yaml:"sustain_damage,omitempty"`
+	// DamagePercent and SustainPercent author the damage as a percent of the
+	// map boss's attack at the visit's level, so it grows with the chamber;
+	// each replaces its flat counterpart.
+	DamagePercent    int     `yaml:"damage_percent,omitempty"`
+	SustainPercent   int     `yaml:"sustain_percent,omitempty"`
 	Destination      [2]int  `yaml:"destination,omitempty"`
 	WarningSeconds   float64 `yaml:"warning_seconds,omitempty"`
 	WarningRounds    int     `yaml:"warning_rounds,omitempty"`
@@ -45,12 +50,14 @@ type EnvironmentEffect struct {
 	BossBelowPercent int     `yaml:"boss_below_percent,omitempty"`
 }
 type EnvironmentControl struct {
-	Message        string            `yaml:"message,omitempty"`
-	ID             string            `yaml:"id"`
-	Disable        []string          `yaml:"disable,omitempty"`
-	Tiles          []EnvironmentTile `yaml:"tiles,omitempty"`
-	ArmorReduction int               `yaml:"armor_reduction,omitempty"`
-	StopHealing    bool              `yaml:"stop_healing,omitempty"`
+	Message string            `yaml:"message,omitempty"`
+	ID      string            `yaml:"id"`
+	Disable []string          `yaml:"disable,omitempty"`
+	Tiles   []EnvironmentTile `yaml:"tiles,omitempty"`
+	// ArmorReductionPercent removes that percent of the boss's armor while the
+	// switch stays operated (percents of several switches add up).
+	ArmorReductionPercent int  `yaml:"armor_reduction_percent,omitempty"`
+	StopHealing           bool `yaml:"stop_healing,omitempty"`
 }
 type EnvironmentTile struct {
 	X    int    `yaml:"x"`
@@ -58,15 +65,17 @@ type EnvironmentTile struct {
 	Tile string `yaml:"tile"`
 }
 type AdventureBoss struct {
-	Phases         []AdventureBossPhase `yaml:"phases,omitempty"`
-	Arena          *[4]int              `yaml:"arena,omitempty"`
-	Monster        string               `yaml:"monster"`
-	Lanes          []string             `yaml:"lanes"`
-	EveryActions   int                  `yaml:"every_actions"`
-	HealPercent    int                  `yaml:"heal_percent,omitempty"`
-	HealCapPercent int                  `yaml:"heal_cap_percent,omitempty"`
-	ArmorFloor     int                  `yaml:"armor_floor,omitempty"`
-	LowHealthRange float64              `yaml:"low_health_range,omitempty"`
+	Phases       []AdventureBossPhase `yaml:"phases,omitempty"`
+	Arena        *[4]int              `yaml:"arena,omitempty"`
+	Monster      string               `yaml:"monster"`
+	Lanes        []string             `yaml:"lanes"`
+	EveryActions int                  `yaml:"every_actions"`
+	// HealPercent of max HP is restored every round (its seconds in RT) while
+	// the boss is below HealCeilingPercent of max HP.
+	HealPercent        int     `yaml:"heal_percent,omitempty"`
+	HealCeilingPercent int     `yaml:"heal_ceiling_percent,omitempty"`
+	ArmorFloor         int     `yaml:"armor_floor,omitempty"`
+	LowHealthRange     float64 `yaml:"low_health_range,omitempty"`
 }
 
 // Phases are ordered from high to low HP. Each pattern consumes one special
@@ -183,8 +192,20 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if e.Kind != "occupation" && e.Kind != "trap" && e.Kind != "transfer" && e.Kind != "lane" {
 				return fail("unknown effect kind " + e.Kind)
 			}
-			if e.Kind != "transfer" && (e.Damage <= 0 || !validSchool(e.School)) {
-				return fail("damage needs a positive amount and known school")
+			if e.Kind != "transfer" && ((e.Damage > 0) == (e.DamagePercent > 0) || !validSchool(e.School)) {
+				return fail("damage needs exactly one of damage or damage_percent, and a known school")
+			}
+			if e.Damage < 0 || e.DamagePercent < 0 || e.SustainDamage < 0 || e.SustainPercent < 0 || (e.SustainDamage > 0 && e.SustainPercent > 0) {
+				return fail("invalid damage on " + e.ID)
+			}
+			if (e.DamagePercent > 0 || e.SustainPercent > 0) && a.Boss == nil {
+				return fail("percent damage on " + e.ID + " needs a map boss")
+			}
+			if e.Kind != "lane" && (e.SustainDamage > 0 || e.SustainPercent > 0) {
+				return fail("lingering damage on " + e.ID + " is for lanes only")
+			}
+			if e.Kind == "transfer" && (e.Damage > 0 || e.DamagePercent > 0) {
+				return fail("transfer " + e.ID + " deals no damage")
 			}
 			if e.SecondarySchool != "" && !validSchool(e.SecondarySchool) {
 				return fail("unknown secondary school")
@@ -214,7 +235,7 @@ func (c *MapConfigs) ValidateAdventures() error {
 		}
 		controls := map[string]bool{}
 		for _, v := range a.Controls {
-			if v.ID == "" || controls[v.ID] || v.ArmorReduction < 0 {
+			if v.ID == "" || controls[v.ID] || v.ArmorReductionPercent < 0 || v.ArmorReductionPercent > 100 {
 				return fail("invalid control")
 			}
 			controls[v.ID] = true
@@ -264,8 +285,11 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if b.Arena != nil && (!a.OpeningOwned || b.Arena[0] < 0 || b.Arena[1] < 0 || b.Arena[2] < b.Arena[0] || b.Arena[3] < b.Arena[1]) {
 				return fail("boss arena requires an opening-owned map and a valid rectangle")
 			}
-			if b.Monster == "" || b.EveryActions < 2 || b.HealPercent < 0 || b.HealCapPercent < 0 || b.HealCapPercent > 100 || b.ArmorFloor < 0 {
+			if b.Monster == "" || b.EveryActions < 2 || b.ArmorFloor < 0 {
 				return fail("invalid boss policy")
+			}
+			if b.HealPercent < 0 || b.HealPercent > 100 || b.HealCeilingPercent < 0 || b.HealCeilingPercent > 100 || (b.HealPercent > 0 && b.HealCeilingPercent == 0) {
+				return fail("regeneration needs heal_percent 1..100 per round and heal_ceiling_percent 1..100")
 			}
 			if b.LowHealthRange < 0 || math.IsNaN(b.LowHealthRange) || math.IsInf(b.LowHealthRange, 0) {
 				return fail("invalid boss range")

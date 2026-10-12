@@ -21,19 +21,20 @@ import (
 
 // CombatSystem handles all combat-related functionality
 type CombatSystem struct {
-	spellTarget         *character.MMCharacter
-	magicWardDepth      int
-	magicWardDecision   int
-	deviceClock         deviceCooldownSweep
-	game                *MMGame
-	racialProcRoll      func(int) bool
-	elementalAttackRoll func() float64
-	designationRoll     func(int) int
-	partyAimTarget      *monsterPkg.Monster3D
-	partyAimAngle       float64
-	reactionRoll        func() float64
-	controlSaveRoll     func() float64
-	monsterAction       *monsterActionObservation
+	spellTarget          *character.MMCharacter
+	magicWardDepth       int
+	magicWardDecision    int
+	deviceClock          deviceCooldownSweep
+	game                 *MMGame
+	racialProcRoll       func(int) bool
+	elementalAttackRoll  func() float64
+	projectilePierceRoll func(int) int // physicalProjectilePierces' dice (rand.Intn) for tests
+	designationRoll      func(int) int
+	partyAimTarget       *monsterPkg.Monster3D
+	partyAimAngle        float64
+	reactionRoll         func() float64
+	controlSaveRoll      func() float64
+	monsterAction        *monsterActionObservation
 }
 
 // Owner namespaces of the pure party allies. They persist through
@@ -454,8 +455,9 @@ func (cs *CombatSystem) summonCardAllies(source cardSummonSource, n int) int {
 // SmartAttack is the Space-key "smart attack" (both modes). Priority:
 //  1. ANYONE in the party is wounded and the caster has a heal (spellbook or
 //     quick slot) -> cast it on the MOST wounded. The quick-slotted heal is
-//     preferred; otherwise the strongest book heal. Healers can keep a combat
-//     spell in the quick slot and still auto-triage.
+//     preferred; otherwise the first castable heal of the book chain
+//     (knownHealChain). Healers can keep a combat spell in the quick slot and
+//     still auto-triage.
 //  2. No one wounded -> cast the quick-slotted offensive spell when payable
 //     (Monk skips this: their quick spell is reserved for Spiritual Training).
 //  3. Otherwise swing the equipped weapon.
@@ -476,7 +478,7 @@ func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 	// so a preserved RT cooldown must not change its smart-action priority.
 	if cs.game.turnBasedMode || caster.RTCooldown <= 0 {
 		// Can't pay / can't land it -> fall through to attack.
-		if healID, def, target, ok := cs.smartHealReady(caster); ok && cs.castKnownHealOn(healID, def, target) {
+		if healID, def, target, ok := cs.smartHealPlan(caster); ok && cs.castKnownHealOn(healID, def, target) {
 			return true, healID
 		}
 
@@ -507,22 +509,13 @@ func (cs *CombatSystem) smartActionAvailable(caster *character.MMCharacter) bool
 	if action := caster.Equipment[items.SlotSpell]; action.Type == items.ItemThrowable {
 		return caster.HasSkill(character.SkillBombThrowing) && cs.game.flaskStock(caster, string(action.SpellEffect)) > 0
 	}
-	if _, _, _, ok := cs.smartHealReady(caster); ok {
+	if _, _, _, ok := cs.smartHealPlan(caster); ok {
 		return true
 	}
 	if _, ok := cs.smartOffensiveSpell(caster); ok {
 		return true
 	}
 	return cs.quickTrapAvailable(caster)
-}
-
-// smartHealReady is smartHealPlan restricted to a heal the caster can pay for.
-func (cs *CombatSystem) smartHealReady(caster *character.MMCharacter) (spells.SpellID, spells.SpellDefinition, int, bool) {
-	id, def, target, ok := cs.smartHealPlan(caster)
-	if !ok || caster.SpellPoints < cs.effectiveSpellCost(caster, def.SpellPointsCost) {
-		return "", spells.SpellDefinition{}, -1, false
-	}
-	return id, def, target, true
 }
 
 // smartOffensiveSpell returns the slotted offensive spell Space may cast.
@@ -544,23 +537,25 @@ func (cs *CombatSystem) smartOffensiveSpell(caster *character.MMCharacter) (spel
 }
 
 // smartHealPlan decides which heal Space should cast and on whom: the
-// quick-slotted heal if it can serve a wounded ally, else the strongest book
-// heal. ok=false when no one is wounded enough or no usable heal exists.
+// quick-slotted heal, then the book chain (knownHealChain), each tried in turn
+// until one is castable now and has a wounded ally to serve. A slotted
+// self-only heal waits like the book's when the caster knows another heal.
+// ok=false when no one is wounded enough or no heal can be cast.
 func (cs *CombatSystem) smartHealPlan(caster *character.MMCharacter) (spells.SpellID, spells.SpellDefinition, int, bool) {
-	candidates := make([]spells.SpellID, 0, 2)
+	chain := knownHealChain(caster)
+	candidates := make([]spells.SpellDefinition, 0, len(chain)+1)
 	if spell, hasSpell := caster.Equipment[items.SlotSpell]; hasSpell {
-		candidates = append(candidates, spells.SpellID(spell.SpellEffect))
+		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(spell.SpellEffect)); err == nil && def.IsHeal() &&
+			(healReachOf(def) != healReachSelf || len(chain) == 0 || healReachOf(chain[0]) == healReachSelf) {
+			candidates = append(candidates, def)
+		}
 	}
-	if bookID, known := cs.bestKnownHealSpell(caster); known {
-		candidates = append(candidates, bookID)
-	}
-	for _, id := range candidates {
-		def, err := spells.GetSpellDefinitionByID(id)
-		if err != nil || !def.IsHeal() || !caster.SpellState.Reusable(string(id)) {
+	for _, def := range append(candidates, chain...) {
+		if !cs.healCastableNow(caster, def) {
 			continue
 		}
 		if target := cs.mostWoundedHealTarget(def, SmartHealWoundedPct); target >= 0 {
-			return id, def, target, true
+			return def.ID, def, target, true
 		}
 	}
 	return "", spells.SpellDefinition{}, -1, false
@@ -846,9 +841,9 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 			volley++
 		}
 	}
-	trueDamage, ignoresDodge := 0, false
+	trueDamage, grazesDodge := 0, false
 	if !bonusBolt {
-		trueDamage, ignoresDodge = cs.weaponMasteryStrike(attacker, equippedDef)
+		trueDamage, grazesDodge = cs.weaponMasteryStrike(attacker, equippedDef)
 	}
 	disintegrateDef := equippedDef
 	if bonusBolt {
@@ -883,7 +878,7 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 			VelY:                   dirY * arrowSpeed,
 			Damage:                 dmg,
 			TrueDamage:             trueDamage,
-			IgnoresDodge:           ignoresDodge,
+			GrazesDodge:            grazesDodge,
 			LifeTime:               volleyDartLifetime(arrowLifetime, back, arrowSpeed),
 			Active:                 true,
 			BowKey:                 bowKey,
@@ -1374,12 +1369,15 @@ func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element st
 	cs.game.CreateSpellHitEffect(x, y, element, SpellParticleCount, SpellParticleSize, m)
 }
 
-// applyTrueDamageThroughDodge deals the typed true components that landed
-// despite Perfect Dodge, with the usual hit bookkeeping. Caller owns projectile
-// cleanup. Keeping the packet preserves the correct school resistance.
-func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, attack partyMonsterAttack, attacker *character.MMCharacter, attackerName string, weaponDef *config.WeaponDefinitionConfig) {
+// applyDamageThroughDodge lands what a monster's Perfect Dodge lets through
+// (throughDodge): no riders, no splash. False when the dodge took it all.
+func (cs *CombatSystem) applyDamageThroughDodge(monster *monsterPkg.Monster3D, attack partyMonsterAttack, attacker *character.MMCharacter, attackerName string, weaponDef *config.WeaponDefinitionConfig) bool {
+	through := attack.Packet.throughDodge(attack.GrazesDodge)
+	if len(through.Components) == 0 {
+		return false
+	}
 	beforeHP := monster.HitPoints
-	actual := cs.applyMonsterDamagePacket(monster, attack.Packet.trueOnly(), monsterDamageOptions{}).Total()
+	actual := cs.applyMonsterDamagePacket(monster, through, cs.partyMonsterDamageOptions(attack, monster)).Total()
 	settleVampiricHit(attacker, attack.VampiricPct, beforeHP-monster.HitPoints)
 	if actual > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, monster)
@@ -1394,6 +1392,7 @@ func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3
 	if !monster.IsAlive() {
 		cs.finishWeaponKill(monster, weaponDef, attacker)
 	}
+	return true
 }
 
 // ApplyDamageToMonster resolves a melee hit and reports its post-hit HP before
@@ -1416,7 +1415,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		weapon := attacker.Equipment[cs.attackSlotFor(attacker)]
 		critChance = cs.CalculateWeaponCritChance(weapon, attacker)
 	}
-	trueDmg, ignoreDodge := cs.weaponMasteryStrike(attacker, weaponDef)
+	trueDmg, grazesDodge := cs.weaponMasteryStrike(attacker, weaponDef)
 	trueDmg += cs.game.cardMeleeTrueDmg()
 	attackerName := "The party"
 	if attacker != nil {
@@ -1435,19 +1434,17 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	attack.Attacker = attacker
 	auraDamage, auraSchool := personalSpellDamage(attacker, "fire_aura")
 	attack.addPersonalSpellPayload(auraDamage, auraSchool, personalSpellPower(attacker, "vampiric_weapon"))
-	attack.IgnoreDodge = ignoreDodge
+	attack.GrazesDodge = grazesDodge
 	attack.ArmorIgnoreChancePct = cs.game.cardArmorPiercePct()
 
-	// Check monster perfect dodge. A Grandmaster ignores it entirely; otherwise
-	// the normal hit is avoided but weapon-mastery TRUE damage still lands.
-	if cs.monsterPerfectDodges(monster, attack.IgnoreDodge) {
+	// Check monster perfect dodge: the normal hit is avoided, but weapon-mastery
+	// TRUE damage still lands and a Grandmaster's hit grazes through.
+	if cs.monsterPerfectDodges(monster) {
 		// A targeted party attack is enough to end Charm, even when the target
 		// avoids the damage. Otherwise a 100%-dodge charmed mob could remain
 		// pacified forever while absorbing melee swings.
 		cs.breakPacifyOnHit(monster)
-		if trueDmg > 0 {
-			cs.applyTrueDamageThroughDodge(monster, attack, attacker, attackerName, weaponDef)
-		} else {
+		if !cs.applyDamageThroughDodge(monster, attack, attacker, attackerName, weaponDef) {
 			cs.game.logCombat(logToneNone, "%s dodges %s's attack!", logMonsterName(monster), logHeroText(attackerName))
 		}
 		return
@@ -1714,7 +1711,7 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	// Pounce (real-time): from within pounce range but beyond melee, leap
 	// to melee contact and strike immediately, then go on cooldown.
 	if monster.CanPounce() {
-		if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
+		if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels() &&
 			cs.monsterCanPounceParty(monster) {
 			if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
 				cs.game.logCombat(logToneBad, "%s %s at the party!", logMonsterName(monster), logAbility("pounces"))
@@ -1957,9 +1954,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 	}
 
 	// Melee hits a random living party member (both RT and TB) through the shared
-	// monster->character choke point (dodge, KO, blink, poison rider). Armour-
-	// piercing attackers (Golden Thief Bug) bypass the party's armor class;
-	// resistances and buff mitigation still apply.
+	// monster->character choke point (dodge, KO, blink, poison and melt riders).
 	currentChar := cs.randomLivingMember()
 	if currentChar == nil {
 		return
@@ -1982,7 +1977,7 @@ type monsterCharacterHit struct {
 	DamageType         string
 	IgnoresArmor       bool
 	ArmorPiercePct     int
-	IgnoresDodge       bool
+	GrazesDodge        bool
 	DisintegrateChance float64
 	Melee              bool
 	// Spell labels the CHANNEL this hit arrived through: spell projectiles,
@@ -1993,6 +1988,9 @@ type monsterCharacterHit struct {
 	// Hazard marks an authored field (the Brood Mother's brood-fire trap), not
 	// an attack: Shield's ranged ward and Pain Reflection ignore it.
 	Hazard bool
+	// Projectile: a weapon shot or spell bolt, or its splash. A physical one
+	// may pierce armor (physicalProjectilePierces).
+	Projectile bool
 }
 
 func hitFromMonster(monster *monsterPkg.Monster3D, normalDamage int, damageType string, ignoresArmor bool, disintegrateChance float64, melee, spell bool) monsterCharacterHit {
@@ -2007,7 +2005,7 @@ func hitFromMonster(monster *monsterPkg.Monster3D, normalDamage int, damageType 
 	if monster != nil {
 		hit.Parts.True = monster.TrueDamage
 		hit.Parts = monster.OutgoingDamage(hit.Parts)
-		hit.IgnoresDodge = monster.IgnoresDodge
+		hit.GrazesDodge = monster.GrazesDodge
 	}
 	return hit
 }
@@ -2045,35 +2043,37 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 
 	// Perfect Dodge: luck/5% to avoid the hit. The dodge evades the mitigable part,
 	// but a monster's TRUE damage lands anyway (mirrors party weapon-mastery true,
-	// which pierces a monster's dodge) - no riders, just the resistance-tested chunk.
-	// IgnoresDodge (champion GM weapon mastery) pierces the dodge entirely -
-	// the same rule a GM party member enjoys against monsters.
-	if dodged, _ := cs.RollPerfectDodge(target); dodged && !hit.IgnoresDodge {
+	// which pierces a monster's dodge), and a champion's Grandmaster hit grazes
+	// through (throughDodgeParts) - the rule a GM party member has against
+	// monsters. No riders; what gets through meets the normal defenses.
+	if dodged, _ := cs.RollPerfectDodge(target); dodged {
 		cs.game.gainDodgeCharge(target)
-		trueDealt := cs.mitigateCharacterDamageParts(
-			damagecalc.Parts{True: hit.Parts.True},
+		dealt := cs.mitigateCharacterDamagePartsWithArmorPierce(
+			throughDodgeParts(hit.Parts, hit.GrazesDodge),
 			hit.DamageType,
 			target,
-			true,
-		).True
-		if trueDealt <= 0 {
+			hit.IgnoresArmor,
+			hit.ArmorPiercePct,
+			hit.Projectile,
+		).Total()
+		if dealt <= 0 {
 			cs.game.logCombat(logToneNone, "Perfect Dodge! %s evades %s's attack!", logHeroName(target), logMonsterAs(monster, sourceName))
 			return
 		}
-		trueDealt = cs.resolveHeroHitDamage(monster, target, trueDealt)
-		cs.takeHeroHP(target, trueDealt, sourceName)
+		dealt = cs.resolveHeroHitDamage(monster, target, dealt)
+		cs.takeHeroHP(target, dealt, sourceName)
 		cs.game.reportDamage(logToneBad, damageLog{
 			Source: logMonsterAs(monster, sourceName),
 			Target: heroLogTarget(target),
-			Amount: trueDealt,
+			Amount: dealt,
 			Kind:   damageLogHeroDodge,
 		})
 		if target.HitPoints == 0 {
 			cs.knockOut(target)
 		}
-		cs.game.TriggerDamageHit(targetIndex, trueDealt)
-		cs.reflectMonsterDamage(monster, target, trueDealt, hit.Melee, hit.Hazard)
-		growScaleStacks(target, trueDealt) // Drakehide: true-through-dodge counts
+		cs.game.TriggerDamageHit(targetIndex, dealt)
+		cs.reflectMonsterDamage(monster, target, dealt, hit.Melee, hit.Hazard)
+		growScaleStacks(target, dealt) // Drakehide: damage through a dodge counts
 		return
 	}
 
@@ -2096,6 +2096,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		target,
 		hit.IgnoresArmor,
 		hit.ArmorPiercePct,
+		hit.Projectile,
 	)
 	finalDamage := dealt.Total()
 	finalDamage = cs.resolveHeroHitDamage(monster, target, finalDamage)
@@ -2115,7 +2116,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	}
 
 	if monster != nil {
-		cs.applyMonsterHitRiders(monster, hit.SpellID, heroHitTarget{cs, target})
+		cs.applyMonsterHitRiders(monster, hit.SpellID, heroHitTarget{cs, target}, hit.Melee || hit.Projectile)
 		cs.reflectMonsterDamage(monster, target, finalDamage, hit.Melee, hit.Hazard)
 	}
 	growScaleStacks(target, finalDamage) // Drakehide: every damaging hit grows a scale
@@ -2288,7 +2289,8 @@ func (cs *CombatSystem) trySleightOfHand(attacker *character.MMCharacter, monste
 		fmt.Sprintf("%s tries to pick %s's pocket!", attacker.Name, monster.Name),
 		combatMessagePurple,
 	)
-	if stolen := cs.rollMonsterLoot(monster); len(stolen) > 0 {
+	// A champion's drop is its victory trophy: the pocket holds gold only.
+	if stolen := cs.pocketLoot(monster); len(stolen) > 0 {
 		for _, it := range stolen {
 			cs.game.party.AddItem(it)
 			cs.game.AddColoredCombatMessage(
@@ -2355,24 +2357,27 @@ type hitStatusTarget interface {
 	ignite(frames int)
 	stun(frames, turns int)
 	dispel(attacker *monsterPkg.Monster3D)
+	meltArmor(frames, turns int)
 }
 
 // applyMonsterHitRiders rolls a landed monster hit's on-hit statuses once, in
 // one order - poison, ignite, stun (a bolt's own spell rider when it has one),
-// dispel - and lands each on the struck target through its own rules. A
-// champion's striking weapon is stamped onto these fields before it swings.
-func (cs *CombatSystem) applyMonsterHitRiders(attacker *monsterPkg.Monster3D, spellID string, target hitStatusTarget) {
+// dispel, armor melt - and lands each on the struck target through its own
+// rules. A champion's striking weapon is stamped onto these fields before it
+// swings. weaponHit is a melee or projectile hit, the only ones that can melt
+// armor.
+func (cs *CombatSystem) applyMonsterHitRiders(attacker *monsterPkg.Monster3D, spellID string, target hitStatusTarget, weaponHit bool) {
 	if attacker == nil || target == nil {
 		return
 	}
 	tps := cs.game.config.GetTPS()
-	if attacker.PoisonChance > 0 && rand.Float64() < attacker.PoisonChance {
-		target.poison(tps * attacker.PoisonDurationSec) // guaranteed by load-time validation
+	if attacker.Abilities.Poison.Chance > 0 && rand.Float64() < attacker.Abilities.Poison.Chance {
+		target.poison(tps * attacker.Abilities.Poison.DurationSeconds) // guaranteed by load-time validation
 	}
-	if attacker.IgniteChance > 0 && rand.Float64() < attacker.IgniteChance {
-		target.ignite(tps * attacker.IgniteDurationSec)
+	if attacker.Abilities.Ignite.Chance > 0 && rand.Float64() < attacker.Abilities.Ignite.Chance {
+		target.ignite(tps * attacker.Abilities.Ignite.DurationSeconds)
 	}
-	chance, seconds, turns := attacker.StunCharChance, attacker.StunCharSeconds, attacker.StunCharTurns
+	chance, seconds, turns := attacker.Abilities.Stun.Chance, attacker.Abilities.Stun.Seconds, attacker.Abilities.Stun.Turns
 	if spellID != "" {
 		rider := attacker.ProjectileStun(spellID)
 		chance, seconds, turns = rider.Chance, rider.Seconds, rider.Turns
@@ -2380,8 +2385,11 @@ func (cs *CombatSystem) applyMonsterHitRiders(attacker *monsterPkg.Monster3D, sp
 	if chance > 0 && rand.Float64() < chance {
 		target.stun(tps*seconds, turns)
 	}
-	if attacker.DispelChance > 0 && rand.Float64() < attacker.DispelChance {
+	if attacker.Abilities.Dispel.Chance > 0 && rand.Float64() < attacker.Abilities.Dispel.Chance {
 		target.dispel(attacker)
+	}
+	if weaponHit && attacker.Abilities.MeltArmor.Chance > 0 && rand.Float64() < attacker.Abilities.MeltArmor.Chance {
+		target.meltArmor(tps*config.CombatRoundSeconds*config.ArmorMeltRounds, config.ArmorMeltRounds)
 	}
 }
 
@@ -2416,6 +2424,16 @@ func (t heroHitTarget) stun(frames, turns int) {
 	}
 	t.cs.game.logCombat(logToneBad, "%s is %s!%s", logHeroName(t.hero), logKeyword("control", "stunned"),
 		t.cs.game.logStatusLength(t.hero.StunTurnsRemaining, t.hero.StunFramesRemaining))
+}
+
+// meltArmor follows the wearer's status-duration shift (Still Court aegis).
+func (t heroHitTarget) meltArmor(frames, turns int) {
+	pct := clampHostileStatusDurationPct(t.hero.ItemStatusDurationPct())
+	fresh := !t.hero.ArmorMelted()
+	t.hero.MeltArmor(scaleHostileStatusDuration(frames, pct), scaleHostileStatusDuration(turns, pct))
+	if fresh {
+		t.cs.game.logCombat(logToneBad, "%s's armor %s!", logHeroName(t.hero), logColored("melts", logDyingHP))
+	}
 }
 
 // dispel strips one random active party buff (stat or combat). Buffs are
@@ -2484,6 +2502,14 @@ func (t monsterHitTarget) stun(frames, turns int) {
 
 // dispel answers a hit on the party only: party buffs are the party's.
 func (monsterHitTarget) dispel(*monsterPkg.Monster3D) {}
+
+func (t monsterHitTarget) meltArmor(frames, turns int) {
+	fresh := !t.target.ArmorMelted()
+	t.target.MeltArmor(frames, turns)
+	if fresh && t.announce() {
+		t.cs.game.logCombat(monsterStatusTone(t.target), "%s's armor %s!", logMonsterName(t.target), logColored("melts", logDyingHP))
+	}
+}
 
 // monsterStatusTone is how an affliction on a monster reads for the party:
 // good on a foe, bad on the party's own ally.
@@ -2688,7 +2714,7 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, monster)
 
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		minDamage, maxDamage := monster.FireburstDamageMin, monster.FireburstDamageMax
+		minDamage, maxDamage := monster.Abilities.Fireburst.DamageMin, monster.Abilities.Fireburst.DamageMax
 		raw := minDamage
 		if maxDamage > minDamage {
 			raw = minDamage + rand.Intn(maxDamage-minDamage+1)
@@ -2751,7 +2777,7 @@ func (cs *CombatSystem) tryMonsterAoeAttack(monster *monsterPkg.Monster3D) bool 
 	if cs.tryMonsterDragonBreath(monster) {
 		return true
 	}
-	if monster.FireburstChance > 0 && rand.Float64() < monster.FireburstChance {
+	if monster.Abilities.Fireburst.Chance > 0 && rand.Float64() < monster.Abilities.Fireburst.Chance {
 		cs.applyMonsterFireburst(monster)
 		return true
 	}
@@ -2759,10 +2785,10 @@ func (cs *CombatSystem) tryMonsterAoeAttack(monster *monsterPkg.Monster3D) bool 
 }
 
 func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bool {
-	if monster == nil || monster.DragonBreathChance <= 0 || rand.Float64() >= monster.DragonBreathChance {
+	if monster == nil || monster.Abilities.DragonBreath.Chance <= 0 || rand.Float64() >= monster.Abilities.DragonBreath.Chance {
 		return false
 	}
-	damageType := normalizeDamageTypeStr(monster.DragonBreathDamageType)
+	damageType := normalizeDamageTypeStr(monster.Abilities.DragonBreath.DamageType)
 	cs.game.playMonsterSchoolSound(damageType, true, monster)
 	damage := cs.monsterAttackDamage(monster)
 	// An ability, not a melee or projectile hit: armor always applies.
@@ -2791,13 +2817,13 @@ func (cs *CombatSystem) tryMonsterAttackSpecial(monster *monsterPkg.Monster3D, t
 }
 
 func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bool {
-	if monster.PiercingShotChance <= 0 || rand.Float64() >= monster.PiercingShotChance {
+	if monster.Abilities.PiercingShot.Chance <= 0 || rand.Float64() >= monster.Abilities.PiercingShot.Chance {
 		return false
 	}
 	if len(alivePartyIndices(cs.game.party.Members)) == 0 {
 		return false
 	}
-	targets := monster.PiercingShotTargets
+	targets := monster.Abilities.PiercingShot.Targets
 
 	cs.game.logCombat(logToneBad, "%s fires a %s!", logMonsterName(monster), logAbility("Piercing Shot"))
 	if weaponDef, exists := config.GetWeaponDefinition(monster.ProjectileWeapon); exists {
@@ -2818,7 +2844,7 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 }
 
 func (cs *CombatSystem) tryMonsterAllyHeal(monster *monsterPkg.Monster3D) bool {
-	if monster.AllyHealChance <= 0 || monster.AllyHealAmount <= 0 || rand.Float64() >= monster.AllyHealChance {
+	if monster.Abilities.AllyHeal.Chance <= 0 || monster.Abilities.AllyHeal.Amount <= 0 || rand.Float64() >= monster.Abilities.AllyHeal.Chance {
 		return false
 	}
 	target := cs.pickMonsterAllyHealTarget(monster)
@@ -2826,7 +2852,7 @@ func (cs *CombatSystem) tryMonsterAllyHeal(monster *monsterPkg.Monster3D) bool {
 		return false
 	}
 	before := target.HitPoints
-	target.HitPoints += monster.AllyHealAmount
+	target.HitPoints += monster.Abilities.AllyHeal.Amount
 	if target.HitPoints > target.MaxHitPoints {
 		target.HitPoints = target.MaxHitPoints
 	}
@@ -2848,7 +2874,7 @@ func (cs *CombatSystem) pickMonsterAllyHealTarget(healer *monsterPkg.Monster3D) 
 	if cs.game == nil || cs.game.world == nil {
 		return nil
 	}
-	radius := healer.AllyHealRadiusPixels
+	radius := healer.AllyHealRadiusPixels()
 	bestFrac := math.MaxFloat64
 	var best *monsterPkg.Monster3D
 	for _, candidate := range cs.game.world.Monsters {
@@ -2903,14 +2929,14 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 		targetY,
 		owner,
 		damagecalc.Parts{Normal: damage, True: monster.TrueDamage},
-		monster.IgnoresDodge,
+		monster.GrazesDodge,
 	)
 }
 
 // spawnMonsterSpellProjectileDamage is the hit-explicit core: champion
 // casts author the damage from the real spell formula (championCastSpell),
 // while plain projectile_spell mobs keep their authored attack damage.
-func (cs *CombatSystem) spawnMonsterSpellProjectileDamage(monster *monsterPkg.Monster3D, spellID spells.SpellID, targetX, targetY float64, owner ProjectileOwner, parts damagecalc.Parts, ignoresDodge bool) {
+func (cs *CombatSystem) spawnMonsterSpellProjectileDamage(monster *monsterPkg.Monster3D, spellID spells.SpellID, targetX, targetY float64, owner ProjectileOwner, parts damagecalc.Parts, grazesDodge bool) {
 	// Projectile damage is immutable once fired. Snapshot source-side modifiers
 	// here so a Weaken expiring or landing while the bolt is in flight cannot
 	// rewrite an already committed attack.
@@ -2941,7 +2967,7 @@ func (cs *CombatSystem) spawnMonsterSpellProjectileDamage(monster *monsterPkg.Mo
 		VelY:               projectile.VelY,
 		Damage:             parts.Normal,
 		TrueDamage:         parts.True,
-		IgnoresDodge:       ignoresDodge,
+		GrazesDodge:        grazesDodge,
 		LifeTime:           projectile.LifeTime,
 		Active:             projectile.Active,
 		SpellType:          string(spellID),
@@ -3015,7 +3041,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 			VelY:               dirY * arrowSpeed,
 			Damage:             parts.Normal,
 			TrueDamage:         parts.True,
-			IgnoresDodge:       monster.IgnoresDodge,
+			GrazesDodge:        monster.GrazesDodge,
 			LifeTime:           volleyDartLifetime(arrowLifetime, back, arrowSpeed),
 			Active:             true,
 			BowKey:             weaponKey,
@@ -3301,6 +3327,11 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 
 	// Check for loot drops
 	drops := cs.checkMonsterLootDrop(monster)
+	if monster.IsChampion() {
+		for _, it := range drops {
+			cs.game.AddColoredCombatMessage(fmt.Sprintf("%s's %s drops on the sand!", monster.Name, it.Name), combatMessageGold)
+		}
+	}
 
 	// Update quest progress
 	cs.updateQuestProgress(monster)
@@ -3442,12 +3473,12 @@ func (cs *CombatSystem) activeAttacker() *character.MMCharacter {
 	return cs.game.party.Members[cs.game.selectedChar]
 }
 
-// weaponMasteryStrike returns the TRUE-damage bonus and dodge-ignore flag for
+// weaponMasteryStrike returns the TRUE-damage bonus and dodge-graze flag for
 // the given attacker wielding the given weapon. True damage keeps the weapon's
 // school and therefore meets resistance, but bypasses armor/flat reduction and
-// lands through a Perfect Dodge; a Grandmaster (tier 3) makes the WHOLE strike
-// ignore the target's Perfect Dodge.
-func (cs *CombatSystem) weaponMasteryStrike(attacker *character.MMCharacter, weaponDef *config.WeaponDefinitionConfig) (trueDmg int, ignoreDodge bool) {
+// lands through a Perfect Dodge; a Grandmaster (tier 3) strike also grazes
+// through it for WeaponGMDodgeGrazePct of its normal damage (throughDodge).
+func (cs *CombatSystem) weaponMasteryStrike(attacker *character.MMCharacter, weaponDef *config.WeaponDefinitionConfig) (trueDmg int, grazesDodge bool) {
 	if weaponDef == nil {
 		return 0, false
 	}
@@ -3944,7 +3975,7 @@ func (cs *CombatSystem) strikeMonsterFor(
 	isRanged bool,
 ) {
 	packet := singleMonsterDamagePacket(hit.Parts, hit.DamageType, 0)
-	if cs.strikeMonsterPacketFor(attacker, target, packet, weaponDef, isRanged, hit.IgnoresArmor, hit.IgnoresDodge, true) && hit.ElementalAttack {
+	if cs.strikeMonsterPacketFor(attacker, target, packet, weaponDef, isRanged, hit.GrazesDodge, true) && hit.ElementalAttack {
 		cs.game.addMonsterElementalAttackFX(target, hit.DamageType)
 	}
 }
@@ -3953,17 +3984,17 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	attacker, target *monsterPkg.Monster3D,
 	packet monsterDamagePacket,
 	weaponDef *config.WeaponDefinitionConfig,
-	isRanged, ignoreArmor, ignoreDodge, canDodge bool,
+	isRanged, grazesDodge, canDodge bool,
 ) bool {
 	if !target.IsAlive() {
 		return false // already slain this frame - no double damage/reward
 	}
 	cs.game.notifyCaravanAttack(target)
-	if canDodge && cs.monsterPerfectDodges(target, ignoreDodge) {
+	if canDodge && cs.monsterPerfectDodges(target) {
 		actual := cs.applyMonsterDamagePacket(
 			target,
-			packet.trueOnly(),
-			cs.monsterWeaponDamageOptions(weaponDef, target, isRanged, true),
+			packet.throughDodge(grazesDodge),
+			cs.monsterWeaponDamageOptions(weaponDef, target, isRanged),
 		).Total()
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
@@ -3985,7 +4016,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 	actual := cs.applyMonsterDamagePacket(
 		target,
 		packet,
-		cs.monsterWeaponDamageOptions(weaponDef, target, isRanged, ignoreArmor),
+		cs.monsterWeaponDamageOptions(weaponDef, target, isRanged),
 	).Total()
 	if actual > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, target)
@@ -4003,7 +4034,7 @@ func (cs *CombatSystem) strikeMonsterPacketFor(
 		Kind:   kind,
 	})
 	if target.IsAlive() {
-		cs.applyMonsterHitRiders(attacker, "", monsterHitTarget{cs, attacker, target})
+		cs.applyMonsterHitRiders(attacker, "", monsterHitTarget{cs, attacker, target}, true)
 		return actual > 0
 	}
 	cs.finishActorKill(attacker, target)
@@ -4116,7 +4147,7 @@ func armorMitigationPctFromAC(ac int, physical bool) int {
 
 // armorMitigationPct is the PARTY's armor mitigation (over summed equipped AC).
 func (cs *CombatSystem) armorMitigationPct(char *character.MMCharacter, physical bool) int {
-	return armorMitigationPctFromAC(cs.CalculateTotalArmorClass(char), physical)
+	return armorMitigationPctFromAC(cs.CalculateTotalArmorClass(char), physicalArmorCurve(physical, char.ArmorMelted()))
 }
 
 // mitigateCharacterDamage reduces incoming damage to a party member through the
@@ -4154,19 +4185,20 @@ func (g *MMGame) schoolResistPct(char *character.MMCharacter, school string) int
 // mitigateCharacterDamageParts is the single party-member mitigation pipeline.
 // Both components carry one school and meet its resistance. Armor and flat
 // reductions apply only to Normal; True also lands through Perfect Dodge, which
-// is handled by monsterHitCharacter before this sink. There is deliberately no
-// ranged roll here: the 33% ranged armor pierce is a party-side advantage
-// (ArmorPierceRangedChancePct), so monster shots meet full party armor.
+// is handled by monsterHitCharacter before this sink.
 func (cs *CombatSystem) mitigateCharacterDamageParts(parts damagecalc.Parts, damageTypeStr string, char *character.MMCharacter, ignoreArmor bool) damagecalc.Parts {
-	return cs.mitigateCharacterDamagePartsWithArmorPierce(parts, damageTypeStr, char, ignoreArmor, 0)
+	return cs.mitigateCharacterDamagePartsWithArmorPierce(parts, damageTypeStr, char, ignoreArmor, 0, false)
 }
 
+// mitigateCharacterDamagePartsWithArmorPierce adds a weapon's armor pierce and,
+// for a projectile, the physical projectile pierce (physicalProjectilePierces).
 func (cs *CombatSystem) mitigateCharacterDamagePartsWithArmorPierce(
 	parts damagecalc.Parts,
 	damageTypeStr string,
 	char *character.MMCharacter,
 	ignoreArmor bool,
 	armorPiercePct int,
+	projectile bool,
 ) damagecalc.Parts {
 	if char == nil || (parts.Normal <= 0 && parts.True <= 0) {
 		return parts
@@ -4184,7 +4216,10 @@ func (cs *CombatSystem) mitigateCharacterDamagePartsWithArmorPierce(
 			}
 			ac = ac * (100 - armorPiercePct) / 100
 		}
-		if mit := armorMitigationPctFromAC(ac, physical); mit > 0 {
+		if projectile && ac > 0 && cs.physicalProjectilePierces(school) {
+			ac = 0 // an armor-piercing shot
+		}
+		if mit := armorMitigationPctFromAC(ac, physicalArmorCurve(physical, char.ArmorMelted())); mit > 0 {
 			parts.Normal = parts.Normal * (100 - mit) / 100
 		}
 	}
@@ -4279,20 +4314,38 @@ func convertToMonsterDamageType(damageTypeStr string) monsterPkg.DamageType {
 	return damageType
 }
 
+// physicalArmorCurve picks the armor curve a hit meets: the physical one for a
+// physical hit on sound armor. Melted armor (ArmorMelted) blunts a physical hit
+// only as far as an elemental one.
+func physicalArmorCurve(physical, melted bool) bool { return physical && !melted }
+
+// physicalProjectilePierces rolls the armor pierce every physical projectile
+// carries, whoever fired it and whoever it hits: ArmorPierceRangedChancePct to
+// ignore the target's armor entirely.
+func (cs *CombatSystem) physicalProjectilePierces(damageTypeStr string) bool {
+	if !isPhysicalDamageType(damageTypeStr) {
+		return false
+	}
+	roll := rand.Intn
+	if cs != nil && cs.projectilePierceRoll != nil {
+		roll = cs.projectilePierceRoll
+	}
+	return roll(100) < ArmorPierceRangedChancePct
+}
+
 // applyMonsterArmor reduces a hit by the monster's armor using the SAME % model
 // as the party (armorMitigationPctFromAC): physical capped 75%, elemental scaled
-// to 33%. A ranged PHYSICAL shot still has ArmorPierceRangedChancePct to bypass
-// armor entirely. Armor alone never fully negates a hit (floor 1); resistance
-// (TakeDamageResist, applied next) is what can take it to 0.
-func applyMonsterArmor(damage int, damageTypeStr string, armorClass int, isRanged bool) int {
+// to 33%. A ranged shot may pierce it (physicalProjectilePierces). Armor alone
+// never fully negates a hit (floor 1); resistance (TakeDamageResist, applied
+// next) is what can take it to 0.
+func (cs *CombatSystem) applyMonsterArmor(damage int, damageTypeStr string, armorClass int, projectile, melted bool) int {
 	if damage <= 0 || armorClass <= 0 {
 		return damage
 	}
-	physical := isPhysicalDamageType(damageTypeStr)
-	if isRanged && physical && rand.Intn(100) < ArmorPierceRangedChancePct {
+	if projectile && cs.physicalProjectilePierces(damageTypeStr) {
 		return damage // armor-piercing shot
 	}
-	mit := armorMitigationPctFromAC(armorClass, physical)
+	mit := armorMitigationPctFromAC(armorClass, physicalArmorCurve(isPhysicalDamageType(damageTypeStr), melted))
 	if mit <= 0 {
 		return damage
 	}
@@ -4334,23 +4387,53 @@ func (cs *CombatSystem) rollMonsterLoot(monster *monsterPkg.Monster3D) []items.I
 	return rollLootEntries(cs.monsterLootEntries(monster))
 }
 
+// pocketLoot is what Sleight of Hand lifts: the monster's loot roll, except a
+// champion's, whose drop is its victory trophy.
+func (cs *CombatSystem) pocketLoot(monster *monsterPkg.Monster3D) []items.Item {
+	if monster.IsChampion() {
+		return nil
+	}
+	return cs.rollMonsterLoot(monster)
+}
+
 // rollLootEntries resolves independent loot chances into items. Both normal
 // monster loot and the global boss-death pool use this exact entry contract.
+// A first_of entry rolls its group in order and keeps the first success.
 func rollLootEntries(entries []config.LootEntry) []items.Item {
 	drops := make([]items.Item, 0, len(entries))
 	for _, e := range entries {
 		for range e.RollCount() {
+			if e.Type == "first_of" {
+				if first := rollLootEntries(firstLootSuccess(e.Of)); len(first) > 0 {
+					drops = append(drops, first...)
+				}
+				continue
+			}
 			if rand.Float64() < e.Chance {
-				drop, err := createLootItem(e.Type, e.Key)
+				landed, err := createLootDrops(e)
 				if err != nil {
 					fmt.Printf("[WARN] loot drop failed: %v\n", err)
-					continue
 				}
-				drops = append(drops, drop)
+				drops = append(drops, landed...)
 			}
 		}
 	}
 	return drops
+}
+
+// firstLootSuccess rolls a first_of group in order and returns its first
+// successful entry as a certain drop, or nothing.
+func firstLootSuccess(group []config.LootEntry) []config.LootEntry {
+	for _, e := range group {
+		for range e.RollCount() {
+			if rand.Float64() < e.Chance {
+				won := e
+				won.Chance, won.Rolls = 1, 0
+				return []config.LootEntry{won}
+			}
+		}
+	}
+	return nil
 }
 
 // checkMonsterLootDrop handles loot drops when monsters are killed.

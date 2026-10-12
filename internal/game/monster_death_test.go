@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -16,6 +17,9 @@ import (
 func deathTestGame(t *testing.T) *MMGame {
 	t.Helper()
 	cfg := loadTestConfig(t)
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatal(err)
+	}
 	setTestWorldManager(t, nil)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 7, 7))
 	g.combat = NewCombatSystem(g)
@@ -52,7 +56,11 @@ func TestMonsterDeathLifecycle(t *testing.T) {
 						m.SetupMonsterFromConfig(&withoutArt)
 					}
 					m.HitPoints = 0
-					m.Gold = 11
+					// The bandit carries the gold its loots.yaml entry rolled at spawn.
+					gold, ok := config.MonsterGold(key)
+					if !ok || m.Gold < gold.Min || m.Gold > gold.Max || m.Gold <= 0 {
+						t.Fatalf("spawned with %d gold, loot table gold %v %v", m.Gold, gold, ok)
+					}
 					if kind == "summon" {
 						m.SummonedBy = spellSummonOwnerPrefix + "test"
 					}
@@ -88,7 +96,7 @@ func TestMonsterDeathLifecycle(t *testing.T) {
 							t.Fatal("party summon paid loot")
 						}
 					} else {
-						if bags != 1 || g.groundContainers[0].Gold != 11 {
+						if bags != 1 || g.groundContainers[0].Gold != m.Gold {
 							t.Fatalf("reward changed: %+v", g.groundContainers)
 						}
 						c := &g.groundContainers[0]

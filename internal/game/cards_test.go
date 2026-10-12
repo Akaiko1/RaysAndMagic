@@ -228,7 +228,7 @@ func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
 	if pct := cardDef("lich_card").CardLethalSavePct; g.cardLethalSavePct() != pct || pct <= 0 || pct >= 100 {
 		t.Fatalf("lich save pct = %d, want the authored partial chance %d", g.cardLethalSavePct(), pct)
 	}
-	mon := &monster.Monster3D{Name: "Dragon", FireburstDamageMin: 9999, FireburstDamageMax: 9999}
+	mon := &monster.Monster3D{Name: "Dragon", Abilities: monster.Abilities{Fireburst: monster.FireburstAbility{DamageMin: 9999, DamageMax: 9999}}}
 	member := g.party.Members[0]
 
 	saves := 0
@@ -1418,11 +1418,11 @@ func TestMummyCard_PoisonImmunity(t *testing.T) {
 		t.Fatalf("cardPoisonResistPct = %d, want the authored immunity %d (>= 100)", g.cardPoisonResistPct(), want)
 	}
 
-	m := &monster.Monster3D{Name: "Rat", PoisonChance: 1.0, PoisonDurationSec: 10}
+	m := &monster.Monster3D{Name: "Rat", Abilities: monster.Abilities{Poison: monster.DoTAbility{Chance: 1.0, DurationSeconds: 10}}}
 	member := g.party.Members[0]
 	member.Conditions = nil
 	for i := 0; i < 50; i++ {
-		cs.applyMonsterHitRiders(m, "", heroHitTarget{cs, member})
+		cs.applyMonsterHitRiders(m, "", heroHitTarget{cs, member}, true)
 	}
 	if member.HasCondition(character.ConditionPoisoned) {
 		t.Error("mummy card should have fully resisted every poison roll")

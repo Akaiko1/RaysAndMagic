@@ -78,10 +78,25 @@ func benchSourceGates(t *testing.T, g *MMGame, wm *world.WorldManager) map[strin
 			bossLevel = min(bossLevel, d.Level)
 		}
 	}
+	var offerEntry func(e config.LootEntry, level int)
+	offerEntry = func(e config.LootEntry, level int) {
+		switch e.Type {
+		case "first_of":
+			for _, child := range e.Of {
+				offerEntry(child, level)
+			}
+		case "set":
+			for _, piece := range config.ItemSetPieces(e.Key) {
+				offer(piece, level)
+			}
+		default:
+			offer(e.Key, level)
+		}
+	}
 	for k, entries := range config.GlobalLoots.Loots {
 		for _, e := range entries {
 			if lvl, ok := levelOf[k]; ok {
-				offer(e.Key, lvl)
+				offerEntry(e, lvl)
 			}
 		}
 	}

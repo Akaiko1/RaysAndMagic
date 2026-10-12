@@ -92,8 +92,8 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 			champHPBefore := champ.HitPoints
 			cs.monsterStrikeMonster(huntress, champ)
 			hit := champHPBefore - champ.HitPoints
-			minHit := applyMonsterArmor(huntress.DamageMin, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false) + huntress.TrueDamage
-			maxHit := applyMonsterArmor(huntress.DamageMax, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false) + huntress.TrueDamage
+			minHit := cs.applyMonsterArmor(huntress.DamageMin, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false, false) + huntress.TrueDamage
+			maxHit := cs.applyMonsterArmor(huntress.DamageMax, monsterPkg.DamagePhysical.String(), champ.EffectiveArmorClass(), false, false) + huntress.TrueDamage
 			if hit < minHit || hit > maxHit {
 				t.Errorf("huntress hit the champion for %d, want armor-mitigated packet [%d,%d]", hit, minHit, maxHit)
 			}

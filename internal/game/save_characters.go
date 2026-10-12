@@ -194,6 +194,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.StunRate = cs.StunRate
 	m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames = cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames
+	m.ArmorMelt.Restore(cs.ArmorMelt)
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.ReactiveCombat = cs.ReactiveCombat
 	m.TBRoundActionFloor = cs.TBRoundActionFloor
@@ -276,6 +277,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.StunRate = m.StunRate
 	cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames = m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames
+	cs.ArmorMelt = m.ArmorMelt.Saved()
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.TBRoundActionFloor = m.TBRoundActionFloor
 	cs.RTCooldown = m.RTCooldown

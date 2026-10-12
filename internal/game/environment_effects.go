@@ -21,6 +21,66 @@ func (v *AdventureVisit) effectState(id string) *EnvironmentState {
 	}
 	return s
 }
+
+// effectDamage resolves an effect's percent damage against the boss attack
+// range (adventureBossAttack), so chamber hazards grow with the chamber.
+func effectDamage(e config.EnvironmentEffect, lo, hi int) config.EnvironmentEffect {
+	if e.DamagePercent > 0 {
+		e.Damage = max(1, percentOfAttack(lo, hi, e.DamagePercent))
+	}
+	if e.SustainPercent > 0 {
+		e.SustainDamage = max(1, percentOfAttack(lo, hi, e.SustainPercent))
+	}
+	return e
+}
+
+// percentOfAttack is a percent of the average of an attack range: the one
+// rule for telegraphs and chamber hazards.
+func percentOfAttack(lo, hi, percent int) int { return (lo + hi) * percent / 200 }
+
+// adventureBossAttack is the map boss's attack range at the visit's level
+// (load validation guarantees a leveled, attacking boss for percent damage).
+func adventureBossAttack(a *config.AdventureConfig, v *AdventureVisit) (int, int) {
+	if a == nil || a.Boss == nil || monster.MonsterConfig == nil {
+		return 0, 0
+	}
+	d, ok := monster.MonsterConfig.Monsters[a.Boss.Monster]
+	if !ok || d.Level < 1 {
+		return 0, 0
+	}
+	level := d.Level
+	if v != nil && v.Level > 0 {
+		level = v.Level
+	}
+	return adventureDamageRange(d, level)
+}
+
+// applyAdventureBossArmor sets the map boss's armor: its armor at the visit's
+// level, less the percent every operated switch removes, never under the floor.
+func (g *MMGame) applyAdventureBossArmor(m *monster.Monster3D, a *config.AdventureConfig, v *AdventureVisit) {
+	if m == nil || a == nil || a.Boss == nil || a.Boss.Monster != m.Key || v == nil || monster.MonsterConfig == nil {
+		return
+	}
+	d, ok := monster.MonsterConfig.Monsters[m.Key]
+	if !ok || d.Level < 1 {
+		return
+	}
+	level := m.AdventureScaleLevel
+	if level < 1 {
+		level = d.Level
+	}
+	removed := 0
+	for _, c := range a.Controls {
+		if v.Controls[c.ID] {
+			removed += c.ArmorReductionPercent
+		}
+	}
+	m.ArmorClass = adventureArmorClass(d, level)
+	if removed > 0 {
+		m.ArmorClass = max(a.Boss.ArmorFloor, m.ArmorClass*max(0, 100-removed)/100)
+	}
+}
+
 func (g *MMGame) adventureBoss(a *config.AdventureConfig) *monster.Monster3D {
 	if a == nil || a.Boss == nil || g.world == nil {
 		return nil
@@ -116,7 +176,9 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 	tx, ty := g.GetPlayerTilePosition()
 	continuous := g.monsterFieldExposures(dt)
 	releaseTransfers := false
+	lo, hi := adventureBossAttack(a, v)
 	for _, e := range a.Effects {
+		e = effectDamage(e, lo, hi)
 		s := v.effectState(e.ID)
 		inside := e.Contains(tx, ty)
 		s.Rearm = advanceEnvironmentBudget(s.Rearm, e.RearmSeconds, e.RearmRounds, dt, tb)
@@ -178,7 +240,7 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 
 	if b := a.Boss; b != nil && b.HealPercent > 0 {
 		m := g.adventureBoss(a)
-		if m == nil || !m.IsAlive() || !m.IsEngagingPlayer || m.HitPoints >= m.MaxHitPoints {
+		if m == nil || !m.IsAlive() || !m.IsEngagingPlayer || m.HitPoints*100 >= m.MaxHitPoints*b.HealCeilingPercent {
 			return
 		}
 		allClosed := true
@@ -190,14 +252,12 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 		if allClosed {
 			return
 		}
+		// Every round (its seconds in RT) the boss heals toward its ceiling.
 		v.HealCarry += dt
-		for v.HealCarry >= 6 {
-			v.HealCarry -= 6
-			budget := m.MaxHitPoints*b.HealCapPercent/100 - v.BossHealed
-			heal := min(budget, max(1, m.MaxHitPoints*b.HealPercent/100), m.MaxHitPoints-m.HitPoints)
-			if heal > 0 {
+		for round := float64(config.CombatRoundSeconds); v.HealCarry >= round; v.HealCarry -= round {
+			ceiling := m.MaxHitPoints * b.HealCeilingPercent / 100
+			if heal := min(max(1, m.MaxHitPoints*b.HealPercent/100), ceiling-m.HitPoints); heal > 0 {
 				m.HitPoints += heal
-				v.BossHealed += heal
 			}
 		}
 	}
@@ -254,7 +314,9 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 	v := g.adventureVisit(key)
 	tx, ty := g.GetPlayerTilePosition()
 	transferred := false
+	lo, hi := adventureBossAttack(a, v)
 	for _, e := range a.Effects {
+		e = effectDamage(e, lo, hi)
 		s := v.effectState(e.ID)
 		inside := e.Contains(tx, ty)
 		if !inside {
@@ -370,8 +432,8 @@ func (g *MMGame) useAdventureControl(id string) {
 		g.recordTerrainChange(t.X, t.Y, before, tile)
 		g.world.Tiles[t.Y][t.X] = tile
 	}
-	if m := g.adventureBoss(a); m != nil && a.Boss != nil {
-		m.ArmorClass = max(a.Boss.ArmorFloor, m.ArmorClass-c.ArmorReduction)
+	if m := g.adventureBoss(a); m != nil {
+		g.applyAdventureBossArmor(m, a, v)
 	}
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
 		g.gameLoop.renderer.precomputeFloorColorCache()

@@ -48,36 +48,42 @@ type bossKitAbility struct {
 var bossKitAbilities = []bossKitAbility{
 	{
 		name: "traps",
-		has:  func(m *monsterPkg.Monster3D) bool { return m.TrapVolleyCount > 0 },
-		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.InfernoChance = 0 },
+		has:  func(m *monsterPkg.Monster3D) bool { return m.Abilities.TrapVolley.Count > 0 },
+		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.Abilities.Inferno.Chance = 0 },
 		want: "seeds the ground with smouldering eggs",
 	},
 	{
 		name: "adds",
-		has:  func(m *monsterPkg.Monster3D) bool { return len(m.SummonMonsters) > 0 },
-		prep: func(m *monsterPkg.Monster3D) { m.SummonChance = 1.0; m.InfernoChance = 0 },
+		has:  func(m *monsterPkg.Monster3D) bool { return len(m.Abilities.Summon.Monsters) > 0 },
+		prep: func(m *monsterPkg.Monster3D) { m.Abilities.Summon.Chance = 1.0; m.Abilities.Inferno.Chance = 0 },
 		want: "raises the war-banner",
 	},
 	{
 		name: "enrage",
-		has:  func(m *monsterPkg.Monster3D) bool { return m.EnrageAtHP > 0 },
-		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.InfernoChance = 0; m.HitPoints = m.EnrageAtHP },
+		has:  func(m *monsterPkg.Monster3D) bool { return m.Abilities.Enrage.AtHP > 0 },
+		prep: func(m *monsterPkg.Monster3D) {
+			noSummons(m)
+			m.Abilities.Inferno.Chance = 0
+			m.HitPoints = m.Abilities.Enrage.AtHP
+		},
 		want: "flies into a furious rage",
 	},
 	{
 		name: "inferno",
-		has:  func(m *monsterPkg.Monster3D) bool { return m.InfernoChance > 0 },
-		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.InfernoChance = 1.0 },
+		has:  func(m *monsterPkg.Monster3D) bool { return m.Abilities.Inferno.Chance > 0 },
+		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.Abilities.Inferno.Chance = 1.0 },
 		want: "Inferno scorches",
 	},
 	{
 		name: "lowhp_blink",
-		has:  func(m *monsterPkg.Monster3D) bool { return m.TeleportAtHP > 0 && m.TeleportChance > 0 },
+		has: func(m *monsterPkg.Monster3D) bool {
+			return m.Abilities.Teleport.AtHP > 0 && m.Abilities.Teleport.Chance > 0
+		},
 		prep: func(m *monsterPkg.Monster3D) {
 			noSummons(m)
-			m.InfernoChance = 0
-			m.TeleportChance = 1.0
-			m.HitPoints = m.TeleportAtHP
+			m.Abilities.Inferno.Chance = 0
+			m.Abilities.Teleport.Chance = 1.0
+			m.HitPoints = m.Abilities.Teleport.AtHP
 		},
 		want: "blinks away in a golden flash",
 	},
@@ -128,7 +134,7 @@ func TestBossStillStrikesSummonAlongsideSpecials(t *testing.T) {
 	_, ally := spawnSummonsBossScenario(t, g, "old_samurai", func(m *monsterPkg.Monster3D) {
 		aggro(m)
 		noSummons(m)
-		m.HitPoints = m.EnrageAtHP // enrage announces on the same action moment
+		m.HitPoints = m.Abilities.Enrage.AtHP // enrage announces on the same action moment
 	})
 	hp := ally.HitPoints
 
@@ -150,7 +156,7 @@ func TestBossWithDeadCachedFoeWaitsForRetargetRT(t *testing.T) {
 	boss, ally := spawnSummonsBossScenario(t, g, "golden_thief_bug", func(m *monsterPkg.Monster3D) {
 		aggro(m)
 		noSummons(m)
-		m.InfernoChance = 1
+		m.Abilities.Inferno.Chance = 1
 		m.InfernoCDFrames = 0
 	})
 	ally.HitPoints = 0 // killed by an earlier actor after target selection

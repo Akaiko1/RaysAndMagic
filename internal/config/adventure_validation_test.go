@@ -26,6 +26,20 @@ func TestValidateAdventuresRules(t *testing.T) {
 			a.OpeningOwned, a.Element, a.JumpLinks = false, "", [][4]int{{1, 1, 3, 1}}
 		}, false},
 		{"negative minimum armor", func(a *AdventureConfig) { a.Boss.ArmorFloor = -1 }, false},
+		{"damage as a percent of the boss attack", func(a *AdventureConfig) { a.Effects[0].Damage, a.Effects[0].DamagePercent = 0, 150 }, true},
+		{"both flat and percent damage", func(a *AdventureConfig) { a.Effects[0].DamagePercent = 150 }, false},
+		{"neither flat nor percent damage", func(a *AdventureConfig) { a.Effects[0].Damage = 0 }, false},
+		{"percent damage without a boss", func(a *AdventureConfig) {
+			a.Boss, a.Effects = nil, []EnvironmentEffect{{ID: "vent", Name: "Vent", Kind: "occupation", Rect: [4]int{4, 4, 5, 5}, School: "fire", DamagePercent: 25}}
+		}, false},
+		{"lingering damage both flat and percent", func(a *AdventureConfig) { a.Effects[0].SustainDamage, a.Effects[0].SustainPercent = 3, 25 }, false},
+		{"lingering damage on a lane", func(a *AdventureConfig) { a.Effects[0].SustainPercent = 25 }, true},
+		{"lingering damage on an occupation", func(a *AdventureConfig) { a.Effects[1].SustainPercent = 25 }, false},
+		{"regeneration up to a ceiling", func(a *AdventureConfig) { a.Boss.HealPercent, a.Boss.HealCeilingPercent = 5, 50 }, true},
+		{"regeneration without a ceiling", func(a *AdventureConfig) { a.Boss.HealPercent = 5 }, false},
+		{"armor reduction past 100%", func(a *AdventureConfig) {
+			a.Controls = []EnvironmentControl{{ID: "brace", ArmorReductionPercent: 120}}
+		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := base()

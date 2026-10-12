@@ -66,9 +66,9 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 					}
 				}
 				m.State, m.StateTimer, m.AttackCDFrames, m.OffHandCDFrames = monster.StateAttacking, 1, 0, 0
-				m.AttacksPerRound = 3
+				m.AttackCooldownMultiplier = 1.0 / 3 // several TB swings still earn one reaction
 				m.DamageMin, m.DamageMax = 1, 1
-				m.StunCharChance = 0
+				m.Abilities.Stun.Chance = 0
 				cadence := monsterAttackRealtime
 				if tb {
 					cadence = monsterAttackTurn
@@ -105,11 +105,11 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 				}
 				switch kind {
 				case "inferno":
-					m.InfernoDamage = 1
+					m.Abilities.Inferno.Damage = 1
 					g.combat.applyMonsterInferno(m)
 				case "volley":
-					m.TrapVolleyCount = 4
-					m.TrapVolleyRadiusTiles = 2
+					m.Abilities.TrapVolley.Count = 4
+					m.Abilities.TrapVolley.RadiusTiles = 2
 					g.combat.tryBossTrapVolley(m, tb)
 				default:
 					g.combat.commitMonsterAttack(m, target, cadence)

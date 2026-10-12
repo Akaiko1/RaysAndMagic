@@ -505,7 +505,7 @@ func resolveMonsterPrewarmResources(seeds map[string]float64, priorities mapRend
 			resources[mapMonsterPrewarmResource{key: current.key, spriteName: name}] = struct{}{}
 			priorities.observe(name, current.score)
 		}
-		for _, summonKey := range def.SummonMonsters {
+		for _, summonKey := range def.Abilities.Summon.Monsters {
 			if summonKey != "" {
 				pending = append(pending, pendingMonster{key: summonKey, score: current.score})
 			}
@@ -749,7 +749,7 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 			observeMinScore(decodeMonsterKeys, mon.Key, monsterScore)
 			observeMinScore(monsterKeys, mon.Key, monsterScore)
 		}
-		for _, key := range mon.SummonMonsters {
+		for _, key := range mon.Abilities.Summon.Monsters {
 			if inScope && key != "" {
 				observeMinScore(decodeMonsterKeys, key, monsterScore)
 				observeMinScore(monsterKeys, key, monsterScore)

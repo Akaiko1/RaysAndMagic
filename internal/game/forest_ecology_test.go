@@ -366,8 +366,8 @@ func TestHarvestLootIsMonsterOnlyAndSurvivesSave(t *testing.T) {
 					t.Fatal("theft never attempted loot")
 				}
 			case "crate":
-				if it, ok := g.rollMapLootEntry(config.RarityRange{Min: 0, Max: config.RarityTier("unique")}); ok {
-					t.Fatalf("herb escaped into map crate: %s", it.Name)
+				if loot, ok := g.rollMapLootEntry(config.RarityRange{Min: 0, Max: config.RarityTier("unique")}); ok {
+					t.Fatalf("herb escaped into map crate: %s", loot[0].Name)
 				}
 				return
 			}

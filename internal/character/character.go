@@ -153,6 +153,9 @@ type MMCharacter struct {
 	StunFramesRemaining int
 	StunTurnsRemaining  int
 	StunRate            int // persisted frames-per-turn rate keeping mode switches proportional
+	// ArmorMelt: a melting monster's hit leaves the hero's armor blunting a
+	// physical hit only as far as an elemental one (ArmorMelted).
+	ArmorMelt status.DualClock
 	// Stun diminishing returns (status.StunDRChain): chain step plus the
 	// stun-free TB turns / RT frames left before the chain resets.
 	StunDRStacks       int
@@ -820,6 +823,7 @@ func (c *MMCharacter) updateRegenAndPoison(inCombat bool, absorbDoT ...func(int)
 	c.updatePoison(tps, absorbDoT...)
 	c.updateBurn(tps, absorbDoT...)
 	c.tickStunFrames()
+	c.ArmorMelt.TickFrame()
 
 	// If unconscious, skip regeneration and updates
 	if c.HasCondition(ConditionUnconscious) {
@@ -955,6 +959,7 @@ func (c *MMCharacter) clearAfflictionClocks() {
 	status.Clear(&c.PoisonFramesRemaining, &c.poisonTickTimer)
 	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
 	c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+	c.ArmorMelt = status.DualClock{}
 }
 
 // clearRestState drops everything a full rest (or death's end) wipes: the
@@ -1024,6 +1029,12 @@ func (c *MMCharacter) ApplyCharStun(frames, turns int) {
 		c.AddCondition(ConditionStunned)
 	}
 }
+
+// MeltArmor refreshes the melted-armor debuff; it never stacks.
+func (c *MMCharacter) MeltArmor(frames, turns int) { c.ArmorMelt.Refresh(frames, turns) }
+
+// ArmorMelted reports armor that blunts physical hits only as far as elemental ones.
+func (c *MMCharacter) ArmorMelted() bool { return c != nil && c.ArmorMelt.Active() }
 
 // IsStunned reports whether the character currently skips actions.
 func (c *MMCharacter) IsStunned() bool {

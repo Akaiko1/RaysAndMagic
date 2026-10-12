@@ -292,6 +292,27 @@ func (cs *CombatSystem) monsterOnTile(tileX, tileY int) *monsterPkg.Monster3D {
 // is standing on. RT runs it each frame; TB runs it after monster moves and
 // right after placement.
 func (cs *CombatSystem) sweepTrapTriggers() {
+	cs.fireTraps(func(t PlacedTrap) *monsterPkg.Monster3D { return cs.monsterOnTile(t.TileX, t.TileY) })
+}
+
+// springTrapsUnder fires the current map's traps on the monster's own tile.
+func (cs *CombatSystem) springTrapsUnder(m *monsterPkg.Monster3D) {
+	if m == nil || !m.IsAlive() {
+		return
+	}
+	tileSize := float64(cs.game.config.GetTileSize())
+	tx, ty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
+	cs.fireTraps(func(t PlacedTrap) *monsterPkg.Monster3D {
+		if t.TileX == tx && t.TileY == ty {
+			return m
+		}
+		return nil
+	})
+}
+
+// fireTraps fires every current-map trap whose victim is found and drops it
+// (traps are one-shot).
+func (cs *CombatSystem) fireTraps(victimOf func(PlacedTrap) *monsterPkg.Monster3D) {
 	if len(cs.game.traps) == 0 {
 		return
 	}
@@ -299,7 +320,7 @@ func (cs *CombatSystem) sweepTrapTriggers() {
 	for i := range cs.game.traps {
 		t := cs.game.traps[i]
 		if mapKeyOnCurrentWorld(t.MapKey) {
-			if victim := cs.monsterOnTile(t.TileX, t.TileY); victim != nil {
+			if victim := victimOf(t); victim != nil {
 				cs.fireTrap(&t, victim)
 				continue // one-shot: drop the trap
 			}

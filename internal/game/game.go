@@ -83,7 +83,7 @@ type MagicProjectile struct {
 	VelX, VelY         float64 // Velocity
 	Damage             int
 	TrueDamage         int                    // typed true component snapshotted when the projectile is fired
-	IgnoresDodge       bool                   // snapshotted attack rider; shooter state may change in flight
+	GrazesDodge        bool                   // snapshotted attack rider; shooter state may change in flight
 	Attacker           *character.MMCharacter // caster (nil = monster/none) - mastery/pierce resolve from HIM at impact; a pointer survives roster swaps mid-flight
 	LifeTime           int                    // Frames remaining
 	Active             bool
@@ -137,7 +137,7 @@ type Arrow struct {
 	DistanceTraveled       float64 // Runtime-only path length used by release projection
 	Damage                 int
 	TrueDamage             int                    // typed true component snapshotted when the projectile is fired
-	IgnoresDodge           bool                   // snapshotted attack rider; shooter state may change in flight
+	GrazesDodge            bool                   // snapshotted attack rider; shooter state may change in flight
 	Attacker               *character.MMCharacter // shooter (nil = monster/none)
 	LifeTime               int                    // Frames remaining
 	Active                 bool
@@ -2764,12 +2764,8 @@ func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 		if g.combat == nil {
 			return false
 		}
-		id, ok := g.combat.bestKnownHealSpell(m)
-		if !ok {
-			return false
-		}
-		def, err := spells.GetSpellDefinitionByID(id)
-		return err == nil && m.SpellPoints >= g.combat.effectiveSpellCost(m, def.SpellPointsCost)
+		_, ok := g.combat.bestKnownHealSpell(m) // castable now: off reuse and payable
+		return ok
 	default: // rtActSmart
 		if g.combat == nil {
 			return m.HasWeaponInEitherHand()
@@ -2923,6 +2919,9 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 				m.TickBurnTurn(tps, tps, g.absorbCelestialDamage)
 			}
 			g.sweepLethalDoTVictims()
+		}
+		for _, m := range g.party.Members {
+			m.ArmorMelt.TickTurn() // a round of melted armor passes, stunned or not
 		}
 	}
 
@@ -3487,18 +3486,8 @@ func (g *MMGame) syncMonsterAttackPost(m *monster.Monster3D) {
 // tryClaimMonsterAttackPost grants m the post at its current tile. Movement
 // stays pass-through; the claim only arbitrates who is allowed to attack there.
 func (g *MMGame) tryClaimMonsterAttackPost(m *monster.Monster3D) bool {
-	if g == nil || m == nil || g.config == nil {
-		return false
-	}
-	targetID, targetX, targetY, hasTarget := g.monsterAttackTarget(m)
-	if !hasTarget || (g.combat != nil && g.combat.attackOriginBlocked(m.X, m.Y)) {
-		return false
-	}
-	tileSize := float64(g.config.GetTileSize())
-	if tileSize <= 0 || (TileIndex(m.X, tileSize) == TileIndex(targetX, tileSize) && TileIndex(m.Y, tileSize) == TileIndex(targetY, tileSize)) {
-		return false
-	}
-	if g.collisionSystem != nil && g.collisionSystem.IsMonsterAttackPostReserved(m.ID, m.X, m.Y) {
+	targetID, open := g.monsterAttackPostOpen(m)
+	if !open {
 		return false
 	}
 	if !m.AttackPost || m.AttackPostTargetID != targetID {
@@ -3509,6 +3498,27 @@ func (g *MMGame) tryClaimMonsterAttackPost(m *monster.Monster3D) bool {
 	m.AttackTransit = false
 	g.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m))
 	return true
+}
+
+// monsterAttackPostOpen reports whether the monster could claim an attack post
+// where it stands, without claiming it: it has a target, its origin is clear,
+// it is not on the target's tile and no other monster holds this post.
+func (g *MMGame) monsterAttackPostOpen(m *monster.Monster3D) (targetID string, open bool) {
+	if g == nil || m == nil || g.config == nil {
+		return "", false
+	}
+	targetID, targetX, targetY, hasTarget := g.monsterAttackTarget(m)
+	if !hasTarget || (g.combat != nil && g.combat.attackOriginBlocked(m.X, m.Y)) {
+		return "", false
+	}
+	tileSize := float64(g.config.GetTileSize())
+	if tileSize <= 0 || (TileIndex(m.X, tileSize) == TileIndex(targetX, tileSize) && TileIndex(m.Y, tileSize) == TileIndex(targetY, tileSize)) {
+		return "", false
+	}
+	if g.collisionSystem != nil && g.collisionSystem.IsMonsterAttackPostReserved(m.ID, m.X, m.Y) {
+		return "", false
+	}
+	return targetID, true
 }
 
 // releaseMonsterAttackPost removes a logical claim. A serial reconciliation

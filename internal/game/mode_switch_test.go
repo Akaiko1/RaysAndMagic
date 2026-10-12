@@ -325,8 +325,8 @@ func TestTurnBasedBossSpecialCarriesRTCadenceAcrossModeSwitch(t *testing.T) {
 	boss := spawnSpecialsMonster(game, "golden_thief_bug", 3, 2)
 	aggro(boss)
 	noSummons(boss)
-	boss.InfernoChance = 1
-	boss.TeleportChance = 0
+	boss.Abilities.Inferno.Chance = 1
+	boss.Abilities.Teleport.Chance = 0
 
 	runTBMonsterTurns(game, gl, 1)
 	castsAfterTB := countCombatLog(game, "Inferno scorches")

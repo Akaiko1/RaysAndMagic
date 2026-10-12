@@ -33,7 +33,6 @@ type AdventureVisit struct {
 	Effects     map[string]*EnvironmentState `json:"effects,omitempty"`
 	BossGranted bool                         `json:"boss_granted,omitempty"`
 	BossActions int                          `json:"boss_actions,omitempty"`
-	BossHealed  int                          `json:"boss_healed,omitempty"`
 	HealCarry   float64                      `json:"heal_carry,omitempty"`
 }
 
@@ -311,6 +310,18 @@ func bossMonsterHP(level int) float64 {
 	return math.Exp(5.333+.101*float64(min(level, 35))) + 500*float64(max(0, level-35))
 }
 
+// adventureDamageRange is the authored attack scaled to an adventure level.
+func adventureDamageRange(d monster.MonsterDefinition, level int) (int, int) {
+	ratio := math.Exp(.057 * float64(level-d.Level))
+	lo := max(1, int(math.Round(float64(d.DamageMin)*ratio)))
+	return lo, max(lo, int(math.Round(float64(d.DamageMax)*ratio)))
+}
+
+// adventureArmorClass is the authored armor scaled to an adventure level.
+func adventureArmorClass(d monster.MonsterDefinition, level int) int {
+	return max(0, int(math.Round(float64(d.ArmorClass)*math.Sqrt(float64(level)/float64(d.Level)))))
+}
+
 // Scale from the authored archetype, never from already-scaled runtime values.
 func scaleAdventureMonster(m *monster.Monster3D, level int) {
 	if m == nil || level < 1 || monster.MonsterConfig == nil {
@@ -328,10 +339,8 @@ func scaleAdventureMonster(m *monster.Monster3D, level int) {
 	m.Level = level
 	m.MaxHitPoints = max(1, int(math.Round(float64(d.MaxHitPoints)*ratio)))
 	m.HitPoints = m.MaxHitPoints
-	damageRatio := math.Exp(.057 * float64(level-d.Level))
-	m.DamageMin = max(1, int(math.Round(float64(d.DamageMin)*damageRatio)))
-	m.DamageMax = max(m.DamageMin, int(math.Round(float64(d.DamageMax)*damageRatio)))
-	m.ArmorClass = max(0, int(math.Round(float64(d.ArmorClass)*math.Sqrt(float64(level)/float64(d.Level)))))
+	m.DamageMin, m.DamageMax = adventureDamageRange(d, level)
+	m.ArmorClass = adventureArmorClass(d, level)
 	xp := 4 * max(100*level, 8*level*level) / 15
 	if m.IsBoss() {
 		xp *= 3
@@ -339,21 +348,15 @@ func scaleAdventureMonster(m *monster.Monster3D, level int) {
 		xp = xp * 3 / 2
 	}
 	m.Experience = xp
-	if d.EnrageAtHP > 0 {
-		m.EnrageAtHP = max(1, int(math.Round(float64(m.MaxHitPoints)*float64(d.EnrageAtHP)/float64(d.MaxHitPoints))))
+	if d.Abilities.Enrage.AtHP > 0 {
+		m.Abilities.Enrage.AtHP = max(1, int(math.Round(float64(m.MaxHitPoints)*float64(d.Abilities.Enrage.AtHP)/float64(d.MaxHitPoints))))
 	}
 }
 func (g *MMGame) restoreAdventureMonster(m *monster.Monster3D, level int) {
 	scaleAdventureMonster(m, level)
 	if m != nil {
 		if v := g.adventure.Visits[m.HomeMap]; v != nil {
-			if a := g.adventureConfig(m.HomeMap); a != nil && a.Boss != nil && a.Boss.Monster == m.Key {
-				for _, c := range a.Controls {
-					if v.Controls[c.ID] {
-						m.ArmorClass = max(a.Boss.ArmorFloor, m.ArmorClass-c.ArmorReduction)
-					}
-				}
-			}
+			g.applyAdventureBossArmor(m, g.adventureConfig(m.HomeMap), v)
 		}
 	}
 }

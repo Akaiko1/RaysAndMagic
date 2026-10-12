@@ -141,7 +141,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 		}
 		gl.game.tickMonsterTelegraphs(3, true)
-		gl.game.tickEnvironment(3, true)
+		gl.game.tickEnvironment(config.CombatRoundSeconds, true)
 	}
 	gl.game.updateAuthoredBandAggro()
 
@@ -166,10 +166,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// branch must not silently fall through into ordinary party combat.
 		m.UpdatePlayerEngagement(gl.game.collisionSystem, playerX, playerY, m.AITargetX, m.AITargetY)
 		if _, _, returning := m.ReturnHomeTarget(); returning {
-			if nx, ny, move := m.NextReturnHomeStep(gl.game.collisionSystem); move && gl.monsterCanStepTB(m) {
-				wx, wy := TileCenterFromTile(nx, ny, tileSize)
-				gl.commitMonsterMoveTB(m, wx, wy)
-			}
+			m.WalkTurn(func(bool) bool {
+				nx, ny, move := m.NextReturnHomeStep(gl.game.collisionSystem)
+				return move && gl.stepMonsterTB(m, nx, ny, tileSize)
+			}, gl.turnBasedStepHazards(m))
 			m.ReturnHomeTarget()
 			gl.game.refreshMonsterCollisionState(m)
 			continue
@@ -177,7 +177,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		behavior := m.CurrentAIBehavior()
 		switch behavior {
 		case monster.AIBehaviorAmbient:
-			m.UpdateAmbient(gl.game.collisionSystem, m.AITargetX, m.AITargetY, true)
+			hazards, perceive := gl.turnBasedStepHazards(m), gl.game.ambientStepPerception(m)
+			m.UpdateAmbient(gl.game.collisionSystem, m.AITargetX, m.AITargetY, true, func() bool { return hazards() && perceive() })
 			gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 			gl.game.refreshMonsterCollisionState(m)
 			continue
@@ -219,10 +220,14 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			if tickTurnStatuses {
 				elapsedFrames = gl.game.config.GetTPS()
 			}
-			if nx, ny, move := m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, elapsedFrames); move && gl.monsterCanStepTB(m) {
-				wx, wy := TileCenterFromTile(nx, ny, tileSize)
-				gl.commitMonsterMoveTB(m, wx, wy)
-			}
+			// The first call advances the flee clock once per turn, moving or not.
+			nx, ny, move := m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, elapsedFrames)
+			m.WalkTurn(func(first bool) bool {
+				if !first {
+					nx, ny, move = m.NextFleeTurnStep(gl.game.collisionSystem, playerX, playerY, 0)
+				}
+				return move && gl.stepMonsterTB(m, nx, ny, tileSize)
+			}, gl.turnBasedStepHazards(m))
 			gl.game.refreshMonsterCollisionState(m)
 			continue
 		case monster.AIBehaviorPassive:
@@ -267,7 +272,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// DESIGN: specials roll BEFORE range/movement checks, so an aggressive TB
 		// boss may spend its turn on a special instead of closing in. The Inferno
 		// nova is the exception with a real gate - bound to its authored
-		// inferno_range_tiles in BOTH modes (it used to be map-wide here, which with
+		// abilities.inferno.range_tiles in BOTH modes (it used to be map-wide here, which with
 		// aggro_whole_map let the Golden Thief Bug burn the party from anywhere).
 		if m.IsBoss() {
 			if gl.game.combat.runBossSpecials(m, true, true) {
@@ -372,7 +377,7 @@ func (cs *CombatSystem) monsterPouncePointInReachTB(m *monster.Monster3D, x, y f
 	}
 	ts := float64(cs.game.config.GetTileSize())
 	d := absInt(TileIndex(x, ts)-TileIndex(m.X, ts)) + absInt(TileIndex(y, ts)-TileIndex(m.Y, ts))
-	if d < 2 || d > int(m.PounceRangePixels/ts) || !cs.attackLineClear(m.X, m.Y, x, y) {
+	if d < 2 || d > int(m.PounceRangePixels()/ts) || !cs.attackLineClear(m.X, m.Y, x, y) {
 		return false
 	}
 	_, _, ok := cs.pounceLanding(m, x, y)
@@ -449,24 +454,80 @@ func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) 
 	gl.commitMonsterMoveTB(m, cx, cy)
 }
 
-// monsterMoveTurnBased handles a monster move in turn-based mode
-// monsterMoveTurnBased is the ONE turn-based movement entry point: gates and
-// the shared step machinery live here; only the goal selection differs by
-// attacker kind (melee: adjacent tile; ranged vs party: firing lane; ranged vs
-// a monster foe: plain approach).
-func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
-	if !monster.SpendAmbientTurnMove() {
-		return
-	}
-	// A mob that is searching for a post is transit even if it reached this
-	// method from an old held position. Physical overlap remains allowed; only
-	// its attack claim is released.
-	gl.game.releaseMonsterAttackPost(monster)
-	if !gl.monsterCanStepTB(monster) {
-		return
-	}
+// monsterMoveTurnBased is the ONE turn-based approach entry point: one
+// movement action at the monster's step rate (monster.WalkTurn). Extra steps
+// stop as soon as the monster can strike its target from a post it can claim,
+// so moving and attacking stay separate actions; a held post is walked through.
+// A foe that died mid-walk ends the walk. Goal selection differs by attacker kind (melee:
+// adjacent tile; ranged vs party: firing lane; ranged vs a monster foe: plain
+// approach).
+func (gl *GameLoop) monsterMoveTurnBased(m *monster.Monster3D) {
 	tileSize := float64(gl.game.config.GetTileSize())
+	m.WalkTurn(func(first bool) bool {
+		if first {
+			// A mob that is searching for a post is transit even if it reached
+			// this method from an old held position. Physical overlap remains
+			// allowed; only its attack claim is released.
+			gl.game.releaseMonsterAttackPost(m)
+			if !gl.monsterCanStepTB(m) {
+				return false
+			}
+		} else if foe := m.AIFoe; (foe != nil && !foe.IsAlive()) || gl.monsterCanStrikeTB(m) {
+			return false
+		}
+		tx, ty := TileIndex(m.X, tileSize), TileIndex(m.Y, tileSize)
+		gl.monsterApproachStepTB(m, tileSize)
+		return TileIndex(m.X, tileSize) != tx || TileIndex(m.Y, tileSize) != ty
+	}, gl.turnBasedStepHazards(m))
+}
 
+// stepMonsterTB commits one walking step to tile (tx, ty) if movement is not
+// held; it reports whether the monster moved.
+func (gl *GameLoop) stepMonsterTB(m *monster.Monster3D, tx, ty int, tileSize float64) bool {
+	if !gl.monsterCanStepTB(m) {
+		return false
+	}
+	wx, wy := TileCenterFromTile(tx, ty, tileSize)
+	return gl.commitMonsterMoveTB(m, wx, wy)
+}
+
+// turnBasedStepHazards runs between a fast monster's steps: the tile it just
+// crossed springs its traps and burns its damage zones as an RT walk would (the
+// last tile is left to the end-of-pass sweep), and a monster the hazard killed,
+// rooted or stunned stops walking. Only the walker meets these hazards.
+func (gl *GameLoop) turnBasedStepHazards(m *monster.Monster3D) func() bool {
+	return func() bool {
+		gl.game.combat.springTrapsUnder(m)
+		gl.applyZoneEntryDamageFor(m)
+		return m.IsAlive() && gl.monsterCanStepTB(m)
+	}
+}
+
+// monsterCanStrikeTB reports whether the monster already stands where it can
+// attack its target from a post it can claim, so extra steps end at an attack
+// position. An escort without a foe has no attack position: its step stops in
+// formation instead.
+func (gl *GameLoop) monsterCanStrikeTB(m *monster.Monster3D) bool {
+	cs := gl.game.combat
+	if foe := m.AIFoe; foe != nil {
+		if !foe.IsAlive() || !cs.monsterCanAttackMonster(m, foe) {
+			return false
+		}
+	} else {
+		if m.Bound || !m.TargetsParty() {
+			return false
+		}
+		x, y := cs.logicalCameraXY()
+		if !cs.monsterAttackPointInReachTB(m, x, y) {
+			return false
+		}
+	}
+	_, open := gl.game.monsterAttackPostOpen(m)
+	return open
+}
+
+// monsterApproachStepTB is one approach step toward the monster's target.
+func (gl *GameLoop) monsterApproachStepTB(monster *monster.Monster3D, tileSize float64) {
 	// Step toward the monster's AI target (party by default; a charmed monster is
 	// redirected - bound undead toward its enemy, pacified toward itself = no move).
 	monsterTileX := TileIndex(monster.X, tileSize)
@@ -719,6 +780,7 @@ func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses 
 		m.TickPoisonTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
 		m.TickBurnTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS()))   // Drakefang ignite; stacks with poison
 		m.TickArmorShredTurn()                                             // Pit Labrys shred decays regardless of stun
+		m.ArmorMelt.TickTurn()                                             // a melting monster's hit decays regardless of stun
 		m.TickSlowTurn()                                                   // Tarn Trident silt decays regardless of stun
 		m.TickElementalMarks(true)
 		m.TickWeakenTurn() // Scalebreaker roar decays regardless of stun

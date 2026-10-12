@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -351,6 +352,7 @@ func (p *FxPreview) clearStage() {
 	if len(g.party.Members) > fxHeroIdx {
 		h := g.party.Members[fxHeroIdx]
 		h.Conditions = h.Conditions[:0]
+		h.ArmorMelt = status.DualClock{}
 	}
 }
 

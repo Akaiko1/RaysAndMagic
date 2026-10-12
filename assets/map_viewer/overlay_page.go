@@ -551,8 +551,8 @@ func (v *viewer) overlayMapPress(d *overlayDocument, tile [2]int) {
 				if a.Boss.HealPercent == 0 {
 					a.Boss.HealPercent = 5
 				}
-				if a.Boss.HealCapPercent == 0 {
-					a.Boss.HealCapPercent = 25
+				if a.Boss.HealCeilingPercent == 0 {
+					a.Boss.HealCeilingPercent = 50
 				}
 			}
 		}

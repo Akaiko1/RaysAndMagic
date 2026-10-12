@@ -159,10 +159,10 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 				SpellID:            mp.SpellType,
 				Parts:              parts,
 				DamageType:         damageTypeStr,
-				IgnoresArmor:       mp.SourceMonster != nil && mp.SourceMonster.IgnoresArmor,
-				IgnoresDodge:       mp.IgnoresDodge,
+				GrazesDodge:        mp.GrazesDodge,
 				DisintegrateChance: mp.DisintegrateChance,
 				Spell:              true, // a MagicProjectile always flies a spells.yaml page
+				Projectile:         true,
 			}
 			if mp.AoE {
 				cs.applyMonsterProjectileDamageAoE(mp.SourceMonster, mp.SourceName, hit)
@@ -202,12 +202,12 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 			hit := monsterCharacterHit{
 				Parts:              parts,
 				DamageType:         damageTypeStr,
-				IgnoresArmor:       ar.SourceMonster != nil && ar.SourceMonster.IgnoresArmor,
 				ArmorPiercePct:     weaponArmorPiercePct(weaponDef),
-				IgnoresDodge:       ar.IgnoresDodge,
+				GrazesDodge:        ar.GrazesDodge,
 				DisintegrateChance: ar.DisintegrateChance,
 				// Spell stays false: a dart flies a weapons.yaml entry, whatever
 				// element it carries.
+				Projectile: true,
 			}
 			// An AoE-rider weapon (bow_of_hellfire) engulfs the WHOLE party once
 			// per volley - the champion rule: arc/AoE never multiply.
@@ -458,24 +458,23 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		attack = cs.newPartyWeaponAttack(damage, trueDmg, damageTypeStr, weaponDef, weaponName, true, isCrit, ar.CritChance)
 		attack.Attacker = attacker
 		attack.addPersonalSpellPayload(ar.FireAuraPercent, ar.FireAuraSchool, ar.VampiricPct)
-		attack.IgnoreDodge = ar.IgnoresDodge
+		attack.GrazesDodge = ar.GrazesDodge
 	} else {
 		trueDmg = spellShot.TrueDamage
 		attack = cs.spellProjectileAttack(spellShot)
 		damage, resistPierce = attack.Packet.normalDamage(), cs.spellResistPierce(attacker, spellShot.SpellType)
 	}
 
-	// Check monster perfect dodge (applies to all attack types). A Grandmaster
-	// weapon strike ignores it; otherwise the normal hit is dodged but typed
-	// TRUE damage still lands.
-	// A blast spell still goes off around a target that dodged or was bound.
-	if cs.monsterPerfectDodges(monster, attack.IgnoreDodge) {
+	// Check monster perfect dodge (applies to all attack types): the normal hit
+	// is dodged, but typed TRUE damage still lands and a Grandmaster's weapon
+	// strike grazes through. A blast spell still goes off around a target that
+	// dodged or was bound.
+	if cs.monsterPerfectDodges(monster) {
 		cs.breakPacifyOnHit(monster)
-		if trueDmg > 0 {
+		if cs.applyDamageThroughDodge(monster, attack, attacker, attackerName, weaponDef) {
 			if budget != nil {
 				budget.hits[monster]++
 			}
-			cs.applyTrueDamageThroughDodge(monster, attack, attacker, attackerName, weaponDef)
 		} else {
 			cs.game.logCombat(logToneNone, "%s dodges the %s!", logMonsterName(monster), logSchoolWord(damageTypeStr, weaponName))
 		}
@@ -602,7 +601,8 @@ func (cs *CombatSystem) spellProjectileAttack(mp *MagicProjectile) partyMonsterA
 	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(mp.Attacker, mp.SpellType), nil, def.Name, false, true, false)
 	attack.Critical = mp.Crit
 	attack.Attacker = mp.Attacker
-	attack.IgnoreDodge = mp.IgnoresDodge
+	attack.Projectile = true
+	attack.GrazesDodge = mp.GrazesDodge
 	return attack
 }
 

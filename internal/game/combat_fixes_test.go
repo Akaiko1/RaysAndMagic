@@ -29,9 +29,9 @@ func TestProjectileKeepsItsAuthor(t *testing.T) {
 	}
 
 	wantTrue := 3 * MasteryWeaponTrueDamagePerTier
-	if arrow.TrueDamage != wantTrue || !arrow.IgnoresDodge {
+	if arrow.TrueDamage != wantTrue || !arrow.GrazesDodge {
 		t.Fatalf("spawned arrow mastery = (%d,%v), want GM archer's (%d,true)",
-			arrow.TrueDamage, arrow.IgnoresDodge, wantTrue)
+			arrow.TrueDamage, arrow.GrazesDodge, wantTrue)
 	}
 
 	// Selection auto-advances to the knight - and the tavern even swaps the
@@ -39,9 +39,9 @@ func TestProjectileKeepsItsAuthor(t *testing.T) {
 	// and the attack properties resolved when it was fired.
 	g.selectedChar = 0
 	g.party.Members[3] = knight
-	if arrow.Attacker != archer || arrow.TrueDamage != wantTrue || !arrow.IgnoresDodge {
+	if arrow.Attacker != archer || arrow.TrueDamage != wantTrue || !arrow.GrazesDodge {
 		t.Errorf("in-flight arrow changed to author=%v mastery=(%d,%v), want archer and (%d,true)",
-			arrow.Attacker, arrow.TrueDamage, arrow.IgnoresDodge, wantTrue)
+			arrow.Attacker, arrow.TrueDamage, arrow.GrazesDodge, wantTrue)
 	}
 }
 

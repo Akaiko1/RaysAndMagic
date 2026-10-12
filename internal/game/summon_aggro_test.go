@@ -165,7 +165,7 @@ func TestBoundCrossfireCannotHitExcludedActors(t *testing.T) {
 			}
 
 			packet := singleMonsterDamagePacket(damagecalc.Parts{Normal: 50}, monsterPkg.DamagePhysical.String(), 0)
-			game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerBoundUndead, packet, nil, false, 4)
+			game.combat.applyCrossfireAoeSplash(target, source, ProjectileOwnerBoundUndead, packet, nil, 4)
 			if passive.HitPoints != passive.MaxHitPoints || passive.WasAttacked != wasAttacked {
 				t.Fatal("bound AoE collaterally hit and provoked an ignored passive monster")
 			}
@@ -399,7 +399,7 @@ func TestCrossfireUsesEachMonsterAttackCountTurnBased(t *testing.T) {
 
 			attacker := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "skeleton", game.config)
 			attacker.DamageMin, attacker.DamageMax = 1, 1
-			attacker.AttacksPerRound = 3
+			attacker.AttackCooldownMultiplier = 1.0 / 3 // three TB swings per action
 			target := monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "goblin", game.config)
 			target.MaxHitPoints, target.HitPoints = 10, 10
 			if tc.attackerBound {

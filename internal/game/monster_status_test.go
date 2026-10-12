@@ -232,11 +232,10 @@ func TestMonsterPoisonAppliesStatus(t *testing.T) {
 	target.HitPoints = target.MaxHitPoints
 
 	monster := &monsterPkg.Monster3D{
-		Name:              "Troll",
-		DamageMin:         1,
-		DamageMax:         1,
-		PoisonChance:      1.0,
-		PoisonDurationSec: 5,
+		Name:      "Troll",
+		DamageMin: 1,
+		DamageMax: 1,
+		Abilities: monsterPkg.Abilities{Poison: monsterPkg.DoTAbility{Chance: 1.0, DurationSeconds: 5}},
 	}
 
 	cs.applyMonsterMeleeDamage(monster)
@@ -244,7 +243,7 @@ func TestMonsterPoisonAppliesStatus(t *testing.T) {
 	if !target.HasCondition(character.ConditionPoisoned) {
 		t.Fatalf("expected target to be poisoned")
 	}
-	expectedFrames := cs.game.config.GetTPS() * monster.PoisonDurationSec
+	expectedFrames := cs.game.config.GetTPS() * monster.Abilities.Poison.DurationSeconds
 	if target.PoisonFramesRemaining != expectedFrames {
 		t.Fatalf("expected poison frames %d, got %d", expectedFrames, target.PoisonFramesRemaining)
 	}
@@ -258,12 +257,10 @@ func TestMonsterFireburstDamagesParty(t *testing.T) {
 	}
 
 	monster := &monsterPkg.Monster3D{
-		Name:               "Pixie",
-		DamageMin:          1,
-		DamageMax:          1,
-		FireburstChance:    1.0,
-		FireburstDamageMin: 6,
-		FireburstDamageMax: 6,
+		Name:      "Pixie",
+		DamageMin: 1,
+		DamageMax: 1,
+		Abilities: monsterPkg.Abilities{Fireburst: monsterPkg.FireburstAbility{Chance: 1.0, DamageMin: 6, DamageMax: 6}},
 	}
 
 	cs.applyMonsterMeleeDamage(monster)
@@ -293,14 +290,11 @@ func TestMonsterDragonBreathHitsWholePartyThroughNormalHitPath(t *testing.T) {
 	}
 
 	monster := &monsterPkg.Monster3D{
-		Name:                   "Dragon",
-		DamageMin:              10,
-		DamageMax:              10,
-		TrueDamage:             2,
-		DragonBreathChance:     1.0,
-		DragonBreathDamageType: "fire",
-		PoisonChance:           1.0,
-		PoisonDurationSec:      5,
+		Name:       "Dragon",
+		DamageMin:  10,
+		DamageMax:  10,
+		TrueDamage: 2,
+		Abilities:  monsterPkg.Abilities{Poison: monsterPkg.DoTAbility{Chance: 1.0, DurationSeconds: 5}, DragonBreath: monsterPkg.DragonBreathAbility{Chance: 1.0, DamageType: "fire"}},
 	}
 
 	cs.applyMonsterMeleeDamage(monster)

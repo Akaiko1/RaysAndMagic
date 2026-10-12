@@ -252,7 +252,8 @@ func (g *MMGame) rollCrateSource(src config.CrateRollSource) crateRoll {
 	case "nothing":
 		return crateRoll{} // weighted empty slot - the crate held nothing this roll
 	case "map":
-		return crateItemRoll(g.rollMapLootEntry(src.RarityTiers()))
+		loot, ok := g.rollMapLootEntry(src.RarityTiers())
+		return crateRoll{items: loot, ok: ok}
 	case "catalog":
 		return crateItemRoll(rollCatalogItem(src.ItemType, src.RarityTiers()))
 	case "loot_table":
@@ -320,7 +321,9 @@ func (g *MMGame) mapLootPool(tiers config.RarityRange) []mapLootEntry {
 			}
 		}
 		for _, e := range config.GetLootTable(key, isBoss) {
-			if e.Type != "weapon" && config.ValidateOrdinaryItemGrant(e.Key) != nil {
+			// Crates draw ordinary items and weapons; set and first_of drops
+			// stay with the kill.
+			if e.Type != "item" && e.Type != "weapon" || e.Type == "item" && config.ValidateOrdinaryItemGrant(e.Key) != nil {
 				continue
 			}
 			if !tiers.Contains(rarityTier(lootEntryRarity(e))) {
@@ -334,15 +337,15 @@ func (g *MMGame) mapLootPool(tiers config.RarityRange) []mapLootEntry {
 	return pool
 }
 
-// rollMapLootEntry picks one mapLootPool entry by weight.
-func (g *MMGame) rollMapLootEntry(tiers config.RarityRange) (items.Item, bool) {
+// rollMapLootEntry picks one mapLootPool entry by weight and drops its units.
+func (g *MMGame) rollMapLootEntry(tiers config.RarityRange) ([]items.Item, bool) {
 	pool := g.mapLootPool(tiers)
 	i := weightedPick(len(pool), func(i int) int { return pool[i].weight })
 	if i < 0 {
-		return items.Item{}, false
+		return nil, false
 	}
-	it, err := createLootItem(pool[i].entry.Type, pool[i].entry.Key)
-	return it, err == nil
+	loot, err := createLootDrops(pool[i].entry)
+	return loot, err == nil && len(loot) > 0
 }
 
 // lootEntryRarity resolves a loot entry's rarity from its definition.

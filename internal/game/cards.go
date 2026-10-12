@@ -277,10 +277,20 @@ func ValidateCardDrops() error {
 		return nil
 	}
 	rule := loots.CardDropChance
+	isCard := func(e config.LootEntry) bool {
+		item, ok := config.GetItemDefinition(e.Key)
+		return e.Type == "item" && ok && item.Type == "card"
+	}
 	for key, entries := range loots.Loots {
 		def, known := monsterPkg.MonsterConfig.Monsters[key]
 		for _, e := range entries {
-			if item, ok := config.GetItemDefinition(e.Key); e.Type != "item" || !ok || item.Type != "card" {
+			// A card is its own roll at the card rate, never a first_of rung.
+			for _, child := range e.Of {
+				if isCard(child) {
+					return fmt.Errorf("loots %q: card %q sits in first_of group %q; cards roll on their own", key, child.Key, e.Key)
+				}
+			}
+			if !isCard(e) {
 				continue
 			}
 			want := rule.Monster
@@ -290,7 +300,7 @@ func ValidateCardDrops() error {
 			if want <= 0 {
 				return fmt.Errorf("loots.yaml: card_drop_chance is required for monster cards")
 			}
-			if e.Chance != want || e.RollCount() != 1 {
+			if e.Chance != want || e.RollCount() != 1 || e.Max > 1 {
 				return fmt.Errorf("loots %q: card %q drops at %g x%d; card_drop_chance wants %g once", key, e.Key, e.Chance, e.RollCount(), want)
 			}
 		}

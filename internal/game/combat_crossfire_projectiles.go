@@ -65,7 +65,7 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 	dealt := cs.applyMonsterDamagePacket(
 		target,
 		singleMonsterDamagePacket(parts, damageTypeStr, 0),
-		monsterDamageOptions{},
+		monsterDamageOptions{Projectile: true},
 	).Total()
 	if dealt > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, target)
@@ -90,7 +90,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	var parts damagecalc.Parts
 	var dmgTypeStr, spellFx, sourceName string
 	var disintegrateChance, aoeRadiusTiles float64
-	var ignoresDodge bool
+	var grazesDodge bool
 	var weaponDef *config.WeaponDefinitionConfig
 	var srcMonster *monsterPkg.Monster3D
 	var owner ProjectileOwner
@@ -104,7 +104,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		parts = damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
 		sourceName, spellFx = mp.SourceName, mp.SpellType
 		disintegrateChance = mp.DisintegrateChance
-		ignoresDodge = mp.IgnoresDodge
+		grazesDodge = mp.GrazesDodge
 		srcMonster = mp.SourceMonster
 		owner = mp.Owner
 		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
@@ -119,7 +119,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		parts = damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
 		sourceName = ar.SourceName
 		disintegrateChance = ar.DisintegrateChance
-		ignoresDodge = ar.IgnoresDodge
+		grazesDodge = ar.GrazesDodge
 		dmgTypeStr = normalizeDamageTypeStr(ar.DamageType)
 		srcMonster = ar.SourceMonster
 		owner = ar.Owner
@@ -160,16 +160,15 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 
 	// The projectile already snapshotted source-side modifiers when fired.
 	packet := singleMonsterDamagePacket(parts, dmgTypeStr, 0)
-	ignoreArmor := srcMonster != nil && srcMonster.IgnoresArmor
 
-	// Crossfire uses the target's real Perfect Dodge too. Typed true damage still
-	// lands through a dodge; the avoided projectile cannot trigger riders or AoE,
+	// Crossfire uses the target's real Perfect Dodge too. What gets through
+	// (throughDodge) lands; the avoided projectile cannot trigger riders or AoE,
 	// matching a party projectile that misses its primary target.
-	if cs.monsterPerfectDodges(target, ignoresDodge) {
+	if cs.monsterPerfectDodges(target) {
 		actual := cs.applyMonsterDamagePacket(
 			target,
-			packet.trueOnly(),
-			cs.monsterWeaponDamageOptions(weaponDef, target, true, true),
+			packet.throughDodge(grazesDodge),
+			cs.monsterWeaponDamageOptions(weaponDef, target, true),
 		).Total()
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
@@ -208,7 +207,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		actual := cs.applyMonsterDamagePacket(
 			target,
 			primary,
-			cs.monsterWeaponDamageOptions(weaponDef, target, true, ignoreArmor),
+			cs.monsterWeaponDamageOptions(weaponDef, target, true),
 		).Total()
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
@@ -224,7 +223,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	}
 	// The bolt's on-hit statuses land on a monster like on a hero.
 	if target.IsAlive() {
-		cs.applyMonsterHitRiders(srcMonster, spellFx, monsterHitTarget{cs, srcMonster, target})
+		cs.applyMonsterHitRiders(srcMonster, spellFx, monsterHitTarget{cs, srcMonster, target}, true)
 	}
 	if !target.IsAlive() {
 		kill()
@@ -233,7 +232,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	// the player AoE path here would hit the firing champion and its own ordinary
 	// allies, then incorrectly credit their deaths to the party.
 	if aoeRadiusTiles > 0 {
-		cs.applyCrossfireAoeSplash(target, srcMonster, owner, packet, weaponDef, ignoreArmor, aoeRadiusTiles)
+		cs.applyCrossfireAoeSplash(target, srcMonster, owner, packet, weaponDef, aoeRadiusTiles)
 		// A CHAMPION's AoE bolt that reaches the party strikes it too (the extra
 		// action - the summon-splash's party twin). Plain mob crossfire never hits
 		// the party, so this is gated to champions. Walls shield the party like
@@ -243,10 +242,10 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 				SpellID:        spellFx,
 				Parts:          parts, // already weakened once at packet build
 				DamageType:     dmgTypeStr,
-				IgnoresArmor:   srcMonster.IgnoresArmor,
 				ArmorPiercePct: weaponArmorPiercePct(weaponDef),
-				IgnoresDodge:   ignoresDodge,
+				GrazesDodge:    grazesDodge,
 				Spell:          weaponDef == nil, // a champion splash without a weapon behind it is a spell's
+				Projectile:     true,
 			}
 			cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 				cs.monsterHitCharacter(srcMonster, member, srcMonster.Name, hit)
@@ -264,7 +263,6 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(
 	owner ProjectileOwner,
 	packet monsterDamagePacket,
 	weaponDef *config.WeaponDefinitionConfig,
-	ignoreArmor bool,
 	radiusTiles float64,
 ) {
 	if center == nil || source == nil || radiusTiles <= 0 {
@@ -277,6 +275,6 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(
 	// An explosion cannot be Perfect-Dodged, but still uses the victim's armor,
 	// resistance and one shared soak.
 	cs.forEachAreaVictim(cs.pointBlast(center.X, center.Y, radiusTiles), hurts, func(candidate *monsterPkg.Monster3D) {
-		cs.strikeMonsterPacketFor(source, candidate, packet, weaponDef, true, ignoreArmor, false, false)
+		cs.strikeMonsterPacketFor(source, candidate, packet, weaponDef, true, false, false)
 	}, center, source)
 }

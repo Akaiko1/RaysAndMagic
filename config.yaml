@@ -495,6 +495,10 @@ monster_ai:
   # Movement parameters
   normal_speed_multiplier: 0.5  # Normal movement speed multiplier
   flee_speed_multiplier: 1.5    # Speed multiplier when fleeing
+  # Turn-based steps per movement action = monster speed / this. Speed 2.0 and
+  # slower walk one tile; faster monsters bank the fraction and take extra
+  # steps (2.4 -> 1 1 2 1 1 over five turns). Range 1..4 steps.
+  turn_step_speed: 2.0
 
   # Vision and pathfinding
   flee_distance_tiles: 4        # How far a fleeing monster runs before reconsidering

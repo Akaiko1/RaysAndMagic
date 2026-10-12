@@ -25,8 +25,8 @@ func overlayControlBossSummary(d *overlayDocument, id string) string {
 		if c.StopHealing && d.state.Adventure.Boss != nil && d.state.Adventure.Boss.HealPercent > 0 {
 			parts = append(parts, "Stops regeneration")
 		}
-		if c.ArmorReduction > 0 {
-			parts = append(parts, fmt.Sprintf("Armor -%d", c.ArmorReduction))
+		if c.ArmorReductionPercent > 0 {
+			parts = append(parts, fmt.Sprintf("Armor -%d%%", c.ArmorReductionPercent))
 		}
 	}
 	for _, r := range d.state.Mechanics {
@@ -87,7 +87,7 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 	case "mechanics":
 		regen := "Disabled"
 		if b.HealPercent > 0 {
-			regen = fmt.Sprintf("%d%% HP every 6 s (2 rounds)", b.HealPercent)
+			regen = fmt.Sprintf("%d%% HP every round, up to %d%% HP", b.HealPercent, b.HealCeilingPercent)
 		}
 		out := []overlayField{overlayHeading("Core mechanics"), nav("Regeneration", regen, "regeneration"), nav("Armor reduction", fmt.Sprintf("Minimum armor: %d", b.ArmorFloor), "armor"), overlayHeading("Extra mechanics")}
 		add := overlayAction("+ Add mechanic", "Add critical chance or perfect dodge.", func() { v.overlayAddMechanic(d) })
@@ -111,15 +111,17 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 		toggle.apply = func(s string) error {
 			if s == "Yes" {
 				b.HealPercent = 5
-				b.HealCapPercent = max(25, b.HealCapPercent)
+				if b.HealCeilingPercent == 0 {
+					b.HealCeilingPercent = 50
+				}
 			} else {
 				b.HealPercent = 0
 			}
 			return nil
 		}
-		out := []overlayField{overlayNote("Heals every 6 seconds in real time, every 2 rounds in turn-based combat. Using all linked switches stops it."), toggle}
+		out := []overlayField{overlayNote(fmt.Sprintf("Heals every round in turn-based combat, every %d seconds in real time, while below its ceiling. Using all linked switches stops it.", config.CombatRoundSeconds)), toggle}
 		if enabled {
-			out = append(out, overlayHeading("Healing"), overlayInt("HP restored each time (%)", &b.HealPercent, "Percent of maximum HP restored every 6 s (2 rounds). Use the toggle to disable."), overlayInt("Total healing per visit (%)", &b.HealCapPercent, "Most healing the boss can gain in one visit, as a percent of maximum HP."))
+			out = append(out, overlayHeading("Healing"), overlayInt("HP restored each round (%)", &b.HealPercent, fmt.Sprintf("Percent of maximum HP restored every round (%d s). Use the toggle to disable.", config.CombatRoundSeconds)), overlayInt("Heals up to (% HP)", &b.HealCeilingPercent, "The boss heals only while below this share of its maximum HP, and never past it."))
 		}
 		active, all := []string{}, []string{}
 		for _, c := range a.Controls {
@@ -149,20 +151,20 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 		out = append(out, overlayAction("+ Place regeneration switch", "Place a new switch already linked to this mechanic.", func() { p.tool = "healing-control" }))
 		return out
 	case "armor":
-		out := []overlayField{overlayNote("Each linked switch subtracts armor for the rest of the visit. Armor never drops below the minimum."), overlayInt("Minimum armor", &b.ArmorFloor, "Armor never drops below this value. 0 or more."), overlayHeading("Switch reductions")}
+		out := []overlayField{overlayNote("Each linked switch removes a percent of the boss's armor for the rest of the visit; percents add up. Armor never drops below the minimum."), overlayInt("Minimum armor", &b.ArmorFloor, "Armor never drops below this value. 0 or more."), overlayHeading("Switch reductions")}
 		var available []string
 		for i := range a.Controls {
 			c := &a.Controls[i]
-			if c.ArmorReduction == 0 {
+			if c.ArmorReductionPercent == 0 {
 				available = append(available, c.ID)
 				continue
 			}
-			f := overlayInt(c.ID+" - armor removed", &c.ArmorReduction, "0 unlinks this switch from armor reduction.")
+			f := overlayInt(c.ID+" - armor removed (%)", &c.ArmorReductionPercent, "Percent of the boss's armor; 0 unlinks this switch from armor reduction.")
 			f.depth = 1
 			out = append(out, f)
 		}
 		add := overlayAction("+ Link armor switch", "Select a placed switch. Edit its reduction after linking.", func() {
-			v.overlayChoose("Link armor switch", "Use + Switch on the map to place a new switch first.", available, func(id string) error { d.checkpoint(); a.Control(id).ArmorReduction = 10; return nil })
+			v.overlayChoose("Link armor switch", "Use + Switch on the map to place a new switch first.", available, func(id string) error { d.checkpoint(); a.Control(id).ArmorReductionPercent = 25; return nil })
 		})
 		add.disabled = len(available) == 0
 		out = append(out, add)

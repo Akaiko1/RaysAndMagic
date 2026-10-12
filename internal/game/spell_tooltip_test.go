@@ -115,7 +115,7 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 		t.Cleanup(func() { monster.MonsterConfig = prev })
 		monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	}
-	armorCap := fmt.Sprintf("(up to %d%%)", character.ArmorElementalMitigationCap)
+	armorCap := fmt.Sprintf("(up to %d%%)", config.ArmorElementalMitigationCap)
 	for _, tc := range []struct {
 		name    string
 		id      spells.SpellID

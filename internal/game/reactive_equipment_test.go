@@ -154,7 +154,7 @@ func TestReactiveCardsAndShellThroughCombat(t *testing.T) {
 						t.Fatal("shell not granted")
 					}
 					ch.HitPoints, ch.MaxHitPoints = 1000, 1000
-					g.combat.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "physical", IgnoresArmor: true, IgnoresDodge: true})
+					g.combat.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "physical", IgnoresArmor: true})
 					if ch.HitPoints != 915 || ch.ReactiveCombat.Shell != 0 {
 						t.Fatalf("shell failed: hp=%d state=%+v", ch.HitPoints, ch.ReactiveCombat)
 					}
@@ -224,7 +224,7 @@ func TestSunscarabConsecutiveAttacker(t *testing.T) {
 	g.cardSlots[0].key = "sunscarab_card"
 	def := cardDef("sunscarab_card")
 	m := &monster.Monster3D{ID: "one", Name: "one", HitPoints: 1000}
-	hit := monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "physical", IgnoresArmor: true, IgnoresDodge: true}
+	hit := monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "physical", IgnoresArmor: true}
 	for i := 1; i <= 20; i++ {
 		before := ch.HitPoints
 		cs.monsterHitCharacter(m, ch, m.Name, hit)
@@ -268,11 +268,11 @@ func TestReactiveProtectionAcrossHitDispatchers(t *testing.T) {
 				ch.HitPoints, ch.MaxHitPoints = 10000, 10000
 				g.cardSlots[0].key = "sunscarab_card"
 				ch.ReactiveCombat.Shell = 15
-				m := &monster.Monster3D{ID: "source", Name: "source", HitPoints: 1000, FireburstDamageMin: 100, FireburstDamageMax: 100, InfernoDamage: 100}
+				m := &monster.Monster3D{ID: "source", Name: "source", HitPoints: 1000, Abilities: monster.Abilities{Fireburst: monster.FireburstAbility{DamageMin: 100, DamageMax: 100}, Inferno: monster.InfernoAbility{Damage: 100}}}
 				hit := func() {
 					switch kind {
 					case "ordinary":
-						cs.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true, IgnoresDodge: true})
+						cs.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true})
 					case "telegraph":
 						g.damageTelegraphParty(m, m.Name, "fire", damagecalc.Parts{Normal: 100})
 					case "fireburst":
@@ -317,7 +317,7 @@ func TestReactiveProtectionIgnoresSourcelessDamage(t *testing.T) {
 					g.cardSlots[0].key = "sunscarab_card"
 					foe := &monster.Monster3D{ID: "first", Name: "First foe", HitPoints: 1000}
 					enemyHit := func() {
-						cs.monsterHitCharacter(foe, ch, foe.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true, IgnoresDodge: true})
+						cs.monsterHitCharacter(foe, ch, foe.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true})
 					}
 					enemyHit()
 					if ch.ReactiveCombat.RepeatedHits != 1 {

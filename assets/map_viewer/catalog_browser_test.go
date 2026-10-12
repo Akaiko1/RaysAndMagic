@@ -235,7 +235,7 @@ func TestMobInspectorSectionRoutingAndWrapping(t *testing.T) {
 			tc.def.Name, tc.def.Biomes, tc.def.Sprite = "Fixture", []string{"forest"}, "fixture.png"
 			v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"fixture": tc.def}}}
 			mobsPage.keys, mobsPage.selIdx = []string{"fixture"}, 0
-			mobsPage.info = buildMobInfoRuntime("fixture", tc.def, nil, 64)
+			mobsPage.info = buildMobInfoRuntime("fixture", tc.def, nil, nil, 64)
 			text := func(tab string) string {
 				v.browser.mobTab = tab
 				var b strings.Builder
@@ -260,9 +260,9 @@ func TestMobInspectorSectionRoutingAndWrapping(t *testing.T) {
 			}
 		})
 	}
-	d := monster.MonsterDefinition{Telegraph: &monster.TelegraphedAttack{Name: "Slam", WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3}}
+	d := monster.MonsterDefinition{Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Name: "Slam", WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3}}}
 	v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"fixture": d}}}
-	mobsPage.info = buildMobInfoRuntime("fixture", d, nil, 64)
+	mobsPage.info = buildMobInfoRuntime("fixture", d, nil, nil, 64)
 	v.browser.mobTab = "Abilities"
 	const warning = "Warning: 2s / 1 rounds; cooldown: 6s / 3 rounds"
 	wide := v.visibleMobDetails(800)
@@ -318,7 +318,7 @@ func TestCatalogCachesInvalidateVisibleState(t *testing.T) {
 	}
 	mobsPage.keys, mobsPage.selIdx = []string{"fixture"}, 0
 	v.monsterCfg = &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"fixture": {Name: "Fixture"}}}
-	mobsPage.info = buildMobInfoRuntime("fixture", v.monsterCfg.Monsters["fixture"], nil, 64)
+	mobsPage.info = buildMobInfoRuntime("fixture", v.monsterCfg.Monsters["fixture"], nil, nil, 64)
 	rows := v.mobCatalogRows()
 	if next := v.mobCatalogRows(); &next[0] != &rows[0] {
 		t.Fatal("idle Bestiary list rebuilt")
@@ -356,11 +356,11 @@ func TestFailedMapKeepsOnlyVisibleRecoveryControls(t *testing.T) {
 func TestMobAbilityInspectorIncludesTelegraphAndEncounter(t *testing.T) {
 	old := mobsPage
 	t.Cleanup(func() { mobsPage = old })
-	d := monster.MonsterDefinition{Name: "Sentinel", Telegraph: &monster.TelegraphedAttack{Name: "Ground slam", Kind: "strike", School: "earth", Shape: "burst", Range: 3, WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3, DamagePercent: 150, DurationSeconds: 4, DurationRounds: 2, SustainDamage: 7, BelowHPPercent: 60}}
+	d := monster.MonsterDefinition{Name: "Sentinel", Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Name: "Ground slam", Kind: "strike", School: "earth", Shape: "burst", Range: 3, WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3, DamagePercent: 150, DurationSeconds: 4, DurationRounds: 2, SustainDamage: 7, BelowHPPercent: 60}}}
 	v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"sentinel": d}}, maps: []mapInfo{{Key: "test_arena", Config: &config.MapConfig{Adventure: &config.AdventureConfig{Boss: &config.AdventureBoss{Monster: "sentinel", EveryActions: 3, Lanes: []string{"north"}}}}}}}
 	mobsPage.keys = []string{"sentinel"}
 	mobsPage.selIdx = 0
-	mobsPage.info = buildMobInfoRuntime("sentinel", d, nil, 64)
+	mobsPage.info = buildMobInfoRuntime("sentinel", d, nil, nil, 64)
 	v.browser.mobTab = "Abilities"
 	var text strings.Builder
 	for _, r := range v.visibleMobDetails(360) {
@@ -375,7 +375,7 @@ func TestMobAbilityInspectorIncludesTelegraphAndEncounter(t *testing.T) {
 	v.browser.mobTab = "Source"
 	rows := v.visibleMobDetails(360)
 	for _, r := range rows {
-		if r.header && strings.Contains(r.text, "telegraphed_attack") {
+		if r.header && strings.Contains(r.text, "telegraph") {
 			v.toggleCatalogSection(r.id)
 			break
 		}

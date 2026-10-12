@@ -23,7 +23,7 @@ func TestMonsterVsMonsterUsesTargetArmorAndDodge(t *testing.T) {
 		target.PerfectDodge = 0
 
 		cs.monsterStrikeMonster(source, target)
-		want := applyMonsterArmor(100, monsterPkg.DamagePhysical.String(), target.EffectiveArmorClass(), false)
+		want := cs.applyMonsterArmor(100, monsterPkg.DamagePhysical.String(), target.EffectiveArmorClass(), false, false)
 		if got := 1000 - target.HitPoints; got != want {
 			t.Fatalf("melee dealt %d through target armor, want %d", got, want)
 		}
@@ -58,7 +58,7 @@ func TestMonsterVsMonsterUsesTargetArmorAndDodge(t *testing.T) {
 		}
 
 		cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
-		want := applyMonsterArmor(100, monsterPkg.DamageFire.String(), target.EffectiveArmorClass(), true)
+		want := cs.applyMonsterArmor(100, monsterPkg.DamageFire.String(), target.EffectiveArmorClass(), true, false)
 		if got := 1000 - target.HitPoints; got != want {
 			t.Fatalf("ranged fire dealt %d through target armor, want %d", got, want)
 		}
@@ -82,7 +82,7 @@ func TestMonsterDamagePacketMitigationOrder(t *testing.T) {
 		PostArmorNormal: func(damage int) int { return damage * 2 },
 	})
 
-	afterArmor := applyMonsterArmor(100, monsterPkg.DamagePhysical.String(), target.ArmorClass, false)
+	afterArmor := cs.applyMonsterArmor(100, monsterPkg.DamagePhysical.String(), target.ArmorClass, false, false)
 	wantNormal := afterArmor*2*50/100 - target.SoakDamage
 	wantTrue := 20 * 50 / 100
 	if wantNormal < 0 {
@@ -188,9 +188,9 @@ func TestBanditBoltDoesNotInheritFallbackBowCombatRules(t *testing.T) {
 		t.Fatalf("bonus bolt spawned %d projectiles, want 1", len(g.arrows))
 	}
 	bolt := &g.arrows[0]
-	if bolt.Crit || bolt.TrueDamage != 0 || bolt.IgnoresDodge {
+	if bolt.Crit || bolt.TrueDamage != 0 || bolt.GrazesDodge {
 		t.Fatalf("bonus bolt inherited weapon rules: crit=%v true=%d ignore_dodge=%v",
-			bolt.Crit, bolt.TrueDamage, bolt.IgnoresDodge)
+			bolt.Crit, bolt.TrueDamage, bolt.GrazesDodge)
 	}
 	if bolt.DamageType != monsterPkg.DamagePhysical.String() {
 		t.Fatalf("bonus bolt school = %q, want physical", bolt.DamageType)

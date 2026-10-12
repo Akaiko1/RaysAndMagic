@@ -274,19 +274,18 @@ func generateUniqueMonsterID() string {
 }
 
 type Monster3D struct {
-	Telegraph         TelegraphState
-	Arboreal          *ArborealConfig
-	Arbor             ArborealState
-	FishLeap          *FishLeapState
-	Disposition       string
-	Prey              []string
-	PreyRadius        float64
-	AmbientBounds     *[4]int
-	AmbientMoveCredit float64
-	Population        string
-	AmbientFlee       bool
-	Threat            AmbientThreat
-	NoKillRewards     bool
+	Telegraph     TelegraphState
+	Arboreal      *ArborealConfig
+	Arbor         ArborealState
+	FishLeap      *FishLeapState
+	Disposition   string
+	Prey          []string
+	PreyRadius    float64
+	AmbientBounds *[4]int
+	Population    string
+	AmbientFlee   bool
+	Threat        AmbientThreat
+	NoKillRewards bool
 
 	X, Y         float64
 	Name         string
@@ -315,7 +314,7 @@ type Monster3D struct {
 	State        MonsterState
 	AlertRadius  float64
 	AttackRadius float64
-	Speed        float64
+	Speed        float64 // the one movement speed: RT pixels per 60 Hz frame, TB steps per action (turn_based_cadence.go)
 	Direction    float64
 	StateTimer   int
 	AttackCount  int // Number of attacks made in current engagement
@@ -384,8 +383,11 @@ type Monster3D struct {
 	ArmorShredPct             int
 	ArmorShredTurnsRemaining  int
 	ArmorShredFramesRemaining int
-	ArmorShredRate            int  // Persisted frames-per-turn rate keeping mode switches proportional
-	Pilfered                  bool // Sleight of Hand already succeeded on this monster
+	ArmorShredRate            int // Persisted frames-per-turn rate keeping mode switches proportional
+	// ArmorMelt: a melting monster's hit leaves this monster's armor blunting a
+	// physical hit only as far as an elemental one (ArmorMelted).
+	ArmorMelt status.DualClock
+	Pilfered  bool // Sleight of Hand already succeeded on this monster
 	// PoisonedFramesRemaining is a party Venom-proc card DoT (rat/spider/forest
 	// spider cards) - separate from monster-inflicted PoisonChance on
 	// characters. Ticks 1% of MaxHitPoints (min 1) per second of real time (RT)
@@ -453,29 +455,15 @@ type Monster3D struct {
 	LootGuardPathBlocked     bool
 	Flying                   bool     // Whether the monster should be rendered above ground
 	RangedAttackRange        float64  // Optional ranged attack range override (pixels)
-	AttacksPerRound          int      // Turn-based melee attacks per monster round
 	PassiveUntilAttacked     bool     // True when the monster should not aggro until hit
 	HatesTraits              []string // party traits (from hates.yaml) that enrage this passive monster on sight
-	AttackCooldownMultiplier float64  // Real-time attack cooldown multiplier (0.5 = twice as often)
+	AttackCooldownMultiplier float64  // The one attack speed: RT cooldown scale (0.5 = twice as often) and TB swings per action (turn_based_cadence.go)
+	TurnBasedSwingCarry      float64  // Fractional TB swing banked between attack actions, in [-0.5, 0.5); persisted
+	TurnBasedStepCarry       float64  // Fractional TB step banked between movement actions, in [-0.5, 0.5); persisted
 	AttackCDFrames           int      // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
-	FireburstChance          float64  // Chance to cast fireburst instead of normal attack
-	FireburstDamageMin       int      // Fireburst damage min
-	FireburstDamageMax       int      // Fireburst damage max
-	DragonBreathChance       float64  // Chance for this attack to hit every living party member
-	DragonBreathDamageType   string   // Element used by dragon breath mitigation/resists
-	PiercingShotChance       float64  // Chance to fire an armor-piercing shot at multiple party members
-	PiercingShotTargets      int      // Number of party members hit by Piercing Shot (default 2)
-	AllyHealChance           float64  // Chance to heal self or a nearby allied monster instead of attacking
-	AllyHealAmount           int      // HP restored by the ally heal special
-	AllyHealRadiusPixels     float64  // Radius for ally heal target search
-	PoisonChance             float64  // Chance to apply poison on hit
-	PoisonDurationSec        int      // Poison duration in seconds
-	IgniteChance             float64  // Chance to set the target on fire (burn DoT 3x poison; stacks with poison)
-	IgniteDurationSec        int      // Burn duration in seconds
-	StunCharChance           float64  // Chance to stun the struck character (skips actions)
-	StunCharSeconds          int      // Stun duration in RT seconds
-	StunCharTurns            int      // Stun duration in TB turns
-	DispelChance             float64  // Chance to strip one random active party buff on hit
+	// Abilities is this monster's own copy of its authored abilities
+	// (abilities.go); a champion stamps its striking weapon's riders onto it.
+	Abilities Abilities
 
 	// Loot
 	Gold  int
@@ -501,42 +489,29 @@ type Monster3D struct {
 	ProjectileSpell  string
 	ProjectileWeapon string
 
-	// Pounce/leap: PounceRangePixels > 0 enables it. Cooldown remainders are
-	// tracked per mode and share a persisted conversion rate.
-	PounceRangePixels     float64
-	PounceCooldownSeconds float64
-	PounceCDFrames        int // real-time cooldown countdown (frames)
-	PounceCDTurns         int // turn-based cooldown countdown (turns)
-	PounceCDRate          int // persisted frames-per-turn rate keeping mode switches proportional
+	// Pounce cooldown remainders (Abilities.Pounce) are tracked per mode and
+	// share a persisted conversion rate.
+	PounceCDFrames int // real-time cooldown countdown (frames)
+	PounceCDTurns  int // turn-based cooldown countdown (turns)
+	PounceCDRate   int // persisted frames-per-turn rate keeping mode switches proportional
 
 	// Boss is the static YAML classification. Runtime code uses IsBoss rather
 	// than inferring bosshood from the currently-authored special abilities.
 	Boss bool
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
-	IgnoresArmor      bool    // melee and projectile hits bypass the party's armor class; abilities do not
-	InfernoChance     float64 // 0..1 chance per action to cast a party-nova Inferno
-	InfernoDamage     int     // fire damage of that nova, pre-mitigation
-	InfernoRangeTiles float64 // how far the nova reaches (authored; 0 = melee moment only)
-	InfernoCDFrames   int     // RT: frames until the next AT-RANGE inferno roll (persisted; melee-moment rolls ignore it)
-	// Trap volley (Brood Mother): re-sows a fire-trap field around itself on a
-	// fixed cadence; the fresh volley replaces the old field.
-	TrapVolleyCount           int
-	TrapVolleyRadiusTiles     float64
-	TrapVolleyIntervalSeconds float64
-	TrapVolleyIntervalTurns   int
-	TrapVolleyDamage          int
-	TrapVolleyCDFrames        int     // RT frames until the next volley (persisted)
-	TrapVolleyTurnCD          int     // TB monster passes until the next volley (persisted)
-	TrapVolleyCDRate          int     // persisted frames-per-turn rate keeping mode switches proportional
-	TeleportAtHP              int     // when HP <= this, may blink to a random walkable tile
-	TeleportChance            float64 // 0..1 chance per action to blink (only at/below TeleportAtHP)
-	PassiveUntilQuest         string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
-	EvadeRadiusTiles          float64 // evasive phase: blink when the party is within this many tiles
-	BossCooldownSecs          float64 // RT cooldown between evasive blinks (seconds)
-	BossCD                    int     // RT cooldown (frames) between boss special actions (evasive blink)
-	BossAggro                 bool    // transient (per-frame): an authored map hunter active in its home region (set by refreshMonsterAIState)
-	BossEvasive               bool    // transient (per-frame): a quest-gated boss that keeps patrolling but only blinks away; never acquires a combat target (set by refreshMonsterAIState)
-	BossDormant               bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)
+	InfernoCDFrames int // RT: frames until the next AT-RANGE inferno roll (persisted; melee-moment rolls ignore it)
+	// Trap volley (Abilities.TrapVolley) cadence state: the fresh volley
+	// replaces the old field.
+	TrapVolleyCDFrames int     // RT frames until the next volley (persisted)
+	TrapVolleyTurnCD   int     // TB monster passes until the next volley (persisted)
+	TrapVolleyCDRate   int     // persisted frames-per-turn rate keeping mode switches proportional
+	PassiveUntilQuest  string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
+	EvadeRadiusTiles   float64 // evasive phase: blink when the party is within this many tiles
+	BossCooldownSecs   float64 // RT cooldown between evasive blinks (seconds)
+	BossCD             int     // RT cooldown (frames) between boss special actions (evasive blink)
+	BossAggro          bool    // transient (per-frame): an authored map hunter active in its home region (set by refreshMonsterAIState)
+	BossEvasive        bool    // transient (per-frame): a quest-gated boss that keeps patrolling but only blinks away; never acquires a combat target (set by refreshMonsterAIState)
+	BossDormant        bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
 	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
@@ -546,20 +521,17 @@ type Monster3D struct {
 	RallyMaxTargets   int     // alarm bell: 0 = no cap; otherwise wake at most this many calm monsters
 	// RallyDone is persisted. It is consumed either by ringing or by being
 	// woken by another bell, so an alarm relay can never cascade across a map.
-	RallyDone                            bool
-	AggroWholeMap                        bool         // static: UNIQUE boss trait - once active, hunts throughout its home map/region. Ordinary bosses retain finite pursuit.
-	DeathRalliesType                     string       // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
-	Banding                              bool         // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
-	BandGroup                            string       // static authored mixed party; shares aggro even after scattering
-	BandInstance                         string       // persisted placement identity; content tags may repeat
-	BandPeers                            []*Monster3D // transient local encounter index, rebuilt each simulation pass
-	RootPartyChance                      float64
-	RootPartySeconds, RootPartyTurns     int
-	RearBlinkChance, RearBlinkRangeTiles float64
-	BandID                               int    // transient: stable runtime band membership; 0 = solo/unbanded
-	BandLeaderID                         string // transient: mob ID of this band's stable leader (leader marks itself); "" = none
-	BandStackIndex                       int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
-	BandStackCount                       int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
+	RallyDone        bool
+	AggroWholeMap    bool         // static: UNIQUE boss trait - once active, hunts throughout its home map/region. Ordinary bosses retain finite pursuit.
+	DeathRalliesType string       // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
+	Banding          bool         // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
+	BandGroup        string       // static authored mixed party; shares aggro even after scattering
+	BandInstance     string       // persisted placement identity; content tags may repeat
+	BandPeers        []*Monster3D // transient local encounter index, rebuilt each simulation pass
+	BandID           int          // transient: stable runtime band membership; 0 = solo/unbanded
+	BandLeaderID     string       // transient: mob ID of this band's stable leader (leader marks itself); "" = none
+	BandStackIndex   int          // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
+	BandStackCount   int          // render-only (per-tick): size of the banded stack (0/1 = not stacked)
 	// AttackPost is a transient logical reservation for a monster's current
 	// combat tile, whether it is attacking the party or another monster. It is
 	// deliberately not physical collision: combatants can pass through every
@@ -584,23 +556,16 @@ type Monster3D struct {
 	BossWarded                               bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshMonsterAIState)
 	BossLastHP                               int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
 	BossHurtPending                          bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
-	// Summon (war-banner): on its action an aggressive boss may rally adds.
-	SummonChance          float64  // 0..1 chance per action to summon
-	SummonFirstGuaranteed bool     // first successful summon ignores SummonChance; refills use SummonChance
-	SummonFirstDone       bool     // save-backed latch once the guaranteed summon has happened
-	SummonMonsters        []string // monster keys to pick from when summoning
-	SummonCount           int      // adds spawned per summon (default 1)
-	SummonMax             int      // cap on simultaneously-live summons (0 = uncapped)
-	SummonedBy            string   // ID of the boss that summoned this monster ("" = not a summon)
-	SummonerName          string   // party member who called this ally ("" = none, or the whole party)
-	PackKey               string   // ambient day/night pack tag ("" = not a pack spawn); despawned on phase flips
-	// Enrage: at/below EnrageAtHP the boss hits harder and/or faster. The effect is
-	// derived LIVE from current HP in GetAttackDamage/AttackCooldownFrames, so it is
-	// save-safe (no mutated stats stored); Enraged is only the one-shot announce latch.
-	EnrageAtHP         int
-	EnrageDamageMult   float64
-	EnrageCooldownMult float64
-	Enraged            bool
+	// Summon (Abilities.Summon): the save-backed latch once the guaranteed
+	// first summon has happened.
+	SummonFirstDone bool   // save-backed latch once the guaranteed summon has happened
+	SummonedBy      string // ID of the boss that summoned this monster ("" = not a summon)
+	SummonerName    string // party member who called this ally ("" = none, or the whole party)
+	PackKey         string // ambient day/night pack tag ("" = not a pack spawn); despawned on phase flips
+	// Enrage (Abilities.Enrage) is derived LIVE from current HP in
+	// GetAttackDamage/AttackCooldownFrames, so it is save-safe (no mutated stats
+	// stored); Enraged is only the one-shot announce latch.
+	Enraged bool
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
@@ -630,9 +595,9 @@ type Monster3D struct {
 	// has run for this instance. Fresh structs (spawn and save-load both
 	// rebuild the monster) reset it, so the mirror re-applies exactly once.
 	ChampionMirrored bool
-	// IgnoresDodge: this monster's strikes pierce the party's Perfect Dodge
-	// (champion GM weapon mastery, mirroring the party-side rule).
-	IgnoresDodge bool
+	// GrazesDodge: this monster's strikes graze through the party's Perfect
+	// Dodge (champion GM weapon mastery, mirroring the party-side rule).
+	GrazesDodge bool
 	// OffHandCDFrames: a dual-wield champion's SECOND real-time attack stream,
 	// independent of AttackCDFrames like the party's OffHandRTCooldown - each
 	// hand swings on its own weapon's cadence. Ticks beside AttackCDFrames.
@@ -865,8 +830,8 @@ func (m *Monster3D) GetAttackDamage() int {
 	if m.DamageMax > m.DamageMin {
 		dmg += rand.Intn(m.DamageMax - m.DamageMin + 1)
 	}
-	if m.IsEnraged() && m.EnrageDamageMult > 0 {
-		dmg = int(float64(dmg) * m.EnrageDamageMult)
+	if m.IsEnraged() && m.Abilities.Enrage.DamageMult > 0 {
+		dmg = int(float64(dmg) * m.Abilities.Enrage.DamageMult)
 	}
 	return dmg
 }
@@ -875,19 +840,7 @@ func (m *Monster3D) GetAttackDamage() int {
 // live from HP (not a stored flag) so enrage survives save/load without mutating
 // stats; the EnrageDamageMult/EnrageCooldownMult are applied wherever this is true.
 func (m *Monster3D) IsEnraged() bool {
-	return m.EnrageAtHP > 0 && m.HitPoints > 0 && m.HitPoints <= m.EnrageAtHP
-}
-
-func (m *Monster3D) GetTurnBasedAttackCount() int {
-	n := TurnBasedAttackCount(m.AttacksPerRound, m.AttackCooldownMultiplier)
-	// RT/TB parity: cooldown speedups that make the monster strike faster in real
-	// time grant proportionally more turn-based swings. If AttacksPerRound is set,
-	// it is the explicit base; otherwise derive the base from the static cooldown
-	// multiplier. Enrage is a dynamic multiplier on top.
-	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
-		n *= TurnBasedAttacksForCooldownMultiplier(m.EnrageCooldownMult)
-	}
-	return n
+	return m.Abilities.Enrage.AtHP > 0 && m.HitPoints > 0 && m.HitPoints <= m.Abilities.Enrage.AtHP
 }
 
 func (m *Monster3D) HasRangedAttack() bool {
@@ -923,6 +876,20 @@ func (m *Monster3D) EffectiveArmorClass() int {
 	}
 	return m.ArmorClass
 }
+
+// PounceRangePixels is Abilities.Pounce's reach in world pixels; 0 = no pounce.
+func (m *Monster3D) PounceRangePixels() float64 { return m.Abilities.Pounce.RangeTiles * m.tileSize() }
+
+// AllyHealRadiusPixels is Abilities.AllyHeal's target-search radius in pixels.
+func (m *Monster3D) AllyHealRadiusPixels() float64 {
+	return m.Abilities.AllyHeal.RadiusTiles * m.tileSize()
+}
+
+// MeltArmor refreshes the melted-armor debuff; it never stacks.
+func (m *Monster3D) MeltArmor(frames, turns int) { m.ArmorMelt.Refresh(frames, turns) }
+
+// ArmorMelted reports armor that blunts physical hits only as far as elemental ones.
+func (m *Monster3D) ArmorMelted() bool { return m != nil && m.ArmorMelt.Active() }
 
 // ApplyArmorShred refreshes the shred debuff (never stacks; the strongest
 // percent wins if two sources ever overlap).
@@ -1208,7 +1175,7 @@ func (m *Monster3D) CanPounce() bool {
 	// A rooted monster is pinned to its tile - the leap is a movement.
 	// rootHeldThisTurn covers the LAST rooted TB turn: TickRootTurn has
 	// already decremented the counter to 0 but the pin lasts the whole turn.
-	return m.PounceRangePixels > 0 && m.RootFramesRemaining <= 0 &&
+	return m.PounceRangePixels() > 0 && m.RootFramesRemaining <= 0 &&
 		m.RootTurnsRemaining <= 0 && !m.rootHeldThisTurn
 }
 
@@ -1221,8 +1188,8 @@ func (m *Monster3D) ArmPounceCooldown(tps, turns int) {
 	if tps <= 0 {
 		tps = config.GetTargetTPS()
 	}
-	frames := int(math.Round(m.PounceCooldownSeconds * float64(tps) * m.SlowCadenceFactor()))
-	if m.PounceCooldownSeconds > 0 && frames < 1 {
+	frames := int(math.Round(m.Abilities.Pounce.CooldownSeconds * float64(tps) * m.SlowCadenceFactor()))
+	if m.Abilities.Pounce.CooldownSeconds > 0 && frames < 1 {
 		frames = 1
 	}
 	status.RefreshDualRated(&m.PounceCDFrames, &m.PounceCDTurns, &m.PounceCDRate, frames, turns)
@@ -1251,8 +1218,8 @@ func (m *Monster3D) ArmTrapVolleyCooldown(tps int) {
 	if tps <= 0 {
 		tps = config.GetTargetTPS()
 	}
-	frames := int(math.Round(m.TrapVolleyIntervalSeconds * float64(tps)))
-	if m.TrapVolleyIntervalSeconds > 0 && frames < 1 {
+	frames := int(math.Round(m.Abilities.TrapVolley.IntervalSeconds * float64(tps)))
+	if m.Abilities.TrapVolley.IntervalSeconds > 0 && frames < 1 {
 		frames = 1
 	}
 	status.RefreshDualRated(
@@ -1260,7 +1227,7 @@ func (m *Monster3D) ArmTrapVolleyCooldown(tps int) {
 		&m.TrapVolleyTurnCD,
 		&m.TrapVolleyCDRate,
 		frames,
-		m.TrapVolleyIntervalTurns,
+		m.Abilities.TrapVolley.IntervalTurns,
 	)
 }
 

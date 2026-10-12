@@ -24,14 +24,18 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 		lines  []string // the rider's line on a monster and on a hero
 	}
 	riders := []rider{
-		{"poison", func(_ *CombatSystem, a *monsterPkg.Monster3D) { a.PoisonChance, a.PoisonDurationSec = 1, 5 },
+		{"poison", func(_ *CombatSystem, a *monsterPkg.Monster3D) {
+			a.Abilities.Poison.Chance, a.Abilities.Poison.DurationSeconds = 1, 5
+		},
 			func(m *monsterPkg.Monster3D) bool { return m.PoisonedFramesRemaining > 0 },
 			func(c *character.MMCharacter) bool { return c.HasCondition(character.ConditionPoisoned) }, []string{"is poisoned!"}},
-		{"ignite", func(_ *CombatSystem, a *monsterPkg.Monster3D) { a.IgniteChance, a.IgniteDurationSec = 1, 5 },
+		{"ignite", func(_ *CombatSystem, a *monsterPkg.Monster3D) {
+			a.Abilities.Ignite.Chance, a.Abilities.Ignite.DurationSeconds = 1, 5
+		},
 			func(m *monsterPkg.Monster3D) bool { return m.BurnFramesRemaining > 0 },
 			func(c *character.MMCharacter) bool { return c.BurnFramesRemaining > 0 }, []string{"catches fire!", "bursts into flames!"}},
 		{"stun", func(_ *CombatSystem, a *monsterPkg.Monster3D) {
-			a.StunCharChance, a.StunCharSeconds, a.StunCharTurns = 1, 2, 2
+			a.Abilities.Stun.Chance, a.Abilities.Stun.Seconds, a.Abilities.Stun.Turns = 1, 2, 2
 		},
 			func(m *monsterPkg.Monster3D) bool { return m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0 },
 			func(c *character.MMCharacter) bool { return c.IsStunned() }, []string{"is stunned!"}},
@@ -83,11 +87,15 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 				if sd.target == nil {
 					hero := g.party.Members[0]
 					hero.Conditions, hero.HitPoints = nil, hero.MaxHitPoints
-					cs.monsterHitCharacter(attacker, hero, attacker.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 1}, DamageType: "physical", IgnoresDodge: true})
+					hero.Luck = 0 // a dodged hit carries no riders
+					if chance := cs.PerfectDodgeChance(hero); chance != 0 {
+						t.Fatalf("fixture: perfect dodge %d%%, want 0", chance)
+					}
+					cs.monsterHitCharacter(attacker, hero, attacker.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 1}, DamageType: "physical"})
 					afflicted = r.onHero(hero)
 				} else {
 					target := sd.target()
-					cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, true, false)
+					cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)
 					afflicted = r.onMob(target)
 				}
 				if !afflicted {
@@ -113,10 +121,10 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 	t.Run("a dodged hit carries no rider", func(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		attacker := foe()
-		attacker.PoisonChance, attacker.PoisonDurationSec = 1, 5
+		attacker.Abilities.Poison.Chance, attacker.Abilities.Poison.DurationSeconds = 1, 5
 		target := ally()
 		target.PerfectDodge = 100
-		cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 1}, "physical", 0), nil, false, true, false, true)
+		cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 1}, "physical", 0), nil, false, false, true)
 		if target.PoisonedFramesRemaining > 0 {
 			t.Error("a dodged strike poisoned its target")
 		}
@@ -124,10 +132,10 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 	t.Run("a slain target carries no rider", func(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		attacker := foe()
-		attacker.PoisonChance, attacker.PoisonDurationSec = 1, 5
+		attacker.Abilities.Poison.Chance, attacker.Abilities.Poison.DurationSeconds = 1, 5
 		target := ally()
 		target.HitPoints = 1
-		cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{True: 50}, "physical", 0), nil, false, true, true, false)
+		cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{True: 50}, "physical", 0), nil, false, true, false)
 		if target.IsAlive() || target.PoisonedFramesRemaining > 0 {
 			t.Errorf("slain target alive=%v poison=%d", target.IsAlive(), target.PoisonedFramesRemaining)
 		}
@@ -135,16 +143,18 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 	t.Run("dispel strips party buffs only for a hit on the party", func(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		g := cs.game
-		g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 600, Bonuses: character.UniformStatBonuses(5)})
+		// A Might-only buff: no luck, so the struck hero cannot dodge the hit.
+		g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 600, Bonuses: character.StatBonusesFromMap(map[string]int{"might": 5})})
 		attacker := foe()
-		attacker.DispelChance = 1
-		cs.strikeMonsterPacketFor(attacker, ally(), singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, true, false)
+		attacker.Abilities.Dispel.Chance = 1
+		cs.strikeMonsterPacketFor(attacker, ally(), singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)
 		if len(g.statBuffs) != 1 {
 			t.Fatal("a foe striking the party's summon dispelled a party buff")
 		}
 		hero := g.party.Members[0]
 		hero.HitPoints = hero.MaxHitPoints
-		cs.monsterHitCharacter(attacker, hero, attacker.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 1}, DamageType: "physical", IgnoresDodge: true})
+		noPartyDodge(t, cs)
+		cs.monsterHitCharacter(attacker, hero, attacker.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 1}, DamageType: "physical"})
 		if len(g.statBuffs) != 0 {
 			t.Error("a dispelling hit on a hero left the party buff")
 		}

@@ -69,7 +69,7 @@ func TestEcologyCombatMessagePolicy(t *testing.T) {
 						case "melee":
 							source.DamageMin, source.DamageMax = 20, 20
 							if outcome == "true_dodge" {
-								cs.strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 20, True: 3}, "physical", 0), nil, false, false, false, true)
+								cs.strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 20, True: 3}, "physical", 0), nil, false, false, true)
 							} else {
 								cs.monsterStrikeMonster(source, target)
 							}
@@ -156,7 +156,7 @@ func TestCaravanAlertCooldownSharedAcrossMapsAndAttackers(t *testing.T) {
 	target.HitPoints = 10000
 	source := monster.NewMonster3DFromConfig(400, 500, "bandit", cfg)
 	hit := func(g *MMGame) {
-		NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, true, false)
+		NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)
 	}
 	config.GlobalEcology.Caravan.AttackAlertCooldownSeconds = 37
 	before := time.Now()
@@ -216,7 +216,7 @@ func TestCaravanKeepsMovingUnderCommittedAttacks(t *testing.T) {
 					if spent && (caravan.IsEngagingPlayer || len(caravan.PathTiles) != pathLen) {
 						t.Fatal("hit interrupted caravan path")
 					}
-					caravan.UpdateAmbient(g.collisionSystem, caravan.AITargetX, caravan.AITargetY, turn)
+					caravan.UpdateAmbient(g.collisionSystem, caravan.AITargetX, caravan.AITargetY, turn, nil)
 					g.collisionSystem.UpdateEntity(caravan.ID, caravan.X, caravan.Y)
 				}
 				if caravan.X <= start || caravan.HitPoints >= hp {
@@ -273,7 +273,7 @@ func TestCaravanTargetDoesNotTurnSupportActionsIntoAttackAlerts(t *testing.T) {
 	source := monster.NewMonster3DFromConfig(target.X-ts, target.Y, "bandit", g.config)
 	source.AIFoe = target
 	source.HitPoints = source.MaxHitPoints / 2
-	source.AllyHealChance, source.AllyHealAmount = 1, 5
+	source.Abilities.AllyHeal.Chance, source.Abilities.AllyHeal.Amount = 1, 5
 	g.world.Monsters = append(g.world.Monsters, source)
 	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	if !g.combat.commitMonsterAttack(source, monsterAttackDestination{foe: target}, monsterAttackRealtime) {
@@ -405,6 +405,6 @@ func TestCaravanAlertNewGameReset(t *testing.T) {
 	target := monster.NewMonster3DFromConfig(500, 500, "desert_caravan", cfg)
 	source := monster.NewMonster3DFromConfig(400, 500, "bandit", cfg)
 	g.combatLogHistory = nil
-	NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, true, false)
+	NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)
 	assertCaravanAlerts(t, g, 1)
 }

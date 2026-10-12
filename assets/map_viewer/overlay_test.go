@@ -91,6 +91,14 @@ func TestOverlayYAMLPatchesPreserveNeighbors(t *testing.T) {
 			if string(added) != want {
 				t.Fatalf("insertion changed neighbors:\n%s", added)
 			}
+			// A new map follows the blank line that separates its siblings.
+			third, err := overlayPatch(added, []string{"maps", "third"}, map[string]string{"name": "New"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := strings.Replace(want, "# footer", eol+"  third:"+eol+"    name: New"+eol+"# footer", 1); string(third) != want {
+				t.Fatalf("new entry spacing:\n%s", third)
+			}
 			if !overlayEntryUnchanged([]byte(raw), added, []string{"maps", "second", "name"}) {
 				t.Fatal("unrelated entry reported changed")
 			}
@@ -98,6 +106,10 @@ func TestOverlayYAMLPatchesPreserveNeighbors(t *testing.T) {
 				t.Fatal("same-entry change missed")
 			}
 		})
+	}
+	// Siblings written without blank lines stay that way.
+	if got, err := overlayPatch([]byte("npcs:\n  a: 1\n  b: 2\n"), []string{"npcs", "c"}, 3); err != nil || string(got) != "npcs:\n  a: 1\n  b: 2\n  c: 3\n" {
+		t.Fatalf("insert next to tight siblings: %q, %v", got, err)
 	}
 	// An empty `{}` parent grows into a block mapping instead of a broken splice.
 	for _, raw := range []string{"npcs: {}\n", "npcs:\n"} {
@@ -374,8 +386,8 @@ func TestOverlayInspectorNavigationAndPersistence(t *testing.T) {
 	if d.state.Adventure.Boss.HealPercent == 0 || v.overlay.modal != nil {
 		t.Fatal("inline toggle did not enable healing")
 	}
-	edit("HP restored each time (%)", "9")
-	edit("Total healing per visit (%)", "40")
+	edit("HP restored each round (%)", "9")
+	edit("Heals up to (% HP)", "40")
 	id := d.state.Adventure.Controls[0].ID
 	edit("Switches that stop healing", id)
 	if !d.state.Adventure.Controls[0].StopHealing {

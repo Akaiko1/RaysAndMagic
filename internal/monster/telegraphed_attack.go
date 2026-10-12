@@ -81,3 +81,29 @@ type TelegraphState struct {
 }
 
 func (s TelegraphState) Clone() TelegraphState { s.Tiles = append([][2]int(nil), s.Tiles...); return s }
+
+// lines describes the telegraph as an ability; d supplies the attack that a
+// shield variant converts into absorption.
+func (a *TelegraphedAttack) lines(d MonsterDefinition) []EffectLine {
+	school := normalizeEffectSchool(a.School)
+	var out []EffectLine
+	add := func(text string) { out = append(out, EffectLine{Text: text, School: school}) }
+	add(fmt.Sprintf("%s: %s, %s, range %d tiles", a.Name, a.Kind, a.Shape, a.Range))
+	add(fmt.Sprintf("  Warning: %gs / %d rounds; cooldown: %gs / %d rounds", a.WarningSeconds, a.WarningRounds, a.CooldownSeconds, a.CooldownRounds))
+	if a.Kind == "shield" {
+		add(fmt.Sprintf("  Ally shield: absorbs %d damage per hit", TelegraphShieldAbsorption(d.DamageMin, d.DamageMax)))
+	} else if a.DamagePercent > 0 {
+		add(fmt.Sprintf("  Damage: %d%% of attack", a.DamagePercent))
+	}
+	if a.DurationSeconds > 0 {
+		text := fmt.Sprintf("  Duration: %gs / %d rounds", a.DurationSeconds, a.DurationRounds)
+		if a.Kind != "shield" && a.SustainDamage > 0 {
+			text += fmt.Sprintf("; sustained damage: %d", a.SustainDamage)
+		}
+		add(text)
+	}
+	if a.BelowHPPercent > 0 {
+		out = append(out, EffectLine{Text: fmt.Sprintf("  Available below %d%% HP", a.BelowHPPercent)})
+	}
+	return out
+}

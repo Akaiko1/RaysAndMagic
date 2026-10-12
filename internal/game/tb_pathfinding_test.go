@@ -629,7 +629,7 @@ func gorillaReadyToAttackOrPounceTB(g *MMGame, gorilla *monsterPkg.Monster3D, ti
 	if !gorilla.CanPounce() || gorilla.PounceCDTurns != 0 {
 		return false
 	}
-	pounceTiles := int(gorilla.PounceRangePixels / tile)
+	pounceTiles := int(gorilla.PounceRangePixels() / tile)
 	manhattan := dx + dy
 	if manhattan < 2 || manhattan > pounceTiles {
 		return false

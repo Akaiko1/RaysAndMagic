@@ -151,13 +151,14 @@ func TestMonsterBlastsStopAtWalls(t *testing.T) {
 					// The party stands behind the wall, the splash victim the champion aims at.
 					placePlayerAtTile(g, 16, 10, ts)
 					g.camera.X, g.camera.Y = 16.2*ts, cy
+					noPartyDodge(t, g.combat)
 					for _, m := range g.party.Members {
 						m.HitPoints, m.MaxHitPoints = 5000, 5000
 						partyHP += m.HitPoints
 					}
 				}
 				bolt := &MagicProjectile{ID: "bolt", Active: true, LifeTime: 30, Damage: 30, SpellType: "fireball",
-					Owner: owner, SourceMonster: shooter, SourceName: "Shooter", IgnoresDodge: true}
+					Owner: owner, SourceMonster: shooter, SourceName: "Shooter"}
 				g.combat.resolveMonsterProjectileVsMonster(bolt, "magic_projectile", target, bolt.ID)
 				if target.HitPoints >= 5000 || open.HitPoints >= 5000 {
 					t.Fatalf("the bolt or the open-side splash never landed (target %d, open %d)", target.HitPoints, open.HitPoints)
@@ -320,7 +321,7 @@ func TestProjectileContactStopsAtCover(t *testing.T) {
 					g.collisionSystem.UpdateEntity("player", m.X, m.Y)
 					p.Owner = ProjectileOwnerMonster
 					p.SourceMonster = m
-					p.IgnoresDodge = true
+					noPartyDodge(t, g.combat)
 				}
 				g.magicProjectiles = []MagicProjectile{p}
 				g.collisionSystem.RegisterEntity(collision.NewEntity(p.ID, x, y, 2*ts, 2*ts, collision.CollisionTypeProjectile, false))

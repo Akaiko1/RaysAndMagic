@@ -1,7 +1,5 @@
 package monster
 
-import "ugataima/internal/config"
-
 const (
 	DispositionFish     = "fish"
 	DispositionCaravan  = "caravan"
@@ -16,7 +14,12 @@ func (m *Monster3D) IsFish() bool { return m != nil && m.Disposition == Disposit
 
 // IsAmbient separates persistent wildlife and travelers from authored hostile
 // rosters. It does not replace creature type (beast, undead, dragon, etc.).
-func (m *Monster3D) IsAmbient() bool { return m != nil && m.Disposition != "" }
+func (m *Monster3D) IsAmbient() bool { return m != nil && isAmbientDisposition(m.Disposition) }
+
+// IsAmbient reports a definition whose monsters are ambient (any disposition).
+func (d MonsterDefinition) IsAmbient() bool { return isAmbientDisposition(d.Disposition) }
+
+func isAmbientDisposition(disposition string) bool { return disposition != "" }
 func (m *Monster3D) Hunts(target *Monster3D) bool {
 	if m == nil || target == nil || !m.IsWildlife() || !target.IsWildlife() {
 		return false
@@ -49,9 +52,11 @@ func (m *Monster3D) CanAttackActor(target *Monster3D) bool {
 	return target.IsPartyControlled() || target.IsCaravan()
 }
 
-// UpdateAmbient uses the same terrain/path policy as hostile movement. TB
-// chooses one grid step; RT follows that path at the authored movement speed.
-func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn bool) {
+// UpdateAmbient uses the same terrain/path policy as hostile movement. RT
+// follows that path at the authored movement speed. TB spends one movement
+// action at the monster's turn-based step rate (WalkTurn); between runs before
+// each extra step (nil = nothing to check).
+func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn bool, between func() bool) {
 	if m.AmbientFlee && m.Arbor.Phase == "" {
 		x, y := m.X, m.Y
 		defer func() {
@@ -66,11 +71,29 @@ func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn
 	if m.advanceAmbientThreat(turn) {
 		return
 	}
-	if turn && !m.SpendAmbientTurnMove() {
+	if !turn {
+		m.IsEngagingPlayer = false
+		m.WasAttacked = false
+		m.ambientStep(checker, tx, ty, false, nil)
 		return
 	}
-	m.IsEngagingPlayer = false
-	m.WasAttacked = false
+	// A patrol picks its goal once per action, so extra steps keep heading the
+	// same way instead of re-rolling a random destination every tile.
+	var patrol *TileCoord
+	m.WalkTurn(func(first bool) bool {
+		if first {
+			m.IsEngagingPlayer = false
+			m.WasAttacked = false
+		}
+		x, y, arbor := m.X, m.Y, m.Arbor
+		m.ambientStep(checker, tx, ty, true, &patrol)
+		return m.X != x || m.Y != y || m.Arbor != arbor
+	}, between)
+}
+
+// ambientStep is one ambient move: a canopy phase, a flight from the threat,
+// a patrol leg or a caravan leg. In TB patrol holds the action's goal.
+func (m *Monster3D) ambientStep(checker CollisionChecker, tx, ty float64, turn bool, patrol **TileCoord) {
 	if m.updateArboreal(checker, tx, ty, turn) {
 		return
 	}
@@ -78,20 +101,21 @@ func (m *Monster3D) UpdateAmbient(checker CollisionChecker, tx, ty float64, turn
 		m.updateAmbientThreatMovement(checker, tx, ty, turn)
 		return
 	}
+	m.State = StatePatrolling
 	if m.IsWildlife() {
-		m.State = StatePatrolling
 		if !turn {
 			m.updatePatrolling(checker)
 			return
 		}
-		goal, ok := m.pickPatrolTarget(checker)
-		if !ok {
-			return
+		if *patrol == nil {
+			goal, ok := m.pickPatrolTarget(checker)
+			if !ok {
+				return
+			}
+			m.setMoveTarget(StatePatrolling, goal.X, goal.Y)
+			*patrol = &goal
 		}
-		m.setMoveTarget(StatePatrolling, goal.X, goal.Y)
-		tx, ty = float64(goal.X)*m.tileSize()+m.tileSize()/2, float64(goal.Y)*m.tileSize()+m.tileSize()/2
-	} else {
-		m.State = StatePatrolling
+		tx, ty = m.tileToWorldCenter((*patrol).X, (*patrol).Y)
 	}
 	m.stepAmbientPath(checker, TileCoord{X: int(tx / m.tileSize()), Y: int(ty / m.tileSize())}, turn)
 }
@@ -109,22 +133,5 @@ func (m *Monster3D) stepAmbientPath(checker CollisionChecker, goal TileCoord, tu
 		return false
 	}
 	m.X, m.Y = nx, ny
-	return true
-}
-
-// SpendAmbientTurnMove preserves relative walking speeds in tile-based combat.
-// Base speed: turn-based slow already costs whole turns (ConsumeSlowedTurn).
-func (m *Monster3D) SpendAmbientTurnMove() bool {
-	if !m.IsAmbient() || config.GlobalEcology == nil {
-		return true
-	}
-	m.AmbientMoveCredit += m.Speed / config.GlobalEcology.TurnStepSpeed
-	if m.AmbientMoveCredit < 1 {
-		return false
-	}
-	m.AmbientMoveCredit -= 1
-	if m.AmbientMoveCredit > 1 {
-		m.AmbientMoveCredit = 1
-	}
 	return true
 }

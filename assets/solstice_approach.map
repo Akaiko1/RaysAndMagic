@@ -10,6 +10,11 @@
 # gate: jump (17,29) approach_resin_growth - south fern ring, east
 # gate: jump (14,30) approach_resin_growth - south fern ring, west
 # gate: jump (20,30) approach_resin_growth - south fern ring, far east
+# Pond rewards (Jump the hedge, then Walk on Water):
+# gate: jump+water (17,12) chest_golden - the pond islet chest
+# gate: jump+water (11,21) barrel_blue - south pond, west
+# gate: jump+water (12,21) barrel_blue - south pond, middle
+# gate: jump+water (13,21) barrel_blue - south pond, east
 GGGGGGGGGGVVVVVRRRRRRVVGGGGGGGGG
 GGGGGGGGGGV@....@....@VGGGG@@@GG  >[npc:approach_calendar_disc], [npc:solstice_vestibule_entrance], [npc:approach_calendar_disc], [npc:approach_resin_growth], [npc:approach_resin_growth], [npc:approach_resin_growth]
 GGGGGGGGGGV...........VGGGGGGGGG

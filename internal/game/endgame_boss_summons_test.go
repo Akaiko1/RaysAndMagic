@@ -16,10 +16,10 @@ func TestEndgameBossesSummonDedicatedLevelMatchedAdds(t *testing.T) {
 	for _, bossKey := range []string{"ancient_god_of_death", "alien_enforcer"} {
 		t.Run(bossKey, func(t *testing.T) {
 			boss := monsterPkg.NewMonster3DFromConfig(0, 0, bossKey, cs.game.config)
-			if boss == nil || len(boss.SummonMonsters) == 0 {
+			if boss == nil || len(boss.Abilities.Summon.Monsters) == 0 {
 				t.Fatalf("%s authors no summons", bossKey)
 			}
-			for _, summonKey := range boss.SummonMonsters {
+			for _, summonKey := range boss.Abilities.Summon.Monsters {
 				def, err := monsterPkg.MonsterConfig.GetMonsterByKey(summonKey)
 				if err != nil {
 					t.Fatal(err)

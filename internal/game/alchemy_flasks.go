@@ -155,6 +155,7 @@ func (cs *CombatSystem) detonateFlask(p *MagicProjectile, x, y float64) {
 		cs.game.collisionSystem.UnregisterEntity(p.ID)
 	}
 	attack := cs.newPartyMonsterAttack(p.Damage, 0, d.Flask.Element, 0, nil, d.Name, false, false, false)
+	attack.Projectile = true // a thrown flask is a projectile: its splash meets the physical pierce rule
 	attack.Packet = cs.newPartyMonsterDamagePacket(p.Damage, 0, d.Flask.Element, 0, false)
 	attack.Packet = cs.elementalBuffPacket(attack.Packet)
 	attack.Attacker = p.Attacker

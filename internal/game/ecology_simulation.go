@@ -70,7 +70,7 @@ func (g *MMGame) simulateRemoteEcology(turn, tickStatuses bool) {
 					continue
 				}
 				if m.CurrentAIBehavior() == monster.AIBehaviorAmbient {
-					m.UpdateAmbient(v.collisionSystem, m.AITargetX, m.AITargetY, true)
+					m.UpdateAmbient(v.collisionSystem, m.AITargetX, m.AITargetY, true, v.ambientStepPerception(m))
 				} else if m.IsBoss() && v.combat.runBossSpecials(m, true, true) {
 					v.combat.armMonsterRTAttackCooldowns(m)
 				} else if !v.combat.commitMonsterAttack(m, monsterAttackDestination{foe: m.AIFoe}, monsterAttackTurn) {

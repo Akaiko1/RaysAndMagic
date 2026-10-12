@@ -142,12 +142,12 @@ func (g *MMGame) rallyAuthoredBandHit(target *monster.Monster3D) {
 // Called once at the committed party attack boundary, never on movement ticks
 // or separately for each hit in a multi-attack action.
 func (cs *CombatSystem) tryMonsterPartyAbilities(m *monster.Monster3D, cadence monsterAttackCadence) {
-	if m.RootPartyChance > 0 && rand.Float64() < m.RootPartyChance {
+	if m.Abilities.RootParty.Chance > 0 && rand.Float64() < m.Abilities.RootParty.Chance {
 		r := &cs.game.partyRoot
-		status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, m.RootPartySeconds*cs.game.config.GetTPS(), m.RootPartyTurns)
+		status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, m.Abilities.RootParty.Seconds*cs.game.config.GetTPS(), m.Abilities.RootParty.Turns)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s roots the party in place!", m.Name))
 	}
-	if m.RearBlinkChance > 0 && !cs.game.monsterMovementHeld(m) && rand.Float64() < m.RearBlinkChance {
+	if m.Abilities.RearBlink.Chance > 0 && !cs.game.monsterMovementHeld(m) && rand.Float64() < m.Abilities.RearBlink.Chance {
 		cs.blinkBehindParty(m, cadence)
 	}
 }
@@ -177,7 +177,7 @@ func (cs *CombatSystem) blinkBehindParty(m *monster.Monster3D, cadence monsterAt
 			bestDot, rear = dot, d
 		}
 	}
-	for n := int(m.RearBlinkRangeTiles); n >= 2; n-- {
+	for n := int(m.Abilities.RearBlink.RangeTiles); n >= 2; n-- {
 		x, y := TileCenterFromTile(tx+rear[0]*n, ty+rear[1]*n, tile)
 		if g.collisionSystem.IsMonsterAttackPostReserved(m.ID, x, y) || !g.collisionSystem.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying) || !cs.attackLineClear(x, y, px, py) {
 			continue

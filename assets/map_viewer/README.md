@@ -111,6 +111,10 @@ Interactive scene editing (Overlay, F10):
   thresholds. Special trap tiles from the legacy catalog are decorative; use the
   Trap tool for a working trap. Arbitrary scripts and new event kinds need engine
   code. The engine currently supports one adventure boss policy per map.
+- Trigger damage is either flat or a percent of the boss's attack at the visit's
+  level, so it grows with the chamber. Boss regeneration restores a percent of
+  max HP every round while the boss is below its ceiling; armor switches remove a
+  percent of the boss's armor, and the percents of several switches add up.
 - Stitched regions project local authored coordinates using their own rotation
   and reflection. Boss archetypes must be unique among merged regions. Operate a
   mechanism from inside its owning region, not across a region boundary.

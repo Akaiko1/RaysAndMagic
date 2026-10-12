@@ -34,7 +34,7 @@ func TestCardThornsMonsterDamageRoutes(t *testing.T) {
 							g.cardSlots[0].key = "vengeful_ningyo_card"
 						}
 						m := mkTestMonster("Caster", 1000)
-						m.FireburstDamageMin, m.FireburstDamageMax, m.InfernoDamage, m.TrapVolleyDamage = 100, 100, 100, 100
+						m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax, m.Abilities.Inferno.Damage, m.Abilities.TrapVolley.Damage = 100, 100, 100, 100
 						switch route {
 						case "melee", "projectile":
 							cs.monsterHitCharacter(m, ch, m.Name, hitFromMonster(m, 100, "fire", false, 0, route == "melee", false))
@@ -94,7 +94,7 @@ func TestCardThornsSpecialKillAndMeleeBoundaries(t *testing.T) {
 					}
 					m := mkTestMonster("Caster", hp)
 					m.ID = "special-reflection"
-					m.FireburstDamageMin, m.FireburstDamageMax, m.InfernoDamage = 100, 100, 100
+					m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax, m.Abilities.Inferno.Damage = 100, 100, 100
 					if route == "fireburst" {
 						cs.applyMonsterFireburst(m)
 					} else {
@@ -212,7 +212,7 @@ func TestCardReflectionRestoredCollection(t *testing.T) {
 				ch.HitPoints, ch.MaxHitPoints = 1000, 1000
 				g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves([]TimedCombatBuff{{SpellID: "fire_shield", Frames: 600, ResistSchool: "fire", ResistSchoolPct: 50}}))
 				m := mkTestMonster("Restored target", 1000)
-				m.InfernoDamage = 100
+				m.Abilities.Inferno.Damage = 100
 				cs.applyMonsterInferno(m)
 				received := 1000 - ch.HitPoints
 				if received <= 0 || m.HitPoints == 1000 || 1000-m.HitPoints != received*g.cardThornsPct()/100 {

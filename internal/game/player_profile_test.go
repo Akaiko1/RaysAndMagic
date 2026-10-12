@@ -203,7 +203,6 @@ func TestProfileDamageUsesActualHPLossAndSurvival(t *testing.T) {
 			m := &monster.Monster3D{Key: "goblin", Name: "Goblin"}
 			// Eradication makes the overkill case deterministic.
 			hit := hitFromMonster(m, tc.damage, "physical", true, 0, false, false)
-			hit.IgnoresDodge = true
 			if tc.damage > 40 {
 				hit.DisintegrateChance = 1
 			}

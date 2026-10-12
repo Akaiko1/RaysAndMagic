@@ -125,41 +125,33 @@ func (ui *UISystem) drawIdentifyMonster(screen *ebiten.Image) {
 		}
 	}
 	area := layoutRect{portrait.right() + 24, portrait.y, p.right() - portrait.right() - 56, portrait.h}
-	lines := []string{uitext.Text("identify.vitals", m.Level, m.HitPoints, m.MaxHitPoints), uitext.Text("identify.armor", m.EffectiveArmorClass(), m.PerfectDodge), uitext.Text("identify.attack", m.DamageMin, m.DamageMax, m.TrueDamage), "", uitext.Text("identify.defenses")}
-	keys := make([]string, 0, len(m.Resistances))
-	for school := range m.Resistances {
-		keys = append(keys, string(school))
+	type row struct {
+		text   string
+		header bool
+		y      int
 	}
-	sort.Strings(keys)
-	for _, school := range keys {
-		lines = append(lines, uitext.Text("identify.resistance", formatSchoolName(school), m.Resistances[monster.DamageType(school)]))
-	}
-	if len(keys) == 0 {
-		lines = append(lines, uitext.Text("identify.no_resists"))
-	}
-	lines = append(lines, "", uitext.Text("identify.abilities"))
-	if monster.MonsterConfig != nil {
-		if def, err := monster.MonsterConfig.GetMonsterByKey(m.Key); err == nil {
-			for _, line := range def.CombatEffectLines() {
-				lines = append(lines, line.Text)
-			}
+	var rows []row
+	contentH := 0
+	for _, line := range g.identifyMonsterLines(m) {
+		if line.text == "" {
+			contentH += identifySpacerH
+			continue
+		}
+		for _, text := range wrapUIText(line.text, area.w-12) {
+			rows = append(rows, row{text, line.header, contentH})
+			contentH += identifyRowH
 		}
 	}
-	wrapped := []string{}
-	for _, line := range lines {
-		if line == "" {
-			wrapped = append(wrapped, "")
-		} else {
-			wrapped = append(wrapped, wrapUIText(line, area.w-12)...)
-		}
-	}
-	contentH := len(wrapped) * 20
 	offset := min(g.identifyScroll, max(0, contentH-area.h))
 	clip := uiClip(screen, image.Rect(area.x, area.y, area.right(), area.bottom()))
-	for i, line := range wrapped {
-		y := area.y + i*20 - offset
-		if y+20 >= area.y && y < area.bottom() {
-			drawUITextColored(clip, line, area.x, y, beaconInk.muted)
+	for _, r := range rows {
+		y := area.y + r.y - offset
+		if y+identifyRowH >= area.y && y < area.bottom() {
+			ink := beaconInk.muted
+			if r.header {
+				ink = beaconInk.glow
+			}
+			drawUITextColored(clip, r.text, area.x, y, ink)
 		}
 	}
 	setScroll := func(v int) { g.identifyScroll = max(0, min(v, contentH-area.h)) }
@@ -174,4 +166,59 @@ func (ui *UISystem) drawIdentifyMonster(screen *ebiten.Image) {
 		}
 	})
 	ui.advancedMagicButton(screen, layoutRect{p.x + (p.w-112)/2, p.bottom() - 44, 112, 28}, uitext.Text("advanced.identify_close"), true, g.cancelTownPortalPicker)
+}
+
+// Identify report rows: a text row, and the gap that opens each section.
+const identifyRowH, identifySpacerH = 20, 8
+
+// identifyLine is one report line: a section header, body text, or (empty
+// text) the gap before a section.
+type identifyLine struct {
+	text   string
+	header bool
+}
+
+// identifyMonsterLines is the Identify Monster report before wrapping: vitals,
+// defenses, then the editor card's sections with the live region's Elemental
+// Attack.
+func (g *MMGame) identifyMonsterLines(m *monster.Monster3D) []identifyLine {
+	body := func(text string) identifyLine { return identifyLine{text: text} }
+	section := func(title string) []identifyLine { return []identifyLine{{}, {text: title, header: true}} }
+	lines := []identifyLine{body(uitext.Text("identify.vitals", m.Level, m.HitPoints, m.MaxHitPoints)), body(uitext.Text("identify.armor", m.EffectiveArmorClass(), m.PerfectDodge)), body(uitext.Text("identify.attack", m.DamageMin, m.DamageMax, m.TrueDamage))}
+	lines = append(lines, section(uitext.Text("identify.defenses"))...)
+	keys := make([]string, 0, len(m.Resistances))
+	for school := range m.Resistances {
+		keys = append(keys, string(school))
+	}
+	sort.Strings(keys)
+	for _, school := range keys {
+		lines = append(lines, body(uitext.Text("identify.resistance", formatSchoolName(school), m.Resistances[monster.DamageType(school)])))
+	}
+	if len(keys) == 0 {
+		lines = append(lines, body(uitext.Text("identify.no_resists")))
+	}
+	if monster.MonsterConfig != nil {
+		if template, err := monster.MonsterConfig.GetMonsterByKey(m.Key); err == nil {
+			// The live monster's abilities: adventure scaling rewrites them.
+			def := *template
+			def.Abilities = m.Abilities
+			for _, s := range []struct {
+				title string
+				lines []monster.EffectLine
+			}{
+				{uitext.Text("identify.section_attack"), def.AttackLines(g.monsterEffectContext(m))},
+				{uitext.Text("identify.section_abilities"), def.AbilityLines()},
+				{uitext.Text("identify.section_behavior"), def.BehaviorLines()},
+			} {
+				if len(s.lines) == 0 {
+					continue
+				}
+				lines = append(lines, section(s.title)...)
+				for _, line := range s.lines {
+					lines = append(lines, body(line.Text))
+				}
+			}
+		}
+	}
+	return lines
 }

@@ -208,12 +208,12 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 	dt := strings.ToLower(strings.TrimSpace(damageType))
 	school, err := damagecalc.ParseType(dt)
 	if dt == "" || (err == nil && school == damagecalc.Physical) {
-		sec.AddDetail("%s", uitext.Text("armor.physical_reduction", ArmorPhysicalMitigationCap))
+		sec.AddDetail("%s", uitext.Text("armor.physical_reduction", config.ArmorPhysicalMitigationCap))
 		if isRanged {
 			sec.AddDetail("%s", ArmorPierceShotsLine())
 		}
 	} else {
-		sec.AddDetail("%s", uitext.Text("armor.elemental_reduction", ArmorElementalMitigationCap, config.TitleWords(dt)))
+		sec.AddDetail("%s", uitext.Text("armor.elemental_reduction", config.ArmorElementalMitigationCap, config.TitleWords(dt)))
 	}
 	if hasTrueDmg {
 		school := config.TitleWords(dt)
@@ -287,7 +287,7 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 	}
 	switch {
 	case def.PartyAoeRadiusTiles > 0 || def.MapWide:
-		add(SpellRuleDamage, uitext.Text("spell.area_mitigation", ArmorElementalMitigationCap, school))
+		add(SpellRuleDamage, uitext.Text("spell.area_mitigation", config.ArmorElementalMitigationCap, school))
 		if !def.SparesParty {
 			add(SpellRuleDamage, uitext.Text("spell.self_mitigation", school))
 		}
@@ -302,11 +302,15 @@ func SpellRules(def spells.SpellDefinition) []SpellRule {
 			add(SpellRuleGeneral, uitext.Text("spell.no_damage"))
 		}
 	case def.IsProjectile || def.ZoneRadiusTiles > 0:
-		cap := ArmorElementalMitigationCap
-		if def.DamageType() == "physical" {
-			cap = ArmorPhysicalMitigationCap
+		cap := config.ArmorElementalMitigationCap
+		physical := def.DamageType() == "physical"
+		if physical {
+			cap = config.ArmorPhysicalMitigationCap
 		}
 		add(SpellRuleDamage, uitext.Text("armor.elemental_reduction", cap, school))
+		if physical && def.IsProjectile {
+			add(SpellRuleDamage, ArmorPierceShotsLine()) // every physical projectile pierces alike
+		}
 		if MagicSchoolID(def.School).IsElemental() {
 			add(SpellRuleMasteryPolicy, uitext.Text("spell.elemental_mastery_pierce", ElementalMasteryPiercePct(0), ElementalMasteryPiercePct(3), school))
 			// A spell whose damage is an authored per-tier ladder gets no mastery

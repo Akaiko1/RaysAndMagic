@@ -86,7 +86,7 @@ func TestHalflingGuileWeighsPiercingShot(t *testing.T) {
 	normal.Race = "human"
 	halfling.Race = "halfling"
 	halfling.EnsureRacialTraits(nil)
-	shooter := &monster.Monster3D{Name: "Arquebusier", HitPoints: 100, MaxHitPoints: 100, DamageMin: 1, DamageMax: 1, PiercingShotChance: 1, PiercingShotTargets: 1}
+	shooter := &monster.Monster3D{Name: "Arquebusier", HitPoints: 100, MaxHitPoints: 100, DamageMin: 1, DamageMax: 1, Abilities: monster.Abilities{PiercingShot: monster.PiercingShotAbility{Chance: 1, Targets: 1}}}
 	const trials = 30000
 	halflingHits := 0
 	for i := 0; i < trials; i++ {
@@ -734,8 +734,8 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 	g.addCombatBuff(TimedCombatBuff{
 		SpellID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 60, OutBonus: 7,
 	})
-	dispeller := &monster.Monster3D{Name: "Dispeller", DispelChance: 1}
-	cs.applyMonsterHitRiders(dispeller, "", heroHitTarget{cs, g.party.Members[0]})
+	dispeller := &monster.Monster3D{Name: "Dispeller", Abilities: monster.Abilities{Dispel: monster.ChanceAbility{Chance: 1}}}
+	cs.applyMonsterHitRiders(dispeller, "", heroHitTarget{cs, g.party.Members[0]}, true)
 	if len(g.statBuffs) != 1 || len(g.combatBuffs) != 1 {
 		t.Fatalf("phase-bound buffs entered the monster dispel pool: stat=%d combat=%d", len(g.statBuffs), len(g.combatBuffs))
 	}

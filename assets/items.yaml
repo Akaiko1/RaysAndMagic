@@ -28,19 +28,23 @@ item_sets:
       - unbroken_robe
     bonus_armor_class: 35
     bonus_personality: 8
+
   padded:
     name: "Pit Fighter's Quilt"
     pieces_required: 4
     stun_duration_pct: -50   # quilting soaks the blow: stuns on the wearer last half as long
+
   ringmail:
     name: "Coliseum Ringmail"
     pieces_required: 4
     bonus_endurance: 10
+
   dragon_hoard:
     name: "Dragon's Hoard"
     pieces_required: 2
     required_pieces: ["golden_armor", "gold_sword"]
     bonus_crit_chance: 75
+
   # Clock tower sets (5 pieces each, sold by the Clockmaker for clock hands).
   # Each set has a distinct identity - the scout, the duelist, the juggernaut.
   cogleather:
@@ -48,11 +52,13 @@ item_sets:
     pieces_required: 5
     bonus_speed: 8
     bonus_luck: 4
+
   chainwork:
     name: "Chainwork Regalia"
     pieces_required: 5
     bonus_accuracy: 6
     bonus_endurance: 5
+
   clockplate:
     name: "Clockplate Bulwark"
     pieces_required: 5
@@ -65,6 +71,7 @@ item_sets:
     pieces_required: 2
     required_pieces: ["broodscale_aegis", "drakehide_gauntlets"]
     fiery_riposte_pct: 50   # melee attackers take half the damage they deal back as fire
+
   # Regalia of the Still Court (Ancient God of Death drops; 4th piece reserved).
   still_court:
     name: "Regalia of the Still Court"
@@ -191,36 +198,42 @@ items:
     description: "Soft moth down used as restorative stock in healing potions"
     rarity: "uncommon"
     value: 180
+
   moth_wing_dust:
     name: "Abrasive Wing Dust"
     type: "trinket"
     description: "Sharp wing scales used as the secondary material in Harm Flasks"
     rarity: "uncommon"
     value: 180
+
   scarab_amber_marrow:
     name: "Amber Marrow"
     type: "trinket"
     description: "Golden scarab marrow used as restorative stock in healing potions"
     rarity: "uncommon"
     value: 120
+
   scarab_serrated_chitin:
     name: "Serrated Chitin"
     type: "trinket"
     description: "Jagged shell fragments used as the secondary material in Harm Flasks"
     rarity: "uncommon"
     value: 120
+
   serpent_restorative_mucus:
     name: "Restorative Mucus"
     type: "trinket"
     description: "Cool serpent mucus used as restorative stock in healing potions"
     rarity: "uncommon"
     value: 150
+
   serpent_crystal_fang:
     name: "Crystal Fang"
     type: "trinket"
     description: "A brittle rain-serpent fang used as the secondary material in Harm Flasks"
     rarity: "uncommon"
     value: 150
+
   dusk_moth_card:
     name: "Dusk Moth Card"
     type: "card"
@@ -229,6 +242,7 @@ items:
     card_dodge_charge_limit: 4
     rarity: "legendary"
     value: 500
+
   sunscarab_card:
     name: "Sunscarab Card"
     type: "card"
@@ -237,6 +251,7 @@ items:
     card_repeated_hit_reduction_cap: 30
     rarity: "legendary"
     value: 500
+
   rain_serpent_card:
     name: "Rain Serpent Card"
     type: "card"
@@ -244,6 +259,7 @@ items:
     card_healing_cleanse: true
     rarity: "legendary"
     value: 500
+
   translocator:
     name: "Translocator"
     type: "device"
@@ -261,6 +277,7 @@ items:
       - "Double-click in inventory or use from a quick slot"
       - "Reusable; not consumed on use"
       - "Requires a clear landing; ends the party turn in turn-based combat"
+
   solstice_living_ember:
     name: "Living Ember"
     type: "trinket"
@@ -268,6 +285,7 @@ items:
     rarity: "common"
     value: 240
     no_loot: true
+
   solstice_heat_resistant_fang:
     name: "Heat Resistant Fang"
     type: "trinket"
@@ -275,6 +293,7 @@ items:
     rarity: "common"
     value: 180
     no_loot: true
+
   solstice_furnace_ceramic:
     name: "Furnace Ceramic"
     type: "trinket"
@@ -282,6 +301,7 @@ items:
     rarity: "common"
     value: 360
     no_loot: true
+
   solstice_furnace_bloom:
     name: "Furnace Bloom"
     type: "trinket"
@@ -290,6 +310,7 @@ items:
     value: 75
     no_loot: true
     harvest_sprite: "solstice_furnace_bloom"
+
   solstice_thermal_core:
     name: "Thermal Core"
     type: "trinket"
@@ -297,6 +318,7 @@ items:
     rarity: "common"
     value: 2500
     no_loot: true
+
   solstice_sun_resin:
     name: "Sun Resin"
     type: "trinket"
@@ -305,6 +327,7 @@ items:
     value: 60
     no_loot: true
     harvest_sprite: "solstice_sun_resin"
+
   solstice_fire_ward:
     name: "Heat Draught"
     type: "consumable"
@@ -317,6 +340,7 @@ items:
     rarity: "uncommon"
     value: 150
     no_loot: true
+
   brewed_solstice_fire_ward:
     name: "Brewed Heat Draught"
     type: "consumable"
@@ -326,6 +350,7 @@ items:
     rarity: "uncommon"
     value: 1
     no_loot: true
+
   solstice_fire_field_ward:
     name: "Field Heat Draught"
     type: "consumable"
@@ -337,6 +362,7 @@ items:
     rarity: "uncommon"
     value: 90
     no_loot: true
+
   brewed_solstice_fire_field_ward:
     name: "Brewed Field Heat Draught"
     type: "consumable"
@@ -346,6 +372,7 @@ items:
     rarity: "uncommon"
     value: 1
     no_loot: true
+
   solstice_fire_advanced_ward:
     name: "Advanced Heat Draught"
     type: "consumable"
@@ -359,6 +386,7 @@ items:
     rarity: "uncommon"
     value: 240
     no_loot: true
+
   solstice_condensed_tideglass:
     name: "Condensed Tideglass"
     type: "trinket"
@@ -366,6 +394,7 @@ items:
     rarity: "common"
     value: 240
     no_loot: true
+
   solstice_coldwater_gland:
     name: "Coldwater Gland"
     type: "trinket"
@@ -373,6 +402,7 @@ items:
     rarity: "common"
     value: 180
     no_loot: true
+
   solstice_circulation_membrane:
     name: "Circulation Membrane"
     type: "trinket"
@@ -380,6 +410,7 @@ items:
     rarity: "common"
     value: 360
     no_loot: true
+
   solstice_moonwater_lotus:
     name: "Moonwater Lotus"
     type: "trinket"
@@ -388,6 +419,7 @@ items:
     value: 75
     no_loot: true
     harvest_sprite: "solstice_moonwater_lotus"
+
   solstice_flow_core:
     name: "Flow Core"
     type: "trinket"
@@ -395,6 +427,7 @@ items:
     rarity: "common"
     value: 2500
     no_loot: true
+
   solstice_rain_pearl:
     name: "Rain Pearl"
     type: "trinket"
@@ -403,6 +436,7 @@ items:
     value: 60
     no_loot: true
     harvest_sprite: "solstice_rain_pearl"
+
   solstice_water_ward:
     name: "Flow Draught"
     type: "consumable"
@@ -415,6 +449,7 @@ items:
     rarity: "uncommon"
     value: 150
     no_loot: true
+
   brewed_solstice_water_ward:
     name: "Brewed Flow Draught"
     type: "consumable"
@@ -424,6 +459,7 @@ items:
     rarity: "uncommon"
     value: 1
     no_loot: true
+
   solstice_water_field_ward:
     name: "Field Flow Draught"
     type: "consumable"
@@ -435,6 +471,7 @@ items:
     rarity: "uncommon"
     value: 90
     no_loot: true
+
   brewed_solstice_water_field_ward:
     name: "Brewed Field Flow Draught"
     type: "consumable"
@@ -444,6 +481,7 @@ items:
     rarity: "uncommon"
     value: 1
     no_loot: true
+
   solstice_water_advanced_ward:
     name: "Advanced Flow Draught"
     type: "consumable"
@@ -457,6 +495,7 @@ items:
     rarity: "uncommon"
     value: 240
     no_loot: true
+
   solstice_anchor_crystal:
     name: "Anchor Crystal"
     type: "trinket"
@@ -464,6 +503,7 @@ items:
     rarity: "common"
     value: 240
     no_loot: true
+
   solstice_mineral_plate:
     name: "Mineral Plate"
     type: "trinket"
@@ -471,6 +511,7 @@ items:
     rarity: "common"
     value: 180
     no_loot: true
+
   solstice_petrified_conductor:
     name: "Petrified Conductor"
     type: "trinket"
@@ -478,6 +519,7 @@ items:
     rarity: "common"
     value: 360
     no_loot: true
+
   solstice_deepvein_moss:
     name: "Deepvein Moss"
     type: "trinket"
@@ -486,6 +528,7 @@ items:
     value: 75
     no_loot: true
     harvest_sprite: "solstice_deepvein_moss"
+
   solstice_anchor_core:
     name: "Anchor Core"
     type: "trinket"
@@ -493,6 +536,7 @@ items:
     rarity: "common"
     value: 2500
     no_loot: true
+
   solstice_calendar_jade:
     name: "Calendar Jade"
     type: "trinket"
@@ -501,6 +545,7 @@ items:
     value: 80
     no_loot: true
     harvest_sprite: "solstice_calendar_jade"
+
   solstice_earth_ward:
     name: "Anchor Draught"
     type: "consumable"
@@ -513,6 +558,7 @@ items:
     rarity: "uncommon"
     value: 150
     no_loot: true
+
   brewed_solstice_earth_ward:
     name: "Brewed Anchor Draught"
     type: "consumable"
@@ -522,6 +568,7 @@ items:
     rarity: "uncommon"
     value: 1
     no_loot: true
+
   solstice_earth_field_ward:
     name: "Field Anchor Draught"
     type: "consumable"
@@ -533,6 +580,7 @@ items:
     rarity: "uncommon"
     value: 90
     no_loot: true
+
   brewed_solstice_earth_field_ward:
     name: "Brewed Field Anchor Draught"
     type: "consumable"
@@ -542,6 +590,7 @@ items:
     rarity: "uncommon"
     value: 1
     no_loot: true
+
   solstice_earth_advanced_ward:
     name: "Advanced Anchor Draught"
     type: "consumable"
@@ -555,6 +604,7 @@ items:
     rarity: "uncommon"
     value: 240
     no_loot: true
+
   solstice_bound_breath:
     name: "Bound Breath"
     type: "trinket"
@@ -562,6 +612,7 @@ items:
     rarity: "common"
     value: 240
     no_loot: true
+
   solstice_charged_quill:
     name: "Charged Quill"
     type: "trinket"
@@ -569,6 +620,7 @@ items:
     rarity: "common"
     value: 180
     no_loot: true
+
   solstice_resonance_coil:
     name: "Resonance Coil"
     type: "trinket"
@@ -576,6 +628,7 @@ items:
     rarity: "common"
     value: 360
     no_loot: true
+
   solstice_sky_reed:
     name: "Sky Reed"
     type: "trinket"
@@ -584,6 +637,7 @@ items:
     value: 75
     no_loot: true
     harvest_sprite: "solstice_sky_reed"
+
   solstice_vector_core:
     name: "Vector Core"
     type: "trinket"
@@ -591,6 +645,7 @@ items:
     rarity: "common"
     value: 2500
     no_loot: true
+
   solstice_whisper_silk:
     name: "Whisper Silk"
     type: "trinket"
@@ -599,6 +654,7 @@ items:
     value: 80
     no_loot: true
     harvest_sprite: "solstice_whisper_silk"
+
   solstice_air_ward:
     name: "Vector Draught"
     type: "consumable"
@@ -611,6 +667,7 @@ items:
     rarity: "uncommon"
     value: 150
     no_loot: true
+
   brewed_solstice_air_ward:
     name: "Brewed Vector Draught"
     type: "consumable"
@@ -620,6 +677,7 @@ items:
     rarity: "uncommon"
     value: 1
     no_loot: true
+
   solstice_air_field_ward:
     name: "Field Vector Draught"
     type: "consumable"
@@ -631,6 +689,7 @@ items:
     rarity: "uncommon"
     value: 90
     no_loot: true
+
   brewed_solstice_air_field_ward:
     name: "Brewed Field Vector Draught"
     type: "consumable"
@@ -640,6 +699,7 @@ items:
     rarity: "uncommon"
     value: 1
     no_loot: true
+
   solstice_air_advanced_ward:
     name: "Advanced Vector Draught"
     type: "consumable"
@@ -653,6 +713,7 @@ items:
     rarity: "uncommon"
     value: 240
     no_loot: true
+
   solstice_heatshield_mantle:
     name: "Heatshield Mantle"
     type: "accessory"
@@ -665,6 +726,7 @@ items:
     bonus_endurance: 6
     resistances:
       fire: 25
+
   solstice_ember_regulator_ring:
     name: "Ember Regulator Ring"
     type: "accessory"
@@ -677,6 +739,7 @@ items:
     bonus_intellect: 7
     resistances:
       fire: 15
+
   solstice_circulation_vestment:
     name: "Circulation Vestment"
     type: "armor"
@@ -690,6 +753,7 @@ items:
     resistances:
       water: 25
     armor_category: "cloth"
+
   solstice_tideglass_signet:
     name: "Tideglass Signet"
     type: "accessory"
@@ -702,6 +766,7 @@ items:
     bonus_endurance: 6
     resistances:
       water: 15
+
   solstice_deepstone_aegis:
     name: "Deepstone Aegis"
     type: "armor"
@@ -714,6 +779,7 @@ items:
     resistances:
       earth: 25
     armor_category: "shield"
+
   solstice_loadbearer_girdle:
     name: "Loadbearer Girdle"
     type: "accessory"
@@ -725,6 +791,7 @@ items:
     no_loot: true
     bonus_might: 6
     bonus_endurance: 7
+
   solstice_vector_boots:
     endurance_scaling_divisor: 10
     name: "Vector Boots"
@@ -739,6 +806,7 @@ items:
     resistances:
       air: 20
     armor_category: "leather"
+
   solstice_resonance_diadem:
     name: "Resonance Diadem"
     type: "armor"
@@ -3083,12 +3151,14 @@ items:
     description: Dense woodland fur for restorative stock and slow-burning oil.
     rarity: common
     value: 35
+
   spider_silk:
     name: Spider Silk
     type: trinket
     description: Strong silken thread used to bind wounds and suspend abrasive mixtures.
     rarity: common
     value: 40
+
   fairy_dust:
     name: Fairy Dust
     type: trinket
@@ -3104,6 +3174,7 @@ items:
     rarity: common
     value: 15
     harvest_sprite: alchemy_dawnleaf
+
   mooncap:
     name: Mooncap
     type: trinket
@@ -3111,6 +3182,7 @@ items:
     rarity: common
     value: 15
     harvest_sprite: alchemy_mooncap
+
   bitterroot:
     name: Bitterroot
     type: trinket
@@ -3118,6 +3190,7 @@ items:
     rarity: common
     value: 25
     harvest_sprite: alchemy_bitterroot
+
   embercap:
     name: Embercap
     type: trinket
@@ -3125,6 +3198,7 @@ items:
     rarity: common
     value: 25
     harvest_sprite: alchemy_embercap
+
   grave_orchid:
     name: Grave Orchid
     type: trinket
@@ -3132,6 +3206,7 @@ items:
     rarity: rare
     value: 300
     harvest_sprite: alchemy_grave_orchid
+
   brewed_health_potion:
     brew_color: [216, 54, 68]
     name: Brewed Health Potion
@@ -3140,6 +3215,7 @@ items:
     brewed_from: health_potion
     rarity: common
     value: 1
+
   brewed_mana_potion:
     brew_color: [66, 133, 236]
     name: Brewed Mana Potion
@@ -3148,6 +3224,7 @@ items:
     brewed_from: mana_potion
     rarity: common
     value: 1
+
   brewed_antivenom:
     brew_color: [109, 205, 65]
     name: Brewed Antivenom
@@ -3157,6 +3234,7 @@ items:
     brewed_from: antivenom
     rarity: common
     value: 1
+
   brewed_sake_flask:
     brew_color: [232, 188, 102]
     name: Brewed Sake Flask
@@ -3166,6 +3244,7 @@ items:
     brewed_from: sake_flask
     rarity: common
     value: 1
+
   brewed_clock_oil:
     brew_color: [223, 143, 40]
     name: Brewed Clock Oil
@@ -3175,6 +3254,7 @@ items:
     brewed_from: clock_oil
     rarity: uncommon
     value: 1
+
   brewed_flame_ward_draught:
     brew_color: [238, 94, 44]
     name: Brewed Flame Ward Draught
@@ -3184,6 +3264,7 @@ items:
     brewed_from: flame_ward_draught
     rarity: rare
     value: 1
+
   brewed_storm_ward_draught:
     brew_color: [63, 185, 221]
     name: Brewed Storm Ward Draught
@@ -3193,6 +3274,7 @@ items:
     brewed_from: storm_ward_draught
     rarity: rare
     value: 1
+
   brewed_gloom_ward_draught:
     brew_color: [142, 83, 210]
     name: Brewed Gloom Ward Draught
@@ -3201,6 +3283,7 @@ items:
     brewed_from: gloom_ward_draught
     rarity: rare
     value: 1
+
   brewed_stoneskin_draught:
     brew_color: [143, 179, 94]
     name: Brewed Stoneskin Draught
@@ -3210,6 +3293,7 @@ items:
     brewed_from: stoneskin_draught
     rarity: rare
     value: 1
+
   brewed_mirage_salt:
     brew_color: [225, 186, 91]
     name: Brewed Mirage Salt
@@ -3219,6 +3303,7 @@ items:
     brewed_from: mirage_salt
     rarity: rare
     value: 1
+
   brewed_revival_potion:
     brew_color: [244, 201, 76]
     name: Brewed Revival Potion
@@ -3228,6 +3313,7 @@ items:
     brewed_from: revival_potion
     rarity: rare
     value: 1
+
   harm_flask:
     brew_color: [169, 74, 222]
     name: Harm Flask
@@ -3253,6 +3339,7 @@ items:
       range_tiles: 6
       radius_tiles: 2
       cooldown_seconds: 3
+
   venom_flask:
     brew_color: [113, 222, 49]
     name: Venom Flask
@@ -3278,6 +3365,7 @@ items:
       range_tiles: 6
       radius_tiles: 2
       cooldown_seconds: 3
+
   fire_flask:
     brew_color: [249, 116, 33]
     name: Fire Flask

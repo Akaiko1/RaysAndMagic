@@ -311,11 +311,32 @@ func TestMobPreview_ChampionMirroredBeforeFirstFrame(t *testing.T) {
 			if !m.ChampionMirrored {
 				t.Fatal("champion still exposes monsters.yaml placeholders immediately after Select")
 			}
-			if got := m.GetTurnBasedAttackCount(); got != 2 {
-				t.Errorf("champion TB attacks = %d, want 2", got)
+			if got := m.TurnBasedAttackRate(); got != 2 {
+				t.Errorf("champion TB attacks/round = %.2f, want 2", got)
 			}
 			if m.MaxHitPoints != tier.HP {
 				t.Errorf("champion HP = %d, want the %s tier's %d", m.MaxHitPoints, config.ChampionDefaultTier, tier.HP)
+			}
+			// The editor's tier sheets: every tier, easiest first, each with its
+			// own HP pool, a striking hand and its authored loadout - built beside
+			// the staged specimen without disturbing it.
+			sheets := p.ChampionTierSheets(key)
+			if len(sheets) != len(config.GlobalChampionConfig.Tiers) {
+				t.Fatalf("tier sheets = %d, want one per tier (%d)", len(sheets), len(config.GlobalChampionConfig.Tiers))
+			}
+			for i, s := range sheets {
+				if i > 0 && sheets[i-1].Rules.Level > s.Rules.Level {
+					t.Errorf("tier %s listed after the harder %s", s.Tier, sheets[i-1].Tier)
+				}
+				if want := config.GetChampionTier(s.Tier); s.Mob.MaxHitPoints != want.HP {
+					t.Errorf("%s sheet HP = %d, want %d", s.Tier, s.Mob.MaxHitPoints, want.HP)
+				}
+				if len(s.Hands) == 0 || s.Hands[0].Damage <= 0 || len(s.Loadout) != len(build.Equipment[s.Tier]) {
+					t.Errorf("%s sheet hands=%v loadout=%d, want a striking main hand and %d authored items", s.Tier, s.Hands, len(s.Loadout), len(build.Equipment[s.Tier]))
+				}
+			}
+			if p.Monsters()[0] != m || m.MaxHitPoints != tier.HP {
+				t.Error("building tier sheets replaced or re-tiered the staged specimen")
 			}
 			if !build.Ranged {
 				return

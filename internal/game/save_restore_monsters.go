@@ -176,6 +176,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					m.ArmorShredTurnsRemaining = 0
 					m.ArmorShredRate = 0
 				}
+				m.ArmorMelt.Restore(ms.ArmorMelt)
 				m.BurnFramesRemaining = ms.BurnFramesRemaining
 				m.RestoreDoTTickTimers(ms.PoisonTickTimer, ms.BurnTickTimer)
 				m.TrapVolleyCDFrames = ms.TrapVolleyCD
@@ -208,6 +209,8 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.PounceCDFrames = ms.PounceCDFrames
 				m.PounceCDTurns = ms.PounceCDTurns
 				m.PounceCDRate = ms.PounceCDRate
+				m.TurnBasedSwingCarry = ms.TurnBasedSwingCarry
+				m.TurnBasedStepCarry = ms.TurnBasedStepCarry
 				m.BossCD = ms.BossCD
 				m.InfernoCDFrames = ms.InfernoCD
 				m.BossHurtPending = ms.BossHurtPending
@@ -224,7 +227,6 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.RallyDone = ms.RallyDone
 				m.PackKey = ms.PackKey
 				m.Population = ms.Population
-				m.AmbientMoveCredit = ms.AmbientMoveCredit
 				if m.IsWildlife() {
 					m.Threat = ms.AmbientThreat
 					m.AmbientFlee = m.Threat.Seconds > 0

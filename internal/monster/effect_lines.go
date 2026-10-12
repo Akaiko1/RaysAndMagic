@@ -2,7 +2,6 @@ package monster
 
 import (
 	"fmt"
-	"strings"
 
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -22,10 +21,22 @@ func (d MonsterDefinition) HasAttackStats() bool {
 	return !d.WarlordIdol && d.Disposition != DispositionCaravan && d.Disposition != DispositionFish
 }
 
-// CombatEffectLines is the single formatter for monster attack/special ability
-// rows shown by editor previews. Keep new YAML combat knobs here so consumers do
-// not hand-pick fields and drift.
+// CombatEffectLines is the single formatter for a monster's combat rows
+// (Identify, map tooltips): AttackLines, AbilityLines, then BehaviorLines.
+// The editor shows the three under their own headings. Consumers never
+// hand-pick fields.
 func (d MonsterDefinition) CombatEffectLines(contexts ...CombatEffectContext) []EffectLine {
+	if !d.HasAttackStats() {
+		return nil
+	}
+	out := d.AttackLines(contexts...)
+	out = append(out, d.AbilityLines()...)
+	return append(out, d.BehaviorLines()...)
+}
+
+// AttackLines describes the monster's own attack: ranged spell or weapon (with
+// the spell's riders) and the melee profile.
+func (d MonsterDefinition) AttackLines(contexts ...CombatEffectContext) []EffectLine {
 	if !d.HasAttackStats() {
 		return nil
 	}
@@ -41,31 +52,6 @@ func (d MonsterDefinition) CombatEffectLines(contexts ...CombatEffectContext) []
 		out = append(out, EffectLine{Text: text, School: normalizeEffectSchool(school)})
 	}
 
-	if a := d.Telegraph; a != nil {
-		addSchool(a.School, fmt.Sprintf("%s: %s, %s, range %d tiles", a.Name, a.Kind, a.Shape, a.Range))
-		addSchool(a.School, fmt.Sprintf("  Warning: %gs / %d rounds; cooldown: %gs / %d rounds", a.WarningSeconds, a.WarningRounds, a.CooldownSeconds, a.CooldownRounds))
-		if a.Kind == "shield" {
-			addSchool(a.School, fmt.Sprintf("  Ally shield: absorbs %d damage per hit", TelegraphShieldAbsorption(d.DamageMin, d.DamageMax)))
-		} else if a.DamagePercent > 0 {
-			addSchool(a.School, fmt.Sprintf("  Damage: %d%% of attack", a.DamagePercent))
-		}
-		if a.DurationSeconds > 0 {
-			text := fmt.Sprintf("  Duration: %gs / %d rounds", a.DurationSeconds, a.DurationRounds)
-			if a.Kind != "shield" && a.SustainDamage > 0 {
-				text += fmt.Sprintf("; sustained damage: %d", a.SustainDamage)
-			}
-			addSchool(a.School, text)
-		}
-		if a.BelowHPPercent > 0 {
-			add(fmt.Sprintf("  Available below %d%% HP", a.BelowHPPercent))
-		}
-	}
-	if d.RootPartyChance > 0 {
-		add(fmt.Sprintf("Party root: %.0f%% per attack, %ds / %d turn(s)", d.RootPartyChance*100, d.RootPartySeconds, d.RootPartyTurns))
-	}
-	if d.RearBlinkChance > 0 {
-		add(fmt.Sprintf("Rear blink and strike: %.0f%% per attack, %.0f tiles", d.RearBlinkChance*100, d.RearBlinkRangeTiles))
-	}
 	if d.ProjectileSpell != "" {
 		if sp, ok := config.GetSpellDefinition(d.ProjectileSpell); ok && sp != nil {
 			school := normalizeEffectSchool(sp.School)
@@ -111,71 +97,29 @@ func (d MonsterDefinition) CombatEffectLines(contexts ...CombatEffectContext) []
 			}
 		}
 	}
-	if d.hasTrapVolley() {
-		addSchool(damagecalc.Fire.String(), fmt.Sprintf(
-			"Trap field: sows %d fire traps (%.0f dmg) within %.0f tiles every %.0fs / %d turns",
-			d.TrapVolleyCount, float64(d.TrapVolleyDamage), d.TrapVolleyRadiusTiles,
-			d.TrapVolleyIntervalSeconds, d.TrapVolleyIntervalTurns))
+	return out
+}
+
+// AbilityLines describes every authored ability (abilityRows), in display order.
+func (d MonsterDefinition) AbilityLines() []EffectLine {
+	if !d.HasAttackStats() {
+		return nil
 	}
-	if d.PounceRangeTiles > 0 {
-		add(fmt.Sprintf("Pounce: %.1f tiles every %.0fs", d.PounceRangeTiles, d.PounceCooldownSeconds))
+	return d.abilityLines()
+}
+
+// BehaviorLines describes the boss and rally behaviour that frames the fight.
+func (d MonsterDefinition) BehaviorLines() []EffectLine {
+	if !d.HasAttackStats() {
+		return nil
 	}
-	if d.PoisonChance > 0 {
-		add(fmt.Sprintf("Poison: %.0f%% for %ds", d.PoisonChance*100, d.PoisonDurationSec))
-	}
-	if d.IgniteChance > 0 {
-		addSchool(damagecalc.Fire.String(), fmt.Sprintf("Ignite: %.0f%% for %ds", d.IgniteChance*100, d.IgniteDurationSec))
-	}
-	if d.StunCharChance > 0 {
-		add(fmt.Sprintf("Stun: %.0f%% (%ds / %d turns)", d.StunCharChance*100, d.StunCharSeconds, d.StunCharTurns))
-	}
-	if d.DispelChance > 0 {
-		add(fmt.Sprintf("Dispel buff: %.0f%%", d.DispelChance*100))
-	}
-	if d.FireburstChance > 0 {
-		addSchool(damagecalc.Fire.String(), fmt.Sprintf("Fireburst: %.0f%% for %d-%d", d.FireburstChance*100, d.FireburstDamageMin, d.FireburstDamageMax))
-	}
-	if d.DragonBreathChance > 0 {
-		school := normalizeEffectSchool(d.DragonBreathType)
-		addSchool(school, fmt.Sprintf("Dragon Breath: %.0f%% %s attack to whole party", d.DragonBreathChance*100, school))
-	}
-	if d.PiercingShotChance > 0 {
-		add(fmt.Sprintf("Piercing shot: %.0f%% (%d targets)", d.PiercingShotChance*100, d.PiercingShotTargets))
-	}
-	if d.AllyHealChance > 0 {
-		add(fmt.Sprintf("Heals allies: %.0f%% for %d (%.0f tiles)", d.AllyHealChance*100, d.AllyHealAmount, d.AllyHealRadius))
-	}
-	addf := func(format string, args ...any) { add(fmt.Sprintf(format, args...)) }
-	// Boss kit.
+	var out []EffectLine
+	addf := func(format string, args ...any) { out = append(out, EffectLine{Text: fmt.Sprintf(format, args...)}) }
 	if d.PassiveUntilQuest != "" {
 		addf("Sealed until quest: %s", d.PassiveUntilQuest)
 	}
 	if d.EvadeRadiusTiles > 0 {
 		addf("Evades within %.1f tiles (cd %.0fs)", d.EvadeRadiusTiles, d.BossCooldownSecs)
-	}
-	if d.InfernoChance > 0 {
-		addf("Inferno nova: %.0f%% for %d fire damage (%.1f tiles)", d.InfernoChance*100, d.InfernoDamage, d.InfernoRangeTiles)
-	}
-	if d.TeleportAtHP > 0 {
-		addf("Blinks at/below %d HP (%.0f%%)", d.TeleportAtHP, d.TeleportChance*100)
-	}
-	if len(d.SummonMonsters) > 0 {
-		n := d.SummonCount
-		if n == 0 {
-			n = 1
-		}
-		capText := "no live summon cap"
-		if d.SummonMax > 0 {
-			capText = fmt.Sprintf("max %d alive", d.SummonMax)
-		}
-		if d.SummonFirstGuaranteed {
-			addf("Summons %dx {%s}: first guaranteed, then %.0f%% (%s)", n, strings.Join(d.SummonMonsters, ", "), d.SummonChance*100, capText)
-		} else {
-			addf("Summons %dx {%s}: %.0f%% (%s)", n, strings.Join(d.SummonMonsters, ", "), d.SummonChance*100, capText)
-		}
-	}
-	if d.EnrageAtHP > 0 {
-		addf("Enrages at/below %d HP: dmg x%.1f, cd x%.1f", d.EnrageAtHP, effectiveMultiplier(d.EnrageDamageMult), effectiveMultiplier(d.EnrageCooldownMult))
 	}
 	if d.DeathRalliesType != "" {
 		addf("Death rallies: %s", d.DeathRalliesType)

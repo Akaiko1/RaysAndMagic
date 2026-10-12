@@ -160,7 +160,7 @@ func TestAIRegressionHealerKeepsSpecialAgainstSummon(t *testing.T) {
 					g.turnBasedMode = tb
 					placePlayerAtTile(g, 10+distance, 10, tile)
 					m := monster.NewMonster3DFromConfig(10.5*tile, 10.5*tile, "kitsune_onmyoji", g.config)
-					m.AllyHealChance = 1
+					m.Abilities.AllyHeal.Chance = 1
 					m.HitPoints = m.MaxHitPoints - 200
 					m.WasAttacked = true
 					m.BeginPlayerEngagement()

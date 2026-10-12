@@ -1,6 +1,9 @@
 package monster
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // Boss flags travel in pairs (chance + magnitude, evasive phase + tuning);
 // load-time validation must reject a half-configured boss instead of letting
@@ -11,28 +14,28 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		def     MonsterDefinition
 		wantErr bool
 	}{
-		{"inferno chance without damage", MonsterDefinition{Boss: true, InfernoChance: 0.1}, true},
-		{"inferno chance without range", MonsterDefinition{Boss: true, InfernoChance: 0.1, InfernoDamage: 28}, true},
-		{"inferno fully configured", MonsterDefinition{Boss: true, InfernoChance: 0.1, InfernoDamage: 28, InfernoRangeTiles: 8}, false},
-		{"poison chance without duration", MonsterDefinition{PoisonChance: 0.2}, true},
-		{"poison fully configured", MonsterDefinition{PoisonChance: 0.2, PoisonDurationSec: 15}, false},
-		{"boss-only behavior needs boss flag", MonsterDefinition{SummonChance: 0.2, SummonMonsters: []string{"rat"}}, true},
+		{"inferno chance without damage", MonsterDefinition{Boss: true, Abilities: Abilities{Inferno: InfernoAbility{Chance: 0.1}}}, true},
+		{"inferno chance without range", MonsterDefinition{Boss: true, Abilities: Abilities{Inferno: InfernoAbility{Chance: 0.1, Damage: 28}}}, true},
+		{"inferno fully configured", MonsterDefinition{Boss: true, Abilities: Abilities{Inferno: InfernoAbility{Chance: 0.1, Damage: 28, RangeTiles: 8}}}, false},
+		{"poison chance without duration", MonsterDefinition{Abilities: Abilities{Poison: DoTAbility{Chance: 0.2}}}, true},
+		{"poison fully configured", MonsterDefinition{Abilities: Abilities{Poison: DoTAbility{Chance: 0.2, DurationSeconds: 15}}}, false},
+		{"boss-only behavior needs boss flag", MonsterDefinition{Abilities: Abilities{Summon: SummonAbility{Chance: 0.2, Monsters: []string{"rat"}}}}, true},
 		{"bare boss is valid", MonsterDefinition{Boss: true}, false},
 		{"dormant boss (passive, no evade) is valid", MonsterDefinition{Boss: true, PassiveUntilQuest: "q"}, false},
 		{"evasive without cooldown", MonsterDefinition{Boss: true, PassiveUntilQuest: "q", EvadeRadiusTiles: 3}, true},
 		{"evasive fully configured", MonsterDefinition{Boss: true, PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1}, false},
-		{"summon chance without monsters", MonsterDefinition{Boss: true, SummonChance: 0.2}, true},
-		{"summon configured", MonsterDefinition{Boss: true, SummonChance: 0.2, SummonMonsters: []string{"rat"}}, false},
-		{"dragon breath chance without damage type", MonsterDefinition{DragonBreathChance: 0.33}, true},
-		{"dragon breath configured", MonsterDefinition{DragonBreathChance: 0.33, DragonBreathType: "fire"}, false},
-		{"enrage without effect", MonsterDefinition{Boss: true, EnrageAtHP: 100}, true},
-		{"enrage with damage mult", MonsterDefinition{Boss: true, EnrageAtHP: 100, EnrageDamageMult: 1.5}, false},
+		{"summon chance without monsters", MonsterDefinition{Boss: true, Abilities: Abilities{Summon: SummonAbility{Chance: 0.2}}}, true},
+		{"summon configured", MonsterDefinition{Boss: true, Abilities: Abilities{Summon: SummonAbility{Chance: 0.2, Monsters: []string{"rat"}}}}, false},
+		{"dragon breath chance without damage type", MonsterDefinition{Abilities: Abilities{DragonBreath: DragonBreathAbility{Chance: 0.33}}}, true},
+		{"dragon breath configured", MonsterDefinition{Abilities: Abilities{DragonBreath: DragonBreathAbility{Chance: 0.33, DamageType: "fire"}}}, false},
+		{"enrage without effect", MonsterDefinition{Boss: true, Abilities: Abilities{Enrage: EnrageAbility{AtHP: 100}}}, true},
+		{"enrage with damage mult", MonsterDefinition{Boss: true, Abilities: Abilities{Enrage: EnrageAbility{AtHP: 100, DamageMult: 1.5}}}, false},
 		{"fully configured boss", MonsterDefinition{
-			Boss:          true,
-			InfernoChance: 0.1, InfernoDamage: 28, InfernoRangeTiles: 8,
-			PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1,
-			SummonChance: 0.1, SummonMonsters: []string{"rat"},
-			EnrageAtHP: 100, EnrageCooldownMult: 0.6,
+			Boss:              true,
+			PassiveUntilQuest: "q",
+			EvadeRadiusTiles:  3,
+			BossCooldownSecs:  1,
+			Abilities:         Abilities{Inferno: InfernoAbility{Chance: 0.1, Damage: 28, RangeTiles: 8}, Summon: SummonAbility{Chance: 0.1, Monsters: []string{"rat"}}, Enrage: EnrageAbility{AtHP: 100, CooldownMult: 0.6}},
 		}, false},
 	}
 	for _, tc := range cases {
@@ -116,17 +119,17 @@ func TestValidateMonsterConfigurationRejectsUnknownResistanceSchool(t *testing.T
 func TestValidateMonsterConfigurationCanonicalizesDamageSchools(t *testing.T) {
 	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
 		"typed": {
-			SizeClass:        "person",
-			DragonBreathType: " FIRE ",
-			Resistances:      map[string]int{" DARK ": 50},
+			SizeClass:   "person",
+			Resistances: map[string]int{" DARK ": 50},
+			Abilities:   Abilities{DragonBreath: DragonBreathAbility{Chance: 0.2, DamageType: " FIRE "}},
 		},
 	}}
 	if err := validateMonsterConfiguration(cfg); err != nil {
 		t.Fatalf("validate monster: %v", err)
 	}
 	def := cfg.Monsters["typed"]
-	if def.DragonBreathType != "fire" || def.Resistances["dark"] != 50 {
-		t.Fatalf("damage schools were not canonicalized: breath=%q resistances=%v", def.DragonBreathType, def.Resistances)
+	if def.Abilities.DragonBreath.DamageType != "fire" || def.Resistances["dark"] != 50 {
+		t.Fatalf("damage schools were not canonicalized: breath=%q resistances=%v", def.Abilities.DragonBreath.DamageType, def.Resistances)
 	}
 
 	cfg.Monsters["typed"] = MonsterDefinition{
@@ -138,19 +141,16 @@ func TestValidateMonsterConfigurationCanonicalizesDamageSchools(t *testing.T) {
 	}
 }
 
-func TestValidateMonsterConfiguration_AttackCadenceAllowsExplicitTurnBasedOverride(t *testing.T) {
+func TestValidateMonsterConfiguration_AttackCadence(t *testing.T) {
 	tests := []struct {
 		name    string
 		def     MonsterDefinition
 		wantErr bool
 	}{
-		{name: "default single attack", def: MonsterDefinition{}},
-		{name: "cooldown-only derives turn cadence", def: MonsterDefinition{AttackCooldownMult: 0.6}},
-		{name: "two attacks with half cooldown", def: MonsterDefinition{AttacksPerRound: 2, AttackCooldownMult: 0.5}},
-		{name: "four attacks with quarter cooldown", def: MonsterDefinition{AttacksPerRound: 4, AttackCooldownMult: 0.25}},
-		{name: "explicit TB-only multiattack", def: MonsterDefinition{AttacksPerRound: 2}},
-		{name: "explicit RT/TB desync", def: MonsterDefinition{AttacksPerRound: 1, AttackCooldownMult: 0.3}},
-		{name: "explicit multiattack desync", def: MonsterDefinition{AttacksPerRound: 4, AttackCooldownMult: 0.5}},
+		{name: "default speed", def: MonsterDefinition{}},
+		{name: "faster cooldown", def: MonsterDefinition{AttackCooldownMult: 0.6}},
+		{name: "slower cooldown", def: MonsterDefinition{AttackCooldownMult: 1.8}},
+		{name: "negative cooldown", def: MonsterDefinition{AttackCooldownMult: -0.5}, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -181,22 +181,8 @@ func TestSetupMonsterFromConfig_CooldownOnlyRangedDerivesTurnBasedAttacks(t *tes
 	if !m.HasRangedAttack() {
 		t.Fatal("test monster should be ranged")
 	}
-	if got := m.GetTurnBasedAttackCount(); got != 2 {
-		t.Fatalf("cooldown-only ranged TB attacks = %d, want 2", got)
-	}
-}
-
-func TestSetupMonsterFromConfig_ExplicitAttacksPerRoundOverridesCooldown(t *testing.T) {
-	m := &Monster3D{Resistances: make(map[DamageType]int)}
-	m.SetupMonsterFromConfig(&MonsterDefinition{
-		Name:               "TB Balanced Archer",
-		ProjectileWeapon:   "short_bow",
-		AttacksPerRound:    1,
-		AttackCooldownMult: 0.3,
-	})
-
-	if got := m.GetTurnBasedAttackCount(); got != 1 {
-		t.Fatalf("explicit attacks_per_round override = %d, want 1", got)
+	if got := m.TurnBasedAttackRate(); math.Abs(got-1/0.6) > 1e-9 {
+		t.Fatalf("ranged TB attacks/round = %v, want 1/0.6", got)
 	}
 }
 
@@ -216,9 +202,9 @@ func TestNewMonster3DFromConfig_Valid(t *testing.T) {
 // Dragon breath travels from the definition to the runtime monster unchanged;
 // the synthetic row keeps the rule covered whatever the catalog authors.
 func TestDragonBreathLoadedFromConfig(t *testing.T) {
-	defs := map[string]MonsterDefinition{"synthetic": {Name: "Breather", DragonBreathChance: 0.5, DragonBreathType: "earth"}}
+	defs := map[string]MonsterDefinition{"synthetic": {Name: "Breather", Abilities: Abilities{DragonBreath: DragonBreathAbility{Chance: 0.5, DamageType: "earth"}}}}
 	for key, def := range MonsterConfig.Monsters {
-		if def.DragonBreathChance > 0 {
+		if def.Abilities.DragonBreath.Chance > 0 {
 			defs[key] = def
 		}
 	}
@@ -231,8 +217,8 @@ func TestDragonBreathLoadedFromConfig(t *testing.T) {
 			} else {
 				m = NewMonster3DFromConfig(0, 0, key, nil)
 			}
-			if m.DragonBreathChance != def.DragonBreathChance || m.DragonBreathDamageType != def.DragonBreathType {
-				t.Fatalf("breath = %v/%q, want %v/%q", m.DragonBreathChance, m.DragonBreathDamageType, def.DragonBreathChance, def.DragonBreathType)
+			if m.Abilities.DragonBreath.Chance != def.Abilities.DragonBreath.Chance || m.Abilities.DragonBreath.DamageType != def.Abilities.DragonBreath.DamageType {
+				t.Fatalf("breath = %v/%q, want %v/%q", m.Abilities.DragonBreath.Chance, m.Abilities.DragonBreath.DamageType, def.Abilities.DragonBreath.Chance, def.Abilities.DragonBreath.DamageType)
 			}
 		})
 	}
@@ -269,12 +255,9 @@ func TestSetupMonsterFromConfig_CopiesPassiveAndCadence(t *testing.T) {
 		if m.PassiveUntilAttacked != def.PassiveUntilHit || m.AttackCooldownMultiplier != def.AttackCooldownMult {
 			t.Fatalf("passive=%v cooldown=%v, want %v/%v", m.PassiveUntilAttacked, m.AttackCooldownMultiplier, def.PassiveUntilHit, def.AttackCooldownMult)
 		}
-		if def.AttacksPerRound > 0 && m.GetTurnBasedAttackCount() != def.AttacksPerRound {
-			t.Fatalf("TB attacks = %d, want authored %d", m.GetTurnBasedAttackCount(), def.AttacksPerRound)
-		}
 	}
 	t.Run("synthetic", func(t *testing.T) {
-		def := MonsterDefinition{Name: "Probe", PassiveUntilHit: true, AttacksPerRound: 4, AttackCooldownMult: 0.25}
+		def := MonsterDefinition{Name: "Probe", PassiveUntilHit: true, AttackCooldownMult: 0.25}
 		m := &Monster3D{Resistances: make(map[DamageType]int)}
 		m.SetupMonsterFromConfig(&def)
 		check(t, m, def)

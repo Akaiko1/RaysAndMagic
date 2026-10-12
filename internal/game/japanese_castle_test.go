@@ -83,21 +83,21 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	if boss == nil {
 		t.Fatal("old_samurai monster missing")
 	}
-	// Config shape: dormant (no evade radius), summons, enrages, ignores armor.
+	// Config shape: dormant (no evade radius), summons, enrages, melts armor.
 	if boss.PassiveUntilQuest != "castle_armory" {
 		t.Errorf("boss should gate on castle_armory, got %q", boss.PassiveUntilQuest)
 	}
 	if boss.EvadeRadiusTiles != 0 {
 		t.Errorf("samurai must be dormant (evade_radius 0), got %v", boss.EvadeRadiusTiles)
 	}
-	if len(boss.SummonMonsters) == 0 {
+	if len(boss.Abilities.Summon.Monsters) == 0 {
 		t.Error("samurai should summon adds")
 	}
-	if boss.EnrageAtHP <= 0 {
+	if boss.Abilities.Enrage.AtHP <= 0 {
 		t.Error("samurai should enrage below an HP threshold")
 	}
-	if !boss.IgnoresArmor {
-		t.Error("samurai should ignore armor")
+	if boss.Abilities.MeltArmor.Chance <= 0 {
+		t.Error("samurai should melt armor")
 	}
 	if !boss.IsBoss() {
 		t.Error("samurai must be recognized as a boss")
@@ -261,9 +261,9 @@ func TestSamuraiSummonRespectsCapAndOccupiedTiles(t *testing.T) {
 
 	bossX, bossY := TileCenterFromTile(4, 6, tile)
 	boss := monsterPkg.NewMonster3DFromConfig(bossX, bossY, "old_samurai", cs.game.config)
-	boss.SummonMonsters = []string{"ashigaru_firelock"}
-	boss.SummonCount = 2
-	boss.SummonMax = 4
+	boss.Abilities.Summon.Monsters = []string{"ashigaru_firelock"}
+	boss.Abilities.Summon.Count = 2
+	boss.Abilities.Summon.Max = 4
 	cs.game.registerSpawnedMonster(boss)
 
 	if !cs.summonSpawnOccupied(cs.game.camera.X, cs.game.camera.Y) {
@@ -324,15 +324,15 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	bossX, bossY := TileCenterFromTile(4, 6, tile)
 	boss := monsterPkg.NewMonster3DFromConfig(bossX, bossY, "old_samurai", cs.game.config)
 	boss.PassiveUntilQuest = ""
-	boss.SummonChance = 0
-	boss.SummonFirstGuaranteed = true
-	boss.SummonMonsters = []string{"ashigaru_firelock"}
-	boss.SummonCount = 2
-	boss.SummonMax = 4
+	boss.Abilities.Summon.Chance = 0
+	boss.Abilities.Summon.FirstGuaranteed = true
+	boss.Abilities.Summon.Monsters = []string{"ashigaru_firelock"}
+	boss.Abilities.Summon.Count = 2
+	boss.Abilities.Summon.Max = 4
 	cs.game.registerSpawnedMonster(boss)
 
 	if !cs.updateBoss(boss, true, true, true) {
-		t.Fatal("first summon should be guaranteed even when summon_chance is 0")
+		t.Fatal("first summon should be guaranteed even when its summon chance is 0")
 	}
 	if !boss.SummonFirstDone {
 		t.Fatal("first successful summon must latch SummonFirstDone")
@@ -341,7 +341,7 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 		t.Fatalf("first summon count = %d, want 2", got)
 	}
 	if cs.updateBoss(boss, true, true, true) {
-		t.Fatal("second summon should use summon_chance after the first guaranteed summon")
+		t.Fatal("second summon should use the summon chance after the first guaranteed summon")
 	}
 	if got := cs.countLiveSummons(boss); got != 2 {
 		t.Fatalf("second no-proc changed summon count to %d, want 2", got)
@@ -357,13 +357,12 @@ func TestAshigaruPiercingShotHitsTwoLivingPartyMembers(t *testing.T) {
 	}
 
 	ashigaru := &monsterPkg.Monster3D{
-		Name:                "Ashigaru Arquebusier",
-		HitPoints:           100,
-		MaxHitPoints:        100,
-		DamageMin:           20,
-		DamageMax:           20,
-		PiercingShotChance:  1,
-		PiercingShotTargets: 2,
+		Name:         "Ashigaru Arquebusier",
+		HitPoints:    100,
+		MaxHitPoints: 100,
+		DamageMin:    20,
+		DamageMax:    20,
+		Abilities:    monsterPkg.Abilities{PiercingShot: monsterPkg.PiercingShotAbility{Chance: 1, Targets: 2}},
 	}
 
 	if !cs.tryMonsterPiercingShot(ashigaru) {
@@ -389,14 +388,12 @@ func TestNingyoAllyHealChoosesNearbyWoundedMonster(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	tile := float64(cs.game.config.GetTileSize())
 	healer := &monsterPkg.Monster3D{
-		Name:                 "Miyabi Ningyo",
-		X:                    0,
-		Y:                    0,
-		HitPoints:            100,
-		MaxHitPoints:         500,
-		AllyHealChance:       1,
-		AllyHealAmount:       200,
-		AllyHealRadiusPixels: 2 * tile,
+		Name:         "Miyabi Ningyo",
+		X:            0,
+		Y:            0,
+		HitPoints:    100,
+		MaxHitPoints: 500,
+		Abilities:    monsterPkg.Abilities{AllyHeal: monsterPkg.AllyHealAbility{Chance: 1, Amount: 200, RadiusTiles: 2}},
 	}
 	near := &monsterPkg.Monster3D{
 		Name:         "Nearby Ally",

@@ -263,7 +263,7 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 	armorInteractionRules(&dmg, def.DamageType, def.Physics != nil, preview.True > 0)
 	if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
 		if tier, _ := masteryTier(char, skill); tier >= int(character.MasteryGrandMaster) {
-			dmg.AddDetail("%s", uitext.Text("weapon.grandmaster_dodge"))
+			dmg.AddDetail("%s", uitext.Text("weapon.grandmaster_dodge", character.WeaponGMDodgeGrazePct))
 		}
 	}
 	totalCrit := def.CritChance
@@ -412,7 +412,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	}
 	addSpellCooldown(&casting, def.ID, char, cs)
 	if def.ReuseSeconds > 0 {
-		casting.Add("%s", uitext.Text("spell.personal_reuse", def.ReuseSeconds, config.CombatRounds(def.ReuseSeconds)))
+		casting.Add("%s", uitext.Text("spell.reuse_delay", def.ReuseSeconds, config.CombatRounds(def.ReuseSeconds)))
 	}
 	if def.IsProjectile {
 		if rng, okRng := cs.CalculateSpellRangeTiles(def.ID); okRng {

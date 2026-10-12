@@ -385,6 +385,32 @@ func fixedItemRewards(keys []string) []items.Item {
 // createLootItem instantiates one loot entry (weapon or item) by type+key -
 // the ONE creation switch shared by per-monster drops, weighted pools and
 // crate rolls.
+// createLootDrops turns one landed loot entry into its items: min..max units
+// (one when omitted), as one stack when the item stacks, else separate pieces.
+func createLootDrops(e config.LootEntry) ([]items.Item, error) {
+	n := 1
+	if e.Max > 0 {
+		n = e.Min + rand.Intn(e.Max-e.Min+1)
+	}
+	first, err := createLootItem(e.Type, e.Key)
+	if err != nil {
+		return nil, err
+	}
+	if first.Stackable() {
+		first.Quantity = n
+		return []items.Item{first}, nil
+	}
+	out := []items.Item{first}
+	for len(out) < n {
+		it, err := createLootItem(e.Type, e.Key)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
 func createLootItem(typ, key string) (items.Item, error) {
 	switch typ {
 	case "harvest":
@@ -399,6 +425,12 @@ func createLootItem(typ, key string) (items.Item, error) {
 			return items.Item{}, err
 		}
 		return items.TryCreateItemFromYAML(key)
+	case "set":
+		pieces := config.ItemSetPieces(key)
+		if len(pieces) == 0 {
+			return items.Item{}, fmt.Errorf("item set %q has no pieces", key)
+		}
+		return items.TryCreateItemFromYAML(pieces[rand.Intn(len(pieces))])
 	}
 	return items.Item{}, fmt.Errorf("unknown loot entry type %q for %q", typ, key)
 }

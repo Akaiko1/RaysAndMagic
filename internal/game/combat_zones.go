@@ -424,6 +424,11 @@ func (cs *CombatSystem) syncZoneStamps(firing []firingZoneCell) {
 // zone always costs at least one tick's damage. Stale stamps are dropped first,
 // so walking out of one cast and into another pays a fresh entry hit.
 func (cs *CombatSystem) applyZoneEntrySpell(spellID string) {
+	cs.applyZoneEntrySpellTo(spellID, cs.game.world.Monsters)
+}
+
+// applyZoneEntrySpellTo is applyZoneEntrySpell for the given monsters only.
+func (cs *CombatSystem) applyZoneEntrySpellTo(spellID string, monsters []*monsterPkg.Monster3D) {
 	cs.game.ensurePersistentDamageZoneFieldIDs()
 	var cells []*PersistentDamageZone
 	for i := range cs.game.persistentDamageZones {
@@ -432,7 +437,7 @@ func (cs *CombatSystem) applyZoneEntrySpell(spellID string) {
 		}
 	}
 	cs.dropStaleZoneStamps(cells)
-	cs.damageZoneMonsters(spellID, cells, cells)
+	cs.damageZoneMonstersIn(spellID, cells, cells, monsters)
 }
 
 // stampCoveredZoneFields marks every cell belonging to a field the monster
@@ -459,13 +464,18 @@ func stampCoveredZoneFields(cells, covering []*PersistentDamageZone, monsterID s
 // casts overlap it. The snapshot comes from the first covering cell (stable
 // slice order); the hit stamps every covering field in view.
 func (cs *CombatSystem) damageZoneMonsters(spellID string, coverage, view []*PersistentDamageZone) {
+	cs.damageZoneMonstersIn(spellID, coverage, view, cs.game.world.Monsters)
+}
+
+// damageZoneMonstersIn is damageZoneMonsters for the given monsters only.
+func (cs *CombatSystem) damageZoneMonstersIn(spellID string, coverage, view []*PersistentDamageZone, monsters []*monsterPkg.Monster3D) {
 	if len(coverage) == 0 {
 		return
 	}
 	// Element = the spell's authored school, so resistance matches the flames.
 	damageTypeStr := spellDamageTypeStr(spellID)
 	covered := cs.zoneCoveredMonsters(coverage)
-	for _, m := range cs.game.world.Monsters {
+	for _, m := range monsters {
 		covering := covered[m]
 		if len(covering) == 0 {
 			continue
@@ -522,6 +532,16 @@ func (gl *GameLoop) updatePersistentDamageZonesRT() {
 func (gl *GameLoop) applyZoneEntryDamageAll() {
 	for _, spellID := range gl.game.liveZoneSpellIDs() {
 		gl.game.combat.applyZoneEntrySpell(spellID)
+	}
+}
+
+// applyZoneEntryDamageFor is applyZoneEntryDamageAll for one monster.
+func (gl *GameLoop) applyZoneEntryDamageFor(m *monsterPkg.Monster3D) {
+	if m == nil {
+		return
+	}
+	for _, spellID := range gl.game.liveZoneSpellIDs() {
+		gl.game.combat.applyZoneEntrySpellTo(spellID, []*monsterPkg.Monster3D{m})
 	}
 }
 

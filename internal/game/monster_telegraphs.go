@@ -46,7 +46,7 @@ func telegraphDefinition(m *monster.Monster3D) *monster.TelegraphedAttack {
 	if m == nil || monster.MonsterConfig == nil {
 		return nil
 	}
-	return monster.MonsterConfig.Monsters[m.Key].Telegraph
+	return monster.MonsterConfig.Monsters[m.Key].Abilities.Telegraph
 }
 func (g *MMGame) telegraphAllowed(m *monster.Monster3D) bool {
 	if m.IsSilenced() {
@@ -227,7 +227,7 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 	if a.Kind == "charge" {
 		g.moveTelegraphMonster(m, s.Direction, a.Range)
 	}
-	damage := (m.DamageMin + m.DamageMax) * a.DamagePercent / 200
+	damage := percentOfAttack(m.DamageMin, m.DamageMax, a.DamagePercent)
 	parts := m.OutgoingDamage(damagecalc.Parts{Normal: damage, True: m.TrueDamage})
 	if s.TargetID == "" && m.TargetsParty() {
 		px, py := g.GetPlayerTilePosition()
@@ -248,7 +248,7 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 			if foe.ID != s.TargetID || !foe.IsAlive() || !m.CanAttackActor(foe) || !slices.Contains(s.Tiles, [2]int{TileIndex(foe.X, ts), TileIndex(foe.Y, ts)}) || !g.telegraphLOS(m, foe.X, foe.Y) {
 				continue
 			}
-			g.combat.applyMonsterDamagePacket(foe, singleMonsterDamagePacket(parts, a.School, 0), monsterDamageOptions{IsRanged: true})
+			g.combat.applyMonsterDamagePacket(foe, singleMonsterDamagePacket(parts, a.School, 0), monsterDamageOptions{})
 			if a.Kind == "slow" {
 				foe.ApplySlow(25, 4*g.config.GetTPS(), 2)
 			}
@@ -356,7 +356,7 @@ func (g *MMGame) monsterFieldExposures(dt float64) []environmentExposure {
 				damage := int(math.Floor(s.Carry + 1e-9))
 				s.Carry = max(0, s.Carry-float64(damage))
 				if damage > 0 {
-					g.combat.applyMonsterDamagePacket(foe, singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, a.School, 0), monsterDamageOptions{IsRanged: true})
+					g.combat.applyMonsterDamagePacket(foe, singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, a.School, 0), monsterDamageOptions{})
 					if !foe.IsAlive() {
 						g.combat.finishMonsterKill(foe)
 					}

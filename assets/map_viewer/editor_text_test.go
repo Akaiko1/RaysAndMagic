@@ -99,7 +99,7 @@ func TestEditorRenderedCatalogText(t *testing.T) {
 		}
 	}
 	for key, def := range mobs.Monsters {
-		for _, row := range buildMobInfoRuntime(key, def, nil, cfg.GetTileSize(), game.MonsterCatalogEffectContext(cfg)) {
+		for _, row := range buildMobInfoRuntime(key, def, nil, nil, cfg.GetTileSize(), game.MonsterCatalogEffectContext(cfg)) {
 			check(key, row.text)
 		}
 		check(key, strings.Join(mapMonsterStatLines(def), "\n"))
@@ -147,11 +147,11 @@ func TestEditorMonsterAttackText(t *testing.T) {
 			tc.def.DamageMin, tc.def.DamageMax = 11, 19
 			ctx := monster.CombatEffectContext{ElementalAttack: config.ElementalAttackConfig{Chance: .37, DamageMultiplier: 3}}
 			var sheet []string
-			for _, row := range buildMobInfoRuntime("fixture", tc.def, nil, 64, ctx) {
+			for _, row := range buildMobInfoRuntime("fixture", tc.def, nil, nil, 64, ctx) {
 				sheet = append(sheet, row.text)
 			}
 			text := strings.Join(sheet, "\n")
-			if strings.Contains(text, "TB attacks:") != tc.attacks || strings.Contains(text, "Does not attack") == tc.attacks {
+			if strings.Contains(text, "TB attacks/round:") != tc.attacks || strings.Contains(text, "Does not attack") == tc.attacks {
 				t.Errorf("wrong combat role in stat sheet:\n%s", text)
 			}
 			if strings.Contains(text, "Elemental Attack:") != tc.elemental {
@@ -213,7 +213,7 @@ func TestEditorMonsterRangeText(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var lines []string
-			for _, row := range buildMobInfoRuntime("fixture", tc.def, tc.runtime, 64) {
+			for _, row := range buildMobInfoRuntime("fixture", tc.def, tc.runtime, nil, 64) {
 				lines = append(lines, row.text)
 			}
 			text := strings.Join(strings.Fields(strings.Join(lines, " ")), " ")
@@ -237,16 +237,16 @@ func TestEditorBossTextMatchesRules(t *testing.T) {
 		def          monster.MonsterDefinition
 		want, absent []string
 	}{
-		{"uncapped summons", monster.MonsterDefinition{SummonMonsters: []string{"goblin"}, SummonChance: .25}, []string{"Summons 1x {goblin}: 25% (no live summon cap)"}, []string{"max 0"}},
-		{"capped guaranteed summons", monster.MonsterDefinition{SummonMonsters: []string{"goblin"}, SummonCount: 2, SummonMax: 3, SummonFirstGuaranteed: true}, []string{"first guaranteed, then 0% (max 3 alive)"}, nil},
-		{"rage damage only", monster.MonsterDefinition{EnrageAtHP: 50, EnrageDamageMult: 1.5}, []string{"at/below 50 HP: dmg x1.5, cd x1.0"}, []string{"x0.0"}},
-		{"rage cooldown only", monster.MonsterDefinition{EnrageAtHP: 50, EnrageCooldownMult: .5}, []string{"at/below 50 HP: dmg x1.0, cd x0.5"}, []string{"x0.0"}},
-		{"blink threshold", monster.MonsterDefinition{TeleportAtHP: 50, TeleportChance: .5}, []string{"Blinks at/below 50 HP (50%)"}, nil},
+		{"uncapped summons", monster.MonsterDefinition{Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"goblin"}, Chance: .25}}}, []string{"Summons 1x {goblin}: 25% (no live summon cap)"}, []string{"max 0"}},
+		{"capped guaranteed summons", monster.MonsterDefinition{Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"goblin"}, Count: 2, Max: 3, FirstGuaranteed: true}}}, []string{"first guaranteed, then 0% (max 3 alive)"}, nil},
+		{"rage damage only", monster.MonsterDefinition{Abilities: monster.Abilities{Enrage: monster.EnrageAbility{AtHP: 50, DamageMult: 1.5}}}, []string{"at/below 50 HP: dmg x1.5, cd x1.0"}, []string{"x0.0"}},
+		{"rage cooldown only", monster.MonsterDefinition{Abilities: monster.Abilities{Enrage: monster.EnrageAbility{AtHP: 50, CooldownMult: .5}}}, []string{"at/below 50 HP: dmg x1.0, cd x0.5"}, []string{"x0.0"}},
+		{"blink threshold", monster.MonsterDefinition{Abilities: monster.Abilities{Teleport: monster.TeleportAbility{AtHP: 50, Chance: .5}}}, []string{"Blinks at/below 50 HP (50%)"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.def.Boss = true
 			var lines []string
-			for _, row := range buildMobInfoRuntime("fixture", tc.def, nil, 64) {
+			for _, row := range buildMobInfoRuntime("fixture", tc.def, nil, nil, 64) {
 				lines = append(lines, row.text)
 			}
 			text := strings.Join(strings.Fields(strings.Join(lines, " ")), " ")
@@ -289,9 +289,9 @@ func TestEditorTelegraphDurationAndShieldText(t *testing.T) {
 		{"timed control", "root", 0, nil, "Duration: 4s / 2 rounds", "sustained damage"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d := monster.MonsterDefinition{DamageMin: 20, DamageMax: 40, Telegraph: &monster.TelegraphedAttack{Kind: tc.kind, Name: "Fixture", DurationSeconds: 4, DurationRounds: 2, SustainDamage: tc.sustain}}
+			d := monster.MonsterDefinition{DamageMin: 20, DamageMax: 40, Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Kind: tc.kind, Name: "Fixture", DurationSeconds: 4, DurationRounds: 2, SustainDamage: tc.sustain}}}
 			var b strings.Builder
-			for _, row := range buildMobInfoRuntime("fixture", d, tc.runtime, 64) {
+			for _, row := range buildMobInfoRuntime("fixture", d, tc.runtime, nil, 64) {
 				b.WriteString(row.text)
 				b.WriteByte('\n')
 			}

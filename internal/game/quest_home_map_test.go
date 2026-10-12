@@ -122,7 +122,7 @@ func TestTargetMapQuestsCountMonstersByHome(t *testing.T) {
 					t.Fatal("no room to summon")
 				}
 				packet := singleMonsterDamagePacket(damagecalc.Parts{True: subject.HitPoints + 1000}, "physical", 0)
-				g.combat.strikeMonsterPacketFor(ally, subject, packet, nil, false, true, true, false)
+				g.combat.strikeMonsterPacketFor(ally, subject, packet, nil, false, true, false)
 			} else {
 				subject.HitPoints = 0
 				g.combat.finishMonsterKill(subject)

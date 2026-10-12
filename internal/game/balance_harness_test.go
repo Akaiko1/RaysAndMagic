@@ -59,7 +59,7 @@ func TestBalanceHitsSeePreHitHealth(t *testing.T) {
 	defer func() { g.heroHitObserver = nil }()
 	auberon, celestine, silvelyn := g.party.Members[0], g.party.Members[2], g.party.Members[3]
 	hit := func(target *character.MMCharacter, dmg int) seen {
-		g.combat.monsterHitCharacter(foe, target, foe.Name, monsterCharacterHit{Parts: damagecalc.Parts{True: dmg}, DamageType: "physical", IgnoresDodge: true})
+		g.combat.monsterHitCharacter(foe, target, foe.Name, monsterCharacterHit{Parts: damagecalc.Parts{True: dmg}, DamageType: "physical"})
 		return hits[len(hits)-1]
 	}
 

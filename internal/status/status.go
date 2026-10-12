@@ -113,6 +113,44 @@ func TickTurnRated(turns, frames, rate *int) (expired bool) {
 	return false
 }
 
+// DualClock is one rated dual-clock status held as a value: the RT frames, the
+// TB turns and their frames-per-turn rate, with the rules above.
+type DualClock struct {
+	Frames int `json:"frames,omitempty"`
+	Turns  int `json:"turns,omitempty"`
+	Rate   int `json:"rate,omitempty"`
+}
+
+// Refresh extends the clock without ever shortening it (RefreshDualRated).
+func (c *DualClock) Refresh(frames, turns int) bool {
+	return RefreshDualRated(&c.Frames, &c.Turns, &c.Rate, frames, turns)
+}
+
+// TickFrame spends one RT frame (TickFrameRated).
+func (c *DualClock) TickFrame() (expired bool) { return TickFrameRated(&c.Frames, &c.Turns, &c.Rate) }
+
+// TickTurn spends one TB turn (TickTurnRated).
+func (c *DualClock) TickTurn() (expired bool) { return TickTurnRated(&c.Turns, &c.Frames, &c.Rate) }
+
+// Active reports a running status.
+func (c DualClock) Active() bool { return c.Frames > 0 || c.Turns > 0 }
+
+// Saved is the clock a save writes: nil when the status is not running.
+func (c DualClock) Saved() *DualClock {
+	if !c.Active() {
+		return nil
+	}
+	return &c
+}
+
+// Restore reads a saved clock back; nil is a status that was not running.
+func (c *DualClock) Restore(saved *DualClock) {
+	*c = DualClock{}
+	if saved != nil {
+		*c = *saved
+	}
+}
+
 // TickDoT advances a DoT by elapsedFrames of game time and reports how many
 // once-per-second damage ticks that time contains. It is the ONE implementation
 // for both modes: RT passes 1 (one frame), a TB round passes the seconds that

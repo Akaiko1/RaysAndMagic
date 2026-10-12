@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"math"
 
+	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 
@@ -242,6 +244,69 @@ func (p *MobPreview) loading() bool {
 // Monsters exposes the staged monsters (the editor shows live HP/state).
 func (p *MobPreview) Monsters() []*monster.Monster3D {
 	return p.arena.Monsters
+}
+
+// ChampionTierSheet is one champion at one arena difficulty tier, assembled by
+// the same template build and stat mirror an arena duel spawn runs, so the
+// editor never computes champion numbers on its own.
+type ChampionTierSheet struct {
+	Tier    string
+	Rules   config.ChampionTier    // level, skill mastery, HP pool, rewards
+	Build   *character.MMCharacter // shared cached template: read-only
+	Mob     *monster.Monster3D     // mirrored: HP, AC, dodge, resistances, RT cadence
+	Hands   []ChampionHandSheet    // main hand, then the off hand when dual-wielding
+	Loadout []items.Item           // the tier's authored equipment, in authored order
+}
+
+// ChampionHandSheet is one weapon hand's strike as combat resolves it.
+type ChampionHandSheet struct {
+	Weapon         items.Item
+	Damage         int // per hit before a critical, daytime
+	CritChance     int // percent
+	CooldownFrames int // real-time cooldown after this hand swings
+}
+
+// ChampionTierSheets builds the monster's champion at every tier, easiest
+// first. Nil for a monster that is not a champion.
+func (p *MobPreview) ChampionTierSheets(monsterKey string) []ChampionTierSheet {
+	g := p.g
+	cs := g.combat
+	var sheets []ChampionTierSheet
+	for _, tier := range config.ChampionTierNames() {
+		m := monster.NewMonster3DFromConfig(0, 0, monsterKey, g.config)
+		if m == nil || !m.IsChampion() {
+			return nil
+		}
+		m.ChampionTier = tier
+		g.mirrorChampionStats(m)
+		build := g.championTemplateFor(m)
+		def := config.GetChampionDefinition(m.ChampionKey)
+		if build == nil || def == nil {
+			return nil
+		}
+		sheet := ChampionTierSheet{Tier: tier, Rules: *config.GetChampionTier(tier), Build: build, Mob: m}
+		hands := []bool{false}
+		if _, dual := championOffHandWeapon(build); dual {
+			hands = append(hands, true)
+		}
+		for _, off := range hands {
+			weapon := championHandWeapon(build, off)
+			cooldown := cs.WeaponCooldownFrames(build)
+			if off {
+				cooldown = cs.OffHandWeaponCooldownFrames(build)
+			}
+			_, _, damage := cs.CalculateWeaponDamage(weapon, build)
+			crit := g.bossMechanicValue(m, "critical_chance", cs.CalculateWeaponCritChance(weapon, build))
+			sheet.Hands = append(sheet.Hands, ChampionHandSheet{Weapon: weapon, Damage: max(1, damage), CritChance: crit, CooldownFrames: cooldown})
+		}
+		for _, key := range def.Equipment[tier] {
+			if it, _, err := character.ChampionGearItem(key); err == nil {
+				sheet.Loadout = append(sheet.Loadout, it)
+			}
+		}
+		sheets = append(sheets, sheet)
+	}
+	return sheets
 }
 
 // Scene renders the sandbox through the real renderer into an offscreen image

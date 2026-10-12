@@ -40,20 +40,28 @@ func TestMonsterTypesAreCanonicalFromLoad(t *testing.T) {
 }
 
 // An ability names its own numbers; combat has no hidden fallbacks, so the
-// monster card always prints what the ability really does.
+// monster card always prints what the ability really does. The loader is
+// strict: an unknown ability kind or field, or a key from before abilities had
+// their own map, fails the load instead of switching the mechanic off.
 func TestMonsterAbilitiesRequireTheirNumbers(t *testing.T) {
 	previous := MonsterConfig
 	t.Cleanup(func() { MonsterConfig = previous })
 	for _, tc := range []struct {
 		name, yaml, wantErr string
 	}{
-		{"complete fireburst", "fireburst_chance: 0.2\n    fireburst_damage_min: 6\n    fireburst_damage_max: 9", ""},
-		{"fireburst without damage", "fireburst_chance: 0.2", "fireburst_damage_min"},
-		{"fireburst max below min", "fireburst_chance: 0.2\n    fireburst_damage_min: 9\n    fireburst_damage_max: 6", "fireburst_damage_min"},
-		{"complete piercing shot", "piercing_shot_chance: 0.2\n    piercing_shot_targets: 2", ""},
-		{"piercing shot without targets", "piercing_shot_chance: 0.2", "piercing_shot_targets"},
-		{"complete ally heal", "ally_heal_chance: 0.2\n    ally_heal_amount: 10\n    ally_heal_radius_tiles: 2", ""},
-		{"ally heal without radius", "ally_heal_chance: 0.2\n    ally_heal_amount: 10", "ally_heal_radius_tiles"},
+		{"complete fireburst", "abilities:\n      fireburst: {chance: 0.2, damage_min: 6, damage_max: 9}", ""},
+		{"fireburst without damage", "abilities:\n      fireburst: {chance: 0.2}", "fireburst needs damage_min"},
+		{"fireburst max below min", "abilities:\n      fireburst: {chance: 0.2, damage_min: 9, damage_max: 6}", "fireburst needs damage_min"},
+		{"complete piercing shot", "abilities:\n      piercing_shot: {chance: 0.2, targets: 2}", ""},
+		{"piercing shot without targets", "abilities:\n      piercing_shot: {chance: 0.2}", "piercing_shot needs targets"},
+		{"complete ally heal", "abilities:\n      ally_heal: {chance: 0.2, amount: 10, radius_tiles: 2}", ""},
+		{"ally heal without radius", "abilities:\n      ally_heal: {chance: 0.2, amount: 10}", "ally_heal needs amount and radius_tiles"},
+		{"ability without its chance", "abilities:\n      poison: {duration_seconds: 4}", "poison needs a chance"},
+		{"one-shot summon", "boss: true\n    abilities:\n      summon: {chance: 0, first_guaranteed: true, monsters: [probe]}", ""},
+		{"summon that can never fire", "boss: true\n    abilities:\n      summon: {chance: 0, monsters: [probe]}", "summon needs a chance"},
+		{"unknown ability kind", "abilities:\n      posion: {chance: 0.2, duration_seconds: 4}", "posion"},
+		{"unknown ability field", "abilities:\n      poison: {chanse: 0.2, duration_seconds: 4}", "chanse"},
+		{"key from before the abilities map", "poison_chance: 0.2", "poison_chance"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "monsters.yaml")

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"sort"
 	"strings"
 
@@ -111,13 +112,18 @@ func (v *viewer) selectMob(idx int) {
 	if staged := mobsPage.preview.Monsters(); len(staged) > 0 {
 		runtime = staged[0]
 	}
-	mobsPage.info = buildMobInfoRuntime(key, v.monsterCfg.Monsters[key], runtime, v.cfg.GetTileSize(), game.MonsterCatalogEffectContext(v.cfg))
+	def := v.monsterCfg.Monsters[key]
+	var tiers []game.ChampionTierSheet
+	if def.Champion != "" {
+		tiers = mobsPage.preview.ChampionTierSheets(key)
+	}
+	mobsPage.info = buildMobInfoRuntime(key, def, runtime, tiers, v.cfg.GetTileSize(), game.MonsterCatalogEffectContext(v.cfg))
 }
 
 // buildMobInfoRuntime uses a staged monster when available so the editor shows
 // effective values after the same setup/mirroring paths the game runs. The
 // definition remains the source for authored behavior and loot.
-func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *monster.Monster3D, tileSize float64, contexts ...monster.CombatEffectContext) []infoLine {
+func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *monster.Monster3D, tiers []game.ChampionTierSheet, tileSize float64, contexts ...monster.CombatEffectContext) []infoLine {
 	var out []infoLine
 	addc := func(col color.Color, format string, args ...any) {
 		line := fmt.Sprintf(format, args...)
@@ -134,7 +140,6 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	level, xp := def.Level, def.Experience
 	hp, armor, dodge := def.MaxHitPoints, def.ArmorClass, def.PerfectDodge
 	damageMin, damageMax, trueDamage := def.DamageMin, def.DamageMax, def.TrueDamage
-	attacks := monster.TurnBasedAttackCount(def.AttacksPerRound, def.AttackCooldownMult)
 	cooldownMult := def.AttackCooldownMult
 	speed, alertTiles, attackTiles := def.Speed, def.AlertRadius, def.AttackRadius
 	rangedTiles := def.RangedAttackRange
@@ -147,7 +152,6 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		level, xp = runtime.Level, runtime.Experience
 		hp, armor, dodge = runtime.MaxHitPoints, runtime.ArmorClass, runtime.PerfectDodge
 		damageMin, damageMax, trueDamage = runtime.DamageMin, runtime.DamageMax, runtime.TrueDamage
-		attacks = monster.TurnBasedAttackCount(runtime.AttacksPerRound, runtime.AttackCooldownMultiplier)
 		cooldownMult = runtime.AttackCooldownMultiplier
 		speed = runtime.Speed
 		if tileSize > 0 {
@@ -175,12 +179,9 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		add("Disposition: %s", def.Disposition)
 	}
 	add("Level %d   XP %d", level, xp)
+	out = appendChampionTierLines(out, tiers)
 	if def.Champion != "" {
 		addHeader("CHAMPION")
-		tierName := config.ChampionDefaultTier
-		if runtime != nil && runtime.ChampionTier != "" {
-			tierName = runtime.ChampionTier
-		}
 		if champion := config.GetChampionDefinition(def.Champion); champion != nil {
 			race := titleCase(strings.ReplaceAll(champion.Race, "_", " "))
 			if cfg := config.GlobalConfig; cfg != nil {
@@ -189,13 +190,10 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 					race = r.Name
 				}
 			}
-			add("Champion: %s   Tier: %s", champion.Name, titleCase(tierName))
+			add("Champion: %s", champion.Name)
 			add("Class: %s   Race: %s", titleCase(strings.ReplaceAll(champion.Class, "_", " ")), race)
 			if len(champion.Skills) > 0 {
 				add("Skills: %s", strings.Join(champion.Skills, ", "))
-			}
-			if gear := champion.Equipment[tierName]; len(gear) > 0 {
-				add("Tier loadout: %s", strings.Join(gear, ", "))
 			}
 			if champion.SpellCastChance > 0 {
 				add("Spell cast: %.0f%% from {%s}", champion.SpellCastChance*100, strings.Join(champion.SpellSchools, ", "))
@@ -223,8 +221,8 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		if trueDamage > 0 {
 			dmg += fmt.Sprintf(" +%d true", trueDamage)
 		}
-		dmg += fmt.Sprintf("   TB attacks: %d", attacks)
 		addc(mobStatDamage, "%s", dmg)
+		out = appendTurnBasedAttackLines(out, def, cooldownMult)
 		if cooldownMult != 0 && cooldownMult != 1 {
 			add("RT attack cooldown: x%.2f", cooldownMult)
 		}
@@ -251,23 +249,29 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	} else {
 		add("Does not attack")
 	}
-	add("Speed %.1f   Alert %.0f tiles", speed, alertTiles)
-	if def.EnrageAtHP > 0 && def.EnrageCooldownMult > 0 {
-		enragedAttacks := attacks * monster.TurnBasedAttacksForCooldownMultiplier(def.EnrageCooldownMult)
-		add("Enraged TB attacks: %d", enragedAttacks)
-	}
+	add("Speed %.2f   Alert %.0f tiles", speed, alertTiles)
+	out = appendTurnBasedMoveLines(out, def, speed)
 
-	effects := effectDef.CombatEffectLines(contexts...)
-	if len(effects) > 0 {
-		addHeader("ABILITIES")
-	}
-	for _, line := range effects {
-		var col color.Color = mobStatDefault
-		if line.School != "" {
-			col = game.SchoolColor(line.School)
+	addLines := func(lines []monster.EffectLine) {
+		for _, line := range lines {
+			var col color.Color = mobStatDefault
+			if line.School != "" {
+				col = game.SchoolColor(line.School)
+			}
+			addc(col, "%s", line.Text)
 		}
-		addc(col, "%s", line.Text)
 	}
+	// The monster's own attack, its authored abilities (monsters.yaml
+	// abilities:), then the behaviour below.
+	if attack := effectDef.AttackLines(contexts...); len(attack) > 0 {
+		addHeader("ATTACK")
+		addLines(attack)
+	}
+	if abilities := effectDef.AbilityLines(); len(abilities) > 0 {
+		addHeader("ABILITIES")
+		addLines(abilities)
+	}
+	behavior := effectDef.BehaviorLines()
 
 	// Behaviour flags.
 	var flags []string
@@ -283,9 +287,6 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	if def.PassiveUntilHit {
 		flags = append(flags, "passive until hit")
 	}
-	if def.IgnoresArmor {
-		flags = append(flags, "ignores armor")
-	}
 	if def.AggroWholeMap {
 		flags = append(flags, "aggro whole map")
 	}
@@ -295,9 +296,10 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	if def.WarlordIdol {
 		flags = append(flags, "ward idol")
 	}
-	if len(flags) > 0 || def.BandGroup != "" || len(def.Prey) > 0 || def.Arboreal != nil {
+	if len(behavior) > 0 || len(flags) > 0 || def.BandGroup != "" || len(def.Prey) > 0 || def.Arboreal != nil {
 		addHeader("BEHAVIOR")
 	}
+	addLines(behavior)
 	if len(flags) > 0 {
 		add("Flags: %s", strings.Join(flags, ", "))
 	}
@@ -339,31 +341,65 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 	// Drop table: each entry tinted by its rarity (metal tiers render as the
 	// game's gradient).
 	addHeader("DROPS")
-	if def.GoldMax > 0 {
-		addc(mobStatGold, "Gold %d-%d", def.GoldMin, def.GoldMax)
+	if gold, ok := config.MonsterGold(key); ok {
+		addc(mobStatGold, "Gold %d-%d", gold.Min, gold.Max)
 	}
 	entries := config.GetLootTable(key, def.Boss)
 	if len(entries) == 0 {
 		addc(mobStatHeader, "(no item drops)")
 	}
-	for _, e := range entries {
-		name, rarity := e.Key, ""
-		switch e.Type {
-		case "item", "harvest":
-			if d, ok := config.GetItemDefinition(e.Key); ok && d != nil {
-				name, rarity = d.Name, d.Rarity
+	var addDrops func(entries []config.LootEntry, indent string, ordered bool)
+	addDrops = func(entries []config.LootEntry, indent string, ordered bool) {
+		// In a first_of group a later entry lands only when every earlier one
+		// missed, so each row shows its real per-kill chance.
+		reach := 1.0
+		for _, e := range entries {
+			rolls := ""
+			if e.RollCount() > 1 {
+				rolls = fmt.Sprintf(" x%d rolls", e.RollCount())
 			}
-		case "weapon":
-			if d, ok := config.GetWeaponDefinition(e.Key); ok && d != nil {
-				name, rarity = d.Name, d.Rarity
+			if e.Type == "first_of" {
+				addc(mobStatHeader, "%sAt most one of%s:", indent, rolls)
+				addDrops(e.Of, indent+"  ", true)
+				continue
 			}
+			name, rarity, kind := e.Key, "", e.Type
+			switch e.Type {
+			case "item", "harvest":
+				if d, ok := config.GetItemDefinition(e.Key); ok && d != nil {
+					name, rarity = d.Name, d.Rarity
+				}
+			case "weapon":
+				if d, ok := config.GetWeaponDefinition(e.Key); ok && d != nil {
+					name, rarity = d.Name, d.Rarity
+				}
+			case "set":
+				kind = "set piece"
+				if set := config.GetItemSet(e.Key); set != nil {
+					name = set.Name
+				}
+				if pieces := config.ItemSetPieces(e.Key); len(pieces) > 0 {
+					if d, ok := config.GetItemDefinition(pieces[0]); ok && d != nil {
+						rarity = d.Rarity
+					}
+				}
+			}
+			chance := e.Chance
+			if ordered {
+				chance = reach * (1 - math.Pow(1-e.Chance, float64(e.RollCount())))
+				reach -= chance
+				rolls = ""
+			}
+			switch {
+			case e.Max > e.Min:
+				name += fmt.Sprintf(" x%d-%d", e.Min, e.Max)
+			case e.Max > 1:
+				name += fmt.Sprintf(" x%d", e.Max)
+			}
+			addc(game.RarityColor(rarity), "%s%4.1f%%%s  %s (%s)", indent, chance*100, rolls, name, kind)
 		}
-		rolls := ""
-		if e.RollCount() > 1 {
-			rolls = fmt.Sprintf(" x%d rolls", e.RollCount())
-		}
-		addc(game.RarityColor(rarity), "%4.1f%%%s  %s (%s)", e.Chance*100, rolls, name, e.Type)
 	}
+	addDrops(entries, "", false)
 	return out
 }
 

@@ -52,11 +52,11 @@ func contractTelegraphDefinition(t *testing.T, m *monster.Monster3D) {
 	t.Helper()
 	def := monster.MonsterConfig.Monsters[m.Key]
 	original := def
-	attack := *def.Telegraph
+	attack := *def.Abilities.Telegraph
 	attack.DamagePercent = 100
 	attack.SustainDamage = 100
 	attack.DurationSeconds, attack.DurationRounds = 6, 2
-	def.Telegraph = &attack
+	def.Abilities.Telegraph = &attack
 	monster.MonsterConfig.Monsters[m.Key] = def
 	t.Cleanup(func() { monster.MonsterConfig.Monsters[m.Key] = original })
 }

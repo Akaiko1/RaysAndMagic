@@ -31,7 +31,7 @@ func stepLemur(g *MMGame, m *monster.Monster3D, turn bool) {
 	g.frameCount++
 	g.prepareAmbientTarget(m)
 	if turn {
-		m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, true)
+		m.UpdateAmbient(g.collisionSystem, m.AITargetX, m.AITargetY, true, nil)
 		g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 	} else {
 		worker := CreateMonsterWrapper(m, g.collisionSystem, g.collisionSystem.Snapshot(), g)
@@ -244,13 +244,13 @@ func TestLemurPartialSlowProgression(t *testing.T) {
 			t.Run(fmt.Sprintf("TPS=%d/TB=%v", tps, turn), func(t *testing.T) {
 				g, m, _ := lemurTestGame(t, "ring_tailed_lemur")
 				g.config.Engine.TPS = tps
-				m.Speed = config.GlobalEcology.TurnStepSpeed
+				m.Speed = g.config.GetTurnStepSpeed() // one step per turn
 				stepLemur(g, m, false)
 				before, x, y := m.Arbor, m.X, m.Y
-				m.AmbientMoveCredit = 0
+				m.TurnBasedStepCarry = 0
 				stepLemur(g, m, turn)
 				normal := m.Arbor.Progress - before.Progress
-				m.Arbor, m.X, m.Y, m.AmbientMoveCredit = before, x, y, 0
+				m.Arbor, m.X, m.Y, m.TurnBasedStepCarry = before, x, y, 0
 				m.ApplySlow(50, 100, 100)
 				updates := 2
 				if turn {

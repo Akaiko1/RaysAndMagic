@@ -111,14 +111,14 @@ func TestSlowRealtimeCadence(t *testing.T) {
 			}
 		}
 
-		prev := config.GlobalEcology
-		t.Cleanup(func() { config.GlobalEcology = prev })
 		grazer := monster.NewMonster3DFromConfig(0, 0, "goblin", g.config)
 		grazer.Disposition = "grazer"
-		config.GlobalEcology = &config.EcologyConfig{TurnStepSpeed: 2 * grazer.Speed}
+		prev := g.config.MonsterAI.TurnStepSpeed
+		t.Cleanup(func() { g.config.MonsterAI.TurnStepSpeed = prev })
+		g.config.MonsterAI.TurnStepSpeed = 2 * grazer.Speed // half a step per turn
 		hit(g, grazer)
 		for range 4 {
-			if grazer.SpendAmbientTurnMove() {
+			if grazer.TakeTurnBasedSteps() > 0 {
 				s.ambientMoves += "x"
 			} else {
 				s.ambientMoves += "-"
@@ -477,7 +477,7 @@ func TestEnrageAnnouncesOnceAcrossSave(t *testing.T) {
 				g.world.Monsters = []*monster.Monster3D{boss}
 				g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 				boss = spawn()
-				if boss.EnrageAtHP <= 0 {
+				if boss.Abilities.Enrage.AtHP <= 0 {
 					t.Fatal("setup: old_samurai has no enrage threshold")
 				}
 				run := func() {
@@ -490,7 +490,7 @@ func TestEnrageAnnouncesOnceAcrossSave(t *testing.T) {
 					}
 				}
 				const rage = "flies into a furious rage"
-				boss.HitPoints = boss.EnrageAtHP + tc.hpBefore
+				boss.HitPoints = boss.Abilities.Enrage.AtHP + tc.hpBefore
 				if tc.ranBefore {
 					run()
 				}
@@ -512,7 +512,7 @@ func TestEnrageAnnouncesOnceAcrossSave(t *testing.T) {
 					}
 					boss = spawn()
 				}
-				boss.HitPoints = boss.EnrageAtHP + tc.hpAfter
+				boss.HitPoints = boss.Abilities.Enrage.AtHP + tc.hpAfter
 				run()
 				after := countCombatLog(g, rage)
 				if tc.name == "no_save" {
@@ -607,7 +607,7 @@ func TestHeroStunDiminishingReturns(t *testing.T) {
 				c := g.party.Members[0]
 				c.Conditions = nil
 				mob := monster.NewMonster3DFromConfig(400, 400, "goblin", g.config)
-				mob.StunCharChance, mob.StunCharSeconds, mob.StunCharTurns = 1, 4, 4
+				mob.Abilities.Stun.Chance, mob.Abilities.Stun.Seconds, mob.Abilities.Stun.Turns = 1, 4, 4
 				full, window := 4*tps, status.StunDRResetSeconds*tps
 				if tb {
 					full, window = 4, status.StunDRResetTurns
@@ -620,7 +620,7 @@ func TestHeroStunDiminishingReturns(t *testing.T) {
 					}
 				}
 				stun := func() int {
-					g.combat.applyMonsterHitRiders(mob, "", heroHitTarget{g.combat, c})
+					g.combat.applyMonsterHitRiders(mob, "", heroHitTarget{g.combat, c}, true)
 					got := c.StunFramesRemaining
 					if tb {
 						got = c.StunTurnsRemaining

@@ -53,17 +53,19 @@ func (g *MMGame) monsterInPartyFight(m *monster.Monster3D, px, py float64) bool 
 	return g.fightCandidate(m) && (m.FightsParty(px, py) || g.fightsPartyAlly(m, px, py))
 }
 
+// combatAuraMoveSteps is the movement reach the overlay outlines: the monster's
+// next passes, each at its fractional, accumulating step rate.
 func (g *MMGame) combatAuraMoveSteps(m *monster.Monster3D) int {
 	if g.monsterMovementHeld(m) {
 		return 0
 	}
+	passes := g.monsterTurnState.plannedPasses()
 	if g.currentTurn == 1 && g.turnBasedMonsterPassesLeft > 0 {
-		return g.turnBasedMonsterPassesLeft
+		passes = g.turnBasedMonsterPassesLeft
+	} else if g.currentTurn == 0 && g.movementGrantsExtraMonsterPass() {
+		passes = 2
 	}
-	if g.currentTurn == 0 && g.movementGrantsExtraMonsterPass() {
-		return 2
-	}
-	return g.monsterTurnState.plannedPasses()
+	return m.PeekTurnBasedSteps(passes)
 }
 
 func (g *MMGame) combatAuraMovement(c *combatAuraScratch, m *monster.Monster3D, steps int, ts float64) {
@@ -131,7 +133,7 @@ func (g *MMGame) combatAuraAttacks(c *combatAuraScratch, m *monster.Monster3D, t
 		areaReach = int(math.Ceil(m.GetAttackRangePixels() / ts))
 	}
 	if m.CanPounce() && g.combatAuraPounceCooldown(m) <= 0 {
-		areaReach = max(areaReach, int(m.PounceRangePixels/ts))
+		areaReach = max(areaReach, int(m.PounceRangePixels()/ts))
 	}
 	if areaReach > 1 {
 		reach := min(max(g.world.Width, g.world.Height), areaReach)
@@ -241,7 +243,7 @@ func (g *MMGame) combatAuraStateKey(px, py, radius, ts float64) uint64 {
 			continue
 		}
 		_, tx, ty, target := g.monsterAttackTarget(m)
-		state := combatAuraActorKey{id: m.ID, x: m.X, y: m.Y, rangePixels: m.GetAttackRangePixels(), pounce: m.PounceRangePixels, targetX: tx, targetY: ty,
+		state := combatAuraActorKey{id: m.ID, x: m.X, y: m.Y, rangePixels: m.GetAttackRangePixels(), pounce: m.PounceRangePixels(), targetX: tx, targetY: ty,
 			behavior: m.CurrentAIBehavior(), steps: g.combatAuraMoveSteps(m), cooldown: g.combatAuraPounceCooldown(m), alive: m.IsAlive(), hostile: g.battlefieldCombatant(m), hasTarget: target, ranged: m.HasRangedAttack(), champion: m.IsChampion(), flying: m.Flying, pounceReady: m.CanPounce(), stunned: m.StunTurnsRemaining > 0 || g.turnBasedMonsterStunned[m]}
 		if m.AmbientBounds != nil {
 			state.bounds = *m.AmbientBounds

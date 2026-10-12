@@ -273,7 +273,7 @@ func TestAdventureScalingSaveProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	stats := func(m *monster.Monster3D) [8]int {
-		return [8]int{m.Level, m.MaxHitPoints, m.HitPoints, m.ArmorClass, m.DamageMin, m.DamageMax, m.Experience, m.EnrageAtHP}
+		return [8]int{m.Level, m.MaxHitPoints, m.HitPoints, m.ArmorClass, m.DamageMin, m.DamageMax, m.Experience, m.Abilities.Enrage.AtHP}
 	}
 	for _, format := range []string{"current", "legacy", "legacy_no_anchor", "old_boss_curve"} {
 		t.Run(format, func(t *testing.T) {
@@ -367,5 +367,35 @@ func TestAdventureScalingSaveProvenance(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Percent hazards are a share of the boss attack at the visit's level: they
+// grow with the chamber and match the boss's scaled attack; flat ones stay put.
+func TestAdventurePercentDamageFollowsTheBoss(t *testing.T) {
+	cfg := loadTestConfig(t)
+	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	a := &config.AdventureConfig{Boss: &config.AdventureBoss{Monster: "solstice_aureth"}}
+	lane := config.EnvironmentEffect{ID: "lane", Kind: "lane", DamagePercent: 150, SustainPercent: 25}
+	vent := config.EnvironmentEffect{ID: "vent", Kind: "occupation", Damage: 12}
+	previous := 0
+	for _, level := range []int{27, 35, 45} {
+		boss := monster.NewMonster3DFromConfig(0, 0, a.Boss.Monster, cfg)
+		scaleAdventureMonster(boss, level)
+		lo, hi := adventureBossAttack(a, &AdventureVisit{Level: level})
+		if lo != boss.DamageMin || hi != boss.DamageMax {
+			t.Fatalf("L%d: hazard attack %d-%d, scaled boss %d-%d", level, lo, hi, boss.DamageMin, boss.DamageMax)
+		}
+		got := effectDamage(lane, lo, hi)
+		if sum := boss.DamageMin + boss.DamageMax; got.Damage != sum*150/200 || got.SustainDamage != sum*25/200 {
+			t.Fatalf("L%d: lane %d / lingering %d, boss attack %d-%d", level, got.Damage, got.SustainDamage, boss.DamageMin, boss.DamageMax)
+		}
+		if got.Damage <= previous {
+			t.Fatalf("L%d: lane damage %d did not grow past %d", level, got.Damage, previous)
+		}
+		previous = got.Damage
+		if flat := effectDamage(vent, lo, hi); flat.Damage != 12 {
+			t.Fatalf("L%d: flat damage became %d", level, flat.Damage)
+		}
 	}
 }

@@ -34,15 +34,15 @@ func TestBossOriginKeepsLifecycle(t *testing.T) {
 							m.EvadeRadiusTiles = 10
 						}
 					case "enrage":
-						m.EnrageAtHP = 50
+						m.Abilities.Enrage.AtHP = 50
 						m.HitPoints = 20
 					case "inferno":
-						m.InfernoChance = 1
-						m.InfernoRangeTiles = 10
-						m.InfernoDamage = 1
+						m.Abilities.Inferno.Chance = 1
+						m.Abilities.Inferno.RangeTiles = 10
+						m.Abilities.Inferno.Damage = 1
 					case "volley":
-						m.TrapVolleyCount = 8
-						m.TrapVolleyRadiusTiles = 3
+						m.Abilities.TrapVolley.Count = 8
+						m.Abilities.TrapVolley.RadiusTiles = 3
 					}
 					hp := partyHPSum(g)
 					handled := g.combat.runBossSpecials(m, true, tb)

@@ -44,9 +44,9 @@ func TestOverwatchRequiresHostileDelivery(t *testing.T) {
 				m.ChampionTier = "normal"
 				m.HitPoints, m.MaxHitPoints = 100, 500
 				if key == "ningyo" {
-					m.AllyHealChance, m.AllyHealAmount = 1, 200
+					m.Abilities.AllyHeal.Chance, m.Abilities.AllyHeal.Amount = 1, 200
 					if kind == "melee" || kind == "dodged" || kind == "zero damage" {
-						m.AllyHealChance = 0
+						m.Abilities.AllyHeal.Chance = 0
 					}
 					if kind == "dodged" {
 						ch.Luck = 500
@@ -56,7 +56,7 @@ func TestOverwatchRequiresHostileDelivery(t *testing.T) {
 					}
 					if kind == "mixed" {
 						m.MaxHitPoints = 300
-						m.AttacksPerRound = 2
+						m.AttackCooldownMultiplier = 0.5 // two TB swings per action
 					}
 				}
 				want := 1
