@@ -184,17 +184,30 @@ func TestFlaskSpriteTravelAndVisibility(t *testing.T) {
 					t.Fatal("throw refused")
 				}
 				p := g.magicProjectiles[len(g.magicProjectiles)-1]
-				if p.FlaskFlightRange != p.FlaskRemaining || p.FlaskFlightRange <= 0 {
+				if p.Launch.distance != p.FlaskRemaining || p.Launch.distance <= 0 {
 					t.Fatal("throw omitted visual travel snapshot")
 				}
 				g.depthBuffer = nil
-				g.camera.ViewDist = p.FlaskFlightRange * 2
+				g.camera.ViewDist = p.Launch.distance * 2
 				g.camera.FOV = math.Pi / 2
 				r := &Renderer{game: g}
+				// The painter pass must collect the thrown bottle: it names an
+				// element, not a spell, so a spell-graphics lookup would drop it.
+				g.renderHelper = NewRenderingHelper(g)
+				in := g.magicProjectiles[len(g.magicProjectiles)-1]
+				in.X += in.VelX * 20
+				g.magicProjectiles[len(g.magicProjectiles)-1] = in
+				collected := false
+				for _, s := range r.collectProjectiles(nil, g.camera.X, g.camera.Y, math.Cos(g.camera.Angle), math.Sin(g.camera.Angle), g.camera.ViewDist*g.camera.ViewDist) {
+					collected = collected || s.spriteType == SpriteTypeProjectile && s.tileX == projectileEntryMagic && s.tileY == len(g.magicProjectiles)-1
+				}
+				if !collected {
+					t.Fatal("the painter pass dropped the thrown flask")
+				}
 				var poses []flaskRenderPose
 				wrapper := MagicProjectileWrapper{MagicProjectile: &p}
 				for _, fraction := range []float64{.1, .5, .95} {
-					travel := fraction * p.FlaskFlightRange
+					travel := fraction * p.Launch.distance
 					wrapper.SetPosition(g.camera.X+travel, g.camera.Y)
 					pose, ok := r.flaskProjectilePose(p)
 					if !ok || math.IsNaN(pose.y) {
@@ -277,8 +290,8 @@ func TestFlaskSpriteTravelAndVisibility(t *testing.T) {
 				}
 				g.sprites = sm
 				g.depthBuffer = nil
-				p.X = g.camera.X + p.FlaskFlightRange/2
-				p.FlaskRemaining = p.FlaskFlightRange / 2
+				p.X = g.camera.X + p.Launch.distance/2
+				p.FlaskRemaining = p.Launch.distance / 2
 				screen := ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 				defer screen.Deallocate()
 				for _, active := range []bool{true, false} {
@@ -286,7 +299,7 @@ func TestFlaskSpriteTravelAndVisibility(t *testing.T) {
 					g.magicProjectiles = []MagicProjectile{p}
 					runOnDrawFrame(func(_ *ebiten.Image) {
 						screen.Clear()
-						r.drawMagicProjectiles(screen)
+						r.drawMagicProjectile(screen, 0)
 						pixels := make([]byte, 4*screen.Bounds().Dx()*screen.Bounds().Dy())
 						screen.ReadPixels(pixels)
 						visible := 0

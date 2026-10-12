@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -414,12 +415,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		drawUITextColored(screen, clipUIText(line, profileW), profileX, profileY+i*16, lineColor)
 	}
 	statusText := "Status: Normal"
-	if len(member.Conditions) > 0 {
-		names := make([]string, 0, len(member.Conditions))
-		for _, cond := range member.Conditions {
-			names = append(names, cond.String())
-		}
-		statusText = "Status: " + strings.Join(names, ", ")
+	if full, _ := ui.game.partyConditionLabels(member); full != "OK" {
+		statusText = "Status: " + full // the same list the party card shows
 	}
 	for i, line := range wrapUIText(statusText, profileW) {
 		drawUITextColored(screen, line, profileX, profileY+(len(profileLines)+i)*16, textColor)
@@ -528,7 +525,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		if !ok {
 			return label + ": None"
 		}
-		if lookupWeaponConfigByName(weapon.Name) == nil {
+		if weapon.Type != items.ItemWeapon {
 			return label + ": " + weapon.Name // a shield or another non-weapon
 		}
 		preview := ui.game.combat.calculateWeaponDamagePreview(weapon, member)
@@ -540,30 +537,53 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 	leftLines := []struct {
 		text    string
 		heading bool
+		details []string
+		lines   []string
 	}{
-		{"OFFENSE", true},
-		{fmt.Sprintf("Physical attack bonus: +%d", ui.game.combatBuffOutBonusForDamageType(damagecalc.Physical.String())), false},
-		{fmt.Sprintf("Universal crit: %d%%", ui.game.combat.totalCriticalChance(0, member)), false},
-		{weaponLine("Main hand", items.SlotMainHand, ui.game.combat.WeaponCooldownFrames(member)), false},
-		{weaponLine("Off hand", items.SlotOffHand, ui.game.combat.OffHandWeaponCooldownFrames(member)), false},
-		{"DEFENSE", true},
-		{fmt.Sprintf("Armor Class: %d", m.ArmorClass), false},
-		{fmt.Sprintf("Armor: -%d%% physical / -%d%% other", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)), false},
-		{fmt.Sprintf("Perfect Dodge: %d%%", ui.game.combat.PerfectDodgeChance(member)), false},
-		{fmt.Sprintf("Physical resistance: -%d%%", m.ResistPct), false},
-		{fmt.Sprintf("Flat reduction: %d skill / %d buff", m.SkillFlat, m.FlatBuff), false},
+		{text: "OFFENSE", heading: true},
+		{text: fmt.Sprintf("Physical attack bonus: +%d", ui.game.combatBuffOutBonusForDamageType(damagecalc.Physical.String()))},
+		{text: fmt.Sprintf("Universal crit: %d%%", ui.game.combat.totalCriticalChance(0, member))},
+		{text: weaponLine("Main hand", items.SlotMainHand, ui.game.combat.WeaponCooldownFrames(member))},
+		{text: weaponLine("Off hand", items.SlotOffHand, ui.game.combat.OffHandWeaponCooldownFrames(member))},
+		{text: "DEFENSE", heading: true},
+		{text: fmt.Sprintf("Armor Class: %d", m.ArmorClass)},
+		{text: fmt.Sprintf("Armor: -%d%% physical / -%d%% other", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false))},
+		{text: fmt.Sprintf("Perfect Dodge: %d%%", ui.game.combat.PerfectDodgeChance(member))},
+		{text: fmt.Sprintf("Physical resistance: -%d%%", m.ResistPct)},
+		{text: uitext.Text("damage.flat_reduction_summary", m.SkillFlat+m.FlatBuff), details: []string{
+			uitext.Text("damage.flat_reduction_sources", m.SkillFlat, m.FlatBuff),
+			uitext.Text("damage.flat_reduction_rules"),
+		}},
 		// The strongest reflector guards every hero, so the sheet shows the party value.
-		{fmt.Sprintf("Projectile reflection (party): %d%%", ui.game.partyProjectileReflectPct()), false},
-		{fmt.Sprintf("Melee thorns: %d%% phys / %d%% fire", ui.game.cardThornsPct()+weaponThornsPct(member), member.SetFieryRipostePct()), false},
-		{fmt.Sprintf("Status duration: %d%% / stun %d%%", clampHostileStatusDurationPct(member.ItemStatusDurationPct()), clampHostileStatusDurationPct(member.ItemStatusDurationPct()+member.SetStunDurationPct())), false},
+		{text: fmt.Sprintf("Projectile reflection (party): %d%%", ui.game.partyProjectileReflectPct())},
+		{text: fmt.Sprintf("Melee thorns: %d%% phys / %d%% fire", ui.game.cardThornsPct()+weaponThornsPct(member), member.SetFieryRipostePct())},
+		{text: fmt.Sprintf("Status duration: %d%% / stun %d%%", clampHostileStatusDurationPct(member.ItemStatusDurationPct()), clampHostileStatusDurationPct(member.ItemStatusDurationPct()+member.SetStunDurationPct()))},
 	}
-	for i, line := range leftLines {
+	combatRows := 0
+	for i := range leftLines {
+		line := &leftLines[i]
+		line.lines = []string{clipUIText(line.text, leftW)}
+		if len(line.details) > 0 {
+			line.lines = wrapUIText(line.text, leftW)
+		}
+		combatRows += len(line.lines)
+	}
+	combatRowH := min(sectionRowH, (layout.combat.h-sectionBodyY-8)/combatRows)
+	combatY := layout.combat.y + sectionBodyY
+	for _, line := range leftLines {
 		lineColor := textColor
 		if line.heading {
 			lineColor = headingColor
 		}
-		y := layout.combat.y + sectionBodyY + i*sectionRowH
-		drawUITextColored(screen, clipUIText(line.text, leftW), combatX, y, lineColor)
+		for i, text := range line.lines {
+			drawUITextColored(screen, text, combatX, combatY+i*combatRowH, lineColor)
+		}
+		rowH := len(line.lines) * combatRowH
+		if len(tooltip) == 0 && len(line.details) > 0 && isMouseHoveringBox(mouseX, mouseY, combatX, combatY, combatX+leftW, combatY+rowH) {
+			tooltip = character.PlainCardRows(append([]string{line.text}, line.details...))
+			tooltipX, tooltipY = mouseX+16, mouseY+8
+		}
+		combatY += rowH
 	}
 
 	resistY := layout.combat.y + sectionBodyY

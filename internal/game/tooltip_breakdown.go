@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -220,8 +221,11 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 		scaled(target+" bonus", "+%s", def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster)
 	}
 	if def.IncomingDamageReduction > 0 {
-		scaled("reduction", "-%s per hit", def.IncomingDamageReduction, def.IncomingDamageReductionGrandmaster)
-		effects.AddDetail("Cuts normal damage after armor and resistance; true damage and damage over time pass")
+		values := tierValues(func(t int) int {
+			return scaledMasteryValueAt(def.IncomingDamageReduction, def.IncomingDamageReductionGrandmaster, t)
+		})
+		effects.Add("%s", uitext.Text("damage.flat_reduction_value", tierValueText(hero, tier, values)))
+		effects.AddDetail("%s", uitext.Text("damage.flat_reduction_rules"))
 	}
 	return effects
 }

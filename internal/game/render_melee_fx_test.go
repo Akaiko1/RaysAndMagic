@@ -264,7 +264,7 @@ func TestSpellProjectileRenderingIgnoresCameraShake(t *testing.T) {
 			g.frameCount = frame
 			undoView := g.swapCameraPose(cameraPose{g.camera.X, g.camera.Y + .7, .02})
 			undoShake := g.beginScreenShakeSwap()
-			r.drawMagicProjectiles(dst)
+			r.drawMagicProjectile(dst, 0)
 			undoShake()
 			undoView()
 			for _, v := range r.weaponMaterialQuad {
@@ -479,8 +479,9 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 		tx, ty := to.X, to.Y
 		to.X, to.Y = from.X+ts/4, from.Y
 		short := g.combat.continuationLaunch(from, to)
-		wantOffset := visualAnchorFor(to).centerOffset(g, to.X-g.camera.X)
-		if math.Abs(short.screenOffsetY(g, to.X, to.Y)-wantOffset) > 1e-6 {
+		depth := to.X - g.camera.X
+		wantOffset := visualAnchorFor(to).centerOffset(g, depth)
+		if math.Abs(short.eyeDrop(g, to.X, to.Y)*g.viewFocal()/depth-wantOffset) > 1e-6 {
 			t.Fatal("short continuation retained its departure anchor at the target")
 		}
 		to.X, to.Y = tx, ty
@@ -488,12 +489,15 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 		now, prev := sample(x, y), sample(x-vx*3, y-vy*3)
 		wantAngle := math.Atan2(float64(now.screenY-prev.screenY)+float64(now.size-prev.size)/2, float64(now.screenX-prev.screenX))
 		g.arrows = []Arrow{{Active: true, X: x, Y: y, VelX: vx, VelY: vy, BowKey: "hunting_bow", Launch: launch, LifeTime: def.Physics.GetLifetimeFrames(), Owner: ProjectileOwnerPlayer}}
-		r.drawArrows(dst)
+		r.drawArrow(dst, 0)
 		if !g.arrows[0].RenderAngleSet || math.Abs(g.arrows[0].RenderAngle-wantAngle) > 1e-6 {
 			t.Fatalf("wide=%v: shaft diverged from anchored flight: got %g want %g", wide, g.arrows[0].RenderAngle, wantAngle)
 		}
 		original := sample(to.X, to.Y)
 		pierced := launch.piercing(g.combat, to)
+		// A target that dies or walks off after release never steers the shot
+		// sideways, but the shot still arrives at the body height it was aimed
+		// at instead of dropping to eye level (the RT strafing bug).
 		for _, state := range []string{"dead", "moved"} {
 			hp, tx := to.HitPoints, to.X
 			if state == "dead" {
@@ -502,9 +506,12 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 				to.X += ts
 			}
 			p := sample(launch.aimX, launch.aimY)
-			base, _ := r.projectMovingEntity(launch.aimX, launch.aimY, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
-			if p != base {
-				t.Fatalf("%s target still bends flight", state)
+			base, _ := r.projectMovingEntity(launch.aimX, launch.aimY, 0, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
+			if p.screenX != base.screenX || p.size != base.size {
+				t.Fatalf("%s target steered the shot sideways", state)
+			}
+			if p.screenY != original.screenY {
+				t.Fatalf("%s target dropped the shot off the aimed body: y %d want %d", state, p.screenY, original.screenY)
 			}
 			to.HitPoints, to.X = hp, tx
 		}
@@ -514,7 +521,7 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 			t.Fatal("piercing kill lost its body anchor")
 		}
 		x, y = launch.aimX+launch.dx*2*ts, launch.aimY+launch.dy*2*ts
-		base, _ := r.projectMovingEntity(x, y, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
+		base, _ := r.projectMovingEntity(x, y, 0, def.Graphics.BaseSize, def.Graphics.MinSize, def.Graphics.MaxSize)
 		if got := sample(x, y); got != base {
 			t.Fatal("pierce did not return to its physical ray")
 		}
@@ -523,7 +530,7 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 			launch = g.combat.continuationLaunch(from, to)
 			g.magicProjectiles = []MagicProjectile{{Active: true, X: from.X + launch.dx*ts*.5, Y: from.Y + launch.dy*ts*.5, VelX: launch.dx * 2, VelY: launch.dy * 2, SpellType: "firebolt", Launch: launch, Owner: ProjectileOwnerPlayer}}
 			pixels := make([]byte, dst.Bounds().Dx()*dst.Bounds().Dy()*4)
-			runOnDrawFrame(func(_ *ebiten.Image) { dst.Clear(); r.drawMagicProjectiles(dst); dst.ReadPixels(pixels) })
+			runOnDrawFrame(func(_ *ebiten.Image) { dst.Clear(); r.drawMagicProjectile(dst, 0); dst.ReadPixels(pixels) })
 			lit := 0
 			for i := 3; i < len(pixels); i += 4 {
 				if pixels[i] > 0 {

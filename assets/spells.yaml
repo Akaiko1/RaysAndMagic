@@ -744,7 +744,7 @@ spells:
   hour_of_power:
     duration_by_mastery: [600, 720, 840, 960]
     name: "Hour of Power"
-    description: "The party deals more damage and takes less from every hit"
+    description: "Grants the party bonus damage and Flat damage reduction"
     school: "light"
     spell_points_cost: 18
     category: buff
@@ -1067,7 +1067,7 @@ spells:
   stone_skin:
     duration_by_mastery: [300, 360, 420, 480]
     name: "Stone Skin"
-    description: "Hardens the party's skin to stone, reducing normal damage from each hit"
+    description: "Hardens the party's skin to stone, granting Flat damage reduction"
     school: "earth"
     spell_points_cost: 10
     category: buff

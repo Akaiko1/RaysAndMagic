@@ -38,7 +38,7 @@ func TestSolsticeSlowActionFloorAndRecovery(t *testing.T) {
 	if got := g.quickenRecovery(hero, 60); got != 80 {
 		t.Fatalf("slowed recovery=%d", got)
 	}
-	if got := g.partyConditionLabel(hero); got != "Slowed" {
+	if got, _ := g.partyConditionLabels(hero); got != "Slowed" {
 		t.Fatalf("condition label=%s", got)
 	}
 }

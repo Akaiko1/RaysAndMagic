@@ -360,6 +360,7 @@ type Monster3D struct {
 	ReturningHome       bool    // Disengaged actor walks home without healing or teleporting.
 	HitTintFrames       int     // Frames remaining for red hit tint
 	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
+	BodyCenterFrac      float64 // Render-only: visible body centre as a share of frame height (0 = unmeasured)
 	StandeeYaw          float64 // Render-only: displayed token yaw (eases toward heading)
 	StandeeYawTick      int64   // Render-only: frame the token yaw was last advanced
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)

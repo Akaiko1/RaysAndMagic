@@ -21,7 +21,19 @@ type projectileLaunch struct {
 	// startX/startY is a continuation leg's drawn offset at the actor it left.
 	startX, startY            float64
 	startAnchor, passedAnchor monsterVisualAnchor
+	// aimAnchor is the selected target's body at release; the drawn shot keeps
+	// it when the target moves or dies before the shot arrives.
+	aimAnchor monsterVisualAnchor
+	// lobApex draws a lobbed shot cresting this far (world units) above the
+	// hand-to-landing line over distance; zero flies straight.
+	lobApex float64
 }
+
+// lobHandTiles is the throwing hand's height above the floor.
+const lobHandTiles = .18
+
+// flaskApexTiles is how far a thrown flask crests above its hand-to-floor line.
+const flaskApexTiles = .8
 
 // presentationReturnTiles is how far a drawn shot travels while easing from
 // an actor's drawn position back onto its physical ray.
@@ -38,7 +50,7 @@ func (cs *CombatSystem) continuationLaunch(from, to *monster.Monster3D) projecti
 	fx, fy := cs.monsterVisualPos(from)
 	return projectileLaunch{x: from.X, y: from.Y, dx: (to.X - from.X) / d, dy: (to.Y - from.Y) / d,
 		target: to, aimX: to.X, aimY: to.Y, aimDistance: d, startX: fx - from.X, startY: fy - from.Y,
-		startAnchor: visualAnchorFor(from)}
+		startAnchor: visualAnchorFor(from), aimAnchor: visualAnchorFor(to)}
 }
 
 // piercing hands the launch to a continuation that has just struck victim.
@@ -97,7 +109,7 @@ func (cs *CombatSystem) partyProjectileLaunch(angle, maxRange float64, explicit 
 		if d > 0 {
 			launch.angle = math.Atan2(best.Y-y, best.X-x)
 			launch.distance = min(maxRange, d)
-			launch.target = best
+			launch.target, launch.aimAnchor = best, visualAnchorFor(best)
 			launch.aimX, launch.aimY, launch.aimDistance = best.X, best.Y, d
 		}
 	}

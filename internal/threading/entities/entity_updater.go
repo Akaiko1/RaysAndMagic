@@ -52,8 +52,6 @@ type MonsterUpdateInterface interface {
 	Update()
 	ApplyCollisionUpdate()
 	IsAlive() bool
-	GetPosition() (float64, float64)
-	SetPosition(x, y float64)
 }
 
 // ProjectileUpdateInterface defines the interface for projectiles. OnCollision
@@ -61,12 +59,10 @@ type MonsterUpdateInterface interface {
 // only); ApplyCollisionEffects spawns the resulting hit effects/screen shake -
 // see the type doc's two-phase apply note.
 type ProjectileUpdateInterface interface {
-	Update()
 	IsActive() bool
 	GetPosition() (float64, float64)
 	SetPosition(x, y float64)
 	GetVelocity() (float64, float64)
-	SetVelocity(vx, vy float64)
 	GetLifetime() int
 	SetLifetime(lifetime int)
 	// IgnoresWalls: the projectile flies through solid terrain (a mortar's
@@ -151,7 +147,6 @@ func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdat
 				p.SetPosition(newX, newY)
 			} else {
 				p.OnCollision(x, y)
-				p.SetLifetime(0)
 			}
 			p.SetLifetime(p.GetLifetime() - 1)
 		}

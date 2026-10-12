@@ -484,19 +484,20 @@ func (g *MMGame) spawnStarburstFx(cx, cy, radiusTiles float64) {
 			tint := mixColor(star, [3]int{255, 230, 140}, rand.Float64()*0.5) // white->gold sparkle
 			life := SpellParticleLife + rand.Intn(8)
 			particles = append(particles, SpellHitParticle{
-				X:        wx,
-				Y:        wy,
-				OffsetX:  (rand.Float64() - 0.5) * 8,
-				OffsetY:  -36 - rand.Float64()*28, // start above the tile
-				VelX:     (rand.Float64() - 0.5) * 0.8,
-				VelY:     2.6 + rand.Float64()*1.6, // fall down into the tile
-				Gravity:  0.12,
-				Color:    tint,
-				LifeTime: life,
-				MaxLife:  life,
-				Size:     SpellParticleSize,
-				Trail:    true, // leaves a slowly-evaporating streak as it falls
-				Active:   true,
+				X:         wx,
+				Y:         wy,
+				OffsetX:   (rand.Float64() - 0.5) * 8,
+				OffsetY:   -36 - rand.Float64()*28, // start above the tile
+				VelX:      (rand.Float64() - 0.5) * 0.8,
+				VelY:      2.6 + rand.Float64()*1.6, // fall down into the tile
+				Gravity:   0.12,
+				Color:     tint,
+				LifeTime:  life,
+				MaxLife:   life,
+				Size:      SpellParticleSize,
+				Trail:     true, // leaves a slowly-evaporating streak as it falls
+				DepthTest: true,
+				Active:    true,
 			})
 		}
 		return particles
@@ -540,7 +541,7 @@ const quakeShakeAmp = 2.6
 // offset units retain the logical FOV in either view mode; focal length and
 // depth cancel. OffsetY 0 is the horizon when no body anchor is attached.
 func (g *MMGame) groundOffsetY() float64 {
-	return 0.5 * float64(g.config.GetTileSize()) * g.camera.FOV
+	return eyeHeightTiles * float64(g.config.GetTileSize()) * g.camera.FOV
 }
 
 func (g *MMGame) offsetYPerTileHeight() float64 {
@@ -672,7 +673,7 @@ func (g *MMGame) UpdateHitEffects() {
 					trail = append(trail, SpellHitEffect{Anchor: effect.Anchor, Active: true, Particles: []SpellHitParticle{{
 						X: particle.X, Y: particle.Y,
 						OffsetX: particle.OffsetX, OffsetY: particle.OffsetY,
-						Color: particle.Color, LifeTime: 14, MaxLife: 14, Size: sz, Active: true,
+						Color: particle.Color, LifeTime: 14, MaxLife: 14, Size: sz, DepthTest: particle.DepthTest, Active: true,
 					}}})
 				}
 			}

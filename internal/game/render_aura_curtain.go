@@ -174,7 +174,7 @@ func (r *Renderer) appendAuraCurtain(screen *ebiten.Image, s UnifiedSpriteRender
 	verts, indices := r.auraCurtainVerts, r.auraCurtainIndices
 	vertex := func(x float64) (ebiten.Vertex, ebiten.Vertex) {
 		inv := edge.inv0 + (x-edge.left)*edge.invStep
-		floorRise := r.game.viewFocal() * 0.5 * edge.tileSize * inv
+		floorRise := r.game.viewFocal() * eyeHeightTiles * edge.tileSize * inv
 		bottom, rise := r.game.viewHorizon()+floorRise, floorRise*edge.riseFraction
 		v := ebiten.Vertex{DstX: float32(x), DstY: float32(bottom - rise),
 			SrcX: float32(bottom), SrcY: float32(rise),
@@ -191,7 +191,7 @@ func (r *Renderer) appendAuraCurtain(screen *ebiten.Image, s UnifiedSpriteRender
 			inv := edge.inv0 + (math.Max(sx0, math.Min(sx1, float64(x)+0.5))-edge.left)*edge.invStep
 			depth := 1 / inv
 			visible = !(x < len(r.game.depthBuffer) && depth >= r.game.depthBuffer[x])
-			floorRise := r.game.viewFocal() * 0.5 * edge.tileSize * inv
+			floorRise := r.game.viewFocal() * eyeHeightTiles * edge.tileSize * inv
 			visible = visible && r.game.viewHorizon()+floorRise*(1-edge.riseFraction) < float64(height)
 		}
 		if start >= 0 && !visible {

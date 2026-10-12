@@ -630,3 +630,61 @@ func TestPartyCooldownCacheForgetsReplacedHeroes(t *testing.T) {
 		t.Fatalf("current hero cooldown state = %+v, %v; want its peak of 30", st, ok)
 	}
 }
+
+// The card's status line never loses a status: at every interface frame and
+// font it either shows the full list or a shortened one with the full list on
+// hover. It stays inside the card content and only borrows the equipment
+// column's last row when the party auto-assign button is not there. Normal
+// (1920x1080) keeps one status in the authored line under the meters.
+func TestPartyStatusLineFitsEveryFrameAndFont(t *testing.T) {
+	sets := [][]character.Condition{
+		{character.ConditionPoisoned},
+		{character.ConditionPoisoned, character.ConditionStunned},
+		{character.ConditionPoisoned, character.ConditionBurning, character.ConditionStunned},
+		{character.ConditionPoisoned, character.ConditionBurning, character.ConditionStunned, character.ConditionCursed},
+		{character.ConditionPoisoned, character.ConditionBurning, character.ConditionStunned, character.ConditionCursed,
+			character.ConditionDiseased, character.ConditionParalyzed},
+	}
+	frames := withInterfaceFrames(t, [][2]int{{1920, 1080}})
+	forEachUIFont(t, func(t *testing.T) {
+		for _, f := range frames {
+			cfg := loadTestConfig(t)
+			cfg.Display.ScreenWidth, cfg.Display.ScreenHeight = f[0], f[1]
+			g := newTestGame(cfg, newTestWorldSized(cfg, 12, 12))
+			fillTestParty(t, g)
+			pw, ph, left, top := partyPortraitLayout(g)
+			x, y, w, _ := partyCardPanelRect(left, top, pw, ph)
+			content := makePartyCardContentLayout(x, y, w)
+			auto := makePartyAutoButtonLayout(content)
+			hero := g.party.Members[0]
+			for _, set := range sets {
+				hero.Conditions = append([]character.Condition(nil), set...)
+				full, short := g.partyConditionLabels(hero)
+				for _, rowFree := range []bool{true, false} {
+					line := partyStatusLineLayout(content, y+67, full, short, rowFree)
+					name := fmt.Sprintf("%dx%d %q rowFree=%v", f[0], f[1], full, rowFree)
+					if uiTextWidth(line.text) > line.box.w-2 {
+						t.Fatalf("%s: %q overflows its %dpx box", name, line.text, line.box.w)
+					}
+					if line.box.x < content.box.x || line.box.right() > content.box.right() {
+						t.Fatalf("%s: status box %+v leaves the card content %+v", name, line.box, content.box)
+					}
+					if line.text != full && line.full != full {
+						t.Fatalf("%s: shortened to %q without the full list on hover", name, line.text)
+					}
+					if !rowFree && line.box.right() > auto.x {
+						t.Fatalf("%s: status box %+v runs under the auto-assign button %+v", name, line.box, auto)
+					}
+				}
+			}
+			if f == [2]int{1920, 1080} {
+				hero.Conditions = []character.Condition{character.ConditionPoisoned}
+				full, short := g.partyConditionLabels(hero)
+				line := partyStatusLineLayout(content, y+67, full, short, true)
+				if line.box != (layoutRect{content.stats.x, y + 67, content.stats.w, uiTextCharHeight}) || line.full != "" {
+					t.Fatalf("Normal moved a single status off the authored line: %+v", line)
+				}
+			}
+		}
+	})
+}

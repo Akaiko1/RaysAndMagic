@@ -75,7 +75,6 @@ type MagicProjectile struct {
 	HitBudget                          *spellVolleyHitBudget // Shared by the physical fragments of one cast; also runtime-only.
 	FlaskKey                           string
 	FlaskRemaining, FlaskRadius        float64
-	FlaskFlightRange                   float64
 	FlaskPoisonFrames, FlaskBurnFrames int
 
 	ID                 string  // Unique identifier
@@ -3605,13 +3604,6 @@ type MagicProjectileWrapper struct {
 	impactY       float64
 }
 
-func (mpw *MagicProjectileWrapper) Update() {
-	mpw.MagicProjectile.LifeTime--
-	if mpw.MagicProjectile.LifeTime <= 0 {
-		mpw.MagicProjectile.Active = false
-	}
-}
-
 func (mpw *MagicProjectileWrapper) IsActive() bool {
 	return mpw.MagicProjectile.Active && mpw.MagicProjectile.LifeTime > 0
 }
@@ -3647,11 +3639,6 @@ func (mpw *MagicProjectileWrapper) GetVelocity() (float64, float64) {
 	return mpw.MagicProjectile.VelX, mpw.MagicProjectile.VelY
 }
 
-func (mpw *MagicProjectileWrapper) SetVelocity(vx, vy float64) {
-	mpw.MagicProjectile.VelX = vx
-	mpw.MagicProjectile.VelY = vy
-}
-
 // IgnoresWalls lets visual-only flights finish their presentation independently
 // of the damage event that owns them (area spells or deferred mortar impacts).
 func (mpw *MagicProjectileWrapper) IgnoresWalls() bool {
@@ -3672,7 +3659,7 @@ func (mpw *MagicProjectileWrapper) OnCollision(hitX, hitY float64) {
 // ApplyCollisionEffects spawns the hit effect for any impact OnCollision
 // recorded this tick. Phase 2 of the two-phase projectile tick (see
 // entities.EntityUpdater.UpdateProjectilesParallel): called serially, once
-// every projectile's Update()/OnCollision has returned - never from a worker.
+// every projectile's move/OnCollision has returned - never from a worker.
 func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
 	if !mpw.pendingImpact {
 		return
@@ -3704,13 +3691,6 @@ type ArrowWrapper struct {
 	impactY       float64
 }
 
-func (aw *ArrowWrapper) Update() {
-	aw.Arrow.LifeTime--
-	if aw.Arrow.LifeTime <= 0 {
-		aw.Arrow.Active = false
-	}
-}
-
 func (aw *ArrowWrapper) IsActive() bool {
 	return aw.Arrow.Active && aw.Arrow.LifeTime > 0
 }
@@ -3734,11 +3714,6 @@ func (aw *ArrowWrapper) SetPosition(x, y float64) {
 
 func (aw *ArrowWrapper) GetVelocity() (float64, float64) {
 	return aw.Arrow.VelX, aw.Arrow.VelY
-}
-
-func (aw *ArrowWrapper) SetVelocity(vx, vy float64) {
-	aw.Arrow.VelX = vx
-	aw.Arrow.VelY = vy
 }
 
 // OnCollision runs in a worker goroutine - it only touches this projectile's

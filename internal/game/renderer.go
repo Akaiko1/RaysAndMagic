@@ -1454,9 +1454,6 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Coloured glow filling every teleporter tile (floor inherited).
 		r.drawTeleporterTileFx(screen)
 
-		// Draw fireballs and sword attacks
-		r.drawProjectiles(screen)
-
 		// Draw slash effects
 		r.drawSlashEffects(screen)
 
@@ -2071,7 +2068,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	setFloat("PlaneCos", float32(planeX))
 	setFloat("PlaneSin", float32(planeY))
 	setFloat("Horizon", float32(horizon))
-	setFloat("RowDistFactor", float32(0.5*r.game.viewFocal()*float64(tileSize)))
+	setFloat("RowDistFactor", float32(eyeHeightTiles*r.game.viewFocal()*float64(tileSize)))
 	setFloat("TileSize", float32(tileSize))
 	setFloat("ViewDist", float32(r.game.camera.ViewDist))
 	setFloat("MinBrightness", float32(r.game.config.Graphics.BrightnessMin))
@@ -3069,6 +3066,7 @@ const (
 	SpriteTypeMonsterCorpse
 	SpriteTypeZoneEffect
 	SpriteTypeTileCurtain
+	SpriteTypeProjectile
 )
 
 // UnifiedSpriteRenderData holds data for rendering any sprite type in a unified sorted pass
@@ -3495,6 +3493,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if !visible {
 			continue
 		}
+		r.game.measureMonsterBody(mon)
 		bottomF = visualAnchorFor(mon).bottom(r.game, depthPerp, bottomF, sizeF)
 
 		var sprite *ebiten.Image
@@ -3689,6 +3688,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
+	sprites = r.collectProjectiles(sprites, camX, camY, camDirX, camDirY, viewDistSq)
 	sprites = r.collectPersistentDamageZoneEffects(sprites)
 	sprites = r.collectBossFireTrapBorders(sprites)
 
@@ -3766,6 +3766,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			r.drawMonsterCorpse(screen, s)
 		case SpriteTypeZoneEffect:
 			r.drawZoneVisual(screen, r.zoneVisuals[s.tileX])
+		case SpriteTypeProjectile:
+			if s.tileX == projectileEntryArrow {
+				r.drawArrow(screen, s.tileY)
+			} else {
+				r.drawMagicProjectile(screen, s.tileY)
+			}
 		}
 	}
 	r.drawWorldFacesBefore(screen, math.Inf(-1))
@@ -4605,40 +4611,109 @@ func (r *Renderer) selectAnimatedSpriteFrameWithStride(sprite *ebiten.Image, fra
 	return r.animationFrames(sprite)[frame], h, h
 }
 
-// drawProjectiles draws moving spell and weapon projectiles. Melee swings render
-// through slashEffects, not this projectile pass.
-func (r *Renderer) drawProjectiles(screen *ebiten.Image) {
-	r.drawMagicProjectiles(screen)
-	r.drawArrows(screen)
+// collectProjectiles adds every flying shot to the painter pass at its drawn
+// depth; a wall-depth test alone let shots shine through trees and actors.
+// A prismatic ray spans from the caster to its target, and a shrapmetal shard
+// still leaving the hand fan is drawn near the camera; both stay in front.
+func (r *Renderer) collectProjectiles(sprites []UnifiedSpriteRenderData, camX, camY, camDirX, camDirY, viewDistSq float64) []UnifiedSpriteRenderData {
+	w := float64(r.game.worldWidth())
+	reach := w * projectileViewMargin
+	add := func(kind, idx int, launch projectileLaunch, x, y, vx, vy float64) {
+		x, y, _, _ = launch.renderMotion(r.game.combat, x, y, vx, vy)
+		if _, _, ok := cullAndProject(x, y, camX, camY, camDirX, camDirY, 0, viewDistSq); !ok {
+			return
+		}
+		if screenX, depth, ok := r.game.renderHelper.projectToScreenXF(x, y); ok && screenX > -reach && screenX < w+reach {
+			sprites = append(sprites, UnifiedSpriteRenderData{spriteType: SpriteTypeProjectile, depthPerp: depth, tileX: kind, tileY: idx})
+		}
+	}
+	front := func(kind, idx int) {
+		sprites = append(sprites, UnifiedSpriteRenderData{spriteType: SpriteTypeProjectile, tileX: kind, tileY: idx})
+	}
+	for i := range r.game.magicProjectiles {
+		p := &r.game.magicProjectiles[i]
+		if !p.Active {
+			continue
+		}
+		if p.FlaskKey != "" { // a bottle names its element, not a spell
+			add(projectileEntryMagic, i, p.Launch, p.X, p.Y, p.VelX, p.VelY)
+			continue
+		}
+		graphics, ok := r.game.magicProjectileGraphics(*p)
+		if !ok {
+			continue
+		}
+		switch spellFxStyleKinds[graphics.ProjectileFx] {
+		case spellPrismaticRay:
+			front(projectileEntryMagic, i)
+			continue
+		case spellShrapmetal:
+			if _, fromFan := shrapmetalFlight(*p); fromFan < 1 {
+				front(projectileEntryMagic, i) // still leaving the hand fan
+				continue
+			}
+		}
+		add(projectileEntryMagic, i, p.Launch, p.X, p.Y, p.VelX, p.VelY)
+	}
+	for i := range r.game.arrows {
+		if a := &r.game.arrows[i]; a.Active {
+			add(projectileEntryArrow, i, a.Launch, a.X, a.Y, a.VelX, a.VelY)
+		}
+	}
+	return sprites
+}
+
+// Painter entries name their projectile list in tileX and the index in tileY.
+const (
+	projectileEntryMagic = iota
+	projectileEntryArrow
+)
+
+// projectileViewMargin keeps a shot just outside the view in the painter pass
+// while its glow or hand offset can still reach the view, as a view-width share.
+const projectileViewMargin = .2
+
+// wallHides reports whether the nearest wall in screen column x hides a point
+// at depth whose screen Y is y: only below that wall's top, and only once the
+// point lies more than slack beyond the wall.
+func (g *MMGame) wallHides(x int, depth, slack, y float64) bool {
+	if x < 0 || x >= len(g.depthBuffer) || depth <= g.depthBuffer[x]+slack {
+		return false
+	}
+	return x >= len(g.wallTopBuffer) || y >= g.wallTopBuffer[x]
 }
 
 // projectileProjection bundles the camera-space projection of a point-like
 // moving projectile. Returned by projectMovingEntity when the entity passes
-// range / FOV / depth-buffer culls.
+// the range and FOV culls.
 type projectileProjection struct {
 	screenX int
 	screenY int
 	size    int
+	depth   float64
+	centerY float64
 }
 
 type projectileRenderMotion struct{ x, y, vx, vy float64 }
 
 // Body, shaft tangent and wake samples all pass through this projection.
 // Samples remain on the physical ray until both presentation axes are applied.
+// A nearer wall hides a shot whose centre is below that wall's top, so a lob
+// shows above the walls it clears.
 func (r *Renderer) projectLaunchedEntity(launch projectileLaunch, x, y, vx, vy float64, baseSize, minSize, maxSize int) (projectileProjection, projectileRenderMotion, bool) {
 	rx, ry, rvx, rvy := launch.renderMotion(r.game.combat, x, y, vx, vy)
-	proj, ok := r.projectMovingEntity(rx, ry, baseSize, minSize, maxSize)
-	if ok {
-		proj.screenY += int(launch.screenOffsetY(r.game, x, y))
+	proj, ok := r.projectMovingEntity(rx, ry, launch.eyeDrop(r.game, x, y), baseSize, minSize, maxSize)
+	if ok && r.game.wallHides(proj.screenX, proj.depth, 0, proj.centerY) {
+		ok = false
 	}
 	return proj, projectileRenderMotion{rx, ry, rvx, rvy}, ok
 }
 
-// projectMovingEntity culls and projects a point-like entity at world (x, y)
-// against the camera frustum and depth buffer. baseSize/minSize/maxSize come
-// from the entity's graphics config (spell or weapon). Returns ok=false if the
-// entity should be skipped this frame.
-func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize int) (projectileProjection, bool) {
+// projectMovingEntity culls and projects a point-like entity at world (x, y),
+// drawn drop world units below eye level, against the camera frustum.
+// baseSize/minSize/maxSize come from the entity's graphics config (spell or
+// weapon). Returns ok=false if the entity should be skipped this frame.
+func (r *Renderer) projectMovingEntity(x, y, drop float64, baseSize, minSize, maxSize int) (projectileProjection, bool) {
 	cam := r.game.camera
 	dx := x - cam.X
 	dy := y - cam.Y
@@ -4657,12 +4732,7 @@ func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize 
 
 	halfW := float64(r.game.worldWidth()) / 2
 	screenX := int(halfW * (1 + side/(depthPerp*basis.halfFovTan)))
-
-	if screenX >= 0 && screenX < len(r.game.depthBuffer) {
-		if depthPerp >= r.game.depthBuffer[screenX] {
-			return projectileProjection{}, false
-		}
-	}
+	centerY := r.game.viewHorizon() + drop*r.game.viewFocal()/depthPerp
 
 	zoom := r.game.viewFocal() / float64(r.game.worldHeight())
 	size := int(float64(baseSize) * zoom / depthPerp * float64(r.game.config.GetTileSize()))
@@ -4675,8 +4745,10 @@ func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize 
 
 	return projectileProjection{
 		screenX: screenX,
-		screenY: int(r.game.viewHorizon()) - size/2,
+		screenY: int(centerY) - size/2,
 		size:    size,
+		depth:   depthPerp,
+		centerY: centerY,
 	}, true
 }
 
@@ -4707,7 +4779,6 @@ func spellParticleScreenSize(particleSize int, lifeRatio, scale float64) float64
 	return size
 }
 
-// drawMagicProjectiles draws all active magic projectiles
 // drawProjectileCollisionBox draws the debug collision box for a flying
 // projectile (magic bolt or arrow), scaled and centered on its on-screen sprite.
 // No-op for non-positive dimensions. Shared by the projectile and arrow renderers.
@@ -4729,124 +4800,124 @@ func (r *Renderer) drawProjectileCollisionBox(screen *ebiten.Image, screenX, scr
 	worldDrawImage(screen, r.whiteImg, boxOpts)
 }
 
-func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
+// drawMagicProjectile draws one spell, flask or visual-only flight. The sorted
+// sprite pass calls it at the shot's depth, so trees and actors in front hide it.
+func (r *Renderer) drawMagicProjectile(screen *ebiten.Image, idx int) {
 	glowBlend := additiveGlowBlend
+	magicProjectile := r.game.magicProjectiles[idx]
+	if !magicProjectile.Active {
+		return
+	}
 
-	for idx, magicProjectile := range r.game.magicProjectiles {
-		if !magicProjectile.Active {
-			continue
-		}
+	if magicProjectile.FlaskKey != "" {
+		r.drawFlaskProjectile(screen, magicProjectile)
+		return
+	}
+	// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").
+	spellConfigName := magicProjectile.SpellType
+	spellGraphicsConfig, found := r.game.magicProjectileGraphics(magicProjectile)
+	if !found {
+		return // Skip rendering if no graphics config
+	}
+	switch spellFxStyleKinds[spellGraphicsConfig.ProjectileFx] {
+	case spellPrismaticRay:
+		r.drawPrismaticTargetRay(screen, magicProjectile, spellGraphicsConfig)
+		return
+	case spellShrapmetal:
+		r.drawShrapmetalFragment(screen, magicProjectile, spellGraphicsConfig)
+		return
+	}
 
-		if magicProjectile.FlaskKey != "" {
-			r.drawFlaskProjectile(screen, magicProjectile)
-			continue
-		}
-		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").
-		spellConfigName := magicProjectile.SpellType
-		spellGraphicsConfig, found := r.game.magicProjectileGraphics(magicProjectile)
-		if !found {
-			continue // Skip rendering if no graphics config
-		}
-		switch spellFxStyleKinds[spellGraphicsConfig.ProjectileFx] {
-		case spellPrismaticRay:
-			r.drawPrismaticTargetRay(screen, magicProjectile, spellGraphicsConfig)
-			continue
-		case spellShrapmetal:
-			r.drawShrapmetalFragment(screen, magicProjectile, spellGraphicsConfig)
-			continue
-		}
+	physical := magicProjectile
+	proj, motion, ok := r.projectLaunchedEntity(physical.Launch, physical.X, physical.Y, physical.VelX, physical.VelY,
+		spellGraphicsConfig.BaseSize, spellGraphicsConfig.MinSize, spellGraphicsConfig.MaxSize)
+	if !ok {
+		return
+	}
+	magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY = motion.x, motion.y, motion.vx, motion.vy
+	screenX := proj.screenX
+	screenY := proj.screenY
+	projectileSize := proj.size
 
-		physical := magicProjectile
-		proj, motion, ok := r.projectLaunchedEntity(physical.Launch, physical.X, physical.Y, physical.VelX, physical.VelY,
-			spellGraphicsConfig.BaseSize, spellGraphicsConfig.MinSize, spellGraphicsConfig.MaxSize)
-		if !ok {
-			continue
-		}
-		magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY = motion.x, motion.y, motion.vx, motion.vy
-		screenX := proj.screenX
-		screenY := proj.screenY
-		projectileSize := proj.size
-
-		// Draw collision box if enabled (draw first, so it's behind the projectile)
-		if r.game.showCollisionBoxes {
-			// Get world-space collision box dimensions
-			var worldColW, worldColH float64
-			if r.game.collisionSystem != nil {
-				// Use unique ID for direct lookup
-				if entity := r.game.collisionSystem.GetEntityByID(magicProjectile.ID); entity != nil && entity.BoundingBox != nil {
-					worldColW = entity.BoundingBox.Width
-					worldColH = entity.BoundingBox.Height
-				} else {
-					worldColW, worldColH = float64(spellGraphicsConfig.BaseSize), float64(spellGraphicsConfig.BaseSize)
-				}
+	// Draw collision box if enabled (draw first, so it's behind the projectile)
+	if r.game.showCollisionBoxes {
+		// Get world-space collision box dimensions
+		var worldColW, worldColH float64
+		if r.game.collisionSystem != nil {
+			// Use unique ID for direct lookup
+			if entity := r.game.collisionSystem.GetEntityByID(magicProjectile.ID); entity != nil && entity.BoundingBox != nil {
+				worldColW = entity.BoundingBox.Width
+				worldColH = entity.BoundingBox.Height
 			} else {
 				worldColW, worldColH = float64(spellGraphicsConfig.BaseSize), float64(spellGraphicsConfig.BaseSize)
 			}
-
-			// Apply the same distance-based scaling as the projectile visual
-			scaleFactor := float64(projectileSize) / float64(spellGraphicsConfig.BaseSize)
-			screenColW := int(worldColW * scaleFactor)
-			screenColH := int(worldColH * scaleFactor)
-
-			// Green box for magic projectiles.
-			r.drawProjectileCollisionBox(screen, screenX, screenY, projectileSize, screenColW, screenColH, color.RGBA{0, 255, 0, 120})
+		} else {
+			worldColW, worldColH = float64(spellGraphicsConfig.BaseSize), float64(spellGraphicsConfig.BaseSize)
 		}
 
-		// Use spell-specific color from config (no more hardcoded colors!)
-		projectileColor := spellGraphicsConfig.Color
+		// Apply the same distance-based scaling as the projectile visual
+		scaleFactor := float64(projectileSize) / float64(spellGraphicsConfig.BaseSize)
+		screenColW := int(worldColW * scaleFactor)
+		screenColH := int(worldColH * scaleFactor)
 
-		centerX := float64(screenX)
-		centerY := float64(screenY) + float64(projectileSize)/2
-		fxProfile := r.spellFxProfile(spellConfigName, projectileColor)
-		if magicProjectile.VisualFx != "" {
-			fxProfile.style = magicProjectile.VisualFx
-		}
-		if magicProjectile.VisualColor != nil {
-			fxProfile.glowColor = projectileColor
-			fxProfile.trailColor = projectileColor
-			fxProfile.sparkColor = projectileColor
-		}
-		view := r.projectileView(magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY)
-		handX, handY, convergence := r.spellHandOffset(magicProjectile, fxProfile, view, screen.Bounds().Dx(), screen.Bounds().Dy())
-		centerX, centerY = centerX+handX, centerY+handY
-		pulse := 0.85 + 0.15*math.Sin(float64(r.game.frameCount)*fxProfile.pulseSpeed*0.15)
-		critBoost := 1.0
-		if magicProjectile.Crit {
-			critBoost = 1.2
-		}
-		// Sample the physical ray, then apply the complete presentation path
-		// to every ghost. Extrapolating the bent velocity would detach the wake
-		// around target crossings and continuation departures.
-		for gi := 1; gi <= 3; gi++ {
-			k := float64(gi) * 4
-			gproj, gm, gok := r.projectLaunchedEntity(physical.Launch,
-				physical.X-physical.VelX*k, physical.Y-physical.VelY*k, physical.VelX, physical.VelY,
-				spellGraphicsConfig.BaseSize, spellGraphicsConfig.MinSize, spellGraphicsConfig.MaxSize)
-			if !gok {
-				continue
-			}
-			fade := 1.0 - float64(gi)*0.28
-			ghost := magicProjectile
-			ghost.X, ghost.Y, ghost.VelX, ghost.VelY = gm.x, gm.y, gm.vx, gm.vy
-			ghostView := r.projectileView(gm.x, gm.y, gm.vx, gm.vy)
-			gx, gy, _ := r.spellHandOffset(ghost, fxProfile, ghostView, screen.Bounds().Dx(), screen.Bounds().Dy())
-			r.drawGlowSprite(screen,
-				float64(gproj.screenX)+gx, float64(gproj.screenY)+float64(gproj.size)/2+gy,
-				float64(gproj.size)*fxProfile.glowScale*0.8*fade,
-				fxProfile.glowColor, 0.35*fade, glowBlend)
-		}
-
-		// Soft ambient glow under the projectile (all styles).
-		glowSize := float64(projectileSize) * fxProfile.glowScale * pulse * critBoost
-		r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
-
-		// Spells are always magical -> particle body + evaporating trail (never the
-		// old solid square). Drift/mirror come from the school's style; colour comes
-		// from the projectile colour, so every school looks distinct.
-
-		r.drawSpellProjectileFxForView(screen, centerX, centerY, float64(projectileSize),
-			view, projectileColor, fxProfile, critBoost, idx, convergence)
+		// Green box for magic projectiles.
+		r.drawProjectileCollisionBox(screen, screenX, screenY, projectileSize, screenColW, screenColH, color.RGBA{0, 255, 0, 120})
 	}
+
+	// Use spell-specific color from config (no more hardcoded colors!)
+	projectileColor := spellGraphicsConfig.Color
+
+	centerX := float64(screenX)
+	centerY := float64(screenY) + float64(projectileSize)/2
+	fxProfile := r.spellFxProfile(spellConfigName, projectileColor)
+	if magicProjectile.VisualFx != "" {
+		fxProfile.style = magicProjectile.VisualFx
+	}
+	if magicProjectile.VisualColor != nil {
+		fxProfile.glowColor = projectileColor
+		fxProfile.trailColor = projectileColor
+		fxProfile.sparkColor = projectileColor
+	}
+	view := r.projectileView(magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY)
+	handX, handY, convergence := r.spellHandOffset(magicProjectile, fxProfile, view, r.game.worldWidth(), r.game.worldHeight())
+	centerX, centerY = centerX+handX, centerY+handY
+	pulse := 0.85 + 0.15*math.Sin(float64(r.game.frameCount)*fxProfile.pulseSpeed*0.15)
+	critBoost := 1.0
+	if magicProjectile.Crit {
+		critBoost = 1.2
+	}
+	// Sample the physical ray, then apply the complete presentation path
+	// to every ghost. Extrapolating the bent velocity would detach the wake
+	// around target crossings and continuation departures.
+	for gi := 1; gi <= 3; gi++ {
+		k := float64(gi) * 4
+		gproj, gm, gok := r.projectLaunchedEntity(physical.Launch,
+			physical.X-physical.VelX*k, physical.Y-physical.VelY*k, physical.VelX, physical.VelY,
+			spellGraphicsConfig.BaseSize, spellGraphicsConfig.MinSize, spellGraphicsConfig.MaxSize)
+		if !gok {
+			continue
+		}
+		fade := 1.0 - float64(gi)*0.28
+		ghost := magicProjectile
+		ghost.X, ghost.Y, ghost.VelX, ghost.VelY = gm.x, gm.y, gm.vx, gm.vy
+		ghostView := r.projectileView(gm.x, gm.y, gm.vx, gm.vy)
+		gx, gy, _ := r.spellHandOffset(ghost, fxProfile, ghostView, r.game.worldWidth(), r.game.worldHeight())
+		r.drawGlowSprite(screen,
+			float64(gproj.screenX)+gx, float64(gproj.screenY)+float64(gproj.size)/2+gy,
+			float64(gproj.size)*fxProfile.glowScale*0.8*fade,
+			fxProfile.glowColor, 0.35*fade, glowBlend)
+	}
+
+	// Soft ambient glow under the projectile (all styles).
+	glowSize := float64(projectileSize) * fxProfile.glowScale * pulse * critBoost
+	r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
+
+	// Spells are always magical -> particle body + evaporating trail (never the
+	// old solid square). Drift/mirror come from the school's style; colour comes
+	// from the projectile colour, so every school looks distinct.
+
+	r.drawSpellProjectileFxForView(screen, centerX, centerY, float64(projectileSize),
+		view, projectileColor, fxProfile, critBoost, idx, convergence)
 }
 
 // A spell is submitted once: material silhouettes interpolate end/side shape
@@ -4867,173 +4938,172 @@ func (r *Renderer) drawSpellProjectileFxForView(screen *ebiten.Image, cx, cy, si
 	r.drawSpellMaterialProjected(screen, cx, cy, math.Max(size, spellFxMinClusterSize), core, critBoost, id, kind, 1, view.spellProjection(convergence))
 }
 
-// drawArrows draws all active arrows
-func (r *Renderer) drawArrows(screen *ebiten.Image) {
+// drawArrow draws one arrow, bolt or slug. The sorted sprite pass calls it at
+// the shot's depth, so trees and actors in front hide it.
+func (r *Renderer) drawArrow(screen *ebiten.Image, idx int) {
+	arrow := r.game.arrows[idx]
+	if !arrow.Active {
+		return
+	}
 
-	for idx, arrow := range r.game.arrows {
-		if !arrow.Active {
-			continue
-		}
+	bowDef := lookupWeaponConfigByKey(arrow.BowKey)
+	if bowDef == nil || bowDef.Graphics == nil {
+		return // Skip rendering if weapon config missing
+	}
 
-		bowDef := lookupWeaponConfigByKey(arrow.BowKey)
-		if bowDef == nil || bowDef.Graphics == nil {
-			continue // Skip rendering if weapon config missing
-		}
+	physical := arrow
+	proj, motion, ok := r.projectLaunchedEntity(physical.Launch, physical.X, physical.Y, physical.VelX, physical.VelY,
+		bowDef.Graphics.BaseSize, bowDef.Graphics.MinSize, bowDef.Graphics.MaxSize)
+	if !ok {
+		return
+	}
+	arrow.X, arrow.Y, arrow.VelX, arrow.VelY = motion.x, motion.y, motion.vx, motion.vy
+	screenX := proj.screenX
+	screenY := proj.screenY
+	arrowSize := proj.size
+	view := r.projectileView(arrow.X, arrow.Y, arrow.VelX, arrow.VelY)
 
-		physical := arrow
-		proj, motion, ok := r.projectLaunchedEntity(physical.Launch, physical.X, physical.Y, physical.VelX, physical.VelY,
-			bowDef.Graphics.BaseSize, bowDef.Graphics.MinSize, bowDef.Graphics.MaxSize)
-		if !ok {
-			continue
-		}
-		arrow.X, arrow.Y, arrow.VelX, arrow.VelY = motion.x, motion.y, motion.vx, motion.vy
-		screenX := proj.screenX
-		screenY := proj.screenY
-		arrowSize := proj.size
-		view := r.projectileView(arrow.X, arrow.Y, arrow.VelX, arrow.VelY)
-
-		// Draw collision box if enabled (draw first, so it's behind the arrow)
-		if r.game.showCollisionBoxes {
-			// Get world-space collision box dimensions
-			var worldColW, worldColH float64
-			if r.game.collisionSystem != nil {
-				// Use unique ID for direct lookup
-				if entity := r.game.collisionSystem.GetEntityByID(arrow.ID); entity != nil && entity.BoundingBox != nil {
-					worldColW = entity.BoundingBox.Width
-					worldColH = entity.BoundingBox.Height
-				} else {
-					worldColW, worldColH = float64(bowDef.Graphics.BaseSize), float64(bowDef.Graphics.BaseSize)
-				}
+	// Draw collision box if enabled (draw first, so it's behind the arrow)
+	if r.game.showCollisionBoxes {
+		// Get world-space collision box dimensions
+		var worldColW, worldColH float64
+		if r.game.collisionSystem != nil {
+			// Use unique ID for direct lookup
+			if entity := r.game.collisionSystem.GetEntityByID(arrow.ID); entity != nil && entity.BoundingBox != nil {
+				worldColW = entity.BoundingBox.Width
+				worldColH = entity.BoundingBox.Height
 			} else {
 				worldColW, worldColH = float64(bowDef.Graphics.BaseSize), float64(bowDef.Graphics.BaseSize)
 			}
-			// Apply the same distance-based scaling as the arrow visual
-			scaleFactor := float64(arrowSize) / float64(bowDef.Graphics.BaseSize)
-			screenColW := int(worldColW * scaleFactor)
-			screenColH := int(worldColH * scaleFactor)
-			// Cyan box for arrows.
-			r.drawProjectileCollisionBox(screen, screenX, screenY, arrowSize, screenColW, screenColH, color.RGBA{0, 255, 255, 120})
-		}
-
-		// Draw arrow using bow-specific color from config
-		arrowColor := bowDef.Graphics.Color
-
-		centerX := float64(screenX)
-		centerY := float64(screenY) + float64(arrowSize)/2
-		fxProfile := r.weaponFxProfile(bowDef)
-		critBoost := 1.0
-		if arrow.Crit {
-			critBoost = 1.2
-		}
-		if strings.EqualFold(bowDef.Category, "blaster") {
-			// Blasters fire slugs with a tracer streak, not fletched arrows.
-			// The weapon's signature overlay goes UNDER the tracer so the rod
-			// stays the readable silhouette. This branch used to `continue`
-			// before the hook, which made projectile_fx dead data on every
-			// blaster (clock pistol, Suppressor, Longlance).
-			if style := bowDef.Graphics.ProjectileFx; style != "" {
-				r.drawWeaponProjectileFxForView(style, screen, centerX, centerY, float64(arrowSize),
-					view, critBoost, idx)
-			}
-			r.drawBulletTracer(screen, centerX, centerY, float64(arrowSize),
-				view, arrowColor, critBoost, idx)
-			continue
-		}
-		if fxProfile.style != "" {
-			r.drawWeaponCharge(screen, centerX, centerY, float64(arrowSize), view.side, 0, fxProfile.glowColor, critBoost, 1, seedFromID(arrow.ID))
-			if style := bowDef.Graphics.ProjectileFx; style != "" {
-				r.drawWeaponProjectileFxForView(style, screen, centerX, centerY, float64(arrowSize), view, critBoost, idx)
-			}
-			continue
-		}
-
-		screenDir, hasScreenDir := view.screenDir()
-		sideWeight, faceWeight := view.sideWeight(), view.faceWeight()
-		// Plain arrow: a fletched shaft with a triangular head, rotated along
-		// its on-screen flight direction, lobbed on a shallow arc so its
-		// profile shows in flight (a dead-straight arrow shot forward reads as
-		// just its tail). The arc is applied to both the current and the
-		// one-step-back sample, so the shaft angle follows the arc's tangent -
-		// the arrow noses up on the rise and tips down on the fall.
-		arcAmp := float64(arrowSize) * 1.3 * sideWeight
-		maxLife := 1.0
-		if bowDef.Physics != nil {
-			maxLife = float64(bowDef.Physics.GetLifetimeFrames()) // arrows spawn with exactly this
-		}
-		flightT := func(lifeLeft float64) float64 {
-			t := 1 - lifeLeft/maxLife
-			return math.Min(math.Max(t, 0), 1)
-		}
-		tNow := flightT(float64(arrow.LifeTime))
-		tPrev := flightT(float64(arrow.LifeTime) + 3)
-		arcNow := arcAmp * 4 * tNow * (1 - tNow)
-		centerY -= arcNow
-
-		incoming := view.incoming()
-		convergence := 0.0
-		if !incoming && arrow.Owner == ProjectileOwnerPlayer && arrow.Attacker != nil && arrow.SkipMonster == nil {
-			convergence = bowHandConvergence(arrow.DistanceTraveled, r.game.config.GetTileSize()) * faceWeight
-		}
-		handX := float64(screen.Bounds().Dx()) * .055 * convergence
-		handY := float64(screen.Bounds().Dy()) * .025 * convergence
-		centerX, centerY = centerX+handX, centerY+handY
-		if faceWeight > 0 {
-			// Along the sightline, an outgoing arrow shows its nock and
-			// fletching while an incoming arrow shows its steel head.
-			fromHand := r.drawOutgoingBowFromHand(bowDef.Graphics.ProjectileFx, screen, centerX, centerY,
-				float64(arrowSize), arrowColor, critBoost, idx, convergence, faceWeight)
-			if !fromHand {
-				if style := bowDef.Graphics.ProjectileFx; style != "" {
-					r.drawBowWeaponProjectileFxHeadOn(style, screen, centerX, centerY, float64(arrowSize),
-						critBoost, faceWeight, idx, incoming)
-				}
-				r.drawArrowHeadOn(screen, centerX, centerY, float64(arrowSize), arrowColor, faceWeight, incoming)
-			}
-		}
-		if !hasScreenDir {
-			continue
-		}
-
-		// Shaft angle from the projected flight delta - but only once the arrow
-		// is clear of the camera: right after launch the one-step-back sample
-		// sits at/behind the camera plane, where projections swing wildly and
-		// made the arrow tumble. The displayed angle is additionally eased
-		// per-arrow so a noisy frame can't flip the shaft.
-		target := arrowFallbackScreenAngle(screenDir)
-		camDx := arrow.X - r.game.camera.X
-		camDy := arrow.Y - r.game.camera.Y
-		if camDx*camDx+camDy*camDy > arrowAngleMinDist*arrowAngleMinDist {
-			if prev, _, pok := r.projectLaunchedEntity(physical.Launch, physical.X-physical.VelX*3, physical.Y-physical.VelY*3, physical.VelX, physical.VelY,
-				bowDef.Graphics.BaseSize, bowDef.Graphics.MinSize, bowDef.Graphics.MaxSize); pok {
-				arcPrev := arcAmp * 4 * tPrev * (1 - tPrev)
-				pdx := centerX - handX - float64(prev.screenX)
-				pdy := centerY - handY - (float64(prev.screenY) + float64(prev.size)/2 - arcPrev)
-				if pdx*pdx+pdy*pdy > 4 {
-					target = math.Atan2(pdy, pdx)
-				}
-			}
-		}
-		ar := &r.game.arrows[idx]
-		if !ar.RenderAngleSet {
-			ar.RenderAngle = target
-			ar.RenderAngleSet = true
 		} else {
-			ar.RenderAngle = approachAngle(ar.RenderAngle, target, arrowAngleMaxStep)
+			worldColW, worldColH = float64(bowDef.Graphics.BaseSize), float64(bowDef.Graphics.BaseSize)
 		}
-		angle := ar.RenderAngle
-		axialScale := math.Abs(view.side)
-		if style := bowDef.Graphics.ProjectileFx; style != "" {
-			r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), math.Cos(angle)*axialScale, math.Sin(angle)*axialScale, critBoost, sideWeight, idx)
-		}
-		shaftLen := float64(arrowSize) * 1.7 * axialScale
-		for g := 2; g >= 1; g-- {
-			off := shaftLen * 0.5 * float64(g)
-			r.drawArrowQuadForeshortened(screen,
-				centerX-math.Cos(angle)*off, centerY-math.Sin(angle)*off,
-				float64(arrowSize), angle, axialScale, arrowColor, (0.4-0.16*float64(g))*sideWeight)
-		}
-		r.drawArrowQuadForeshortened(screen, centerX, centerY, float64(arrowSize), angle, axialScale, arrowColor, sideWeight)
+		// Apply the same distance-based scaling as the arrow visual
+		scaleFactor := float64(arrowSize) / float64(bowDef.Graphics.BaseSize)
+		screenColW := int(worldColW * scaleFactor)
+		screenColH := int(worldColH * scaleFactor)
+		// Cyan box for arrows.
+		r.drawProjectileCollisionBox(screen, screenX, screenY, arrowSize, screenColW, screenColH, color.RGBA{0, 255, 255, 120})
 	}
+
+	// Draw arrow using bow-specific color from config
+	arrowColor := bowDef.Graphics.Color
+
+	centerX := float64(screenX)
+	centerY := float64(screenY) + float64(arrowSize)/2
+	fxProfile := r.weaponFxProfile(bowDef)
+	critBoost := 1.0
+	if arrow.Crit {
+		critBoost = 1.2
+	}
+	if strings.EqualFold(bowDef.Category, "blaster") {
+		// Blasters fire slugs with a tracer streak, not fletched arrows.
+		// The weapon's signature overlay goes UNDER the tracer so the rod
+		// stays the readable silhouette. This branch used to `continue`
+		// before the hook, which made projectile_fx dead data on every
+		// blaster (clock pistol, Suppressor, Longlance).
+		if style := bowDef.Graphics.ProjectileFx; style != "" {
+			r.drawWeaponProjectileFxForView(style, screen, centerX, centerY, float64(arrowSize),
+				view, critBoost, idx)
+		}
+		r.drawBulletTracer(screen, centerX, centerY, float64(arrowSize),
+			view, arrowColor, critBoost, idx)
+		return
+	}
+	if fxProfile.style != "" {
+		r.drawWeaponCharge(screen, centerX, centerY, float64(arrowSize), view.side, 0, fxProfile.glowColor, critBoost, 1, seedFromID(arrow.ID))
+		if style := bowDef.Graphics.ProjectileFx; style != "" {
+			r.drawWeaponProjectileFxForView(style, screen, centerX, centerY, float64(arrowSize), view, critBoost, idx)
+		}
+		return
+	}
+
+	screenDir, hasScreenDir := view.screenDir()
+	sideWeight, faceWeight := view.sideWeight(), view.faceWeight()
+	// Plain arrow: a fletched shaft with a triangular head, rotated along
+	// its on-screen flight direction, lobbed on a shallow arc so its
+	// profile shows in flight (a dead-straight arrow shot forward reads as
+	// just its tail). The arc is applied to both the current and the
+	// one-step-back sample, so the shaft angle follows the arc's tangent -
+	// the arrow noses up on the rise and tips down on the fall.
+	arcAmp := float64(arrowSize) * 1.3 * sideWeight
+	maxLife := 1.0
+	if bowDef.Physics != nil {
+		maxLife = float64(bowDef.Physics.GetLifetimeFrames()) // arrows spawn with exactly this
+	}
+	flightT := func(lifeLeft float64) float64 {
+		t := 1 - lifeLeft/maxLife
+		return math.Min(math.Max(t, 0), 1)
+	}
+	tNow := flightT(float64(arrow.LifeTime))
+	tPrev := flightT(float64(arrow.LifeTime) + 3)
+	arcNow := arcAmp * 4 * tNow * (1 - tNow)
+	centerY -= arcNow
+
+	incoming := view.incoming()
+	convergence := 0.0
+	if !incoming && arrow.Owner == ProjectileOwnerPlayer && arrow.Attacker != nil && arrow.SkipMonster == nil {
+		convergence = bowHandConvergence(arrow.DistanceTraveled, r.game.config.GetTileSize()) * faceWeight
+	}
+	handX := float64(r.game.worldWidth()) * .055 * convergence
+	handY := float64(r.game.worldHeight()) * .025 * convergence
+	centerX, centerY = centerX+handX, centerY+handY
+	if faceWeight > 0 {
+		// Along the sightline, an outgoing arrow shows its nock and
+		// fletching while an incoming arrow shows its steel head.
+		fromHand := r.drawOutgoingBowFromHand(bowDef.Graphics.ProjectileFx, screen, centerX, centerY,
+			float64(arrowSize), arrowColor, critBoost, idx, convergence, faceWeight)
+		if !fromHand {
+			if style := bowDef.Graphics.ProjectileFx; style != "" {
+				r.drawBowWeaponProjectileFxHeadOn(style, screen, centerX, centerY, float64(arrowSize),
+					critBoost, faceWeight, idx, incoming)
+			}
+			r.drawArrowHeadOn(screen, centerX, centerY, float64(arrowSize), arrowColor, faceWeight, incoming)
+		}
+	}
+	if !hasScreenDir {
+		return
+	}
+
+	// Shaft angle from the projected flight delta - but only once the arrow
+	// is clear of the camera: right after launch the one-step-back sample
+	// sits at/behind the camera plane, where projections swing wildly and
+	// made the arrow tumble. The displayed angle is additionally eased
+	// per-arrow so a noisy frame can't flip the shaft.
+	target := arrowFallbackScreenAngle(screenDir)
+	camDx := arrow.X - r.game.camera.X
+	camDy := arrow.Y - r.game.camera.Y
+	if camDx*camDx+camDy*camDy > arrowAngleMinDist*arrowAngleMinDist {
+		if prev, _, pok := r.projectLaunchedEntity(physical.Launch, physical.X-physical.VelX*3, physical.Y-physical.VelY*3, physical.VelX, physical.VelY,
+			bowDef.Graphics.BaseSize, bowDef.Graphics.MinSize, bowDef.Graphics.MaxSize); pok {
+			arcPrev := arcAmp * 4 * tPrev * (1 - tPrev)
+			pdx := centerX - handX - float64(prev.screenX)
+			pdy := centerY - handY - (float64(prev.screenY) + float64(prev.size)/2 - arcPrev)
+			if pdx*pdx+pdy*pdy > 4 {
+				target = math.Atan2(pdy, pdx)
+			}
+		}
+	}
+	ar := &r.game.arrows[idx]
+	if !ar.RenderAngleSet {
+		ar.RenderAngle = target
+		ar.RenderAngleSet = true
+	} else {
+		ar.RenderAngle = approachAngle(ar.RenderAngle, target, arrowAngleMaxStep)
+	}
+	angle := ar.RenderAngle
+	axialScale := math.Abs(view.side)
+	if style := bowDef.Graphics.ProjectileFx; style != "" {
+		r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), math.Cos(angle)*axialScale, math.Sin(angle)*axialScale, critBoost, sideWeight, idx)
+	}
+	shaftLen := float64(arrowSize) * 1.7 * axialScale
+	for g := 2; g >= 1; g-- {
+		off := shaftLen * 0.5 * float64(g)
+		r.drawArrowQuadForeshortened(screen,
+			centerX-math.Cos(angle)*off, centerY-math.Sin(angle)*off,
+			float64(arrowSize), angle, axialScale, arrowColor, (0.4-0.16*float64(g))*sideWeight)
+	}
+	r.drawArrowQuadForeshortened(screen, centerX, centerY, float64(arrowSize), angle, axialScale, arrowColor, sideWeight)
 }
 
 // arrowScreenTilt is the small upward pitch used until the projected flight
@@ -5270,9 +5340,7 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			screenY := centerY + effect.Anchor.centerOffset(r.game, depth) + particle.OffsetY*scale
 
 			if particle.DepthTest {
-				column := int(screenX)
-				if depth < 10 || depth > r.game.camera.ViewDist ||
-					(column >= 0 && column < len(r.game.depthBuffer) && depth > r.game.depthBuffer[column]+2) {
+				if depth < 10 || depth > r.game.camera.ViewDist || r.game.wallHides(int(screenX), depth, 2, screenY) {
 					continue
 				}
 			}

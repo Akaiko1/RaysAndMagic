@@ -56,6 +56,13 @@ func TestPointBlastsStopAtWalls(t *testing.T) {
 					shoot := func(x, vx float64, life int) {
 						shot := MagicProjectile{ID: g.GenerateProjectileID("fireball"), X: x, Y: cy, VelX: vx,
 							Damage: 30, LifeTime: life, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, Attacker: hero, AoeTiles: 2}
+						if source == "flask" {
+							// A bottle bursts where its flight ends: on the wall, or at its range.
+							shot.FlaskKey, shot.FlaskRadius, shot.FlaskRemaining = "harm_flask", 2*ts, 2*ts
+							if !walled {
+								shot.FlaskRemaining = 1
+							}
+						}
 						g.magicProjectiles = []MagicProjectile{shot}
 						g.magicProjectiles[0].Launch = projectileLaunch{valid: true, x: x, y: cy, dx: 1, cone: projectileAssistMaxAngleRad}
 						g.collisionSystem.RegisterEntity(collision.NewEntity(shot.ID, x, cy, 8, 8, collision.CollisionTypeProjectile, false))
@@ -94,7 +101,7 @@ func TestPointBlastsStopAtWalls(t *testing.T) {
 						struck.HitPoints = 10
 						g.combat.ApplyDamageToMonster(struck, 30, def.Name, false)
 					case "flask":
-						g.combat.detonateFlask(&MagicProjectile{ID: "flask", FlaskKey: "harm_flask", FlaskRadius: 2 * ts, Damage: 30, LifeTime: 10, Active: true, Attacker: hero}, cx, cy)
+						shoot(cx+0.05*ts, ts/4, 50)
 					case "trap":
 						g.combat.fireTrap(&PlacedTrap{Key: "cleave_trap", X: cx, Y: cy, Owner: hero}, struck)
 					}

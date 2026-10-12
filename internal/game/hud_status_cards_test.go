@@ -34,7 +34,7 @@ func TestBuffStatusCardStatesLiveEffectThroughTheHover(t *testing.T) {
 		}},
 		{"stone_skin", "per hit", func(g *MMGame, _ spells.SpellDefinition) string {
 			b, _ := g.combatBuffByID("stone_skin")
-			return fmt.Sprintf("-%d damage per hit", b.InReduce)
+			return fmt.Sprintf("Flat damage reduction: %d per hit (party)", b.InReduce)
 		}},
 		{"day_of_the_gods", "less damage", func(g *MMGame, _ spells.SpellDefinition) string {
 			b, _ := g.combatBuffByID("day_of_the_gods")

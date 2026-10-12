@@ -119,9 +119,7 @@ func (mw *MonsterWrapper) ApplyCollisionUpdate() {
 	mw.traceMovement()
 }
 
-func (mw *MonsterWrapper) IsAlive() bool                   { return mw.Monster != nil && mw.Monster.IsAlive() }
-func (mw *MonsterWrapper) GetPosition() (float64, float64) { return mw.Monster.X, mw.Monster.Y }
-func (mw *MonsterWrapper) SetPosition(x, y float64)        { mw.Monster.X, mw.Monster.Y = x, y }
+func (mw *MonsterWrapper) IsAlive() bool { return mw.Monster != nil && mw.Monster.IsAlive() }
 
 // Debug probes read the live system only during serial publication.
 func (mw *MonsterWrapper) traceMovement() {

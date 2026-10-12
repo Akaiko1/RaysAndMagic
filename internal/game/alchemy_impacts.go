@@ -2,11 +2,6 @@ package game
 
 import "math/rand"
 
-func flaskArcHeight(p MagicProjectile, tile float64) float64 {
-	t := max(0, min(1, 1-p.FlaskRemaining/max(1, p.FlaskFlightRange)))
-	return tile * (.18*(1-t) + 3.2*t*(1-t))
-}
-
 // Paint the blast footprint with the same tile scatter as Earthquake and
 // Starburst. Damage already resolved once; every particle here is visual only.
 func (g *MMGame) createFlaskImpact(p *MagicProjectile, x, y float64, tint [3]int) {

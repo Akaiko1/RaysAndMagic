@@ -77,8 +77,8 @@ func assertFlaskAim(t *testing.T, g *MMGame, key string, target *monster.Monster
 		wantAngle = math.Atan2(target.Y-g.camera.Y, target.X-g.camera.X)
 		wantDistance = min(wantDistance, math.Hypot(target.X-g.camera.X, target.Y-g.camera.Y))
 	}
-	if math.Abs(math.Atan2(p.VelY, p.VelX)-wantAngle) > 1e-6 || math.Abs(p.FlaskFlightRange-wantDistance) > 1e-6 {
-		t.Fatalf("wrong launch: angle=%g distance=%g, want %g/%g", math.Atan2(p.VelY, p.VelX), p.FlaskFlightRange, wantAngle, wantDistance)
+	if math.Abs(math.Atan2(p.VelY, p.VelX)-wantAngle) > 1e-6 || math.Abs(p.Launch.distance-wantDistance) > 1e-6 {
+		t.Fatalf("wrong launch: angle=%g distance=%g, want %g/%g", math.Atan2(p.VelY, p.VelX), p.Launch.distance, wantAngle, wantDistance)
 	}
 	c := g.party.Members[0]
 	if g.turnBasedMode && c.ActionsRemaining != 1 || !g.turnBasedMode && c.RTCooldown <= 0 {

@@ -87,7 +87,7 @@ func TestStatusVisualPartyConditionCoverage(t *testing.T) {
 	}
 	c := &character.MMCharacter{HitPoints: 100}
 	g.partyRoot = PartyRootState{Frames: 300}
-	if g.partyStatusVisuals(c)&visualRoot == 0 || !strings.Contains(g.partyConditionLabel(c), "Rooted") {
+	if label, _ := g.partyConditionLabels(c); g.partyStatusVisuals(c)&visualRoot == 0 || !strings.Contains(label, "Rooted") {
 		t.Fatal("party root has no visual or label")
 	}
 	c.Conditions = []character.Condition{character.ConditionUnconscious}
@@ -99,7 +99,7 @@ func TestStatusVisualPartyConditionCoverage(t *testing.T) {
 		t.Fatal("cleansed root retained its visual")
 	}
 	c.Conditions = nil
-	if g.partyConditionLabel(c) != "OK" {
+	if full, _ := g.partyConditionLabels(c); full != "OK" {
 		t.Fatal("healthy card retains status label")
 	}
 }

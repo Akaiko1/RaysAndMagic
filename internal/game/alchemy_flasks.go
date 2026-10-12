@@ -104,6 +104,7 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 	tile := float64(g.config.GetTileSize())
 	speed := 8 * tile / float64(tps)
 	launch := g.combat.partyProjectileLaunch(g.combat.partyAttackAngle(), float64(f.RangeTiles)*tile, false)
+	launch.lobApex = flaskApexTiles * tile
 	a, distance := launch.angle, launch.distance
 	p := MagicProjectile{
 		Launch:            launch,
@@ -113,7 +114,6 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 		FlaskBurnFrames:   config.TierValue(f.BurnSeconds, tier) * tps,
 		FlaskRadius:       float64(f.RadiusTiles) * tile,
 		FlaskRemaining:    distance,
-		FlaskFlightRange:  distance,
 		Attacker:          c,
 		X:                 g.camera.X,
 		Y:                 g.camera.Y,

@@ -64,6 +64,15 @@ func (r *Renderer) drawPrismaticTargetRay(dst *ebiten.Image, shot MagicProjectil
 	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.spellBodyShader, &r.weaponMaterialOpts)
 }
 
+// shrapmetalFlight is a fragment's flight progress and how far it has left the
+// cast fan for its own projected spot (1 once it flies on its own).
+func shrapmetalFlight(shot MagicProjectile) (progress, fromFan float64) {
+	l := shot.Launch
+	travel := (shot.X-l.x)*l.dx + (shot.Y-l.y)*l.dy
+	progress = math.Max(0, math.Min(1, travel/math.Max(1, l.distance)))
+	return progress, math.Min(1, progress/.75)
+}
+
 // One tumbling metal shard per physical projectile. Random direction belongs
 // to the cast; the renderer only rotates the solid and converges from the hand.
 func (r *Renderer) drawShrapmetalFragment(dst *ebiten.Image, shot MagicProjectile, graphics config.ProjectileRenderConfig) {
@@ -72,15 +81,12 @@ func (r *Renderer) drawShrapmetalFragment(dst *ebiten.Image, shot MagicProjectil
 	}
 	mesh := directionalVolumeMeshes.get(spellShrapmetal, buildDirectionalVolumeMesh)
 	l := shot.Launch
-	distance := math.Max(1, l.distance)
-	travel := (shot.X-l.x)*l.dx + (shot.Y-l.y)*l.dy
-	progress := math.Max(0, math.Min(1, travel/distance))
+	progress, depth := shrapmetalFlight(shot)
 	x0, y0 := r.spellFanOrigin()
 	p, _, ok := r.projectLaunchedEntity(l, shot.X, shot.Y, shot.VelX, shot.VelY, graphics.BaseSize, graphics.MinSize, graphics.MaxSize)
 	if !ok {
 		return
 	}
-	depth := math.Min(1, progress/.75)
 	cx, cy := x0+(float64(p.screenX)-x0)*depth, y0+(float64(p.screenY)+float64(p.size)*.5-y0)*depth
 	seed := seedFromID(shot.ID)
 	size := float64(p.size) * (.65 + .35*auraHash(seed, 0, 811, 0))

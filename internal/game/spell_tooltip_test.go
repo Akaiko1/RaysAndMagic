@@ -255,18 +255,18 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 			return []string{fmt.Sprintf("Current physical damage bonus: +%d", e.scaled(e.def.OutgoingDamageBonus, e.def.OutgoingDamageBonusGrandmaster))},
 				[]string{fmt.Sprintf("deal +%d to +%d", e.def.OutgoingDamageBonus, e.def.OutgoingDamageBonusGrandmaster)}
 		}},
-		{id: "stone_skin", want: []string{"true damage and damage over time pass"}, derive: func(e spellCardEnv) ([]string, []string) {
-			return []string{fmt.Sprintf("Current reduction: -%d per hit", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster))}, nil
+		{id: "stone_skin", want: []string{"Does not reduce true damage or damage over time"}, derive: func(e spellCardEnv) ([]string, []string) {
+			return []string{fmt.Sprintf("Flat damage reduction: %d per hit (party)", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster))}, nil
 		}},
 		{name: "stone_skin/compact", id: "stone_skin", compact: true, tier: character.MasteryGrandMaster, derive: func(e spellCardEnv) ([]string, []string) {
-			return []string{fmt.Sprintf("Current reduction: -%d per hit", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster))},
-				[]string{fmt.Sprintf("Party takes -%d to -%d", e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster)}
+			return []string{fmt.Sprintf("Flat damage reduction: %d per hit (party)", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster))},
+				[]string{fmt.Sprintf("Flat damage reduction: %d to %d", e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster)}
 		}},
-		{id: "hour_of_power", want: []string{"true damage and damage over time pass", "No RT cooldown - TB: 1 action"},
+		{id: "hour_of_power", want: []string{"Does not reduce true damage or damage over time", "No RT cooldown - TB: 1 action"},
 			derive: func(e spellCardEnv) ([]string, []string) {
 				return []string{
 					fmt.Sprintf("Current damage bonus: +%d", e.scaled(e.def.OutgoingDamageBonus, e.def.OutgoingDamageBonusGrandmaster)),
-					fmt.Sprintf("Current reduction: -%d per hit", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster)),
+					fmt.Sprintf("Flat damage reduction: %d per hit (party)", e.scaled(e.def.IncomingDamageReduction, e.def.IncomingDamageReductionGrandmaster)),
 				}, nil
 			}},
 	} {

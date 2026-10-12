@@ -2344,6 +2344,8 @@ func (r *Renderer) buildMapRenderPrewarmSteps(task *mapRenderPrewarmTask, plan m
 	for _, resource := range orderedByStreamPriority(plan.monsterSprites, task.priorities,
 		func(resource mapMonsterPrewarmResource) string { return resource.spriteName }) {
 		resource := resource
+		// Shots and hit bursts aim at the measured body, not the frame centre.
+		appendStep(func() { warmVisibleBounds(resource.spriteName) })
 		seen := make(map[*ebiten.Image]struct{})
 		for _, frame := range p.monsterVisualFrames(resource) {
 			if frame == nil {

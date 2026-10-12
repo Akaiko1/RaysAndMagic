@@ -490,7 +490,7 @@ func (s SkillType) effectDescription() string {
 	case SkillMerchant:
 		return uitext.Text("skill.merchant", MerchantPricePctPerTier, 2*MerchantPricePctPerTier, 3*MerchantPricePctPerTier, MerchantPricePctPerTier, 2*MerchantPricePctPerTier, 3*MerchantPricePctPerTier)
 	case SkillDisarmTrap:
-		return uitext.Text("skill.disarm_trap", DisarmTrapAvoidBasePct, DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+3*DisarmTrapAvoidPerTierPct, DisarmTrapDamageReductionPerTier, 2*DisarmTrapDamageReductionPerTier, 3*DisarmTrapDamageReductionPerTier)
+		return uitext.Text("skill.disarm_trap", DisarmTrapAvoidBasePct, DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+3*DisarmTrapAvoidPerTierPct, DisarmTrapDamageReductionPerTier, 2*DisarmTrapDamageReductionPerTier, 3*DisarmTrapDamageReductionPerTier, uitext.Text("damage.flat_reduction_rules"))
 	case SkillTrapper:
 		return uitext.Text("skill.trapper", TrapperDamagePerTier, 2*TrapperDamagePerTier, 3*TrapperDamagePerTier, TrapStatScalingDivisor, TrapperSecondsPerTier, 2*TrapperSecondsPerTier, 3*TrapperSecondsPerTier, masteryProgression(TrapperTurnBonus))
 	case SkillSleightOfHand:
@@ -510,7 +510,7 @@ func (s SkillType) effectDescription() string {
 	case SkillSacrifice:
 		return uitext.Text("skill.sacrifice", masteryProgression(SacrificeRedirectPct))
 	case SkillImpenetrableDefense:
-		return uitext.Text("skill.impenetrable_defense", masteryProgression(ImpenetrableDefenseReduction))
+		return uitext.Text("skill.impenetrable_defense", masteryProgression(ImpenetrableDefenseReduction), uitext.Text("damage.flat_reduction_rules"))
 	case SkillLockpicking:
 		return uitext.Text("skill.lockpicking", masteryProgression(LockpickingChancePct), DoorMaxNonKeyAttempts)
 	case SkillNaturalHealer:

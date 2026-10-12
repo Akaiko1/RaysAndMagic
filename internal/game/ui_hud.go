@@ -142,6 +142,40 @@ func makePartyAutoButtonLayout(content partyCardContentLayout) layoutRect {
 	}
 }
 
+// partyAutoButtonCard is the card whose equipment column hosts the party-wide
+// auto-assign button, in the row the status line may otherwise borrow.
+const partyAutoButtonCard = 0
+
+// partyStatusLine is how a card shows its status list: the box it is centred
+// in, the text drawn, and the full list for hover when the text is shortened.
+type partyStatusLine struct {
+	box  layoutRect
+	text string
+	full string
+}
+
+// partyStatusLineLayout fits a card's status list, most to least roomy: full
+// names under the meters (the authored line); full names across both columns
+// when the equipment column's last row is free; short names there; short
+// names cut to fit. Anything shortened offers the full list on hover.
+func partyStatusLineLayout(content partyCardContentLayout, y int, full, short string, equipmentRowFree bool) partyStatusLine {
+	box := layoutRect{content.stats.x, y, content.stats.w, uiTextCharHeight}
+	if uiTextWidth(full) <= box.w-2 {
+		return partyStatusLine{box: box, text: full}
+	}
+	if equipmentRowFree {
+		box.w = content.box.w
+	}
+	line := partyStatusLine{box: box, text: full}
+	if uiTextWidth(full) > box.w-2 {
+		line.text = clipUIText(short, max(0, box.w-2))
+	}
+	if line.text != full {
+		line.full = full
+	}
+	return line
+}
+
 // validatePartyCardPanelAsset fails the boot when party_member_panel.png is
 // missing or no longer the authored 256x100 sheet. Every cap/repeat/ornament
 // offset and the portrait aperture are measured from THAT sheet, so a resized
@@ -663,6 +697,13 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 	uiFillRect(screen, 0, float32(startY), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{104, 114, 128, 235}, false)
 	uiFillRect(screen, 0, float32(startY+1), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{38, 44, 53, 245}, false)
 
+	hasFreeStats := false
+	for _, member := range ui.game.party.Members {
+		if member != nil && member.FreeStatPoints > 0 {
+			hasFreeStats = true
+			break
+		}
+	}
 	for i, member := range ui.game.party.Members {
 		x := baseLeft + i*portraitWidth
 		selected := i == ui.game.selectedChar
@@ -760,14 +801,17 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			member.SpellPoints, member.MaxSpellPoints, "SP", color.RGBA{38, 88, 160, 245})
 
 		// Add character condition status
-		statusText := ui.game.partyConditionLabel(member)
+		statusText, statusShort := ui.game.partyConditionLabels(member)
 		statusColor := color.RGBA{126, 220, 154, 255}
 		if statusText != "OK" {
 			statusColor = color.RGBA{255, 174, 88, 255}
 		}
-		statusY := panelY + 67
-		statusText = clipUIText(statusText, max(0, statsW-2))
-		drawCenteredTextWithShadow(screen, statusText, contentX, statusY, statsW, uiTextCharHeight, statusColor)
+		status := partyStatusLineLayout(content, panelY+67, statusText, statusShort,
+			!(hasFreeStats && i == partyAutoButtonCard))
+		if status.full != "" {
+			uiClippedLabels = append(uiClippedLabels, uiClippedLabel{status.box, status.full})
+		}
+		drawCenteredTextWithShadow(screen, status.text, status.box.x, status.box.y, status.box.w, status.box.h, statusColor)
 
 		mainText, mainColor := "W None", color.Color(color.RGBA{135, 143, 158, 255})
 		if weapon, ok := member.Equipment[items.SlotMainHand]; ok {
@@ -864,15 +908,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		}
 	}
 
-	hasFreeStats := false
-	for _, member := range ui.game.party.Members {
-		if member != nil && member.FreeStatPoints > 0 {
-			hasFreeStats = true
-			break
-		}
-	}
 	if hasFreeStats {
-		panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
+		panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft+partyAutoButtonCard*portraitWidth, startY, portraitWidth, portraitHeight)
 		auto := makePartyAutoButtonLayout(makePartyCardContentLayout(panelX, panelY, panelW))
 		mouseX, mouseY := uiCursorPosition()
 		autoHover := isMouseHoveringBox(mouseX, mouseY, auto.x, auto.y, auto.right(), auto.bottom())

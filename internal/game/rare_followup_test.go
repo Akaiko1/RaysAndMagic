@@ -31,9 +31,9 @@ func TestRareFlaskImpactLifecycle(t *testing.T) {
 					}
 					p := &g.magicProjectiles[0]
 					w := MagicProjectileWrapper{MagicProjectile: p, game: g, collisionSystem: g.collisionSystem, projectileID: p.ID}
-					distance := p.FlaskFlightRange / 2
+					distance := p.Launch.distance / 2
 					if hit == "range" {
-						distance = p.FlaskFlightRange
+						distance = p.Launch.distance
 					}
 					x, y := g.camera.X+distance, g.camera.Y
 					m := zoneVictim(t, g)

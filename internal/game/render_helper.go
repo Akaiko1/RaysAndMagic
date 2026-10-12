@@ -113,7 +113,7 @@ func (rh *RenderingHelper) calculateFloorScreenYF(perpDist float64) float64 {
 	if perpDist <= 0 {
 		perpDist = 1 // Avoid division by zero
 	}
-	return horizon + (0.5*focalLength*tileSize)/perpDist
+	return horizon + (eyeHeightTiles*focalLength*tileSize)/perpDist
 }
 
 // projectToScreenX converts a world position into screen X using the camera plane.

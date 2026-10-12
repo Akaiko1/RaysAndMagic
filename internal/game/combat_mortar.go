@@ -45,8 +45,8 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 	parts, isCrit := cs.rollSpellCritParts(spellID, caster, parts)
 
 	// Flight time from the spell's authored projectile speed (validateSpellAuthoring
-	// guarantees a mortar spell has physics.speed_tiles > 0); a wall may clip the
-	// visual bolt early, but the arc abstraction lands the bloom regardless.
+	// guarantees a mortar spell has physics.speed_tiles > 0). The visual bolt
+	// flies through walls like the shell; a wall hides it only below its top.
 	speed := spellDef.MortarRangeTiles // 1 tile/frame fallback if physics is ever absent
 	if physics, err := cs.game.config.GetSpellConfig(string(spellID)); err == nil && physics.SpeedTiles > 0 {
 		speed = physics.SpeedTiles
@@ -56,7 +56,7 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		frames = 1
 	}
 
-	cs.spawnMortarVisual(spellID, frames)
+	cs.spawnMortarVisual(spellID, frames, dist)
 	cs.game.pendingMortars = append(cs.game.pendingMortars, pendingMortar{
 		X: landX, Y: landY,
 		FramesLeft:  frames,
@@ -77,11 +77,17 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 	return true
 }
 
+// mortarApexPerRange sets a mortar's crest above its hand-to-landing line as a
+// share of its range: high enough to clear walls, low enough to stay in view.
+const mortarApexPerRange = .2
+
 // spawnMortarVisual launches the non-colliding display bolt that traces the
-// mortar's path (no collision entity: nothing may intercept the arc).
-func (cs *CombatSystem) spawnMortarVisual(spellID spells.SpellID, frames int) {
+// mortar's arc to the landing point dist ahead (no collision entity: nothing
+// may intercept the arc).
+func (cs *CombatSystem) spawnMortarVisual(spellID spells.SpellID, frames int, dist float64) {
 	castingSystem := spells.NewCastingSystem(cs.game.config)
-	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.partyAttackAngle())
+	angle := cs.partyAttackAngle()
+	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, angle)
 	if err != nil {
 		return
 	}
@@ -97,6 +103,8 @@ func (cs *CombatSystem) spawnMortarVisual(spellID spells.SpellID, frames int) {
 		Size:      projectile.Size,
 		NoCollide: true,
 		Owner:     ProjectileOwnerPlayer,
+		Launch: projectileLaunch{x: cs.game.camera.X, y: cs.game.camera.Y, dx: math.Cos(angle), dy: math.Sin(angle),
+			angle: angle, distance: dist, lobApex: dist * mortarApexPerRange},
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, mp)
 }

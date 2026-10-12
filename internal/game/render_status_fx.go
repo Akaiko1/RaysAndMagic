@@ -8,6 +8,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
 	"ugataima/internal/status"
@@ -170,26 +171,66 @@ func (g *MMGame) partyStatusVisuals(m *character.MMCharacter) statusVisuals {
 	return v
 }
 
-func (g *MMGame) partyConditionLabel(m *character.MMCharacter) string {
-	var parts []string
+// partyConditionShortName is a condition's short card form; short names keep
+// their full form.
+func partyConditionShortName(c character.Condition) string {
+	switch c {
+	case character.ConditionPoisoned:
+		return uitext.Text("ui.status_short_poisoned")
+	case character.ConditionDiseased:
+		return uitext.Text("ui.status_short_diseased")
+	case character.ConditionCursed:
+		return uitext.Text("ui.status_short_cursed")
+	case character.ConditionAsleep:
+		return uitext.Text("ui.status_short_asleep")
+	case character.ConditionParalyzed:
+		return uitext.Text("ui.status_short_paralyzed")
+	case character.ConditionUnconscious:
+		return uitext.Text("ui.status_short_unconscious")
+	case character.ConditionBurning:
+		return uitext.Text("ui.status_short_burning")
+	case character.ConditionStunned:
+		return uitext.Text("ui.status_short_stunned")
+	}
+	return c.String()
+}
+
+// partyConditionNames lists a hero's card statuses in display order, each with
+// its full name and its short form.
+func (g *MMGame) partyConditionNames(m *character.MMCharacter) (full, short []string) {
+	add := func(name, brief string, front bool) {
+		if front {
+			full, short = append([]string{name}, full...), append([]string{brief}, short...)
+			return
+		}
+		full, short = append(full, name), append(short, brief)
+	}
 	for _, c := range m.Conditions {
 		if c != character.ConditionNormal {
-			parts = append(parts, c.String())
+			add(c.String(), partyConditionShortName(c), false)
 		}
 	}
-	if g.partyRooted() && !m.HasCondition(character.ConditionDead) && !m.HasCondition(character.ConditionEradicated) {
-		parts = append([]string{"Rooted"}, parts...)
+	gone := m.HasCondition(character.ConditionDead) || m.HasCondition(character.ConditionEradicated)
+	if g.partyRooted() && !gone {
+		add(uitext.Text("ui.status_rooted"), uitext.Text("ui.status_short_rooted"), true)
 	}
-	if g.partyHinder.Slow > 0 && !m.HasCondition(character.ConditionDead) && !m.HasCondition(character.ConditionEradicated) {
-		parts = append([]string{"Slowed"}, parts...)
+	if g.partyHinder.Slow > 0 && !gone {
+		add(uitext.Text("ui.status_slowed"), uitext.Text("ui.status_short_slowed"), true)
 	}
-	if m.ArmorMelted() && !m.HasCondition(character.ConditionDead) && !m.HasCondition(character.ConditionEradicated) {
-		parts = append(parts, "Armor melted")
+	if m.ArmorMelted() && !gone {
+		add(uitext.Text("ui.status_armor_melted"), uitext.Text("ui.status_short_armor_melted"), false)
 	}
-	if len(parts) == 0 {
-		return "OK"
+	return full, short
+}
+
+// partyConditionLabels is the card's status list with full and with short
+// names, both "OK" when clear.
+func (g *MMGame) partyConditionLabels(m *character.MMCharacter) (full, short string) {
+	fullNames, shortNames := g.partyConditionNames(m)
+	if len(fullNames) == 0 {
+		return "OK", "OK"
 	}
-	return strings.Join(parts, ", ")
+	return strings.Join(fullNames, ", "), strings.Join(shortNames, ", ")
 }
 
 // statusCanvas draws in normalized actor bounds. Fine outlined geometry remains
