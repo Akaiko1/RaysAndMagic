@@ -35,11 +35,11 @@ func turnBasedRegenSetup(t *testing.T) *MMGame {
 }
 
 // TB SP regen through endPartyTurn: one payout every
-// TurnBasedSpRegenEveryNRounds rounds, skipped for unconscious and HP-0
+// TurnBasedRegenEveryNRounds rounds, skipped for unconscious and HP-0
 // members, capped at max, sized by effective Personality. Every member starts
 // at Personality 10 (regen 2) with SP 20/100.
 func TestTurnBasedRegenTable(t *testing.T) {
-	n := TurnBasedSpRegenEveryNRounds
+	n := TurnBasedRegenEveryNRounds
 	all := func(sp int) func(int) int { return func(int) int { return sp } }
 	except := func(idx, sp, others int) func(int) int {
 		return func(i int) int {
@@ -97,12 +97,12 @@ func TestModeSwitchRegenCadencesCannotPayBackToBack(t *testing.T) {
 		member.MaxHitPoints, member.HitPoints = 1000, 500
 		member.BonusRegenPct = 5
 		g.turnBasedMode = false
-		for range character.ManaRegenIntervalFrames - 1 {
+		for range config.RegenerationIntervalFrames() - 1 {
 			g.updatePartyClocks()
 		}
 
 		g.turnBasedMode = true
-		for range TurnBasedSpRegenEveryNRounds {
+		for range TurnBasedRegenEveryNRounds {
 			g.endPartyTurn()
 		}
 		if member.SpellPoints != 22 {
@@ -127,9 +127,10 @@ func TestModeSwitchRegenCadencesCannotPayBackToBack(t *testing.T) {
 		member := g.party.Members[0]
 		member.MaxHitPoints, member.HitPoints = 1000, 500
 		member.BonusRegenPct = 5
-		g.turnBasedSpRegenCount = TurnBasedSpRegenEveryNRounds - 1
+		g.turnBasedSpRegenCount = TurnBasedRegenEveryNRounds - 1
+		g.turnBasedHPRegenCount = TurnBasedRegenEveryNRounds - 1
 		g.turnBasedMode = false
-		for range character.ManaRegenIntervalFrames {
+		for range config.RegenerationIntervalFrames() {
 			g.updatePartyClocks()
 		}
 		if member.SpellPoints != 22 {
@@ -138,8 +139,8 @@ func TestModeSwitchRegenCadencesCannotPayBackToBack(t *testing.T) {
 		if member.HitPoints != 550 {
 			t.Fatalf("RT Troll payout HP = %d, want 550", member.HitPoints)
 		}
-		if g.turnBasedSpRegenCount != 0 {
-			t.Fatalf("RT payout left TB regen progress at %d", g.turnBasedSpRegenCount)
+		if g.turnBasedSpRegenCount != 0 || g.turnBasedHPRegenCount != 0 {
+			t.Fatalf("RT payout left TB regen progress at SP %d HP %d", g.turnBasedSpRegenCount, g.turnBasedHPRegenCount)
 		}
 
 		g.turnBasedMode = true
@@ -151,4 +152,116 @@ func TestModeSwitchRegenCadencesCannotPayBackToBack(t *testing.T) {
 			t.Fatalf("returning to TB paid an immediate second Troll regen: HP=%d", member.HitPoints)
 		}
 	})
+
+	// In a fight SP and HP pay on different cadences, so an HP payout in one
+	// mode must not erase pending SP progress from the other. Each row pays SP
+	// once, when its progress across both modes completes, and HP twice.
+	rt := func(g *MMGame, frames int) {
+		g.turnBasedMode = false
+		for range frames {
+			g.updatePartyClocks()
+		}
+	}
+	tb := func(g *MMGame, rounds int) {
+		g.turnBasedMode = true
+		for range rounds {
+			g.endPartyTurn()
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		run  func(g *MMGame)
+	}{
+		{"RT HP payout keeps TB SP rounds", func(g *MMGame) {
+			tb(g, config.CombatSPRegenRounds-1)
+			rt(g, config.RegenerationIntervalFrames()) // HP pays; SP waits for the fight interval
+			tb(g, 1)
+		}},
+		{"TB HP payout keeps RT SP frames", func(g *MMGame) {
+			rt(g, config.CombatSPRegenIntervalFrames()-1)
+			tb(g, TurnBasedRegenEveryNRounds) // HP pays; SP waits for the fight rounds
+			rt(g, 1)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := turnBasedRegenSetup(t)
+			member := g.party.Members[0]
+			member.MaxHitPoints, member.HitPoints = 1000, 500
+			member.BonusRegenPct = 5
+			ts := float64(g.config.GetTileSize())
+			spawnMonsterAtTile(g, "goblin", TileIndex(g.camera.X, ts)+2, TileIndex(g.camera.Y, ts), ts)
+			if !g.partyInCombat() {
+				t.Fatal("fixture: party is not fighting")
+			}
+			tc.run(g)
+			if member.SpellPoints != 22 || member.HitPoints != 600 {
+				t.Fatalf("SP=%d HP=%d, want SP 22 HP 600", member.SpellPoints, member.HitPoints)
+			}
+		})
+	}
+}
+
+// A fight slows SP regen only: RT every CombatSPRegenSeconds instead of the
+// regen interval, TB every CombatSPRegenRounds instead of the regen rounds.
+// HP regen (Troll card) keeps its cadence, and the party out of a fight keeps
+// both. Every member regenerates 2 SP and 5% of 1000 HP per tick.
+func TestSPRegenSlowsWhileFighting(t *testing.T) {
+	tps := config.GetTargetTPS()
+	for _, tc := range []struct {
+		name                  string
+		tb, fighting          bool
+		steps, wantSP, wantHP int
+	}{
+		{"TB calm pays at the regen rounds", true, false, TurnBasedRegenEveryNRounds, 22, 550},
+		{"TB fight holds SP at the regen rounds", true, true, TurnBasedRegenEveryNRounds, 20, 550},
+		{"TB fight pays SP at the fight rounds", true, true, config.CombatSPRegenRounds, 22, 550},
+		{"RT calm pays at the regen interval", false, false, config.RegenerationIntervalFrames(), 22, 550},
+		{"RT fight holds SP at the regen interval", false, true, config.RegenerationIntervalFrames(), 20, 550},
+		{"RT fight pays SP at the fight interval", false, true, config.CombatSPRegenSeconds * tps, 22, 550},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := turnBasedRegenSetup(t)
+			g.turnBasedMode = tc.tb
+			for _, m := range g.party.Members {
+				m.MaxHitPoints, m.HitPoints, m.BonusRegenPct = 1000, 500, 5
+			}
+			if tc.fighting {
+				ts := float64(g.config.GetTileSize())
+				spawnMonsterAtTile(g, "goblin", TileIndex(g.camera.X, ts)+2, TileIndex(g.camera.Y, ts), ts)
+			}
+			if g.partyInCombat() != tc.fighting {
+				t.Fatalf("fixture: partyInCombat=%v", g.partyInCombat())
+			}
+			for range tc.steps {
+				if tc.tb {
+					g.endPartyTurn()
+				} else {
+					g.updatePartyClocks()
+				}
+			}
+			m := g.party.Members[0]
+			if m.SpellPoints != tc.wantSP || m.HitPoints != tc.wantHP {
+				t.Fatalf("SP=%d HP=%d after %d steps, want SP %d HP %d", m.SpellPoints, m.HitPoints, tc.steps, tc.wantSP, tc.wantHP)
+			}
+		})
+	}
+}
+
+// A save from before HP and SP regen had separate TB counters resumes HP regen
+// on the shared counter's phase; a current save keeps its own HP phase.
+func TestLegacySaveSharesTurnBasedRegenPhase(t *testing.T) {
+	g := turnBasedRegenSetup(t)
+	hp := 1
+	for _, tc := range []struct {
+		name   string
+		saved  *int
+		wantHP int
+	}{{"legacy", nil, 2}, {"current", &hp, 1}} {
+		t.Run(tc.name, func(t *testing.T) {
+			g.restoreSavedTurnState(&GameSave{TurnBasedSpRegenCount: 2, TurnBasedHPRegenCount: tc.saved})
+			if g.turnBasedSpRegenCount != 2 || g.turnBasedHPRegenCount != tc.wantHP {
+				t.Fatalf("SP %d HP %d, want 2 and %d", g.turnBasedSpRegenCount, g.turnBasedHPRegenCount, tc.wantHP)
+			}
+		})
+	}
 }

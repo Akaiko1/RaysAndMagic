@@ -93,7 +93,13 @@ Supported fields (from `monsters.yaml`):
 - `attack_cooldown_multiplier`, `attacks_per_round`
 
 ### Boss kit (all data-driven; see golden_thief_bug)
-- `ignores_armor` - melee bypasses party armor class
+- `boss: true` - a disintegrate proc deals 100 true damage to a boss
+  instead of the kill, whatever its type (undead and dragons stay immune).
+- `type: "formless"` - a boss-only type (it fails the load without
+  `boss: true`) that blocks Bind Undead and Charm. A boss does not have to
+  be formless.
+- `ignores_armor` - melee and projectile hits bypass party armor class;
+  abilities (breath, novas, telegraphs, traps) are still mitigated by armor
 - `inferno_chance` + `inferno_damage` - party-wide fire nova
 - `teleport_at_hp` + `teleport_chance` - low-HP blink to a random tile
 - `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` -

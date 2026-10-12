@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	_ "image/png"
+	"iter"
 	"math"
 	"math/rand"
 	"os"
@@ -743,7 +744,8 @@ type MMGame struct {
 	turnBasedMoveCooldown     int // Movement cooldown in frames (18 FPS = 0.3 second)
 	turnBasedRotCooldown      int // Rotation cooldown in frames (18 FPS = 0.3 second)
 	monsterTurnState
-	turnBasedSpRegenCount int // Counter for turn-based SP regeneration (every TurnBasedSpRegenEveryNRounds rounds)
+	turnBasedSpRegenCount int // rounds since the last turn-based SP tick (slower in a fight)
+	turnBasedHPRegenCount int // rounds since the last turn-based HP regen tick (cards, draughts, Regeneration)
 
 	// cardSummonCooldowns independently silence each physical summon card after
 	// it fires. Keys are the stable per-card owner strings derived from the
@@ -1151,23 +1153,72 @@ func newPlayerCollisionEntity(x, y float64) *collision.Entity {
 	return collision.NewEntity("player", x, y, partyCollisionBoxSize, partyCollisionBoxSize, collision.CollisionTypePlayer, true)
 }
 
-// partyInCombat reports whether a live hostile monster is NEAR the party
-// (interaction radius). Controlled allies use IsEngagingPlayer for their own AI
-// pursuit, but must not suppress world interaction. Distance-gated on purpose:
-// a whole-map-aggro boss or an AoE-clipped stray must not lock interaction
-// (e.g. the map-exit NPC) from across the map.
-func (g *MMGame) partyInCombat() bool {
-	if g.world == nil {
-		return false
-	}
-	radius := PartyInteractionCombatRadiusTiles * float64(g.config.GetTileSize())
-	for _, m := range g.world.Monsters {
-		if m != nil && m.IsAlive() && m.TargetsParty() &&
-			Distance(g.camera.X, g.camera.Y, m.X, m.Y) <= radius {
-			return true
+// The party's fight is the set of its combatants (monsterInPartyFight): the
+// battlefield's combatants, allies' fights included, plus a long-shot
+// retaliation until it lapses. It ends on its own as monsters disengage. Every
+// "is there a fight" question reads this set and adds its own rule.
+
+// combatants yields every combatant of the party's fight.
+func (g *MMGame) combatants() iter.Seq[*monster.Monster3D] {
+	return g.combatantsMatching(nil)
+}
+
+// combatantsMatching yields the combatants that also meet a consumer's own
+// rule (nil: every one). The rule runs first: it is the cheaper test.
+func (g *MMGame) combatantsMatching(rule func(*monster.Monster3D) bool) iter.Seq[*monster.Monster3D] {
+	return func(yield func(*monster.Monster3D) bool) {
+		if g.world == nil || g.camera == nil {
+			return
+		}
+		px, py := g.partyFightPos()
+		for _, m := range g.world.Monsters {
+			if g.fightCandidate(m) && (rule == nil || rule(m)) && g.monsterInPartyFight(m, px, py) && !yield(m) {
+				return
+			}
 		}
 	}
+}
+
+// combatantMatches reports a combatant that also meets a consumer's own rule
+// (nil: any combatant).
+func (g *MMGame) combatantMatches(rule func(*monster.Monster3D) bool) bool {
+	for range g.combatantsMatching(rule) {
+		return true
+	}
 	return false
+}
+
+// partyInCombat is THE fight flag: the party has a fight at all. The slower
+// in-fight SP regen reads it.
+func (g *MMGame) partyInCombat() bool {
+	return g.combatantMatches(nil)
+}
+
+// partyUnderAttack: a combatant presses the party itself, not only an ally.
+// Camping, brewing and the automatic-cast triggers read it.
+func (g *MMGame) partyUnderAttack() bool {
+	return g.combatantMatches(g.monsterPressesParty)
+}
+
+// partyEngaged: a combatant pressing the party is engaged with it, not merely
+// alerted. Drakehide scales shed and Celestial Armor's autocast read it.
+func (g *MMGame) partyEngaged() bool {
+	return g.combatantMatches(func(m *monster.Monster3D) bool {
+		return m.IsEngagingPlayer && g.monsterPressesParty(m)
+	})
+}
+
+// interactionBlockedByCombat is the fight's world-interaction lock: a
+// combatant targeting the party within the interaction radius. Distance-gated
+// on purpose: a whole-map-aggro boss or an AoE-clipped stray must not lock
+// interaction (e.g. the map-exit NPC) from across the map, and an ally's fight
+// alone never does.
+func (g *MMGame) interactionBlockedByCombat() bool {
+	radius := PartyInteractionCombatRadiusTiles * float64(g.config.GetTileSize())
+	px, py := g.partyFightPos()
+	return g.combatantMatches(func(m *monster.Monster3D) bool {
+		return m.TargetsParty() && Distance(px, py, m.X, m.Y) <= radius
+	})
 }
 
 // npcEffectivePos returns where the NPC is actually rendered: wall-mounted
@@ -1205,7 +1256,7 @@ func (g *MMGame) npcIsWall(npc *character.NPC) bool {
 func (g *MMGame) updateFocusedNPC() {
 	g.focusedNPC = nil
 	currentWorld := g.GetCurrentWorld()
-	if currentWorld == nil || g.renderHelper == nil || g.partyInCombat() {
+	if currentWorld == nil || g.renderHelper == nil || g.interactionBlockedByCombat() {
 		return
 	}
 	maxDist := float64(g.config.GetTileSize()) * 1.6 // own + adjacent tile, diagonal-safe
@@ -2916,14 +2967,24 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 }
 
 // updatePartyClocks advances the active mode's party clocks. A completed RT
-// regeneration cadence clears partial TB progress; the reciprocal reset lives
-// in endPartyTurn when its TB cadence pays out.
+// regeneration cadence clears that resource's partial TB progress; the
+// reciprocal reset lives in endPartyTurn when a TB cadence pays out.
 func (g *MMGame) updatePartyClocks() {
 	if g == nil || g.party == nil {
 		return
 	}
-	if g.party.UpdateWithMode(g.turnBasedMode, g.absorbCelestialDamage) {
+	// Turn-based frames tick no regen (endPartyTurn does), so only real time
+	// asks whether the party fights.
+	clock := character.PartyClock{TurnBased: g.turnBasedMode}
+	if !clock.TurnBased {
+		clock.InCombat = g.partyInCombat()
+	}
+	paid := g.party.UpdateWithMode(clock, g.absorbCelestialDamage)
+	if paid.SP {
 		g.turnBasedSpRegenCount = 0
+	}
+	if paid.HP {
+		g.turnBasedHPRegenCount = 0
 	}
 }
 
@@ -3038,19 +3099,38 @@ func (g *MMGame) reconcileTBRoundActionFloorAfterEquipmentChange(characterIndex 
 }
 
 // endPartyTurn ends the party's turn and starts the monster turn. Every
-// TurnBasedSpRegenEveryNRounds rounds, every able-bodied party member gets
-// one SP regen tick (Personality-derived); KO members are skipped via
-// RegenerateSpellPoints. Lives on MMGame so non-input callers (spellbook
-// double-click, future UI dialogs) can drive a turn end too.
+// TurnBasedRegenEveryNRounds rounds each able-bodied member gets an HP regen
+// tick (cards, draughts, Regeneration) and, out of a fight, an SP tick; in a
+// fight SP waits config.CombatSPRegenRounds. KO members are skipped by the
+// tick bodies. Lives on MMGame so non-input callers (spellbook double-click,
+// future UI dialogs) can drive a turn end too.
 func (g *MMGame) endPartyTurn() {
 	g.tickPartyRoot(true)
 	g.turnBasedSpRegenCount++
-	if g.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
+	g.turnBasedHPRegenCount++
+	spRounds := TurnBasedRegenEveryNRounds
+	if g.partyInCombat() {
+		spRounds = config.CombatSPRegenRounds
+	}
+	paid := character.RegenPayout{
+		SP: g.turnBasedSpRegenCount >= spRounds,
+		HP: g.turnBasedHPRegenCount >= TurnBasedRegenEveryNRounds,
+	}
+	if paid.SP {
 		g.turnBasedSpRegenCount = 0
+	}
+	if paid.HP {
+		g.turnBasedHPRegenCount = 0
+	}
+	if paid.Any() {
 		for _, member := range g.party.Members {
-			member.RegenerateSpellPoints()
-			member.ApplyCardRegenTick() // Troll Card(s): RT ticks on a frame timer, TB on this round counter
-			member.ResetRealtimeRegenCadence()
+			if paid.SP {
+				member.RegenerateSpellPoints()
+			}
+			if paid.HP {
+				member.ApplyCardRegenTick() // Troll Card(s): RT ticks on a frame timer, TB on this round counter
+			}
+			member.ResetRealtimeRegenCadence(paid)
 		}
 	}
 

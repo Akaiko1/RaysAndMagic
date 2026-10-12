@@ -33,6 +33,10 @@ const weaponStatusSecondsPerTurn = 2
 // CombatRoundSeconds is the shared real-time duration of a combat round.
 const CombatRoundSeconds = 3
 
+// DisintegrateBossTrueDamage replaces the disintegrate kill on a boss: the
+// proc adds this much true damage to the hit instead.
+const DisintegrateBossTrueDamage = 100
+
 // CombatRounds converts real-time seconds to whole TB rounds, rounding up.
 func CombatRounds(seconds int) int {
 	return (seconds + CombatRoundSeconds - 1) / CombatRoundSeconds
@@ -80,7 +84,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text("weapon.stun_chance_s_rt_turns_tb", w.StunChance*100, turns, turns))
 	}
 	if w.DisintegrateChance > 0 {
-		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100))
+		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100, DisintegrateBossTrueDamage))
 	}
 	if includeStructured && w.AoeRadiusTiles > 0 {
 		lines = append(lines, uitext.Text("weapon.aoe_radius_tiles_splashes_all_nearby_monsters", w.AoeRadiusTiles))
@@ -1592,8 +1596,12 @@ type WeaponDefinitionConfig struct {
 // remains, its comment states what it lasts at this rate.
 const DefaultTPS = 120
 
-const RegenerationIntervalFrames = 600
-const RegenerationRounds = 3
+// Regeneration ticks every RegenerationSeconds in real time and every
+// RegenerationRounds in turn-based play.
+const (
+	RegenerationSeconds = 5
+	RegenerationRounds  = 3
+)
 
 func (c *Config) GetTPS() int {
 	if c != nil && c.Engine.TPS > 0 {
@@ -1609,10 +1617,29 @@ func GetTargetTPS() int {
 	return DefaultTPS
 }
 
-// RegenerationIntervalSeconds is the real-time spacing of regeneration ticks,
-// which are counted in frames, at the configured TPS.
+// SP regenerates slower while the party fights: every CombatSPRegenSeconds in
+// real time and every CombatSPRegenRounds in turn-based, instead of the
+// RegenerationSeconds / RegenerationRounds cadence every other regen keeps.
+// Both real-time intervals are seconds, so the fight stays slower at any TPS.
+const (
+	CombatSPRegenSeconds = 9
+	CombatSPRegenRounds  = 4
+)
+
+// RegenerationIntervalFrames is RegenerationSeconds at the configured TPS.
+func RegenerationIntervalFrames() int {
+	return RegenerationSeconds * GetTargetTPS()
+}
+
+// CombatSPRegenIntervalFrames is CombatSPRegenSeconds at the configured TPS.
+func CombatSPRegenIntervalFrames() int {
+	return CombatSPRegenSeconds * GetTargetTPS()
+}
+
+// RegenerationIntervalSeconds is RegenerationSeconds for the tooltips' float
+// formats.
 func RegenerationIntervalSeconds() float64 {
-	return float64(RegenerationIntervalFrames) / float64(GetTargetTPS())
+	return RegenerationSeconds
 }
 
 var GlobalConfig *Config

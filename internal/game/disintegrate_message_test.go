@@ -1,9 +1,11 @@
 package game
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
@@ -81,5 +83,42 @@ func TestDisintegrate_NoDamageSpamOnImmuneTarget(t *testing.T) {
 	}
 	if mob.HitTintFrames <= 0 {
 		t.Error("no-effect hit must still flash the hit tint (visual feedback)")
+	}
+}
+
+// A boss withstands the spell's proc: it takes the sear as a real hit - no
+// "no effect" line - and lives. A missed roll stays inert.
+func TestDisintegrate_SearsBoss(t *testing.T) {
+	for _, proc := range []bool{true, false} {
+		t.Run(fmt.Sprintf("proc=%v", proc), func(t *testing.T) {
+			g, thief := newThiefTestGame(t)
+			def, err := spells.GetSpellDefinitionByID("disintegrate")
+			if err != nil {
+				t.Fatalf("disintegrate spell: %v", err)
+			}
+			mob := monsterPkg.NewMonster3DFromConfig(g.camera.X+1, g.camera.Y, "minotaur", g.config)
+			mob.Boss = true // a minotaur is no formless type: the boss flag decides
+			mob.PerfectDodge = 0
+			mob.Resistances = nil
+			mob.MaxHitPoints, mob.HitPoints = 1000, 1000
+			g.world.Monsters = []*monsterPkg.Monster3D{mob}
+			chance := 0.0
+			if proc {
+				chance = 1
+			}
+			mp := &MagicProjectile{ID: "mp_sear", Attacker: thief, Active: true, LifeTime: 60, SpellType: string(def.ID), DisintegrateChance: chance}
+			g.combat.applyProjectileDamage(mp, "magic_projectile", mob, mp.ID)
+
+			want := 1000
+			if proc {
+				want -= config.DisintegrateBossTrueDamage
+			}
+			if !mob.IsAlive() || mob.HitPoints != want {
+				t.Fatalf("HP=%d alive=%v, want %d alive", mob.HitPoints, mob.IsAlive(), want)
+			}
+			if noEffect := countCombatLog(g, "has no effect on") == 1; noEffect == proc {
+				t.Fatalf("'no effect' line=%v with proc=%v", noEffect, proc)
+			}
+		})
 	}
 }

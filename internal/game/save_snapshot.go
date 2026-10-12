@@ -490,6 +490,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 	}
 
+	hpRegenCount := g.turnBasedHPRegenCount
 	return GameSave{
 		Adventure:        cloneAdventureState(g.adventure),
 		TerrainChanges:   append([]TerrainChange(nil), g.terrainChanges...),
@@ -537,6 +538,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		TurnBasedRotCooldown:       g.turnBasedRotCooldown,
 		MonsterTurnResolved:        g.monsterTurnResolved,
 		TurnBasedSpRegenCount:      g.turnBasedSpRegenCount,
+		TurnBasedHPRegenCount:      &hpRegenCount,
 		ExtraMonsterAction:         g.turnBasedExtraMonsterAction,
 		TurnBasedMonsterPassesLeft: g.turnBasedMonsterPassesLeft,
 		TurnBasedMonsterPassDelay:  g.turnBasedMonsterPassDelay,

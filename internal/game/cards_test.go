@@ -1246,8 +1246,8 @@ func TestTrollCards_RegenPct(t *testing.T) {
 
 	member.MaxHitPoints = 1000
 	member.HitPoints = 500
-	for i := 0; i < character.ManaRegenIntervalFrames; i++ {
-		member.UpdateWithMode(false)
+	for i := 0; i < config.RegenerationIntervalFrames(); i++ {
+		member.UpdateWithMode(character.PartyClock{})
 	}
 	if want := 500 + 1000*regen/100; member.HitPoints != want {
 		t.Errorf("HP after one regen tick = %d, want %d (500 + %d%% of 1000)", member.HitPoints, want, regen)
@@ -1255,7 +1255,7 @@ func TestTrollCards_RegenPct(t *testing.T) {
 }
 
 // Regression: the Troll Card's HP regen only lived in the RT-only
-// updateRegenAndPoison - UpdateWithMode(true) (TB) returned before reaching it,
+// updateRegenAndPoison - UpdateWithMode(character.PartyClock{TurnBased: true}) (TB) returned before reaching it,
 // so equipping the card and fighting in turn-based mode silently regenerated
 // nothing all fight. The TB path now ticks it via ApplyCardRegenTick on the
 // same round counter as SP regen (endPartyTurn).
@@ -1266,11 +1266,11 @@ func TestTrollCard_RegensInTurnBasedMode(t *testing.T) {
 	member.MaxHitPoints, member.HitPoints = 1000, 500
 	member.BonusRegenPct = 5 // as if a Troll Card were active
 
-	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
+	for i := 0; i < TurnBasedRegenEveryNRounds; i++ {
 		g.endPartyTurn()
 	}
 	if member.HitPoints != 550 {
-		t.Errorf("HP after %d TB rounds = %d, want 550 (500 + 5%% of 1000)", TurnBasedSpRegenEveryNRounds, member.HitPoints)
+		t.Errorf("HP after %d TB rounds = %d, want 550 (500 + 5%% of 1000)", TurnBasedRegenEveryNRounds, member.HitPoints)
 	}
 }
 

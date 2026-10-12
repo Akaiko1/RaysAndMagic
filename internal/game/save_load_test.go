@@ -88,6 +88,7 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.turnBasedRotCooldown = 9
 	game.monsterTurnResolved = true
 	game.turnBasedSpRegenCount = 4
+	game.turnBasedHPRegenCount = 2
 	game.turnBasedExtraMonsterAction = true
 	schedulerMob := monster.NewMonster3DFromConfig(96, 96, "goblin", cfg)
 	schedulerMob.ID = "saved_scheduler_mob"
@@ -154,8 +155,8 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.monsterTurnResolved != game.monsterTurnResolved {
 		t.Fatalf("monsterTurnResolved: got %v want %v", loaded.monsterTurnResolved, game.monsterTurnResolved)
 	}
-	if loaded.turnBasedSpRegenCount != game.turnBasedSpRegenCount {
-		t.Fatalf("turnBasedSpRegenCount: got %d want %d", loaded.turnBasedSpRegenCount, game.turnBasedSpRegenCount)
+	if loaded.turnBasedSpRegenCount != game.turnBasedSpRegenCount || loaded.turnBasedHPRegenCount != game.turnBasedHPRegenCount {
+		t.Fatalf("TB regen counters: got SP %d HP %d want %d %d", loaded.turnBasedSpRegenCount, loaded.turnBasedHPRegenCount, game.turnBasedSpRegenCount, game.turnBasedHPRegenCount)
 	}
 	if loaded.turnBasedExtraMonsterAction != game.turnBasedExtraMonsterAction {
 		t.Fatalf("turnBasedExtraMonsterAction: got %v want %v", loaded.turnBasedExtraMonsterAction, game.turnBasedExtraMonsterAction)

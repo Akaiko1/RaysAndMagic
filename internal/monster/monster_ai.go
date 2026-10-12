@@ -503,11 +503,20 @@ func (m *Monster3D) playerAlertRadii() (float64, float64) {
 	return math.Min(radius, m.PursuitLimitTiles()*m.tileSize()), multiplier
 }
 
+// fightReachTiles is how far the monster keeps up a fight with the party: the
+// pursuit cap, or a retaliation's longer reach while it lasts.
+func (m *Monster3D) fightReachTiles() float64 {
+	if m.Retaliation.Frames > 0 {
+		return math.Max(m.PursuitLimitTiles(), m.Retaliation.RadiusTiles)
+	}
+	return m.PursuitLimitTiles()
+}
+
 // PursuitLeashPixels is finite even for provoked creatures. Map hunters bypass
 // this distance only for their party target in their own region.
 func (m *Monster3D) PursuitLeashPixels() float64 {
 	if m.Retaliation.Frames > 0 {
-		return math.Max(m.PursuitLimitTiles(), m.Retaliation.RadiusTiles) * m.tileSize()
+		return m.fightReachTiles() * m.tileSize()
 	}
 	if m.WasAttacked {
 		return m.PursuitLimitTiles() * m.tileSize()
@@ -542,10 +551,23 @@ func (m *Monster3D) LimitPlayerEngagement(playerX, playerY float64) {
 	}
 }
 
-// PressesParty excludes remote map hunters from local party activities and UI.
+// PressesParty excludes remote map hunters from local party activities and UI:
+// pursuit of the party within the pursuit cap.
 func (m *Monster3D) PressesParty(partyX, partyY float64) bool {
+	return m.pursuesPartyWithin(partyX, partyY, m.PursuitLimitTiles())
+}
+
+// FightsParty is PressesParty out to the monster's fight reach: a monster
+// retaliating for a long shot fights on out to that shot's reach until the
+// retaliation lapses; a map-wide hunter beyond the cap does not until it
+// closes in.
+func (m *Monster3D) FightsParty(partyX, partyY float64) bool {
+	return m.pursuesPartyWithin(partyX, partyY, m.fightReachTiles())
+}
+
+func (m *Monster3D) pursuesPartyWithin(partyX, partyY, reachTiles float64) bool {
 	return m.TargetsParty() && m.CanPursueParty(partyX, partyY) &&
-		distance(m.X, m.Y, partyX, partyY) <= m.PursuitLimitTiles()*m.tileSize()
+		distance(m.X, m.Y, partyX, partyY) <= reachTiles*m.tileSize()
 }
 
 // ReturnHomeTarget is shared by continuous and turn movement. Only the explicit

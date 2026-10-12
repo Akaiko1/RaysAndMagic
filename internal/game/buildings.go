@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"ugataima/internal/character"
@@ -241,7 +242,7 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 			if !found {
 				itemKey = entry.Name
 			}
-			if err := config.ValidateOrdinaryItemGrant(itemKey); err != nil {
+			if err := entry.GrantError(itemKey); err != nil {
 				return fmt.Errorf("NPC %q stock: %w", key, err)
 			}
 		}
@@ -276,6 +277,55 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 			if it.GoldCost < 0 {
 				return fmt.Errorf("NPC %q entry %q has negative gold_cost", key, it.Name)
 			}
+		}
+		// A special offer is part of the sale service: only a coin shop pays it.
+		if len(npc.Buys) > 0 && (!npc.SellAvailable || npc.Currency != "") {
+			return fmt.Errorf("NPC %q has buys but does not buy from the party for gold", key)
+		}
+		for itemKey, price := range npc.Buys {
+			if _, found := config.GetItemDefinition(itemKey); !found || price <= 0 {
+				return fmt.Errorf("NPC %q buys %q for %d - needs a known item key and a positive price", key, itemKey, price)
+			}
+		}
+		// Barter replaces the price outright: no currency, coin or authored cost
+		// may ride along, and the goods must exist.
+		for _, it := range npc.Inventory {
+			if it == nil || len(it.Barter) == 0 {
+				continue
+			}
+			if npc.Currency != "" || it.CurrencyItem != "" || it.GoldCost != 0 || it.Cost != 0 {
+				return fmt.Errorf("NPC %q entry %q mixes barter with another price", key, it.Name)
+			}
+			if len(it.Barter) > merchantBarterGoodsMax {
+				return fmt.Errorf("NPC %q entry %q barters %d goods; a price line shows at most %d", key, it.Name, len(it.Barter), merchantBarterGoodsMax)
+			}
+			for itemKey, n := range it.Barter {
+				if _, found := config.GetItemDefinition(itemKey); !found || n <= 0 {
+					return fmt.Errorf("NPC %q entry %q barters %d of %q - needs a known item key and a positive count", key, it.Name, n, itemKey)
+				}
+			}
+		}
+		// A stock tab trades one way: wholly for goods (an exchange shelf, which
+		// buys nothing from the party) or wholly for its price. A shop that buys
+		// from the party therefore needs a priced shelf to sell at.
+		barterTabs, pricedTabs := map[string]bool{}, map[string]bool{}
+		for _, it := range npc.Inventory {
+			if it != nil && len(it.Barter) > 0 {
+				barterTabs[it.Tab] = true
+			} else if it != nil {
+				pricedTabs[it.Tab] = true
+			}
+		}
+		if npc.StockWeaponsRarity != "" {
+			pricedTabs[""] = true // the generated weapon rack is untabbed coin stock
+		}
+		for _, tab := range sortedMapKeys(barterTabs) {
+			if pricedTabs[tab] {
+				return fmt.Errorf("NPC %q tab %q mixes barter and priced stock - an exchange tab trades for goods only", key, tab)
+			}
+		}
+		if npc.SellAvailable && len(barterTabs) > 0 && len(pricedTabs) == 0 {
+			return fmt.Errorf("NPC %q buys from the party but every shelf is barter, where nothing is sold - add a priced tab or drop sell_available", key)
 		}
 		if len(npc.Inventory) > 0 {
 			tabbed, untabbed := 0, 0
@@ -427,51 +477,142 @@ func (g *MMGame) maybeRespawnMapMonsters() {
 }
 
 // merchantShopTabs returns the dialog's shop tab labels (authored stock
-// order), or nil for a classic single-grid merchant.
+// order, tabs with nothing on offer left out), or nil for a classic
+// single-grid merchant.
 func (g *MMGame) merchantShopTabs() []string {
-	if g.dialogNPC == nil {
-		return nil
-	}
-	return character.MerchantTabs(g.dialogNPC.MerchantStock)
+	return g.merchantStockCache().tabs
 }
 
-// merchantVisibleStock is the stock slice the buy grid shows RIGHT NOW: the
-// active tab's entries for a tabbed shop, everything otherwise. The single
-// source for both the draw pass and the click handler - their indices must
-// agree or clicks buy the wrong item.
-func (g *MMGame) merchantVisibleStock() []*character.MerchantStockItem {
+// merchantStockOffered reports whether an entry is on the shelf: its quest
+// gate, if any, is settled the way a gated dialogue choice is.
+func (g *MMGame) merchantStockOffered(m *character.MerchantStockItem) bool {
+	return m != nil && g.questChainStepDone(m.RequiresQuest)
+}
+
+// merchantStockTab is the merchantShopTabs index the open dialog shows. A
+// shop+talk dialog lists its stock tabs after Talk; outside a stock tab it
+// clamps to the first, like a classic shop.
+func (g *MMGame) merchantStockTab() int {
+	tab := g.dialogTab - g.merchantStockTabOffset()
+	if tab < 0 || tab >= len(g.merchantShopTabs()) {
+		return 0
+	}
+	return tab
+}
+
+// merchantStockTabOffset is the dialogTab of the first stock tab: 1 after
+// Talk on a shop+talk dialog, 0 on a classic shop.
+func (g *MMGame) merchantStockTabOffset() int {
+	if g.npcDialogKindFor(g.dialogNPC) == dialogKindArenaGladiator {
+		return 1
+	}
+	return 0
+}
+
+// merchantStockCache refreshes the memo of the open merchant's stock. Stock
+// only changes by reassigning the slice (restock, caravan, load) or in place
+// inside an entry, which no filter reads, so the slice identity keys it; the
+// gated entries' gate states key the tabs, which open and close with them.
+func (g *MMGame) merchantStockCache() *merchantStockView {
+	c := &g.merchantStockView
 	npc := g.dialogNPC
 	if npc == nil {
-		return nil
+		return &merchantStockView{}
 	}
 	stock := npc.MerchantStock
-	// The view is read many times per frame. Stock only changes by reassigning
-	// the slice (restock, caravan, load) or in place inside an entry, which the
-	// tab and category filter never reads, so the slice identity keys it.
-	c := &g.merchantStockView
 	var base **character.MerchantStockItem
 	if len(stock) > 0 {
 		base = &stock[0]
 	}
 	if c.npc != npc || c.base != base || c.n != len(stock) {
-		*c = merchantStockView{npc: npc, base: base, n: len(stock), tabs: character.MerchantTabs(stock)}
+		sameNPC, oldTabs := c.npc == npc, c.tabs
+		*c = merchantStockView{npc: npc, base: base, n: len(stock), barterTabs: map[string]bool{}}
+		for _, m := range stock {
+			if m == nil {
+				continue
+			}
+			if m.RequiresQuest != "" {
+				c.gated = append(c.gated, m)
+			}
+			if len(m.Barter) > 0 {
+				c.barterTabs[m.Tab] = true
+			}
+		}
+		c.open = make([]bool, len(c.gated))
+		g.refreshMerchantTabs(c, sameNPC, oldTabs)
+		return c
 	}
-	if len(c.tabs) == 0 && g.merchantBuyCategory == inventoryTabAll {
+	for i, m := range c.gated {
+		if g.merchantStockOffered(m) != c.open[i] {
+			g.refreshMerchantTabs(c, true, c.tabs)
+			break
+		}
+	}
+	return c
+}
+
+// refreshMerchantTabs re-reads the gates and rebuilds the offered tabs. While
+// the same dialog stays open, the selection follows its tab by name.
+func (g *MMGame) refreshMerchantTabs(c *merchantStockView, sameNPC bool, oldTabs []string) {
+	c.hidden = 0
+	for i, m := range c.gated {
+		c.open[i] = g.merchantStockOffered(m)
+		if !c.open[i] {
+			c.hidden++
+		}
+	}
+	offered := c.npc.MerchantStock
+	if c.hidden > 0 {
+		offered = slices.DeleteFunc(slices.Clone(offered), func(m *character.MerchantStockItem) bool { return !g.merchantStockOffered(m) })
+	}
+	c.tabs, c.view = character.MerchantTabs(offered), nil
+	if sameNPC && !slices.Equal(oldTabs, c.tabs) {
+		g.keepMerchantTabSelection(oldTabs, c.tabs)
+	}
+}
+
+// keepMerchantTabSelection moves dialogTab to the tab it showed before the
+// stock tabs changed under the open dialog. A tab that vanished hands the
+// dialog back to its first tab (Talk on a shop+talk dialog).
+func (g *MMGame) keepMerchantTabSelection(oldTabs, tabs []string) {
+	labels := func(shop []string) []string {
+		if g.merchantStockTabOffset() == 1 {
+			return serviceTabLabels(g.dialogNPC, shop)
+		}
+		return shop
+	}
+	before, after := labels(oldTabs), labels(tabs)
+	if g.dialogTab < 0 || g.dialogTab >= len(before) {
+		g.dialogTab = 0
+		return
+	}
+	g.dialogTab = max(0, slices.Index(after, before[g.dialogTab]))
+}
+
+// merchantVisibleStock is the stock slice the buy grid shows RIGHT NOW: the
+// active tab's offered entries for a tabbed shop, everything otherwise. The
+// single source for both the draw pass and the click handler - their indices
+// must agree or clicks buy the wrong item.
+func (g *MMGame) merchantVisibleStock() []*character.MerchantStockItem {
+	c := g.merchantStockCache()
+	if c.npc == nil {
+		return nil
+	}
+	stock := c.npc.MerchantStock
+	if len(c.tabs) == 0 && c.hidden == 0 && g.merchantBuyCategory == inventoryTabAll {
 		return stock
 	}
-	if len(c.tabs) > 0 && (g.dialogTab < 0 || g.dialogTab >= len(c.tabs)) {
-		g.dialogTab = 0
-	}
-	if c.view == nil || c.tab != g.dialogTab || c.category != g.merchantBuyCategory {
+	tab := g.merchantStockTab()
+	if c.view == nil || c.tab != tab || c.category != g.merchantBuyCategory {
 		// A fresh slice: a caller may still be ranging over the previous view.
 		view := make([]*character.MerchantStockItem, 0, len(stock))
 		for _, m := range stock {
-			if m != nil && (len(c.tabs) == 0 || m.Tab == c.tabs[g.dialogTab]) &&
+			if g.merchantStockOffered(m) && (len(c.tabs) == 0 || m.Tab == c.tabs[tab]) &&
 				inventoryTabShows(g.merchantBuyCategory, m.Item) {
 				view = append(view, m)
 			}
 		}
-		c.view, c.tab, c.category = view, g.dialogTab, g.merchantBuyCategory
+		c.view, c.tab, c.category = view, tab, g.merchantBuyCategory
 	}
 	return c.view
 }
@@ -480,7 +621,10 @@ func (g *MMGame) merchantVisibleStock() []*character.MerchantStockItem {
 type merchantStockView struct {
 	npc           *character.NPC
 	base          **character.MerchantStockItem
-	n             int
+	n, hidden     int
+	gated         []*character.MerchantStockItem // entries behind a quest gate
+	open          []bool                         // their gate states at the last refresh
+	barterTabs    map[string]bool                // tabs priced in goods (whole tabs, validated at load)
 	tabs          []string
 	tab, category int
 	view          []*character.MerchantStockItem

@@ -229,7 +229,7 @@ func TestCrateBlockedDuringCombatWithoutWasting(t *testing.T) {
 	foe := monster.NewMonster3DFromConfig(g.camera.X+128, g.camera.Y, "goblin", g.config)
 	foe.IsEngagingPlayer = true
 	g.world.Monsters = []*monster.Monster3D{foe}
-	if !g.partyInCombat() {
+	if !g.interactionBlockedByCombat() {
 		t.Fatal("setup: engaging goblin next to the party must mean combat")
 	}
 
@@ -299,7 +299,7 @@ func TestCrateAllowsBoundAllyAfterPartyHit(t *testing.T) {
 			if ally.WasAttacked != tt.wantHit {
 				t.Fatalf("WasAttacked=%v, want %v", ally.WasAttacked, tt.wantHit)
 			}
-			if g.partyInCombat() {
+			if g.interactionBlockedByCombat() {
 				t.Fatal("a bound ally must not count as combat with the party")
 			}
 
@@ -324,7 +324,7 @@ func TestCrateAllowsPartyInteractionDuringSummonCrossfire(t *testing.T) {
 	enemy.IsEngagingPlayer = true
 	g.world.Monsters = []*monster.Monster3D{enemy, ally}
 
-	if g.partyInCombat() {
+	if g.interactionBlockedByCombat() {
 		t.Fatal("a monster targeting a summon must not lock party interaction")
 	}
 	g.useLootCrate(fire)
@@ -345,9 +345,9 @@ func TestCrateBlockedAfterPartyBreaksCharm(t *testing.T) {
 	g.combat.applyPacify(charmed, 60, "Charm")
 
 	g.combat.ApplyDamageToMonster(charmed, 1, "Iron Sword", false)
-	if charmed.Pacified || !g.partyInCombat() {
+	if charmed.Pacified || !g.interactionBlockedByCombat() {
 		t.Fatalf("a hit charmed monster must become a hostile combatant (pacified=%v combat=%v)",
-			charmed.Pacified, g.partyInCombat())
+			charmed.Pacified, g.interactionBlockedByCombat())
 	}
 
 	g.useLootCrate(fire)

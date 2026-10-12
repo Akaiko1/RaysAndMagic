@@ -201,8 +201,6 @@ func (v *viewer) overlayAddChoice(d *overlayDocument, parent []int) {
 		case "cast_buff":
 			c.Cost = 100
 			c.DurationSeconds = 60
-		case "exchange":
-			c.Exchange = &character.NPCExchange{Costs: map[string]int{}}
 		case "prop":
 			c.Prop = &character.NPCPropCopy{}
 		case "info":
@@ -311,45 +309,6 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 		out = append(out, overlayString("Champion tier", &c.Tier, "The duel runs on this map's duel arena (duel: in map_configs.yaml) against a champion of this tier.", tiers...))
 	case "combat":
 		out = append(out, overlayInfo("Fight source", key, "Edit monster groups and rewards under the object's Combat encounter section. Only encounter objects can fight."))
-	case "exchange":
-		if c.Exchange == nil {
-			c.Exchange = &character.NPCExchange{Costs: map[string]int{}}
-		}
-		x := c.Exchange
-		out = append(out, overlayString("Output item", &x.Output, "Choose either an output item or positive output gold.", append([]string{""}, v.overlayCatalog("items", "items")...)...), overlayInt("Output gold", &x.Gold, "0 when rewarding an item."))
-		keys := []string{}
-		for k := range x.Costs {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			value := x.Costs[k]
-			f := overlayInt("Cost: "+k, &value, "Required item count. Set 0 to remove this cost.")
-			apply := f.apply
-			f.apply = func(s string) error {
-				if err := apply(s); err != nil {
-					return err
-				}
-				if value <= 0 {
-					delete(x.Costs, k)
-				} else {
-					x.Costs[k] = value
-				}
-				return nil
-			}
-			out = append(out, f)
-		}
-		out = append(out, overlayAction("Add item cost", "Select a required item.", func() {
-			v.overlayChoose("Required item", "Each required item has a configurable count.", v.overlayCatalog("items", "items"), func(k string) error {
-				d.checkpoint()
-				x := overlayChoiceAt(d.editNPC(key), path).Exchange
-				if x.Costs == nil {
-					x.Costs = map[string]int{}
-				}
-				x.Costs[k] = 1
-				return nil
-			})
-		}))
 	case "prop":
 		if c.Prop == nil {
 			c.Prop = &character.NPCPropCopy{}

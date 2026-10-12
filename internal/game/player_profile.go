@@ -247,9 +247,8 @@ func (g *MMGame) recordProfileQuestResolution(quest *quests.Quest) {
 
 // Record the committed payment, not the number of goods received. Shop-wide
 // currencies and per-entry overrides both pass the resolved currency here.
-func (g *MMGame) recordProfileItemTrade(currency, name string, units int) {
-	key, ok := character.CurrencyItemKey(currency)
-	if g.playerProfile == nil || !ok || units <= 0 {
+func (g *MMGame) recordProfileItemTrade(key, name string, units int) {
+	if g.playerProfile == nil || key == "" || units <= 0 {
 		return
 	}
 	g.playerProfile.Data.Add("items_traded", int64(units))

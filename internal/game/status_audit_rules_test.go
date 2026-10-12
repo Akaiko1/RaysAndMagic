@@ -369,8 +369,8 @@ func TestEradicationClearsAfflictionClocks(t *testing.T) {
 	}
 }
 
-// Charm takes hold of living, non-formless targets only. Formless covers every
-// boss; undead answer to Bind Undead instead.
+// Charm takes hold of living, non-formless targets only; undead answer to
+// Bind Undead instead.
 func TestCharmTargetEligibility(t *testing.T) {
 	for _, tc := range []struct {
 		name, key string
@@ -378,7 +378,6 @@ func TestCharmTargetEligibility(t *testing.T) {
 	}{
 		{"living", "goblin", true},
 		{"undead", "skeleton", false},
-		{"formless", "enforcer_alien", false},
 		{"formless_boss", "golden_thief_bug", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

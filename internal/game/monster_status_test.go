@@ -361,7 +361,7 @@ func TestCurePoison_StopsBackgroundTick(t *testing.T) {
 
 			before := member.HitPoints
 			for i := 0; i < tps*3; i++ {
-				member.UpdateWithMode(false)
+				member.UpdateWithMode(character.PartyClock{})
 			}
 			if cured && member.HitPoints != before {
 				t.Errorf("HP dropped from %d to %d after cure - background poison timer kept ticking", before, member.HitPoints)
@@ -419,7 +419,7 @@ func TestLethalDoTTick_RoutesThroughKnockOut(t *testing.T) {
 	member.HitPoints, member.MaxHitPoints = 1, 100
 	member.ApplyPoison(config.GetTargetTPS()) // ticks once after ~1s
 	for i := 0; i < config.GetTargetTPS(); i++ {
-		member.UpdateWithMode(false)
+		member.UpdateWithMode(character.PartyClock{})
 	}
 	if member.HitPoints != 0 {
 		t.Fatalf("setup: expected the poison tick to zero HP, got %d", member.HitPoints)

@@ -124,8 +124,8 @@ func TestPartyUpdateWithMode(t *testing.T) {
 				start[i] = member.SpellPoints
 			}
 			reports := 0
-			for i := 0; i < 2*ManaRegenIntervalFrames; i++ {
-				if party.UpdateWithMode(tt.turnBased) {
+			for i := 0; i < 2*config.RegenerationIntervalFrames(); i++ {
+				if party.UpdateWithMode(PartyClock{TurnBased: tt.turnBased}).Any() {
 					reports++
 				}
 			}
@@ -142,7 +142,7 @@ func TestPartyUpdateWithMode(t *testing.T) {
 
 	t.Run("empty party", func(t *testing.T) {
 		party := &Party{Members: make([]*MMCharacter, 0, 4)}
-		if party.UpdateWithMode(false) {
+		if party.UpdateWithMode(PartyClock{}).Any() {
 			t.Error("an empty party reported a completed cadence")
 		}
 	})

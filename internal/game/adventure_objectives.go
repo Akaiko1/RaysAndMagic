@@ -47,8 +47,7 @@ func (g *MMGame) handleObjectiveProp(npc *character.NPC, id string, p *character
 		}
 		g.AddCombatMessage(p.Took)
 		if completed {
-			g.applyCompletedQuestTiles()
-			g.announceQuestCompletionWithMessage(q, p.Completed)
+			g.completePropErrand(npc, q, p.Completed, "")
 		}
 	}
 	return true

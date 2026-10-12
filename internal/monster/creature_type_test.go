@@ -18,7 +18,7 @@ func TestMonsterTypesAreCanonicalFromLoad(t *testing.T) {
 	}{
 		{"type: undead", TypeUndead, ""},
 		{"type: \" Undead \"", TypeUndead, ""},
-		{"type: FORMLESS", TypeFormless, ""},
+		{"type: FORMLESS\n    boss: true", TypeFormless, ""},
 		{"type: Dragon\n    boss: true\n    death_rallies_type: \" Human\"", TypeDragon, "human"},
 		{"type: \"\"", "", ""},
 	} {

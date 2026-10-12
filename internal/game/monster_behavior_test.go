@@ -465,6 +465,30 @@ func TestDisintegrate_TypeImmunity(t *testing.T) {
 			t.Errorf("type %q: immune = %v, want %v", tc.monsterType, got, tc.immune)
 		}
 	}
+	// A certain proc: immune types shrug it off, a boss of any other type is
+	// seared instead of erased, anything else is killed. The boss flag decides,
+	// not the formless type.
+	for _, tc := range []struct {
+		monsterType string
+		boss        bool
+		want        disintegrateOutcome
+	}{
+		{monster.TypeUndead, false, disintegrateNone},
+		{monster.TypeDragon, false, disintegrateNone},
+		{monster.TypeUndead, true, disintegrateNone},
+		{monster.TypeFormless, true, disintegrateSear},
+		{"beast", true, disintegrateSear},
+		{monster.TypeFormless, false, disintegrateKill},
+		{"", false, disintegrateKill},
+	} {
+		m := &monster.Monster3D{MonsterType: tc.monsterType, Boss: tc.boss, HitPoints: 10, MaxHitPoints: 10}
+		if got := rollMonsterDisintegrate(m, 1); got != tc.want {
+			t.Errorf("type %q boss=%v: outcome %v, want %v", tc.monsterType, tc.boss, got, tc.want)
+		}
+	}
+	if got := rollMonsterDisintegrate(&monster.Monster3D{HitPoints: 10, MaxHitPoints: 10}, 0); got != disintegrateNone {
+		t.Errorf("zero chance rolled %v", got)
+	}
 }
 
 // partyBuffGrant holds the mastery-scaled authored magnitudes of one cast.

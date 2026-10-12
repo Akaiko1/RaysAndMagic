@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math/rand"
+	"strconv"
 	"strings"
 	uitext "ugataima/assets/text"
 
@@ -593,6 +594,12 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	case dialogKindSkillTrainer:
 		ui.drawSkillTrainerDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindMerchant:
+		// Set-shop merchants (the Clockmaker) group their stock under folder
+		// tabs; a shop+talk dialog draws them among its own service tabs. The
+		// visible slice is shared with the click handler (merchantVisibleStock).
+		if tabs := ui.game.merchantShopTabs(); len(tabs) > 0 {
+			ui.drawShopFolderTabs(screen, dialogX, dialogY, tabs)
+		}
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindArenaGladiator:
 		ui.drawArenaGladiatorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
@@ -1142,6 +1149,80 @@ func (g *MMGame) merchantSellPrice(base int) int {
 	return base + base*g.partyMerchantTier()*MerchantPricePctPerTier/100
 }
 
+// Goods a merchant has an authored offer for are lit in the bag grid: a round
+// lamplight aura behind the icon and a soft warm light over it, breathing with
+// the badge pulse. Round, not a halo around the icon's square, which reads as
+// a frame; the aura has faded out by the neighbouring icon.
+const (
+	merchantWantedAuraScale  = 1.9 // aura diameter over the cell size
+	merchantWantedAuraAlpha  = 1.0
+	merchantWantedLightScale = 1.0 // light diameter over the cell size
+	merchantWantedLightAlpha = 0.36
+)
+
+var merchantWantedGlowTint = [3]float32{1, 0.86, 0.55}
+
+// uiSoftGlow is the renderer's radial glow texture for UI lights; nil without
+// a renderer (a headless harness draws no light).
+func (ui *UISystem) uiSoftGlow() *ebiten.Image {
+	if ui.game.gameLoop == nil || ui.game.gameLoop.renderer == nil {
+		return nil
+	}
+	return ui.game.gameLoop.renderer.ensureSoftGlow()
+}
+
+// drawWantedGoodsLight paints one pass of the wanted-goods light centred on a
+// cell: the aura before the icon (over=false), the additive light after it.
+func drawWantedGoodsLight(screen, glow *ebiten.Image, x, y, w, h int, pulse float64, over bool) {
+	if glow == nil {
+		return
+	}
+	scale, alpha := merchantWantedAuraScale, merchantWantedAuraAlpha
+	op := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear}
+	if over {
+		scale, alpha = merchantWantedLightScale, merchantWantedLightAlpha
+		op.Blend = ebiten.BlendLighter
+	}
+	size := scale * float64(max(w, h))
+	op.GeoM.Scale(size/softGlowSize, size/softGlowSize)
+	op.GeoM.Translate(float64(x)+float64(w)/2-size/2, float64(y)+float64(h)/2-size/2)
+	a := float32(alpha * pulse)
+	t := merchantWantedGlowTint
+	op.ColorScale.Scale(t[0]*a, t[1]*a, t[2]*a, a)
+	uiDrawImage(screen, glow, op)
+}
+
+// merchantBarterGoodsMax is how many goods one price line can show: each good
+// is an icon and a count, and the line stops short of the next cell.
+const merchantBarterGoodsMax = 2
+
+// drawBarterPriceLine fills a stock cell's price line with the goods a barter
+// costs - each good's icon, then its count - centred. Each count takes the
+// purchase colour of that good alone, so the line names what is missing.
+func (ui *UISystem) drawBarterPriceLine(screen *ebiten.Image, costs []character.BarterCost, x, y, w, h int) {
+	const iconGap, goodsGap = 2, 6
+	icon := h - 2
+	total := 0
+	for i, c := range costs {
+		if i > 0 {
+			total += goodsGap
+		}
+		total += icon + iconGap + uiTextWidth(strconv.Itoa(c.Count))
+	}
+	cx := x + (w-total)/2
+	for i, c := range costs {
+		if i > 0 {
+			cx += goodsGap
+		}
+		ui.drawItemIcon(screen, c.Item, cx, y+1, icon, icon, 0, true, false, nil)
+		cx += icon + iconGap
+		label := strconv.Itoa(c.Count)
+		tw := uiTextWidth(label)
+		drawCenteredTextWithShadow(screen, label, cx, y, tw, h, purchasePriceColor(ui.game.party.CountItemsByName(c.Item.Name) >= c.Count))
+		cx += tw
+	}
+}
+
 // merchantStockPriceText is the price line under a stock cell in the entry's
 // effective currency: haggled gold, an item count (plus compacted coins), or
 // flat arena points.
@@ -1205,7 +1286,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	drawUIText(screen, clipUIText(header, merchantGridW), leftX, gridTop-72)
 	// The bag header doubles as the drag-to-buy hint at a shop that pays no
 	// coin: a separate line under it would sit on the first row of icons.
-	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC), merchantGridW), rightX, gridTop-72)
+	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC, ui.game.merchantSellsHere()), merchantGridW), rightX, gridTop-72)
 	categoryInteractive := merchantInteractive && !ui.game.stashDragActive && !ui.game.stashDragPickedUp
 	ui.drawItemCategoryTabs(screen, leftX, gridTop-48, merchantGridW, ui.game.merchantBuyCategory, categoryInteractive,
 		func(tab int) { ui.game.setMerchantCategory(true, tab) })
@@ -1214,13 +1295,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 
 	var tooltipItem items.Item
 	var tooltipHasItem bool
-
-	// Set-shop merchants (the Clockmaker) group their stock under folder tabs;
-	// the classic single grid stays for untabbed shops. The visible slice is
-	// shared with the click handler (merchantVisibleStock) so indices agree.
-	if tabs := ui.game.merchantShopTabs(); len(tabs) > 0 {
-		ui.drawShopFolderTabs(screen, dialogX, dialogY, tabs)
-	}
+	var tooltipEntry *character.MerchantStockItem
 
 	// Buy grid (left): merchant stock.
 	stock := ui.game.merchantVisibleStock()
@@ -1252,22 +1327,27 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = entry.Item
 				tooltipHasItem = true
+				tooltipEntry = entry
 			}
 			displayItem := entry.Item
 			if entry.RewardKey != "" {
 				displayItem.Quantity = entry.Quantity
 			}
 			ui.drawInventoryItemIcon(screen, displayItem, x, y, w, h, 4, !soldOut)
+			px, py, pw, ph := merchantPriceRect(x, y, w, h)
+			if len(entry.Barter) > 0 && !soldOut && !ui.game.dialogNPC.FreeGoods {
+				ui.drawBarterPriceLine(screen, entry.Barter, px, py, pw, ph)
+				continue
+			}
+			priceColor := purchasePriceColor(ui.game.merchantMaxUnits(entry) > 0)
 			priceText := ui.game.merchantStockPriceText(ui.game.dialogNPC, entry)
 			if soldOut {
 				priceText = uitext.Text("dialog.sold_out")
 			}
-			px, py, pw, ph := merchantPriceRect(x, y, w, h)
 			if ui.game.dialogNPC.FreeGoods {
 				priceText = uitext.Text("caravan.take")
 			}
-			drawCenteredTextWithShadow(screen, merchantPriceLabel(priceText), px, py, pw, ph,
-				purchasePriceColor(ui.game.merchantMaxUnits(entry) > 0))
+			drawCenteredTextWithShadow(screen, merchantPriceLabel(priceText), px, py, pw, ph, priceColor)
 		}
 	}
 	ui.drawPager(screen, leftX, pagerY, merchantGridW, &ui.game.merchantBuyPage, buyPages, true, ui.game.resetDialogClickTracker)
@@ -1275,7 +1355,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// Bag grid (right): the party's own goods. It is ALWAYS drawn - even at a
 	// shop that pays no coin - because it is the drop target of a drag-to-buy.
 	// Only the sale half (drag sources, sell prices) needs a coin till.
-	buysGoods := merchantBuysForGold(ui.game.dialogNPC)
+	buysGoods := ui.game.merchantSellsHere()
 	{
 		inv := ui.game.merchantBagItems()
 		view := ui.game.merchantBagViewIndices()
@@ -1295,7 +1375,12 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			if merchantInteractive && buysGoods && idx < len(ui.game.party.Inventory) {
 				ui.stashInvSource(idx, image.Rect(x, y, x+w, y+h))
 			}
-			value := item.Attributes["value"]
+			price, special := ui.game.merchantUnitSellPrice(item)
+			wanted := buysGoods && special
+			pulse := ui.game.badgeAuraPulse(ui.game.uiFrameCount)
+			if wanted {
+				drawWantedGoodsLight(screen, ui.uiSoftGlow(), x, y, w, h, pulse, false)
+			}
 			if merchantInteractive && isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = item
@@ -1304,11 +1389,14 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 					ui.fullArtCardKey = key
 				}
 			}
-			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, !buysGoods || value > 0)
+			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, !buysGoods || price > 0)
+			if wanted {
+				drawWantedGoodsLight(screen, ui.uiSoftGlow(), x, y, w, h, pulse, true)
+			}
 			if buysGoods && idx < len(ui.game.party.Inventory) {
 				priceText := uitext.Text("dialog.no_value")
-				if value > 0 {
-					priceText = uitext.Text("dialog.gold_price_short", ui.game.merchantSellPrice(value))
+				if price > 0 {
+					priceText = uitext.Text("dialog.gold_price_short", price)
 				}
 				px, py, pw, ph := merchantPriceRect(x, y, w, h)
 				drawCenteredUIText(screen, merchantPriceLabel(priceText), px, py, pw, ph)
@@ -1343,6 +1431,15 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// The shop and editor share the base card, independent of selected character.
 	if tooltipHasItem {
 		tip := GetItemTooltipRows(tooltipItem, nil, ui.game.combat, tooltipDetailHeld())
+		if tooltipEntry != nil && len(tooltipEntry.Barter) > 0 {
+			// The price line shows icons; the card names the goods and what
+			// the party carries of each.
+			tip.Add(character.CardRowSpacer, "")
+			tip.Add(character.CardRowResult, uitext.Text("dialog.barter_price"))
+			for _, c := range tooltipEntry.Barter {
+				tip.Add(character.CardRowDetail, uitext.Text("dialog.barter_good", c.Count, c.Item.Name, ui.game.party.CountItemsByName(c.Item.Name)))
+			}
+		}
 		if len(tip) > 0 {
 			lines := ui.appendCardArtHintRows(tip, itemCardKey(tooltipItem))
 			ui.queueItemTooltip(lines, tooltipItem, nil, mouseX+16, mouseY+8)

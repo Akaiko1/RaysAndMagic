@@ -2,7 +2,9 @@ package character
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"ugataima/internal/config"
@@ -79,6 +81,9 @@ type NPCData struct {
 	MinPartyLevel    int             `yaml:"min_party_level,omitempty"`
 	NightOnly        bool            `yaml:"night_only,omitempty"`   // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
 	RejectsLich      bool            `yaml:"rejects_lich,omitempty"` // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
+	// Buys is this merchant's flat offer per unit for the listed item keys,
+	// paid instead of the value-based price (Merchant skill does not apply).
+	Buys map[string]int `yaml:"buys,omitempty"`
 	// TownPortal makes this NPC's map a Town Portal destination and the party's
 	// arrival point on it. Authored, not inferred from renting rooms: an inn is
 	// the usual anchor, but the flag is what counts.
@@ -183,21 +188,14 @@ type NPCQuestMessages struct {
 }
 
 // NPCDialogueChoice represents a dialogue choice option
-type NPCExchange struct {
-	Output string         `yaml:"output"`
-	Gold   int            `yaml:"gold,omitempty"`
-	Costs  map[string]int `yaml:"costs"`
-}
-
 type NPCDialogueChoice struct {
-	ArrivalTile *[2]int      `yaml:"arrival_tile,omitempty"`
-	Spell       string       `yaml:"spell,omitempty"`
-	Exchange    *NPCExchange `yaml:"exchange,omitempty"`
-	Control     string       `yaml:"control,omitempty"`
-	Text        string       `yaml:"text"`
-	Action      string       `yaml:"action"`
-	Map         string       `yaml:"map,omitempty"`
-	QuestID     string       `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
+	ArrivalTile *[2]int `yaml:"arrival_tile,omitempty"`
+	Spell       string  `yaml:"spell,omitempty"`
+	Control     string  `yaml:"control,omitempty"`
+	Text        string  `yaml:"text"`
+	Action      string  `yaml:"action"`
+	Map         string  `yaml:"map,omitempty"`
+	QuestID     string  `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
 	// Prop marks this choice as a one-shot quest prop (a valve, a rack, a lamp)
 	// and carries its wording. Its presence IS what routes the choice to the
 	// shared prop handler - the action name is only a label.
@@ -365,6 +363,11 @@ type NPCItem struct {
 	// on top of it.
 	CurrencyItem string `yaml:"currency_item,omitempty"`
 	GoldCost     int    `yaml:"gold_cost,omitempty"`
+	// Barter prices THIS entry in goods (item key -> units), paid together.
+	// Unlike a currency item, bartered goods keep every other use.
+	Barter map[string]int `yaml:"barter,omitempty"`
+	// RequiresQuest keeps the entry off the shelf until that quest is done.
+	RequiresQuest string `yaml:"requires_quest,omitempty"`
 }
 
 // Global NPC configuration
@@ -508,23 +511,6 @@ func validatePricedChoices() error {
 				}
 				if _, ok := config.GetSpellDefinition(c.Spell); !ok {
 					return fmt.Errorf("NPC %q: unknown teaching spell", npcKey)
-				}
-			case "exchange":
-				if c.Exchange == nil || len(c.Exchange.Costs) == 0 {
-					return fmt.Errorf("NPC %q: missing exchange", npcKey)
-				}
-				if c.Exchange.Gold < 0 || (c.Exchange.Output == "") == (c.Exchange.Gold == 0) {
-					return fmt.Errorf("NPC %q: exchange requires exactly one item or positive gold output", npcKey)
-				}
-				if c.Exchange.Output != "" {
-					if _, ok := config.GetItemDefinition(c.Exchange.Output); config.GlobalItems != nil && !ok {
-						return fmt.Errorf("NPC %q: unknown exchange output", npcKey)
-					}
-				}
-				for key, n := range c.Exchange.Costs {
-					if _, ok := config.GetItemDefinition(key); key == "" || (config.GlobalItems != nil && !ok) || n < 1 {
-						return fmt.Errorf("NPC %q: invalid exchange cost", npcKey)
-					}
 				}
 			case "tavern_rest", "wait_until_night", "wait_until_dawn":
 				if c.Cost <= 0 {
@@ -717,15 +703,35 @@ func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
 			qty = 1 // authored without quantity: single copy; negative = unlimited
 		}
 		stock = append(stock, &MerchantStockItem{
-			Item:         item,
-			Cost:         cost,
-			Quantity:     qty,
-			Tab:          entry.Tab,
-			CurrencyItem: entry.CurrencyItem,
-			GoldCost:     entry.GoldCost,
+			Item:          item,
+			Cost:          cost,
+			Quantity:      qty,
+			Tab:           entry.Tab,
+			CurrencyItem:  entry.CurrencyItem,
+			GoldCost:      entry.GoldCost,
+			Barter:        buildBarterCosts(entry.Barter),
+			RequiresQuest: entry.RequiresQuest,
 		})
 	}
 	return stock
+}
+
+// buildBarterCosts lists a barter price in key order, so every label and
+// payment walks the goods the same way.
+func buildBarterCosts(barter map[string]int) []BarterCost {
+	if len(barter) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(barter))
+	for key := range barter {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	costs := make([]BarterCost, 0, len(keys))
+	for _, key := range keys {
+		costs = append(costs, BarterCost{Key: key, Item: items.CreateItemFromYAML(key), Count: barter[key]})
+	}
+	return costs
 }
 
 // groupMerchantWeapons orders a merchant's stock for browsing: non-weapons
@@ -777,6 +783,16 @@ func buildRarityWeaponStock(rarity string, cost int) []*MerchantStockItem {
 	return stock
 }
 
+// GrantError is the one item-source rule for a stock entry: a barter may hand
+// out a gathering ingredient for gathering ingredients; everything else is an
+// ordinary grant.
+func (e *NPCItem) GrantError(itemKey string) error {
+	if len(e.Barter) > 0 {
+		return config.ValidateBarterGrant(itemKey, slices.Sorted(maps.Keys(e.Barter)))
+	}
+	return config.ValidateOrdinaryItemGrant(itemKey)
+}
+
 func validateNPCItemSources(c *NPCConfig) error {
 	for key, npc := range c.NPCs {
 		if npc == nil {
@@ -801,7 +817,7 @@ func validateNPCItemSources(c *NPCConfig) error {
 				continue
 			}
 			if _, itemKey, ok := config.GetItemDefinitionByName(entry.Name); ok {
-				if err := config.ValidateOrdinaryItemGrant(itemKey); err != nil {
+				if err := entry.GrantError(itemKey); err != nil {
 					return fmt.Errorf("NPC %q stock: %w", key, err)
 				}
 			}
@@ -822,7 +838,7 @@ func createMerchantItem(entry *NPCItem) (items.Item, bool) {
 		return weapon, true
 	default:
 		_, key, ok := config.GetItemDefinitionByName(entry.Name)
-		if !ok || config.ValidateOrdinaryItemGrant(key) != nil {
+		if !ok || entry.GrantError(key) != nil {
 			return items.Item{}, false
 		}
 		item, err := items.TryCreateItemFromYAML(key)

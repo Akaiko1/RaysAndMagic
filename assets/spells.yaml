@@ -1111,6 +1111,7 @@ spells:
     school: "body"
     spell_points_cost: 15
     cooldown_seconds: 2.0
+    reuse_seconds: 9   # personal lockout of the spell: 3 TB rounds
     heal_amount: 10
     heal_party: true
     is_projectile: false

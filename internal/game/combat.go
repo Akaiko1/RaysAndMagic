@@ -85,7 +85,7 @@ func (cs *CombatSystem) knockOutLethalDoTVictims() {
 	// Scale stacks shed only when nothing on the map is engaging the party.
 	// The nearby-interaction combat check is too narrow for ranged bosses, so a
 	// distant hit must not grant a stack that evaporates on the next frame.
-	if !cs.game.anyMonsterEngagingParty() {
+	if !cs.game.partyEngaged() {
 		cs.game.clearPartyScaleStacks()
 	}
 	for _, m := range cs.game.party.Members {
@@ -556,7 +556,7 @@ func (cs *CombatSystem) smartHealPlan(caster *character.MMCharacter) (spells.Spe
 	}
 	for _, id := range candidates {
 		def, err := spells.GetSpellDefinitionByID(id)
-		if err != nil || !def.IsHeal() {
+		if err != nil || !def.IsHeal() || !caster.SpellState.Reusable(string(id)) {
 			continue
 		}
 		if target := cs.mostWoundedHealTarget(def, SmartHealWoundedPct); target >= 0 {
@@ -1457,14 +1457,20 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 
 	// Weapon and card chances share the projectile policy and immunity gate.
-	if rollMonsterDisintegrate(monster, cs.game.weaponDisintegrateChance(weaponDef)) {
+	// A sear belongs to this victim only; the splash keeps the source attack.
+	outcome := rollMonsterDisintegrate(monster, cs.game.weaponDisintegrateChance(weaponDef))
+	if outcome == disintegrateKill {
 		cs.disintegratePartyTarget(monster, weaponDef, attacker, attack, weaponAoeRadius(weaponDef), logHeroText(attackerName))
 		return
+	}
+	primary := cs.consumeDodgeCharge(attack)
+	if outcome == disintegrateSear {
+		primary = cs.searDisintegrated(monster, primary)
 	}
 
 	// The immutable packet is reused by every AoE victim. Each target resolves
 	// its own armor, bonus-vs and resistances; the packet pays flat soak once.
-	hit := cs.applyPartyMonsterAttack(monster, cs.consumeDodgeCharge(attack))
+	hit := cs.applyPartyMonsterAttack(monster, primary)
 	finalDamage, isCrit := hit.Total(), hit.Critical
 	cs.markMonsterHit(monster)
 	cs.game.reportDamage(logToneGood, damageLog{
@@ -1503,6 +1509,13 @@ func (cs *CombatSystem) settlePartyHit(monster *monsterPkg.Monster3D, weaponDef 
 		cs.finishWeaponKill(monster, weaponDef, attacker)
 	}
 	return executed
+}
+
+// searDisintegrated announces a disintegrate proc that a boss withstands and
+// returns its attack carrying the proc's true damage.
+func (cs *CombatSystem) searDisintegrated(monster *monsterPkg.Monster3D, attack partyMonsterAttack) partyMonsterAttack {
+	cs.game.logCombat(logToneGood, "%s withstands disintegration!", logMonsterName(monster))
+	return withDisintegrateSear(attack)
 }
 
 // disintegratePartyTarget is the instakill rider of melee and projectile hits:
@@ -2596,21 +2609,6 @@ func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *charac
 	return dealt
 }
 
-// anyMonsterEngagingParty is the Drakehide shed condition: a live monster must
-// actively target the party, satisfy CanPursueParty, and be within the configured
-// local pursuit cap. Attack reach does not extend this pressure range.
-func (g *MMGame) anyMonsterEngagingParty() bool {
-	if g.world == nil {
-		return false
-	}
-	for _, m := range g.world.Monsters {
-		if m != nil && m.IsEngagingPlayer && g.monsterPressesParty(m) {
-			return true
-		}
-	}
-	return false
-}
-
 func (g *MMGame) clearPartyScaleStacks() {
 	if g == nil || g.party == nil {
 		return
@@ -2767,7 +2765,8 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 	damageType := normalizeDamageTypeStr(monster.DragonBreathDamageType)
 	cs.game.playMonsterSchoolSound(damageType, true, monster)
 	damage := cs.monsterAttackDamage(monster)
-	hit := cs.hitFromMonster(monster, damage, damageType, monster.IgnoresArmor, 0, false, true)
+	// An ability, not a melee or projectile hit: armor always applies.
+	hit := cs.hitFromMonster(monster, damage, damageType, false, 0, false, true)
 	cs.game.logCombat(logToneBad, "%s breathes %s over the whole party!", logMonsterName(monster), logSchoolWord(damageType, damageType))
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(monster, member, fmt.Sprintf("%s's Dragon Breath", monster.Name), hit)
@@ -3712,7 +3711,7 @@ func (cs *CombatSystem) tryDarkElfBindInstead(attacker *character.MMCharacter, t
 
 // applyPacify (Charm) pacifies a LIVING target - it stops attacking and breaks
 // free on any hit it takes (see breakPacifyOnHit). No effect on undead or
-// formless targets (formless covers every boss), no damage. A separate,
+// formless targets, no damage. A separate,
 // mutually exclusive effect from Bind Undead.
 func (cs *CombatSystem) applyPacify(m *monsterPkg.Monster3D, seconds int, spellName string) {
 	if m.MonsterType == monsterPkg.TypeUndead || m.MonsterType == monsterPkg.TypeFormless {

@@ -56,6 +56,43 @@ func (v *viewer) overlaySprites() []string {
 	return sprites
 }
 
+// overlayItemCountFields edits an item-key -> count map: one field per key on
+// the private copy (0 removes the key) and an action that adds a key to the
+// live draft at seed(key).
+func (v *viewer) overlayItemCountFields(m map[string]int, label, help, addLabel, addHelp string, items []string, seed func(string) int,
+	edit func(func(*character.NPCData)) func(), target func(*character.NPCData) *map[string]int) []overlayField {
+	var out []overlayField
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		value := m[k]
+		f := overlayInt(label+k, &value, help)
+		apply := f.apply
+		f.apply = func(s string) error {
+			if err := apply(s); err != nil {
+				return err
+			}
+			if value <= 0 {
+				delete(m, k)
+			} else {
+				m[k] = value
+			}
+			return nil
+		}
+		out = append(out, f)
+	}
+	return append(out, overlayAction(addLabel, addHelp, func() {
+		v.overlayChoose("Choose an item", addHelp, items, func(k string) error {
+			edit(func(x *character.NPCData) {
+				dst := target(x)
+				if *dst == nil {
+					*dst = map[string]int{}
+				}
+				(*dst)[k] = seed(k)
+			})()
+			return nil
+		})
+	}))
+}
+
 // overlayShopDisplays lists the shop display art the catalog already uses:
 // names known to exist, since the game's boot check panics on a missing sprite.
 func (v *viewer) overlayShopDisplays() []string {
@@ -459,6 +496,16 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 			overlayString("Currency", &n.Currency, "Empty: gold. arena_points: the arena victory currency. item:<key>: prices are counts of that item.", append([]string{"", "arena_points"}, overlayPrefixed("item:", items)...)...),
 			overlayString("Shop display art", &n.ShopDisplay, "Decorative art over the shop's top rail. Empty: none.", v.overlayShopDisplays()...),
 			overlayBool("Buys from the party", &n.SellAvailable, "The party can sell items here. Gold shops only."),
+		)
+		add(v.overlayItemCountFields(n.Buys, "Pays for ", "Flat gold per unit, paid instead of the value price. 0 removes the offer.",
+			"+ Add special offer", "A good this merchant pays a fixed price for; it glows in the bag at this shop.", items,
+			func(k string) int {
+				if def, ok := config.GetItemDefinition(k); ok && def.Value > 0 {
+					return def.Value // start from the ordinary offer
+				}
+				return 1
+			}, edit, func(x *character.NPCData) *map[string]int { return &x.Buys })...)
+		add(
 			overlayInt("Restock every (weeks)", &n.StockRefreshWeeks, "0 keeps stock until sold out."),
 			overlayBool("Shop together with dialogue", &n.ShopDialogue, "Required when the object also has dialogue actions; otherwise the actions hide the shop."),
 			overlayBool("Arena champions board", &n.ArenaBoard, "Adds the champions' leaderboard tab, as the arena gladiators have."),
@@ -473,10 +520,16 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 				nested(overlayString(label+" name", &it.Name, "Display name of the item or weapon.", overlayItemNames(strings.EqualFold(it.Type, "weapon"))...)),
 				nested(overlayInt(label+" price", &it.Cost, "0 uses the item's own value.")),
 				nested(overlayInt(label+" quantity", &it.Quantity, "-1 never sells out; 0 means one copy.")),
-				nested(overlayString(label+" tab", &it.Tab, "Optional shop tab. Use tabs for every entry or none.")),
+				nested(overlayString(label+" tab", &it.Tab, "Optional shop tab. Use tabs for every entry or none; a tab is all barter or all priced.")),
 				nested(overlayString(label+" paid in item", &it.CurrencyItem, "Optional item key used as the price instead of the shop currency.", append([]string{""}, items...)...)),
 				nested(overlayInt(label+" extra gold", &it.GoldCost, "Gold surcharge on top of an item price.")),
-				nested(overlayAction("Remove "+strings.ToLower(label), "Remove this stock entry.", edit(func(x *character.NPCData) { x.Inventory = slices.Delete(x.Inventory, i, i+1) }))))
+				nested(overlayString(label+" requires quest", &it.RequiresQuest, "Optional: on the shelf only after this quest is finished and its rewards claimed.", quests...)))
+			for _, f := range v.overlayItemCountFields(it.Barter, label+" barter: ", "Goods paid for one unit instead of any price. 0 removes the good.",
+				"+ Add barter good to "+strings.ToLower(label), "Price this entry in goods (at most two); leave price, currency and extra gold empty.", items,
+				func(string) int { return 1 }, edit, func(x *character.NPCData) *map[string]int { return &x.Inventory[i].Barter }) {
+				add(nested(f))
+			}
+			add(nested(overlayAction("Remove "+strings.ToLower(label), "Remove this stock entry.", edit(func(x *character.NPCData) { x.Inventory = slices.Delete(x.Inventory, i, i+1) }))))
 		}
 		add(overlayAction("+ Add stock", "Add an item to the shop.", edit(func(x *character.NPCData) {
 			x.Inventory = append(x.Inventory, &character.NPCItem{Type: "item", Quantity: 1})

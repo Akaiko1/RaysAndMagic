@@ -509,7 +509,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	if rollMonsterDisintegrate(monster, disintegrateChance) {
+	outcome := rollMonsterDisintegrate(monster, disintegrateChance)
+	if outcome == disintegrateKill {
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, attack.Packet.normalDamage())
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		cs.disintegratePartyTarget(monster, weaponDef, attacker, attack, aoeRadiusTiles,
@@ -523,8 +524,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// (the zero-valued packet still sets WasAttacked + engages, so passive mobs aggro)
 	// and report "no effect" instead of falling into the damage path, which would
 	// spam "hit for 0 damage" with a bogus "Critical!" (the spell can't crit).
-	// Bind/Charm are handled earlier; this is the Disintegrate case.
-	if dealsNoDamage {
+	// Bind/Charm are handled earlier; this is the Disintegrate case. A boss's
+	// sear is real damage and takes the ordinary hit path below.
+	if dealsNoDamage && outcome != disintegrateSear {
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
 		cs.applyMonsterDamagePacket(
 			monster,
@@ -543,7 +545,12 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	if budget != nil {
 		budget.hits[monster]++
 	}
-	hit := cs.applyPartyMonsterAttack(monster, attack)
+	// The sear belongs to this victim; the splash keeps the source attack.
+	primary := attack
+	if outcome == disintegrateSear {
+		primary = cs.searDisintegrated(monster, attack)
+	}
+	hit := cs.applyPartyMonsterAttack(monster, primary)
 	actualDamage, isCrit := hit.Total(), hit.Critical
 	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, hit.SourceNormal)
 	cs.markMonsterHit(monster)

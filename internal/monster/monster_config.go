@@ -103,7 +103,7 @@ type MonsterDefinition struct {
 	// and exclusions from ambient systems; boss-only mechanics below require it.
 	Boss bool `yaml:"boss,omitempty"`
 	// Boss behaviour knobs (data-driven; see the Golden Thief Bug). All optional.
-	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`         // melee bypasses party armor class
+	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`         // melee and projectile hits bypass party armor class; abilities do not
 	InfernoChance     float64 `yaml:"inferno_chance,omitempty"`        // 0..1 chance per action to cast a party-nova Inferno
 	InfernoDamage     int     `yaml:"inferno_damage,omitempty"`        // fire damage of that nova, pre-mitigation (required with inferno_chance)
 	InfernoRangeTiles float64 `yaml:"inferno_range_tiles,omitempty"`   // how far the nova reaches (required with inferno_chance); melee reach can still replace a hit with it
@@ -216,6 +216,11 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		config.Monsters[key] = monster
 	}
 	for key, monster := range config.Monsters {
+		// Formless is a boss-only type: it shields a boss from type-keyed
+		// control (Bind Undead, Charm) and nothing else uses it.
+		if monster.Type == TypeFormless && !monster.Boss {
+			conflicts = append(conflicts, fmt.Sprintf("monster %q: type %q is reserved for bosses", key, TypeFormless))
+		}
 		if err := monster.Telegraph.validate(); err != nil {
 			conflicts = append(conflicts, fmt.Sprintf("monster %q: %v", key, err))
 		}

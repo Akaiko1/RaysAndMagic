@@ -14,6 +14,14 @@ func wrapUIText(text string, maxWidth int) []string {
 	if maxWidth <= 0 {
 		return nil
 	}
+	// A newline starts a paragraph: each one wraps on its own.
+	if strings.Contains(text, "\n") {
+		var lines []string
+		for _, paragraph := range strings.Split(text, "\n") {
+			lines = append(lines, wrapUIText(paragraph, maxWidth)...)
+		}
+		return lines
+	}
 	if uiTextWidth(text) <= maxWidth {
 		return []string{text}
 	}

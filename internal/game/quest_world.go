@@ -108,6 +108,15 @@ func questChoicesOf(npc *character.NPC) []*character.NPCDialogueChoice {
 	return dialogueQuestChoices(npc.DialogueData)
 }
 
+// npcGivesQuest reports whether the NPC hands this errand out itself. A
+// delivery prop on that giver is the errand's turn-in: shown only while the
+// errand is under way, and it pays on the spot.
+func npcGivesQuest(npc *character.NPC, questID string) bool {
+	return slices.ContainsFunc(questChoicesOf(npc), func(c *character.NPCDialogueChoice) bool {
+		return c.Action == "give_quest" && c.QuestID == questID
+	})
+}
+
 // npcChainQuestIDs is the set of quests one giver actually hands out or takes
 // in - the only quests activeChainQuestID can ever select for that NPC.
 func npcChainQuestIDs(d *character.NPCDialogue) map[string]bool {
@@ -951,6 +960,23 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 			// fine and then never appear, so both fields are checked against the
 			// giver's own chain.
 			chainQuests := npcChainQuestIDs(npc.Dialogue)
+			// A giver that takes its own errand's delivery pays on delivery, so
+			// a turn-in row for that errand would never be offered.
+			delivered, turnedIn := map[string]bool{}, map[string]bool{}
+			_ = npc.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+				switch c.Action {
+				case questPropAction:
+					delivered[c.QuestID] = true
+				case "turn_in_quest":
+					turnedIn[c.QuestID] = true
+				}
+				return nil
+			})
+			for _, c := range dialogueQuestChoices(npc.Dialogue) {
+				if c.Action == "give_quest" && delivered[c.QuestID] && turnedIn[c.QuestID] {
+					return fmt.Errorf("NPC %q takes the delivery for its own quest %q, which pays it; drop the turn_in_quest row", npcKey, c.QuestID)
+				}
+			}
 			// A service gate has to be OPENABLE, not merely well-spelled. Three
 			// ways it can be authored into a permanent lock, all rejected here.
 			if npc.RequiresQuest != "" {
@@ -979,6 +1005,22 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 				// explains why the shop is shut.
 				if !chainQuests[npc.RequiresQuest] && (npc.Dialogue == nil || npc.Dialogue.QuestGreeting == "") {
 					return fmt.Errorf("NPC %q gates on quest %q it does not give: it needs a quest_greeting explaining the closed service", npcKey, npc.RequiresQuest)
+				}
+			}
+			// A stock gate is a service gate on one entry: it too must be openable.
+			for _, it := range npc.Inventory {
+				if it == nil || it.RequiresQuest == "" {
+					continue
+				}
+				if qm.Definitions()[it.RequiresQuest] == nil {
+					return fmt.Errorf("NPC %q stock %q references unknown requires_quest %q", npcKey, it.Name, it.RequiresQuest)
+				}
+				if obtainable == nil {
+					obtainable = obtainableQuests(qm, catalog, placed)
+				}
+				if !obtainable[it.RequiresQuest] {
+					return fmt.Errorf("NPC %q stock %q gates on quest %q that no PLACED NPC gives and that does not start active - the entry could never appear",
+						npcKey, it.Name, it.RequiresQuest)
 				}
 			}
 			if npc.Dialogue != nil {

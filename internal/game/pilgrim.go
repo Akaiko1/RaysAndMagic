@@ -431,7 +431,7 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 		if !characterKnowsSpellByID(c, d.ID) || c.SpellPoints < g.combat.effectiveSpellCost(c, d.SpellPointsCost) {
 			continue
 		}
-		if !g.automaticTechniqueTrigger(d.Mechanic.Autocast, d.Mechanic.RadiusTiles) {
+		if !g.autocastTriggerFires(d.Mechanic.Autocast, d.Mechanic.RadiusTiles) {
 			continue
 		}
 		fxStart := len(g.buffFxAnims)
@@ -448,32 +448,33 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 	return false
 }
 
-func (g *MMGame) automaticTechniqueTrigger(key string, radius float64) bool {
-	if key == "dispel_magic" {
+// autocastTriggerFires is the trigger table of automatic casting, shared by
+// Pilgrim's automatic techniques (purify, phase_veil, quickening) and spells
+// whose mechanic.autocast names a trigger: Haste borrows "quickening", Body
+// Purify "purify"; Dispel Magic and Celestial Armor have triggers of their own.
+func (g *MMGame) autocastTriggerFires(trigger string, radius float64) bool {
+	switch trigger {
+	case "dispel_magic":
 		return g.techniqueUseful("purify") || g.hostileMagicNearby(radius)
+	case "celestial_armor":
+		return g.advancedBuff(trigger) == nil && g.partyEngaged()
+	case "purify":
+		return g.techniqueUseful(trigger)
 	}
-	if key == "celestial_armor" {
-		return g.advancedBuff(key) == nil && g.anyMonsterEngagingParty()
-	}
-
-	if key == "purify" {
-		return g.techniqueUseful(key)
-	}
-	engaged, near := false, 0
-	ts := float64(g.config.GetTileSize())
-	for _, m := range g.world.Monsters {
-		if g.monsterPressesParty(m) {
-			engaged = true
-			if math.Hypot(m.X-g.camera.X, m.Y-g.camera.Y) <= 2*ts {
-				near++
-			}
-		}
-	}
-	if !engaged || !g.techniqueUseful(key) {
+	if !g.partyUnderAttack() || !g.techniqueUseful(trigger) {
 		return false
 	}
-	if key == "quickening" {
+	if trigger == "quickening" {
 		return true
+	}
+	// Phase Veil: two attackers in contact, or an ally near defeat.
+	ts := float64(g.config.GetTileSize())
+	px, py := g.partyFightPos()
+	near := 0
+	for m := range g.combatants() {
+		if g.monsterPressesParty(m) && math.Hypot(m.X-px, m.Y-py) <= 2*ts {
+			near++
+		}
 	}
 	if near >= 2 {
 		return true
@@ -498,7 +499,7 @@ func (gl *GameLoop) updateAutomaticTechniques() {
 			continue
 		}
 		for _, key := range []string{"purify", "phase_veil", "quickening"} {
-			if c.RareClass.Automatic[key] && g.automaticTechniqueTrigger(key, 0) && g.useTechnique(i, key, true, false) {
+			if c.RareClass.Automatic[key] && g.autocastTriggerFires(key, 0) && g.useTechnique(i, key, true, false) {
 				return
 			}
 		}

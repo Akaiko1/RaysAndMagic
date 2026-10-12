@@ -12,10 +12,10 @@ import (
 )
 
 // Mana regeneration tunables. SP regenerates by (1 + Personality/divisor +
-// the Meditation bonus) every ManaRegenIntervalFrames ticks. Kept in this package
-// because game's balance.go can't be imported from internal/character (circular).
+// the Meditation bonus) every config.RegenerationIntervalFrames() ticks. Kept in
+// this package because game's balance.go can't be imported from
+// internal/character (circular).
 const (
-	ManaRegenIntervalFrames     = config.RegenerationIntervalFrames // ~5s at 120 TPS
 	ManaRegenPersonalityDivisor = 10
 	MaxSPPersonalityDivisor     = 3
 	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
@@ -165,7 +165,7 @@ type MMCharacter struct {
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
 
-	// BonusRegenPct is a % of max HP regenerated every ManaRegenIntervalFrames,
+	// BonusRegenPct is a % of max HP regenerated every config.RegenerationIntervalFrames(),
 	// pushed by the game (Troll Cards) the same way as BonusMaxHP. Runtime-only.
 	BonusRegenPct int
 	hpRegenTimer  int
@@ -678,20 +678,38 @@ func (c *MMCharacter) RecalculateMaxStatsGrantingGain(cfg *config.Config) {
 	}
 }
 
-// UpdateWithMode updates the character with knowledge of the current game mode
-// and reports whether an RT regeneration cadence completed this frame.
-// Optional absorbers reduce pending DoT damage before HP is deducted.
-func (c *MMCharacter) UpdateWithMode(turnBasedMode bool, absorbDoT ...func(int) int) bool {
+// PartyClock is what one party frame runs on. Turn-based rounds tick their
+// cadences in the game's endPartyTurn; real time ticks here, and a fight
+// spaces SP regen to the turn-based pace.
+type PartyClock struct {
+	TurnBased bool
+	InCombat  bool
+}
+
+// RegenPayout names the regeneration cadences that paid out. SP and HP keep
+// separate phases (SP slows in a fight), so a payout clears only its own
+// resource's progress in the other mode.
+type RegenPayout struct {
+	SP, HP bool
+}
+
+// Any reports whether either cadence paid out.
+func (p RegenPayout) Any() bool { return p.SP || p.HP }
+
+// UpdateWithMode updates the character on the party clock and reports which
+// RT regeneration cadences completed this frame. Optional absorbers reduce
+// pending DoT damage before HP is deducted.
+func (c *MMCharacter) UpdateWithMode(clock PartyClock, absorbDoT ...func(int) int) RegenPayout {
 	// Turn-based mode: skip timer-based regen AND poison/burn - those advance
 	// once per party turn (TickPoisonTurn/TickBurnTurn, called from
 	// startPartyTurn) so deliberating over a move doesn't bleed real-time HP,
 	// mirroring monster poison's RT-frame-vs-TB-turn split.
-	if turnBasedMode {
-		return false
+	if clock.TurnBased {
+		return RegenPayout{}
 	}
 
 	// Use normal timer-based regeneration in real-time mode
-	return c.updateRegenAndPoison(absorbDoT...)
+	return c.updateRegenAndPoison(clock.InCombat, absorbDoT...)
 }
 
 // A stun carries both a RT (seconds->frames) and a TB (turns) counter; only the
@@ -783,9 +801,18 @@ func (c *MMCharacter) dotDamage(amount int, absorbDoT ...func(int) int) {
 	}
 }
 
-// updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
+// spellRegenIntervalFrames is the RT SP cadence: the regen interval, or the
+// slower fight interval while the party fights.
+func spellRegenIntervalFrames(inCombat bool) int {
+	if inCombat {
+		return config.CombatSPRegenIntervalFrames()
+	}
+	return config.RegenerationIntervalFrames()
+}
+
+// updateRegenAndPoison ticks poison and the RT regen cadences (buffs flow in
 // via BuffBonuses).
-func (c *MMCharacter) updateRegenAndPoison(absorbDoT ...func(int) int) bool {
+func (c *MMCharacter) updateRegenAndPoison(inCombat bool, absorbDoT ...func(int) int) RegenPayout {
 	tps := config.GetTargetTPS()
 	if tps <= 0 {
 		tps = config.DefaultTPS
@@ -796,37 +823,40 @@ func (c *MMCharacter) updateRegenAndPoison(absorbDoT ...func(int) int) bool {
 
 	// If unconscious, skip regeneration and updates
 	if c.HasCondition(ConditionUnconscious) {
-		return false
+		return RegenPayout{}
 	}
-	regenCadenceCompleted := false
-	// Regenerate spell points on a fixed cadence.
+	var paid RegenPayout
 	c.spellRegenTimer++
-	if c.spellRegenTimer >= ManaRegenIntervalFrames {
+	if c.spellRegenTimer >= spellRegenIntervalFrames(inCombat) {
 		c.RegenerateSpellPoints()
-		c.spellRegenTimer = 0 // Reset timer
-		regenCadenceCompleted = true
+		c.spellRegenTimer = 0
+		paid.SP = true
 	}
 	// Cards, carried supplies and draughts share one cadence, including before
 	// a supply is acquired. Moving a kit cannot reset or accelerate its ticks.
 	c.hpRegenTimer++
-	if c.hpRegenTimer >= ManaRegenIntervalFrames {
+	if c.hpRegenTimer >= config.RegenerationIntervalFrames() {
 		c.hpRegenTimer = 0
 		c.ApplyCardRegenTick()
-		regenCadenceCompleted = true
+		paid.HP = true
 	}
-	return regenCadenceCompleted
+	return paid
 }
 
-// ResetRealtimeRegenCadence clears the RT-side progress after the TB cadence
-// pays out. Conversely, an RT payout resets the game-owned TB counter. The
-// first cadence to complete therefore owns the payout and switching modes
-// cannot award a second one immediately.
-func (c *MMCharacter) ResetRealtimeRegenCadence() {
+// ResetRealtimeRegenCadence clears the RT progress of the cadences a TB round
+// paid. Conversely, an RT payout resets the matching game-owned TB counter.
+// The first cadence to complete therefore owns each resource's payout and
+// switching modes cannot award a second one immediately.
+func (c *MMCharacter) ResetRealtimeRegenCadence(paid RegenPayout) {
 	if c == nil {
 		return
 	}
-	c.spellRegenTimer = 0
-	c.hpRegenTimer = 0
+	if paid.SP {
+		c.spellRegenTimer = 0
+	}
+	if paid.HP {
+		c.hpRegenTimer = 0
+	}
 }
 
 // RealtimeRegenProgress exposes the cadence phase for active and reserve saves.
@@ -834,11 +864,13 @@ func (c *MMCharacter) RealtimeRegenProgress() (spell, hp int) {
 	return c.spellRegenTimer, c.hpRegenTimer
 }
 
-// RestoreRealtimeRegenProgress preserves valid partial progress. Missing legacy
-// fields start at zero; malformed phases cannot grant an immediate extra tick.
+// RestoreRealtimeRegenProgress preserves valid partial progress, up to the
+// longest interval of each cadence (SP slows in a fight). Missing legacy
+// fields start at zero; malformed phases are clamped into that range.
 func (c *MMCharacter) RestoreRealtimeRegenProgress(spell, hp int) {
-	c.spellRegenTimer = min(max(0, spell), ManaRegenIntervalFrames-1)
-	c.hpRegenTimer = min(max(0, hp), ManaRegenIntervalFrames-1)
+	spellLongest := max(spellRegenIntervalFrames(false), spellRegenIntervalFrames(true))
+	c.spellRegenTimer = min(max(0, spell), spellLongest-1)
+	c.hpRegenTimer = min(max(0, hp), config.RegenerationIntervalFrames()-1)
 }
 
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.

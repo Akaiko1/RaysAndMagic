@@ -2449,7 +2449,6 @@ monsters:
     resistances: { mind: 100, body: 65, fire: -25, dark: 60, light: -60 }
 
   enforcer_alien:
-    type: "formless"
     name: "Enforcer Alien"
     level: 35
     max_hit_points: 2240

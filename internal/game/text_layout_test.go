@@ -41,6 +41,17 @@ func TestWrapUITextFitsInEveryFont(t *testing.T) {
 	})
 }
 
+// A newline starts a paragraph whether or not the text would fit one line:
+// generated lines (a merchant's offer, a schedule) follow the greeting.
+func TestWrapUITextKeepsParagraphs(t *testing.T) {
+	for _, width := range []int{10 * uiTextCharWidth, 1000 * uiTextCharWidth} {
+		got := wrapUIText("one two\nthree", width)
+		if len(got) < 2 || got[len(got)-1] != "three" || strings.Contains(strings.Join(got, ""), "\n") {
+			t.Fatalf("width %d: %q, want the second paragraph on its own line", width, got)
+		}
+	}
+}
+
 // Multi-byte runes (Cyrillic, Armenian, Hebrew - written as escapes so the
 // source stays ASCII) keep the text helpers safe for scripts added later.
 func TestRuneSafeTextEditingAndTruncation(t *testing.T) {

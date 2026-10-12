@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 	"math/rand"
+	"slices"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -48,6 +49,16 @@ func singleMonsterDamagePacket(parts damagecalc.Parts, school string, resistPier
 		School:          damageType,
 		ResistPiercePct: resistPiercePct,
 	}}}
+}
+
+// withTrue returns a copy with n more true damage on the primary component.
+func (p monsterDamagePacket) withTrue(n int) monsterDamagePacket {
+	if len(p.Components) == 0 {
+		return singleMonsterDamagePacket(damagecalc.Parts{True: n}, p.primarySchool(), 0)
+	}
+	out := monsterDamagePacket{Components: slices.Clone(p.Components)}
+	out.Components[0].Parts.True += n
+	return out
 }
 
 func (p monsterDamagePacket) trueOnly() monsterDamagePacket {

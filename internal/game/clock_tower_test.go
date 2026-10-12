@@ -42,6 +42,15 @@ func TestValidateNPCCommerce(t *testing.T) {
 		"e": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion"}}, ShopDialogue: true, Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Action: "leave"}}}},
 		"f": {Inventory: []*character.NPCItem{{Type: "weapon", Name: weapon}}},
 		"g": {SellAvailable: true, Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion"}}},
+		// A coin shop may carry special offers and a barter tab beside its
+		// priced one; a herb may be bartered for herbs.
+		"h": {SellAvailable: true, Buys: map[string]int{"grave_orchid": 900}, Inventory: []*character.NPCItem{
+			{Type: "item", Name: "Health Potion", Cost: 10, Tab: "Shop"},
+			{Type: "item", Name: "Advanced Heat Draught", Tab: "Exchange", Barter: map[string]int{"solstice_thermal_core": 1, "solstice_furnace_ceramic": 2}},
+			{Type: "item", Name: "Dawnleaf", Tab: "Exchange", Barter: map[string]int{"bitterroot": 2}},
+		}},
+		// A wholly barter shop that buys nothing from the party.
+		"i": {Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"bitterroot": 2}}}},
 	}
 	if err := ValidateNPCCommerce(good); err != nil {
 		t.Fatalf("valid set rejected: %v", err)
@@ -58,6 +67,30 @@ func TestValidateNPCCommerce(t *testing.T) {
 		// party.Inventory, so its cells could not be sold from.
 		{"x": {SellAvailable: true, Currency: "item:clock_hand", Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Cost: 1}}}},
 		{"x": {SellAvailable: true, Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Cost: 1, CurrencyItem: "clock_hand"}}}},
+		// Special offers belong to a coin shop that buys from the party.
+		{"x": {Buys: map[string]int{"grave_orchid": 900}}},
+		{"x": {SellAvailable: true, Currency: "arena_points", Buys: map[string]int{"grave_orchid": 900}}},
+		{"x": {SellAvailable: true, Buys: map[string]int{"no_such_item": 900}}},
+		{"x": {SellAvailable: true, Buys: map[string]int{"grave_orchid": 0}}},
+		// A barter is the whole price, in known goods, and fits one price line.
+		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Barter: map[string]int{"no_such_item": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Barter: map[string]int{"bitterroot": 0}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Cost: 5, Barter: map[string]int{"bitterroot": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", CurrencyItem: "clock_hand", Barter: map[string]int{"bitterroot": 1}}}}},
+		{"x": {Currency: "arena_points", Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Barter: map[string]int{"bitterroot": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Barter: map[string]int{"bitterroot": 1, "mooncap": 1, "dawnleaf": 1}}}}},
+		// A tab trades wholly for goods or wholly for its price, and a shop that
+		// buys from the party keeps a priced shelf to sell at.
+		{"x": {Inventory: []*character.NPCItem{
+			{Type: "item", Name: "Health Potion", Cost: 10},
+			{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"bitterroot": 2}},
+		}}},
+		{"x": {StockWeaponsRarity: "common", StockWeaponsCost: 10, Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"bitterroot": 2}}}}},
+		{"x": {SellAvailable: true, Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"bitterroot": 2}}}}},
+		{"x": {SellAvailable: true, Buys: map[string]int{"grave_orchid": 900}, Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Tab: "Exchange", Barter: map[string]int{"bitterroot": 2}}}}},
+		// Herbs trade for herbs only: never for loot, never for coin.
+		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"solstice_thermal_core": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Cost: 10}}}},
 	}
 	for i, m := range bad {
 		if err := ValidateNPCCommerce(m); err == nil {

@@ -29,6 +29,10 @@ func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 	g.turnBasedRotCooldown = save.TurnBasedRotCooldown
 	g.monsterTurnResolved = save.MonsterTurnResolved
 	g.turnBasedSpRegenCount = save.TurnBasedSpRegenCount
+	g.turnBasedHPRegenCount = save.TurnBasedSpRegenCount
+	if save.TurnBasedHPRegenCount != nil {
+		g.turnBasedHPRegenCount = *save.TurnBasedHPRegenCount
+	}
 	g.turnBasedExtraMonsterAction = save.ExtraMonsterAction
 	g.turnBasedMonsterPassesLeft = save.TurnBasedMonsterPassesLeft
 	g.turnBasedMonsterPassDelay = save.TurnBasedMonsterPassDelay

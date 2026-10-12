@@ -70,10 +70,11 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	return cs.castKnownHealOn(spellID, def, targetIndex)
 }
 
-// bestKnownHealSpell returns the most powerful heal spell the caster knows
-// across all their magic schools: party heals first (Mass Heal's 10-per-member
-// outvalues a 20 single-target), then the larger HealAmount, then the pricier
-// spell, then ID for a stable pick over map-ordered spellbooks. False if none.
+// bestKnownHealSpell returns the most powerful heal spell the caster knows and
+// can cast now (not under its reuse lockout) across all their magic schools:
+// party heals first (Mass Heal's 10-per-member outvalues a 20 single-target),
+// then the larger HealAmount, then the pricier spell, then ID for a stable pick
+// over map-ordered spellbooks. False if none.
 // healRank orders known heals for bestKnownHealSpell. Party reach dominates raw
 // magnitude, then magnitude, then cost; the ID tail keeps the choice stable.
 type healRankKey struct {
@@ -113,7 +114,8 @@ func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spell
 		}
 		for _, id := range school.KnownSpells {
 			def, err := spells.GetSpellDefinitionByID(id)
-			if err != nil || !def.IsHeal() {
+			// A heal under its personal reuse lockout waits; the next best serves.
+			if err != nil || !def.IsHeal() || !caster.SpellState.Reusable(string(id)) {
 				continue
 			}
 			better := !found || healRank(def, id).beats(healRank(best, bestID))

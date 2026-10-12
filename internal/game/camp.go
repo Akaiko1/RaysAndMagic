@@ -89,6 +89,12 @@ func (g *MMGame) safeToPrepare(activity fieldActivity) (string, bool) {
 	if g.world == nil || g.camera == nil || g.config == nil {
 		return "The field is not ready.", false
 	}
+	// No resting mid-combat: a combatant pressing the party itself - a pursuer
+	// kited beyond the radius or a ranged monster shooting from outside it -
+	// blocks the camp. An ally's distant fight alone does not.
+	if g.partyUnderAttack() {
+		return activity.inCombat, false
+	}
 	radius := CampEnemyRadiusTiles * float64(g.config.World.TileSize)
 	for _, m := range g.world.Monsters {
 		if m == nil || !m.IsAlive() {
@@ -100,11 +106,6 @@ func (g *MMGame) safeToPrepare(activity fieldActivity) (string, bool) {
 		if m.Bound || m.IsAmbient() {
 			continue
 		}
-		// No resting mid-combat: a pursuer kited beyond the radius (or a
-		// ranged monster shooting from outside it) still blocks the camp.
-		if g.monsterPressesParty(m) {
-			return activity.inCombat, false
-		}
 		// Measure to the monster's box EDGE, not its center - a large monster
 		// whose body pokes into the radius counts as near.
 		mw, mh := m.GetSize()
@@ -115,8 +116,13 @@ func (g *MMGame) safeToPrepare(activity fieldActivity) (string, bool) {
 	return "", true
 }
 
-// monsterPressesParty is the "party is in a fight" scope shared by camping,
-// brewing, automatic techniques and scale shedding. Allies never press.
+// monsterPressesParty: the monster pursues the party itself within its scope -
+// the rule partyUnderAttack and partyEngaged add to the fight. Allies never
+// press.
 func (g *MMGame) monsterPressesParty(m *monster.Monster3D) bool {
-	return m != nil && m.IsAlive() && !m.Bound && g.camera != nil && m.PressesParty(g.camera.X, g.camera.Y)
+	if m == nil || !m.IsAlive() || m.Bound || g.camera == nil {
+		return false
+	}
+	px, py := g.partyFightPos()
+	return m.PressesParty(px, py)
 }

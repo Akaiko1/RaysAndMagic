@@ -22,8 +22,34 @@ func (g *MMGame) weaponDisintegrateChance(def *config.WeaponDefinitionConfig) fl
 	return g.partyDisintegrateChance(base)
 }
 
-func rollMonsterDisintegrate(target *monsterPkg.Monster3D, chance float64) bool {
-	return target != nil && chance > 0 && !monsterImmuneToDisintegrate(target) && rand.Float64() < chance
+// disintegrateOutcome is what a disintegrate roll does to its target.
+type disintegrateOutcome uint8
+
+const (
+	disintegrateNone disintegrateOutcome = iota
+	disintegrateKill
+	// disintegrateSear: a boss is never erased; the proc adds
+	// config.DisintegrateBossTrueDamage true damage to the hit.
+	disintegrateSear
+)
+
+func rollMonsterDisintegrate(target *monsterPkg.Monster3D, chance float64) disintegrateOutcome {
+	if target == nil || chance <= 0 || monsterImmuneToDisintegrate(target) || rand.Float64() >= chance {
+		return disintegrateNone
+	}
+	if target.IsBoss() {
+		return disintegrateSear
+	}
+	return disintegrateKill
+}
+
+// withDisintegrateSear adds the boss proc's true damage to both packets of
+// one victim's attack, in the attack's own school. Packets are cloned: the
+// source attack is shared with every AoE victim.
+func withDisintegrateSear(attack partyMonsterAttack) partyMonsterAttack {
+	attack.Packet = attack.Packet.withTrue(config.DisintegrateBossTrueDamage)
+	attack.CriticalPacket = attack.CriticalPacket.withTrue(config.DisintegrateBossTrueDamage)
+	return attack
 }
 
 // monsterMatchesBonusTarget is shared by weapon and card bonus_vs selectors.

@@ -149,10 +149,11 @@ func TestOutdoorPassiveOwnership(t *testing.T) {
 			a.Inventory = nil
 			b.Inventory = nil
 			pulse := func() {
-				g.turnBasedSpRegenCount = TurnBasedSpRegenEveryNRounds - 1
+				g.turnBasedSpRegenCount = TurnBasedRegenEveryNRounds - 1
+				g.turnBasedHPRegenCount = TurnBasedRegenEveryNRounds - 1
 				for _, c := range g.party.Members {
 					c.MaxHitPoints, c.HitPoints = 1000, 500
-					c.RestoreRealtimeRegenProgress(character.ManaRegenIntervalFrames-1, character.ManaRegenIntervalFrames-1)
+					c.RestoreRealtimeRegenProgress(config.RegenerationIntervalFrames()-1, config.RegenerationIntervalFrames()-1)
 				}
 				if tb {
 					g.endPartyTurn()

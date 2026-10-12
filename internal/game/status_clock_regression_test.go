@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -246,17 +247,29 @@ func TestStatusClockProvidenceCalendar(t *testing.T) {
 	}
 }
 
+// RT regen phases survive save/load for active and reserve members, each up to
+// its cadence's longest interval: SP saved mid-fight may lie past the calm
+// interval. A TB payout clears only the RT phase of the resource it paid.
 func TestStatusClockRegenSaveProgress(t *testing.T) {
+	calm, fight := config.RegenerationIntervalFrames(), config.CombatSPRegenIntervalFrames()
 	for _, reserve := range []bool{false, true} {
-		for _, phase := range []int{0, 123, character.ManaRegenIntervalFrames - 1} {
-			t.Run(fmt.Sprintf("reserve=%v/phase=%d", reserve, phase), func(t *testing.T) {
+		for _, tc := range []struct {
+			sp, hp   int
+			inCombat bool
+		}{
+			{0, 0, false},
+			{123, 123, false},
+			{calm - 1, calm - 1, false},
+			{fight - 120, 123, true}, // SP phase past the calm interval
+		} {
+			t.Run(fmt.Sprintf("reserve=%v/sp=%d/hp=%d", reserve, tc.sp, tc.hp), func(t *testing.T) {
 				g, _, wm := clockSaveFixture(t)
 				c := g.party.Members[1]
 				c.Conditions = nil
 				c.HitPoints, c.MaxHitPoints = 30, 100
 				c.SpellPoints, c.MaxSpellPoints = 0, 100
 				c.BonusRegenPct = 5
-				c.RestoreRealtimeRegenProgress(phase, phase)
+				c.RestoreRealtimeRegenProgress(tc.sp, tc.hp)
 				if reserve {
 					g.party.Reserve = append(g.party.Reserve, c)
 					g.party.Members = append(g.party.Members[:1], g.party.Members[2:]...)
@@ -277,45 +290,58 @@ func TestStatusClockRegenSaveProgress(t *testing.T) {
 				c.SpellPoints, c.MaxSpellPoints = 0, 100
 				c.BonusRegenPct = 5 // normally re-derived from equipped cards by applySave
 				sp, hp := c.RealtimeRegenProgress()
-				if sp != phase || hp != phase {
-					t.Fatalf("load phase %d/%d, want %d", sp, hp, phase)
+				if sp != tc.sp || hp != tc.hp {
+					t.Fatalf("load phase %d/%d, want %d/%d", sp, hp, tc.sp, tc.hp)
 				}
 				for range 10 {
-					c.UpdateWithMode(true)
+					c.UpdateWithMode(character.PartyClock{TurnBased: true})
 				}
 				sp, hp = c.RealtimeRegenProgress()
-				if sp != phase || hp != phase {
+				if sp != tc.sp || hp != tc.hp {
 					t.Fatal("TB thinking advanced RT regeneration")
 				}
+				spInterval := calm
+				if tc.inCombat {
+					spInterval = fight
+				}
 				startHP, startSP := c.HitPoints, c.SpellPoints
-				for range character.ManaRegenIntervalFrames - phase - 1 {
-					c.UpdateWithMode(false)
+				spPaidAt, hpPaidAt := 0, 0
+				for frame := 1; spPaidAt == 0 || hpPaidAt == 0; frame++ {
+					if frame > fight {
+						t.Fatalf("no payout within %d frames: SP at %d, HP at %d", fight, spPaidAt, hpPaidAt)
+					}
+					c.UpdateWithMode(character.PartyClock{InCombat: tc.inCombat})
+					if spPaidAt == 0 && c.SpellPoints > startSP {
+						spPaidAt = frame
+					}
+					if hpPaidAt == 0 && c.HitPoints > startHP {
+						hpPaidAt = frame
+					}
 				}
-				if c.HitPoints != startHP || c.SpellPoints != startSP {
-					t.Fatal("regeneration paid early")
-				}
-				c.UpdateWithMode(false)
-				if c.HitPoints <= startHP || c.SpellPoints <= startSP {
-					t.Fatal("load postponed regeneration payout")
+				if spPaidAt != spInterval-tc.sp || hpPaidAt != calm-tc.hp {
+					t.Fatalf("paid SP at frame %d, HP at %d; want %d and %d", spPaidAt, hpPaidAt, spInterval-tc.sp, calm-tc.hp)
 				}
 				c.RestoreRealtimeRegenProgress(37, 51)
-				c.ResetRealtimeRegenCadence()
-				sp, hp = c.RealtimeRegenProgress()
-				if sp != 0 || hp != 0 {
-					t.Fatal("TB payout no longer resets RT cadence")
+				c.ResetRealtimeRegenCadence(character.RegenPayout{SP: true})
+				if sp, hp = c.RealtimeRegenProgress(); sp != 0 || hp != 51 {
+					t.Fatalf("TB SP payout left RT phases %d/%d, want 0/51", sp, hp)
+				}
+				c.ResetRealtimeRegenCadence(character.RegenPayout{HP: true})
+				if sp, hp = c.RealtimeRegenProgress(); sp != 0 || hp != 0 {
+					t.Fatalf("TB HP payout left RT phases %d/%d, want 0/0", sp, hp)
 				}
 			})
 		}
 	}
-	for _, raw := range []string{`{"name":"Legacy"}`, `{"spell_regen_timer":-20,"hp_regen_timer":99999}`} {
+	for _, raw := range []string{`{"name":"Legacy"}`, `{"spell_regen_timer":-20,"hp_regen_timer":99999}`, `{"spell_regen_timer":99999,"hp_regen_timer":-5}`} {
 		var saved CharacterSave
 		if err := json.Unmarshal([]byte(raw), &saved); err != nil {
 			t.Fatal(err)
 		}
 		c := restoreCharacterSave(saved)
 		sp, hp := c.RealtimeRegenProgress()
-		if sp < 0 || hp < 0 || sp >= character.ManaRegenIntervalFrames || hp >= character.ManaRegenIntervalFrames {
-			t.Fatal("invalid saved regeneration phase")
+		if sp < 0 || hp < 0 || sp >= max(calm, fight) || hp >= calm {
+			t.Fatalf("invalid saved regeneration phase %d/%d", sp, hp)
 		}
 	}
 }

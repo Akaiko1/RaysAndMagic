@@ -513,7 +513,7 @@ type Monster3D struct {
 	// than inferring bosshood from the currently-authored special abilities.
 	Boss bool
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
-	IgnoresArmor      bool    // melee bypasses the party's armor class
+	IgnoresArmor      bool    // melee and projectile hits bypass the party's armor class; abilities do not
 	InfernoChance     float64 // 0..1 chance per action to cast a party-nova Inferno
 	InfernoDamage     int     // fire damage of that nova, pre-mitigation
 	InfernoRangeTiles float64 // how far the nova reaches (authored; 0 = melee moment only)

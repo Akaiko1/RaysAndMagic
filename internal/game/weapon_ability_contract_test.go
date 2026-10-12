@@ -24,7 +24,7 @@ func TestWeaponDisintegrateCombatContract(t *testing.T) {
 		for _, tb := range []bool{false, true} {
 			for _, off := range []bool{false, true} {
 				for _, source := range []string{"weapon", "card", "both", "neither"} {
-					for _, targetState := range []string{"landed", "undead", "dragon", "warded", "sealed", "dodged", "summon"} {
+					for _, targetState := range []string{"landed", "undead", "dragon", "boss", "warded", "sealed", "dodged", "summon"} {
 						t.Run(fmt.Sprintf("%s/TB=%v/off=%v/%s/%s", key, tb, off, source, targetState), func(t *testing.T) {
 							cs := newCombat(t)
 							g := cs.game
@@ -76,6 +76,8 @@ func TestWeaponDisintegrateCombatContract(t *testing.T) {
 							switch targetState {
 							case "undead", "dragon":
 								m.MonsterType = targetState
+							case "boss":
+								m.Boss = true
 							case "warded":
 								m.BossWarded = true
 							case "sealed":
@@ -101,6 +103,13 @@ func TestWeaponDisintegrateCombatContract(t *testing.T) {
 							wantDead := targetState == "landed" && source != "neither"
 							if dead := !m.IsAlive(); dead != wantDead {
 								t.Fatalf("dead=%v want %v; HP=%d", dead, wantDead, m.HitPoints)
+							}
+							if targetState == "boss" {
+								wantSear := source != "neither"
+								lost := m.MaxHitPoints - m.HitPoints
+								if seared := countCombatLog(g, "withstands disintegration") == 1; seared != wantSear || wantSear && lost < config.DisintegrateBossTrueDamage {
+									t.Fatalf("seared=%v want %v; lost %d", seared, wantSear, lost)
+								}
 							}
 						})
 					}
@@ -400,7 +409,7 @@ func TestSpellDisintegrateLaunchSnapshot(t *testing.T) {
 func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 	for _, kind := range []string{"arrow", "magic_projectile"} {
 		for _, owner := range []ProjectileOwner{ProjectileOwnerPlayer, ProjectileOwnerBoundUndead, ProjectileOwnerReflected} {
-			for _, state := range []string{"landed", "undead", "dragon", "warded", "sealed", "dodged"} {
+			for _, state := range []string{"landed", "undead", "dragon", "boss", "warded", "sealed", "dodged"} {
 				t.Run(fmt.Sprintf("%s/owner=%v/%s", kind, owner, state), func(t *testing.T) {
 					cs := newTestCombatSystemWithConfig(t)
 					g := cs.game
@@ -410,6 +419,8 @@ func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 					switch state {
 					case "undead", "dragon":
 						m.MonsterType = state
+					case "boss":
+						m.Boss = true
 					case "warded":
 						m.BossWarded = true
 					case "sealed":
@@ -429,6 +440,10 @@ func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 					wantDead := state == "landed" && owner != ProjectileOwnerReflected
 					if dead := !m.IsAlive(); dead != wantDead {
 						t.Fatalf("dead=%v want %v", dead, wantDead)
+					}
+					// A 1-damage bolt can only reach the sear's damage through the sear.
+					if lost := m.MaxHitPoints - m.HitPoints; state == "boss" && (lost >= config.DisintegrateBossTrueDamage) != (owner != ProjectileOwnerReflected) {
+						t.Fatalf("boss lost %d (owner %v)", lost, owner)
 					}
 				})
 			}

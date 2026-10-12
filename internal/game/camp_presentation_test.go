@@ -57,7 +57,7 @@ func TestRestCuresLivingConditions(t *testing.T) {
 						t.Fatal("rest retained a condition or its hidden timer")
 					}
 					for i := 0; i < 240; i++ {
-						m.UpdateWithMode(false)
+						m.UpdateWithMode(character.PartyClock{})
 					}
 					m.TickPoisonTurn(240, 120)
 					m.TickBurnTurn(240, 120)

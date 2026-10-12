@@ -67,7 +67,10 @@ type GameSave struct {
 	TurnBasedRotCooldown      int  `json:"turn_based_rot_cooldown,omitempty"`
 	MonsterTurnResolved       bool `json:"monster_turn_resolved,omitempty"`
 	TurnBasedSpRegenCount     int  `json:"turn_based_sp_regen_count,omitempty"`
-	ExtraMonsterAction        bool `json:"extra_monster_action,omitempty"`
+	// TurnBasedHPRegenCount is absent from saves made while one counter paced
+	// both regens; such a save resumes HP regen on the SP counter's phase.
+	TurnBasedHPRegenCount *int `json:"turn_based_hp_regen_count,omitempty"`
+	ExtraMonsterAction    bool `json:"extra_monster_action,omitempty"`
 	// A save can land during the visible delay before an earned second monster
 	// pass. Preserve the in-progress scheduler instead of restarting the turn.
 	TurnBasedMonsterPassesLeft int      `json:"turn_based_monster_passes_left,omitempty"`

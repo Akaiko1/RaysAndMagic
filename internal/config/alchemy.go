@@ -270,6 +270,22 @@ func ValidateOrdinaryItemGrant(key string) error {
 	return nil
 }
 
+// ValidateBarterGrant lets a barter hand out a gathering ingredient only for
+// gathering ingredients: herbs trade for herbs, never for coin or loot. Every
+// other output follows the ordinary grant rule.
+func ValidateBarterGrant(key string, goods []string) error {
+	d, _ := GetItemDefinition(key)
+	if d == nil || d.HarvestSprite == "" || d.CraftedOnly {
+		return ValidateOrdinaryItemGrant(key)
+	}
+	for _, good := range goods {
+		if paid, _ := GetItemDefinition(good); paid == nil || paid.HarvestSprite == "" {
+			return fmt.Errorf("barter for harvest-only item %q must be paid in gathering ingredients, not %q", key, good)
+		}
+	}
+	return nil
+}
+
 // Explicit monster herb drops do not open herbs to ordinary catalog grants.
 func ValidateMonsterHarvestGrant(key string) error {
 	d, ok := GetItemDefinition(key)

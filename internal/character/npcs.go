@@ -167,6 +167,17 @@ type MerchantStockItem struct {
 	CurrencyItem string
 	// GoldCost is charged IN ADDITION to the item currency (scale + gold).
 	GoldCost int
+	// Barter prices the entry in goods instead of any currency.
+	Barter []BarterCost
+	// RequiresQuest keeps the entry off the shelf until that quest is done.
+	RequiresQuest string
+}
+
+// BarterCost is one good of a barter price: Count units of the catalog item.
+type BarterCost struct {
+	Key   string
+	Item  items.Item
+	Count int
 }
 
 // EffectiveCurrency resolves the one currency contract shared by merchant UI

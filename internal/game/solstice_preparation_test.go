@@ -128,9 +128,10 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 				}
 			}
 			prime := func() {
-				g.turnBasedSpRegenCount = TurnBasedSpRegenEveryNRounds - 1
+				g.turnBasedSpRegenCount = TurnBasedRegenEveryNRounds - 1
+				g.turnBasedHPRegenCount = TurnBasedRegenEveryNRounds - 1
 				for _, c := range g.party.Members {
-					c.RestoreRealtimeRegenProgress(character.ManaRegenIntervalFrames-1, character.ManaRegenIntervalFrames-1)
+					c.RestoreRealtimeRegenProgress(config.RegenerationIntervalFrames()-1, config.RegenerationIntervalFrames()-1)
 				}
 			}
 			drink("solstice_fire_ward")
@@ -168,7 +169,7 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 			}
 			// Thinking in TB must not advance RT clocks, or grant a second tick.
 			g.turnBasedMode = true
-			for range character.ManaRegenIntervalFrames {
+			for range config.RegenerationIntervalFrames() {
 				g.updatePartyClocks()
 			}
 			if c.HitPoints != 570 || c.SpellPoints != 550+ordinaryMana {
@@ -283,41 +284,5 @@ func TestAlchemyFiltersKeepRecipeIdentity(t *testing.T) {
 	}
 	if slices.Contains(g.visibleAlchemyRecipes(), i) {
 		t.Fatal("consumed recipe still brewable")
-	}
-}
-
-func TestPreparationGoldExchange(t *testing.T) {
-	g := newTestCombatSystemWithConfig(t).game
-	c := &character.NPCDialogueChoice{Exchange: &character.NPCExchange{Gold: 900, Costs: map[string]int{"grave_orchid": 1}}}
-	g.party.Inventory = nil
-	before := g.party.Gold
-	g.exchangePreparation(c)
-	if g.party.Gold != before {
-		t.Fatal("unpaid exchange")
-	}
-	g.party.AddItem(items.CreateItemFromYAML("grave_orchid"))
-	g.exchangePreparation(c)
-	if g.party.Gold != before+900 || g.party.CountItemsByName("Grave Orchid") != 0 {
-		t.Fatal("incorrect exchange")
-	}
-	g.exchangePreparation(c)
-	if g.party.Gold != before+900 {
-		t.Fatal("duplicate payment")
-	}
-}
-
-func TestPreparationDawnleafExchange(t *testing.T) {
-	g := newTestCombatSystemWithConfig(t).game
-	c := &character.NPCDialogueChoice{Exchange: &character.NPCExchange{Output: "dawnleaf", Costs: map[string]int{"bitterroot": 2}}}
-	g.party.Inventory = nil
-	g.party.AddItem(items.CreateItemFromYAML("bitterroot"))
-	g.exchangePreparation(c)
-	if g.party.CountItemsByName("Bitterroot") != 1 || g.party.CountItemsByName("Dawnleaf") != 0 {
-		t.Fatal("incomplete payment consumed")
-	}
-	g.party.AddItem(items.CreateItemFromYAML("bitterroot"))
-	g.exchangePreparation(c)
-	if g.party.CountItemsByName("Bitterroot") != 0 || g.party.CountItemsByName("Dawnleaf") != 1 {
-		t.Fatal("incorrect herb exchange")
 	}
 }

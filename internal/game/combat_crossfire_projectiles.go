@@ -189,19 +189,25 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		return
 	}
 
-	// Disintegrate rider: the bound mob's projectile keeps its instakill chance.
-	if rollMonsterDisintegrate(target, disintegrateChance) {
+	// Disintegrate rider: the bound mob's projectile keeps its instakill chance;
+	// a boss takes the sear on this hit only, never on the splash.
+	primary, seared := packet, false
+	switch rollMonsterDisintegrate(target, disintegrateChance) {
+	case disintegrateKill:
 		target.HitPoints = 0
 		target.HitTintFrames = MonsterHitFlashFrames
 		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt disintegrates %s!", logMonsterAs(srcMonster, sourceName), logMonsterName(target))
 		kill()
 		return
+	case disintegrateSear:
+		cs.game.addActorCombatMessage(srcMonster, target, "%s withstands disintegration!", logMonsterName(target))
+		primary, seared = packet.withTrue(config.DisintegrateBossTrueDamage), true
 	}
 
-	if parts.Total() > 0 {
+	if parts.Total() > 0 || seared {
 		actual := cs.applyMonsterDamagePacket(
 			target,
-			packet,
+			primary,
 			cs.monsterWeaponDamageOptions(weaponDef, target, true, ignoreArmor),
 		).Total()
 		if actual > 0 {

@@ -2,8 +2,12 @@ package game
 
 import (
 	"fmt"
+	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
+	"ugataima/internal/config"
+	"ugataima/internal/quests"
 )
 
 // npcDialogState is the conversational state of an NPC, derived from its linked
@@ -55,6 +59,16 @@ func (g *MMGame) questAwaitingTurnIn(questID string) bool {
 	}
 	q := g.questManager.GetQuest(questID)
 	return q != nil && q.Completed && !q.RewardsClaimed
+}
+
+// questUnderway reports whether this specific quest is taken and still active -
+// when a giver's own delivery row is live (the prop handler's own rule).
+func (g *MMGame) questUnderway(questID string) bool {
+	if g.questManager == nil {
+		return false
+	}
+	q := g.questManager.GetQuest(questID)
+	return q != nil && q.Status == quests.QuestStatusActive
 }
 
 // choiceAvailable applies a choice's requires_quest gate: a chained offer stays
@@ -177,6 +191,42 @@ func (g *MMGame) backConversation() {
 // the greeting when a state-specific message is unset. When the player has
 // branched into an "info" choice, its Response is shown instead.
 func (g *MMGame) npcDialogueText(npc *character.NPC) string {
+	text := g.npcDialogueStateText(npc)
+	if npc == nil || npc.DialogueData == nil {
+		return text
+	}
+	// The merchant names its standing offers at the root of the talk, once
+	// its service is open; the price comes from the same buys the sale pays.
+	if g.currentDialogNode() == nil && !lockedDoorClosed(npc) && g.npcServiceGateOpen(npc) {
+		text = joinDialogueLines(text, npcSpecialOfferLine(npc))
+	}
+	return text
+}
+
+// npcSpecialOfferLine is one sentence per good the merchant's catalog buys
+// at an authored price, in item-key order; "" without such offers.
+func npcSpecialOfferLine(npc *character.NPC) string {
+	buys := merchantBuys(npc)
+	offers := make([]string, 0, len(buys))
+	for _, key := range sortedMapKeys(buys) {
+		if item, found := config.GetItemDefinition(key); found {
+			offers = append(offers, uitext.Text("dialog.special_offer", buys[key], item.Name))
+		}
+	}
+	return strings.Join(offers, " ")
+}
+
+func joinDialogueLines(text, line string) string {
+	switch {
+	case line == "":
+		return text
+	case text == "":
+		return line
+	}
+	return text + "\n" + line
+}
+
+func (g *MMGame) npcDialogueStateText(npc *character.NPC) string {
 	if npc == nil || npc.DialogueData == nil {
 		return ""
 	}
@@ -448,13 +498,13 @@ func (g *MMGame) npcShopHeaderLine(npc *character.NPC, stock string) string {
 	if npc == nil || npc.DialogueData == nil {
 		return stock
 	}
+	line := stock
 	if g.npcDialogueState(npc) == npcStateConcluded && npc.DialogueData.VisitedMessage != "" {
-		return npc.DialogueData.VisitedMessage
+		line = npc.DialogueData.VisitedMessage
+	} else if npc.DialogueData.Greeting != "" {
+		line = npc.DialogueData.Greeting
 	}
-	if npc.DialogueData.Greeting != "" {
-		return npc.DialogueData.Greeting
-	}
-	return stock
+	return joinDialogueLines(line, npcSpecialOfferLine(npc))
 }
 
 // npcQuestReply selects optional NPC prose; otherwise the caller supplies
@@ -499,9 +549,6 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 		ih.game.closeConversation()
 	},
 	"teach_spell": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) { ih.teachPreparationSpell(c) },
-	"exchange": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
-		ih.game.exchangePreparation(c)
-	},
 	"enter_schedule": func(ih *InputHandler, _ *character.NPC, c *character.NPCDialogueChoice) {
 		if err := ih.game.enterAdventureSchedule(c.Map); err != nil {
 			ih.game.AddCombatMessage(err.Error())
@@ -583,7 +630,6 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 // still rest and heal the party, a gated pit would still run a bout.
 var gatedServiceActions = map[string]bool{
 	"teach_spell":        true,
-	"exchange":           true,
 	"enter_schedule":     true,
 	"adventure_control":  true,
 	"disarm_environment": true,
@@ -722,11 +768,21 @@ func (g *MMGame) choiceKeepsIn(npc *character.NPC, c *character.NPCDialogueChoic
 	}
 	switch c.Action {
 	case "give_quest":
-		// Per CHOICE, not just per NPC state: a giver with several errands must
-		// not keep offering one the party already took or finished.
-		return state == npcStateOffer && !g.partyHoldsQuest(c.QuestID)
+		// Per errand, never per NPC state: each errand whose prerequisite is
+		// met (choiceAvailable above) is offered until the party holds it. A
+		// chain is authored with requires_quest; errands without one run side
+		// by side (Tovan's four commissions).
+		return !g.partyHoldsQuest(c.QuestID)
 	case "turn_in_quest":
-		return state == npcStateCompleted && g.questAwaitingTurnIn(c.QuestID)
+		return g.questAwaitingTurnIn(c.QuestID)
+	case questPropAction:
+		// A delivery the errand's own giver takes is offered only while the
+		// errand is under way: Accept stands in for it before, the payout ends
+		// it. World props keep answering with their not_yet line.
+		if npcGivesQuest(npc, c.QuestID) {
+			return g.questUnderway(c.QuestID)
+		}
+		return true
 	default:
 		return true
 	}

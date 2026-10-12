@@ -54,7 +54,7 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 		cs.game.AddCombatMessage(fmt.Sprintf("%s has not learned %s.", caster.Name, def.Name))
 		return castRejected
 	}
-	if caster.SpellState.ReuseFrames[string(req.ID)] > 0 {
+	if !caster.SpellState.Reusable(string(req.ID)) {
 		if !req.Automatic {
 			cs.game.AddCombatMessage(uitext.Text("spell.reuse_not_ready", def.Name))
 		}

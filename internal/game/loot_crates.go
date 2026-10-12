@@ -54,7 +54,7 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 	// Combat lockout: the Space focus is already combat-blocked, but a mouse
 	// click reaches here directly - without this a campfire is a free mid-fight
 	// full rest. Checked BEFORE Visited so the attempt doesn't waste the crate.
-	if g.partyInCombat() {
+	if g.interactionBlockedByCombat() {
 		g.AddCombatMessage(fmt.Sprintf("No time to search the %s mid-fight!", npc.Name))
 		return
 	}

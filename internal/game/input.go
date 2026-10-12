@@ -398,7 +398,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.turnBasedMoveCooldown = 0
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
-	g.turnBasedSpRegenCount = 0
+	g.turnBasedSpRegenCount, g.turnBasedHPRegenCount = 0, 0
 
 	// Clear pending level-up choices
 	g.levelUpChoiceQueue = nil
@@ -2220,7 +2220,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	if kind.drawsShop() {
 		// Gladiator tabbed dialog: the shop grids exist only on the Shop tab -
 		// their hidden rects must not swallow Talk/Board clicks.
-		if kind == dialogKindArenaGladiator && ih.game.dialogTab != 1 {
+		if kind == dialogKindArenaGladiator && !ih.game.serviceShopTabOpen() {
 			return
 		}
 		leftX, rightX, gridTop, _ := merchantGridLayout(dialogX, dialogY)
@@ -2248,7 +2248,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		}
 
 		// Sell to merchant (right grid).
-		if merchantBuysForGold(ih.game.dialogNPC) {
+		if ih.game.merchantSellsHere() {
 			view := ih.game.merchantBagViewIndices()
 			for slot := 0; slot < merchantPageSize; slot++ {
 				idx := inventoryCellIndex(view, ih.game.merchantSellPage, merchantPageSize, slot)
@@ -2602,18 +2602,18 @@ func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) 
 	return ih.game.selectedChar
 }
 
-// handleArenaGladiatorInput drives the tabbed gladiator dialog: Tab cycles
-// Talk/Shop/Board; the Talk tab runs the normal encounter choices, the Shop
-// tab's grid clicks are handled by the shared merchant mouse path, the Board
+// handleArenaGladiatorInput drives the tabbed shop+talk dialog: Tab cycles
+// Talk/shop tabs/Board; the Talk tab runs the normal encounter choices, shop
+// tabs' grid clicks are handled by the shared merchant mouse path, the Board
 // tab only reads (Shift detail at draw time).
 func (ih *InputHandler) handleArenaGladiatorInput() {
 	if ih.keys.Consume(ebiten.KeyTab) {
 		ih.game.switchDialogTab((ih.game.dialogTab + 1) % len(ih.game.merchantServiceTabs()))
 	}
-	switch ih.game.dialogTab {
-	case 0:
+	switch {
+	case ih.game.dialogTab == 0:
 		ih.handleEncounterInput()
-	case 2:
+	case ih.game.serviceBoardTabOpen():
 		// Wheel scrolls the board; the draw pass clamps against line count.
 		wheelX, wheelY := ebiten.Wheel()
 		detailHeld := ih.keyHeld(ebiten.KeyShiftLeft) || ih.keyHeld(ebiten.KeyShiftRight)
@@ -2919,9 +2919,16 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 		g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.NotCompleted }, uitext.Text("dialog.that_task_isn_t_finished_yet_return")))
 		return
 	}
-	if g.claimQuestReward(questID) && npc != nil && !g.npcHasPendingChainStep(npc, questID) {
-		// A chain giver stays available: concluding here would silence the
-		// peasant right before she can hand out the second errand.
+	if g.claimQuestReward(questID) {
+		g.concludeGiverAfterPayout(npc, questID)
+	}
+}
+
+// concludeGiverAfterPayout ends a giver's errand once it is paid. A chain giver
+// stays available: concluding it would silence the peasant right before she
+// can hand out the second errand.
+func (g *MMGame) concludeGiverAfterPayout(npc *character.NPC, questID string) {
+	if npc != nil && !g.npcHasPendingChainStep(npc, questID) {
 		npc.Visited = true
 	}
 }
@@ -2965,7 +2972,11 @@ func (ih *InputHandler) handleQuestPropInteract(questID string, words *character
 		g.AddCombatMessage(words.NotYet)
 		return
 	}
-	npc.Visited = true
+	// A world prop is one-shot. The errand's own giver takes deliveries until
+	// the payout concludes it.
+	if !npcGivesQuest(npc, questID) {
+		npc.Visited = true
+	}
 	if words.LootTable != "" {
 		loot, gold := rollWeightedLootTable(words.LootTable)
 		for _, it := range loot {
@@ -2987,7 +2998,7 @@ func (ih *InputHandler) handleQuestPropInteract(questID string, words *character
 	}
 	g.AddCombatMessage(fmt.Sprintf("%s (%s)", words.Took, q.GetProgressString()))
 	for _, cq := range completed {
-		g.announceQuestCompletionWithMessage(cq, fmt.Sprintf("Quest '%s' complete! %s", cq.Definition.Name, words.Completed))
+		g.completePropErrand(npc, cq, fmt.Sprintf("Quest '%s' complete! %s", cq.Definition.Name, words.Completed), "")
 	}
 }
 

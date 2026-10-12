@@ -343,7 +343,7 @@ func (d SpellDefinition) effectLinesAtMastery(view effectView, tier int) []strin
 		out = append(out, uitext.Text("spell.teleports_the_party_tiles_straight_ahead_refused", d.JumpTiles))
 	}
 	if d.DisintegrateChance > 0 {
-		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100))
+		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100, config.DisintegrateBossTrueDamage))
 	}
 	if d.StunChance > 0 {
 		line := uitext.Text("spell.stun_chance_on_hit", d.StunChance*100)

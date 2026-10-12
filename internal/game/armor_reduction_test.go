@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -487,5 +488,89 @@ func TestGoldenCarapace_NonPhysicalImmunity(t *testing.T) {
 	// Physical is NOT in the carapace's resistances -> still reduced by armor only (>=1).
 	if got := cs.mitigateCharacterDamage(40, "physical", member, false); got < 1 {
 		t.Errorf("physical must still apply via armor, got %d", got)
+	}
+}
+
+// ignores_armor removes the party's armor class from melee and projectile hits
+// only; every ability keeps it. Each row enters through the game's own attack
+// path and compares one armoured hero with the same hero unarmoured.
+func TestIgnoresArmor_OnlyMeleeAndProjectilesSkipPartyArmor(t *testing.T) {
+	const damage, hp = 100, 10000
+	project := func(cs *CombatSystem, m *monsterPkg.Monster3D, spell bool) {
+		x, y := cs.game.camera.X, cs.game.camera.Y
+		if spell {
+			cs.game.magicProjectiles = append(cs.game.magicProjectiles, MagicProjectile{ID: "rule_bolt", X: x, Y: y, Damage: damage, LifeTime: 10, Active: true, SpellType: "firebolt", Owner: ProjectileOwnerMonster, SourceName: m.Name, SourceMonster: m})
+			cs.game.collisionSystem.RegisterEntity(collision.NewEntity("rule_bolt", x, y, 8, 8, collision.CollisionTypeProjectile, false))
+		} else {
+			cs.game.arrows = append(cs.game.arrows, Arrow{ID: "rule_arrow", X: x, Y: y, Damage: damage, LifeTime: 10, Active: true, DamageType: "physical", Owner: ProjectileOwnerMonster, SourceName: m.Name, SourceMonster: m})
+			cs.game.collisionSystem.RegisterEntity(collision.NewEntity("rule_arrow", x, y, 8, 8, collision.CollisionTypeProjectile, false))
+		}
+		cs.CheckProjectilePlayerCollisions()
+	}
+	rows := []struct {
+		name          string
+		bypassesArmor bool
+		deliver       func(cs *CombatSystem, m *monsterPkg.Monster3D)
+	}{
+		{"melee", true, func(cs *CombatSystem, m *monsterPkg.Monster3D) { cs.applyMonsterMeleeDamage(m) }},
+		{"spell projectile", true, func(cs *CombatSystem, m *monsterPkg.Monster3D) { project(cs, m, true) }},
+		{"weapon projectile", true, func(cs *CombatSystem, m *monsterPkg.Monster3D) { project(cs, m, false) }},
+		{"dragon breath", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
+			m.DragonBreathChance, m.DragonBreathDamageType = 1, "fire"
+			cs.applyMonsterMeleeDamage(m)
+		}},
+		{"inferno", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
+			m.InfernoDamage = damage
+			cs.applyMonsterInferno(m)
+		}},
+		{"fireburst", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
+			m.FireburstDamageMin, m.FireburstDamageMax = damage, damage
+			cs.applyMonsterFireburst(m)
+		}},
+	}
+	newCombat := newTestCombatFactory(t)
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			loss := func(ignoresArmor, armored bool) int {
+				t.Helper()
+				cs := newCombat(t)
+				cs.elementalAttackRoll = func() float64 { return 1 } // no elemental melee proc
+				hero := cs.game.party.Members[0]
+				for _, other := range cs.game.party.Members[1:] {
+					other.HitPoints = 0
+					other.AddCondition(character.ConditionDead)
+				}
+				hero.Luck = 0
+				hero.Equipment = map[items.EquipSlot]items.Item{}
+				if armored {
+					equipArmorPieces(t, hero, "leather_armor")
+					if cs.armorMitigationPct(hero, false) <= 0 {
+						t.Fatal("setup: the armour mitigates no elemental damage")
+					}
+				}
+				if chance := cs.PerfectDodgeChance(hero); chance != 0 {
+					t.Fatalf("setup: perfect dodge %d%%, want 0", chance)
+				}
+				hero.MaxHitPoints, hero.HitPoints = hp, hp
+				m := &monsterPkg.Monster3D{ID: "armor_rule_attacker", Name: "Attacker", DamageMin: damage, DamageMax: damage, IgnoresArmor: ignoresArmor}
+				row.deliver(cs, m)
+				return hp - hero.HitPoints
+			}
+			bare, armored := loss(false, false), loss(false, true)
+			flagBare, flagArmored := loss(true, false), loss(true, true)
+			if bare == 0 || armored >= bare {
+				t.Fatalf("positive control: armoured hero took %d, unarmoured %d; armour must mitigate this delivery", armored, bare)
+			}
+			if flagBare != bare {
+				t.Errorf("ignores_armor changed an unarmoured hit: %d, want %d", flagBare, bare)
+			}
+			want := armored
+			if row.bypassesArmor {
+				want = bare
+			}
+			if flagArmored != want {
+				t.Errorf("ignores_armor hit on armour took %d, want %d (bypasses armor: %v)", flagArmored, want, row.bypassesArmor)
+			}
+		})
 	}
 }

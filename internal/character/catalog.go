@@ -490,7 +490,7 @@ func (s SkillType) effectDescription() string {
 	case SkillBodybuilding:
 		return uitext.Text("skill.bodybuilding", BodybuildingHPPerTier, 2*BodybuildingHPPerTier, 3*BodybuildingHPPerTier)
 	case SkillMeditation:
-		return uitext.Text("skill.meditation", MeditationRegenPerTier, 2*MeditationRegenPerTier, 3*MeditationRegenPerTier, config.RegenerationIntervalSeconds(), config.RegenerationRounds)
+		return uitext.Text("skill.meditation", MeditationRegenPerTier, 2*MeditationRegenPerTier, 3*MeditationRegenPerTier, config.RegenerationIntervalSeconds(), config.RegenerationRounds, config.CombatSPRegenSeconds, config.CombatSPRegenRounds)
 	case SkillLearning:
 		return uitext.Text("skill.learning", LearningXPPctPerTier, 2*LearningXPPctPerTier, 3*LearningXPPctPerTier)
 	case SkillArmsMaster:

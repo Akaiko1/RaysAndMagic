@@ -462,6 +462,20 @@ func TestServiceGateValidation(t *testing.T) {
 				Dialogue: &character.NPCDialogue{QuestGreeting: "Win three bouts first."},
 			},
 		},
+		// A stock entry's gate is the same service gate on one shelf entry.
+		{
+			name: "stock gate quest nobody gives",
+			npc: &character.NPCData{Type: character.NPCTypeMerchant, Inventory: []*character.NPCItem{
+				{Type: "item", Name: "Health Potion", RequiresQuest: "archive_missing_volumes"},
+			}},
+			wantErr: "could never appear",
+		},
+		{
+			name: "stock gate quest a placed giver hands out",
+			npc: &character.NPCData{Type: character.NPCTypeMerchant, Inventory: []*character.NPCItem{
+				{Type: "item", Name: "Health Potion", RequiresQuest: "pit_standing"},
+			}},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

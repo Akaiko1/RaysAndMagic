@@ -123,6 +123,21 @@ func TestQuestWorldReferencesRejectBrokenQuestLinks(t *testing.T) {
 			want:   []string{`unknown requires_quest "missing_quest"`},
 		},
 		{
+			name: "turn-in beside the giver's own delivery",
+			npcs: giver(&character.NPCDialogue{Choices: ownChain(
+				&character.NPCDialogueChoice{Text: "Deliver", Action: questPropAction, QuestID: "own_quest", Prop: &character.NPCPropCopy{Tag: "own_quest"}},
+				&character.NPCDialogueChoice{Text: "Claim", Action: "turn_in_quest", QuestID: "own_quest"},
+			)}),
+			quests: chain(),
+			want:   []string{`takes the delivery for its own quest "own_quest"`},
+		},
+		{
+			name:   "unknown stock requirement",
+			npcs:   &character.NPCConfig{NPCs: map[string]*character.NPCData{"test_shop": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", RequiresQuest: "missing_quest"}}}}},
+			quests: known(),
+			want:   []string{`stock "Health Potion" references unknown requires_quest "missing_quest"`},
+		},
+		{
 			name:   "unknown quest step",
 			npcs:   nested(&character.NPCDialogueChoice{Action: "info", QuestStep: "missing_quest"}),
 			quests: known(),

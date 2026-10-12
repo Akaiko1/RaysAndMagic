@@ -139,10 +139,10 @@ const (
 	// each has direct line of sight to the party.
 	TurnBasedPackAggroRadiusTiles = 8.0
 
-	// TurnBasedSpRegenEveryNRounds: how many full party rounds must pass in
-	// turn-based mode between SP regeneration ticks. Each tick adds
-	// CalculateManaRegenAmount SP to every able-bodied member.
-	TurnBasedSpRegenEveryNRounds = config.RegenerationRounds
+	// TurnBasedRegenEveryNRounds: how many full party rounds pass in turn-based
+	// mode between regeneration ticks - HP (cards, draughts, Regeneration)
+	// always, SP out of a fight (config.CombatSPRegenRounds while fighting).
+	TurnBasedRegenEveryNRounds = config.RegenerationRounds
 
 	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
 	// monster action pass and the anti-kite extra pass.
@@ -161,7 +161,7 @@ const (
 	// Camping (the Camp icon beside the HUD quick slots): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.
 	CampFoodCost         = 1
-	CampEnemyRadiusTiles = 5.0
+	CampEnemyRadiusTiles = 9.0
 )
 
 // Speed-stat -> action cooldown curve. Cooldown in frames is a linear function

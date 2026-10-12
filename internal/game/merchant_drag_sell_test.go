@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
@@ -301,6 +302,25 @@ func TestGoldShopPurchaseResaleMargin(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, stock := range npc.MerchantStock {
+			if len(stock.Barter) > 0 {
+				// A barter shelf must not be a resale loop either: the output,
+				// sold at its value or the best special offer anywhere, fetches
+				// less than the goods paid for it would.
+				_, outKey, _ := config.GetItemDefinitionByName(stock.Item.Name)
+				resale := stock.Item.Attributes["value"]
+				for _, def := range character.NPCConfigInstance.NPCs {
+					resale = max(resale, def.Buys[outKey])
+				}
+				goods := 0
+				for _, c := range stock.Barter {
+					goods += c.Count * c.Item.Attributes["value"]
+				}
+				if resale >= goods {
+					t.Errorf("%s/%s: barter resells for %d, goods worth %d", key, stock.Item.Name, resale, goods)
+				}
+				checked++
+				continue
+			}
 			if stock.EffectiveCurrency(npc.Currency) != "" || npc.FreeGoods {
 				continue
 			}
@@ -881,10 +901,10 @@ func TestBagHeaderCarriesTheBuyHintWithoutOverlappingIcons(t *testing.T) {
 	coin := &character.NPC{Name: "Trader", SellAvailable: true}
 	points := &character.NPC{Name: "Quartermaster", Currency: character.CurrencyArenaPoints}
 
-	if got := merchantBagHeaderLabel(coin); got != "Your Items" {
+	if got := merchantBagHeaderLabel(coin, merchantBuysForGold(coin)); got != "Your Items" {
 		t.Fatalf("coin shop header = %q, want the plain title", got)
 	}
-	hint := merchantBagHeaderLabel(points)
+	hint := merchantBagHeaderLabel(points, merchantBuysForGold(points))
 	// Both facts must survive: the grid buys, and the shop does not buy back.
 	for _, want := range []string{"drop", "buy", "no selling"} {
 		if !strings.Contains(hint, want) {

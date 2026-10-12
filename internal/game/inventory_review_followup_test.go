@@ -169,11 +169,13 @@ func TestInventoryReviewAccessLabels(t *testing.T) {
 	if !strings.Contains(text, "own quick slots, then own bag, then shared bag") {
 		t.Fatalf("autodrink source order missing: %s", text)
 	}
-	for _, currency := range []string{"item:clock_hand", character.CurrencyArenaPoints} {
-		npc := &character.NPC{Currency: currency}
-		label := merchantBagHeaderLabel(npc)
-		if !strings.Contains(label, "drop buys here") || !strings.Contains(label, "no selling") || uiTextWidth(label) > merchantGridW {
-			t.Fatalf("non-selling shop lost its usable header: %q", label)
+	forEachUIFont(t, func(t *testing.T) {
+		for _, currency := range []string{"item:clock_hand", character.CurrencyArenaPoints} {
+			npc := &character.NPC{Currency: currency}
+			label := merchantBagHeaderLabel(npc, merchantBuysForGold(npc))
+			if !strings.Contains(label, "drop to buy") || !strings.Contains(label, "no selling") || uiTextWidth(label) > merchantGridW {
+				t.Fatalf("non-selling shop lost its usable header: %q (%dpx of %d)", label, uiTextWidth(label), merchantGridW)
+			}
 		}
-	}
+	})
 }

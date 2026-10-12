@@ -246,7 +246,7 @@ func (ui *UISystem) beginMerchantSellPicker(idx int) {
 		return
 	}
 	item := g.party.Inventory[idx]
-	if item.Attributes["value"] <= 0 {
+	if price, _ := g.merchantUnitSellPrice(item); price <= 0 {
 		g.AddCombatMessage("This item has no value.")
 		return
 	}
@@ -428,7 +428,8 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 	case stackSplitPickerMerchantSell:
 		confirmLabel = "Sell"
 		quantityText = fmt.Sprintf("x%d/%d", ui.stackSplitPicker.quantity, ui.stackSplitMaxQuantity(item))
-		priceLine = fmt.Sprintf("%d gold", g.merchantSellPrice(item.Attributes["value"])*ui.stackSplitPicker.quantity)
+		unit, _ := g.merchantUnitSellPrice(item)
+		priceLine = fmt.Sprintf("%d gold", unit*ui.stackSplitPicker.quantity)
 	case stackSplitPickerMerchantBuy:
 		confirmLabel = "Buy"
 		if entry := ui.stackSplitStockEntry(); entry != nil && entry.RewardKey != "" {

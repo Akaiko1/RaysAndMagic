@@ -113,11 +113,32 @@ func (g *MMGame) handleQuestActivity(npc *character.NPC, id string, words *chara
 	}
 	g.AddCombatMessage(words.Took)
 	if completed {
-		g.applyCompletedQuestTiles()
-		g.announceQuestCompletionWithMessage(q, words.Completed+" Claim its reward in the quest journal (J).")
+		g.completePropErrand(npc, q, words.Completed, " "+questJournalClaimHint)
 	}
 	return true
 }
+
+// completePropErrand is the completion beat every prop route shares: quest
+// tiles, the prop's completed line and - when the errand's own giver took the
+// delivery, which is its turn-in - the payout on the spot. Elsewhere the line
+// carries the route's hint for claiming the reward later.
+func (g *MMGame) completePropErrand(npc *character.NPC, q *quests.Quest, completed, claimHint string) {
+	g.applyCompletedQuestTiles()
+	if !npcGivesQuest(npc, q.ID) {
+		g.announceQuestCompletionWithMessage(q, completed+claimHint)
+		return
+	}
+	g.announceQuestCompletionWithMessage(q, completed)
+	if g.claimQuestReward(q.ID) {
+		g.concludeGiverAfterPayout(npc, q.ID)
+		return
+	}
+	// The delivery row closed with the errand; the journal still pays it.
+	g.AddCombatMessage(questJournalClaimHint)
+}
+
+// questJournalClaimHint points a completed, unpaid errand to the journal.
+const questJournalClaimHint = "Claim its reward in the quest journal (J)."
 
 // validateQuestPropCopy is shared by general and activity-specific validation.
 func validateQuestPropCopy(npcKey string, p *character.NPCPropCopy) error {

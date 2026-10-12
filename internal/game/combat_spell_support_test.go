@@ -725,19 +725,21 @@ func TestShieldAndPainReflectionSkipHazards(t *testing.T) {
 	}
 }
 
-// Heal triage (C key, Space) casts the best real heal. Shared Life evens the
-// pool out instead of healing everyone, so it never outranks a direct heal,
-// while a true party heal still does and Shared Life remains a last resort.
+// Heal triage (C key, Space) casts the best real heal it can cast now. Shared
+// Life evens the pool out instead of healing everyone, so it never outranks a
+// direct heal, while a true party heal still does and Shared Life remains a
+// last resort. A heal under its reuse lockout hands over to the next best.
 func TestHealTriageRanksSharedLifeAsRedistribution(t *testing.T) {
 	for _, tc := range []struct {
-		known []string
-		want  string
+		known, reusing []string
+		want           string
 	}{
-		{[]string{"heal_other", "shared_life"}, "heal_other"},
-		{[]string{"heal_other", "mass_heal"}, "mass_heal"},
-		{[]string{"shared_life"}, "shared_life"},
+		{[]string{"heal_other", "shared_life"}, nil, "heal_other"},
+		{[]string{"heal_other", "mass_heal"}, nil, "mass_heal"},
+		{[]string{"shared_life"}, nil, "shared_life"},
+		{[]string{"heal_other", "mass_heal"}, []string{"mass_heal"}, "heal_other"},
 	} {
-		t.Run(tc.want+"/"+strings.Join(tc.known, "+"), func(t *testing.T) {
+		t.Run(tc.want+"/"+strings.Join(tc.known, "+")+"/reusing="+strings.Join(tc.reusing, "+"), func(t *testing.T) {
 			g := advancedSupportGame(t, false)
 			caster := g.party.Members[0]
 			for _, key := range tc.known {
@@ -747,6 +749,10 @@ func TestHealTriageRanksSharedLifeAsRedistribution(t *testing.T) {
 				}
 				caster.LearnSpell(d.ID)
 			}
+			caster.SpellState.ReuseFrames = map[string]int{}
+			for _, key := range tc.reusing {
+				caster.SpellState.ReuseFrames[key] = 1
+			}
 			wounded := g.party.Members[1]
 			wounded.HitPoints = wounded.MaxHitPoints / 2
 			g.selectedChar = 0
@@ -755,6 +761,27 @@ func TestHealTriageRanksSharedLifeAsRedistribution(t *testing.T) {
 				t.Fatalf("triage cast=%v %q, want %q", cast, id, tc.want)
 			}
 		})
+	}
+}
+
+// Mass Heal's own cast starts its personal reuse lockout (9s, three TB rounds);
+// the very next triage heals with Heal Other instead of refusing.
+func TestMassHealReuseHandsTriageOver(t *testing.T) {
+	g := advancedSupportGame(t, false)
+	caster := g.party.Members[0]
+	caster.LearnSpell("heal_other")
+	caster.LearnSpell("mass_heal")
+	caster.SpellPoints = caster.MaxSpellPoints
+	g.selectedChar = 0
+	for _, want := range []string{"mass_heal", "heal_other"} {
+		g.party.Members[1].HitPoints = g.party.Members[1].MaxHitPoints / 2
+		caster.RTCooldown, caster.ActionsRemaining = 0, 1
+		if cast, id := g.combat.CastBestHealOnTarget(1); !cast || string(id) != want {
+			t.Fatalf("triage cast=%v %q, want %q", cast, id, want)
+		}
+	}
+	if got := caster.SpellState.ReuseFrames["mass_heal"]; got != 9*g.config.GetTPS() {
+		t.Fatalf("Mass Heal reuse = %d frames, want 9s", got)
 	}
 }
 

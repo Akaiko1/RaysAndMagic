@@ -36,6 +36,11 @@ func (s SpellState) Clone() SpellState {
 	return s
 }
 
+// Reusable reports whether the spell's personal reuse lockout has run out.
+func (s SpellState) Reusable(id string) bool {
+	return s.ReuseFrames[id] <= 0
+}
+
 func (s *SpellState) Tick(frames int) {
 	s.AutoFrames = max(0, s.AutoFrames-frames)
 	for id, remaining := range s.ReuseFrames {

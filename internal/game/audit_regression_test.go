@@ -472,15 +472,16 @@ func TestAuditTrainerPresses(t *testing.T) {
 
 func TestAuditDisintegratePreservesSplash(t *testing.T) {
 	for _, entry := range []string{"melee", "arrow", "spell"} {
-		for _, immune := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/immune%v", entry, immune), func(t *testing.T) {
+		for _, kind := range []string{"beast", monster.TypeUndead, "boss"} {
+			t.Run(fmt.Sprintf("%s/%s", entry, kind), func(t *testing.T) {
 				cs := newTestCombatSystemWithConfig(t)
 				ts := float64(cs.game.config.GetTileSize())
-				main := newRacialTarget("Primary", "beast")
-				main.ID = "primary"
-				if immune {
-					main.MonsterType = "undead"
+				main := newRacialTarget("Primary", kind)
+				if kind == "boss" {
+					main = newRacialTarget("Primary", "beast")
+					main.Boss = true
 				}
+				main.ID = "primary"
 				near := newRacialTarget("Nearby", "beast")
 				near.ID = "near"
 				near.X = ts
@@ -500,11 +501,19 @@ func TestAuditDisintegratePreservesSplash(t *testing.T) {
 				case "spell":
 					cs.applyProjectileDamage(&MagicProjectile{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, SpellType: "fireball"}, "magic_projectile", main, main.ID)
 				}
-				if main.IsAlive() != immune {
-					t.Fatalf("primary alive=%v immune=%v", main.IsAlive(), immune)
+				if main.IsAlive() != (kind != "beast") {
+					t.Fatalf("primary alive=%v for %s", main.IsAlive(), kind)
 				}
 				if near.HitPoints >= near.MaxHitPoints || far.HitPoints != far.MaxHitPoints {
 					t.Fatal("instakill changed ordinary splash coverage")
+				}
+				// A boss primary takes the sear on top of the shared packet; the
+				// splash victim (same defenses) takes the packet alone.
+				if kind == "boss" {
+					lost, splash := main.MaxHitPoints-main.HitPoints, near.MaxHitPoints-near.HitPoints
+					if lost != splash+config.DisintegrateBossTrueDamage {
+						t.Fatalf("primary lost %d, splash %d: want exactly +%d on the primary", lost, splash, config.DisintegrateBossTrueDamage)
+					}
 				}
 			})
 		}
