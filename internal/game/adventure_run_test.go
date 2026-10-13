@@ -393,12 +393,12 @@ func TestChamberArenaLifecycle(t *testing.T) {
 				}
 				hero := g.party.Members[0]
 				hero.RareClass.Anchor = character.SpatialAnchor{MapKey: key, X: outX, Y: outY, Frames: 1000}
-				if g.performSpatialStep(hero, "return_step", 3) {
+				if g.performSpatialStep(hero, config.Technique("return_step"), 3) {
 					t.Fatal("Return Step escaped")
 				}
 				messages = len(g.combatLogHistory)
 				g.arenaBarrierMessageAfter = 0
-				if g.performSpatialStep(hero, "fold_step", 3) && !g.adventureArenaAllows(g.camera.X, g.camera.Y) {
+				if g.performSpatialStep(hero, config.Technique("fold_step"), 3) && !g.adventureArenaAllows(g.camera.X, g.camera.Y) {
 					t.Fatal("Fold Step escaped")
 				}
 				if len(g.combatLogHistory) != messages {

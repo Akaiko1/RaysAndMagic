@@ -286,10 +286,10 @@ func TestEditorTelegraphDurationAndShieldText(t *testing.T) {
 		{"shield", "shield", 0, nil, "Ally shield: absorbs 15 damage per hit", "sustained damage"},
 		{"staged shield", "shield", 0, &monster.Monster3D{DamageMin: 60, DamageMax: 80}, "Ally shield: absorbs 35 damage per hit", "sustained damage"},
 		{"timed field", "root", 7, nil, "sustained damage: 7", "Ally shield"},
-		{"timed control", "root", 0, nil, "Duration: 4s / 2 rounds", "sustained damage"},
+		{"timed control", "root", 0, nil, "Duration: 6s / 2 TB turns", "sustained damage"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d := monster.MonsterDefinition{DamageMin: 20, DamageMax: 40, Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Kind: tc.kind, Name: "Fixture", DurationSeconds: 4, DurationRounds: 2, SustainDamage: tc.sustain}}}
+			d := monster.MonsterDefinition{DamageMin: 20, DamageMax: 40, Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Kind: tc.kind, Name: "Fixture", DurationSeconds: 6, SustainDamage: tc.sustain}}}
 			var b strings.Builder
 			for _, row := range buildMobInfoRuntime("fixture", d, tc.runtime, nil, 64) {
 				b.WriteString(row.text)

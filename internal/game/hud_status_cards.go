@@ -35,7 +35,7 @@ func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardR
 	} else if b := config.CrateBuff(id); b != nil {
 		name = cmp.Or(name, b.Name)
 		subtitle = uitext.Text("buff.source_cache")
-	} else if d := config.Technique(id); d != nil {
+	} else if d := config.TechniqueFromID(id); d != nil {
 		name = cmp.Or(name, d.Name)
 		subtitle = uitext.Text("buff.source_technique")
 	} else if def, ok := config.GetItemDefinition(id); ok && def.HasTimedBuff() {
@@ -100,7 +100,7 @@ func (g *MMGame) activeBuffEffectLines(id string) []string {
 		if b.Absorb > 0 {
 			out = append(out, uitext.Text("advanced.party_absorb", b.Absorb))
 		}
-		out = append(out, def.Mechanic.SummaryText(b.TechniqueTier, def.DurationByMastery))
+		out = append(out, def.Mechanic.SummaryText(b.MasteryTier, def.DurationByMastery))
 	}
 	if b.OutBonus > 0 {
 		out = append(out, uitext.Text("spell.party_deal_damage", spells.OutgoingDamageTarget(b.OutDamageType), b.OutBonus))
@@ -137,7 +137,7 @@ func statBonusLines(b stats.StatBonuses) []string {
 func (g *MMGame) buffRemainingText(frames int) string {
 	tps := max(1, g.config.GetTPS())
 	seconds := (max(0, frames) + tps - 1) / tps
-	return cardDurationText(strconv.Itoa(seconds), pluralizeCount(config.CombatRounds(seconds), "round", "rounds"))
+	return config.DurationText(seconds)
 }
 
 // campStatusCardRows is the camp button's hover card. Its last line says whether

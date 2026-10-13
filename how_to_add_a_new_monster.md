@@ -126,19 +126,19 @@ monsters:
     size_class: large
     resistances: {}
     abilities:
-      stun: {chance: 0.15, seconds: 2, turns: 1}
+      stun: {chance: 0.15, seconds: 3}
       melt_armor: {chance: 0.25}
 ```
 
 | Kind | Fields | Effect |
 |---|---|---|
-| `telegraph` | `name`, `kind`, `school`, `shape`, `range`, `cooldown_seconds`, `cooldown_rounds`, `warning_seconds`, `warning_rounds`, `damage_percent`; optional `duration_seconds` + `duration_rounds`, `sustain_damage`, `below_hp_percent` | A marked-tile attack the party sees coming and can step out of. `kind`: strike, charge, slow, root, shield, push, retreat. `shape`: lane, burst, cone, target. `school`: fire, water, earth, air. See the solstice monsters. |
-| `root_party` | `chance`, `seconds`, `turns` | An attack roots the whole party. |
+| `telegraph` | `name`, `kind`, `school`, `shape`, `range`, `cooldown_seconds`, `cooldown_rounds`, `warning_seconds`, `warning_rounds`, `damage_percent`; optional `duration_seconds` (required for shield, slow, root and sustained fields: how long the field, shield or landed status lasts), `sustain_damage`, `below_hp_percent` | A marked-tile attack the party sees coming and can step out of. `kind`: strike, charge, slow, root, shield, push, retreat. `shape`: lane, burst, cone, target. `school`: fire, water, earth, air. See the solstice monsters. |
+| `root_party` | `chance`, `seconds` | An attack roots the whole party. |
 | `rear_blink` | `chance`, `range_tiles` | A ranged attacker blinks behind the party and strikes. Needs a ranged attack; `range_tiles` runs from 2 up to `ranged_attack_range`. |
 | `pounce` | `range_tiles`, `cooldown_seconds` | Leaps to melee from range, e.g. the puma. |
 | `poison` | `chance`, `duration_seconds` | A hit poisons the target. |
 | `ignite` | `chance`, `duration_seconds` | A hit sets the target on fire. |
-| `stun` | `chance`, `seconds`, `turns` | A hit stuns the target. |
+| `stun` | `chance`, `seconds` | A hit stuns the target. |
 | `dispel` | `chance` | A hit strips a buff from the party. |
 | `melt_armor` | `chance` | A melee or projectile hit melts the struck target's armor (heroes and party allies): for 5 TB rounds / 15 s, armor reduces physical damage by at most 33%. It refreshes and never stacks; breath, novas, telegraphs and traps never melt armor; Purify cleanses it. |
 | `fireburst` | `chance`, `damage_min`, `damage_max` | A fire blast instead of the normal attack. |
@@ -148,7 +148,11 @@ monsters:
 
 A `chance` is in (0, 1]. Each kind's fields are validated at load: a kind
 without its magnitude (poison without `duration_seconds`, stun without
-`seconds` and `turns`) fails startup. The loader is strict: an unknown kind or
+`seconds`) fails startup. Every status duration is seconds of whole 3 s combat
+rounds: it lasts those seconds in real time and seconds/3 turns in turn-based
+play, and a slow lasts whole steps of 3 turns. What each status does to the
+party and to monsters lives in `assets/statuses.yaml` (the editor's Actionables
+page shows it). The loader is strict: an unknown kind or
 field anywhere in a monster entry fails the load, including a flat key from the
 old schema such as `poison_chance`.
 

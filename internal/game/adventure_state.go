@@ -136,7 +136,7 @@ func (g *MMGame) canPrepareSpell(id string) bool {
 }
 func (g *MMGame) canPrepareAdventureTechnique(key string) bool {
 	d := config.Technique(key)
-	if d == nil || key != "fold_step" || g.party == nil || g.partyRooted() {
+	if d == nil || d.Kind != config.TechniqueFoldStep || g.party == nil || g.partyRooted() {
 		return false
 	}
 	for _, c := range g.party.Members {
@@ -186,9 +186,9 @@ func (g *MMGame) enterAdventureSchedule(source string) error {
 		if v != nil {
 			generation = v.Generation + 1
 		}
-		next := &AdventureVisit{Opening: opening, Element: g.adventureConfig(dest).Element, Level: g.party.AverageLevel() + 5, Generation: generation}
+		next := &AdventureVisit{Opening: opening, Element: g.adventureConfig(dest).Element, Level: g.party.AverageLevel() + g.config.AdventureScaling.VisitLevelBonus, Generation: generation}
 		for _, m := range w.Monsters {
-			scaleAdventureMonster(m, next.Level)
+			scaleAdventureMonster(g.config.AdventureScaling, m, next.Level)
 		}
 		request.adventureWorld = w
 		request.adventureVisit = next
@@ -301,29 +301,57 @@ func (g *MMGame) commitAdventureVisit(key string, v *AdventureVisit) {
 	g.harvestRuntime = harvestRuntime{}
 	g.terrainChanges = slices.DeleteFunc(g.terrainChanges, func(c TerrainChange) bool { return c.Map == key })
 }
-func regularMonsterHP(level int) float64 {
-	return math.Exp(4.181 + .1255*float64(min(level, 25)) + .04*float64(max(0, level-25)))
+
+// AdventureMonsterStats is a monster's combat numbers at an adventure level.
+type AdventureMonsterStats struct {
+	HP, DamageMin, DamageMax, ArmorClass, Experience int
 }
 
-// Preserve the established early curve, then add a fixed HP budget per level.
-func bossMonsterHP(level int) float64 {
-	return math.Exp(5.333+.101*float64(min(level, 35))) + 500*float64(max(0, level-35))
+// AdventureCurve is what a monster authored on its side's curve has at level:
+// HP, average hit and experience.
+func AdventureCurve(s config.AdventureScalingConfig, boss bool, level int) (hp, hit, xp int) {
+	c := s.Side(boss)
+	return int(math.Round(c.HP.At(level))), int(math.Round(c.Hit.At(level))), adventureExperience(s, boss, level)
+}
+
+// adventureExperience is a percent of the next level's cost for a hero of the
+// party's level, the visit level less its bonus.
+func adventureExperience(s config.AdventureScalingConfig, boss bool, level int) int {
+	return xpStepCost(max(1, level-s.VisitLevelBonus)) * s.Side(boss).ExperienceLevelPercent / 100
+}
+
+// AdventureScaledStats is an authored monster moved to an adventure level by
+// its side's curve ratio; the chambers and the editor preview share it.
+func AdventureScaledStats(s config.AdventureScalingConfig, d monster.MonsterDefinition, boss bool, level int) AdventureMonsterStats {
+	if d.Level < 1 || level < 1 { // no level to scale from: the game leaves it as authored
+		return AdventureMonsterStats{HP: d.MaxHitPoints, DamageMin: d.DamageMin, DamageMax: d.DamageMax, ArmorClass: d.ArmorClass, Experience: d.Experience}
+	}
+	hp := s.Side(boss).HP
+	lo, hi := adventureDamageRange(s, d, boss, level)
+	return AdventureMonsterStats{
+		HP:         max(1, int(math.Round(float64(d.MaxHitPoints)*hp.At(level)/hp.At(d.Level)))),
+		DamageMin:  lo,
+		DamageMax:  hi,
+		ArmorClass: adventureArmorClass(s, d, level),
+		Experience: adventureExperience(s, boss, level),
+	}
 }
 
 // adventureDamageRange is the authored attack scaled to an adventure level.
-func adventureDamageRange(d monster.MonsterDefinition, level int) (int, int) {
-	ratio := math.Exp(.057 * float64(level-d.Level))
+func adventureDamageRange(s config.AdventureScalingConfig, d monster.MonsterDefinition, boss bool, level int) (int, int) {
+	hit := s.Side(boss).Hit
+	ratio := hit.At(level) / hit.At(d.Level)
 	lo := max(1, int(math.Round(float64(d.DamageMin)*ratio)))
 	return lo, max(lo, int(math.Round(float64(d.DamageMax)*ratio)))
 }
 
 // adventureArmorClass is the authored armor scaled to an adventure level.
-func adventureArmorClass(d monster.MonsterDefinition, level int) int {
-	return max(0, int(math.Round(float64(d.ArmorClass)*math.Sqrt(float64(level)/float64(d.Level)))))
+func adventureArmorClass(s config.AdventureScalingConfig, d monster.MonsterDefinition, level int) int {
+	return max(0, int(math.Round(float64(d.ArmorClass)*math.Pow(float64(level)/float64(d.Level), s.ArmorExponent))))
 }
 
 // Scale from the authored archetype, never from already-scaled runtime values.
-func scaleAdventureMonster(m *monster.Monster3D, level int) {
+func scaleAdventureMonster(s config.AdventureScalingConfig, m *monster.Monster3D, level int) {
 	if m == nil || level < 1 || monster.MonsterConfig == nil {
 		return
 	}
@@ -331,29 +359,20 @@ func scaleAdventureMonster(m *monster.Monster3D, level int) {
 	if !ok || d.Level < 1 {
 		return
 	}
-	ratio := regularMonsterHP(level) / regularMonsterHP(d.Level)
-	if m.IsBoss() {
-		ratio = bossMonsterHP(level) / bossMonsterHP(d.Level)
-	}
+	stats := AdventureScaledStats(s, d, m.IsBoss(), level)
 	m.AdventureScaleLevel = level
 	m.Level = level
-	m.MaxHitPoints = max(1, int(math.Round(float64(d.MaxHitPoints)*ratio)))
+	m.MaxHitPoints = stats.HP
 	m.HitPoints = m.MaxHitPoints
-	m.DamageMin, m.DamageMax = adventureDamageRange(d, level)
-	m.ArmorClass = adventureArmorClass(d, level)
-	xp := 4 * max(100*level, 8*level*level) / 15
-	if m.IsBoss() {
-		xp *= 3
-	} else {
-		xp = xp * 3 / 2
-	}
-	m.Experience = xp
+	m.DamageMin, m.DamageMax = stats.DamageMin, stats.DamageMax
+	m.ArmorClass = stats.ArmorClass
+	m.Experience = stats.Experience
 	if d.Abilities.Enrage.AtHP > 0 {
 		m.Abilities.Enrage.AtHP = max(1, int(math.Round(float64(m.MaxHitPoints)*float64(d.Abilities.Enrage.AtHP)/float64(d.MaxHitPoints))))
 	}
 }
 func (g *MMGame) restoreAdventureMonster(m *monster.Monster3D, level int) {
-	scaleAdventureMonster(m, level)
+	scaleAdventureMonster(g.config.AdventureScaling, m, level)
 	if m != nil {
 		if v := g.adventure.Visits[m.HomeMap]; v != nil {
 			g.applyAdventureBossArmor(m, g.adventureConfig(m.HomeMap), v)

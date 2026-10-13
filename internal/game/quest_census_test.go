@@ -86,6 +86,14 @@ func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
 			if hunt.CurrentCount != 0 || hunt.Completed {
 				t.Fatal("ordinary dragon advanced statue hunt")
 			}
+			// A statue-bound dragon of any color counts: the hunt lists every name.
+			bound := monster.NewMonster3DFromConfig(2.5*ts, 2.5*ts, "elder_dragon_red", g.config)
+			bound.IsEncounterMonster, bound.EncounterRewards = true, &monster.EncounterRewards{QuestID: hunt.ID}
+			bound.HitPoints = 0
+			g.combat.updateQuestProgress(bound)
+			if hunt.CurrentCount != 1 {
+				t.Fatalf("statue-bound %s did not advance the hunt: %d", bound.Name, hunt.CurrentCount)
+			}
 		})
 	}
 }

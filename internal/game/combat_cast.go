@@ -106,11 +106,11 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 		}
 		caster.SpellState.ReuseFrames[string(req.ID)] = def.ReuseSeconds * g.config.GetTPS()
 	}
-	// Manual spell alternatives to Pilgrim techniques spend an action without
-	// adding the weapon/cast movement penalty. Automatic casts spend neither.
-	if outcome == castCommitted && req.PlayerInitiated && !req.Automatic && def.Mechanic != nil && def.Mechanic.Technique != "" &&
+	// Penalty-free support kinds spend an action without adding the
+	// weapon/cast movement penalty. Automatic casts spend neither.
+	if outcome == castCommitted && req.PlayerInitiated && !req.Automatic && def.Mechanic.PenaltyFree() &&
 		cs.game.turnBasedMode && cs.game.currentTurn == 0 && caster.ActionsRemaining > 0 {
-		cs.game.partyTechniqueActionsUsed++
+		cs.game.partyPenaltyFreeActionsUsed++
 	}
 	if outcome == castCommitted && req.PlayerInitiated && cs.game.playerProfile != nil {
 		d := &cs.game.playerProfile.Data

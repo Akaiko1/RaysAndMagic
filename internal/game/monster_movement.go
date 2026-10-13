@@ -23,7 +23,7 @@ func (g *MMGame) monsterCanBeDisplaced(m *monster.Monster3D) bool {
 
 // movementGrantsExtraMonsterPass is shared by the turn handoff and its preview.
 func (g *MMGame) movementGrantsExtraMonsterPass() bool {
-	return g.partyActionsUsed > g.partyTechniqueActionsUsed
+	return g.partyActionsUsed > g.partyPenaltyFreeActionsUsed
 }
 
 func (g *MMGame) monsterCanEnterTileTB(m *monster.Monster3D, tx, ty int) bool {

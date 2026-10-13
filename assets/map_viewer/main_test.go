@@ -110,18 +110,18 @@ func TestMobInfoShowsOnlyMonsterFacingStun(t *testing.T) {
 	previous := config.GlobalSpells
 	t.Cleanup(func() { config.GlobalSpells = previous })
 	config.GlobalSpells = &config.SpellSystemConfig{Spells: map[string]*config.SpellDefinitionConfig{
-		"fixture_bolt": {Name: "Fixture Bolt", School: "air", StunChance: .2, StunDurationSeconds: 2, StunDurationTurns: 1},
+		"fixture_bolt": {Name: "Fixture Bolt", School: "air", StunChance: .2, StunDurationSeconds: 3},
 	}}
 	for _, tc := range []struct {
 		name         string
 		def          monster.MonsterDefinition
 		want, absent []string
 	}{
-		{"own stun wins", monster.MonsterDefinition{ProjectileSpell: "fixture_bolt", Abilities: monster.Abilities{Stun: monster.TimedStatusAbility{Chance: .1, Seconds: 4, Turns: 2}}},
-			[]string{"Ranged spell: Fixture Bolt (air)", "Stun: 10% (4s / 2 turns)", "Projectile stun: 10% on hit, 4s / 2 turn(s)"},
+		{"own stun wins", monster.MonsterDefinition{ProjectileSpell: "fixture_bolt", Abilities: monster.Abilities{Stun: monster.TimedStatusAbility{Chance: .1, Seconds: 6}}},
+			[]string{"Ranged spell: Fixture Bolt (air)", "Stun: 10% for 6s / 2 TB turns", "Projectile stun: 10% on hit, 6s / 2 TB turns"},
 			[]string{"20%"}},
 		{"spell stun rides the projectile", monster.MonsterDefinition{ProjectileSpell: "fixture_bolt"},
-			[]string{"Ranged spell: Fixture Bolt (air)", "Projectile stun: 20% on hit, 2s / 1 turn(s)"},
+			[]string{"Ranged spell: Fixture Bolt (air)", "Projectile stun: 20% on hit, 3s / 1 TB turn"},
 			[]string{"Stun: "}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

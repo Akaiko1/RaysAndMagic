@@ -20,7 +20,7 @@ func (g *MMGame) setUtilityStatus(spellID spells.SpellID, duration int) {
 		return
 	}
 	var iconToken, label string
-	if d := config.Technique(string(spellID)); d != nil {
+	if d := config.TechniqueFromID(string(spellID)); d != nil {
 		iconToken, label = d.Key, d.Name
 	}
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {

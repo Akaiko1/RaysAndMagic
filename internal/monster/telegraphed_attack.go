@@ -3,10 +3,15 @@ package monster
 import (
 	"fmt"
 	"math"
+
+	"ugataima/internal/config"
 )
 
-// TelegraphedAttack defines one visible, avoidable special action. Durations
-// specify equivalent RT seconds and TB rounds; runtime stores spent fractions.
+// TelegraphedAttack defines one visible, avoidable special action. Its warning
+// and cooldown are timers authored in RT seconds and TB rounds; its effect
+// (a sustained field, an ally shield, the slow or root it lands) lasts
+// DurationSeconds, whole rounds, the same span in both modes. Runtime stores
+// spent fractions.
 type TelegraphedAttack struct {
 	Name            string  `yaml:"name"`
 	Kind            string  `yaml:"kind"`
@@ -17,8 +22,7 @@ type TelegraphedAttack struct {
 	CooldownRounds  int     `yaml:"cooldown_rounds"`
 	WarningSeconds  float64 `yaml:"warning_seconds"`
 	WarningRounds   int     `yaml:"warning_rounds"`
-	DurationSeconds float64 `yaml:"duration_seconds,omitempty"`
-	DurationRounds  int     `yaml:"duration_rounds,omitempty"`
+	DurationSeconds int     `yaml:"duration_seconds,omitempty"`
 	DamagePercent   int     `yaml:"damage_percent"`
 	SustainDamage   int     `yaml:"sustain_damage,omitempty"`
 	BelowHPPercent  int     `yaml:"below_hp_percent,omitempty"`
@@ -57,11 +61,20 @@ func (a *TelegraphedAttack) validate() error {
 			return fmt.Errorf("telegraphed timing must be finite and positive")
 		}
 	}
-	if math.IsNaN(a.DurationSeconds) || math.IsInf(a.DurationSeconds, 0) || a.DurationSeconds < 0 || a.DurationRounds < 0 || (a.DurationSeconds > 0) != (a.DurationRounds > 0) {
+	if a.DurationSeconds < 0 {
 		return fmt.Errorf("invalid telegraphed duration")
 	}
-	if (a.Kind == "shield" || a.SustainDamage > 0) && a.DurationSeconds <= 0 {
-		return fmt.Errorf("shield and sustained fields need durations")
+	if (a.Kind == "shield" || a.Kind == "slow" || a.Kind == "root" || a.SustainDamage > 0) && a.DurationSeconds <= 0 {
+		return fmt.Errorf("shield, slow, root and sustained fields need duration_seconds")
+	}
+	if a.DurationSeconds > 0 {
+		check := config.ValidateEffectSeconds
+		if a.Kind == "slow" {
+			check = config.ValidateSlowSeconds
+		}
+		if err := check("telegraph duration_seconds", a.DurationSeconds); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -96,7 +109,7 @@ func (a *TelegraphedAttack) lines(d MonsterDefinition) []EffectLine {
 		add(fmt.Sprintf("  Damage: %d%% of attack", a.DamagePercent))
 	}
 	if a.DurationSeconds > 0 {
-		text := fmt.Sprintf("  Duration: %gs / %d rounds", a.DurationSeconds, a.DurationRounds)
+		text := "  Duration: " + config.DurationText(a.DurationSeconds)
 		if a.Kind != "shield" && a.SustainDamage > 0 {
 			text += fmt.Sprintf("; sustained damage: %d", a.SustainDamage)
 		}

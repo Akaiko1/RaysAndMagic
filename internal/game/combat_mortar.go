@@ -25,8 +25,7 @@ type pendingMortar struct {
 	Caster      *character.MMCharacter
 	RadiusTiles float64
 	StunChance  float64
-	StunSeconds int
-	StunTurns   int
+	StunSeconds int // whole rounds, the same span in both modes
 	School      string
 }
 
@@ -68,7 +67,6 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		RadiusTiles: spellDef.AoeRadiusTiles,
 		StunChance:  spellDef.StunChance,
 		StunSeconds: spellDef.StunDurationSeconds,
-		StunTurns:   spellDef.StunDurationTurns,
 		School:      spellDef.DamageType(),
 	})
 	if announce {
@@ -171,7 +169,7 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 			return
 		}
 		if m.StunChance >= 1 || rand.Float64() < m.StunChance {
-			cs.applyStun(target, m.StunSeconds, m.StunTurns, true)
+			cs.applyStun(target, m.StunSeconds, true)
 		}
 	})
 }

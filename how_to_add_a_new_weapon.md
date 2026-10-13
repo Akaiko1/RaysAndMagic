@@ -77,7 +77,7 @@ weapons:
 - `damage_type`
 - `max_projectiles`
 - `bonus_vs` (monster name, key, or family/type to damage multiplier)
-- `stun_chance` (0.0-1.0) + `stun_turns`
+- `stun_chance` (0.0-1.0) + `stun_seconds`
 - `disintegrate_chance`
 - `aoe_radius_tiles` (splash radius; hits all monsters within N tiles)
 - `crit_chance`, `value`, `rarity`

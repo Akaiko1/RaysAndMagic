@@ -55,7 +55,7 @@ func contractTelegraphDefinition(t *testing.T, m *monster.Monster3D) {
 	attack := *def.Abilities.Telegraph
 	attack.DamagePercent = 100
 	attack.SustainDamage = 100
-	attack.DurationSeconds, attack.DurationRounds = 6, 2
+	attack.DurationSeconds = 6
 	def.Abilities.Telegraph = &attack
 	monster.MonsterConfig.Monsters[m.Key] = def
 	t.Cleanup(func() { monster.MonsterConfig.Monsters[m.Key] = original })
@@ -430,7 +430,7 @@ func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
 					second.HitPoints, second.MaxHitPoints = 10000, 10000
 					g.party.Members = append(g.party.Members, second)
 					g.combatBuffs = []TimedCombatBuff{{SpellID: "protection_from_magic", Frames: 1000, Charges: 1}}
-					a := &monster.TelegraphedAttack{Name: "Test impact", Kind: kind, School: school, DamagePercent: 100}
+					a := &monster.TelegraphedAttack{Name: "Test impact", Kind: kind, School: school, DamagePercent: 100, DurationSeconds: 9}
 					m.Telegraph = monster.TelegraphState{Tiles: [][2]int{{6, 6}}, Direction: [2]int{-1, 0}}
 					hasControl := func() bool {
 						x, _ := g.GetPlayerTilePosition()
@@ -469,7 +469,7 @@ func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
 	g, _, m := telegraphContractGame(t, false)
 	g.combatBuffs = []TimedCombatBuff{{SpellID: "test_resist", Frames: 1000, ResistSchool: "water", ResistSchoolPct: 100}}
 	m.Telegraph = monster.TelegraphState{Tiles: [][2]int{{6, 6}}}
-	g.resolveMonsterTelegraph(m, &monster.TelegraphedAttack{Name: "Resisted root", Kind: "root", School: "water", DamagePercent: 100})
+	g.resolveMonsterTelegraph(m, &monster.TelegraphedAttack{Name: "Resisted root", Kind: "root", School: "water", DamagePercent: 100, DurationSeconds: 6})
 	if g.party.Members[0].HitPoints != 10000 || g.partyRoot.Frames == 0 {
 		t.Fatal("resistance changed control policy")
 	}

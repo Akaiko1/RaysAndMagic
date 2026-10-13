@@ -308,31 +308,47 @@ func TestSolsticeTelegraphWallAndFactionGates(t *testing.T) {
 		}
 	}
 }
+
+// A landed hinder lasts its telegraph's duration_seconds, the same span in RT
+// and TB, then an equally long recovery window refuses a new one.
 func TestSolsticeHinderRecoveryWindow(t *testing.T) {
-	for _, kind := range []string{"slow", "root"} {
-		t.Run(kind, func(t *testing.T) {
+	for _, key := range []string{"solstice_tide_elemental", "solstice_jade_elemental"} {
+		t.Run(key, func(t *testing.T) {
 			g, _ := newSpecialsTestGame(t)
-			g.applyTelegraphHinder(kind)
-			for range g.config.GetTPS() {
+			a := monster.MonsterConfig.Monsters[key].Abilities.Telegraph
+			hindered := func() bool { return g.partyRooted() || g.partyHinder.Slow > 0 }
+			tps, rounds := g.config.GetTPS(), config.CombatRounds(a.DurationSeconds)
+			g.applyTelegraphHinder(a)
+			for range tps {
 				g.tickPartyRoot(false)
 			}
 			remaining := g.partyHinder
-			g.applyTelegraphHinder(kind)
+			g.applyTelegraphHinder(a)
 			if g.partyHinder != remaining {
 				t.Fatal("recast extended hinder")
 			}
+			// One second of RT, then one TB round: both spend the same window.
 			g.tickPartyRoot(true)
-			if math.Abs(g.partyHinder.Recovery-1.25) > .00001 {
-				t.Fatalf("mode switch reset duration: %+v", g.partyHinder)
+			window := float64(rounds)
+			if want := 2 - 1/(window*config.CombatRoundSeconds) - 1/window; math.Abs(g.partyHinder.Recovery-want) > .00001 {
+				t.Fatalf("mode switch reset duration: %+v, want recovery %g", g.partyHinder, want)
 			}
-			for range 3 * g.config.GetTPS() {
+			left := a.DurationSeconds - 1 - config.CombatRoundSeconds
+			for range left*tps - 1 {
 				g.tickPartyRoot(false)
 			}
-			if g.partyRooted() || g.partyHinder.Slow > 0 {
+			if !hindered() {
+				t.Fatalf("%s ended before its %ds", a.Kind, a.DurationSeconds)
+			}
+			// The slow budget is a float fraction of the window: allow it one
+			// frame of rounding at the end.
+			g.tickPartyRoot(false)
+			g.tickPartyRoot(false)
+			if hindered() {
 				t.Fatal("hinder outlived duration")
 			}
 			prior := g.partyHinder
-			g.applyTelegraphHinder(kind)
+			g.applyTelegraphHinder(a)
 			if prior != g.partyHinder {
 				t.Fatal("recovery window allowed chain")
 			}

@@ -4,12 +4,19 @@ import (
 	"os"
 	"testing"
 
+	"ugataima/internal/config"
+
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Opt into the same live GPU test mode as the game package. Ordinary editor
 // tests still run without a window; pixel ownership checks require this loop.
 func TestMain(m *testing.M) {
+	config.MustLoadStatuses("../../assets/statuses.yaml")
+	// Map configs validate adventure techniques against this catalog.
+	if err := config.LoadTechniques("../../assets/techniques.yaml"); err != nil {
+		panic(err)
+	}
 	if os.Getenv("RAM_DEBUG_SIM") != "1" {
 		os.Exit(m.Run())
 	}

@@ -96,7 +96,7 @@ func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig
 		buff := TimedCombatBuff{SpellID: config.CrateID(npc.Key), Frames: b.DurationSeconds * g.config.GetTPS()}
 		applyCrateBuff(&buff, b)
 		g.addCombatBuff(buff)
-		g.updateUtilityStatus(spells.SpellID(buff.SpellID), buff.Frames, true)
+		g.refreshCombatBuffStatus(buff)
 		g.AddCombatMessage(uitext.Text("crate.buff_applied", b.Name, strings.Join(b.EffectLines(), uitext.Text("crate.buff_join"))))
 	}
 	if crate.FreeRest {

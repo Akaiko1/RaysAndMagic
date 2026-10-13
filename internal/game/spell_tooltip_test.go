@@ -94,15 +94,15 @@ func (e spellCardEnv) scaled(base, gm int) int {
 	return scaledMasteryValueAt(base, gm, character.SpellMasteryTier(e.char, e.def))
 }
 
-// stunSpan is the "(Ns / M TB turn" span; the plural suffix is left to the card.
+// stunSpan is the stun's duration as every card writes it.
 func (e spellCardEnv) stunSpan() string {
-	return fmt.Sprintf("%ds / %d TB turn", e.def.StunDurationSeconds, e.def.StunDurationTurns)
+	return config.DurationText(e.def.StunDurationSeconds)
 }
 
 func (e spellCardEnv) duration() string {
 	seconds := character.SpellDurationSeconds(e.def, e.char)
 	rounds := config.CombatRounds(seconds)
-	return fmt.Sprintf("Current Duration: %ds (TB: %s)", seconds, pluralizeCount(rounds, "round", "rounds"))
+	return fmt.Sprintf("Current Duration: %ds / %s", seconds, pluralizeCount(rounds, "TB turn", "TB turns"))
 }
 
 // Every spell card states the mechanics the 2026-09-30 audit checked against
@@ -225,7 +225,7 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 		{id: "heal_other", want: []string{"Heals the ally you point at, else the selected hero; from the spellbook, the most wounded ally"}, mustNot: []string{"Can target any party member"}},
 		{id: "mass_heal", want: []string{"Skips allies at 0 HP"}},
 		{id: "town_portal", want: []string{"nothing is spent until you choose one"}},
-		{id: "fly", want: []string{"Inside a wall or tree nobody can attack or cast", "Ends at once on a map without open sky", "No RT cooldown - TB: 1 action", "(TB: ", "Only under an open sky"}},
+		{id: "fly", want: []string{"Inside a wall or tree nobody can attack or cast", "Ends at once on a map without open sky", "No RT cooldown - TB: 1 action", " TB turns", "Only under an open sky"}},
 		{name: "fly/compact", id: "fly", compact: true, tier: character.MasteryExpert, mustNot: []string{"Air Mastery -"},
 			derive: func(e spellCardEnv) ([]string, []string) { return []string{e.duration()}, nil }},
 		{id: "water_breathing", want: []string{"Deep water takes the party down to the Ocean Depths", "surfaces where it dove in"}, mustNot: []string{"Allows underwater travel"}},

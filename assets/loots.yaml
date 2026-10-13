@@ -1335,7 +1335,7 @@ crates:
         amount: 1500
         weight: 1.7
     trap_ignite: true
-    trap_ignite_seconds: 10
+    trap_ignite_seconds: 12
 
   chest_golden:
     treasure_chest: true
@@ -1393,7 +1393,7 @@ crates:
         rarity: "rare"
         weight: 10.6   # about 20% a chest
     trap_ignite: true
-    trap_ignite_seconds: 8
+    trap_ignite_seconds: 9
 
   chest_regal:
     treasure_chest: true

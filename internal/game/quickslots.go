@@ -816,7 +816,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	}
 
 	if item.Type == items.ItemTechnique {
-		g.useTechnique(charIdx, string(item.SpellEffect), false, true)
+		g.useTechnique(charIdx, item.Technique, false, true)
 		return
 	}
 	if item.Type == items.ItemThrowable {
@@ -864,7 +864,7 @@ func canBindQuickItem(ch *character.MMCharacter, item *items.Item) bool {
 		return true
 	}
 	if item.Type == items.ItemTechnique {
-		d := config.Technique(string(item.SpellEffect))
+		d := config.Technique(item.Technique)
 		return ch != nil && ch.Class == character.ClassWayfarer && d != nil && ch.Level >= d.Level
 	}
 	if item.Type == items.ItemThrowable {

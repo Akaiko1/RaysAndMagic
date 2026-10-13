@@ -24,7 +24,7 @@ func TestArenaUniqueWeaponData(t *testing.T) {
 	}{
 		{"gladius", "Bonus vs stunned targets:", func(w *config.WeaponDefinitionConfig) bool { return w.BonusVsStunned > 1 }},
 		{"arena_labrys", "Sunder:", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorShredPct > 0 && w.ArmorShredSeconds > 0 }},
-		{"morningstar", "Stun Chance:", func(w *config.WeaponDefinitionConfig) bool { return w.StunChance > 0 && w.StunTurns > 0 }},
+		{"morningstar", "Stun Chance:", func(w *config.WeaponDefinitionConfig) bool { return w.StunChance > 0 && w.StunSeconds > 0 }},
 		{"hasta", "Armor Class", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorClassBonus > 0 }},
 		{"trident", "Root Chance:", func(w *config.WeaponDefinitionConfig) bool { return w.RootChance > 0 && w.RootSeconds > 0 }},
 		{"parry_dagger", "Riposte:", func(w *config.WeaponDefinitionConfig) bool { return w.ThornsPct > 0 }},

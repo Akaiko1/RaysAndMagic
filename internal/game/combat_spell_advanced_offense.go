@@ -60,8 +60,7 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 		return castNotHandled
 	}
 	tier := casterSpellMasteryTier(caster, def)
-	frames := def.DurationSeconds(tier) * cs.game.config.GetTPS()
-	turns := max(1, config.CombatRounds(def.DurationSeconds(tier)))
+	frames, turns := config.EffectClock(def.DurationSeconds(tier), cs.game.config.GetTPS())
 	x, y := cs.logicalCameraXY()
 	radius := a.RadiusTiles * cs.game.config.GetTileSize()
 	area := areaReach{x: x, y: y, radius: radius}
@@ -115,7 +114,7 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 			case "slow":
 				m.ApplySlow(a.Power(tier), frames, turns)
 			case "frozen_ground":
-				cs.applyMonsterRoot(m, turns, frames)
+				cs.applyMonsterRoot(m, turns)
 			case "turn_undead", "mass_fear":
 				m.ApplyFear(frames)
 				cs.game.releaseMonsterAttackPost(m)
@@ -253,10 +252,10 @@ func (cs *CombatSystem) applyAdvancedSpellImpact(p *MagicProjectile, m *monster.
 	}
 	a := def.Mechanic
 	tier := casterSpellMasteryTier(p.Attacker, def)
-	frames := def.DurationSeconds(tier) * cs.game.config.GetTPS()
+	frames, rounds := config.EffectClock(def.DurationSeconds(tier), cs.game.config.GetTPS())
 	switch a.Kind {
 	case "acid_burst":
-		m.ApplyArmorShred(a.Power(tier), frames, max(1, config.CombatRounds(def.DurationSeconds(tier))))
+		m.ApplyArmorShred(a.Power(tier), frames, rounds)
 	case "flying_fist":
 		cs.pushElementalTarget(m, float64(a.Power(tier)))
 	}

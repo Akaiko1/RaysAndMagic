@@ -148,7 +148,7 @@ func TestStatusVisualCatalogCoversEnum(t *testing.T) {
 		if e.flag == 0 || e.flag&(e.flag-1) != 0 || union&e.flag != 0 {
 			t.Fatalf("%s: flag must be a single unused bit", e.key)
 		}
-		if keys[e.key] || e.label == "" || (e.monster == nil && e.hero == nil) {
+		if keys[e.key] || e.label() == "" || (e.monster == nil && e.hero == nil) {
 			t.Fatalf("%s: duplicate key, missing label or no stage", e.key)
 		}
 		union |= e.flag

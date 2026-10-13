@@ -22,7 +22,7 @@ func TestLoadSpellConfigValidatesTraversalFlags(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Avoid duplicate YAML keys so validation, rather than parsing, fails.
-			utility, duration := true, "[10, 12, 14, 16]"
+			utility, duration := true, "[9, 12, 15, 18]"
 			flags := tc.flags
 			if strings.Contains(flags, "duration_by_mastery: []") {
 				duration = "[]"

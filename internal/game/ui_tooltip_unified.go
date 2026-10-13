@@ -645,12 +645,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	if def.Mechanic == nil && len(def.DurationByMastery) > 0 {
 		// A resolved TB round spends config.CombatRoundSeconds of every timer.
 		seconds := tierValues(func(t int) int { return def.DurationSeconds(t) })
-		rounds := tierValues(func(t int) int { return config.CombatRounds(seconds[t]) })
-		turns := tierCountText(rounds, "round", "rounds")
-		if hero {
-			turns = pluralizeCount(config.TierValue(rounds, tier), "round", "rounds")
-		}
-		durationSection.Add("%s: %s", tierLabel(hero, "Duration", seconds), cardDurationText(tierValueText(hero, tier, seconds), turns))
+		durationSection.Add("%s: %s", tierLabel(hero, "Duration", seconds), tierDurationText(hero, tier, seconds))
 	}
 
 	for _, rule := range character.SpellRules(def) {
@@ -733,29 +728,27 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 	}
 
 	effect := ttSection{Title: "CONTROL"}
-	turns := func(n int) string { return pluralizeCount(n, "turn", "turns") }
 	for _, c := range []struct {
-		name             string
-		turnsTB, seconds int
-	}{{"Stun", def.StunTurns, def.StunSeconds}, {"Root", def.RootTurns, def.RootSeconds}} {
-		if c.turnsTB <= 0 {
+		name    string
+		seconds int
+	}{{"Stun", def.StunSeconds}, {"Root", def.RootSeconds}} {
+		if c.seconds <= 0 {
 			continue
 		}
-		effect.AddDetail("Base %s: %ds RT / %s TB", c.name, c.seconds, turns(c.turnsTB))
+		effect.AddDetail("Base %s: %s", c.name, config.DurationText(c.seconds))
 		if char == nil {
-			at := func(t int) (int, int) { return trapControlDurationAtTier(c.turnsTB, c.seconds, t) }
-			secs := tierValues(func(t int) int { _, s := at(t); return s })
-			tb := tierValues(func(t int) int { n, _ := at(t); return n })
-			effect.Add("Total %s: %ss RT / %s TB", c.name, tierLadder(secs), tierCountText(tb, "turn", "turns"))
+			rounds := tierValues(func(t int) int { return trapControlRounds(c.seconds, t) })
+			secs := tierValues(func(t int) int { return rounds[t] * config.CombatRoundSeconds })
+			effect.Add("Total %s: %s", c.name, tierDurationText(false, 0, secs))
 			continue
 		}
-		t, sec := trapControlDuration(c.turnsTB, c.seconds, char)
-		if tier > 0 {
-			effect.AddDetail("Trapper - %s: +%ds RT / +%s TB", tierName, sec-c.seconds, turns(t-c.turnsTB))
+		rounds := trapControlRounds(c.seconds, tier)
+		if bonus := character.TrapperRoundBonus(tier); bonus > 0 {
+			effect.AddDetail("Trapper - %s: +%s", tierName, config.DurationText(bonus*config.CombatRoundSeconds))
 		}
-		effect.Add("Total %s: %ds RT / %s TB", c.name, sec, turns(t))
+		effect.Add("Total %s: %s", c.name, config.DurationText(rounds*config.CombatRoundSeconds))
 	}
-	if def.StunTurns > 0 {
+	if def.StunSeconds > 0 {
 		effect.AddDetail("%s", uitext.Text("spell.repeated_stuns_wear_off_diminishing_returns_then"))
 	}
 
@@ -763,7 +756,7 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 	if char != nil && char.Level < def.Level {
 		requirements.Add("LOCKED: requires level %d", def.Level)
 	}
-	if def.RootTurns > 0 {
+	if def.RootSeconds > 0 {
 		effect.Add("Prevents movement but not attacks")
 	}
 	if def.DamageBase > 0 {
@@ -788,7 +781,7 @@ func buildTechniqueTooltipUnifiedRows(d *config.TechniqueDefinition, char *chara
 	casting := ttSection{Title: "CASTING"}
 	addCastingCost(&casting, config.TierValue(d.SPCost, tier), char, cs)
 	switch {
-	case d.FreeStep:
+	case d.IsStep():
 		casting.Add("No action cost")
 	case cs != nil && cs.game.techniqueCooldown(char, d) > 0:
 		casting.Add("%s", cooldownLine(cs, cs.game.techniqueCooldown(char, d)))
@@ -829,7 +822,7 @@ func techniqueStepNames() []string {
 	var names []string
 	if config.GlobalTechniques != nil {
 		for _, t := range config.GlobalTechniques.Techniques {
-			if t.FreeStep {
+			if t.IsStep() {
 				names = append(names, t.Name)
 			}
 		}

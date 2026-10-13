@@ -64,11 +64,11 @@ func TestTurnBased_MoveAfterActionGrantsExtraMonsterAction(t *testing.T) {
 	if got := game.combatAuraMoveSteps(mob); got != 2 {
 		t.Fatalf("action then retreat preview=%d, want 2 before handoff", got)
 	}
-	game.partyTechniqueActionsUsed = 1
+	game.partyPenaltyFreeActionsUsed = 1
 	if got := game.combatAuraMoveSteps(mob); got != 1 {
 		t.Fatalf("technique-only preview=%d, want 1", got)
 	}
-	game.partyTechniqueActionsUsed = 0
+	game.partyPenaltyFreeActionsUsed = 0
 
 	game.endPartyTurnAfterMovement()
 

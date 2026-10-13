@@ -59,10 +59,6 @@ const (
 	DisarmTrapAvoidPerTierPct = 20
 	// TrapperDamagePerTier: bonus damage of damage traps per Trapper tier.
 	TrapperDamagePerTier = 5
-	// TrapperSecondsPerTier: extra RT seconds of control (stun/root) per Trapper
-	// tier - linear (base 2 -> 2/4/6/8). TB turns scale separately and
-	// NON-linearly; see TrapperTurnBonus.
-	TrapperSecondsPerTier = 2
 	// TrapStatScalingDivisor: trap damage gains (Intellect+Accuracy)/this.
 	TrapStatScalingDivisor = 3
 	// SpellAbsorbChancePctPerTier: Battle Mage Spell Absorption chance per tier
@@ -242,15 +238,11 @@ func elementalMagicSchoolNames() string {
 	}
 }
 
-// TrapperTurnBonus is the EXTRA TB turns a control trap (stun/root) gains at the
-// given Trapper tier, on top of its 1-turn base: Novice/Expert +0, Master +1,
-// Grandmaster +2 (so the total reads 1/1/2/3 turns). Deliberately NON-linear,
-// unlike the RT-seconds scaling (TrapperSecondsPerTier).
-func TrapperTurnBonus(tier int) int {
-	if tier <= int(MasteryExpert) {
-		return 0
-	}
-	return tier - int(MasteryExpert)
+// TrapperRoundBonus is the extra whole rounds a control trap (stun/root) lasts
+// at the given Trapper tier: +0/1/1/2 on its authored base, the same span in
+// both modes.
+func TrapperRoundBonus(tier int) int {
+	return [4]int{0, 1, 1, 2}[max(0, min(3, tier))]
 }
 
 // PlayableClasses is every playable class in canonical (enum) order.
@@ -492,7 +484,8 @@ func (s SkillType) effectDescription() string {
 	case SkillDisarmTrap:
 		return uitext.Text("skill.disarm_trap", DisarmTrapAvoidBasePct, DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct, DisarmTrapAvoidBasePct+3*DisarmTrapAvoidPerTierPct, DisarmTrapDamageReductionPerTier, 2*DisarmTrapDamageReductionPerTier, 3*DisarmTrapDamageReductionPerTier, uitext.Text("damage.flat_reduction_rules"))
 	case SkillTrapper:
-		return uitext.Text("skill.trapper", TrapperDamagePerTier, 2*TrapperDamagePerTier, 3*TrapperDamagePerTier, TrapStatScalingDivisor, TrapperSecondsPerTier, 2*TrapperSecondsPerTier, 3*TrapperSecondsPerTier, masteryProgression(TrapperTurnBonus))
+		return uitext.Text("skill.trapper", TrapperDamagePerTier, 2*TrapperDamagePerTier, 3*TrapperDamagePerTier, TrapStatScalingDivisor,
+			masteryProgression(TrapperRoundBonus), masteryProgression(func(tier int) int { return TrapperRoundBonus(tier) * config.CombatRoundSeconds }))
 	case SkillSleightOfHand:
 		return uitext.Text("skill.sleight_of_hand", SleightChancePctPerTier, 2*SleightChancePctPerTier, 3*SleightChancePctPerTier, 4*SleightChancePctPerTier)
 	case SkillRepair, SkillIdentifyItem:

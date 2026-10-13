@@ -30,8 +30,8 @@ func TestCharPoisonLifecycle(t *testing.T) {
 	for i := 0; i < 2*tps; i++ {
 		c.updatePoison(tps)
 	}
-	if c.HitPoints != 50-2*PoisonDamagePerTick {
-		t.Fatalf("2s poison at %d/s dealt wrong damage: HP=%d", PoisonDamagePerTick, c.HitPoints)
+	if c.HitPoints != 50-2*poisonPerTick() {
+		t.Fatalf("2s poison at %d/s dealt wrong damage: HP=%d", poisonPerTick(), c.HitPoints)
 	}
 	if c.HasCondition(ConditionPoisoned) || c.PoisonFramesRemaining != 0 {
 		t.Fatal("expiry must clear the condition and the clock")
@@ -53,7 +53,7 @@ func TestCharPoisonTurnBased(t *testing.T) {
 
 	c.ApplyPoison(10 * tps)
 	c.TickPoisonTurn(round, tps)
-	if c.HitPoints != 50-3*PoisonDamagePerTick {
+	if c.HitPoints != 50-3*poisonPerTick() {
 		t.Fatalf("a 3s TB round must deal 3 poison ticks: HP=%d", c.HitPoints)
 	}
 	if c.PoisonFramesRemaining != 7*tps {
@@ -62,7 +62,7 @@ func TestCharPoisonTurnBased(t *testing.T) {
 	for c.PoisonFramesRemaining > 0 {
 		c.TickPoisonTurn(round, tps)
 	}
-	if c.HitPoints != 50-10*PoisonDamagePerTick || c.HasCondition(ConditionPoisoned) {
+	if c.HitPoints != 50-10*poisonPerTick() || c.HasCondition(ConditionPoisoned) {
 		t.Fatalf("a 10s poison must deal 10 ticks in TB too and clear: HP=%d poisoned=%v",
 			c.HitPoints, c.HasCondition(ConditionPoisoned))
 	}
@@ -87,7 +87,7 @@ func TestCharBurnLifecycle(t *testing.T) {
 		c.updateBurn(tps)
 		c.updatePoison(tps)
 	}
-	wantHP := 50 - 2*BurnDamagePerTick - 2*PoisonDamagePerTick
+	wantHP := 50 - 2*burnPerTick() - 2*poisonPerTick()
 	if c.HitPoints != wantHP {
 		t.Fatalf("burn (3x) + poison together: HP=%d want %d", c.HitPoints, wantHP)
 	}
@@ -116,7 +116,7 @@ func TestCharBurnRefreshPreservesTickPhase(t *testing.T) {
 	for range 10 {
 		c.updateBurn(tps)
 	}
-	if c.HitPoints != 50-BurnDamagePerTick {
+	if c.HitPoints != 50-burnPerTick() {
 		t.Fatalf("refreshed burn delayed its due tick: HP=%d", c.HitPoints)
 	}
 }
@@ -128,9 +128,9 @@ func TestCharBurnTurnBased(t *testing.T) {
 	tps := config.GetTargetTPS()
 	c.ApplyBurn(3 * tps)
 	c.TickBurnTurn(3*tps, tps)
-	if c.HitPoints != 50-3*BurnDamagePerTick || c.HasCondition(ConditionBurning) {
+	if c.HitPoints != 50-3*burnPerTick() || c.HasCondition(ConditionBurning) {
 		t.Fatalf("a 3s TB round must deal 3 burn ticks (%d each) and clear on expiry: HP=%d",
-			BurnDamagePerTick, c.HitPoints)
+			burnPerTick(), c.HitPoints)
 	}
 }
 
@@ -203,3 +203,7 @@ func TestCharFlagConditions(t *testing.T) {
 		t.Fatal("remove must drop exactly the given condition")
 	}
 }
+
+// The DoTs' per-second hero loss, from the status table.
+func poisonPerTick() int { return config.Status("poison").PartyDamagePerSecond }
+func burnPerTick() int   { return config.Status("burn").PartyDamagePerSecond }

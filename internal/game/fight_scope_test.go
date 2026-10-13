@@ -100,7 +100,7 @@ func TestFightScopeIsReachNotTheWholeMap(t *testing.T) {
 			if got := g.partyEngaged(); got != tc.wantSheddingHold {
 				t.Fatalf("scale shedding held = %v, want %v", got, tc.wantSheddingHold)
 			}
-			if got := g.autocastTriggerFires("quickening", 0); got != tc.wantCombat {
+			if got := g.techniqueAutocastFires(config.Technique("quickening")); got != tc.wantCombat {
 				t.Fatalf("automatic Quickening = %v, want %v", got, tc.wantCombat)
 			}
 		})

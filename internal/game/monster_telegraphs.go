@@ -10,35 +10,48 @@ import (
 	"ugataima/internal/status"
 )
 
-// A landed hinder lasts four seconds / two rounds, followed by an equally long
-// recovery window shared by these roots and slows. Recasts cannot extend it.
+// A landed hinder (a slowing or rooting telegraph) lasts the telegraph's
+// duration, then an equally long recovery window shared by these roots and
+// slows. Recasts cannot extend it. Slow and Recovery are spent fractions of
+// one Window of whole rounds (the same span in RT).
 type PartyHinderState struct {
 	Slow     float64 `json:"slow,omitempty"`
 	Recovery float64 `json:"recovery,omitempty"`
+	Window   int     `json:"window,omitempty"` // rounds; saves before it held two
 }
 
 func (g *MMGame) tickPartyHinder(tb bool) {
+	h := &g.partyHinder
+	window := h.Window
+	if window <= 0 {
+		window = 2
+	}
 	dt := 1 / float64(max(1, g.config.GetTPS()))
-	g.partyHinder.Slow = advanceEnvironmentBudget(g.partyHinder.Slow, 4, 2, dt, tb)
-	g.partyHinder.Recovery = advanceEnvironmentBudget(g.partyHinder.Recovery, 4, 2, dt, tb)
+	seconds := float64(window * config.CombatRoundSeconds)
+	h.Slow = advanceEnvironmentBudget(h.Slow, seconds, window, dt, tb)
+	h.Recovery = advanceEnvironmentBudget(h.Recovery, seconds, window, dt, tb)
 }
-func (g *MMGame) applyTelegraphHinder(kind string) {
-	if g.partyHinder.Recovery > 0 {
+func (g *MMGame) applyTelegraphHinder(a *monster.TelegraphedAttack) {
+	h := &g.partyHinder
+	if h.Recovery > 0 {
 		return
 	}
-	g.partyHinder.Recovery = 2
-	if kind == "root" {
-		r := &g.partyRoot
-		status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, 4*g.config.GetTPS(), 2)
+	h.Window = config.CombatRounds(a.DurationSeconds)
+	h.Recovery = 2
+	if a.Kind == "root" {
+		g.rootParty(h.Window)
 		g.AddCombatMessage("Roots bind the party. Hold your ground or fight free!")
 	} else {
-		g.partyHinder.Slow = 1
+		h.Slow = 1
 		g.AddCombatMessage("Cold water slows the party's movement and recovery.")
 	}
 }
+
+// hinderRecovery stretches a hero's recovery while the party is slowed.
 func (g *MMGame) hinderRecovery(cooldown int) int {
 	if g.partyHinder.Slow > 0 {
-		return int(math.Ceil(float64(cooldown) / .75))
+		keep := config.HinderKeepPercent()
+		return (cooldown*100 + keep - 1) / keep
 	}
 	return cooldown
 }
@@ -217,7 +230,8 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 			if ally.ID != s.TargetID || !ally.IsAlive() || ally.IsPartyControlled() || ally.Pacified || m.CanAttackActor(ally) || !g.telegraphLOS(m, ally.X, ally.Y) || Distance(m.X, m.Y, ally.X, ally.Y) > float64(a.Range)*ts {
 				continue
 			}
-			ally.ApplySoak(monster.TelegraphShieldAbsorption(m.DamageMin, m.DamageMax), int(a.DurationSeconds*float64(g.config.GetTPS())), a.DurationRounds)
+			frames, rounds := config.EffectClock(a.DurationSeconds, g.config.GetTPS())
+			ally.ApplySoak(monster.TelegraphShieldAbsorption(m.DamageMin, m.DamageMax), frames, rounds)
 			g.AddCombatMessage(m.Name + " shields " + ally.Name + " with circulating water.")
 			vx, vy := g.combat.monsterVisualPos(ally)
 			g.createElementalAbilityImpact(vx, vy, "water", ally)
@@ -237,7 +251,7 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 			if unblocked {
 				switch a.Kind {
 				case "slow", "root":
-					g.applyTelegraphHinder(a.Kind)
+					g.applyTelegraphHinder(a)
 				case "push":
 					g.pushTelegraphParty(s.Direction)
 				}
@@ -249,11 +263,12 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 				continue
 			}
 			g.combat.applyMonsterDamagePacket(foe, singleMonsterDamagePacket(parts, a.School, 0), monsterDamageOptions{})
+			frames, rounds := config.EffectClock(a.DurationSeconds, g.config.GetTPS())
 			if a.Kind == "slow" {
-				foe.ApplySlow(25, 4*g.config.GetTPS(), 2)
+				foe.ApplySlow(config.HinderPercent(), frames, rounds)
 			}
 			if a.Kind == "root" {
-				status.RefreshDualRated(&foe.RootFramesRemaining, &foe.RootTurnsRemaining, &foe.RootRate, 4*g.config.GetTPS(), 2)
+				status.RefreshDualRated(&foe.RootFramesRemaining, &foe.RootTurnsRemaining, &foe.RootRate, frames, rounds)
 			}
 			if !foe.IsAlive() {
 				g.combat.finishMonsterKill(foe)
@@ -333,12 +348,10 @@ func (g *MMGame) monsterFieldExposures(dt float64) []environmentExposure {
 			continue
 		}
 		s := &m.Telegraph
-		span := a.DurationSeconds
-		if g.turnBasedMode {
-			span = float64(a.DurationRounds) * 3
-		}
+		// Whole rounds: the field spans the same seconds in both modes.
+		span := float64(a.DurationSeconds)
 		elapsed := min(dt, s.Remaining*span)
-		s.Remaining = advanceEnvironmentBudget(s.Remaining, a.DurationSeconds, a.DurationRounds, dt, g.turnBasedMode)
+		s.Remaining = advanceEnvironmentBudget(s.Remaining, span, config.CombatRounds(a.DurationSeconds), dt, g.turnBasedMode)
 		if !g.telegraphAllowed(m) {
 			continue
 		}

@@ -34,12 +34,16 @@ type pageTabRect struct {
 	x, w int
 }
 
+// pageTabPadding is a tab's width beyond its label: room for the hotkey at
+// its right edge, sized so every tab fits the authored 1200 px canvas.
+const pageTabPadding = 56
+
 // pageTabLayout computes the on-screen rect of every top tab.
 func pageTabLayout() []pageTabRect {
 	rects := make([]pageTabRect, 0, len(pageTabDefs))
 	x := 8
 	for _, def := range pageTabDefs {
-		w := game.ShadedTextWidth(def.label) + 60
+		w := game.ShadedTextWidth(def.label) + pageTabPadding
 		rects = append(rects, pageTabRect{page: def.page, x: x + 4, w: w})
 		x += 4 + w + 4
 	}

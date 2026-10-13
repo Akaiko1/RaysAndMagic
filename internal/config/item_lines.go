@@ -89,7 +89,7 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 		lines = append(lines, uitext.Text("item.mirror_scales_chance_to_turn_a_projectile", d.ProjectileReflectPct))
 	}
 	if d.StatusDurationPct != 0 {
-		lines = append(lines, uitext.Text("item.hostile_statuses_on_the_wearer_last_as", 100+d.StatusDurationPct))
+		lines = append(lines, uitext.Text("item.hostile_statuses_on_the_wearer_last_as", 100+d.StatusDurationPct, ScaledRoundsText(d.StatusDurationPct)))
 	}
 	if d.ScaleStackAC > 0 {
 		lines = append(lines, uitext.Text("item.growing_scales_ac_per_hit_taken_max", d.ScaleStackAC, d.ScaleStackAC*d.ScaleStackMax))
@@ -346,7 +346,7 @@ func EquipmentSetLines(setKey string) []string {
 		}
 	}
 	if set.StunDurationPct != 0 {
-		parts = append(parts, uitext.Text("item.stuns_suffered_duration", 100+set.StunDurationPct))
+		parts = append(parts, uitext.Text("item.stuns_suffered_duration", 100+set.StunDurationPct, ScaledRoundsText(set.StunDurationPct)))
 	}
 	if set.BonusCritChance != 0 {
 		parts = append(parts, uitext.Text("item.critical_chance", set.BonusCritChance))

@@ -288,10 +288,10 @@ func TestAuthoredProjectileStunPreserved(t *testing.T) {
 				if rider.Chance <= 0 {
 					t.Fatal("authored projectile lost stun")
 				}
-				if d.Abilities.Stun.Chance > 0 && (rider.Chance != d.Abilities.Stun.Chance || rider.Seconds != d.Abilities.Stun.Seconds || rider.Turns != d.Abilities.Stun.Turns) {
+				if d.Abilities.Stun.Chance > 0 && (rider.Chance != d.Abilities.Stun.Chance || rider.Seconds != d.Abilities.Stun.Seconds) {
 					t.Fatal("explicit monster rider was replaced")
 				}
-				expected := fmt.Sprintf("%ds / %d turn(s)", rider.Seconds, rider.Turns)
+				expected := config.DurationText(rider.Seconds)
 				found := false
 				for _, line := range d.CombatEffectLines() {
 					if strings.Contains(line.Text, "Projectile stun") && strings.Contains(line.Text, expected) {
@@ -329,7 +329,7 @@ func TestAuthoredProjectileStunPreserved(t *testing.T) {
 					cs.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
 					frames, turns = target.StunFramesRemaining, target.StunTurnsRemaining
 				}
-				if frames != rider.Seconds*g.config.GetTPS() || turns != rider.Turns {
+				if frames != rider.Seconds*g.config.GetTPS() || turns != config.CombatRounds(rider.Seconds) {
 					t.Fatalf("rider changed: %d frames/%d turns", frames, turns)
 				}
 			})
@@ -348,10 +348,10 @@ func TestChampionSpellSplashDoesNotInheritWeaponStun(t *testing.T) {
 			if spellStun {
 				d.StunChance = 1
 			}
-			d.StunDurationSeconds, d.StunDurationTurns = 2, 1
+			d.StunDurationSeconds = 3
 			config.GlobalSpells.Spells["fireball"] = &d
 			t.Cleanup(func() { config.GlobalSpells.Spells["fireball"] = old })
-			source := &monster.Monster3D{ID: "source", Name: "Caster", ChampionKey: "test", HitPoints: 10000, DamageMin: 1, DamageMax: 1, Abilities: monster.Abilities{Stun: monster.TimedStatusAbility{Chance: 1, Seconds: 9, Turns: 9}}}
+			source := &monster.Monster3D{ID: "source", Name: "Caster", ChampionKey: "test", HitPoints: 10000, DamageMin: 1, DamageMax: 1, Abilities: monster.Abilities{Stun: monster.TimedStatusAbility{Chance: 1, Seconds: 9}}}
 			target := &monster.Monster3D{ID: "target", Name: "Target", Bound: true, HitPoints: 10000, MaxHitPoints: 10000, X: g.camera.X + 64, Y: g.camera.Y}
 			g.world.Monsters = []*monster.Monster3D{source, target}
 			g.party.Members = g.party.Members[:1]
@@ -362,7 +362,7 @@ func TestChampionSpellSplashDoesNotInheritWeaponStun(t *testing.T) {
 			cs.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
 			want := 0
 			if spellStun {
-				want = 2 * g.config.GetTPS()
+				want = 3 * g.config.GetTPS()
 			}
 			if c.StunFramesRemaining != want {
 				t.Fatalf("party splash stun=%d want%d", c.StunFramesRemaining, want)

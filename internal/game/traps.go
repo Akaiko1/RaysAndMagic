@@ -74,17 +74,14 @@ func trapDamageAtTier(def *config.TrapDefinitionConfig, tier int) int {
 	return def.DamageBase + tier*character.TrapperDamagePerTier
 }
 
-// trapControlDuration returns the mastery-extended control duration of a trap
-// in TB turns and RT seconds (whichever pair the trap carries - stun or root).
-func trapControlDuration(baseTurns, baseSeconds int, owner *character.MMCharacter) (turns, seconds int) {
-	if owner == nil {
-		return baseTurns, baseSeconds
+// trapControlRounds is a control trap's stun or root length in whole rounds at
+// a Trapper tier: its authored seconds plus the tier's bonus rounds (0 when the
+// trap carries no such control).
+func trapControlRounds(baseSeconds, tier int) int {
+	if baseSeconds <= 0 {
+		return 0
 	}
-	return trapControlDurationAtTier(baseTurns, baseSeconds, owner.SkillTier(character.SkillTrapper))
-}
-
-func trapControlDurationAtTier(baseTurns, baseSeconds, tier int) (turns, seconds int) {
-	return baseTurns + character.TrapperTurnBonus(tier), baseSeconds + tier*character.TrapperSecondsPerTier
+	return config.CombatRounds(baseSeconds) + character.TrapperRoundBonus(tier)
 }
 
 // equipTrap puts a trap into the character's quick slot. Refuses unknown keys
@@ -376,14 +373,15 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 		return
 	}
 
-	turnsStun, secsStun := trapControlDuration(def.StunTurns, def.StunSeconds, t.Owner)
-	if def.StunTurns > 0 {
-		cs.applyStunDR(victim, turnsStun, secsStun*cs.game.config.GetTPS(), true) // announces stun/resist
+	tier := 0
+	if t.Owner != nil {
+		tier = t.Owner.SkillTier(character.SkillTrapper)
 	}
-
-	turnsRoot, secsRoot := trapControlDuration(def.RootTurns, def.RootSeconds, t.Owner)
-	if def.RootTurns > 0 {
-		cs.applyMonsterRoot(victim, turnsRoot, secsRoot*cs.game.config.GetTPS())
+	if rounds := trapControlRounds(def.StunSeconds, tier); rounds > 0 {
+		cs.applyStunDR(victim, rounds, true) // announces stun/resist
+	}
+	if rounds := trapControlRounds(def.RootSeconds, tier); rounds > 0 {
+		cs.applyMonsterRoot(victim, rounds)
 	}
 }
 

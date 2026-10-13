@@ -67,7 +67,7 @@ func TestRareInputCastCycles(t *testing.T) {
 						g.parkSelection = true
 					case "unavailable":
 						if kind == "veil" {
-							g.addCombatBuff(TimedCombatBuff{SpellID: "phase_veil", Frames: 100})
+							g.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("phase_veil"), Frames: 100})
 						} else {
 							g.party.Inventory = nil
 						}

@@ -416,7 +416,7 @@ func TestKillQuestTargetsMatchMonsterNames(t *testing.T) {
 		wantErr bool
 	}{
 		{"display name", quests.QuestDefinition{TargetMonster: "forest spider"}, false},
-		{"name shared by a group", quests.QuestDefinition{TargetMonster: "elder_dragon"}, false},
+		{"color-named dragon", quests.QuestDefinition{TargetMonster: "elder_red_dragon"}, false},
 		{"monster key that is not its name", quests.QuestDefinition{TargetMonster: "rat"}, true},
 		{"typo", quests.QuestDefinition{TargetMonster: "forest_spidr"}, true},
 		{"one bad entry in a list", quests.QuestDefinition{TargetMonsters: []string{"wolf", "wolff"}}, true},

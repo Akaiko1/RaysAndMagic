@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -575,6 +576,37 @@ func TestSlowAndWeakenHoldThroughFinalTBTurn(t *testing.T) {
 	}
 }
 
+// Stun-duration gear works in whole rounds rounded to the nearest one, never
+// below one, and the set card states the same ladder the stun lands.
+func TestStunDurationGearRoundsToNearest(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	set := config.GetItemSet("padded")
+	if set == nil || set.StunDurationPct != -50 {
+		t.Fatal("Pit Fighter's Quilt no longer halves stuns")
+	}
+	landed := make([]string, 0, 4)
+	for rounds, want := range map[int]int{1: 1, 2: 1, 3: 2, 4: 2} {
+		member := cs.game.party.Members[0]
+		member.StunDRStacks, member.StunDRMemoryTurns, member.StunDRMemoryFrames = 0, 0, 0 // a fresh chain lands 100%
+		member.StunFramesRemaining, member.StunTurnsRemaining = 0, 0
+		member.Equipment = map[items.EquipSlot]items.Item{
+			items.SlotHelmet: items.CreateItemFromYAML("padded_cap"), items.SlotArmor: items.CreateItemFromYAML("padded_vest"),
+			items.SlotOffHand: items.CreateItemFromYAML("padded_greaves"), items.SlotGauntlets: items.CreateItemFromYAML("padded_gloves"),
+		}
+		cs.applyScaledCharStun(member, rounds)
+		if member.StunTurnsRemaining != want || member.StunFramesRemaining != config.RoundFrames(want, cs.game.config.GetTPS()) {
+			t.Fatalf("%d-round stun under the quilt = %d turns / %d frames, want %d rounds", rounds, member.StunTurnsRemaining, member.StunFramesRemaining, want)
+		}
+	}
+	for _, want := range []int{1, 1, 2, 2} {
+		landed = append(landed, strconv.Itoa(want))
+	}
+	card := strings.Join(config.EquipmentSetLines("padded"), "\n")
+	if !strings.Contains(card, "rounds 1/2/3/4 -> "+strings.Join(landed, "/")) {
+		t.Fatalf("set card does not state the landed ladder:\n%s", card)
+	}
+}
+
 func TestHostileStatusDurationFloorAppliesAfterCombiningSources(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	member := cs.game.party.Members[0]
@@ -602,11 +634,11 @@ func TestHostileStatusDurationFloorAppliesAfterCombiningSources(t *testing.T) {
 	if got := member.SetStunDurationPct(); got != -120 {
 		t.Fatalf("set contribution was clamped before combination: %d", got)
 	}
-	cs.applyScaledCharStun(member, 100, 100)
+	cs.applyScaledCharStun(member, 100)
 	want := 100 + config.MinHostileStatusDurationPct
-	if member.StunFramesRemaining != want || member.StunTurnsRemaining != want {
+	if frames := config.RoundFrames(want, cs.game.config.GetTPS()); member.StunFramesRemaining != frames || member.StunTurnsRemaining != want {
 		t.Fatalf("combined -100%% duration = %d frames/%d turns, want the %d%% floor %d/%d",
-			member.StunFramesRemaining, member.StunTurnsRemaining, config.MinHostileStatusDurationPct, want, want)
+			member.StunFramesRemaining, member.StunTurnsRemaining, config.MinHostileStatusDurationPct, frames, want)
 	}
 }
 

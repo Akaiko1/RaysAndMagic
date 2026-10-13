@@ -2351,13 +2351,13 @@ func (cs *CombatSystem) trySpiritualTraining(attacker *character.MMCharacter) {
 
 // hitStatusTarget is whoever a landed monster hit struck, as the hit's on-hit
 // statuses see it: a hero or another monster, each with its own resistances,
-// durations and log line.
+// durations and log line. DoTs take frames, timed statuses whole rounds.
 type hitStatusTarget interface {
 	poison(frames int)
 	ignite(frames int)
-	stun(frames, turns int)
+	stun(rounds int)
 	dispel(attacker *monsterPkg.Monster3D)
-	meltArmor(frames, turns int)
+	meltArmor(rounds int)
 }
 
 // applyMonsterHitRiders rolls a landed monster hit's on-hit statuses once, in
@@ -2377,19 +2377,19 @@ func (cs *CombatSystem) applyMonsterHitRiders(attacker *monsterPkg.Monster3D, sp
 	if attacker.Abilities.Ignite.Chance > 0 && rand.Float64() < attacker.Abilities.Ignite.Chance {
 		target.ignite(tps * attacker.Abilities.Ignite.DurationSeconds)
 	}
-	chance, seconds, turns := attacker.Abilities.Stun.Chance, attacker.Abilities.Stun.Seconds, attacker.Abilities.Stun.Turns
+	stun := attacker.Abilities.Stun
 	if spellID != "" {
 		rider := attacker.ProjectileStun(spellID)
-		chance, seconds, turns = rider.Chance, rider.Seconds, rider.Turns
+		stun.Chance, stun.Seconds = rider.Chance, rider.Seconds
 	}
-	if chance > 0 && rand.Float64() < chance {
-		target.stun(tps*seconds, turns)
+	if stun.Chance > 0 && rand.Float64() < stun.Chance {
+		target.stun(config.CombatRounds(stun.Seconds))
 	}
 	if attacker.Abilities.Dispel.Chance > 0 && rand.Float64() < attacker.Abilities.Dispel.Chance {
 		target.dispel(attacker)
 	}
 	if weaponHit && attacker.Abilities.MeltArmor.Chance > 0 && rand.Float64() < attacker.Abilities.MeltArmor.Chance {
-		target.meltArmor(tps*config.CombatRoundSeconds*config.ArmorMeltRounds, config.ArmorMeltRounds)
+		target.meltArmor(config.CombatRounds(config.ArmorMeltSeconds()))
 	}
 }
 
@@ -2417,8 +2417,8 @@ func (t heroHitTarget) ignite(frames int) {
 	t.cs.game.logCombat(logToneBad, "%s bursts into %s!", logHeroName(t.hero), logSchoolWord(monsterPkg.DamageFire.String(), "flames"))
 }
 
-func (t heroHitTarget) stun(frames, turns int) {
-	if !t.cs.applyScaledCharStun(t.hero, frames, turns) {
+func (t heroHitTarget) stun(rounds int) {
+	if !t.cs.applyScaledCharStun(t.hero, rounds) {
 		t.cs.game.logCombat(logToneGood, "%s resists the %s!", logHeroName(t.hero), logKeyword("control", "stun"))
 		return
 	}
@@ -2427,10 +2427,10 @@ func (t heroHitTarget) stun(frames, turns int) {
 }
 
 // meltArmor follows the wearer's status-duration shift (Still Court aegis).
-func (t heroHitTarget) meltArmor(frames, turns int) {
-	pct := clampHostileStatusDurationPct(t.hero.ItemStatusDurationPct())
+func (t heroHitTarget) meltArmor(rounds int) {
+	rounds = config.ScaleDuration(rounds, clampHostileStatusDurationPct(t.hero.ItemStatusDurationPct()))
 	fresh := !t.hero.ArmorMelted()
-	t.hero.MeltArmor(scaleHostileStatusDuration(frames, pct), scaleHostileStatusDuration(turns, pct))
+	t.hero.MeltArmor(config.RoundFrames(rounds, t.cs.game.config.GetTPS()), rounds)
 	if fresh {
 		t.cs.game.logCombat(logToneBad, "%s's armor %s!", logHeroName(t.hero), logColored("melts", logDyingHP))
 	}
@@ -2496,16 +2496,16 @@ func (t monsterHitTarget) ignite(frames int) {
 	}
 }
 
-func (t monsterHitTarget) stun(frames, turns int) {
-	t.cs.applyStunDR(t.target, turns, frames, t.announce())
+func (t monsterHitTarget) stun(rounds int) {
+	t.cs.applyStunDR(t.target, rounds, t.announce())
 }
 
 // dispel answers a hit on the party only: party buffs are the party's.
 func (monsterHitTarget) dispel(*monsterPkg.Monster3D) {}
 
-func (t monsterHitTarget) meltArmor(frames, turns int) {
+func (t monsterHitTarget) meltArmor(rounds int) {
 	fresh := !t.target.ArmorMelted()
-	t.target.MeltArmor(frames, turns)
+	t.target.MeltArmor(config.RoundFrames(rounds, t.cs.game.config.GetTPS()), rounds)
 	if fresh && t.announce() {
 		t.cs.game.logCombat(monsterStatusTone(t.target), "%s's armor %s!", logMonsterName(t.target), logColored("melts", logDyingHP))
 	}
@@ -2520,23 +2520,22 @@ func monsterStatusTone(m *monsterPkg.Monster3D) logTone {
 	return logToneGood
 }
 
-// applyScaledCharStun stuns a party member for frames/turns, first applying the
+// applyScaledCharStun stuns a party member for whole rounds, first applying the
 // wearer's set stun-duration modifier (Pit Fighter's Quilt: the quilting soaks
-// the blow - floor of 1 so a landed stun is never a no-op). The one place the
-// stun-resist scaling lives, shared by weapon/monster stuns and champion casts.
-func (cs *CombatSystem) applyScaledCharStun(target *character.MMCharacter, frames, turns int) bool {
+// the blow - floor of one round so a landed stun is never a no-op). The one
+// place the stun-resist scaling lives, shared by weapon/monster stuns and
+// champion casts.
+func (cs *CombatSystem) applyScaledCharStun(target *character.MMCharacter, rounds int) bool {
 	// Sets (Pit Fighter's Quilt) and per-item shifts (Still Court aegis) stack;
 	// the same -90 floor keeps a landed stun from vanishing outright.
-	pct := clampHostileStatusDurationPct(target.SetStunDurationPct() + target.ItemStatusDurationPct())
-	frames = scaleHostileStatusDuration(frames, pct)
-	turns = scaleHostileStatusDuration(turns, pct)
+	rounds = config.ScaleDuration(rounds, clampHostileStatusDurationPct(target.SetStunDurationPct()+target.ItemStatusDurationPct()))
 	// Heroes share the monsters' diminishing returns: repeated stuns shrink to
 	// immunity until the hero stays stun-free for the reset window.
-	turns, frames = target.StunDR().Step(turns, frames, cs.game.config.GetTPS())
-	if turns <= 0 && frames <= 0 {
+	rounds, frames := target.StunDR().Step(rounds, cs.game.config.GetTPS())
+	if rounds <= 0 {
 		return false
 	}
-	target.ApplyCharStun(frames, turns)
+	target.ApplyCharStun(frames, rounds)
 	return true
 }
 
@@ -2547,17 +2546,11 @@ func clampHostileStatusDurationPct(pct int) int {
 	return pct
 }
 
-func scaleHostileStatusDuration(duration, pct int) int {
-	if duration <= 0 || pct == 0 {
-		return duration
-	}
-	return max(1, duration*(100+pct)/100)
-}
-
 // scaledStatusFrames applies the wearer's status-duration shift to a hostile
-// DoT duration (poison/burn), floored at one frame.
+// DoT duration (poison/burn), floored at one frame. A DoT bills elapsed time in
+// both modes, so its frames need not be whole rounds.
 func (cs *CombatSystem) scaledStatusFrames(target *character.MMCharacter, frames int) int {
-	return scaleHostileStatusDuration(frames, clampHostileStatusDurationPct(target.ItemStatusDurationPct()))
+	return config.ScaleDuration(frames, clampHostileStatusDurationPct(target.ItemStatusDurationPct()))
 }
 
 // tryAbsorbSpellHit is Spell Absorption's SINGLE gate: a hostile SPELL hit on
@@ -3086,35 +3079,15 @@ func (cs *CombatSystem) tryApplyWeaponStun(monster *monsterPkg.Monster3D, weapon
 	if monster == nil {
 		return
 	}
-	framesPerTurn := cs.game.config.GetTPS()
-	if framesPerTurn <= 0 {
-		framesPerTurn = 60
-	}
 	if weaponDef != nil && weaponDef.StunChance > 0 && rand.Float64() < weaponDef.StunChance {
-		turns := weaponDef.StunTurns
-		if turns <= 0 {
-			turns = 1
-		}
-		cs.applyStunDR(monster, turns, turns*framesPerTurn, true)
+		cs.applyStunDR(monster, config.CombatRounds(weaponDef.StunSeconds), true)
 		return
 	}
-	// Minotaur Card: chance on any hit to stun the target (one stun-roll per hit).
+	// Minotaur Card: chance on any hit to stun the target for one round (one
+	// stun-roll per hit).
 	if pct := cs.game.cardStunOnHitPct(); pct > 0 && rand.Intn(100) < pct {
-		cs.applyStunDR(monster, 1, framesPerTurn, true)
+		cs.applyStunDR(monster, 1, true)
 	}
-}
-
-// weaponStatusClocks converts one authored weapon duration into the RT/TB
-// clocks used by shred, root, slow and weaken. Weapon control effects use the
-// established two-seconds-per-turn convention.
-func weaponStatusClocks(seconds, tps int) (frames, turns int) {
-	if seconds <= 0 {
-		return 0, 0
-	}
-	if tps <= 0 {
-		tps = config.GetTargetTPS()
-	}
-	return seconds * tps, config.WeaponStatusTurns(seconds)
 }
 
 // tryApplyWeaponHitRiders applies every on-hit weapon and card rider to a
@@ -3131,14 +3104,13 @@ func (cs *CombatSystem) tryApplyWeaponHitRiders(monster *monsterPkg.Monster3D, w
 		tps = config.GetTargetTPS()
 	}
 	if weaponDef.ArmorShredPct > 0 && weaponDef.ArmorShredSeconds > 0 {
-		frames, turns := weaponStatusClocks(weaponDef.ArmorShredSeconds, tps)
-		monster.ApplyArmorShred(weaponDef.ArmorShredPct, frames, turns)
+		frames, rounds := config.EffectClock(weaponDef.ArmorShredSeconds, tps)
+		monster.ApplyArmorShred(weaponDef.ArmorShredPct, frames, rounds)
 	}
 	if weaponDef.RootChance > 0 && weaponDef.RootSeconds > 0 && rand.Float64() < weaponDef.RootChance {
-		frames, turns := weaponStatusClocks(weaponDef.RootSeconds, tps)
-		cs.applyMonsterRoot(monster, turns, frames)
+		cs.applyMonsterRoot(monster, config.CombatRounds(weaponDef.RootSeconds))
 	}
-	// Drakeforged riders. Same seconds->turns convention as the arena tier.
+	// Drakeforged riders: DoTs bill elapsed seconds in both modes.
 	if weaponDef.IgniteChance > 0 && weaponDef.IgniteSeconds > 0 && rand.Float64() < weaponDef.IgniteChance {
 		monster.ApplyBurn(weaponDef.IgniteSeconds * tps)
 		cs.game.logCombat(logToneGood, "%s catches %s!", logMonsterName(monster), logSchoolWord(monsterPkg.DamageFire.String(), "fire"))
@@ -3149,12 +3121,12 @@ func (cs *CombatSystem) tryApplyWeaponHitRiders(monster *monsterPkg.Monster3D, w
 		cs.game.logCombat(logToneGood, "%s is %s!", logMonsterName(monster), logColored("poisoned", logPoison))
 	}
 	if weaponDef.SlowPct > 0 && weaponDef.SlowSeconds > 0 {
-		frames, turns := weaponStatusClocks(weaponDef.SlowSeconds, tps)
-		monster.ApplySlow(weaponDef.SlowPct, frames, turns)
+		frames, rounds := config.EffectClock(weaponDef.SlowSeconds, tps)
+		monster.ApplySlow(weaponDef.SlowPct, frames, rounds)
 	}
 	if weaponDef.WeakenPct > 0 && weaponDef.WeakenSeconds > 0 {
-		frames, turns := weaponStatusClocks(weaponDef.WeakenSeconds, tps)
-		monster.ApplyWeaken(weaponDef.WeakenPct, frames, turns)
+		frames, rounds := config.EffectClock(weaponDef.WeakenSeconds, tps)
+		monster.ApplyWeaken(weaponDef.WeakenPct, frames, rounds)
 	}
 	cs.tryCardPoisonProc(monster)
 }
@@ -3635,21 +3607,22 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 	return false
 }
 
-// applyStunDR is the single entry point for stunning a monster. It applies
-// DIMINISHING RETURNS: the requested duration is scaled by StunDRFactorsPct for
-// the target's current DR chain length (100/50/25/0%), so repeated stuns shrink
-// to nothing and then the target is immune until it goes control-free for the reset
-// window. Refreshes the chain + both per-mode reset clocks on every attempt (a
-// TB<->RT switch is conservative). announce=false suppresses the per-target line
-// for AoE callers that print their own summary. Returns whether it actually stunned.
-func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, announce bool) bool {
+// applyStunDR is the single entry point for stunning a monster, for whole
+// rounds. It applies DIMINISHING RETURNS: the requested rounds are scaled by the
+// stun row's repeat_percents for the target's current DR chain length
+// (100/50/25/0%), so repeated stuns shrink to nothing and then the target is
+// immune until it goes control-free for the reset window. Refreshes the chain +
+// both per-mode reset clocks on every attempt (a TB<->RT switch is
+// conservative). announce=false suppresses the per-target line for AoE callers
+// that print their own summary. Returns whether it actually stunned.
+func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, rounds int, announce bool) bool {
 	if m == nil {
 		return false
 	}
 	wasStunned := m.StunTurnsRemaining > 0 || m.StunFramesRemaining > 0
-	effTurns, effFrames := m.StunDR().Step(turns, frames, cs.game.config.GetTPS())
+	effTurns, effFrames := m.StunDR().Step(rounds, cs.game.config.GetTPS())
 
-	if effTurns <= 0 && effFrames <= 0 { // worn down -> immune this attempt
+	if effTurns <= 0 { // worn down -> immune this attempt
 		if announce && !wasStunned {
 			cs.game.logCombat(logToneNone, "%s resists the %s!", logMonsterName(m), logKeyword("control", "stun"))
 		}
@@ -3669,26 +3642,26 @@ func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, 
 	return true
 }
 
-// applyStun stuns a single monster for `seconds` real-time and `turns` turn-based
-// turns, under diminishing returns (see applyStunDR).
-func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds, turns int, announce bool) {
-	cs.applyStunDR(m, turns, seconds*cs.game.config.GetTPS(), announce)
+// applyStun stuns a single monster for an authored seconds duration (whole
+// rounds), under diminishing returns (see applyStunDR).
+func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds int, announce bool) {
+	cs.applyStunDR(m, config.CombatRounds(seconds), announce)
 }
 
-// applyMonsterRoot is the one entry point for roots from traps and weapon
-// riders. Root has parallel TB-turn and RT-frame clocks so a Tab mode switch
-// cannot release an otherwise active pin; each mode clears the counterpart
-// when its own clock expires.
-func (cs *CombatSystem) applyMonsterRoot(m *monsterPkg.Monster3D, turns, frames int) {
-	if cs == nil || cs.game == nil || m == nil || (turns <= 0 && frames <= 0) {
+// applyMonsterRoot is the one entry point for roots from traps, weapon riders
+// and Frozen Ground, for whole rounds. Root has parallel TB-turn and RT-frame
+// clocks so a Tab mode switch cannot release an otherwise active pin; each mode
+// clears the counterpart when its own clock expires.
+func (cs *CombatSystem) applyMonsterRoot(m *monsterPkg.Monster3D, rounds int) {
+	if cs == nil || cs.game == nil || m == nil || rounds <= 0 {
 		return
 	}
 	status.RefreshDualRated(
 		&m.RootFramesRemaining,
 		&m.RootTurnsRemaining,
 		&m.RootRate,
-		frames,
-		turns,
+		config.RoundFrames(rounds, cs.game.config.GetTPS()),
+		rounds,
 	)
 	cs.game.logCombat(logToneGood, "%s is %s in place!%s", logMonsterName(m), logKeyword("control", "pinned"),
 		cs.game.logStatusLength(m.RootTurnsRemaining, m.RootFramesRemaining))

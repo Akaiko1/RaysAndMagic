@@ -655,7 +655,7 @@ func spellDisplayName(spellID spells.SpellID) string {
 	if b := config.CrateBuff(id); b != nil {
 		return b.Name
 	}
-	if d := config.Technique(id); d != nil {
+	if d := config.TechniqueFromID(id); d != nil {
 		return d.Name
 	}
 	if def, ok := config.GetItemDefinition(id); ok {

@@ -57,7 +57,7 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 						t.Cleanup(func() { *weapon = original })
 						weapon.StunChance = 0
 						if kind == "champion stun" && slot == items.SlotMainHand {
-							weapon.StunChance, weapon.StunTurns = 1, 3
+							weapon.StunChance, weapon.StunSeconds = 1, 9
 						}
 					}
 					ch.Luck = 0

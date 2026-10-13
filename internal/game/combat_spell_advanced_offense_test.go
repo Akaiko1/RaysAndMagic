@@ -509,7 +509,7 @@ func TestAdvancedFearRetreatsWithoutAttackingInBothModes(t *testing.T) {
 				m := monster.NewMonster3DFromConfig(12.5*tile, 10.5*tile, "puma", g.config)
 				m.ApplyFear(10 * g.config.GetTPS())
 				if rooted {
-					g.combat.applyMonsterRoot(m, 1, 1)
+					g.combat.applyMonsterRoot(m, 1)
 				}
 				g.world.Monsters = []*monster.Monster3D{m}
 				g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
@@ -545,7 +545,7 @@ func TestAdvancedControlsAndIceSurviveSaveRestore(t *testing.T) {
 	g := newTestGame(cfg, w)
 	m := monster.NewMonster3DFromConfig(128, 128, "bandit", cfg)
 	m.ID = "advanced-control-save"
-	m.StunDR().Step(5, 181, cfg.GetTPS())
+	m.StunDR().Step(5, cfg.GetTPS())
 	m.ApplyFear(181)
 	m.SilenceFramesRemaining, m.BerserkFramesRemaining = 241, 301
 	m.SilenceImmunityFramesRemaining = 720

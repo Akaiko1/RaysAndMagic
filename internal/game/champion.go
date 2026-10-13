@@ -183,8 +183,7 @@ func championHandWeapon(ch *character.MMCharacter, offHand bool) items.Item {
 // applyChampionHandRiders stamps the STRIKING weapon's per-hit effects onto the
 // mob just before its hits resolve: weapon-mastery true damage and the GM
 // dodge graze for that weapon's category, plus the weapon's own YAML on-hit
-// riders. Stun seconds follow the weapon-stun convention of one second per TB
-// turn (see config.go weapon stun doc / tryApplyWeaponStun).
+// riders. The weapon's stun_seconds become the mob's stun ability as authored.
 func (cs *CombatSystem) applyChampionHandRiders(m *monster.Monster3D, ch *character.MMCharacter, wd *config.WeaponDefinitionConfig) {
 	if wd == nil {
 		return
@@ -193,8 +192,7 @@ func (cs *CombatSystem) applyChampionHandRiders(m *monster.Monster3D, ch *charac
 	m.TrueDamage = trueDmg
 	m.GrazesDodge = grazesDodge
 	m.Abilities.Stun.Chance = wd.StunChance
-	m.Abilities.Stun.Turns = wd.StunTurns
-	m.Abilities.Stun.Seconds = wd.StunTurns
+	m.Abilities.Stun.Seconds = wd.StunSeconds
 }
 
 // championSwingDamage is the ONE champion hit formula: stamp the striking
@@ -876,15 +874,8 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 
 	switch {
 	case def.IncomingDamageReduction > 0:
-		frames := cs.CalculateSpellDurationFrames(spellID, ch)
-		// Stun convention: 1s per TB turn, floored at 1 whenever the soak is
-		// active (a sub-1s duration would truncate to 0 turns and leave the
-		// turn clock nothing to expire in turn-based play).
-		turns := frames / cs.game.config.GetTPS()
-		if turns < 1 && frames > 0 {
-			turns = 1
-		}
-		m.ApplySoak(scaledIncomingDamageReduction(def, ch), frames, turns)
+		frames, rounds := config.EffectClock(cs.CalculateSpellDurationSeconds(spellID, ch), cs.game.config.GetTPS())
+		m.ApplySoak(scaledIncomingDamageReduction(def, ch), frames, rounds)
 		cs.game.logCombat(logToneBad, "%s's skin hardens to %s!", logMonsterName(m), logKeyword("defense", "stone"))
 
 	case def.StunRadiusTiles > 0:
@@ -892,7 +883,6 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			cs.recordMonsterPartyAttack(m)
 		}
 		radius := def.StunRadiusTiles * float64(cs.game.config.GetTileSize())
-		frames := def.StunDurationSeconds * cs.game.config.GetTPS()
 		for _, foe := range cs.game.world.Monsters {
 			if foe == nil || !foe.IsAlive() {
 				continue
@@ -902,7 +892,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 				opposing = cs.boundAllyCanDamageMonster(foe)
 			}
 			if opposing && Distance(m.X, m.Y, foe.X, foe.Y) <= radius {
-				cs.applyStun(foe, def.StunDurationSeconds, def.StunDurationTurns, true)
+				cs.applyStun(foe, def.StunDurationSeconds, true)
 			}
 		}
 		if m.IsPartyControlled() {
@@ -914,7 +904,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 		}
 		stunned := 0
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
-			if cs.applyScaledCharStun(member, frames, def.StunDurationTurns) {
+			if cs.applyScaledCharStun(member, config.CombatRounds(def.StunDurationSeconds)) {
 				stunned++
 			}
 		})

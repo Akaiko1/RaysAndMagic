@@ -920,7 +920,7 @@ func (ui *UISystem) itemTitleColors(item items.Item) (plate, text color.Color) {
 func itemTooltipIconName(item items.Item) string {
 	switch item.Type {
 	case items.ItemTechnique:
-		if d := config.Technique(string(item.SpellEffect)); d != nil {
+		if d := config.Technique(item.Technique); d != nil {
 			return d.Icon
 		}
 	case items.ItemThrowable:

@@ -14,12 +14,12 @@ import (
 // clobbers another and any number of buff spells can coexist.
 type TimedCombatBuff struct {
 	CombatClock        bool // Legacy save metadata; all party buffs now share the mode clock.
-	TechniqueTier      int
+	MasteryTier        int  // caster's tier for spell and technique magnitudes
 	RecoveryPct        int
 	ExtraActions       int
 	DeferFirstTurnTick bool
 
-	SpellID       string // spell id (HUD status icon + replace-on-recast key)
+	SpellID       string // source id: spell, config.TechniqueID, config.CrateID or draught item (HUD status + replace-on-recast key)
 	SourceID      string // optional owner for system-granted cleanup
 	Frames        int    // frames remaining
 	OutBonus      int    // flat add to party outgoing damage
@@ -100,6 +100,11 @@ func timedCombatBuffFromSpell(spellID spells.SpellID, def spells.SpellDefinition
 func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
 	g.combatBuffs = upsertBuff(g.combatBuffs, b)
 	g.applyPartyRegenBuffs()
+}
+
+// refreshCombatBuffStatus shows a granted buff's HUD timer before its first tick.
+func (g *MMGame) refreshCombatBuffStatus(b TimedCombatBuff) {
+	g.updateUtilityStatus(spells.SpellID(b.SpellID), b.statusDuration(), true)
 }
 
 // removeCombatBuff drops a combat buff by ownership id. Ordinary casts use the
@@ -202,7 +207,7 @@ func (g *MMGame) combatBuffByID(spellID string) (TimedCombatBuff, bool) {
 // re-derived from spells.yaml or items.yaml on restore.
 type CombatBuffSave struct {
 	CombatClock        bool `json:"combat_clock,omitempty"`
-	TechniqueTier      int  `json:"technique_tier,omitempty"`
+	MasteryTier        int  `json:"technique_tier,omitempty"`
 	DeferFirstTurnTick bool `json:"defer_first_turn_tick,omitempty"`
 
 	SpellID         string `json:"spell_id"`
@@ -229,7 +234,7 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 		out[i] = CombatBuffSave{
 			Charges: b.Charges, Absorb: b.Absorb,
 			SpellID:     b.SpellID,
-			CombatClock: b.CombatClock, TechniqueTier: b.TechniqueTier, DeferFirstTurnTick: b.DeferFirstTurnTick,
+			CombatClock: b.CombatClock, MasteryTier: b.MasteryTier, DeferFirstTurnTick: b.DeferFirstTurnTick,
 			SourceID:        b.SourceID,
 			Frames:          b.Frames,
 			OutBonus:        b.OutBonus,
@@ -285,10 +290,13 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 	}
 	out := make([]TimedCombatBuff, len(saves))
 	for i, s := range saves {
+		if _, err := spells.GetSpellDefinitionByID(spells.SpellID(s.SpellID)); err != nil && config.Technique(s.SpellID) != nil {
+			s.SpellID = config.TechniqueID(s.SpellID) // older saves stored the bare technique key
+		}
 		b := TimedCombatBuff{
 			Charges: max(0, s.Charges), Absorb: max(0, s.Absorb),
 			SpellID:     s.SpellID,
-			CombatClock: s.CombatClock, TechniqueTier: s.TechniqueTier, DeferFirstTurnTick: s.DeferFirstTurnTick,
+			CombatClock: s.CombatClock, MasteryTier: s.MasteryTier, DeferFirstTurnTick: s.DeferFirstTurnTick,
 			SourceID:        s.SourceID,
 			Frames:          s.Frames,
 			OutBonus:        s.OutBonus,
@@ -298,9 +306,9 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 			ResistSchool:    s.ResistSchool, // draughts: not spell-backed, school rides the save
 			ArmorBonus:      s.ArmorBonus,
 		}
-		if d := config.Technique(s.SpellID); d != nil && (s.SpellID == "phase_veil" || s.SpellID == "quickening") {
+		if d := config.TechniqueFromID(s.SpellID); d != nil {
 			b.CombatClock = true
-			applyTechniqueBuff(&b, d, s.TechniqueTier)
+			applyTechniqueBuff(&b, d, s.MasteryTier)
 		}
 		// Static source data is re-derived so a YAML rebalance reaches old saves.
 		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(s.SpellID)); err == nil {
@@ -384,9 +392,10 @@ func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
 }
 
 func applyTechniqueBuff(b *TimedCombatBuff, d *config.TechniqueDefinition, tier int) {
-	if d.Key == "phase_veil" {
+	switch d.Kind {
+	case config.TechniqueDodge:
 		b.DodgePct = config.TierValue(d.Power, tier)
-	} else {
+	case config.TechniqueHaste:
 		b.RecoveryPct, b.ExtraActions = config.TierValue(d.Power, tier), config.TierValue(d.TBPower, tier)
 	}
 }

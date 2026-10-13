@@ -28,7 +28,7 @@ func TestMonsterTBStunExpiry_ClearsRTCounterpartToo(t *testing.T) {
 	// A 1-TB-turn stun with an RT component, as every stun source in this
 	// codebase authors it (spells pair stun_duration_seconds with _turns;
 	// weapon/card stun always defaults turns to at least 1).
-	cs.applyStunDR(m, 1, 2*game.config.GetTPS(), false)
+	cs.applyStunDR(m, 1, false)
 	if m.StunTurnsRemaining != 1 || m.StunFramesRemaining <= 0 {
 		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.StunTurnsRemaining, m.StunFramesRemaining)
 	}
@@ -68,20 +68,21 @@ func TestMonsterRTStunExpiry_ClearsTBCounterpartToo(t *testing.T) {
 	// Stasis Trap: stun_turns=1, stun_seconds=2 - authored as a pair, like
 	// every stun source in this codebase.
 	tps := game.config.GetTPS()
-	cs.applyStunDR(m, 1, 2*tps, false)
+	cs.applyStunDR(m, 1, false)
 	if m.StunTurnsRemaining <= 0 || m.StunFramesRemaining <= 0 {
 		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.StunTurnsRemaining, m.StunFramesRemaining)
 	}
 
 	mw := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, frame: game.monsterFrameContext()}
-	for i := 0; i < 2*tps+1; i++ { // outlast the RT stun duration
+	stun := config.RoundFrames(1, tps)
+	for i := 0; i < stun+1; i++ { // outlast the RT stun duration
 		mw.snapshot = game.collisionSystem.Snapshot()
 		mw.Update()
 		mw.ApplyCollisionUpdate()
 	}
 
 	if m.StunFramesRemaining != 0 {
-		t.Fatalf("expected RT stun to expire after %d frames, got %d remaining", 2*tps, m.StunFramesRemaining)
+		t.Fatalf("expected RT stun to expire after %d frames, got %d remaining", stun, m.StunFramesRemaining)
 	}
 	if m.StunTurnsRemaining != 0 {
 		t.Errorf("StunTurnsRemaining still %d after RT stun expired in pure RT play - stun-star overlay would still read this monster as stunned", m.StunTurnsRemaining)
@@ -194,7 +195,7 @@ func TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound(t *testing.T) {
 			member.PoisonFramesRemaining, member.BurnFramesRemaining, wantStep)
 	}
 	wantTicks := config.CombatRoundSeconds
-	if want := 100 - wantTicks*(character.PoisonDamagePerTick+character.BurnDamagePerTick); member.HitPoints != want {
+	if want := 100 - wantTicks*(config.Status("poison").PartyDamagePerSecond+config.Status("burn").PartyDamagePerSecond); member.HitPoints != want {
 		t.Fatalf("party DoTs must deal %d ticks each per round: HP=%d, want %d", wantTicks, member.HitPoints, want)
 	}
 

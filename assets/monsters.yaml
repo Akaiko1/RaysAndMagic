@@ -32,8 +32,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 90
-        duration_seconds: 4
-        duration_rounds: 2
+        duration_seconds: 6
         sustain_damage: 8
 
   solstice_cinder_hound:
@@ -159,6 +158,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 90
+        duration_seconds: 9
 
   solstice_cistern_eel:
     name: "Cistern Eel"
@@ -191,6 +191,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 110
+        duration_seconds: 9
 
   solstice_flow_automaton:
     name: "Flow Automaton"
@@ -225,7 +226,6 @@ monsters:
         warning_rounds: 1
         damage_percent: 0
         duration_seconds: 6
-        duration_rounds: 2
 
   solstice_neressa:
     type: "formless"
@@ -241,6 +241,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 100
+        duration_seconds: 9
         below_hp_percent: 25
     name: "Neressa"
     level: 27
@@ -296,6 +297,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 75
+        duration_seconds: 6
 
   solstice_shardback_burrower:
     name: "Shardback Burrower"
@@ -570,6 +572,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 90
+        duration_seconds: 9
 
   solstice_rootbound_sentinel:
     name: "Rootbound Sentinel"
@@ -598,6 +601,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 70
+        duration_seconds: 6
 
   solstice_dusk_moth:
     flying: true
@@ -750,7 +754,7 @@ monsters:
     damage_min: 17
     damage_max: 25
     abilities:
-      poison: {chance: 0.20, duration_seconds: 20}
+      poison: {chance: 0.20, duration_seconds: 21}
     alert_radius: 4
     attack_radius: 1
     speed: 1.0
@@ -816,7 +820,7 @@ monsters:
     damage_min: 15
     damage_max: 30
     abilities:
-      poison: {chance: 0.33, duration_seconds: 23}
+      poison: {chance: 0.33, duration_seconds: 24}
     alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.3
@@ -829,7 +833,7 @@ monsters:
 
   dragon:
     type: "dragon"
-    name: "Dragon"
+    name: "Black Dragon"
     level: 23
     max_hit_points: 1650
     armor_class: 52
@@ -862,7 +866,7 @@ monsters:
   # the ordinary dragons. They differ only in element (resists/projectile/proc).
   dragon_red:
     type: "dragon"
-    name: "Dragon"
+    name: "Red Dragon"
     level: 23
     max_hit_points: 1650
     armor_class: 52
@@ -892,7 +896,7 @@ monsters:
 
   dragon_green:
     type: "dragon"
-    name: "Dragon"
+    name: "Green Dragon"
     banding: true
     level: 25
     max_hit_points: 2030
@@ -920,7 +924,7 @@ monsters:
 
   dragon_gold:
     type: "dragon"
-    name: "Dragon"
+    name: "Gold Dragon"
     level: 23
     max_hit_points: 1590       # a bit squishier but faster + longer reach
     armor_class: 52
@@ -932,8 +936,7 @@ monsters:
     abilities:
       stun:
         chance: 0.10  # 10% to stun the struck character
-        seconds: 4  # RT stun duration
-        turns: 2  # TB stun duration
+        seconds: 6  # whole 3 s rounds, the same span in TB
       dragon_breath: {chance: 0.33, damage_type: "air"}
     alert_radius: 6
     attack_radius: 2
@@ -952,12 +955,12 @@ monsters:
 
   # -- Elder Dragons (ELITE) ------------------------------------------------
   # Summoned ONLY by the four desert statues (dragon_statue_*). Dedicated elder
-  # sprites, ~1.5x HP/XP and harder hits. All named "Elder
-  # Dragon" -> type "elder_dragon", which the dragon_slayer quest matches (base
-  # wild "Dragon"s never count). No letter/biome: never map-placed or wild-spawned.
+  # sprites, ~1.5x HP/XP and harder hits. Named by color; the dragon_slayer
+  # quest lists all four (wild dragons never count). No letter/biome: never
+  # map-placed or wild-spawned.
   elder_dragon:
     type: "dragon"
-    name: "Elder Dragon"
+    name: "Elder Black Dragon"
     level: 30
     max_hit_points: 3600
     armor_class: 55
@@ -983,7 +986,7 @@ monsters:
 
   elder_dragon_red:
     type: "dragon"
-    name: "Elder Dragon"
+    name: "Elder Red Dragon"
     level: 29
     max_hit_points: 3400
     armor_class: 55
@@ -993,7 +996,7 @@ monsters:
     true_damage: 15
     attack_cooldown_multiplier: 0.75
     abilities:
-      ignite: {chance: 0.35, duration_seconds: 40}
+      ignite: {chance: 0.35, duration_seconds: 42}
       dragon_breath: {chance: 0.33, damage_type: "dark"}
     alert_radius: 5
     attack_radius: 2
@@ -1010,7 +1013,7 @@ monsters:
 
   elder_dragon_green:
     type: "dragon"
-    name: "Elder Dragon"
+    name: "Elder Green Dragon"
     level: 31
     max_hit_points: 3500
     armor_class: 72
@@ -1035,7 +1038,7 @@ monsters:
 
   elder_dragon_gold:
     type: "dragon"
-    name: "Elder Dragon"
+    name: "Elder Gold Dragon"
     level: 29
     max_hit_points: 3300
     armor_class: 55
@@ -1045,7 +1048,7 @@ monsters:
     true_damage: 15
     attack_cooldown_multiplier: 0.65
     abilities:
-      stun: {chance: 0.10, seconds: 4, turns: 2}
+      stun: {chance: 0.10, seconds: 6}
       dragon_breath: {chance: 0.33, damage_type: "air"}
     alert_radius: 6
     attack_radius: 2
@@ -1563,7 +1566,7 @@ monsters:
     attack_radius: 1
     speed: 2.6
     abilities:
-      poison: {chance: 0.12, duration_seconds: 25}
+      poison: {chance: 0.12, duration_seconds: 27}
     sprite: "thief_bug"
     letter: "t"
     size_class: medium
@@ -1939,7 +1942,7 @@ monsters:
     alert_radius: 8
     speed: 1.6
     abilities:
-      poison: {chance: 0.3, duration_seconds: 58}
+      poison: {chance: 0.3, duration_seconds: 60}
     sprite: "masked_huntress"
     letter: "h"
     size_class: person
@@ -2253,7 +2256,7 @@ monsters:
     attack_radius: 1.4
     attack_cooldown_multiplier: 0.5
     abilities:
-      stun: {chance: 0.15, seconds: 2, turns: 1}
+      stun: {chance: 0.15, seconds: 3}
     speed: 1.0
     sprite: "grandfather_clock"
     letter: "g"
@@ -2354,7 +2357,7 @@ monsters:
     speed: 1.3
     boss: true
     abilities:
-      stun: {chance: 0.15, seconds: 6, turns: 2}
+      stun: {chance: 0.15, seconds: 6}
       melt_armor: {chance: 1.0}
       teleport: {at_hp: 1720, chance: 0.15}
       summon: {chance: 0.22, monsters: ["deathbound_mummy"], count: 2, max: 4}
@@ -2388,7 +2391,7 @@ monsters:
     projectile_spell: "lightning"
     ranged_attack_range: 5
     abilities:
-      stun: {chance: 0.20, seconds: 6, turns: 2}
+      stun: {chance: 0.20, seconds: 6}
       teleport: {at_hp: 2170, chance: 0.20}
       summon: {chance: 0.10, monsters: ["enforcer_alien"], count: 2, max: 4}
       enrage: {at_hp: 1920, damage_mult: 1.4, cooldown_mult: 0.7}
@@ -2553,7 +2556,7 @@ monsters:
     banding: true
     band_group: unbroken_trial
     abilities:
-      root_party: {chance: 0.07, seconds: 2, turns: 1}
+      root_party: {chance: 0.07, seconds: 3}
     name: Bronze Gatekeeper
     level: 20
     max_hit_points: 950

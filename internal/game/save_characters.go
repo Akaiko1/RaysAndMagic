@@ -1,6 +1,7 @@
 package game
 
 import (
+	"cmp"
 	"maps"
 	"math"
 	"ugataima/internal/character"
@@ -27,7 +28,8 @@ func normalizeItemFromConfig(item *items.Item) {
 		return
 	}
 	if item.Type == items.ItemTechnique {
-		if fresh, ok := config.TechniqueItem(string(item.SpellEffect)); ok {
+		// Older saves kept the technique key in SpellEffect.
+		if fresh, ok := config.TechniqueItem(cmp.Or(item.Technique, string(item.SpellEffect))); ok {
 			*item = fresh
 		}
 		return

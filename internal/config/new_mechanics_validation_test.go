@@ -29,6 +29,11 @@ func TestValidateWeaponConfigRejectsIncompleteNewMechanics(t *testing.T) {
 		{"poison duration without chance", func(w *WeaponDefinitionConfig) { w.PoisonSeconds = 5 }},
 		{"slow over one hundred", func(w *WeaponDefinitionConfig) { w.SlowPct, w.SlowSeconds = 101, 5 }},
 		{"weaken without duration", func(w *WeaponDefinitionConfig) { w.WeakenPct = 25 }},
+		{"stun chance without duration", func(w *WeaponDefinitionConfig) { w.StunChance = 0.1 }},
+		{"root for part of a round", func(w *WeaponDefinitionConfig) { w.RootChance, w.RootSeconds = 0.1, 4 }},
+		{"shred for part of a round", func(w *WeaponDefinitionConfig) { w.ArmorShredPct, w.ArmorShredSeconds = 20, 10 }},
+		{"poison for part of a round", func(w *WeaponDefinitionConfig) { w.PoisonChance, w.PoisonSeconds = 0.2, 20 }},
+		{"slow off the skip step", func(w *WeaponDefinitionConfig) { w.SlowPct, w.SlowSeconds = 30, 6 }},
 		{"partial death burst", func(w *WeaponDefinitionConfig) { w.DeathBurstDamage = 10 }},
 		{"negative true damage", func(w *WeaponDefinitionConfig) { w.TrueDamage = -1 }},
 		{"echo over one hundred", func(w *WeaponDefinitionConfig) { w.SpellEchoPct = 101 }},
@@ -51,13 +56,16 @@ func TestValidateWeaponConfigRejectsIncompleteNewMechanics(t *testing.T) {
 
 func TestValidateWeaponConfigAcceptsCompleteNewMechanics(t *testing.T) {
 	weapon := validMechanicTestWeapon()
-	weapon.IgniteChance, weapon.IgniteSeconds = 0.25, 5
-	weapon.PoisonChance, weapon.PoisonSeconds = 0.2, 10
+	weapon.IgniteChance, weapon.IgniteSeconds = 0.25, 6
+	weapon.PoisonChance, weapon.PoisonSeconds = 0.2, 12
+	weapon.StunChance, weapon.StunSeconds = 0.1, 9
+	weapon.RootChance, weapon.RootSeconds = 0.1, 6
+	weapon.ArmorShredPct, weapon.ArmorShredSeconds = 20, 15
 	weapon.ExecuteBelowPct = 15
 	weapon.DeathBurstDamage, weapon.DeathBurstRadiusTiles = 20, 2
 	weapon.TrueDamage = 5
-	weapon.SlowPct, weapon.SlowSeconds = 20, 4
-	weapon.WeakenPct, weapon.WeakenSeconds = 25, 5
+	weapon.SlowPct, weapon.SlowSeconds = 20, 9
+	weapon.WeakenPct, weapon.WeakenSeconds = 25, 6
 	weapon.SpellEchoPct = 10
 	weapon.TBActionsPerRound = 3
 
@@ -67,22 +75,16 @@ func TestValidateWeaponConfigAcceptsCompleteNewMechanics(t *testing.T) {
 	}
 }
 
-func TestWeaponStatusTurnsMatchesSharedTooltipFormula(t *testing.T) {
-	previous := GlobalConfig
-	t.Cleanup(func() { GlobalConfig = previous })
-	if _, err := LoadConfig("../../config.yaml"); err != nil {
-		t.Fatal(err)
-	}
-	if got := WeaponStatusTurns(5); got != 3 {
-		t.Fatalf("WeaponStatusTurns(5) = %d, want 3", got)
-	}
-	weapon := &WeaponDefinitionConfig{SlowPct: 30, SlowSeconds: 5}
+// A weapon's status lasts its seconds in RT and the same span in TB turns,
+// written the one shared way.
+func TestWeaponStatusTooltipUsesSharedDuration(t *testing.T) {
+	weapon := &WeaponDefinitionConfig{SlowPct: 30, SlowSeconds: 9, StunChance: 0.1, StunSeconds: 3}
 	lines := strings.Join(weapon.CoreEffectLines(), "\n")
-	if !strings.Contains(lines, "5s RT / 3 turns TB") {
-		t.Fatalf("weapon status tooltip does not use shared duration formula:\n%s", lines)
+	if want := fmt.Sprintf("by 30%% for 9s / 3 TB turns (TB: skips one turn in %d)", SlowSkipEveryTurns()); !strings.Contains(lines, want) {
+		t.Fatalf("slow tooltip does not state the shared duration and TB skip cadence %q:\n%s", want, lines)
 	}
-	if want := fmt.Sprintf("by 30%% for 5s RT / 3 turns TB (TB: skips one turn in %d)", SlowSkipEveryTurns()); !strings.Contains(lines, want) {
-		t.Fatalf("slow tooltip does not state the TB skip cadence %q:\n%s", want, lines)
+	if !strings.Contains(lines, "Stun Chance: 10% (3s / 1 TB turn)") {
+		t.Fatalf("stun tooltip does not use the shared duration:\n%s", lines)
 	}
 }
 

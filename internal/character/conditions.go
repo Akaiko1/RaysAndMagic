@@ -1,5 +1,7 @@
 package character
 
+import "ugataima/internal/config"
+
 type Condition int
 
 const (
@@ -18,36 +20,45 @@ const (
 	ConditionStunned // skips actions (RT frames / TB turns)
 )
 
-// String returns the display name of the condition (Stringer interface).
+// String returns the display name of the condition (Stringer interface): the
+// status table's name for its row.
 func (c Condition) String() string {
-	switch c {
-	case ConditionNormal:
+	if c == ConditionNormal {
 		return "OK"
-	case ConditionPoisoned:
-		return "Poisoned"
-	case ConditionDiseased:
-		return "Diseased"
-	case ConditionCursed:
-		return "Cursed"
-	case ConditionAsleep:
-		return "Asleep"
-	case ConditionFear:
-		return "Fear"
-	case ConditionParalyzed:
-		return "Paralyzed"
-	case ConditionUnconscious:
-		return "Unconscious"
-	case ConditionDead:
-		return "Dead"
-	case ConditionStone:
-		return "Stone"
-	case ConditionEradicated:
-		return "Eradicated"
-	case ConditionBurning:
-		return "Burning"
-	case ConditionStunned:
-		return "Stunned"
-	default:
-		return "Unknown"
 	}
+	if key := c.StatusKey(); key != "" {
+		return config.Status(key).Name
+	}
+	return "Unknown"
+}
+
+// StatusKey is the condition's row in assets/statuses.yaml ("" for Normal).
+func (c Condition) StatusKey() string {
+	switch c {
+	case ConditionPoisoned:
+		return "poison"
+	case ConditionDiseased:
+		return "diseased"
+	case ConditionCursed:
+		return "cursed"
+	case ConditionAsleep:
+		return "asleep"
+	case ConditionFear:
+		return "fear"
+	case ConditionParalyzed:
+		return "paralyzed"
+	case ConditionUnconscious:
+		return "unconscious"
+	case ConditionDead:
+		return "dead"
+	case ConditionStone:
+		return "stone"
+	case ConditionEradicated:
+		return "eradicated"
+	case ConditionBurning:
+		return "burn"
+	case ConditionStunned:
+		return "stun"
+	}
+	return ""
 }

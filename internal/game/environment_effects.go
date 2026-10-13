@@ -34,13 +34,34 @@ func effectDamage(e config.EnvironmentEffect, lo, hi int) config.EnvironmentEffe
 	return e
 }
 
+// AdventureHazard is a chamber effect's damage at a visit level: on a hit, or
+// per second for occupation and a lane's lingering field.
+type AdventureHazard struct {
+	Name, Kind              string
+	Percent, SustainPercent int
+	Damage, Sustain         int
+}
+
+// AdventureHazards resolves every damaging chamber effect at a visit level.
+func AdventureHazards(s config.AdventureScalingConfig, a *config.AdventureConfig, level int) []AdventureHazard {
+	lo, hi := adventureBossAttack(s, a, &AdventureVisit{Level: level})
+	var out []AdventureHazard
+	for _, e := range a.Effects {
+		if e.Damaging() {
+			r := effectDamage(e, lo, hi)
+			out = append(out, AdventureHazard{Name: e.Name, Kind: e.Kind, Percent: e.DamagePercent, SustainPercent: e.SustainPercent, Damage: r.Damage, Sustain: r.SustainDamage})
+		}
+	}
+	return out
+}
+
 // percentOfAttack is a percent of the average of an attack range: the one
 // rule for telegraphs and chamber hazards.
 func percentOfAttack(lo, hi, percent int) int { return (lo + hi) * percent / 200 }
 
 // adventureBossAttack is the map boss's attack range at the visit's level
 // (load validation guarantees a leveled, attacking boss for percent damage).
-func adventureBossAttack(a *config.AdventureConfig, v *AdventureVisit) (int, int) {
+func adventureBossAttack(s config.AdventureScalingConfig, a *config.AdventureConfig, v *AdventureVisit) (int, int) {
 	if a == nil || a.Boss == nil || monster.MonsterConfig == nil {
 		return 0, 0
 	}
@@ -52,7 +73,7 @@ func adventureBossAttack(a *config.AdventureConfig, v *AdventureVisit) (int, int
 	if v != nil && v.Level > 0 {
 		level = v.Level
 	}
-	return adventureDamageRange(d, level)
+	return adventureDamageRange(s, d, d.Boss, level)
 }
 
 // applyAdventureBossArmor sets the map boss's armor: its armor at the visit's
@@ -75,7 +96,7 @@ func (g *MMGame) applyAdventureBossArmor(m *monster.Monster3D, a *config.Adventu
 			removed += c.ArmorReductionPercent
 		}
 	}
-	m.ArmorClass = adventureArmorClass(d, level)
+	m.ArmorClass = adventureArmorClass(g.config.AdventureScaling, d, level)
 	if removed > 0 {
 		m.ArmorClass = max(a.Boss.ArmorFloor, m.ArmorClass*max(0, 100-removed)/100)
 	}
@@ -176,7 +197,7 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 	tx, ty := g.GetPlayerTilePosition()
 	continuous := g.monsterFieldExposures(dt)
 	releaseTransfers := false
-	lo, hi := adventureBossAttack(a, v)
+	lo, hi := adventureBossAttack(g.config.AdventureScaling, a, v)
 	for _, e := range a.Effects {
 		e = effectDamage(e, lo, hi)
 		s := v.effectState(e.ID)
@@ -217,16 +238,14 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 				}
 				continue
 			}
+			// Whole rounds: the field spans the same seconds in both modes.
+			span := float64(e.DurationSeconds)
 			if s.Remaining > 0 && inside && e.SustainDamage > 0 {
-				span := e.DurationSeconds
-				if tb {
-					span = float64(e.DurationRounds) * 3
-				}
 				field := e
 				field.Damage = e.SustainDamage
 				continuous = append(continuous, environmentExposure{effect: field, seconds: min(dt, s.Remaining*span)})
 			}
-			s.Remaining = advanceEnvironmentBudget(s.Remaining, e.DurationSeconds, e.DurationRounds, dt, tb)
+			s.Remaining = advanceEnvironmentBudget(s.Remaining, span, config.CombatRounds(e.DurationSeconds), dt, tb)
 			continue
 		}
 		if e.Kind == "occupation" && inside {
@@ -314,7 +333,7 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 	v := g.adventureVisit(key)
 	tx, ty := g.GetPlayerTilePosition()
 	transferred := false
-	lo, hi := adventureBossAttack(a, v)
+	lo, hi := adventureBossAttack(g.config.AdventureScaling, a, v)
 	for _, e := range a.Effects {
 		e = effectDamage(e, lo, hi)
 		s := v.effectState(e.ID)

@@ -29,9 +29,9 @@ func TestAIMovementRestrictions(t *testing.T) {
 					case "stationary":
 						m.Speed = 0
 					case "root":
-						g.combat.applyMonsterRoot(m, 1, 1)
+						g.combat.applyMonsterRoot(m, 1)
 					case "stun":
-						g.combat.applyStunDR(m, 1, 1, false)
+						g.combat.applyStunDR(m, 1, false)
 					case "slow":
 						m.ApplySlow(100, 2*g.config.GetTPS(), 2)
 					}
@@ -88,9 +88,9 @@ func TestAISocialMovementRestrictions(t *testing.T) {
 						case "stationary":
 							pinned.Speed = 0
 						case "stun":
-							g.combat.applyStunDR(pinned, 1, 1, false)
+							g.combat.applyStunDR(pinned, 1, false)
 						case "root":
-							g.combat.applyMonsterRoot(pinned, 1, 1)
+							g.combat.applyMonsterRoot(pinned, 1)
 						case "slow":
 							pinned.ApplySlow(100, 2*g.config.GetTPS(), 2)
 						}

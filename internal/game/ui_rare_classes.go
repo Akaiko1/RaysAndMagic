@@ -417,7 +417,7 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 	ui.rareBookItem(screen, it, p.icon, c)
 	ui.rareBookText(screen, d.Name, p.name)
 	action := "1 action"
-	if d.FreeStep {
+	if d.IsStep() {
 		action = "No action cost"
 	}
 	ui.rareBookText(screen, fmt.Sprintf("%d SP | %s", g.techniqueSPCost(c, d), action), p.cost)
@@ -447,16 +447,16 @@ func techniqueMagnitude(c *character.MMCharacter, d *config.TechniqueDefinition,
 		}
 		return tierValueText(c != nil, tier, values)
 	}
-	switch d.Key {
-	case "fold_step":
+	switch d.Kind {
+	case config.TechniqueFoldStep:
 		return fmt.Sprintf("Range %d-%s tiles | Anchor %ss", d.MinRange, v(d.Range), v(d.Duration))
-	case "phase_veil":
+	case config.TechniqueDodge:
 		return fmt.Sprintf("%s | %ss", uitext.Text("buff.dodge", v(d.Power)), v(d.Duration))
-	case "quickening":
+	case config.TechniqueHaste:
 		return fmt.Sprintf("%s | %s | %ss", uitext.Text("buff.rt_recovery", v(d.Power)), uitext.Text("buff.tb_pool", v(d.TBPower)), v(d.Duration))
-	case "purify":
+	case config.TechniquePurify:
 		return "Every affliction, root and slow | No healing or revival"
-	case "return_step":
+	case config.TechniqueReturnStep:
 		if c == nil {
 			return "Any distance, same map"
 		}

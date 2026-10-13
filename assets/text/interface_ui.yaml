@@ -18,20 +18,6 @@ ui.overwatch_chances: "Enemy approach: %d%% per tile; attack: %.0f%% (in range a
 
 # Party-wide card statuses, and short status names for a card too narrow for
 # the full list.
-ui.status_rooted: "Rooted"
-ui.status_slowed: "Slowed"
-ui.status_armor_melted: "Armor melted"
-ui.status_short_poisoned: "Poison"
-ui.status_short_diseased: "Disease"
-ui.status_short_cursed: "Curse"
-ui.status_short_asleep: "Sleep"
-ui.status_short_paralyzed: "Para"
-ui.status_short_unconscious: "KO"
-ui.status_short_burning: "Burn"
-ui.status_short_stunned: "Stun"
-ui.status_short_rooted: "Root"
-ui.status_short_slowed: "Slow"
-ui.status_short_armor_melted: "Melt"
 
 combat.overwatch_fires: "%s fires Overwatch at %s!"
 combat.overwatch_source: "%s (Overwatch)"

@@ -9,7 +9,6 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
-	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -154,7 +153,7 @@ func TestSlowRealtimeCadence(t *testing.T) {
 func TestSlowTurnBasedSkipCadence(t *testing.T) {
 	trident := tarnTrident(t)
 	const every = 3 // fixture cadence, set on the loaded config below
-	slowTurns := config.WeaponStatusTurns(trident.SlowSeconds)
+	slowTurns := config.CombatRounds(trident.SlowSeconds)
 	turns := max(2*every, slowTurns+every)
 	// cadence is the expected run: x acted, - skipped (every k-th turn while slowed).
 	cadence := func(slowedTurns int) string {
@@ -242,9 +241,10 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 		for _, sc := range scenarios {
 			t.Run(a.name+"/"+sc.name, func(t *testing.T) {
 				g, gl, wm := clockSaveFixture(t)
-				prevEvery := config.GlobalConfig.StatusEffects.SlowSkipEveryTurns
-				config.GlobalConfig.StatusEffects.SlowSkipEveryTurns = every
-				t.Cleanup(func() { config.GlobalConfig.StatusEffects.SlowSkipEveryTurns = prevEvery })
+				slow := config.Status("slow")
+				prevEvery := slow.SkipEveryTurns
+				slow.SkipEveryTurns = every
+				t.Cleanup(func() { slow.SkipEveryTurns = prevEvery })
 				g.turnBasedMode = true
 				ts := float64(g.config.GetTileSize())
 				for _, c := range g.party.Members {
@@ -288,7 +288,7 @@ func TestSlowSkippedTurnStillTicksRoot(t *testing.T) {
 	m := monster.NewMonster3DFromConfig(400, 400, "goblin", g.config)
 	g.world.Monsters = []*monster.Monster3D{m}
 	g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.combat.applyMonsterRoot(m, 5, 5*config.CombatRoundSeconds*g.config.GetTPS())
+	g.combat.applyMonsterRoot(m, 5)
 	for turn := 1; turn <= 3; turn++ {
 		m.ApplySlow(30, 10*g.config.GetTPS(), 5)
 		runOneMonsterTurn(g, gl)
@@ -405,7 +405,7 @@ func TestTurnDebuffLatchesSurviveSave(t *testing.T) {
 		name  string
 		apply func(g *MMGame, m *monster.Monster3D)
 	}{
-		{"root", func(g *MMGame, m *monster.Monster3D) { g.combat.applyMonsterRoot(m, 1, g.config.GetTPS()) }},
+		{"root", func(g *MMGame, m *monster.Monster3D) { g.combat.applyMonsterRoot(m, 1) }},
 		{"slow", func(g *MMGame, m *monster.Monster3D) { m.ApplySlow(30, g.config.GetTPS(), 1) }},
 		{"weaken", func(g *MMGame, m *monster.Monster3D) { m.ApplyWeaken(25, g.config.GetTPS(), 1) }},
 	} {
@@ -607,10 +607,11 @@ func TestHeroStunDiminishingReturns(t *testing.T) {
 				c := g.party.Members[0]
 				c.Conditions = nil
 				mob := monster.NewMonster3DFromConfig(400, 400, "goblin", g.config)
-				mob.Abilities.Stun.Chance, mob.Abilities.Stun.Seconds, mob.Abilities.Stun.Turns = 1, 4, 4
-				full, window := 4*tps, status.StunDRResetSeconds*tps
+				mob.Abilities.Stun.Chance, mob.Abilities.Stun.Seconds = 1, 4*config.CombatRoundSeconds
+				resetRounds := config.CombatRounds(config.Status("stun").RepeatResetSeconds)
+				full, window := config.RoundFrames(4, tps), config.RoundFrames(resetRounds, tps)
 				if tb {
-					full, window = 4, status.StunDRResetTurns
+					full, window = 4, resetRounds
 				}
 				advance := func() {
 					if tb {

@@ -96,26 +96,27 @@ multiplier or recompute a saved remaining timer from a full lifetime.
 
 Haste authors its own duration, `power_by_mastery` (RT recovery %) and
 `extra_actions_by_mastery` (party bonus actions per TB round); the Quickening
-technique keeps separate values in `assets/techniques.yaml`. Its
-`mechanic.technique` link only shares Quickening's eligibility and no-stacking rule. Frozen Ground's main ladder
+technique keeps separate values in `assets/techniques.yaml`. The two share only
+the haste effect's eligibility check and no-stacking rule. Frozen Ground's main ladder
 controls roots; `mechanic.water_freeze_seconds` separately controls how long its
-water crossing lasts, without mastery scaling. Existing stun RT/TB durations,
-Charm/Bind timers, reuse, action recovery and visual animation timings remain
-independent fields with their own units; they are not spell-lifetime multipliers.
+water crossing lasts, without mastery scaling. Stun, Charm and Bind durations
+(one seconds field each, whole 3 s rounds, the same span in RT and TB), reuse,
+action recovery and visual animation timings are independent fields; they are
+not spell-lifetime multipliers.
 
 ## Supported projectile fields
 
 - `projectile_size`, `cooldown_seconds`
 - `aoe_radius_tiles` (splash radius; 0 = single-target, >0 splashes all monsters within N tiles)
 - damage tuning: `damage_cost_multiplier`, `scales_with_personality`, `deals_no_damage`
-- riders: `stun_chance` + `stun_duration_seconds`/`stun_duration_turns` (Lightning, Psychic Shock), `disintegrate_chance` (instakill roll), `bind_undead` + `bind_duration_seconds`, `pacify` + `pacify_duration_seconds` (Charm), `starburst_fx`
+- riders: `stun_chance` + `stun_duration_seconds` (Lightning, Psychic Shock), `disintegrate_chance` (instakill roll), `bind_undead` + `bind_duration_seconds`, `pacify` + `pacify_duration_seconds` (Charm), `starburst_fx`
 - `physics` (`speed_tiles`, `range_tiles`, `hitbox`), `graphics`. `hitbox` is `standard` (0.5 tile: bolts, arrows) or `wide` (1.0 tile: large shots such as fireball; speed is `speed_tiles` alone); area damage comes from `aoe_radius_tiles`, not the hitbox. A raw `collision_size_tiles` is rejected at load.
 
 ## Supported utility fields
 
 - healing: `heal_amount`, `heal_party` (Mass Heal), `revive` + `full_heal` (Resurrect), `revive_hp_pct` (Raise Dead)
 - party buffs: `stat_bonus`, `resist_buff_pct`, `outgoing_damage_bonus`, `incoming_damage_reduction`, `duration_by_mastery`
-- AoE: `stun_radius_tiles` + `stun_duration_seconds`/`stun_duration_turns` (Stun/Darkness), `party_aoe_radius_tiles` (Inferno nova), `zone_radius_tiles` + `zone_tick_damage` + `zone_tick_seconds` (Hot Steam)
+- AoE: `stun_radius_tiles` + `stun_duration_seconds` (Stun/Darkness), `party_aoe_radius_tiles` (Inferno nova), `zone_radius_tiles` + `zone_tick_damage` + `zone_tick_seconds` (Hot Steam)
 - world: `water_walk`, `water_breathing`, `vision_bonus` (see note below), `awaken`
 - presentation: `message`, `status_icon` (HUD icon for active utility spells)
 - unknown fields are rejected by the strict YAML loader; fix typos before launch
@@ -206,11 +207,13 @@ returns; Feeblemind rolls resistance without DR. Feeblemind cannot refresh an
 active silence; `reapply_immunity_seconds` begins after silence ends and persists
 in saves.
 
-`mechanic.autocast` selects a supported shared trigger; `mechanic.technique`
-reuses a class technique's magnitude. `autocast_interval_rounds` in the shared
+`mechanic.autocast: true` lets the caster set the spell to cast itself; the
+trigger belongs to the mechanic kind (haste, purify, dispel_magic and
+celestial_armor have one). `autocast_interval_rounds` in the shared
 technique configuration defines the personal automatic budget: automatic casts
 pay mana but no action or RT recovery, and share that budget with automatic
-class techniques. Manual casts retain normal action and recovery costs.
+class techniques. Manual casts retain normal action and recovery costs; a manual
+TB Haste, Purify or Dispel Magic does not grant monsters the movement pass.
 
 Optional top-level `reuse_seconds` is a separate personal spell lockout, started
 only by a successful cast. It uses integer frames, advances by a combat round in

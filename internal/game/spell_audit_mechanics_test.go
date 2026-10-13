@@ -7,6 +7,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/threading/entities"
@@ -364,7 +365,7 @@ func TestCooldownShowsQuickeningOnlyWhileActive(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			char := cs.game.party.Members[0]
 			if active {
-				cs.game.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 600, RecoveryPct: 20})
+				cs.game.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 600, RecoveryPct: 20})
 			}
 			card := GetSpellTooltipRows("fireball", char, cs, true).String()
 			if got := strings.Contains(card, "Quickening: -20% recovery"); got != active {

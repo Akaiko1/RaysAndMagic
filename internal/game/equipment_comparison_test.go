@@ -297,6 +297,35 @@ func TestEquipmentComparisonMechanicsAndContext(t *testing.T) {
 	if cs.game.party.Members[0] != ch {
 		t.Fatal("preview changed party membership")
 	}
+	// Live world state reaches the preview like the equipped weapon: at night
+	// Duskneedle doubles its base (Amber Talisman's bonus included) and the
+	// party hinder stretches recovery. Expected numbers come from equipping.
+	cs.game.party.Members = cs.game.party.Members[:1]
+	delete(ch.Skills, character.SkillDualWielding)
+	cs.game.dayNightIsNight = true
+	hinder := PartyHinderState{Slow: 1, Window: 2}
+	cs.game.partyHinder = hinder
+	dusk, bow := items.CreateWeaponFromYAML("duskneedle"), items.CreateWeaponFromYAML("long_bow")
+	ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: dusk, items.SlotAmulet: items.CreateItemFromYAML("amber_talisman")}
+	duskDamage := cs.calculateWeaponDamagePreview(dusk, ch).Total
+	text := GetItemComparisonTooltipRows(bow, ch, cs).String()
+	ch.Equipment[items.SlotMainHand] = bow
+	bowDamage := cs.calculateWeaponDamagePreview(bow, ch).Total
+	if duskDamage == bowDamage {
+		t.Fatalf("fixture lost its night difference: %d", duskDamage)
+	}
+	assertComparisonDelta(t, text, "Damage / hit", duskDamage, bowDamage, "")
+	if card, want := GetItemTooltipRows(dusk, ch, cs, false).String(), fmt.Sprintf("Total Damage: %d", duskDamage); !strings.Contains(card, want) {
+		t.Errorf("bag card missed the night: want %s\n%s", want, card)
+	}
+	copy, copyCS = equipmentComparisonContext(cs, ch)
+	cs.game.partyHinder = PartyHinderState{}
+	free := cs.WeaponCooldownFramesFor(ch, bow.Name)
+	cs.game.partyHinder = hinder
+	if live := cs.WeaponCooldownFramesFor(ch, bow.Name); live == free || copyCS.WeaponCooldownFramesFor(copy, bow.Name) != live {
+		t.Errorf("preview recovery %d, live %d, unhindered %d", copyCS.WeaponCooldownFramesFor(copy, bow.Name), live, free)
+	}
+	cs.game.dayNightIsNight, cs.game.partyHinder = false, PartyHinderState{}
 	ch.Skills = nil
 	if text := GetItemComparisonTooltipRows(items.CreateItemFromYAML("golden_armor"), ch, cs).String(); !strings.Contains(text, "Cannot equip: requirements not met") {
 		t.Fatal("missing eligibility warning")
@@ -376,7 +405,7 @@ func TestEquipmentComparisonDeltaColors(t *testing.T) {
 		{"Armor Class: 10 -> 15 (+5)", color.RGBA{120, 225, 135, 255}},
 		{"Speed: 60 -> 50 (-10)", color.RGBA{245, 135, 120, 255}},
 		{"RT recovery: 1.0s -> 0.7s", color.White},
-		{"Gain: Hostile statuses on the wearer last 50% as long", color.White},
+		{"Gain: Hostile statuses on the wearer last 50% as long (rounds 1/2/3/4 -> 1/1/2/2)", color.White},
 	} {
 		t.Run(tc.line, func(t *testing.T) {
 			if got := equipmentComparisonColors([]string{tc.line}, nil)[0]; got != tc.want {

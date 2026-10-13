@@ -31,9 +31,8 @@ func TestWeaponTooltipSurfacesEveryAuthoredEffect(t *testing.T) {
 				want = append(want, lines...)
 			}
 		}
-		// Stun spells out RT seconds and TB turns; an unset stun_turns stuns one turn.
-		turns := max(1, def.StunTurns)
-		add("stun", def.StunChance > 0, fmt.Sprintf("Stun Chance: %.0f%% (%ds RT / %d turns TB)", def.StunChance*100, turns, turns))
+		// Stun spells out its seconds and the same span in TB turns.
+		add("stun", def.StunChance > 0, fmt.Sprintf("Stun Chance: %.0f%% (%s)", def.StunChance*100, config.DurationText(def.StunSeconds)))
 		add("disintegrate", def.DisintegrateChance > 0, fmt.Sprintf("Disintegrate Chance: %.0f%% (undead and dragons immune; bosses take %d true damage)", def.DisintegrateChance*100, config.DisintegrateBossTrueDamage))
 		add("spell_cooldown", def.SpellCooldownMultiplier > 0 && def.SpellCooldownMultiplier != 1,
 			fmt.Sprintf("Spell cooldown %+.0f%%", (def.SpellCooldownMultiplier-1)*100))

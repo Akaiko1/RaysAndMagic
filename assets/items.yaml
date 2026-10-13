@@ -2281,7 +2281,7 @@ items:
     name: "Forest Spider Card"
     type: "card"
     card_poison_proc_pct: 15
-    card_poison_duration_sec: 20
+    card_poison_duration_sec: 21
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a forest spider, mandibles glistening."
     rarity: "legendary"
@@ -2422,7 +2422,7 @@ items:
     name: "Sewer Rat Card"
     type: "card"
     card_poison_proc_pct: 12
-    card_poison_duration_sec: 20
+    card_poison_duration_sec: 21
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a sewer rat, teeth bared in the dark."
     rarity: "legendary"
@@ -2460,7 +2460,7 @@ items:
     name: "Spider Card"
     type: "card"
     card_poison_proc_pct: 15
-    card_poison_duration_sec: 20
+    card_poison_duration_sec: 21
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a spider, legs folded over its prey."
     rarity: "legendary"
@@ -3387,7 +3387,7 @@ items:
       - 0
       - 0
       - 0
-      burn_seconds: [3, 5, 7, 9]
+      burn_seconds: [3, 6, 9, 9]
       range_tiles: 6
       radius_tiles: 2
       cooldown_seconds: 3

@@ -200,34 +200,36 @@ func TestAdventureTerrainCadence(t *testing.T) {
 func TestAdventureScalingIsIdempotent(t *testing.T) {
 	cfg := loadTestConfig(t)
 	for _, tc := range []struct {
-		key                             string
-		level, hp, damageMin, damageMax int
+		key                                 string
+		level, hp, damageMin, damageMax, xp int
 	}{
-		{"solstice_aureth", 27, 3150, 40, 60},
-		{"solstice_aureth", 34, 6388, 60, 89},
-		{"solstice_aureth", 35, 7067, 63, 95},
-		{"solstice_aureth", 36, 7564, 67, 100},
-		{"solstice_aureth", 40, 9555, 84, 126},
-		{"solstice_aureth", 45, 12043, 112, 167},
-		{"solstice_aureth", 50, 14531, 148, 223},
-		{"solstice_aureth", 60, 19506, 262, 394},
-		{"solstice_talura", 35, 7057, 60, 89},
-		{"solstice_talura", 50, 14511, 140, 210},
-		{"solstice_ember_elemental", 35, 2249, 75, 109},
-		{"solstice_ember_elemental", 50, 4099, 176, 255},
+		{"solstice_aureth", 27, 3150, 40, 60, 4220},
+		{"solstice_aureth", 34, 6388, 65, 98, 7333},
+		{"solstice_aureth", 35, 7067, 70, 105, 7848},
+		{"solstice_aureth", 36, 7564, 75, 113, 8379},
+		{"solstice_aureth", 40, 9555, 99, 149, 10682},
+		{"solstice_aureth", 45, 12043, 141, 212, 13952},
+		{"solstice_aureth", 50, 14531, 161, 241, 17658},
+		{"solstice_aureth", 60, 19506, 200, 299, 26378},
+		{"solstice_aureth", 75, 26970, 258, 387, 42728},
+		{"solstice_talura", 35, 7057, 65, 98, 7848},
+		{"solstice_talura", 50, 14511, 150, 225, 17658},
+		{"solstice_ember_elemental", 35, 2249, 75, 109, 1728},
+		{"solstice_ember_elemental", 50, 4051, 151, 218, 3888},
+		{"solstice_ember_elemental", 75, 7525, 242, 351, 9408},
 	} {
 		t.Run(fmt.Sprintf("%s/%d", tc.key, tc.level), func(t *testing.T) {
 			m := monster.NewMonster3DFromConfig(0, 0, tc.key, cfg)
 			for _, level := range []int{tc.level, tc.level, 6, tc.level} {
-				scaleAdventureMonster(m, level)
+				scaleAdventureMonster(cfg.AdventureScaling, m, level)
 				if level == 6 {
 					if m.MaxHitPoints >= tc.hp || m.DamageMax >= tc.damageMax || m.Level != 6 {
 						t.Fatal("downscale failed")
 					}
 					continue
 				}
-				if m.Level != tc.level || m.MaxHitPoints != tc.hp || m.HitPoints != tc.hp || m.DamageMin != tc.damageMin || m.DamageMax != tc.damageMax {
-					t.Fatalf("level=%d HP=%d/%d damage=%d..%d; want level=%d HP=%d damage=%d..%d", m.Level, m.HitPoints, m.MaxHitPoints, m.DamageMin, m.DamageMax, tc.level, tc.hp, tc.damageMin, tc.damageMax)
+				if m.Level != tc.level || m.MaxHitPoints != tc.hp || m.HitPoints != tc.hp || m.DamageMin != tc.damageMin || m.DamageMax != tc.damageMax || m.Experience != tc.xp {
+					t.Fatalf("level=%d HP=%d/%d damage=%d..%d XP=%d; want level=%d HP=%d damage=%d..%d XP=%d", m.Level, m.HitPoints, m.MaxHitPoints, m.DamageMin, m.DamageMax, m.Experience, tc.level, tc.hp, tc.damageMin, tc.damageMax, tc.xp)
 				}
 			}
 		})
@@ -290,7 +292,7 @@ func TestAdventureScalingSaveProvenance(t *testing.T) {
 				m.HomeMap = key
 				switch kind {
 				case "authored", "charmed":
-					scaleAdventureMonster(m, 56)
+					scaleAdventureMonster(g.config.AdventureScaling, m, 56)
 					if kind == "charmed" {
 						m.Bound, m.CharmedByParty, m.BoundFramesRemaining = true, true, 100000
 					}
@@ -302,7 +304,7 @@ func TestAdventureScalingSaveProvenance(t *testing.T) {
 							m.HomeMap = key
 						}
 					}
-					scaleAdventureMonster(m, 56)
+					scaleAdventureMonster(g.config.AdventureScaling, m, 56)
 				case "boss_add":
 					m.SummonedBy, m.QuestProgressIgnored = "boss-owner", true
 				case "quest":
@@ -381,8 +383,8 @@ func TestAdventurePercentDamageFollowsTheBoss(t *testing.T) {
 	previous := 0
 	for _, level := range []int{27, 35, 45} {
 		boss := monster.NewMonster3DFromConfig(0, 0, a.Boss.Monster, cfg)
-		scaleAdventureMonster(boss, level)
-		lo, hi := adventureBossAttack(a, &AdventureVisit{Level: level})
+		scaleAdventureMonster(cfg.AdventureScaling, boss, level)
+		lo, hi := adventureBossAttack(cfg.AdventureScaling, a, &AdventureVisit{Level: level})
 		if lo != boss.DamageMin || hi != boss.DamageMax {
 			t.Fatalf("L%d: hazard attack %d-%d, scaled boss %d-%d", level, lo, hi, boss.DamageMin, boss.DamageMax)
 		}

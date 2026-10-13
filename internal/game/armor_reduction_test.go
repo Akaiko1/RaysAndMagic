@@ -494,7 +494,7 @@ func TestGoldenCarapace_NonPhysicalImmunity(t *testing.T) {
 }
 
 // A melting monster's melee and projectile hits melt the struck hero's armor
-// for config.ArmorMeltRounds (TB) or the same span in RT; its abilities do not,
+// for meltRounds() (TB) or the same span in RT; its abilities do not,
 // and a monster without the melt_armor ability never does. Each row enters through
 // the game's own attack path.
 func TestMeltArmor_MeleeAndProjectilesMelt(t *testing.T) {
@@ -556,9 +556,9 @@ func TestMeltArmor_MeleeAndProjectilesMelt(t *testing.T) {
 				if hero.ArmorMelted() != want {
 					t.Fatalf("armor melted = %v, want %v", hero.ArmorMelted(), want)
 				}
-				frames := cs.game.config.GetTPS() * config.CombatRoundSeconds * config.ArmorMeltRounds
-				if want && (hero.ArmorMelt.Frames != frames || hero.ArmorMelt.Turns != config.ArmorMeltRounds) {
-					t.Fatalf("melt clock %+v, want %d frames / %d rounds", hero.ArmorMelt, frames, config.ArmorMeltRounds)
+				frames := cs.game.config.GetTPS() * config.CombatRoundSeconds * meltRounds()
+				if want && (hero.ArmorMelt.Frames != frames || hero.ArmorMelt.Turns != meltRounds()) {
+					t.Fatalf("melt clock %+v, want %d frames / %d rounds", hero.ArmorMelt, frames, meltRounds())
 				}
 			})
 		}
@@ -573,7 +573,7 @@ func TestMeltedArmorMeetsPhysicalHitsLikeElementalOnes(t *testing.T) {
 	const damage = 100
 	cs := newTestCombatSystemWithConfig(t)
 	tps := cs.game.config.GetTPS()
-	frames := tps * config.CombatRoundSeconds * config.ArmorMeltRounds
+	frames := tps * config.CombatRoundSeconds * meltRounds()
 	hero := cs.game.party.Members[0]
 	hero.Equipment = map[items.EquipSlot]items.Item{}
 	hero.Skills[character.SkillLeather] = &character.Skill{Mastery: character.MasteryNovice}
@@ -586,7 +586,7 @@ func TestMeltedArmorMeetsPhysicalHitsLikeElementalOnes(t *testing.T) {
 		return cs.mitigateCharacterDamageParts(damagecalc.Parts{Normal: damage}, school, hero, false).Normal
 	}
 	soundPhysical, soundFire := took("physical"), took("fire")
-	hero.MeltArmor(frames, config.ArmorMeltRounds)
+	hero.MeltArmor(frames, meltRounds())
 	if got := cs.armorMitigationPct(hero, true); got != elemental {
 		t.Errorf("melted armor stops %d%% of a physical hit, want the elemental %d%%", got, elemental)
 	}
@@ -602,7 +602,7 @@ func TestMeltedArmorMeetsPhysicalHitsLikeElementalOnes(t *testing.T) {
 			m := mkTestMonster("Melt target", 1000)
 			m.ArmorClass = 40
 			if melted {
-				m.MeltArmor(frames, config.ArmorMeltRounds)
+				m.MeltArmor(frames, meltRounds())
 			}
 			return cs.applyMonsterDamagePacket(m, singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, school, 0), monsterDamageOptions{}).Total()
 		}
@@ -622,7 +622,7 @@ func TestMeltedArmorMeetsPhysicalHitsLikeElementalOnes(t *testing.T) {
 		}
 	})
 	t.Run("expiry and cleanse", func(t *testing.T) {
-		hero.MeltArmor(frames, config.ArmorMeltRounds)
+		hero.MeltArmor(frames, meltRounds())
 		for range frames - 1 {
 			hero.UpdateWithMode(character.PartyClock{})
 		}
@@ -633,9 +633,9 @@ func TestMeltedArmorMeetsPhysicalHitsLikeElementalOnes(t *testing.T) {
 		if hero.ArmorMelted() {
 			t.Fatal("the melt outlived its RT span")
 		}
-		hero.MeltArmor(frames, config.ArmorMeltRounds)
+		hero.MeltArmor(frames, meltRounds())
 		cs.game.turnBasedMode = true
-		for range config.ArmorMeltRounds - 1 {
+		for range meltRounds() - 1 {
 			cs.game.startPartyTurn()
 		}
 		if !hero.ArmorMelted() {
@@ -646,15 +646,15 @@ func TestMeltedArmorMeetsPhysicalHitsLikeElementalOnes(t *testing.T) {
 			t.Fatal("the melt outlived its rounds in TB")
 		}
 		m := mkTestMonster("Melt target", 1000)
-		m.MeltArmor(frames, config.ArmorMeltRounds)
-		for range config.ArmorMeltRounds {
+		m.MeltArmor(frames, meltRounds())
+		for range meltRounds() {
 			cs.game.tickMonsterTurnStatuses(m, true)
 		}
 		if m.ArmorMelted() {
 			t.Fatal("a monster's melt outlived its rounds in TB")
 		}
 		cs.game.turnBasedMode = false
-		hero.MeltArmor(frames, config.ArmorMeltRounds)
+		hero.MeltArmor(frames, meltRounds())
 		if !hero.Purify() || hero.ArmorMelted() {
 			t.Fatal("Purify left the armor melted")
 		}
@@ -778,3 +778,6 @@ func TestPhysicalProjectilesPierceArmor(t *testing.T) {
 		}
 	})
 }
+
+// meltRounds is the status table's melted-armor length in TB rounds.
+func meltRounds() int { return config.CombatRounds(config.ArmorMeltSeconds()) }

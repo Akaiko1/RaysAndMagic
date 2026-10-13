@@ -3,7 +3,6 @@ package game
 import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
-	"ugataima/internal/status"
 )
 
 // Balance constants are the single source of truth shared by combat formulas
@@ -260,19 +259,6 @@ const MonsterHitShakeAmplitudeFrac = 0.0333
 // standee mode that whips it across wall/tree occluders (and past the camera
 // plane), reading as furious blinking. Beyond this size the shudder stops growing.
 const MonsterHitShakeMaxRefPx = 300.0
-
-// Stun diminishing returns: each successive stun on the SAME target lands for a
-// smaller fraction of its duration - 100% -> 50% -> 25% -> 0% (immune) - so no
-// target (boss included) can be perma-stun-locked. The chain resets once the
-// target has been stun-free for the window below (TB turns / RT seconds). The
-// chain length is mode-agnostic; the reset window is tracked per mode so a
-// TB<->RT switch mid-fight is conservative (never speeds up the reset).
-var StunDRFactorsPct = status.StunDRFactorsPct
-
-const (
-	StunDRResetTurns   = status.StunDRResetTurns   // TB: stun-free turns that clear the DR chain
-	StunDRResetSeconds = status.StunDRResetSeconds // RT: stun-free seconds that clear the DR chain
-)
 
 // SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead

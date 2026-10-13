@@ -24,7 +24,7 @@ func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 	g.turnBasedTurnSuspended = save.TurnBasedTurnSuspended
 	g.currentTurn = save.CurrentTurn
 	g.partyActionsUsed = save.PartyActionsUsed
-	g.partyTechniqueActionsUsed = max(0, min(save.PartyTechniqueActionsUsed, g.partyActionsUsed))
+	g.partyPenaltyFreeActionsUsed = max(0, min(save.PartyPenaltyFreeActionsUsed, g.partyActionsUsed))
 	g.turnBasedMoveCooldown = save.TurnBasedMoveCooldown
 	g.turnBasedRotCooldown = save.TurnBasedRotCooldown
 	g.monsterTurnResolved = save.MonsterTurnResolved
@@ -177,7 +177,7 @@ func (g *MMGame) restoreSavedEffectPresentation(wm *world.WorldManager, save *Ga
 	}
 	for _, b := range g.combatBuffs {
 		// statusDuration keeps a charge-only buff (Preservation) as "until spent".
-		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.statusDuration(), true)
+		g.refreshCombatBuffStatus(b)
 	}
 	g.syncPersistentDamageZoneStatuses()
 

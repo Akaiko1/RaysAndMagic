@@ -119,7 +119,7 @@ func (g *MMGame) partyTempoBuff() (TimedCombatBuff, bool) {
 }
 
 func restoreAdvancedBuff(b *TimedCombatBuff, d spells.SpellDefinition) {
-	m, tier := d.Mechanic, b.TechniqueTier
+	m, tier := d.Mechanic, b.MasteryTier
 	if m == nil {
 		return
 	}
@@ -156,19 +156,19 @@ func (cs *CombatSystem) tryCastAdvancedSupport(id spells.SpellID, d spells.Spell
 		}
 		target.SpellState.Set(character.PersonalSpellEffect{SpellID: string(id), Tier: tier, Charges: m.Charges(tier), Frames: frames})
 	case m.IsPartyBuff():
-		if m.Kind == "haste" && !g.techniqueUseful("quickening") {
+		if m.Kind == "haste" && !g.partyNeedsHaste() {
 			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
 			return castRejected
 		}
-		b := TimedCombatBuff{SpellID: string(id), Frames: frames, TechniqueTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == "haste"}
+		b := TimedCombatBuff{SpellID: string(id), Frames: frames, MasteryTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == "haste"}
 		if m.Kind == "celestial_armor" {
 			b.Absorb = m.Power(tier)
 		}
 		restoreAdvancedBuff(&b, d)
 		g.addCombatBuff(b)
-		g.updateUtilityStatus(id, b.statusDuration(), true)
+		g.refreshCombatBuffStatus(b)
 	case m.Kind == "purify" || m.Kind == "dispel_magic":
-		if !g.techniqueUseful("purify") && (m.Kind != "dispel_magic" || !g.hostileMagicNearby(m.RadiusTiles)) {
+		if !g.partyNeedsPurify() && (m.Kind != "dispel_magic" || !g.hostileMagicNearby(m.RadiusTiles)) {
 			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
 			return castRejected
 		}

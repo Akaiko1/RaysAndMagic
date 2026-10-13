@@ -468,7 +468,7 @@ func uiItemIdentity(it items.Item) uint64 {
 	mix(it.InstanceID)
 	mix(uint64(it.Type))
 	mix(uint64(it.Count()))
-	for _, text := range []string{it.Name, string(it.SpellEffect)} {
+	for _, text := range []string{it.Name, string(it.SpellEffect), it.Technique} {
 		for i := 0; i < len(text); i++ {
 			mix(uint64(text[i]))
 		}

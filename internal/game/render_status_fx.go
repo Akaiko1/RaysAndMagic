@@ -8,8 +8,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
-	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/status"
 )
@@ -41,15 +41,18 @@ const (
 const statusBadgeVisuals = visualBind
 
 // statusVisualEntry pairs a motif with the smallest real state that shows it.
-// The editor FX tab stages motifs from these states and the tests assert the
-// round trip, so a new motif cannot ship without a preview.
+// key is the status's row in assets/statuses.yaml, which names it. The editor
+// FX tab stages motifs from these states and the tests assert the round trip,
+// so a new motif cannot ship without a preview.
 type statusVisualEntry struct {
 	flag    statusVisuals
 	key     string
-	label   string
 	monster func(*monster.Monster3D)              // nil for hero-only motifs
 	hero    func(*MMGame, *character.MMCharacter) // nil for monster-only motifs
 }
+
+// label is the motif's status name from the status table.
+func (e statusVisualEntry) label() string { return config.Status(e.key).Name }
 
 const (
 	statusStageFrames = 900
@@ -61,7 +64,7 @@ func heroStatusCondition(c character.Condition) func(*MMGame, *character.MMChara
 }
 
 var statusVisualCatalog = []statusVisualEntry{
-	{visualRoot, "root", "rooted",
+	{visualRoot, "root",
 		func(m *monster.Monster3D) {
 			status.RefreshDualRated(&m.RootFramesRemaining, &m.RootTurnsRemaining, &m.RootRate, statusStageFrames, statusStageTurns)
 		},
@@ -69,20 +72,20 @@ var statusVisualCatalog = []statusVisualEntry{
 			r := &g.partyRoot
 			status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, statusStageFrames, statusStageTurns)
 		}},
-	{visualSlow, "slow", "slowed", func(m *monster.Monster3D) { m.ApplySlow(50, statusStageFrames, statusStageTurns) },
+	{visualSlow, "slow", func(m *monster.Monster3D) { m.ApplySlow(50, statusStageFrames, statusStageTurns) },
 		func(g *MMGame, _ *character.MMCharacter) { g.partyHinder.Slow = 1 }},
-	{visualWeaken, "weaken", "weakened", func(m *monster.Monster3D) { m.ApplyWeaken(50, statusStageFrames, statusStageTurns) }, nil},
-	{visualShred, "shred", "armor shredded", func(m *monster.Monster3D) { m.ApplyArmorShred(50, statusStageFrames, statusStageTurns) }, nil},
-	{visualCharm, "charm", "charmed", func(m *monster.Monster3D) { m.Pacified, m.PacifiedFramesRemaining = true, statusStageFrames }, nil},
-	{visualBind, "bind", "bound", func(m *monster.Monster3D) { m.Bound, m.BoundFramesRemaining = true, statusStageFrames }, nil},
-	{visualEnrage, "enrage", "enraged", func(m *monster.Monster3D) { m.Abilities.Enrage.AtHP = max(1, m.HitPoints) }, nil},
-	{visualDisease, "disease", "diseased", nil, heroStatusCondition(character.ConditionDiseased)},
-	{visualCurse, "curse", "cursed", nil, heroStatusCondition(character.ConditionCursed)},
-	{visualSleep, "sleep", "asleep", nil, heroStatusCondition(character.ConditionAsleep)},
-	{visualFear, "fear", "afraid", func(m *monster.Monster3D) { m.ApplyFear(statusStageFrames) }, heroStatusCondition(character.ConditionFear)},
-	{visualParalysis, "paralysis", "paralyzed", nil, heroStatusCondition(character.ConditionParalyzed)},
-	{visualStone, "stone", "stoned", nil, heroStatusCondition(character.ConditionStone)},
-	{visualMelt, "melt", "armor melted", func(m *monster.Monster3D) { m.MeltArmor(statusStageFrames, statusStageTurns) },
+	{visualWeaken, "weaken", func(m *monster.Monster3D) { m.ApplyWeaken(50, statusStageFrames, statusStageTurns) }, nil},
+	{visualShred, "armor_shred", func(m *monster.Monster3D) { m.ApplyArmorShred(50, statusStageFrames, statusStageTurns) }, nil},
+	{visualCharm, "charm", func(m *monster.Monster3D) { m.Pacified, m.PacifiedFramesRemaining = true, statusStageFrames }, nil},
+	{visualBind, "bind", func(m *monster.Monster3D) { m.Bound, m.BoundFramesRemaining = true, statusStageFrames }, nil},
+	{visualEnrage, "enrage", func(m *monster.Monster3D) { m.Abilities.Enrage.AtHP = max(1, m.HitPoints) }, nil},
+	{visualDisease, "diseased", nil, heroStatusCondition(character.ConditionDiseased)},
+	{visualCurse, "cursed", nil, heroStatusCondition(character.ConditionCursed)},
+	{visualSleep, "asleep", nil, heroStatusCondition(character.ConditionAsleep)},
+	{visualFear, "fear", func(m *monster.Monster3D) { m.ApplyFear(statusStageFrames) }, heroStatusCondition(character.ConditionFear)},
+	{visualParalysis, "paralyzed", nil, heroStatusCondition(character.ConditionParalyzed)},
+	{visualStone, "stone", nil, heroStatusCondition(character.ConditionStone)},
+	{visualMelt, "armor_melt", func(m *monster.Monster3D) { m.MeltArmor(statusStageFrames, statusStageTurns) },
 		func(_ *MMGame, h *character.MMCharacter) { h.MeltArmor(statusStageFrames, statusStageTurns) }},
 }
 
@@ -171,54 +174,31 @@ func (g *MMGame) partyStatusVisuals(m *character.MMCharacter) statusVisuals {
 	return v
 }
 
-// partyConditionShortName is a condition's short card form; short names keep
-// their full form.
-func partyConditionShortName(c character.Condition) string {
-	switch c {
-	case character.ConditionPoisoned:
-		return uitext.Text("ui.status_short_poisoned")
-	case character.ConditionDiseased:
-		return uitext.Text("ui.status_short_diseased")
-	case character.ConditionCursed:
-		return uitext.Text("ui.status_short_cursed")
-	case character.ConditionAsleep:
-		return uitext.Text("ui.status_short_asleep")
-	case character.ConditionParalyzed:
-		return uitext.Text("ui.status_short_paralyzed")
-	case character.ConditionUnconscious:
-		return uitext.Text("ui.status_short_unconscious")
-	case character.ConditionBurning:
-		return uitext.Text("ui.status_short_burning")
-	case character.ConditionStunned:
-		return uitext.Text("ui.status_short_stunned")
-	}
-	return c.String()
-}
-
 // partyConditionNames lists a hero's card statuses in display order, each with
-// its full name and its short form.
+// its status-table name and short form.
 func (g *MMGame) partyConditionNames(m *character.MMCharacter) (full, short []string) {
-	add := func(name, brief string, front bool) {
+	add := func(key string, front bool) {
+		s := config.Status(key)
 		if front {
-			full, short = append([]string{name}, full...), append([]string{brief}, short...)
+			full, short = append([]string{s.Name}, full...), append([]string{s.Short}, short...)
 			return
 		}
-		full, short = append(full, name), append(short, brief)
+		full, short = append(full, s.Name), append(short, s.Short)
 	}
 	for _, c := range m.Conditions {
-		if c != character.ConditionNormal {
-			add(c.String(), partyConditionShortName(c), false)
+		if key := c.StatusKey(); key != "" {
+			add(key, false)
 		}
 	}
 	gone := m.HasCondition(character.ConditionDead) || m.HasCondition(character.ConditionEradicated)
 	if g.partyRooted() && !gone {
-		add(uitext.Text("ui.status_rooted"), uitext.Text("ui.status_short_rooted"), true)
+		add("root", true)
 	}
 	if g.partyHinder.Slow > 0 && !gone {
-		add(uitext.Text("ui.status_slowed"), uitext.Text("ui.status_short_slowed"), true)
+		add("slow", true)
 	}
 	if m.ArmorMelted() && !gone {
-		add(uitext.Text("ui.status_armor_melted"), uitext.Text("ui.status_short_armor_melted"), false)
+		add("armor_melt", false)
 	}
 	return full, short
 }

@@ -29,8 +29,8 @@ func (cs *CombatSystem) spellControlDuration(def spells.SpellDefinition, caster 
 		if !rule.Diminishes(def.Mechanic.Kind) {
 			return turns, frames
 		}
-		turns, frames = m.StunDR().Step(turns, frames, cs.game.config.GetTPS())
-		if turns > 0 || frames > 0 {
+		turns, frames = m.StunDR().Step(turns, cs.game.config.GetTPS())
+		if turns > 0 {
 			return turns, frames
 		}
 	}

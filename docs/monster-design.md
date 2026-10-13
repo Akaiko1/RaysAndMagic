@@ -22,15 +22,20 @@ reading the catalog.
 
 ## Stat curves
 
-Regular HP grows about 13% per level up to level 25, then about 4% per level:
+Regular HP grows about 13% per level up to level 25, about 4% per level up
+to level 45, then by a flat 139 HP per level, which holds boss HP at about
+3.6x regular HP, its level-45 ratio:
 
-    HP(L) = exp(4.181 + 0.1255 * min(L, 25) + 0.04 * max(0, L - 25))
+    HP(L) = exp(4.181 + 0.1255 * min(L, 25) + 0.04 * clamp(L - 25, 0, 20))
+            + 139 * max(0, L - 45)
 
 Damage is per hit: the average of `damage_min` and `damage_max`. It grows
-about 6% per level. A monster is ranged when it has a `projectile_spell` or
-a `projectile_weapon`:
+about 6% per level up to level 45, then by a flat 5 per level: on the real
+parties (testdata/real_parties) median hero HP grows about 9.7 per level and
+the regular hit holds about half of it. A monster is ranged when it has a
+`projectile_spell` or a `projectile_weapon`:
 
-    melee damage(L)  = exp(2.634 + 0.057 * L)
+    melee damage(L)  = exp(2.634 + 0.057 * min(L, 45)) + 5 * max(0, L - 45)
     ranged damage(L) = melee damage(L) * 1.10
 
 Boss HP grows about 10.6% per level through level 35, reaching about 7100 HP.
@@ -39,14 +44,30 @@ health does not continue growing exponentially:
 
     boss HP(L) = exp(5.333 + 0.101 * min(L, 35)) + 500 * max(0, L - 35)
 
-Dungeon scaling uses the target/base curve ratio against each monster's
-authored HP, preserving its archetype modifier. Levels through 35 retain
+Auto-level maps (every map an adventure schedule opens) scale each monster
+by the target/base curve ratio against its authored HP and damage,
+preserving its archetype modifier. A kill there is worth a percent of the XP
+a hero of the party's level needs for the next level: 24% for a regular
+monster, 109% for a boss. The visit level is the party average +
+`visit_level_bonus` (5).
+Every coefficient above, plus armor growth and chamber experience, lives in
+`config.yaml` `adventure_scaling`; tune it there. The editor's Actionables
+page (Auto-level view) shows the curves to level 100 and every auto-level
+map's monsters and hazards at a chosen visit level. Levels through 35 retain
 their existing balance. On save restoration, a scaled boss's current HP is
 capped at its recomputed maximum; damaged bosses below that cap stay damaged.
 
-Boss damage is about 0.85x the melee curve. A boss is dangerous because of
-its HP and its kit (summons, novas, enrage, blinks), not because of bigger
-hits.
+Boss damage starts lower and grows faster: authored bosses outside the
+chambers outgrow regular monsters in damage (about 6% against 3% per level
+over levels 18-35). The boss hit is 0.85x the melee curve at level 24 and
+grows 7% per level to 1.12x at level 45, then by a flat 5.6 per level,
+keeping that ratio:
+
+    boss damage(L) = exp(2.16 + 0.07 * min(L, 45)) + 5.6 * max(0, L - 45)
+
+A boss is still dangerous mainly because of its HP and its kit (summons,
+novas, enrage, blinks); chamber hazards are a percent of this hit, so they
+grow with it.
 
 | Level | Regular HP | Melee damage | Ranged damage | XP target | Boss HP | Boss damage |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -54,14 +75,14 @@ hits.
 | 5 | 123 | 19 | 20 | 133 | - | - |
 | 10 | 230 | 25 | 27 | 267 | - | - |
 | 15 | 430 | 33 | 36 | 480 | - | - |
-| 18 | 626 | 39 | 43 | 691 | 1275 | 33 |
-| 20 | 805 | 44 | 48 | 853 | 1561 | 37 |
-| 25 | 1508 | 58 | 64 | 1333 | 2586 | 49 |
-| 30 | 1842 | 77 | 85 | 1920 | 4286 | 65 |
-| 35 | 2250 | 102 | 113 | 2613 | 7101 | 87 |
-| 40 | 2748 | 136 | 150 | 3413 | 9601 | 116 |
-| 45 | 3356 | 181 | 199 | 4320 | 12101 | 154 |
-| 50 | 4099 | 241 | 265 | 5333 | 14601 | 205 |
+| 18 | 626 | 39 | 43 | 691 | 1275 | 31 |
+| 20 | 805 | 44 | 48 | 853 | 1561 | 35 |
+| 25 | 1508 | 58 | 64 | 1333 | 2586 | 50 |
+| 30 | 1842 | 77 | 85 | 1920 | 4286 | 71 |
+| 35 | 2250 | 102 | 113 | 2613 | 7101 | 100 |
+| 40 | 2748 | 136 | 150 | 3413 | 9601 | 143 |
+| 45 | 3356 | 181 | 199 | 4320 | 12101 | 202 |
+| 50 | 4051 | 206 | 227 | 5333 | 14601 | 230 |
 
 Keep `damage_min` and `damage_max` at about 0.8x and 1.2x of the average,
 as the shipped monsters do. A double striker (`attack_cooldown_multiplier:

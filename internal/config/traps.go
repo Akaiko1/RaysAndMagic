@@ -11,8 +11,8 @@ import (
 )
 
 // TrapDefinitionConfig is one trap from assets/traps.yaml. Damage traps carry
-// damage_base (+optional AoE); control traps carry stun or root durations in
-// BOTH turn (TB) and second (RT) units - pairs are validated at load.
+// damage_base (+optional AoE); control traps carry a stun or root duration in
+// seconds (whole rounds), which Trapper mastery extends by whole rounds.
 type TrapDefinitionConfig struct {
 	Name            string  `yaml:"name"`
 	Description     string  `yaml:"description"`
@@ -25,11 +25,9 @@ type TrapDefinitionConfig struct {
 	ArmedFx         string  `yaml:"armed_fx,omitempty"` // shader model and activation style
 	DamageBase      int     `yaml:"damage_base,omitempty"`
 	AoeRadiusTiles  float64 `yaml:"aoe_radius_tiles,omitempty"`
-	StunTurns       int     `yaml:"stun_turns,omitempty"`
-	StunSeconds     int     `yaml:"stun_seconds,omitempty"`
-	RootTurns       int     `yaml:"root_turns,omitempty"`
-	RootSeconds     int     `yaml:"root_seconds,omitempty"`
-	BorderColor     [3]int  `yaml:"border_color"` // model accent / energy colour
+	StunSeconds     int     `yaml:"stun_seconds,omitempty"` // whole rounds, before the Trapper bonus
+	RootSeconds     int     `yaml:"root_seconds,omitempty"` // whole rounds, before the Trapper bonus
+	BorderColor     [3]int  `yaml:"border_color"`           // model accent / energy colour
 }
 
 // TrapSystemConfig is the full traps.yaml document.
@@ -105,17 +103,16 @@ func validateTrapConfig(cfg *TrapSystemConfig) error {
 		if t.LifetimeSeconds <= 0 {
 			return fmt.Errorf("trap %q: lifetime_seconds must be positive", key)
 		}
-		// Duration pairs must be authored in both TB and RT units.
-		if (t.StunTurns > 0) != (t.StunSeconds > 0) {
-			return fmt.Errorf("trap %q: stun_turns and stun_seconds must be set together", key)
-		}
-		if (t.RootTurns > 0) != (t.RootSeconds > 0) {
-			return fmt.Errorf("trap %q: root_turns and root_seconds must be set together", key)
+		if err := validateEffectFields(
+			effectField{fmt.Sprintf("trap %q: stun_seconds", key), t.StunSeconds},
+			effectField{fmt.Sprintf("trap %q: root_seconds", key), t.RootSeconds},
+		); err != nil {
+			return err
 		}
 		if t.AoeRadiusTiles > 0 && t.DamageBase <= 0 {
 			return fmt.Errorf("trap %q: aoe_radius_tiles requires damage_base", key)
 		}
-		if t.DamageBase <= 0 && t.StunTurns <= 0 && t.RootTurns <= 0 {
+		if t.DamageBase <= 0 && t.StunSeconds <= 0 && t.RootSeconds <= 0 {
 			return fmt.Errorf("trap %q: defines no effect (damage, stun or root)", key)
 		}
 	}

@@ -551,12 +551,33 @@ func TestOverlayReferencesAndValidation(t *testing.T) {
 			t.Fatalf("%s defaults invalid: %v", kind, err)
 		}
 	}
+	// Every conversion leaves a savable effect: no field of the old kind the
+	// new one rejects and cannot show.
+	kinds := []string{"trap", "occupation", "lane", "transfer"}
+	for _, from := range kinds {
+		for _, to := range kinds {
+			if from == to {
+				continue
+			}
+			d := v.overlayDoc()
+			v.overlay.documents = nil
+			d.state.Adventure = config.AdventureConfig{OpeningOwned: true, Element: "earth"}
+			d.state.Data.NPCSpawns = nil
+			i := d.addEffect(from, [4]int{3, 3, 3, 3}) // a floor tile beside a floor receiver
+			if err := d.changeKind(i, to); err != nil {
+				t.Fatalf("%s -> %s refused: %v", from, to, err)
+			}
+			if err := v.validateOverlay(d); err != nil {
+				t.Fatalf("%s -> %s does not save: %v", from, to, err)
+			}
+		}
+	}
 }
 func TestOverlayTabFitsAndTilePicking(t *testing.T) {
 	tabs := pageTabLayout()
 	last := tabs[len(tabs)-1]
-	if last.page != pageOverlay || last.x+last.w > windowWidth {
-		t.Fatalf("Overlay tab not reachable: %+v", last)
+	if last.page != pageActionables || last.x+last.w > windowWidth {
+		t.Fatalf("last tab not reachable at the authored width: %+v", last)
 	}
 	v := &viewer{}
 	d := &overlayDocument{state: overlayState{Data: &world.MapData{Width: 20, Height: 20}}}

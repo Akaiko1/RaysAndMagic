@@ -357,7 +357,8 @@ quests:
     name: "Dragon Slayer"
     description: "Swear Sylwen the Pilgrim's hunt, then slay {target_count} Elder Dragons at the desert seals and return to her. Each seal needs a matching colored statuette from the Pyramid Sanctum's reliquaries. Beneath the dragons' scorched hides lie riveted plates; sword cuts throw sparks."
     type: "kill"
-    target_monster: "elder_dragon"   # all 4 statue dragons are named "Elder Dragon" -> type "elder_dragon"
+    target_monsters: ["elder_black_dragon", "elder_red_dragon", "elder_green_dragon", "elder_gold_dragon"]   # the 4 statue dragons
+    progress_text: "elder dragons killed"
     target_count: 4
     encounter_only: true
     # Taken from Sylwen, the pilgrim keeping vigil at the desert seals. The
@@ -423,7 +424,8 @@ quests:
     name: "The Silent Nests"
     description: "Slay every Dragon on the Dragon Cliffs to draw the Brood Mother into the Ember Crater. The cliff dragons give off smoke without breathing; their eyes light before their heads turn. Something built these creatures."
     type: "kill"
-    target_monster: "dragon"
+    target_monsters: ["black_dragon", "red_dragon", "green_dragon", "gold_dragon"]
+    progress_text: "dragons killed"
     target_count: 7   # nominal; exterminate snapshots the live census at accept
     target_map: "dragon_cliffs"
     exterminate: true

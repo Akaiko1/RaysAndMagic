@@ -21,7 +21,7 @@ func validateCrateBuff(key string, b *CrateBuffConfig) error {
 	if strings.TrimSpace(b.Name) == "" || strings.TrimSpace(b.StatusIcon) == "" || b.DurationSeconds <= 0 || b.HPRegenPct < 0 || b.HPRegenPct > 100 || b.ManaRegenPct < 0 || b.ManaRegenPct > 100 || b.HPRegenPct+b.ManaRegenPct == 0 {
 		return fmt.Errorf("crate %q: buff needs name, status_icon, positive duration_seconds and regeneration in 0..100 with at least one positive resource", key)
 	}
-	return nil
+	return ValidateEffectSeconds(fmt.Sprintf("crate %q: buff duration_seconds", key), b.DurationSeconds)
 }
 
 const cratePrefix = "crate:"

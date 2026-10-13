@@ -155,12 +155,12 @@ func translocationDescription() string {
 	if config.GlobalTechniques != nil {
 		for _, d := range config.GlobalTechniques.Techniques {
 			var effects []string
-			switch d.Key {
-			case "fold_step":
+			switch d.Kind {
+			case config.TechniqueFoldStep:
 				effects = append(effects, uitext.Text("skill.fold_step", masteryValues(d.Range), masteryValues(d.Duration)))
-			case "phase_veil":
+			case config.TechniqueDodge:
 				effects = append(effects, uitext.Text("skill.phase_veil", masteryValues(d.Power), masteryValues(d.Duration)))
-			case "quickening":
+			case config.TechniqueHaste:
 				effects = append(effects, uitext.Text("skill.quickening", masteryValues(d.Power), masteryValues(d.TBPower), masteryValues(d.Duration)))
 			}
 			if d.SPCost != [4]int{d.SPCost[0], d.SPCost[0], d.SPCost[0], d.SPCost[0]} {

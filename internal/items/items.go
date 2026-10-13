@@ -95,6 +95,8 @@ type Item struct {
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
+	// Technique is an ItemTechnique shortcut's techniques.yaml key.
+	Technique string `json:"technique,omitempty"`
 }
 
 // StackLineage identifies quantity fungible units that came from the same

@@ -2,7 +2,8 @@ Map Viewer / Editor (Utility)
 =============================
 
 GUI tool to preview and edit maps plus browse game content and runtime previews.
-Ten top tabs (F1-F10), selectable by click or hotkey:
+Eleven top tabs (F1-F11), selectable by click or hotkey (macOS may keep F11
+for Show Desktop; click the tab there):
 
 1. **Maps** (F1) - preview/edit maps: biome-scoped legend, paint tiles and
    monsters, save back to the `.map` file.
@@ -18,6 +19,9 @@ Ten top tabs (F1-F10), selectable by click or hotkey:
 8. **Save Stashes** (F8) - inspect save slots, party inventories, and stashes.
 9. **Open World** (F9) - edit the unified-world map layout.
 10. **Overlay** (F10) - author interactive zones, switches and boss patterns.
+11. **Actionables** (F11) - the rules sheet: every status from
+    `assets/statuses.yaml` with what it does to the party and to monsters, and
+    the auto-level HP of regular monsters and bosses (levels 5-100).
 
 Content tabs are read-only catalogs built from the YAML configs and shared game
 mechanics. Hover item, spell, skill, equipment, monster, NPC, and map elements
@@ -59,7 +63,7 @@ go build -o bin/map_viewer ./assets/map_viewer
 Release archives include the viewer next to the game executable as `RaysAndMagicMapViewer` (macOS) or `RaysAndMagicMapViewer.exe` (Windows).
 
 Controls:
-- F1-F10 to switch top-level pages
+- F1-F11 to switch top-level pages
 - Left/Right (or A/D) to switch maps
 - Tab or 1/2 to switch Info/Legend panel
 - Mouse wheel or PgUp/PgDn/Up/Down to scroll legend

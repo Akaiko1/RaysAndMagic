@@ -509,12 +509,19 @@ func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID
 }
 
 func (cs *CombatSystem) spellCooldownBreakdown(char *character.MMCharacter, spellID spells.SpellID) spellCooldownBreakdown {
-	result := spellCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
-	if cs == nil || cs.game == nil || char == nil {
-		return result
-	}
 	seconds, ok := baseCastCooldownSeconds(spellID)
-	if !ok {
+	return cs.castCooldownBreakdown(char, seconds, ok)
+}
+
+// castCooldownFrames scales any authored cast cooldown the way a spell's is
+// scaled; Pilgrim techniques use it with their own cooldown_seconds.
+func (cs *CombatSystem) castCooldownFrames(char *character.MMCharacter, seconds float64) int {
+	return cs.castCooldownBreakdown(char, seconds, true).TotalFrames
+}
+
+func (cs *CombatSystem) castCooldownBreakdown(char *character.MMCharacter, seconds float64, known bool) spellCooldownBreakdown {
+	result := spellCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
+	if cs == nil || cs.game == nil || char == nil || !known {
 		return result
 	}
 	if seconds == 0 {
@@ -547,12 +554,6 @@ func (cs *CombatSystem) TrapCooldownFrames(char *character.MMCharacter, trapKey 
 // baseCastCooldownSeconds is shared by combat and character-free catalog cards.
 // Buffs spend an action in TB but have no personal cooldown in RT.
 func baseCastCooldownSeconds(id spells.SpellID) (float64, bool) {
-	if def := config.Technique(string(id)); def != nil {
-		if def.FreeStep {
-			return 0, true
-		}
-		return def.CooldownSeconds, true
-	}
 	if def, ok := config.GetItemDefinition(string(id)); ok && def.Flask != nil {
 		return def.Flask.CooldownSeconds, true
 	}

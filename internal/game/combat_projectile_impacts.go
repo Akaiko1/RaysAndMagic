@@ -333,7 +333,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var dealsNoDamage bool
 	var stunChance float64
 	var stunSeconds int
-	var stunTurns int
 	var starburstFx bool
 	var ricochetArrow *Arrow
 	var spellShot *MagicProjectile
@@ -358,7 +357,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		dealsNoDamage = spellDef.DealsNoDamage
 		stunChance = spellDef.StunChance
 		stunSeconds = spellDef.StunDurationSeconds
-		stunTurns = spellDef.StunDurationTurns
 		starburstFx = spellDef.StarburstFx
 		mp.Active = false
 		isSpell = true
@@ -566,7 +564,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.applyAdvancedSpellImpact(spellShot, monster)
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
-			cs.applyStun(monster, stunSeconds, stunTurns, true) // announces stun/resist itself
+			cs.applyStun(monster, stunSeconds, true) // announces stun/resist itself
 		}
 	})
 	cs.game.collisionSystem.UnregisterEntity(entityID)

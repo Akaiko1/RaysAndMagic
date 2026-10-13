@@ -5,6 +5,8 @@ import (
 	"math"
 	"math/rand"
 
+	"ugataima/internal/config"
+
 	"ugataima/internal/monster"
 	"ugataima/internal/status"
 )
@@ -18,6 +20,13 @@ type PartyRootState struct {
 }
 
 func (g *MMGame) partyRooted() bool { return g.partyRoot.Frames > 0 || g.partyRoot.Turns > 0 }
+
+// rootParty roots the whole party for whole rounds (never shortening a longer
+// root already running).
+func (g *MMGame) rootParty(rounds int) {
+	r := &g.partyRoot
+	status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, config.RoundFrames(rounds, g.config.GetTPS()), rounds)
+}
 func (g *MMGame) tickPartyRoot(turn bool) {
 	g.tickPartyHinder(turn)
 	r := &g.partyRoot
@@ -143,8 +152,7 @@ func (g *MMGame) rallyAuthoredBandHit(target *monster.Monster3D) {
 // or separately for each hit in a multi-attack action.
 func (cs *CombatSystem) tryMonsterPartyAbilities(m *monster.Monster3D, cadence monsterAttackCadence) {
 	if m.Abilities.RootParty.Chance > 0 && rand.Float64() < m.Abilities.RootParty.Chance {
-		r := &cs.game.partyRoot
-		status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, m.Abilities.RootParty.Seconds*cs.game.config.GetTPS(), m.Abilities.RootParty.Turns)
+		cs.game.rootParty(config.CombatRounds(m.Abilities.RootParty.Seconds))
 		cs.game.AddCombatMessage(fmt.Sprintf("%s roots the party in place!", m.Name))
 	}
 	if m.Abilities.RearBlink.Chance > 0 && !cs.game.monsterMovementHeld(m) && rand.Float64() < m.Abilities.RearBlink.Chance {

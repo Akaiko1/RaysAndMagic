@@ -736,12 +736,12 @@ type MMGame struct {
 	turnBasedMode bool // Whether game is in turn-based mode
 	// turnBasedTurnSuspended is set when Tab leaves TB. Returning to TB resumes
 	// the same party/monster turn instead of granting a fresh party round.
-	turnBasedTurnSuspended    bool
-	currentTurn               int // 0 = party turn, 1 = monster turn
-	partyActionsUsed          int // Actions used this turn
-	partyTechniqueActionsUsed int // Subset exempt from the movement penalty
-	turnBasedMoveCooldown     int // Movement cooldown in frames (18 FPS = 0.3 second)
-	turnBasedRotCooldown      int // Rotation cooldown in frames (18 FPS = 0.3 second)
+	turnBasedTurnSuspended      bool
+	currentTurn                 int // 0 = party turn, 1 = monster turn
+	partyActionsUsed            int // Actions used this turn
+	partyPenaltyFreeActionsUsed int // Subset exempt from the movement penalty
+	turnBasedMoveCooldown       int // Movement cooldown in frames (18 FPS = 0.3 second)
+	turnBasedRotCooldown        int // Rotation cooldown in frames (18 FPS = 0.3 second)
 	monsterTurnState
 	turnBasedSpRegenCount int // rounds since the last turn-based SP tick (slower in a fight)
 	turnBasedHPRegenCount int // rounds since the last turn-based HP regen tick (cards, draughts, Regeneration)
@@ -2126,7 +2126,7 @@ func (g *MMGame) enterPostVictoryFreeMode() {
 	g.turnBasedMode = false
 	g.currentTurn = 0
 	g.partyActionsUsed = 0
-	g.partyTechniqueActionsUsed = 0
+	g.partyPenaltyFreeActionsUsed = 0
 	g.turnBasedMoveCooldown = 0
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
@@ -2741,7 +2741,7 @@ func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 	case rtActCast:
 		if key, ok := g.slottedTechnique(idx); ok {
 			d := config.Technique(key)
-			return d != nil && !d.FreeStep && g.techniqueRefusal(idx, key) == ""
+			return d != nil && !d.IsStep() && g.techniqueRefusal(idx, key) == ""
 		}
 		spell, ok := m.Equipment[items.SlotSpell]
 		if !ok {
@@ -2946,9 +2946,10 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 	}
 	g.assignTurnBasedSpeedBonusActions()
 	if g.partyHinder.Slow > 0 {
+		keep := config.HinderKeepPercent()
 		for _, m := range g.party.Members {
 			if m.ActionsRemaining > 1 {
-				m.ActionsRemaining = max(1, m.ActionsRemaining*3/4)
+				m.ActionsRemaining = max(1, m.ActionsRemaining*keep/100)
 				m.TBRoundActionFloor = min(m.TBRoundActionFloor, m.ActionsRemaining)
 			}
 		}
@@ -3304,7 +3305,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		// deliberately does not: its slots/current turn were left intact.
 		g.currentTurn = 0
 		g.partyActionsUsed = 0
-		g.partyTechniqueActionsUsed = 0
+		g.partyPenaltyFreeActionsUsed = 0
 		g.monsterTurnResolved = false
 		g.turnBasedExtraMonsterAction = false
 		g.monsterTurnState.resetPasses()

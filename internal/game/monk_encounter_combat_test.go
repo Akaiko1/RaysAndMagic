@@ -181,9 +181,9 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 					config.GlobalSpells.Spells["lightning"] = &forced
 					t.Cleanup(func() { config.GlobalSpells.Spells["lightning"] = original })
 					// The melee rider differs from the spell's own stun so the
-					// two durations cannot be confused.
-					meleeSeconds := forced.StunDurationSeconds + 7
-					m := &monster.Monster3D{ID: "caster", Name: "Caster", HitPoints: 100, DamageMin: 1, DamageMax: 1, Abilities: monster.Abilities{Stun: monster.TimedStatusAbility{Chance: 1, Seconds: meleeSeconds, Turns: 9}}}
+					// two durations cannot be confused (both whole rounds).
+					meleeSeconds := forced.StunDurationSeconds + 2*config.CombatRoundSeconds
+					m := &monster.Monster3D{ID: "caster", Name: "Caster", HitPoints: 100, DamageMin: 1, DamageMax: 1, Abilities: monster.Abilities{Stun: monster.TimedStatusAbility{Chance: 1, Seconds: meleeSeconds}}}
 					if champion {
 						m.ChampionKey = "test"
 					}
@@ -329,7 +329,7 @@ func TestMonkEncounterSaveRestoreAndReset(t *testing.T) {
 		switch m.Key {
 		case "bronze_gatekeeper":
 			if def.Abilities.RootParty.Chance <= 0 || m.Abilities.RootParty.Chance != def.Abilities.RootParty.Chance ||
-				m.Abilities.RootParty.Seconds != def.Abilities.RootParty.Seconds || m.Abilities.RootParty.Turns != def.Abilities.RootParty.Turns {
+				m.Abilities.RootParty.Seconds != def.Abilities.RootParty.Seconds {
 				t.Fatal("root content/restoration mismatch")
 			}
 		case "gale_novice":

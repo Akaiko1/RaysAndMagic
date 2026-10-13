@@ -130,10 +130,13 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 					case "offhand":
 						return g.combat.OffHandWeaponCooldownFrames(actor)
 					}
+					if d := config.Technique(action); d != nil {
+						return g.techniqueCooldown(actor, d)
+					}
 					return g.combat.SpellCooldownFrames(actor, spells.SpellID(action))
 				}
 				base := frames()
-				g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100, RecoveryPct: 35})
+				g.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
 				want := base
 				if actor == c && base > 0 {
 					want = clampRTCooldown(base * 65 / 100)
@@ -150,7 +153,7 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 		g.combatBuffs = nil
 		first := monsterPkg.NewMonster3DFromConfig(0, 0, key, g.config)
 		g.mirrorChampionStats(first)
-		g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100, RecoveryPct: 35})
+		g.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
 		second := monsterPkg.NewMonster3DFromConfig(0, 0, key, g.config)
 		g.mirrorChampionStats(second)
 		if second.AttackCooldownMultiplier != first.AttackCooldownMultiplier {
@@ -172,8 +175,11 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 			}
 			c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("archmage_staff")
 			c.Speed = 16
-			g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100, RecoveryPct: 35})
+			g.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
 			seconds, _ := baseCastCooldownSeconds(spells.SpellID(action))
+			if d := config.Technique(action); d != nil {
+				seconds = d.CooldownSeconds
+			}
 			want := clampRTCooldown(clampRTCooldown(int(math.Round(seconds*float64(g.config.GetTPS())*spellCooldownSpeedFactor(c.GetEffectiveSpeed())*staff.SpellCooldownMultiplier))) * 65 / 100)
 			if action == "purify" {
 				if !g.useTechnique(0, action, false, false) {
@@ -222,7 +228,7 @@ func TestRareRulesTechniqueMovementAndPersistence(t *testing.T) {
 					if automatic {
 						wantActions, wantTechniques = 2, 0
 					}
-					if c.ActionsRemaining != wantActions || g.partyTechniqueActionsUsed != wantTechniques {
+					if c.ActionsRemaining != wantActions || g.partyPenaltyFreeActionsUsed != wantTechniques {
 						t.Fatal("technique action was not recorded independently")
 					}
 					if attack == "after" {
@@ -239,14 +245,14 @@ func TestRareRulesTechniqueMovementAndPersistence(t *testing.T) {
 					if err = json.Unmarshal(raw, &save); err != nil {
 						t.Fatal(err)
 					}
-					g.partyTechniqueActionsUsed = 0
+					g.partyPenaltyFreeActionsUsed = 0
 					g.restoreSavedTurnState(&save)
 					g.endPartyTurnAfterMovement()
 					if g.turnBasedExtraMonsterAction != (attack != "none") {
 						t.Fatal("technique created or erased an attack's movement penalty after save/load")
 					}
 					(&GameLoop{game: g}).endMonsterTurn()
-					if g.partyTechniqueActionsUsed != 0 {
+					if g.partyPenaltyFreeActionsUsed != 0 {
 						t.Fatal("technique accounting leaked into next turn")
 					}
 				})

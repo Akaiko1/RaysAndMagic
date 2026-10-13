@@ -81,7 +81,7 @@ func TestStatusClockPartyDoTEntryAndRound(t *testing.T) {
 			}
 			extra := 0
 			if kind != "burn" {
-				extra = character.PoisonDamagePerTick
+				extra = config.Status("poison").PartyDamagePerSecond
 			}
 			if c.HitPoints != before.HitPoints-3*perSecond-extra {
 				t.Fatal("RT did not resume saved sub-second phase")

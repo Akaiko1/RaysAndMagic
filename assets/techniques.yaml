@@ -1,5 +1,9 @@
+# Pilgrim techniques (Wayfarer class). key is the content id; kind picks the
+# engine behavior: fold_step | return_step (spatial steps, one of each) |
+# dodge | haste | purify. Automatic techniques try purify, then dodge, then haste.
 techniques:
   - key: fold_step
+    kind: fold_step
     name: Fold Step
     description: "Cross open gaps and land on solid ground. Walls, doors and exits block the step. Repeated steps keep the original return point and refresh its lifetime."
     icon: icon_technique_fold_step
@@ -8,9 +12,9 @@ techniques:
     range_tiles: [3, 4, 6, 8]
     min_range_tiles: 3
     duration_seconds: [12, 15, 18, 24]
-    free_step: true
     reuse_seconds: 3
   - key: phase_veil
+    kind: dodge
     name: Phase Veil
     description: "A shimmer of displaced air helps the party slip past incoming blows."
     trigger: "Engaged, and either two enemies within 2 tiles or a living ally below 35% HP."
@@ -22,6 +26,7 @@ techniques:
     cooldown_seconds: 0
     automatic: true
   - key: purify
+    kind: purify
     name: Purify
     description: "Remove every affliction from living allies and free the party from root and slow. Never rouses the unconscious, heals or revives."
     trigger: "A living ally has an affliction, or the party is rooted or slowed."
@@ -31,6 +36,7 @@ techniques:
     cooldown_seconds: 2
     automatic: true
   - key: quickening
+    kind: haste
     name: Quickening
     description: "RT: faster recovery for new actions. TB: extra actions from next round, at most one per hero able to act."
     trigger: "In combat, not already quickened, and able to benefit."
@@ -43,10 +49,10 @@ techniques:
     cooldown_seconds: 0
     automatic: true
   - key: return_step
+    kind: return_step
     name: Return Step
     description: "Return to the first Fold Step departure point from any distance in the same area, even across walls. The return point must still be active and clear."
     icon: icon_technique_return_step
     level: 6
     sp_cost: [6, 5, 4, 3]
-    free_step: true
     reuse_seconds: 3

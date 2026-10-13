@@ -185,7 +185,7 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 			fields = append(fields, overlayExclusiveInt("Damage", &e.Damage, &e.DamagePercent, "Per entry for traps, per strike for lanes, per second for occupation. Setting it clears the percent."), overlayExclusiveInt("Damage (% of boss attack)", &e.DamagePercent, &e.Damage, "Instead of Damage: a percent of the boss's attack at the visit's level, so it grows with the chamber."), overlayString("Damage school", &e.School, "Resistance used against the damage.", "physical", "fire", "water", "earth", "air"), overlayString("Second school", &e.SecondarySchool, "Optional: split the damage equally between two schools.", "", "physical", "fire", "water", "earth", "air"))
 		}
 		if e.Kind == "lane" {
-			fields = append(fields, overlayExclusiveInt("Lingering damage per second", &e.SustainDamage, &e.SustainPercent, "Damage per second on the struck tiles afterwards. 0: only the strike hurts."), overlayExclusiveInt("Lingering damage (% of boss attack)", &e.SustainPercent, &e.SustainDamage, "Instead of the flat lingering damage: a percent of the boss's attack per second."), overlayFloat("Lingering time (seconds)", &e.DurationSeconds, "Real-time lifetime of the lingering field."), overlayInt("Lingering time (rounds)", &e.DurationRounds, "Turn-based lifetime of the lingering field."))
+			fields = append(fields, overlayExclusiveInt("Lingering damage per second", &e.SustainDamage, &e.SustainPercent, "Damage per second on the struck tiles afterwards. 0: only the strike hurts."), overlayExclusiveInt("Lingering damage (% of boss attack)", &e.SustainPercent, &e.SustainDamage, "Instead of the flat lingering damage: a percent of the boss's attack per second."), overlayInt("Lingering time (seconds)", &e.DurationSeconds, "Lifetime of the lingering field: whole 3 s rounds, the same span in turn-based play."))
 		}
 		if e.Kind == "lane" || e.BossBelowPercent > 0 {
 			help := "Time between the announcement and the strike, to leave the marked tiles."
@@ -319,7 +319,11 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 			fields = append(fields, overlayAction("Add entrance schedule", "Configure the destination for every day and night.", func() { d.checkpoint(); a.Schedule = &config.AdventureSchedule{Days: make([][2]string, 7)} }))
 		} else {
 			s := a.Schedule
-			fields = append(fields, overlayString("Required quest", &s.RequiresQuest, "The entrance opens once this quest is done.", v.overlayCatalog("quests", "quests")...), overlayString("Required spell", &s.RequiresSpell, "A party member must know this spell. A Jump device also works.", v.overlayCatalog("spells", "spells")...), overlayString("Alternative technique", &s.AlternativeTechnique, "Optional technique accepted instead of the spell.", "", "fold_step"))
+			techniques := []string{""} // only a fold step can stand in for the spell
+			if fold := config.TechniqueOfKind(config.TechniqueFoldStep); fold != nil {
+				techniques = append(techniques, fold.Key)
+			}
+			fields = append(fields, overlayString("Required quest", &s.RequiresQuest, "The entrance opens once this quest is done.", v.overlayCatalog("quests", "quests")...), overlayString("Required spell", &s.RequiresSpell, "A party member must know this spell. A Jump device also works.", v.overlayCatalog("spells", "spells")...), overlayString("Alternative technique", &s.AlternativeTechnique, "Optional technique accepted instead of the spell.", techniques...))
 			maps := []string{}
 			for _, m := range v.maps {
 				if m.Key != d.key && m.Config != nil && m.Config.Adventure != nil && m.Config.Adventure.OpeningOwned {

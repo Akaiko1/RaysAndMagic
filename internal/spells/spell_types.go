@@ -72,7 +72,6 @@ type SpellDefinition struct {
 	// AoE-stun effect (Darkness): >0 radius stuns all monsters in range, no damage
 	StunRadiusTiles     float64
 	StunDurationSeconds int
-	StunDurationTurns   int
 	DealsNoDamage       bool // zero direct damage (Disintegrate: only the instakill roll matters)
 	// Party combat buffs (duration seconds)
 	ResistBuffPct                      int // Day of the Gods: % incoming damage reduction
@@ -169,7 +168,6 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		MasteryDamagePerTier:               configDef.MasteryDamagePerTier,
 		StunRadiusTiles:                    configDef.StunRadiusTiles,
 		StunDurationSeconds:                configDef.StunDurationSeconds,
-		StunDurationTurns:                  configDef.StunDurationTurns,
 		DealsNoDamage:                      configDef.DealsNoDamage,
 		ResistBuffPct:                      configDef.ResistBuffPct,
 		ResistBuffPctGrandmaster:           configDef.ResistBuffPctGrandmaster,
@@ -251,7 +249,7 @@ func (d SpellDefinition) IsBuff() bool {
 
 // HasAutocast reports a mechanic the caster may set to cast itself.
 func (d SpellDefinition) HasAutocast() bool {
-	return d.Mechanic != nil && d.Mechanic.Autocast != ""
+	return d.Mechanic != nil && d.Mechanic.Autocast
 }
 
 // HasRTCooldown is false only for a plain buff; a combat_buff keeps its
@@ -348,12 +346,12 @@ func (d SpellDefinition) effectLinesAtMastery(view effectView, tier int) []strin
 	if d.StunChance > 0 {
 		line := uitext.Text("spell.stun_chance_on_hit", d.StunChance*100)
 		if d.StunDurationSeconds > 0 {
-			line += uitext.Text("spell.stun_duration", d.StunDurationSeconds, tbTurns(d.StunDurationTurns))
+			line += uitext.Text("spell.stun_duration", config.DurationText(d.StunDurationSeconds))
 		}
 		out = append(out, line)
 	}
 	if d.StunRadiusTiles > 0 {
-		out = append(out, uitext.Text("spell.stuns_every_monster_within_tiles_for_s", d.StunRadiusTiles, d.StunDurationSeconds, tbTurns(d.StunDurationTurns)))
+		out = append(out, uitext.Text("spell.stuns_every_monster_within_tiles_for_s", d.StunRadiusTiles, config.DurationText(d.StunDurationSeconds)))
 	}
 	if d.StunChance > 0 || d.StunRadiusTiles > 0 {
 		out = append(out, uitext.Text("spell.repeated_stuns_wear_off_diminishing_returns_then"))
@@ -504,14 +502,6 @@ func PerStatBonusLines(bonuses map[string]int) []string {
 		}
 	}
 	return out
-}
-
-// tbTurns renders a turn-based span: "1 TB turn", "3 TB turns".
-func tbTurns(n int) string {
-	if n == 1 {
-		return "1 TB turn"
-	}
-	return fmt.Sprintf("%d TB turns", n)
 }
 
 // SchoolScalesWithPersonality reports whether a school's spells scale with

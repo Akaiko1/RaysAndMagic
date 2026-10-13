@@ -47,11 +47,11 @@ type DoTAbility struct {
 	DurationSeconds int     `yaml:"duration_seconds"`
 }
 
-// TimedStatusAbility is a control rider timed in both modes (stun, root_party).
+// TimedStatusAbility is a control rider (stun, root_party); its seconds are
+// whole rounds, the same span in both modes.
 type TimedStatusAbility struct {
 	Chance  float64 `yaml:"chance"`
 	Seconds int     `yaml:"seconds"`
-	Turns   int     `yaml:"turns"`
 }
 
 // RearBlinkAbility: a ranged attacker blinks behind the party and strikes.
@@ -157,6 +157,12 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 	chance := func(kind string, c float64) []string {
 		return need(c > 0 && c <= 1, kind+" needs a chance in (0,1]")
 	}
+	duration := func(kind string, seconds int) []string {
+		if err := config.ValidateEffectSeconds(kind+" seconds", seconds); err != nil {
+			return []string{err.Error()}
+		}
+		return nil
+	}
 	// An ability is authored when any of its fields differs from zero.
 	set := func(ability any) bool { return !reflect.ValueOf(ability).IsZero() }
 	return []abilityRow{
@@ -173,11 +179,10 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 		{
 			kind: "root_party", present: set(a.RootParty),
 			problems: func() []string {
-				return append(chance("root_party", a.RootParty.Chance),
-					need(a.RootParty.Seconds > 0 && a.RootParty.Turns > 0, "root_party needs positive seconds and turns")...)
+				return append(chance("root_party", a.RootParty.Chance), duration("root_party", a.RootParty.Seconds)...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Party root: %.0f%% per attack, %ds / %d turn(s)", a.RootParty.Chance*100, a.RootParty.Seconds, a.RootParty.Turns))
+				return line(fmt.Sprintf("Party root: %.0f%% per attack, %s", a.RootParty.Chance*100, config.DurationText(a.RootParty.Seconds)))
 			},
 		},
 		{
@@ -215,28 +220,28 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 		{
 			kind: "poison", present: set(a.Poison),
 			problems: func() []string {
-				return append(chance("poison", a.Poison.Chance), need(a.Poison.DurationSeconds > 0, "poison needs duration_seconds")...)
+				return append(chance("poison", a.Poison.Chance), duration("poison", a.Poison.DurationSeconds)...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Poison: %.0f%% for %ds", a.Poison.Chance*100, a.Poison.DurationSeconds))
+				return line(fmt.Sprintf("Poison: %.0f%% for %s", a.Poison.Chance*100, config.DurationText(a.Poison.DurationSeconds)))
 			},
 		},
 		{
 			kind: "ignite", present: set(a.Ignite),
 			problems: func() []string {
-				return append(chance("ignite", a.Ignite.Chance), need(a.Ignite.DurationSeconds > 0, "ignite needs duration_seconds")...)
+				return append(chance("ignite", a.Ignite.Chance), duration("ignite", a.Ignite.DurationSeconds)...)
 			},
 			lines: func() []EffectLine {
-				return schoolLine(damagecalc.Fire.String(), fmt.Sprintf("Ignite: %.0f%% for %ds", a.Ignite.Chance*100, a.Ignite.DurationSeconds))
+				return schoolLine(damagecalc.Fire.String(), fmt.Sprintf("Ignite: %.0f%% for %s", a.Ignite.Chance*100, config.DurationText(a.Ignite.DurationSeconds)))
 			},
 		},
 		{
 			kind: "stun", present: set(a.Stun),
 			problems: func() []string {
-				return append(chance("stun", a.Stun.Chance), need(a.Stun.Seconds > 0 && a.Stun.Turns > 0, "stun needs positive seconds and turns")...)
+				return append(chance("stun", a.Stun.Chance), duration("stun", a.Stun.Seconds)...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Stun: %.0f%% (%ds / %d turns)", a.Stun.Chance*100, a.Stun.Seconds, a.Stun.Turns))
+				return line(fmt.Sprintf("Stun: %.0f%% for %s", a.Stun.Chance*100, config.DurationText(a.Stun.Seconds)))
 			},
 		},
 		{
@@ -248,8 +253,8 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 			kind: "melt_armor", present: set(a.MeltArmor),
 			problems: func() []string { return chance("melt_armor", a.MeltArmor.Chance) },
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Melt armor: %.0f%% on hit: armor reduces physical damage by at most %d%% (%d rounds / %ds)",
-					a.MeltArmor.Chance*100, config.ArmorElementalMitigationCap, config.ArmorMeltRounds, config.ArmorMeltRounds*config.CombatRoundSeconds))
+				return line(fmt.Sprintf("Melt armor: %.0f%% on hit: armor reduces physical damage by at most %d%% for %s",
+					a.MeltArmor.Chance*100, config.ArmorElementalMitigationCap, config.DurationText(config.ArmorMeltSeconds())))
 			},
 		},
 		{

@@ -15,8 +15,9 @@ import (
 )
 
 // equipmentComparisonContext isolates the equipment mutation while retaining
-// party membership, cards, auras and active buffs for the real combat formulas.
-// Other members and read-only skill/buff definitions are shared, never mutated.
+// party membership, cards, auras, active buffs, the night and the party hinder
+// for the real combat formulas. Other members and read-only skill/buff
+// definitions are shared, never mutated.
 func equipmentComparisonContext(cs *CombatSystem, original *character.MMCharacter) (*character.MMCharacter, *CombatSystem) {
 	copy := *original
 	copy.Equipment = maps.Clone(original.Equipment)
@@ -24,7 +25,8 @@ func equipmentComparisonContext(cs *CombatSystem, original *character.MMCharacte
 		copy.Equipment = make(map[items.EquipSlot]items.Item)
 	}
 	source := cs.game
-	preview := &MMGame{config: source.config, cardSlots: source.cardSlots, combatBuffs: source.combatBuffs, turnBasedMode: source.turnBasedMode}
+	preview := &MMGame{config: source.config, cardSlots: source.cardSlots, combatBuffs: source.combatBuffs, turnBasedMode: source.turnBasedMode,
+		dayNightIsNight: source.dayNightIsNight, partyHinder: source.partyHinder}
 	if source.party != nil {
 		preview.party = &character.Party{Members: slices.Clone(source.party.Members)}
 		for i, member := range preview.party.Members {

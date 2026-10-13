@@ -532,6 +532,9 @@ func validatePricedChoices() error {
 				if c.Cost <= 0 || c.DurationSeconds <= 0 || c.Buff == "" {
 					return fmt.Errorf("npc %q: cast_buff choice requires buff, cost > 0 and duration_seconds > 0", npcKey)
 				}
+				if err := config.ValidateEffectSeconds(fmt.Sprintf("npc %q: cast_buff duration_seconds", npcKey), c.DurationSeconds); err != nil {
+					return err
+				}
 			}
 			return nil
 		}); err != nil {

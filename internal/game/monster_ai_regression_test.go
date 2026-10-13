@@ -83,7 +83,7 @@ func TestAIRegressionStunnedFlockMemberHoldsPosition(t *testing.T) {
 	if follower.BandLeaderID != leader.ID {
 		t.Fatal("fixture did not form a flock")
 	}
-	g.combat.applyStunDR(follower, 3, 3*g.config.GetTPS(), false)
+	g.combat.applyStunDR(follower, 3, false)
 	leader.MoveTargetState = monster.StatePatrolling
 	leader.HasMoveTarget = true
 	leader.MoveTargetTileX, leader.MoveTargetTileY = 12, 10

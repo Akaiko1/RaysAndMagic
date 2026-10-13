@@ -81,8 +81,8 @@ func TestBuffStatusCardStatesLiveEffectThroughTheHover(t *testing.T) {
 					t.Fatalf("card lacks the live effect %q:\n%s", live, text)
 				}
 				tps, round := g.config.GetTPS(), g.combatRoundFrames()
-				remaining := fmt.Sprintf("Remaining: %ds (TB: %s)", (status.Duration+tps-1)/tps,
-					pluralizeCount((status.Duration+round-1)/round, "round", "rounds"))
+				remaining := fmt.Sprintf("Remaining: %ds / %s", (status.Duration+tps-1)/tps,
+					pluralizeCount((status.Duration+round-1)/round, "TB turn", "TB turns"))
 				if !slices.Contains(card, remaining) || !slices.Contains(card, uitext.Text("buff.double_click_dispel")) {
 					t.Fatalf("card lacks %q or the dispel hint:\n%s", remaining, text)
 				}
@@ -197,7 +197,7 @@ func TestBuffStatusCardNamesNonSpellSources(t *testing.T) {
 			}
 			d := config.Technique("quickening")
 			tier := c.SkillTier(character.SkillTranslocation)
-			status := g.utilitySpellStatuses["quickening"]
+			status := g.utilitySpellStatuses[spells.SpellID(config.TechniqueID("quickening"))]
 			if status == nil {
 				t.Fatal("quickening never reached the status rail")
 			}

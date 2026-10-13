@@ -25,17 +25,17 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 	}
 	riders := []rider{
 		{"poison", func(_ *CombatSystem, a *monsterPkg.Monster3D) {
-			a.Abilities.Poison.Chance, a.Abilities.Poison.DurationSeconds = 1, 5
+			a.Abilities.Poison.Chance, a.Abilities.Poison.DurationSeconds = 1, 6
 		},
 			func(m *monsterPkg.Monster3D) bool { return m.PoisonedFramesRemaining > 0 },
 			func(c *character.MMCharacter) bool { return c.HasCondition(character.ConditionPoisoned) }, []string{"is poisoned!"}},
 		{"ignite", func(_ *CombatSystem, a *monsterPkg.Monster3D) {
-			a.Abilities.Ignite.Chance, a.Abilities.Ignite.DurationSeconds = 1, 5
+			a.Abilities.Ignite.Chance, a.Abilities.Ignite.DurationSeconds = 1, 6
 		},
 			func(m *monsterPkg.Monster3D) bool { return m.BurnFramesRemaining > 0 },
 			func(c *character.MMCharacter) bool { return c.BurnFramesRemaining > 0 }, []string{"catches fire!", "bursts into flames!"}},
 		{"stun", func(_ *CombatSystem, a *monsterPkg.Monster3D) {
-			a.Abilities.Stun.Chance, a.Abilities.Stun.Seconds, a.Abilities.Stun.Turns = 1, 2, 2
+			a.Abilities.Stun.Chance, a.Abilities.Stun.Seconds = 1, 6
 		},
 			func(m *monsterPkg.Monster3D) bool { return m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0 },
 			func(c *character.MMCharacter) bool { return c.IsStunned() }, []string{"is stunned!"}},

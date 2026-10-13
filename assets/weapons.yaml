@@ -61,7 +61,7 @@ weapons:
     rarity: "rare"
     value: 2500
     no_loot: true
-    elemental_ability: {kind: pressure, damage: 24, duration_seconds: 6, hits: 3, scaling_stat: Speed, stat_divisor: 3}
+    elemental_ability: {kind: pressure, damage: 24, duration_seconds: 9, hits: 3, scaling_stat: Speed, stat_divisor: 3}
     melee:
       arc_type: 2
       animation_frames: 8
@@ -108,7 +108,7 @@ weapons:
     rarity: "rare"
     value: 2500
     no_loot: true
-    elemental_ability: {kind: anchor, damage: 12, duration_seconds: 6, max_stacks: 10}
+    elemental_ability: {kind: anchor, damage: 12, duration_seconds: 9, max_stacks: 10}
     melee:
       arc_type: 2
       animation_frames: 8
@@ -131,7 +131,7 @@ weapons:
     rarity: "rare"
     value: 2500
     no_loot: true
-    elemental_ability: {kind: crosswind, damage: 90, duration_seconds: 6, hits: 3, range_tiles: 3}
+    elemental_ability: {kind: crosswind, damage: 90, duration_seconds: 9, hits: 3, range_tiles: 3}
     melee:
       arc_type: 2
       animation_frames: 8
@@ -244,7 +244,7 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 25
     stun_chance: 0.05
-    stun_turns: 3
+    stun_seconds: 9
     rarity: "uncommon"
     value: 220
 
@@ -908,7 +908,7 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 9
     stun_chance: 0.05
-    stun_turns: 3
+    stun_seconds: 9
     rarity: "uncommon"
     value: 280
     flavor: "An oni's argument, studded with iron."
@@ -1128,7 +1128,7 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 20
     armor_shred_pct: 20      # hits strip 20% of the target's armor...
-    armor_shred_seconds: 10  # ...for 10 seconds (refreshes, never stacks)
+    armor_shred_seconds: 15  # ...for 15 seconds (refreshes, never stacks)
     rarity: "unique"
     value: 1600
     flavor: "Every swing peels the fight a little more naked."
@@ -1150,7 +1150,7 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 14
     stun_chance: 0.12
-    stun_turns: 3
+    stun_seconds: 9
     rarity: "unique"
     value: 1500
     flavor: "The crowd counts the chimes."
@@ -1194,7 +1194,7 @@ weapons:
     bonus_stat_secondary: "Accuracy"
     crit_chance: 18
     root_chance: 0.15    # the net: 15% chance to pin the target in place...
-    root_seconds: 4      # ...for 4 seconds (root, not stun - no stun DR)
+    root_seconds: 6      # ...for 6 seconds (root, not stun - no stun DR)
     rarity: "unique"
     value: 1600
     flavor: "First the net, then the fork, then the verdict."
@@ -1406,7 +1406,7 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 16
     stun_chance: 0.15
-    stun_turns: 3
+    stun_seconds: 9
     cooldown_multiplier: 1.40
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
@@ -1476,7 +1476,7 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 18
     armor_shred_pct: 20
-    armor_shred_seconds: 10
+    armor_shred_seconds: 15
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
@@ -1629,7 +1629,7 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 12
     slow_pct: 30
-    slow_seconds: 5
+    slow_seconds: 9
     rarity: "legendary"
     value: 5000
     no_loot: true
@@ -1677,7 +1677,7 @@ weapons:
     bonus_stat: "Might"
     crit_chance: 10
     weaken_pct: 25
-    weaken_seconds: 8
+    weaken_seconds: 12
     rarity: "legendary"
     value: 5500
     no_loot: true

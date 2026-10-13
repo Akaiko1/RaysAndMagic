@@ -43,8 +43,7 @@ type EnvironmentEffect struct {
 	Destination      [2]int  `yaml:"destination,omitempty"`
 	WarningSeconds   float64 `yaml:"warning_seconds,omitempty"`
 	WarningRounds    int     `yaml:"warning_rounds,omitempty"`
-	DurationSeconds  float64 `yaml:"duration_seconds,omitempty"`
-	DurationRounds   int     `yaml:"duration_rounds,omitempty"`
+	DurationSeconds  int     `yaml:"duration_seconds,omitempty"` // a lane's lingering field: whole rounds, both modes
 	RearmSeconds     float64 `yaml:"rearm_seconds,omitempty"`
 	RearmRounds      int     `yaml:"rearm_rounds,omitempty"`
 	BossBelowPercent int     `yaml:"boss_below_percent,omitempty"`
@@ -116,6 +115,13 @@ func (s *AdventureSchedule) Destination(day int, night bool) string {
 	}
 	return s.Days[(day-1)%len(s.Days)][phase]
 }
+
+// Damaging reports an effect that deals damage, flat or as a percent of the
+// boss hit.
+func (e EnvironmentEffect) Damaging() bool {
+	return e.Damage > 0 || e.SustainDamage > 0 || e.DamagePercent > 0 || e.SustainPercent > 0
+}
+
 func (e EnvironmentEffect) Contains(x, y int) bool {
 	return x >= e.Rect[0] && y >= e.Rect[1] && x <= e.Rect[2] && y <= e.Rect[3]
 }
@@ -162,8 +168,14 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if len(s.Days) != 7 || s.RequiresQuest == "" || s.RequiresSpell == "" {
 				return fail("schedule requires seven days, an access quest and a spell")
 			}
-			if s.AlternativeTechnique != "" && s.AlternativeTechnique != "fold_step" {
-				return fail("schedule alternative_technique must be fold_step")
+			if s.AlternativeTechnique != "" {
+				// A programming error, not content: the catalog must load first.
+				if GlobalTechniques == nil {
+					return fmt.Errorf("map configs name techniques: load assets/techniques.yaml before validating them")
+				}
+				if d := Technique(s.AlternativeTechnique); d == nil || d.Kind != TechniqueFoldStep {
+					return fail("schedule alternative_technique must name a fold_step technique")
+				}
 			}
 			for _, day := range s.Days {
 				for _, dest := range day {
@@ -213,13 +225,20 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if e.Kind == "transfer" && (e.Destination[0] < 0 || e.Destination[1] < 0 || e.Contains(e.Destination[0], e.Destination[1])) {
 				return fail("invalid receiver")
 			}
-			if e.Kind == "lane" && (e.WarningSeconds <= 0 || e.WarningRounds < 1 || e.DurationSeconds <= 0 || e.DurationRounds < 1) {
-				return fail("lanes require RT and TB warning/duration")
+			if e.Kind == "lane" && (e.WarningSeconds <= 0 || e.WarningRounds < 1) {
+				return fail("lanes require RT and TB warning")
+			}
+			if e.Kind == "lane" {
+				if err := ValidateEffectSeconds("lane "+e.ID+" duration_seconds", e.DurationSeconds); err != nil {
+					return fail(err.Error())
+				}
+			} else if e.DurationSeconds != 0 {
+				return fail("duration_seconds is for lanes only")
 			}
 			if e.Kind == "trap" && (e.RearmSeconds <= 0 || e.RearmRounds < 1) {
 				return fail("traps require RT and TB rearm")
 			}
-			for _, n := range []float64{e.WarningSeconds, e.DurationSeconds, e.RearmSeconds} {
+			for _, n := range []float64{e.WarningSeconds, e.RearmSeconds} {
 				if n < 0 || math.IsNaN(n) || math.IsInf(n, 0) {
 					return fail("invalid duration")
 				}

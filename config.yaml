@@ -777,15 +777,8 @@ day_night:
       count: 5
       require_map_clear: true
 
-# Shared by all existing and new burn sources.
-status_damage:
-  burn_percent: 3
-  boss_burn_percent: 1
-
+# Control-spell saves. Each status's own numbers live in assets/statuses.yaml.
 status_effects:
-  # A slowed monster loses one turn in this many turn-based turns (RT slows
-  # movement and attack cadence by the debuff's percent instead).
-  slow_skip_every_turns: 3
   control_saves:
     mechanics: [turn_undead, mass_fear, feeblemind]
     diminishing_mechanics: [turn_undead, mass_fear]
@@ -804,3 +797,45 @@ status_effects:
     summary: "Targets may resist."
     details: "Each target resists independently. Higher-level targets and greater resistance to this school increase the chance; spell mastery reduces it."
     diminishing_summary: "Repeated fear and stun share diminishing returns."
+
+# Auto-level of every map an adventure schedule opens (map_configs.yaml
+# adventure.schedule.days). A visit's level is the party average +
+# visit_level_bonus; each monster there moves from its authored level to it by
+# curve(visit) / curve(own level), keeping its archetype ratio. The editor's
+# Actionables page (Auto-level view) shows the curves and every such map.
+# Each curve grows exponentially piece by piece (growth: up to to_level by
+# slope per level), then by flat_per_level past its last piece:
+#   curve(L) = exp(base + sum of slope x levels in each piece) + flat
+#   hp: max HP; hit: the average of damage_min and damage_max
+#   AC = authored AC * (L / own level)^armor_exponent
+#   XP = experience_level_percent of the XP a hero of the party's level
+#        (L - visit_level_bonus) needs for the next level
+# Percent hazards are a share of the scaled boss hit (map_configs.yaml).
+# Flats past L45 were set on testdata/real_parties (L21-38): median hero HP
+# grows ~9.7 per level and the regular hit holds ~50% of it; boss HP over
+# regular HP stays ~3.6, its L45 ratio. Authored bosses outside the chambers
+# outgrow regular monsters in damage (~6% vs ~3% per level over L18-35), so
+# the boss hit starts lower and grows faster.
+adventure_scaling:
+  visit_level_bonus: 5
+  armor_exponent: 0.5
+  regular:
+    hp:
+      base: 4.181
+      growth: [{to_level: 25, slope: 0.1255}, {to_level: 45, slope: 0.04}]
+      flat_per_level: 139
+    hit:
+      base: 2.634
+      growth: [{to_level: 45, slope: 0.057}]
+      flat_per_level: 5
+    experience_level_percent: 24
+  boss:
+    hp:
+      base: 5.333
+      growth: [{to_level: 35, slope: 0.101}]
+      flat_per_level: 500
+    hit:   # 0.85x the regular hit at L24, 1.12x from L45: bosses outgrow mobs
+      base: 2.16
+      growth: [{to_level: 45, slope: 0.07}]
+      flat_per_level: 5.6
+    experience_level_percent: 109

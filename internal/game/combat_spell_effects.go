@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
@@ -299,12 +300,11 @@ func (cs *CombatSystem) tryCastAoeStunBy(spellID spells.SpellID, def spells.Spel
 	}
 	tileSize := float64(cs.game.config.GetTileSize())
 	radius := def.StunRadiusTiles * tileSize
-	frames := def.StunDurationSeconds * cs.game.config.GetTPS()
-	turns := def.StunDurationTurns
+	frames, rounds := config.EffectClock(def.StunDurationSeconds, cs.game.config.GetTPS())
 	stunned := 0
 	hurts := func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) }
 	cs.forEachAreaVictim(cs.partyNova(radius), hurts, func(m *monsterPkg.Monster3D) {
-		if !cs.tryDarkElfBindInstead(caster, m) && cs.applyStunDR(m, turns, frames, false) { // per-target DR; summary printed below
+		if !cs.tryDarkElfBindInstead(caster, m) && cs.applyStunDR(m, rounds, false) { // per-target DR; summary printed below
 			stunned++
 		}
 	})

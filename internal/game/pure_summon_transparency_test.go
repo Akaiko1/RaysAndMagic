@@ -223,8 +223,7 @@ func TestPartyAoeControlIgnoresPureSummonButHitsBoundUndead(t *testing.T) {
 		Name:                "Test Darkness",
 		Message:             "Test darkness",
 		StunRadiusTiles:     3,
-		StunDurationSeconds: 5,
-		StunDurationTurns:   3,
+		StunDurationSeconds: 9,
 	})
 	if !handled {
 		t.Fatal("AoE stun was not handled")

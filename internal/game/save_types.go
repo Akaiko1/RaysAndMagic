@@ -60,14 +60,14 @@ type GameSave struct {
 	StashTransferID string `json:"stash_transfer_id,omitempty"`
 
 	// Turn-based state
-	TurnBasedTurnSuspended    bool `json:"turn_based_turn_suspended,omitempty"`
-	CurrentTurn               int  `json:"current_turn,omitempty"`
-	PartyActionsUsed          int  `json:"party_actions_used,omitempty"`
-	PartyTechniqueActionsUsed int  `json:"party_technique_actions_used,omitempty"`
-	TurnBasedMoveCooldown     int  `json:"turn_based_move_cooldown,omitempty"`
-	TurnBasedRotCooldown      int  `json:"turn_based_rot_cooldown,omitempty"`
-	MonsterTurnResolved       bool `json:"monster_turn_resolved,omitempty"`
-	TurnBasedSpRegenCount     int  `json:"turn_based_sp_regen_count,omitempty"`
+	TurnBasedTurnSuspended      bool `json:"turn_based_turn_suspended,omitempty"`
+	CurrentTurn                 int  `json:"current_turn,omitempty"`
+	PartyActionsUsed            int  `json:"party_actions_used,omitempty"`
+	PartyPenaltyFreeActionsUsed int  `json:"party_technique_actions_used,omitempty"`
+	TurnBasedMoveCooldown       int  `json:"turn_based_move_cooldown,omitempty"`
+	TurnBasedRotCooldown        int  `json:"turn_based_rot_cooldown,omitempty"`
+	MonsterTurnResolved         bool `json:"monster_turn_resolved,omitempty"`
+	TurnBasedSpRegenCount       int  `json:"turn_based_sp_regen_count,omitempty"`
 	// TurnBasedHPRegenCount is absent from saves made while one counter paced
 	// both regens; such a save resumes HP regen on the SP counter's phase.
 	TurnBasedHPRegenCount *int `json:"turn_based_hp_regen_count,omitempty"`

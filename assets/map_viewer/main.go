@@ -62,6 +62,7 @@ var pageTabDefs = []struct {
 	{pageSaves, "Save Stashes", "F8"},
 	{pageOpenWorld, "Open World", "F9"},
 	{pageOverlay, "Overlay", "F10"},
+	{pageActionables, "Actionables", "F11"},
 }
 
 type mapInfo struct {
@@ -380,6 +381,10 @@ func (v *viewer) Update() error {
 		v.updateOverlayPage()
 		return nil
 	}
+	if v.page == pageActionables {
+		v.updateActionablesPage()
+		return nil
+	}
 	if v.page == pageOpenWorld {
 		v.updateOpenWorldPage()
 		return nil
@@ -629,6 +634,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	}
 	if v.page == pageOverlay {
 		v.drawOverlayPage(screen)
+		return
+	}
+	if v.page == pageActionables {
+		v.drawActionablesPage(screen)
 		return
 	}
 	if v.page == pageOpenWorld {

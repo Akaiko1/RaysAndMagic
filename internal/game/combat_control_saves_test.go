@@ -181,7 +181,7 @@ func TestSpellControlsShareStunDiminishingAndRecovery(t *testing.T) {
 	m.X, m.Y = g.camera.X+64, g.camera.Y
 	g.world.Monsters = []*monster.Monster3D{m}
 	// A weapon stun and fear share one chain in both directions.
-	cs.applyStunDR(m, 2, 240, false)
+	cs.applyStunDR(m, 2, false)
 	m.StunFramesRemaining, m.StunTurnsRemaining = 0, 0
 	equipSpellAndPrepareCaster(t, cs, "mass_fear", 1000, 50)
 	def, _ := spells.GetSpellDefinitionByID("mass_fear")
@@ -190,9 +190,10 @@ func TestSpellControlsShareStunDiminishingAndRecovery(t *testing.T) {
 		t.Fatalf("second control lasted %d frames, want 360", m.FearFramesRemaining)
 	}
 	m.FearFramesRemaining = 0
-	cs.applyStunDR(m, 2, 240, false)
-	if m.StunFramesRemaining != 60 {
-		t.Fatalf("third control lasted %d frames, want 60", m.StunFramesRemaining)
+	cs.applyStunDR(m, 2, false)
+	// 25% of two rounds rounds up to one whole round, the same span in RT.
+	if want := config.RoundFrames(1, g.config.GetTPS()); m.StunFramesRemaining != want || m.StunTurnsRemaining != 1 {
+		t.Fatalf("third control lasted %d frames / %d turns, want %d / 1", m.StunFramesRemaining, m.StunTurnsRemaining, want)
 	}
 	m.StunFramesRemaining, m.StunTurnsRemaining = 0, 0
 	cs.castResolvedSpell(def.ID, def, c, def.SpellPointsCost, false, false)
@@ -219,18 +220,20 @@ func TestSpellControlsShareStunDiminishingAndRecovery(t *testing.T) {
 	if m.StunDRStacks != 0 {
 		t.Fatal("DR did not recover after four free turns")
 	}
-	cs.applyStunDR(m, 1, 1, false)
+	cs.applyStunDR(m, 1, false)
 	m.StunFramesRemaining, m.StunTurnsRemaining = 0, 0
 	g.turnBasedMode = false
-	for range 8*g.config.GetTPS() - 1 {
+	// The RT reset window is the same span as the four free TB turns.
+	window := config.RoundFrames(4, g.config.GetTPS())
+	for range window - 1 {
 		CreateMonsterWrapper(m, g.collisionSystem, g.collisionSystem.Snapshot(), g).Update()
 	}
 	if m.StunDRStacks != 1 {
-		t.Fatal("DR expired before eight free seconds")
+		t.Fatal("DR expired before the RT reset window")
 	}
 	CreateMonsterWrapper(m, g.collisionSystem, g.collisionSystem.Snapshot(), g).Update()
 	if m.StunDRStacks != 0 {
-		t.Fatal("DR did not recover after eight free seconds")
+		t.Fatal("DR did not recover after the RT reset window")
 	}
 }
 

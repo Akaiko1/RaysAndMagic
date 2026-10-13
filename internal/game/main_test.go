@@ -111,6 +111,11 @@ func (*testMainGame) Layout(w, h int) (int, int) {
 }
 
 func TestMain(m *testing.M) {
+	config.MustLoadStatuses("../../assets/statuses.yaml")
+	// Map configs validate adventure techniques against this catalog.
+	if err := config.LoadTechniques("../../assets/techniques.yaml"); err != nil {
+		panic(err)
+	}
 	displayDeviceScale = func() float64 { return 1 }
 	// RAM_TEST_UI_FONT=<key> runs the whole suite in one of the shipped
 	// fonts, so every text-fit check is exercised with its glyph widths.

@@ -253,6 +253,12 @@ func validateCraftedItem(key string, d *ItemDefinitionConfig) error {
 			if f.Damage[i] < 1 || f.PoisonSeconds[i] < 0 || f.BurnSeconds[i] < 0 {
 				return fmt.Errorf("item %q: invalid flask mastery values", key)
 			}
+			if err := validateEffectFields(
+				effectField{fmt.Sprintf("item %q: poison_seconds[%d]", key, i), f.PoisonSeconds[i]},
+				effectField{fmt.Sprintf("item %q: burn_seconds[%d]", key, i), f.BurnSeconds[i]},
+			); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

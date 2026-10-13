@@ -60,7 +60,7 @@ func (d MonsterDefinition) AttackLines(contexts ...CombatEffectContext) []Effect
 				addSchool(school, fmt.Sprintf("Projectile AoE: whole party on hit (spell radius %.1f)", sp.AoeRadiusTiles))
 			}
 			if rider := d.ProjectileStun(d.ProjectileSpell); rider.Chance > 0 {
-				add(fmt.Sprintf("Projectile stun: %.0f%% on hit, %ds / %d turn(s)", rider.Chance*100, rider.Seconds, rider.Turns))
+				add(fmt.Sprintf("Projectile stun: %.0f%% on hit, %s", rider.Chance*100, config.DurationText(rider.Seconds)))
 			}
 			if sp.DisintegrateChance > 0 {
 				add(fmt.Sprintf("Disintegrate on hit: %.0f%%", sp.DisintegrateChance*100))

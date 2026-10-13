@@ -34,8 +34,10 @@ func (a *ElementalWeaponAbility) validate(w *WeaponDefinitionConfig) error {
 		if a.DurationSeconds != 0 || a.HitsPerTarget < 1 || a.HitsPerTarget > 10 {
 			return fmt.Errorf("backwash requires hits_per_target (1..10) and no mark duration")
 		}
-	} else if a.DurationSeconds < 1 || a.DurationSeconds > 60 || a.HitsPerTarget != 0 {
-		return fmt.Errorf("marks require 1..60 second duration and no hits_per_target")
+	} else if a.DurationSeconds > 60 || a.HitsPerTarget != 0 {
+		return fmt.Errorf("marks require up to a 60 second duration and no hits_per_target")
+	} else if err := ValidateEffectSeconds("mark duration_seconds", a.DurationSeconds); err != nil {
+		return err
 	}
 	counted := a.Kind == "pressure" || a.Kind == "crosswind"
 	if (counted && (a.Hits < 2 || a.Hits > 10)) || (!counted && a.Hits != 0) {
@@ -69,7 +71,7 @@ func (a *ElementalWeaponAbility) Lines() []string {
 	if a == nil {
 		return nil
 	}
-	duration := weaponStatusDurationLabel(a.DurationSeconds)
+	duration := DurationText(a.DurationSeconds)
 	var effect string
 	switch a.Kind {
 	case "pressure":

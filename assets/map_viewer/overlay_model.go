@@ -124,7 +124,7 @@ func (d *overlayDocument) addEffect(kind string, box [4]int) int {
 	case "trap":
 		e.RearmSeconds, e.RearmRounds = 6, 2
 	case "lane":
-		e.WarningSeconds, e.WarningRounds, e.DurationSeconds, e.DurationRounds = 1.25, 1, 4, 2
+		e.WarningSeconds, e.WarningRounds, e.DurationSeconds = 1.25, 1, 6
 	case "transfer":
 		e.Damage, e.DamagePercent = 0, 0
 		e.School = ""
@@ -423,7 +423,7 @@ func (v *viewer) validateOverlay(d *overlayDocument) error {
 		if !inside(e.Rect[0], e.Rect[1]) || !inside(e.Rect[2], e.Rect[3]) {
 			return fmt.Errorf("%s extends outside the map", e.Name)
 		}
-		if e.SustainDamage < 0 || e.DamagePercent < 0 || e.SustainPercent < 0 || e.WarningRounds < 0 || e.DurationRounds < 0 || e.RearmRounds < 0 {
+		if e.SustainDamage < 0 || e.DamagePercent < 0 || e.SustainPercent < 0 || e.WarningRounds < 0 || e.DurationSeconds < 0 || e.RearmRounds < 0 {
 			return fmt.Errorf("%s: values cannot be negative", e.Name)
 		}
 		if e.Kind == "transfer" {
@@ -516,7 +516,8 @@ func (d *overlayDocument) changeKind(index int, kind string) error {
 	}
 	e.Kind = kind
 	if kind != "lane" {
-		e.SustainDamage, e.SustainPercent = 0, 0 // lingering damage belongs to lanes
+		// Lingering damage and its time belong to lanes.
+		e.SustainDamage, e.SustainPercent, e.DurationSeconds = 0, 0, 0
 	}
 	if kind != "transfer" {
 		e.TriggerLane = ""
@@ -531,7 +532,7 @@ func (d *overlayDocument) changeKind(index int, kind string) error {
 	case "trap":
 		e.RearmSeconds, e.RearmRounds = 6, 2
 	case "lane":
-		e.WarningSeconds, e.WarningRounds, e.DurationSeconds, e.DurationRounds = 1.25, 1, 4, 2
+		e.WarningSeconds, e.WarningRounds, e.DurationSeconds = 1.25, 1, 6
 	case "transfer":
 		e.Damage, e.SustainDamage, e.DamagePercent, e.SustainPercent = 0, 0, 0, 0
 		e.School, e.SecondarySchool = "", ""

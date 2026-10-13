@@ -132,7 +132,7 @@ func TestChamberDevicesPlayable(t *testing.T) {
 						// Stepping onto an armed plate costs its share of the boss
 						// attack: at least the scaled boss's weakest hit at 100%.
 						plate := a.Effect("plate_row_1")
-						lo, hi := adventureBossAttack(a, v)
+						lo, hi := adventureBossAttack(g.config.AdventureScaling, a, v)
 						if resolved := effectDamage(*plate, lo, hi).Damage; resolved < boss.DamageMin {
 							t.Fatalf("plate resolves to %d, below the boss's %d-%d attack", resolved, boss.DamageMin, boss.DamageMax)
 						}

@@ -50,8 +50,7 @@ spells:
     graphics: {cast_overlay: haste, cast_overlay_scale: 0.5}
     mechanic:
       kind: "haste"
-      technique: "quickening"
-      autocast: "quickening"
+      autocast: true
       power_by_mastery: [20, 25, 30, 35]
       extra_actions_by_mastery: [1, 1, 2, 2]
       summary: "For {duration}s the party's real-time recovery is {power}% shorter and it gains {extra_actions} bonus actions per turn-based round. Does not stack with another haste effect."
@@ -125,7 +124,7 @@ spells:
       summary: "Remember up to {charges} locations and return to them. Dungeon beacons expire when that dungeon resets; blocked destinations cannot be reached."
 
   slow:
-    duration_by_mastery: [6, 9, 12, 15]
+    duration_by_mastery: [9, 18, 27, 36]
     name: "Slow"
     description: "Heavy earth drags at nearby enemies' feet and weapons."
     school: earth
@@ -299,8 +298,7 @@ spells:
     graphics: {cast_overlay: purify, cast_overlay_scale: 0.5}
     mechanic:
       kind: "purify"
-      technique: "purify"
-      autocast: "purify"
+      autocast: true
       summary: "Removes every affliction except death, unconsciousness and eradication, and frees the party from root and slow."
 
   protection_from_magic:
@@ -350,8 +348,7 @@ spells:
     graphics: {cast_overlay: dispel_magic, cast_overlay_scale: 0.5}
     mechanic:
       kind: "dispel_magic"
-      technique: "purify"
-      autocast: "dispel_magic"
+      autocast: true
       radius_tiles: 7
       summary: "Cleanses the party's curable afflictions and movement hindrances, and destroys enemy magical projectiles within {radius} tiles."
 
@@ -414,7 +411,7 @@ spells:
     mechanic:
       kind: "celestial_armor"
       power_by_mastery: [40, 65, 90, 120]
-      autocast: "celestial_armor"
+      autocast: true
       summary: "Protects the party with a shared barrier that absorbs {power} damage. Lasts {duration}s."
 
   shrapmetal:
@@ -637,8 +634,7 @@ spells:
     # Stun-on-hit rider (like Psychic Shock): a jolt of lightning has a chance to
     # briefly stun the struck monster. Shown in tooltips via SpellDefinition.EffectLines.
     stun_chance: 0.20           # 20% chance to stun on hit
-    stun_duration_seconds: 2
-    stun_duration_turns: 1
+    stun_duration_seconds: 3
 
     # Projectile physics (tile-based units)
     physics:
@@ -694,8 +690,7 @@ spells:
     deals_no_damage: true
     # AoE-stun effect (no damage): stuns all monsters within the radius.
     stun_radius_tiles: 5.0
-    stun_duration_seconds: 5
-    stun_duration_turns: 3
+    stun_duration_seconds: 9
     message: "Darkness engulfs the area"
     graphics:
       cast_overlay: darkness
@@ -996,8 +991,7 @@ spells:
     deals_no_damage: true
     # AoE-stun effect (no damage): cheaper, smaller version of Darkness.
     stun_radius_tiles: 3.0
-    stun_duration_seconds: 4
-    stun_duration_turns: 2
+    stun_duration_seconds: 6
     message: "A stunning shockwave rips outward"
 
   harm:
@@ -1129,8 +1123,7 @@ spells:
     is_projectile: true
     is_utility: false
     stun_chance: 0.10           # 10% chance to stun on hit
-    stun_duration_seconds: 2
-    stun_duration_turns: 1
+    stun_duration_seconds: 3
     physics:
       speed_tiles: 16.0
       range_tiles: 7.0
@@ -1342,8 +1335,7 @@ spells:
     mortar_range_tiles: 7      # ballistic: ignores everything in flight and detonates exactly here
     aoe_radius_tiles: 3.0
     stun_chance: 1.0           # the bloom stuns like Darkness does
-    stun_duration_seconds: 5
-    stun_duration_turns: 3
+    stun_duration_seconds: 9
     physics:
       speed_tiles: 9.0
       range_tiles: 7.0

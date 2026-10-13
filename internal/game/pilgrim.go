@@ -39,7 +39,7 @@ func (g *MMGame) techniqueCastRefusal(idx int, key string, automatic bool) strin
 	if g.combat != nil && g.combat.partyInsideSolidTerrain() {
 		return uitext.Text("technique.refusal_no_room")
 	}
-	if d.FreeStep {
+	if d.IsStep() {
 		// A step moves the party, and a rooted party cannot move (as with Jump).
 		if g.partyRooted() {
 			return uitext.Text("technique.refusal_rooted")
@@ -56,58 +56,73 @@ func (g *MMGame) techniqueCastRefusal(idx int, key string, automatic bool) strin
 	if c.SpellPoints < g.techniqueSPCost(c, d) {
 		return uitext.Text("technique.refusal_sp")
 	}
-	if !d.FreeStep && !g.techniqueUseful(key) {
+	if !d.IsStep() && !g.techniqueUseful(d) {
 		return uitext.Text("technique.refusal_no_benefit")
 	}
 	return ""
 }
-func (g *MMGame) techniqueUseful(key string) bool {
-	switch key {
-	case "purify":
-		if g.partyRooted() || g.partyHinder.Slow > 0 {
+
+// techniqueUseful reports whether a non-step technique would change anything.
+func (g *MMGame) techniqueUseful(d *config.TechniqueDefinition) bool {
+	switch d.Kind {
+	case config.TechniquePurify:
+		return g.partyNeedsPurify()
+	case config.TechniqueDodge:
+		_, active := g.combatBuffByID(config.TechniqueID(d.Key))
+		return !active
+	case config.TechniqueHaste:
+		return g.partyNeedsHaste()
+	}
+	return false
+}
+
+// partyNeedsPurify: a living ally has an affliction, or the party is rooted or
+// slowed. Shared by the Purify technique and the Purify/Dispel Magic spells.
+func (g *MMGame) partyNeedsPurify() bool {
+	if g.partyRooted() || g.partyHinder.Slow > 0 {
+		return true
+	}
+	for _, c := range g.party.Members {
+		if c.Purifiable() {
 			return true
 		}
+	}
+	return false
+}
+
+// partyNeedsHaste: no haste effect is running and one would add actions.
+// Shared by the Quickening technique and the Haste spell.
+func (g *MMGame) partyNeedsHaste() bool {
+	if _, active := g.partyTempoBuff(); active {
+		return false
+	}
+	if !g.turnBasedMode {
 		for _, c := range g.party.Members {
-			if c.Purifiable() {
+			if c != nil && c.CanUseCombatAction() {
 				return true
 			}
 		}
-	case "phase_veil":
-		_, active := g.combatBuffByID(key)
-		return !active
-	case "quickening":
-		if _, active := g.partyTempoBuff(); active {
-			return false
-		}
-		if !g.turnBasedMode {
-			for _, c := range g.party.Members {
-				if c != nil && c.CanUseCombatAction() {
-					return true
-				}
-			}
-			return false
-		}
-		eligible := 0
-		pool := g.cardBonusActions()
-		speed := 0
-		for _, c := range g.party.Members {
-			if c != nil && c.CanUseCombatAction() {
-				eligible++
-				speed = max(speed, c.SpeedBonusActionTier())
-			}
-		}
-		return eligible > pool+speed
+		return false
 	}
-	return false
+	eligible := 0
+	pool := g.cardBonusActions()
+	speed := 0
+	for _, c := range g.party.Members {
+		if c != nil && c.CanUseCombatAction() {
+			eligible++
+			speed = max(speed, c.SpeedBonusActionTier())
+		}
+	}
+	return eligible > pool+speed
 }
 func (g *MMGame) techniqueSPCost(c *character.MMCharacter, d *config.TechniqueDefinition) int {
 	return g.combat.effectiveSpellCost(c, config.TierValue(d.SPCost, c.SkillTier(character.SkillTranslocation)))
 }
 func (g *MMGame) techniqueCooldown(c *character.MMCharacter, d *config.TechniqueDefinition) int {
-	if d.FreeStep || d.CooldownSeconds == 0 {
+	if d.IsStep() || d.CooldownSeconds == 0 {
 		return 0
 	}
-	return g.combat.SpellCooldownFrames(c, spells.SpellID(d.Key))
+	return g.combat.castCooldownFrames(c, d.CooldownSeconds)
 }
 
 // useTechnique is the single manual/book/quick/autocast transaction. Rejection
@@ -125,23 +140,23 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 	tps := g.config.GetTPS()
 	cooldown := g.techniqueCooldown(c, d)
 	fxStart := len(g.buffFxAnims)
-	if d.FreeStep {
-		if !g.performSpatialStep(c, key, tier) {
+	if d.IsStep() {
+		if !g.performSpatialStep(c, d, tier) {
 			if announce {
 				g.AddCombatMessage("No legal spatial destination.")
 			}
 			return false
 		}
 	} else {
-		switch key {
-		case "purify":
+		switch d.Kind {
+		case config.TechniquePurify:
 			g.purifyParty()
-		case "phase_veil", "quickening":
-			b := TimedCombatBuff{SpellID: key, Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, TechniqueTier: tier}
+		case config.TechniqueDodge, config.TechniqueHaste:
+			b := TimedCombatBuff{SpellID: config.TechniqueID(d.Key), Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, MasteryTier: tier}
 			applyTechniqueBuff(&b, d, tier)
-			b.DeferFirstTurnTick = key == "quickening"
+			b.DeferFirstTurnTick = d.Kind == config.TechniqueHaste
 			g.addCombatBuff(b)
-			g.updateUtilityStatus(spells.SpellID(key), b.Frames, true)
+			g.refreshCombatBuffStatus(b)
 		}
 	}
 	cost := g.techniqueSPCost(c, d)
@@ -154,10 +169,10 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 		mode = " automatically"
 	}
 	g.AddCombatMessage(fmt.Sprintf("%s uses %s%s (%d SP).", c.Name, d.Name, mode, cost))
-	if !automatic && !d.FreeStep {
+	if !automatic && !d.IsStep() {
 		// Manual techniques spend the caster's action but never add a movement penalty.
 		if g.turnBasedMode && g.currentTurn == 0 && c.ActionsRemaining > 0 {
-			g.partyTechniqueActionsUsed++
+			g.partyPenaltyFreeActionsUsed++
 		}
 		g.consumeCharacterActionWithRTCooldown(idx, cooldown)
 	}
@@ -296,18 +311,14 @@ func (t spatialTerrain) IsTileBlocking(x, y int) bool {
 	}
 	return false
 }
-func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier int) bool {
+func (g *MMGame) performSpatialStep(c *character.MMCharacter, d *config.TechniqueDefinition, tier int) bool {
 	if g.collisionSystem == nil || g.camera == nil || g.world == nil {
-		return false
-	}
-	fold := config.Technique("fold_step")
-	if fold == nil {
 		return false
 	}
 	ts := float64(g.config.GetTileSize())
 	oldX, oldY := g.camera.X, g.camera.Y
 	region, lx, ly := g.canonicalPosition(oldX, oldY)
-	maxTiles := config.TierValue(fold.Range, tier)
+	maxTiles := config.TierValue(d.Range, tier)
 	terrain := spatialTerrain{World3D: g.world, g: g, region: region, buildings: g.buildingOccupiedTiles()}
 	pathTerrain := terrain
 	pathTerrain.passOpenAir = true
@@ -324,7 +335,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 		return g.canMovePartyTo(x, y)
 	}
 	var x, y float64
-	if key == "return_step" {
+	if d.Kind == config.TechniqueReturnStep {
 		a := c.RareClass.Anchor
 		if a.Frames <= 0 || a.MapKey != region {
 			return false
@@ -349,9 +360,9 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 			originX, originY = (float64(TileIndex(oldX, ts))+.5)*ts, (float64(TileIndex(oldY, ts))+.5)*ts
 		}
 		found := false
-		for tiles := maxTiles; tiles >= fold.MinRange; tiles-- {
+		for tiles := maxTiles; tiles >= d.MinRange; tiles-- {
 			x, y = originX+dx*float64(tiles)*ts, originY+dy*float64(tiles)*ts
-			if math.Hypot(x-oldX, y-oldY)+0.01 >= float64(fold.MinRange)*ts && legalLanding(x, y) &&
+			if math.Hypot(x-oldX, y-oldY)+0.01 >= float64(d.MinRange)*ts && legalLanding(x, y) &&
 				collision.CheckMovementLine(pathTerrain, ts, oldX, oldY, x, y) && g.collisionSystem.CheckLineOfSight(oldX, oldY, x, y) {
 				found = true
 				break
@@ -364,17 +375,17 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, key string, tier i
 	g.setPartyPosition(x, y)
 	g.creditAdventureMovement("spatial", oldX, oldY, x, y)
 	g.notifyPilgrimDisplacement(oldX, oldY)
-	if key == "fold_step" {
+	if d.Kind == config.TechniqueFoldStep {
 		// Keep the FIRST departure point across successive Folds; refreshing
 		// its lifetime must not replace it with the last hop's origin.
 		if c.RareClass.Anchor.Frames <= 0 || c.RareClass.Anchor.MapKey != region {
 			c.RareClass.Anchor = character.SpatialAnchor{MapKey: region, X: lx, Y: ly}
 		}
-		c.RareClass.Anchor.Frames = config.TierValue(fold.Duration, tier) * g.config.GetTPS()
+		c.RareClass.Anchor.Frames = config.TierValue(d.Duration, tier) * g.config.GetTPS()
 	} else {
 		c.RareClass.Anchor = character.SpatialAnchor{}
 	}
-	g.spatialReuseFrames = config.Technique(key).ReuseSeconds * g.config.GetTPS()
+	g.spatialReuseFrames = d.ReuseSeconds * g.config.GetTPS()
 	if g.turnBasedMode {
 		g.spatialStepThisTurn = true
 	}
@@ -431,7 +442,7 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 		if !characterKnowsSpellByID(c, d.ID) || c.SpellPoints < g.combat.effectiveSpellCost(c, d.SpellPointsCost) {
 			continue
 		}
-		if !g.autocastTriggerFires(d.Mechanic.Autocast, d.Mechanic.RadiusTiles) {
+		if !g.spellAutocastFires(d) {
 			continue
 		}
 		fxStart := len(g.buffFxAnims)
@@ -448,26 +459,43 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 	return false
 }
 
-// autocastTriggerFires is the trigger table of automatic casting, shared by
-// Pilgrim's automatic techniques (purify, phase_veil, quickening) and spells
-// whose mechanic.autocast names a trigger: Haste borrows "quickening", Body
-// Purify "purify"; Dispel Magic and Celestial Armor have triggers of their own.
-func (g *MMGame) autocastTriggerFires(trigger string, radius float64) bool {
-	switch trigger {
-	case "dispel_magic":
-		return g.techniqueUseful("purify") || g.hostileMagicNearby(radius)
-	case "celestial_armor":
-		return g.advancedBuff(trigger) == nil && g.partyEngaged()
-	case "purify":
-		return g.techniqueUseful(trigger)
-	}
-	if !g.partyUnderAttack() || !g.techniqueUseful(trigger) {
-		return false
-	}
-	if trigger == "quickening" {
-		return true
-	}
-	// Phase Veil: two attackers in contact, or an ally near defeat.
+// Automatic casting answers shared needs: a spell's mechanic kind and a
+// technique's kind each map onto the same predicates. These tables are the one
+// trigger per kind; a test keeps them in step with the kinds config lets
+// autocast (config.AutocastMechanicKinds, config.AutocastTechniqueKinds).
+var spellAutocastTriggers = map[string]func(*MMGame, spells.SpellDefinition) bool{
+	"dispel_magic": func(g *MMGame, d spells.SpellDefinition) bool {
+		return g.partyNeedsPurify() || g.hostileMagicNearby(d.Mechanic.RadiusTiles)
+	},
+	"celestial_armor": func(g *MMGame, d spells.SpellDefinition) bool {
+		return g.advancedBuff(d.Mechanic.Kind) == nil && g.partyEngaged()
+	},
+	"purify": func(g *MMGame, _ spells.SpellDefinition) bool { return g.partyNeedsPurify() },
+	"haste":  func(g *MMGame, _ spells.SpellDefinition) bool { return g.partyUnderAttack() && g.partyNeedsHaste() },
+}
+
+var techniqueAutocastTriggers = map[string]func(*MMGame, *config.TechniqueDefinition) bool{
+	config.TechniquePurify: func(g *MMGame, _ *config.TechniqueDefinition) bool { return g.partyNeedsPurify() },
+	config.TechniqueHaste: func(g *MMGame, _ *config.TechniqueDefinition) bool {
+		return g.partyUnderAttack() && g.partyNeedsHaste()
+	},
+	config.TechniqueDodge: func(g *MMGame, d *config.TechniqueDefinition) bool {
+		return g.partyUnderAttack() && g.techniqueUseful(d) && g.partyHardPressed()
+	},
+}
+
+func (g *MMGame) spellAutocastFires(d spells.SpellDefinition) bool {
+	trigger, ok := spellAutocastTriggers[d.Mechanic.Kind]
+	return ok && trigger(g, d)
+}
+
+func (g *MMGame) techniqueAutocastFires(d *config.TechniqueDefinition) bool {
+	trigger, ok := techniqueAutocastTriggers[d.Kind]
+	return ok && trigger(g, d)
+}
+
+// partyHardPressed: two attackers in contact, or an ally near defeat.
+func (g *MMGame) partyHardPressed() bool {
 	ts := float64(g.config.GetTileSize())
 	px, py := g.partyFightPos()
 	near := 0
@@ -498,8 +526,8 @@ func (gl *GameLoop) updateAutomaticTechniques() {
 		if !g.canAutocast(i) {
 			continue
 		}
-		for _, key := range []string{"purify", "phase_veil", "quickening"} {
-			if c.RareClass.Automatic[key] && g.autocastTriggerFires(key, 0) && g.useTechnique(i, key, true, false) {
+		for d := range config.AutomaticTechniques() {
+			if c.RareClass.Automatic[d.Key] && g.techniqueAutocastFires(d) && g.useTechnique(i, d.Key, true, false) {
 				return
 			}
 		}
@@ -512,9 +540,13 @@ func (ih *InputHandler) handleSpatialStepInput() bool {
 	if !ih.keys.Consume(ebiten.KeyV) {
 		return false
 	}
-	key := "fold_step"
+	kind := config.TechniqueFoldStep
 	if ih.keyHeld(ebiten.KeyShiftLeft) || ih.keyHeld(ebiten.KeyShiftRight) {
-		key = "return_step"
+		kind = config.TechniqueReturnStep
+	}
+	key := "" // no such technique: useTechnique refuses with a message
+	if d := config.TechniqueOfKind(kind); d != nil {
+		key = d.Key
 	}
 	if ih.keyHeld(ebiten.KeyW) || ih.keyHeld(ebiten.KeyS) || ih.keyHeld(ebiten.KeyA) || ih.keyHeld(ebiten.KeyD) {
 		if ih.isRunning() && !ih.game.partyFireWhileRunning() {
@@ -529,7 +561,7 @@ func (g *MMGame) slottedTechnique(idx int) (string, bool) {
 		return "", false
 	}
 	it := g.party.Members[idx].Equipment[items.SlotSpell]
-	return string(it.SpellEffect), it.Type == items.ItemTechnique
+	return it.Technique, it.Type == items.ItemTechnique
 }
 
 func (t spatialTerrain) GetWorldBounds() (int, int) { return t.g.world.GetWorldBounds() }
@@ -540,7 +572,7 @@ func (ih *InputHandler) tryExplicitSlottedStep() bool {
 	g := ih.game
 	key, ok := g.slottedTechnique(g.selectedChar)
 	d := config.Technique(key)
-	if !ok || d == nil || !d.FreeStep {
+	if !ok || d == nil || !d.IsStep() {
 		return false
 	}
 	// Handled is independent of success: an explicit step may never fall through

@@ -58,11 +58,11 @@ func (ui *UISystem) spellAutocastControl(screen *ebiten.Image, c *character.MMCh
 			state = uitext.Text("advanced.autocast_on")
 		}
 		var trigger string
-		switch d.Mechanic.Autocast {
+		switch d.Mechanic.Kind {
 		case "dispel_magic":
 			trigger = uitext.Text("advanced.auto_dispel_magic", d.Mechanic.RadiusTiles)
-		case "quickening":
-			trigger = uitext.Text("advanced.auto_quickening")
+		case "haste":
+			trigger = uitext.Text("advanced.auto_haste")
 		case "purify":
 			trigger = uitext.Text("advanced.auto_purify")
 		case "celestial_armor":

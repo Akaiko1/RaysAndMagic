@@ -394,7 +394,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.turnBasedMode = false
 	g.currentTurn = 0
 	g.partyActionsUsed = 0
-	g.partyTechniqueActionsUsed = 0
+	g.partyPenaltyFreeActionsUsed = 0
 	g.turnBasedMoveCooldown = 0
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
@@ -1328,7 +1328,7 @@ func (ih *InputHandler) movementScale() float64 {
 func (ih *InputHandler) moveSpeed() float64 {
 	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
 	if ih.game.partyHinder.Slow > 0 {
-		speed *= .75
+		speed *= float64(config.HinderKeepPercent()) / 100
 	}
 	if ih.isRunning() {
 		speed *= ih.game.config.GetRunMultiplier()

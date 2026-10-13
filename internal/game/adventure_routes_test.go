@@ -25,7 +25,7 @@ func TestEnvironmentContinuousOverlap(t *testing.T) {
 				one := 10000 - hero.HitPoints
 				hero.HitPoints = 10000
 				if overlap {
-					a.Effects = append(a.Effects, config.EnvironmentEffect{ID: "lane", Kind: "lane", Name: "Flame Lane", School: "fire", Damage: 45, SustainDamage: 12, Rect: field.Rect, DurationSeconds: 4, DurationRounds: 2})
+					a.Effects = append(a.Effects, config.EnvironmentEffect{ID: "lane", Kind: "lane", Name: "Flame Lane", School: "fire", Damage: 45, SustainDamage: 12, Rect: field.Rect, DurationSeconds: 6})
 					g.adventureVisit("forest").effectState("lane").Remaining = 1
 				}
 				if tb {
@@ -156,7 +156,7 @@ func TestAnnouncedTransferReleasesStandingParty(t *testing.T) {
 			g.setPartyPosition(6.5*ts, 7.5*ts)
 			g.camera.Angle = .42
 			a := &config.AdventureConfig{Effects: []config.EnvironmentEffect{
-				{ID: "lane", Kind: "lane", Name: "Lightning", Rect: [4]int{6, 6, 8, 6}, School: "air", Damage: 45, WarningSeconds: 1.2, WarningRounds: 1, DurationSeconds: 4, DurationRounds: 2},
+				{ID: "lane", Kind: "lane", Name: "Lightning", Rect: [4]int{6, 6, 8, 6}, School: "air", Damage: 45, WarningSeconds: 1.2, WarningRounds: 1, DurationSeconds: 6},
 				{ID: "jet", Kind: "transfer", Name: "Jet", Rect: [4]int{6, 7, 6, 7}, Destination: [2]int{8, 7}, TriggerLane: "lane"},
 			}}
 			wm.MapConfigs["forest"] = &config.MapConfig{Adventure: a}

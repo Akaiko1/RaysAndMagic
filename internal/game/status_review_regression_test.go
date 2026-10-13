@@ -62,7 +62,7 @@ func TestStatusReviewControlIdentity(t *testing.T) {
 				if got := monsterStatusVisuals(m, false); got != want {
 					t.Fatalf("control visual=%v, want %v", got, want)
 				}
-				g.combat.applyMonsterRoot(m, 2, 240)
+				g.combat.applyMonsterRoot(m, 2)
 				if got := monsterStatusVisuals(m, false); got != want|visualRoot {
 					t.Fatal("allegiance hid an unrelated root")
 				}
@@ -276,7 +276,7 @@ func TestStatusReviewSavedTurnPhases(t *testing.T) {
 			m.TickSlowTurn()
 			m.ApplyWeaken(50, 1, 1)
 			m.TickWeakenTurn()
-			g.combat.applyMonsterRoot(m, 2, 240)
+			g.combat.applyMonsterRoot(m, 2)
 			g.world.Monsters = []*monster.Monster3D{m}
 			save := auditSaveJSON(t, g.buildSave(wm))
 			g.restoreSavedMonsters(wm, &save)

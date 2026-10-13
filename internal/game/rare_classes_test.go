@@ -215,7 +215,7 @@ func TestRareTechniqueAutocastTransaction(t *testing.T) {
 					if g.party.Members[1].Purifiable() || c.SpellPoints != sp-cost || c.SpellState.AutoFrames != g.config.GetTPS()*9 {
 						t.Fatal("automatic cleanse not committed")
 					}
-					if c.ActionsRemaining != ap || c.RTCooldown != recovery || g.spellInputCooldown != 0 || g.partyActionsUsed != 0 || g.partyTechniqueActionsUsed != 0 {
+					if c.ActionsRemaining != ap || c.RTCooldown != recovery || g.spellInputCooldown != 0 || g.partyActionsUsed != 0 || g.partyPenaltyFreeActionsUsed != 0 {
 						t.Fatal("incorrect actor action cost")
 					}
 					if g.selectedChar != 1 || g.party.Members[1].ActionsRemaining != otherAP {
@@ -319,7 +319,7 @@ func TestRareCombatClocksAndPersistence(t *testing.T) {
 	if !g.useTechnique(0, "quickening", false, false) {
 		t.Fatal("cast failed")
 	}
-	b, _ := g.combatBuffByID("quickening")
+	b, _ := g.combatBuffByID(config.TechniqueID("quickening"))
 	d, tier := config.Technique("quickening"), c.SkillTier(character.SkillTranslocation)
 	if b.RecoveryPct != config.TierValue(d.Power, tier) || b.ExtraActions != config.TierValue(d.TBPower, tier) || b.RecoveryPct <= 0 || b.ExtraActions <= 0 {
 		t.Fatalf("cast ignored the authored tier values: %+v", b)
@@ -328,30 +328,40 @@ func TestRareCombatClocksAndPersistence(t *testing.T) {
 	for i := 0; i < 120; i++ {
 		g.tickCombatBuffs()
 	}
-	b, _ = g.combatBuffByID("quickening")
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
 	if b.Frames != frames {
 		t.Fatal("thinking time consumed new buff")
 	}
-	pre, _ := g.combatBuffByID("quickening")
+	pre, _ := g.combatBuffByID(config.TechniqueID("quickening"))
 	saved := buildCombatBuffSaves(g.combatBuffs)
 	g.combatBuffs = restoreCombatBuffs(saved)
-	b, _ = g.combatBuffByID("quickening")
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
 	if b.RecoveryPct != pre.RecoveryPct || b.ExtraActions != pre.ExtraActions || b.Frames != pre.Frames || !b.DeferFirstTurnTick {
 		t.Fatalf("buff restore lost values: %+v, saved %+v", b, pre)
 	}
+	// Older saves stored the bare technique key as the buff id.
+	legacy := buildCombatBuffSaves(g.combatBuffs)
+	for i := range legacy {
+		legacy[i].SpellID = strings.TrimPrefix(legacy[i].SpellID, config.TechniqueID(""))
+	}
+	g.combatBuffs = restoreCombatBuffs(legacy)
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
+	if len(g.combatBuffs) != 1 || b.RecoveryPct != pre.RecoveryPct || b.ExtraActions != pre.ExtraActions || b.Frames != pre.Frames {
+		t.Fatalf("legacy technique buff not migrated: %+v", g.combatBuffs)
+	}
 	g.tickCombatBuffsTurn(3 * g.config.GetTPS())
-	b, _ = g.combatBuffByID("quickening")
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
 	if b.Frames != frames {
 		t.Fatal("lost duration before first bonus turn")
 	}
 	g.tickCombatBuffsTurn(3 * g.config.GetTPS())
-	b, _ = g.combatBuffByID("quickening")
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
 	if b.Frames != frames-3*g.config.GetTPS() {
 		t.Fatal("TB clock did not advance")
 	}
 	g.turnBasedMode = false
 	g.tickCombatBuffs()
-	b, _ = g.combatBuffByID("quickening")
+	b, _ = g.combatBuffByID(config.TechniqueID("quickening"))
 	if b.DeferFirstTurnTick {
 		t.Fatal("RT kept deferred tick")
 	}
@@ -576,6 +586,10 @@ func TestRareSaveRealCharacterAndTurnState(t *testing.T) {
 		}
 		c.Equipment[items.SlotSpell] = it
 		c.QuickSlots[0] = &it
+		if class == character.ClassWayfarer {
+			// Older saves kept the technique key in SpellEffect.
+			c.Equipment[items.SlotSpell] = items.Item{Name: it.Name, Type: items.ItemTechnique, SpellEffect: items.SpellEffect(key)}
+		}
 		raw, err := json.Marshal(buildCharacterSave(c))
 		if err != nil {
 			t.Fatal(err)
@@ -587,6 +601,9 @@ func TestRareSaveRealCharacterAndTurnState(t *testing.T) {
 		restored := restoreCharacterSave(saved)
 		if restored.Class != class || !reflect.DeepEqual(restored.RareClass, c.RareClass) || restored.QuickSlots[0] == nil || restored.QuickSlots[0].Type != it.Type || restored.Equipment[items.SlotSpell].Type != it.Type {
 			t.Fatal("real save/restore lost rare class state or shortcut type")
+		}
+		if class == character.ClassWayfarer && (!reflect.DeepEqual(restored.Equipment[items.SlotSpell], it) || !reflect.DeepEqual(*restored.QuickSlots[0], it)) {
+			t.Fatalf("technique shortcuts did not restore to the catalog item: %+v / %+v", restored.Equipment[items.SlotSpell], *restored.QuickSlots[0])
 		}
 		g.restoreSavedTurnState(&GameSave{TurnBased: true, SpatialReuseFrames: 150, SpatialStepThisTurn: true, PartyActionsUsed: 1})
 		if g.spatialReuseFrames != 150 || !g.spatialStepThisTurn || g.partyActionsUsed != 1 {
@@ -870,17 +887,22 @@ func TestRareTechniqueQuickSlotAndBookCosts(t *testing.T) {
 
 func TestRareAutomaticSupportTriggers(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, state := range []string{"peace", "distant", "surrounded", "low_hp", "already_active", "incapacitated"} {
+		for _, state := range []string{"peace", "distant", "surrounded", "low_hp", "already_active", "incapacitated", "afflicted"} {
 			t.Run(fmt.Sprintf("tb=%v/%s", tb, state), func(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
 				c.RareClass.Automatic = map[string]bool{"phase_veil": true, "quickening": true}
+				if state == "afflicted" {
+					// Every trigger fires at once: the cleanse goes first.
+					c.RareClass.Automatic["purify"] = true
+					g.party.Members[1].AddCondition(character.ConditionPoisoned)
+				}
 				if state != "peace" {
 					m := zoneVictim(t, g)
 					m.WasAttacked = true
 					m.IsEngagingPlayer = true
 					m.X += 10 * float64(g.config.GetTileSize())
 				}
-				if state == "surrounded" {
+				if state == "surrounded" || state == "afflicted" {
 					for i := 0; i < 2; i++ {
 						m := zoneVictim(t, g)
 						m.IsEngagingPlayer = true
@@ -891,7 +913,7 @@ func TestRareAutomaticSupportTriggers(t *testing.T) {
 				}
 				if state == "already_active" {
 					d := config.Technique("quickening")
-					g.addCombatBuff(TimedCombatBuff{SpellID: "quickening", Frames: 100,
+					g.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 100,
 						RecoveryPct: config.TierValue(d.Power, 0), ExtraActions: config.TierValue(d.TBPower, 0)})
 				}
 				if state == "incapacitated" {
@@ -905,8 +927,12 @@ func TestRareAutomaticSupportTriggers(t *testing.T) {
 				if state == "surrounded" || state == "low_hp" {
 					want = "phase_veil"
 				}
-				if want != "" {
-					if b, ok := g.combatBuffByID(want); !ok || !b.CombatClock || c.SpellPoints >= 100 {
+				if state == "afflicted" {
+					if g.party.Members[1].Purifiable() || len(g.combatBuffs) != 0 || c.SpellPoints >= 100 {
+						t.Fatal("purify did not take priority over the pressure triggers")
+					}
+				} else if want != "" {
+					if b, ok := g.combatBuffByID(config.TechniqueID(want)); !ok || !b.CombatClock || c.SpellPoints >= 100 {
 						t.Fatalf("missing automatic %s", want)
 					}
 				} else if c.SpellPoints != 100 {

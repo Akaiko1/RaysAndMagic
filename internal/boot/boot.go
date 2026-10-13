@@ -30,6 +30,8 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	}
 
 	cfg := config.MustLoadConfig("config.yaml")
+	// Statuses first: every catalog below validates its durations against them.
+	config.MustLoadStatuses("assets/statuses.yaml")
 	config.MustLoadSpellConfig("assets/spells.yaml")
 	config.MustLoadWeaponConfig("assets/weapons.yaml")
 	if err := config.ValidateWeaponSpellReferences(config.GlobalWeapons, config.GlobalSpells); err != nil {

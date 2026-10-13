@@ -180,11 +180,11 @@ func (g *MMGame) useSlottedRareAction(idx int, kind rtActionKind, announce bool)
 	it := g.party.Members[idx].Equipment[items.SlotSpell]
 	switch it.Type {
 	case items.ItemTechnique:
-		d := config.Technique(string(it.SpellEffect))
-		if kind != rtActCast || d == nil || d.FreeStep {
+		d := config.Technique(it.Technique)
+		if kind != rtActCast || d == nil || d.IsStep() {
 			return false, false
 		}
-		return true, g.useTechnique(idx, string(it.SpellEffect), false, announce)
+		return true, g.useTechnique(idx, it.Technique, false, announce)
 	case items.ItemThrowable:
 		return true, g.throwFlask(idx, string(it.SpellEffect), announce)
 	}

@@ -191,7 +191,7 @@ func TestBalanceArenaStartsClean(t *testing.T) {
 	for _, b := range g.timedBuffs() {
 		*b.active, *b.duration = true, 99
 	}
-	g.currentTurn, g.partyActionsUsed, g.partyTechniqueActionsUsed, g.monsterTurnResolved = 1, 3, 1, true
+	g.currentTurn, g.partyActionsUsed, g.partyPenaltyFreeActionsUsed, g.monsterTurnResolved = 1, 3, 1, true
 	g.spellInputCooldown, g.viewTurnFramesLeft = 30, 10
 
 	a.reset()
@@ -209,9 +209,9 @@ func TestBalanceArenaStartsClean(t *testing.T) {
 	if len(g.traps) != 0 || len(g.persistentDamageZones) != 0 {
 		t.Errorf("staged fight inherits %d traps, %d damage zones", len(g.traps), len(g.persistentDamageZones))
 	}
-	if !g.turnBasedMode || g.currentTurn != 0 || g.partyActionsUsed != 0 || g.partyTechniqueActionsUsed != 0 || g.monsterTurnResolved {
+	if !g.turnBasedMode || g.currentTurn != 0 || g.partyActionsUsed != 0 || g.partyPenaltyFreeActionsUsed != 0 || g.monsterTurnResolved {
 		t.Errorf("staged fight opens turn %d with %d/%d actions used, monster turn resolved %v",
-			g.currentTurn, g.partyActionsUsed, g.partyTechniqueActionsUsed, g.monsterTurnResolved)
+			g.currentTurn, g.partyActionsUsed, g.partyPenaltyFreeActionsUsed, g.monsterTurnResolved)
 	}
 	for _, m := range g.party.Members {
 		if m.ActionsRemaining == 0 {

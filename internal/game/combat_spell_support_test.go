@@ -3,7 +3,9 @@ package game
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -415,7 +417,7 @@ func TestAdvancedCleanseAutocastTransaction(t *testing.T) {
 					if g.spellInputCooldown != 0 {
 						t.Fatal("automatic spell blocked manual input")
 					}
-					if g.partyTechniqueActionsUsed != 0 || g.partyActionsUsed != 0 {
+					if g.partyPenaltyFreeActionsUsed != 0 || g.partyActionsUsed != 0 {
 						t.Fatal("automatic cleanse must not count as an action")
 					}
 				})
@@ -472,7 +474,7 @@ func TestAdvancedTechniqueSpellRetreatAccounting(t *testing.T) {
 			g.party.Members[1].Conditions = []character.Condition{character.ConditionPoisoned}
 			castAdvancedSupport(t, g, key, 0, nil)
 			g.consumeSelectedCharAction()
-			if g.partyActionsUsed != 1 || g.partyTechniqueActionsUsed != 1 {
+			if g.partyActionsUsed != 1 || g.partyPenaltyFreeActionsUsed != 1 {
 				t.Fatal("manual technique alternative counted as an ordinary offensive cast")
 			}
 			g.endPartyTurnAfterMovement()
@@ -987,6 +989,9 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 					}
 					// Recovery uses the newly applied Haste effect, just like input.
 					cooldown := g.combat.SpellCooldownFrames(c, spells.SpellID(key))
+					if technique != nil {
+						cooldown = g.techniqueCooldown(c, technique)
+					}
 					wantAP := ap
 					if tb {
 						wantAP--
@@ -1068,5 +1073,23 @@ func TestPersonalSpellReuseAcrossModesAndSave(t *testing.T) {
 				t.Fatal("tooltip omitted authored personal reuse")
 			}
 		})
+	}
+}
+
+// Every kind config lets autocast has exactly one trigger, and no trigger
+// waits on a kind that may never autocast: a spell flagged autocast whose
+// kind has no trigger would show AUTO and never cast.
+func TestAutocastKindsHaveTriggers(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		kinds    []string
+		triggers []string
+	}{
+		{"spell mechanics", config.AutocastMechanicKinds(), slices.Sorted(maps.Keys(spellAutocastTriggers))},
+		{"techniques", config.AutocastTechniqueKinds(), slices.Sorted(maps.Keys(techniqueAutocastTriggers))},
+	} {
+		if !slices.Equal(tc.kinds, tc.triggers) {
+			t.Errorf("%s: autocast kinds %v, triggers %v", tc.name, tc.kinds, tc.triggers)
+		}
 	}
 }

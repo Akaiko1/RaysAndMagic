@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	uitext "ugataima/assets/text"
@@ -23,8 +24,7 @@ type SpellMechanicConfig struct {
 	ExtraActionsByMastery  []int   `yaml:"extra_actions_by_mastery,omitempty"` // Party bonus actions per TB round.
 	MaxHitsPerTarget       int     `yaml:"max_hits_per_target,omitempty"`      // Per cast, shared by all projectiles.
 	InstantKillChance      float64 `yaml:"instant_kill_chance,omitempty"`      // Probability in 0..1, before fallback damage.
-	Autocast               string  `yaml:"autocast,omitempty"`
-	Technique              string  `yaml:"technique,omitempty"`
+	Autocast               bool    `yaml:"autocast,omitempty"`                 // The caster may set it to cast itself; the kind owns the trigger.
 	DamageSchool           string  `yaml:"damage_school,omitempty"`
 	Summary                string  `yaml:"summary"`
 }
@@ -32,19 +32,35 @@ type SpellMechanicConfig struct {
 type spellMechanicRule struct {
 	offensive, personal, party                                                                 bool
 	power, charges, duration, radius, cone, damage, percent, targets, projectile, extraActions bool
+
+	autocast    bool // the kind has an automatic-cast trigger
+	penaltyFree bool // a manual TB cast spends its action without the movement penalty
+}
+
+// AutocastMechanicKinds lists the mechanic kinds a spell may set to cast
+// itself; the game owns one trigger for each.
+func AutocastMechanicKinds() []string {
+	var out []string
+	for kind, rule := range spellMechanicRules {
+		if rule.autocast {
+			out = append(out, kind)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 var spellMechanicRules = map[string]spellMechanicRule{
 	"fire_aura":             {personal: true, power: true, charges: true, percent: true},
 	"fate":                  {personal: true, power: true, charges: true, percent: true},
 	"vampiric_weapon":       {personal: true, power: true, duration: true, percent: true},
-	"haste":                 {party: true, power: true, duration: true, percent: true, extraActions: true},
+	"haste":                 {party: true, power: true, duration: true, percent: true, extraActions: true, autocast: true, penaltyFree: true},
 	"shield":                {party: true, power: true, duration: true, percent: true},
 	"regeneration":          {party: true, power: true, duration: true, percent: true},
 	"pain_reflection":       {party: true, power: true, duration: true, percent: true},
 	"preservation":          {party: true, charges: true},
 	"protection_from_magic": {party: true, charges: true},
-	"celestial_armor":       {party: true, power: true, duration: true},
+	"celestial_armor":       {party: true, power: true, duration: true, autocast: true},
 	"acid_burst":            {offensive: true, power: true, duration: true, damage: true, projectile: true, percent: true},
 	"flying_fist":           {offensive: true, power: true, damage: true, projectile: true},
 	"frozen_ground":         {offensive: true, duration: true, radius: true, cone: true},
@@ -57,13 +73,21 @@ var spellMechanicRules = map[string]spellMechanicRule{
 	"prismatic_light":       {offensive: true, radius: true, damage: true, targets: true},
 	"shrapmetal":            {offensive: true, cone: true, damage: true, projectile: true},
 	"souldrinker":           {offensive: true, power: true, radius: true, damage: true, percent: true},
-	"vvoid_beacon":          {charges: true}, "identify_monster": {radius: true}, "dispel_magic": {radius: true}, "purify": {}, "shared_life": {},
+	"dispel_magic":          {radius: true, autocast: true, penaltyFree: true},
+	"purify":                {autocast: true, penaltyFree: true},
+	"vvoid_beacon":          {charges: true}, "identify_monster": {radius: true}, "shared_life": {},
 }
 
 func (m *SpellMechanicConfig) IsOffensive() bool {
 	return m != nil && spellMechanicRules[m.Kind].offensive
 }
 func (m *SpellMechanicConfig) IsPartyBuff() bool { return m != nil && spellMechanicRules[m.Kind].party }
+
+// PenaltyFree reports a support cast that spends its TB action without
+// granting monsters the movement pass.
+func (m *SpellMechanicConfig) PenaltyFree() bool {
+	return m != nil && spellMechanicRules[m.Kind].penaltyFree
+}
 
 // TargetsAlly identifies personal enchantments that require choosing a hero.
 func (m *SpellMechanicConfig) TargetsAlly() bool {
@@ -146,8 +170,9 @@ func (m *SpellMechanicConfig) SummaryText(tier int, durations []int) string {
 	return text
 }
 
-// validateSpellDuration validates the single spell lifetime ladder. Independent
-// riders (stun, charm and frozen water) retain their explicitly authored clocks.
+// validateSpellDuration validates the spell's lifetime ladder and its riders'
+// clocks (stun, bind, charm, zone burn, silence immunity, frozen water): every
+// one is whole rounds, and a slow lasts whole steps of its TB skip cadence.
 func validateSpellDuration(def *SpellDefinitionConfig) error {
 	values := def.DurationByMastery
 	if len(values) != 0 && len(values) != 4 {
@@ -157,6 +182,31 @@ func validateSpellDuration(def *SpellDefinitionConfig) error {
 		if seconds <= 0 || i > 0 && seconds < values[i-1] {
 			return fmt.Errorf("duration_by_mastery[%d]=%d must be positive and nondecreasing", i, seconds)
 		}
+		what := fmt.Sprintf("duration_by_mastery[%d]", i)
+		check := ValidateEffectSeconds
+		if def.Mechanic != nil && def.Mechanic.Kind == "slow" {
+			check = ValidateSlowSeconds
+		}
+		if err := check(what, seconds); err != nil {
+			return err
+		}
+	}
+	riders := []effectField{
+		{"stun_duration_seconds", def.StunDurationSeconds},
+		{"bind_duration_seconds", def.BindDurationSeconds},
+		{"pacify_duration_seconds", def.PacifyDurationSeconds},
+	}
+	if def.ZoneBurnSeconds > 0 {
+		riders = append(riders, effectField{"zone_burn_seconds", int(def.ZoneBurnSeconds)})
+		if def.ZoneBurnSeconds != float64(int(def.ZoneBurnSeconds)) {
+			return fmt.Errorf("zone_burn_seconds %g must be whole rounds", def.ZoneBurnSeconds)
+		}
+	}
+	if m := def.Mechanic; m != nil {
+		riders = append(riders, effectField{"reapply_immunity_seconds", m.ReapplyImmunitySeconds}, effectField{"water_freeze_seconds", m.WaterFreezeSeconds})
+	}
+	if err := validateEffectFields(riders...); err != nil {
+		return err
 	}
 	if def.Mechanic == nil {
 		timed := def.HasTimedUtilityEffect() || def.ZoneRadiusTiles > 0
@@ -226,21 +276,8 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 			return fmt.Errorf("mechanic.damage_school is invalid")
 		}
 	}
-	switch m.Autocast {
-	case "", "quickening", "purify", "dispel_magic", "celestial_armor":
-	default:
-		return fmt.Errorf("unknown mechanic.autocast %q", m.Autocast)
-	}
-	switch m.Technique {
-	case "", "quickening", "purify":
-	default:
-		return fmt.Errorf("unsupported mechanic.technique %q", m.Technique)
-	}
-	if m.Autocast != "" && m.Autocast != m.Kind && !(m.Kind == "haste" && m.Autocast == "quickening") {
-		return fmt.Errorf("mechanic.autocast does not match its behavior")
-	}
-	if (m.Kind == "haste" && m.Technique != "quickening") || ((m.Kind == "purify" || m.Kind == "dispel_magic") && m.Technique != "purify") {
-		return fmt.Errorf("mechanic requires its shared technique")
+	if m.Autocast && !rule.autocast {
+		return fmt.Errorf("mechanic %s has no autocast trigger", m.Kind)
 	}
 	power, charges, duration, radius, cone, damage, percent, targets := rule.power, rule.charges, rule.duration, rule.radius, rule.cone, rule.damage, rule.percent, rule.targets
 	if rule.projectile && !def.IsProjectile {
@@ -290,9 +327,6 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 				return fmt.Errorf("mechanic percentage exceeds its usable range")
 			}
 		}
-	}
-	if m.Technique != "" && m.Kind != "haste" && m.Kind != "purify" && m.Kind != "dispel_magic" {
-		return fmt.Errorf("mechanic %s does not use a technique", m.Kind)
 	}
 	for _, field := range []struct {
 		token     string

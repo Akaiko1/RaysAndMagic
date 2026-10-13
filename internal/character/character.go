@@ -755,7 +755,7 @@ func (c *MMCharacter) TickPoisonTurn(elapsedFrames, tps int, absorbDoT ...func(i
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-	c.dotDamage(PoisonDamagePerTick*ticks, absorbDoT...)
+	c.dotDamage(dotTickDamage("poison", ticks), absorbDoT...)
 }
 
 // TickBurnTurn advances ignite by one TB round, mirroring TickPoisonTurn.
@@ -764,7 +764,7 @@ func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int, absorbDoT ...func(int
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
-	c.dotDamage(BurnDamagePerTick*ticks, absorbDoT...)
+	c.dotDamage(dotTickDamage("burn", ticks), absorbDoT...)
 }
 
 // DoTTickTimers exposes the persisted sub-second cadence phase for poison and
@@ -1007,16 +1007,18 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 	}
 }
 
-// PoisonDamagePerTick / BurnDamagePerTick: DoT damage per tick (once per RT
-// second, with the equivalent elapsed ticks per TB round). Ignite burns 3x as hard as poison.
-const (
-	PoisonDamagePerTick = 1
-	BurnDamagePerTick   = 3
-)
+// dotTickDamage is a hero's loss for ticks once-per-second ticks of a DoT
+// status, at the status table's party_damage_per_second.
+func dotTickDamage(key string, ticks int) int {
+	if ticks <= 0 {
+		return 0
+	}
+	return ticks * config.Status(key).PartyDamagePerSecond
+}
 
 func (c *MMCharacter) updateBurn(tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, 1, tps)
-	c.dotDamage(BurnDamagePerTick*ticks, absorbDoT...)
+	c.dotDamage(dotTickDamage("burn", ticks), absorbDoT...)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
@@ -1043,7 +1045,7 @@ func (c *MMCharacter) IsStunned() bool {
 
 func (c *MMCharacter) updatePoison(tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, 1, tps)
-	c.dotDamage(PoisonDamagePerTick*ticks, absorbDoT...)
+	c.dotDamage(dotTickDamage("poison", ticks), absorbDoT...)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
@@ -1421,7 +1423,7 @@ func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 		// A second weapon only fits the off-hand with Dual Wielding.
 		return slot == items.SlotOffHand && c.CanDualWield()
 	case items.ItemTechnique:
-		d := config.Technique(string(item.SpellEffect))
+		d := config.Technique(item.Technique)
 		return slot == items.SlotSpell && c.Class == ClassWayfarer && d != nil && c.Level >= d.Level
 	case items.ItemThrowable:
 		return slot == items.SlotSpell && c.HasSkill(SkillBombThrowing)

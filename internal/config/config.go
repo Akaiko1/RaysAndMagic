@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	uitext "ugataima/assets/text"
 
@@ -28,18 +29,15 @@ func cooldownMultLine(label string, mult float64) string {
 	return fmt.Sprintf("%s %+.0f%%", label, pct)
 }
 
-const weaponStatusSecondsPerTurn = 2
-
-// CombatRoundSeconds is the shared real-time duration of a combat round.
+// CombatRoundSeconds is the real-time span of one turn-based round. It is the
+// one exchange rate between the modes: every effect duration (status, buff,
+// field) is authored in seconds that are whole rounds, lasts those seconds in
+// RT and seconds/CombatRoundSeconds turns in TB (CombatRounds, RoundFrames).
 const CombatRoundSeconds = 3
 
 // DisintegrateBossTrueDamage replaces the disintegrate kill on a boss: the
 // proc adds this much true damage to the hit instead.
 const DisintegrateBossTrueDamage = 100
-
-// ArmorMeltRounds: a melt-armor hit (abilities.melt_armor) melts the struck
-// target's armor for this many TB rounds, or the same span in RT.
-const ArmorMeltRounds = 5
 
 // Armor mitigation - a PERCENTAGE model with diminishing returns, for party and
 // monster armor alike:
@@ -62,17 +60,80 @@ func CombatRounds(seconds int) int {
 	return (seconds + CombatRoundSeconds - 1) / CombatRoundSeconds
 }
 
-// WeaponStatusTurns converts the shared authored seconds field used by weapon
-// shred/root/slow/weaken into its turn-based clock.
-func WeaponStatusTurns(seconds int) int {
-	if seconds <= 0 {
-		return 0
-	}
-	return (seconds + weaponStatusSecondsPerTurn - 1) / weaponStatusSecondsPerTurn
+// RoundFrames is the RT length of rounds TB turns, in frames.
+func RoundFrames(rounds, tps int) int {
+	return rounds * CombatRoundSeconds * tps
 }
 
-func weaponStatusDurationLabel(seconds int) string {
-	return uitext.Text("weapon.status_duration", seconds, WeaponStatusTurns(seconds))
+// ValidateEffectSeconds is the authoring rule for every effect duration:
+// positive whole rounds, so RT and TB last the same game time.
+func ValidateEffectSeconds(what string, seconds int) error {
+	if seconds <= 0 || seconds%CombatRoundSeconds != 0 {
+		return fmt.Errorf("%s: %ds must be a positive whole number of %ds rounds", what, seconds, CombatRoundSeconds)
+	}
+	return nil
+}
+
+// effectField names one authored duration for validateEffectFields.
+type effectField struct {
+	what    string
+	seconds int
+}
+
+// validateEffectFields checks every set duration in the given order, so the
+// first broken field is always the one reported.
+func validateEffectFields(fields ...effectField) error {
+	for _, f := range fields {
+		if f.seconds != 0 {
+			if err := ValidateEffectSeconds(f.what, f.seconds); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// EffectClock is an effect authored in seconds as the two clocks a status runs
+// on: its RT frames and its TB rounds, the same span.
+func EffectClock(seconds, tps int) (frames, rounds int) {
+	rounds = CombatRounds(seconds)
+	return RoundFrames(rounds, tps), rounds
+}
+
+// ScaleDuration shifts a hostile status's duration (rounds, or a DoT's frames)
+// by pct percent of status-duration gear, to the nearest unit, never below one.
+func ScaleDuration(duration, pct int) int {
+	if duration <= 0 || pct == 0 {
+		return duration
+	}
+	return max(1, (duration*(100+pct)+50)/100)
+}
+
+// ScaledRoundsText is what a duration shift does to short statuses, worked
+// through ScaleDuration itself: "1/2/3/4 -> 1/1/2/2".
+func ScaledRoundsText(pct int) string {
+	var from, to []string
+	for rounds := 1; rounds <= 4; rounds++ {
+		from = append(from, strconv.Itoa(rounds))
+		to = append(to, strconv.Itoa(ScaleDuration(rounds, pct)))
+	}
+	return strings.Join(from, "/") + " -> " + strings.Join(to, "/")
+}
+
+// DurationText is the one way an effect duration is written: "9s / 3 TB turns".
+func DurationText(seconds int) string {
+	rounds := CombatRounds(seconds)
+	return DurationTextOf(strconv.Itoa(seconds), strconv.Itoa(rounds), rounds == 1)
+}
+
+// DurationTextOf writes already formatted seconds and TB turns, such as the
+// per-tier ladders "300/360/420/480" and "100/120/140/160", in the same
+// wording; oneTurn picks the singular.
+func DurationTextOf(seconds, turns string, oneTurn bool) string {
+	if oneTurn {
+		return uitext.Text("effect.duration_one", seconds, turns)
+	}
+	return uitext.Text("effect.duration", seconds, turns)
 }
 
 // SpecialEffectLines excludes set membership, compared as a separate rule.
@@ -96,12 +157,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
 	}
 	if w.StunChance > 0 {
-		turns := w.StunTurns
-		if turns <= 0 {
-			turns = 1
-		}
-		// RT stun lasts one second per TB turn (tryApplyWeaponStun: turns x TPS frames).
-		lines = append(lines, uitext.Text("weapon.stun_chance_s_rt_turns_tb", w.StunChance*100, turns, turns))
+		lines = append(lines, uitext.Text("weapon.stun_chance", w.StunChance*100, DurationText(w.StunSeconds)))
 	}
 	if w.DisintegrateChance > 0 {
 		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100, DisintegrateBossTrueDamage))
@@ -135,14 +191,14 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text(
 			"weapon.sunder_hits_strip_of_the_target_s",
 			w.ArmorShredPct,
-			weaponStatusDurationLabel(w.ArmorShredSeconds),
+			DurationText(w.ArmorShredSeconds),
 		))
 	}
 	if w.RootChance > 0 && w.RootSeconds > 0 {
 		lines = append(lines, uitext.Text(
 			"weapon.root_chance_pins_in_place_not_a",
 			w.RootChance*100,
-			weaponStatusDurationLabel(w.RootSeconds),
+			DurationText(w.RootSeconds),
 		))
 	}
 	if w.ArmorClassBonus > 0 {
@@ -165,10 +221,10 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	}
 	// Drakeforged tier signature riders.
 	if w.IgniteChance > 0 && w.IgniteSeconds > 0 {
-		lines = append(lines, uitext.Text("weapon.ignite_chance_burns_s", w.IgniteChance*100, w.IgniteSeconds))
+		lines = append(lines, uitext.Text("weapon.ignite_chance_burns_s", w.IgniteChance*100, DurationText(w.IgniteSeconds)))
 	}
 	if w.PoisonChance > 0 && w.PoisonSeconds > 0 {
-		lines = append(lines, uitext.Text("weapon.brood_venom_chance_to_poison_s", w.PoisonChance*100, w.PoisonSeconds))
+		lines = append(lines, uitext.Text("weapon.brood_venom_chance_to_poison_s", w.PoisonChance*100, DurationText(w.PoisonSeconds)))
 	}
 	if w.ExecuteBelowPct > 0 {
 		lines = append(lines, uitext.Text("weapon.the_maw_targets_left_under_hp_are", w.ExecuteBelowPct))
@@ -183,7 +239,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text(
 			"weapon.silt_hits_slow_the_target_for",
 			w.SlowPct,
-			weaponStatusDurationLabel(w.SlowSeconds),
+			DurationText(w.SlowSeconds),
 			SlowSkipEveryTurns(),
 		))
 	}
@@ -191,7 +247,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text(
 			"weapon.sundering_roar_the_target_deals_less_damage",
 			w.WeakenPct,
-			weaponStatusDurationLabel(w.WeakenSeconds),
+			DurationText(w.WeakenSeconds),
 		))
 	}
 	if w.RicochetTargets > 0 {
@@ -241,23 +297,23 @@ func TitleWords(s string) string {
 
 // Config holds all game configuration values
 type Config struct {
-	AutocastIntervalRounds int                 `yaml:"autocast_interval_rounds"`
-	PlayerPotions          *PotionPreferences  `yaml:"-" json:"-"`
-	StatusDamage           StatusDamageConfig  `yaml:"status_damage"`
-	StatusEffects          StatusEffectsConfig `yaml:"status_effects"`
-	MonsterCombat          MonsterCombatConfig `yaml:"monster_combat"`
-	Display                DisplayConfig       `yaml:"display"`
-	Engine                 EngineConfig        `yaml:"engine"`
-	World                  WorldConfig         `yaml:"world"`
-	Movement               MovementConfig      `yaml:"movement"`
-	Camera                 CameraConfig        `yaml:"camera"`
-	UI                     UIConfig            `yaml:"ui"`
-	Characters             CharacterConfig     `yaml:"characters"`
-	MonsterAI              MonsterAIConfig     `yaml:"monster_ai"`
-	Graphics               GraphicsConfig      `yaml:"graphics"`
-	Tiles                  TileConfig          `yaml:"tiles"`
-	DayNight               DayNightConfig      `yaml:"day_night"`
-	Camping                CampingConfig       `yaml:"camping"`
+	AutocastIntervalRounds int                    `yaml:"autocast_interval_rounds"`
+	PlayerPotions          *PotionPreferences     `yaml:"-" json:"-"`
+	StatusEffects          StatusEffectsConfig    `yaml:"status_effects"`
+	MonsterCombat          MonsterCombatConfig    `yaml:"monster_combat"`
+	Display                DisplayConfig          `yaml:"display"`
+	Engine                 EngineConfig           `yaml:"engine"`
+	World                  WorldConfig            `yaml:"world"`
+	Movement               MovementConfig         `yaml:"movement"`
+	Camera                 CameraConfig           `yaml:"camera"`
+	UI                     UIConfig               `yaml:"ui"`
+	Characters             CharacterConfig        `yaml:"characters"`
+	MonsterAI              MonsterAIConfig        `yaml:"monster_ai"`
+	Graphics               GraphicsConfig         `yaml:"graphics"`
+	Tiles                  TileConfig             `yaml:"tiles"`
+	DayNight               DayNightConfig         `yaml:"day_night"`
+	Camping                CampingConfig          `yaml:"camping"`
+	AdventureScaling       AdventureScalingConfig `yaml:"adventure_scaling"`
 
 	// PlayerInterfaceSize is the saved interface preset key ("" until loaded).
 	PlayerInterfaceSize string `yaml:"-" json:"-"`
@@ -743,11 +799,11 @@ type SpellDefinitionConfig struct {
 	MasteryDamagePerTier int `yaml:"mastery_damage_per_tier,omitempty"`
 
 	// AoE-stun effect (e.g. Darkness): when StunRadiusTiles > 0 the spell stuns
-	// every monster within that radius of the caster - no damage. RT uses
-	// secondsxTPS frames, TB uses StunDurationTurns.
+	// every monster within that radius of the caster - no damage. The stun
+	// (here or from StunChance) lasts StunDurationSeconds: whole rounds, the
+	// same span in both modes.
 	StunRadiusTiles     float64 `yaml:"stun_radius_tiles,omitempty"`
 	StunDurationSeconds int     `yaml:"stun_duration_seconds,omitempty"`
-	StunDurationTurns   int     `yaml:"stun_duration_turns,omitempty"`
 
 	// DealsNoDamage zeroes the projectile's direct damage (e.g. Disintegrate,
 	// whose only effect is its disintegrate_chance instakill roll on hit).
@@ -1500,7 +1556,7 @@ type WeaponDefinitionConfig struct {
 	Volley             int     `yaml:"volley,omitempty"` // projectiles loosed per shot in a small fan (default 1)
 	CritChance         int     `yaml:"crit_chance"`
 	StunChance         float64 `yaml:"stun_chance"`
-	StunTurns          int     `yaml:"stun_turns"`
+	StunSeconds        int     `yaml:"stun_seconds"`
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes the weapon's hit splash damage
 	// to every other monster within this radius (in tiles) of the primary
@@ -1577,7 +1633,8 @@ type WeaponDefinitionConfig struct {
 	// only by the school (Broodspike).
 	TrueDamage int `yaml:"true_damage,omitempty"`
 	// Slow drags the target's movement and attack cadence by SlowPct for
-	// SlowSeconds; in turn-based play it skips one turn in slow_skip_every_turns.
+	// SlowSeconds; in turn-based play it skips one turn in the slow status's
+	// skip_every_turns (assets/statuses.yaml).
 	SlowPct     int `yaml:"slow_pct,omitempty"`
 	SlowSeconds int `yaml:"slow_seconds,omitempty"`
 	// Weaken cuts the target's outgoing damage by WeakenPct for WeakenSeconds
@@ -1810,9 +1867,6 @@ func LoadConfig(filename string) (*Config, error) {
 	if err := config.StatusEffects.validate(); err != nil {
 		return nil, err
 	}
-	if err := config.StatusDamage.validate(); err != nil {
-		return nil, err
-	}
 	for _, pack := range config.DayNight.Packs {
 		for _, night := range []bool{false, true} {
 			for _, member := range pack.PhaseMembers(night) {
@@ -1934,6 +1988,9 @@ func LoadConfig(filename string) (*Config, error) {
 
 	// Set global config for easy access
 	if err := config.Characters.AutoDrink.Validate(); err != nil {
+		return nil, err
+	}
+	if err := config.AdventureScaling.Validate(); err != nil {
 		return nil, err
 	}
 	GlobalConfig = &config
@@ -2173,11 +2230,11 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 			return fmt.Errorf("spell '%s': standee_destroy_chance must be in [0,1]", id)
 		}
 		hasStunEffect := def.StunChance > 0 || def.StunRadiusTiles > 0
-		if hasStunEffect && (def.StunDurationSeconds <= 0 || def.StunDurationTurns <= 0) {
-			return fmt.Errorf("spell '%s': stun effect requires positive stun_duration_seconds and stun_duration_turns", id)
+		if hasStunEffect && def.StunDurationSeconds <= 0 {
+			return fmt.Errorf("spell '%s': stun effect requires positive stun_duration_seconds", id)
 		}
-		if !hasStunEffect && (def.StunDurationSeconds != 0 || def.StunDurationTurns != 0) {
-			return fmt.Errorf("spell '%s': stun durations require stun_chance or stun_radius_tiles", id)
+		if !hasStunEffect && def.StunDurationSeconds != 0 {
+			return fmt.Errorf("spell '%s': stun_duration_seconds requires stun_chance or stun_radius_tiles", id)
 		}
 		if def.ReuseSeconds < 0 {
 			return fmt.Errorf("spell '%s': reuse_seconds cannot be negative", id)
@@ -2353,6 +2410,15 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def.BonusStatSecondary != "" && !validWeaponBonusStats[def.BonusStatSecondary] {
 			return fmt.Errorf("weapon '%s' has unknown bonus_stat_secondary %q", key, def.BonusStatSecondary)
 		}
+		if err := validateChanceDuration(key, "stun", def.StunChance, def.StunSeconds); err != nil {
+			return err
+		}
+		if err := validateChanceDuration(key, "root", def.RootChance, def.RootSeconds); err != nil {
+			return err
+		}
+		if err := validatePercentDuration(key, "armor_shred", def.ArmorShredPct, def.ArmorShredSeconds); err != nil {
+			return err
+		}
 		if err := validateChanceDuration(key, "ignite", def.IgniteChance, def.IgniteSeconds); err != nil {
 			return err
 		}
@@ -2479,6 +2545,9 @@ func validateChanceDuration(weaponKey, effect string, chance float64, seconds in
 	if seconds < 0 || (chance == 0) != (seconds == 0) {
 		return fmt.Errorf("weapon '%s': %s_chance and %s_seconds must both be positive or both be zero", weaponKey, effect, effect)
 	}
+	if seconds > 0 {
+		return ValidateEffectSeconds(fmt.Sprintf("weapon '%s': %s_seconds", weaponKey, effect), seconds)
+	}
 	return nil
 }
 
@@ -2489,7 +2558,14 @@ func validatePercentDuration(weaponKey, effect string, pct, seconds int) error {
 	if seconds < 0 || (pct == 0) != (seconds == 0) {
 		return fmt.Errorf("weapon '%s': %s_pct and %s_seconds must both be positive or both be zero", weaponKey, effect, effect)
 	}
-	return nil
+	what := fmt.Sprintf("weapon '%s': %s_seconds", weaponKey, effect)
+	switch {
+	case seconds == 0:
+		return nil
+	case effect == "slow":
+		return ValidateSlowSeconds(what, seconds)
+	}
+	return ValidateEffectSeconds(what, seconds)
 }
 
 // RangedWeaponMinRangeTiles is the reach from which a weapon shoots
@@ -2978,6 +3054,12 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if hasBuffMetadata && !hasBuffEffect {
 			return fmt.Errorf("item '%s': buff metadata has no resist, armor, dodge, damage, or regeneration effect", key)
 		}
+		if err := validateEffectFields(
+			effectField{fmt.Sprintf("item '%s': buff_duration_seconds", key), def.BuffDurationSeconds},
+			effectField{fmt.Sprintf("item '%s': card_poison_duration_sec", key), def.CardPoisonDurationSec},
+		); err != nil {
+			return err
+		}
 		switch def.Type {
 		case "consumable":
 			// If heal_base is set, heal_endurance_divisor must be set and positive (unless revive)
@@ -3165,7 +3247,7 @@ type CrateConfig struct {
 // DefaultTrapIgniteSeconds is the burn duration for a trap_ignite crate that
 // authors no trap_ignite_seconds. Named here so the default lives with the
 // field, not as a literal in the trap code.
-const DefaultTrapIgniteSeconds = 10
+const DefaultTrapIgniteSeconds = 12
 
 // CrateRollSource is one entry of a crate's roll table:
 //   - map: one entry from the drop tables of the monster kinds the current map
@@ -3518,6 +3600,11 @@ func validateCrates(lt *LootTablesConfig) error {
 		}
 		if err := validateCrateBuff(key, c.Buff); err != nil {
 			return err
+		}
+		if c.TrapIgniteSeconds != 0 {
+			if err := ValidateEffectSeconds(fmt.Sprintf("crate %q: trap_ignite_seconds", key), c.TrapIgniteSeconds); err != nil {
+				return err
+			}
 		}
 		c.InteractionSound = strings.TrimSpace(c.InteractionSound)
 		if len(c.TrapDamageTypes) > 0 && c.TrapDamage <= 0 {

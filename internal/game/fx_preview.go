@@ -257,10 +257,10 @@ func (p *FxPreview) Items() []FxItem {
 	}
 	for _, e := range statusVisualCatalog {
 		if e.monster != nil && fxStatusDummy() != "" {
-			out = append(out, FxItem{Kind: FxStatus, Key: "monster_" + e.key, Label: "Monster: " + e.label, status: e.flag})
+			out = append(out, FxItem{Kind: FxStatus, Key: "monster_" + e.key, Label: "Monster: " + e.label(), status: e.flag})
 		}
 		if e.hero != nil {
-			out = append(out, FxItem{Kind: FxStatus, Key: "hero_" + e.key, Label: "Hero card: " + e.label, status: e.flag, onHero: true})
+			out = append(out, FxItem{Kind: FxStatus, Key: "hero_" + e.key, Label: "Hero card: " + e.label(), status: e.flag, onHero: true})
 		}
 	}
 	return out

@@ -1,0 +1,142 @@
+# Every status in one table: its names, what it does to the party and to
+# monsters, and the numbers its mechanics read.
+#
+# - name / short: the card, sheet and editor names (short is the cramped card
+#   form, required when the status reaches the party).
+# - party / monsters: what the status does to each side; leave one out when the
+#   status never reaches that side. rule: a mechanic both sides share.
+# - {field} in a text is replaced by this row's number of that name, or by a
+#   derived value (party_damage_per_round, repeat_reset_rounds, recovery_percent,
+#   action_percent, armor_cap_percent, duration), so a text cannot drift from
+#   the mechanic it describes.
+#
+# Durations live with whoever applies the status (a monster ability, a spell, a
+# weapon, a trap) and are authored in seconds that are whole combat rounds of
+# 3 s: an effect lasts its seconds in real time and seconds/3 turns in
+# turn-based play.
+
+statuses:
+  poison:
+    name: "Poisoned"
+    short: "Poison"
+    party_damage_per_second: 1
+    monster_percent_per_second: 1
+    monster_minimum_damage: 1
+    party: "Loses {party_damage_per_second} HP per second ({party_damage_per_round} per TB turn)."
+    monsters: "Loses {monster_percent_per_second}% of max HP per second, at least {monster_minimum_damage}. Undead are immune."
+
+  burn:
+    name: "Burning"
+    short: "Burn"
+    party_damage_per_second: 3
+    monster_percent_per_second: 3
+    boss_percent_per_second: 1
+    monster_minimum_damage: 3
+    party: "Loses {party_damage_per_second} HP per second ({party_damage_per_round} per TB turn); stacks with poison."
+    monsters: "Loses {monster_percent_per_second}% of max HP per second ({boss_percent_per_second}% for bosses), at least {monster_minimum_damage}."
+
+  stun:
+    name: "Stunned"
+    short: "Stun"
+    repeat_percents: [100, 50, 25, 0]
+    repeat_reset_seconds: 12
+    party: "The hero cannot attack, cast or set traps; in TB it loses its turns."
+    monsters: "Cannot move, attack or use specials."
+    rule: "Repeated stuns last {repeat_percents}% as long, then fail, until the target stays stun-free for {repeat_reset_seconds}s / {repeat_reset_rounds} TB turns."
+
+  root:
+    name: "Rooted"
+    short: "Root"
+    party: "The party cannot move, jump or step; turning, attacks and spells still work."
+    monsters: "Cannot move or pounce; still attacks whatever is in reach."
+
+  slow:
+    name: "Slowed"
+    short: "Slow"
+    hinder_percent: 25
+    skip_every_turns: 3
+    party: "Moves {hinder_percent}% slower and recovers {recovery_percent}% slower; in TB each hero gets {action_percent}% of its actions, at least one."
+    monsters: "Moves and attacks slower by the source's percent; in TB loses one turn in every {skip_every_turns}. A slowing telegraph slows by {hinder_percent}%."
+    rule: "Slows last whole steps of {skip_every_turns} TB turns."
+
+  armor_melt:
+    name: "Armor melted"
+    short: "Melt"
+    seconds: 15
+    party: "Armor stops at most {armor_cap_percent}% of physical damage."
+    monsters: "Armor stops at most {armor_cap_percent}% of physical damage."
+    rule: "Lasts {duration}."
+
+  weaken:
+    name: "Weakened"
+    monsters: "Deals less damage by the source's percent."
+
+  armor_shred:
+    name: "Armor shredded"
+    monsters: "Armor is lower by the source's percent."
+
+  charm:
+    name: "Charmed"
+    monsters: "Stops attacking until any hit breaks the charm. Undead and formless are immune."
+
+  bind:
+    name: "Bound"
+    monsters: "An undead fights for the party: it hunts other monsters and ignores the party."
+
+  fear:
+    name: "Fear"
+    short: "Fear"
+    party: "Nothing applies it to heroes yet."
+    monsters: "Flees from the party instead of fighting."
+
+  silence:
+    name: "Silenced"
+    monsters: "Cannot cast spells, fire ranged bolts or use non-physical specials; afterwards briefly immune to silence."
+
+  berserk:
+    name: "Berserk"
+    monsters: "Attacks the nearest creature, friend or foe."
+
+  enrage:
+    name: "Enraged"
+    monsters: "A boss at low HP hits harder or faster, as its enrage ability says."
+
+  diseased:
+    name: "Diseased"
+    short: "Disease"
+    party: "Nothing applies it yet."
+
+  cursed:
+    name: "Cursed"
+    short: "Curse"
+    party: "Nothing applies it yet."
+
+  asleep:
+    name: "Asleep"
+    short: "Sleep"
+    party: "Nothing applies it yet."
+
+  paralyzed:
+    name: "Paralyzed"
+    short: "Para"
+    party: "Nothing applies it yet."
+
+  stone:
+    name: "Stone"
+    short: "Stone"
+    party: "Nothing applies it yet."
+
+  unconscious:
+    name: "Unconscious"
+    short: "KO"
+    party: "At 0 HP the hero falls and cannot act until healed above 0 HP."
+
+  dead:
+    name: "Dead"
+    short: "Dead"
+    party: "Nothing applies it yet; a fallen hero is Unconscious or Eradicated."
+
+  eradicated:
+    name: "Eradicated"
+    short: "Eradicated"
+    party: "Destroyed outright at 0 HP with every other status gone; only Resurrect brings the hero back."

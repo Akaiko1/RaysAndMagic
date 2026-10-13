@@ -49,7 +49,7 @@ func (cs *CombatSystem) applyElementalWeaponAbility(target *monster.Monster3D, d
 	if !target.IsAlive() {
 		return
 	}
-	frames, turns := weaponStatusClocks(a.DurationSeconds, g.config.GetTPS())
+	frames, turns := config.EffectClock(a.DurationSeconds, g.config.GetTPS())
 	mark := target.ElementalMarks[a.Kind]
 	if mark.Frames <= 0 || mark.Turns <= 0 {
 		mark.Count = 0

@@ -64,7 +64,7 @@ func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, comb
 	var core character.CardRows
 	switch item.Type {
 	case items.ItemTechnique:
-		if d := config.Technique(string(item.SpellEffect)); d != nil {
+		if d := config.Technique(item.Technique); d != nil {
 			core = buildTechniqueTooltipUnifiedRows(d, char, combatSystem, full)
 		}
 	case items.ItemTrap:
@@ -433,16 +433,18 @@ func spellSchoolForChar(char *character.MMCharacter, def spells.SpellDefinition)
 	return string(char.SpellSchoolFor(def))
 }
 
+// tierDurationText writes a per-tier duration in config's one wording: the
+// hero's own tier, or the catalog ladder ("300/360/420/480s / 100/120/140/160
+// TB turns").
+func tierDurationText(hero bool, tier int, seconds [4]int) string {
+	rounds := tierValues(func(t int) int { return config.CombatRounds(seconds[t]) })
+	turns := tierValueText(hero, tier, rounds)
+	return config.DurationTextOf(tierValueText(hero, tier, seconds), turns, turns == "1")
+}
+
 // spellSchoolsLabel names EVERY school a spell belongs to ("Earth / Air"), so a
 // dual-school page does not read as the one school its definition happens to
 // list first - the shop sells it to either caster.
-// cardDurationText is the card span format: seconds, then the TB rounds the
-// same span covers.
-func cardDurationText(seconds, rounds string) string {
-	return fmt.Sprintf("%ss (TB: %s)", seconds, rounds)
-}
-
-// tbRoundsForSeconds rounds a real-time span up to whole TB rounds.
 func spellSchoolsLabel(def spells.SpellDefinition) string {
 	schools := def.SchoolList()
 	names := make([]string, 0, len(schools))

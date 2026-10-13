@@ -32,7 +32,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillDisarmTrap:          {"40/60/80/100%", "Flat damage reduction: 0/1/2/3 per hit (self)", "best active user", "Applies after armor and resistances", "Does not reduce true damage or damage over time"},
 		character.SkillLearning:            {"0/10/20/30%", "+5%", "all rosters", "does not stack"},
 		character.SkillArmsMaster:          {"0/2/4/6", "+5% weapon crit"},
-		character.SkillTrapper:             {"0/5/10/15", "(Intellect + Accuracy)/3", "0/2/4/6s RT", "0/0/1/2 turns TB"},
+		character.SkillTrapper:             {"0/5/10/15", "(Intellect + Accuracy)/3", "+0/1/1/2 TB turns", "(+0/3/3/6s)"},
 		character.SkillSleightOfHand:       {"10/20/30/40%", "once per enemy", "loot on death is unaffected"},
 		character.SkillDualWielding:        {"0/10/20/30%", "each hand recovers on its own", "at least 2 actions per round"},
 		character.SkillIronBody:            {"10/20/30/40", "+10% Perfect Dodge"},

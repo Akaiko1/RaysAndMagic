@@ -239,7 +239,7 @@ func TestTBAttackPassRunsTheMonsterTurn(t *testing.T) {
 	g.maxMessages = 50
 	equipTBAttackLoadout(t, g, 3, "unarmed")
 	strandTBParty(g, 3)
-	g.combat.applyStunDR(m, 2, 2*g.config.GetTPS(), false)
+	g.combat.applyStunDR(m, 2, false)
 	stunned := m.StunTurnsRemaining
 	fp.press()
 	tick()
