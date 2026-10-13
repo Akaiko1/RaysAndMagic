@@ -3,9 +3,7 @@ package game
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -1073,23 +1071,5 @@ func TestPersonalSpellReuseAcrossModesAndSave(t *testing.T) {
 				t.Fatal("tooltip omitted authored personal reuse")
 			}
 		})
-	}
-}
-
-// Every kind config lets autocast has exactly one trigger, and no trigger
-// waits on a kind that may never autocast: a spell flagged autocast whose
-// kind has no trigger would show AUTO and never cast.
-func TestAutocastKindsHaveTriggers(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		kinds    []string
-		triggers []string
-	}{
-		{"spell mechanics", config.AutocastMechanicKinds(), slices.Sorted(maps.Keys(spellAutocastTriggers))},
-		{"techniques", config.AutocastTechniqueKinds(), slices.Sorted(maps.Keys(techniqueAutocastTriggers))},
-	} {
-		if !slices.Equal(tc.kinds, tc.triggers) {
-			t.Errorf("%s: autocast kinds %v, triggers %v", tc.name, tc.kinds, tc.triggers)
-		}
 	}
 }

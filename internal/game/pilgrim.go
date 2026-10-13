@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
+	"maps"
 	"math"
 	"slices"
 	uitext "ugataima/assets/text"
@@ -461,8 +462,8 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 
 // Automatic casting answers shared needs: a spell's mechanic kind and a
 // technique's kind each map onto the same predicates. These tables are the one
-// trigger per kind; a test keeps them in step with the kinds config lets
-// autocast (config.AutocastMechanicKinds, config.AutocastTechniqueKinds).
+// trigger per kind; validateAutocastTriggers keeps them in step with the kinds
+// config lets autocast.
 var spellAutocastTriggers = map[string]func(*MMGame, spells.SpellDefinition) bool{
 	"dispel_magic": func(g *MMGame, d spells.SpellDefinition) bool {
 		return g.partyNeedsPurify() || g.hostileMagicNearby(d.Mechanic.RadiusTiles)
@@ -482,6 +483,25 @@ var techniqueAutocastTriggers = map[string]func(*MMGame, *config.TechniqueDefini
 	config.TechniqueDodge: func(g *MMGame, d *config.TechniqueDefinition) bool {
 		return g.partyUnderAttack() && g.techniqueUseful(d) && g.partyHardPressed()
 	},
+}
+
+// validateAutocastTriggers fails the boot on a kind config lets autocast with
+// no trigger (its AUTO toggle would never cast) or a trigger for a kind that
+// may not autocast.
+func validateAutocastTriggers() error {
+	for _, c := range []struct {
+		what     string
+		kinds    []string
+		triggers []string
+	}{
+		{"spell mechanic", config.AutocastMechanicKinds(), slices.Sorted(maps.Keys(spellAutocastTriggers))},
+		{"technique", config.AutocastTechniqueKinds(), slices.Sorted(maps.Keys(techniqueAutocastTriggers))},
+	} {
+		if !slices.Equal(c.kinds, c.triggers) {
+			return fmt.Errorf("%s autocast kinds %v but triggers for %v", c.what, c.kinds, c.triggers)
+		}
+	}
+	return nil
 }
 
 func (g *MMGame) spellAutocastFires(d spells.SpellDefinition) bool {

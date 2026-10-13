@@ -58,13 +58,13 @@ func TestSavedCardPreviewMatchesRestore(t *testing.T) {
 		{"physical limit", PartySave{CardCollectionItems: many}, items.Item{}, map[int]string{0: card.Name, 1: card.Name, 2: card.Name, 3: card.Name, 4: card.Name, 5: card.Name, 6: card.Name, 7: card.Name}},
 		{"legacy limit", PartySave{CardCollection: legacyMany}, items.Item{}, map[int]string{0: card.Name, 1: card.Name, 2: card.Name, 3: card.Name, 4: card.Name, 5: card.Name, 6: card.Name, 7: card.Name}},
 	} {
-		for _, bank := range []string{"general", "cards"} {
+		for _, bank := range []string{"general", "album"} {
 			t.Run(tc.name+"/"+bank, func(t *testing.T) {
 				shared := &stash.Stash{}
 				if bank == "general" {
 					shared.Slots[0] = tc.owned
-				} else {
-					shared.CardSlots[0] = tc.owned
+				} else if !stash.IsEmpty(tc.owned) {
+					shared.Album = map[string][]items.Item{"page": {tc.owned}}
 				}
 				before, _ := json.Marshal(tc.save)
 				beforeStash, _ := json.Marshal(shared)
@@ -108,10 +108,14 @@ func TestReadStashSnapshotPreservesPendingTransfer(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			storage.SetDataRootForTesting(t.TempDir())
 			t.Cleanup(func() { storage.SetDataRootForTesting("") })
-			before := stash.Stash{}
-			before.CardSlots[0] = items.CreateItemFromYAML("troll_card")
-			after := stash.Stash{}
-			after.CardSlots[0] = items.CreateItemFromYAML("puma_card")
+			before := stash.Stash{Album: map[string][]items.Item{"troll_card": {items.CreateItemFromYAML("troll_card")}}}
+			after := stash.Stash{Album: map[string][]items.Item{"puma_card": {items.CreateItemFromYAML("puma_card")}}}
+			albumCard := func(s *stash.Stash) string {
+				for _, page := range s.Album {
+					return page[0].Name
+				}
+				return ""
+			}
 			if err := stash.Save(&before); err != nil {
 				t.Fatal(err)
 			}
@@ -145,12 +149,12 @@ func TestReadStashSnapshotPreservesPendingTransfer(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				want := before.CardSlots[0].Name
+				want := albumCard(&before)
 				if state == "committed" {
-					want = after.CardSlots[0].Name
+					want = albumCard(&after)
 				}
-				if snapshot.CardSlots[0].Name != want {
-					t.Fatalf("effective snapshot=%q, want %q", snapshot.CardSlots[0].Name, want)
+				if albumCard(snapshot) != want {
+					t.Fatalf("effective snapshot=%q, want %q", albumCard(snapshot), want)
 				}
 			}
 			for i, path := range paths {
@@ -164,7 +168,7 @@ func TestReadStashSnapshotPreservesPendingTransfer(t *testing.T) {
 				if !g.ensureStashLoaded() {
 					t.Fatal("game recovery failed")
 				}
-				if g.stash.CardSlots[0].Name != snapshot.CardSlots[0].Name {
+				if albumCard(g.stash) != albumCard(snapshot) {
 					t.Fatal("preview/recovery disagree")
 				}
 			}

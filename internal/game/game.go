@@ -713,7 +713,14 @@ type MMGame struct {
 	// 0..SlotCount-1 = a stash cell, >= stashDragInvBase = an inventory index.
 	stashScreenOpen bool
 	stash           *stash.Stash
-	loadNeedsResave bool // a load stamped legacy items with instance ids: re-save the slot once
+	// The Storage Clerk's collections screen: open tab, showcase scroll,
+	// binder spread and the side bag's page.
+	collectionScreenOpen bool
+	collectionTab        int
+	collectionScroll     int // showcase scroll in pixels
+	collectionSpread     int // open binder spread
+	collectionBagPage    int
+	loadNeedsResave      bool // a load stamped legacy items with instance ids: re-save the slot once
 	// pendingStashTransferID is written into game saves (normally autosave) while
 	// a durable stash journal exists. It is transient and clears once both stores
 	// commit.
@@ -730,7 +737,6 @@ type MMGame struct {
 	stashDragCurY          int
 	stashDragDrop          bool // a drop must be resolved this frame
 	stashInvPage           int
-	stashShowCards         bool // top storage tab: false = general chest, true = card vault
 
 	// Turn-based mode state
 	turnBasedMode bool // Whether game is in turn-based mode
@@ -1063,6 +1069,9 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	}
 	// And an action name nothing dispatches draws a row that does nothing.
 	if err := game.validateDialogueActionsAreDispatched(); err != nil {
+		panic(err)
+	}
+	if err := validateAutocastTriggers(); err != nil {
 		panic(err)
 	}
 	if character.NPCConfigInstance != nil && world.GlobalWorldManager != nil {

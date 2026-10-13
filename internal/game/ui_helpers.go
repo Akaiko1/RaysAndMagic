@@ -213,6 +213,7 @@ const (
 	modalLayerPromotion
 	modalLayerRoster
 	modalLayerStash
+	modalLayerCollection
 	modalLayerStackSplit
 	modalLayerCamp
 	modalLayerCampRest
@@ -257,6 +258,8 @@ func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
 		return modalLayerStackSplit
 	case g.stashScreenOpen:
 		return modalLayerStash
+	case g.collectionScreenOpen:
+		return modalLayerCollection
 	case g.rosterScreenOpen:
 		return modalLayerRoster
 	case g.promotionPickerOpen:
@@ -388,11 +391,10 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 		s.state[8] = g.cardCollectorInvPage
 		// The tavern embeds the stash and roster managers in its tabs; their
 		// visible sub-state must be part of the dialog's identity too.
-		s.state[9] = boolInt(g.stashShowCards)
-		s.state[10] = g.stashInvPage
-		s.state[11] = g.rosterSelectedActive
-		s.state[12] = g.merchantBuyCategory
-		s.state[13] = g.merchantSellCategory
+		s.state[9] = g.stashInvPage
+		s.state[10] = g.rosterSelectedActive
+		s.state[11] = g.merchantBuyCategory
+		s.state[12] = g.merchantSellCategory
 	case modalLayerVictory:
 		s.state[0] = boolInt(g.victoryScoreSaved)
 	case modalLayerStat:
@@ -407,8 +409,12 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 	case modalLayerRoster:
 		s.state[0] = g.rosterSelectedActive
 	case modalLayerStash:
-		s.state[0] = boolInt(g.stashShowCards)
-		s.state[1] = g.stashInvPage
+		s.state[0] = g.stashInvPage
+	case modalLayerCollection:
+		s.state[0] = g.collectionTab
+		s.state[1] = g.collectionScroll
+		s.state[2] = g.collectionSpread
+		s.state[3] = g.collectionBagPage
 	case modalLayerStackSplit:
 		s.state[0] = int(ui.stackSplitPicker.source)
 		s.state[1] = ui.stackSplitPicker.from

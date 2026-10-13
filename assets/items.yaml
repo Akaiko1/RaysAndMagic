@@ -1300,7 +1300,7 @@ items:
     type: "trinket"
     description: "A green-violet crystal vessel in a bone setting"
     flavor: "Something inside taps once, then goes silent."
-    rarity: "legendary"
+    rarity: "rare"
     value: 1300
 
   world_map:
@@ -1399,7 +1399,7 @@ items:
     type: "trinket"
     description: "A brilliant, flawless diamond"
     flavor: "A king's ransom in a single facet."
-    rarity: "legendary"
+    rarity: "rare"
     value: 1200
 
   puma_card:
@@ -2054,7 +2054,7 @@ items:
     type: "trinket"
     description: "A small solid-gold idol from the lost city's hoard"
     flavor: "Heavier than it looks, and it grows warm whenever the warlord's men come near."
-    rarity: "legendary"
+    rarity: "rare"
     value: 1300
 
   ocelot_card:
@@ -2173,7 +2173,7 @@ items:
     name: "Black Dragon Card"
     type: "card"
     card_resist_bonus:
-      fire: 50
+      fire: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a black dragon, scales like wet coal."
     rarity: "legendary"
@@ -2183,7 +2183,7 @@ items:
     name: "Gold Dragon Card"
     type: "card"
     card_resist_bonus:
-      air: 50
+      air: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a gold dragon, scales like molten coin."
     rarity: "legendary"
@@ -2193,7 +2193,7 @@ items:
     name: "Green Dragon Card"
     type: "card"
     card_resist_bonus:
-      earth: 50
+      earth: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a green dragon, scales like river moss."
     rarity: "legendary"
@@ -2203,7 +2203,7 @@ items:
     name: "Red Dragon Card"
     type: "card"
     card_resist_bonus:
-      fire: 50
+      fire: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a red dragon, scales like banked coals."
     rarity: "legendary"
@@ -2213,7 +2213,7 @@ items:
     name: "Elder Black Dragon Card"
     type: "card"
     card_resist_bonus:
-      fire: 75
+      fire: 35
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elder black dragon, ancient and onyx-scaled."
     rarity: "legendary"
@@ -2223,7 +2223,7 @@ items:
     name: "Elder Gold Dragon Card"
     type: "card"
     card_resist_bonus:
-      air: 75
+      air: 35
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elder gold dragon, crowned in amber light."
     rarity: "legendary"
@@ -2233,7 +2233,7 @@ items:
     name: "Elder Green Dragon Card"
     type: "card"
     card_resist_bonus:
-      earth: 75
+      earth: 35
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elder green dragon, wreathed in viridian mist."
     rarity: "legendary"
@@ -2243,7 +2243,7 @@ items:
     name: "Elder Red Dragon Card"
     type: "card"
     card_resist_bonus:
-      fire: 75
+      fire: 35
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elder red dragon, wreathed in crimson smoke."
     rarity: "legendary"
@@ -2905,7 +2905,7 @@ items:
     flavor: "Bolt holes along one edge, where it was fastened to something bigger. The Scalewright pays and does not discuss it."
     tooltip_usage:
       - "Exchange with the Scalewright for equipment; gold is also required"
-    rarity: "legendary"
+    rarity: "rare"
     value: 1200
 
   red_dragon_scale:

@@ -152,7 +152,7 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 	case tavernRosterAction:
 		footer = uitext.Text("dialog.select_an_active_hero_then_click_a")
 	case tavernStashAction:
-		footer = uitext.Text("dialog.drag_items_between_the_chest_and_your")
+		footer = uitext.Text("stash.hint")
 	case tavernServicesAction:
 		footer = uitext.Text("dialog.select_a_service_then_confirm_it_up")
 	case tavernRumorsAction:
@@ -164,11 +164,10 @@ func (ui *UISystem) drawTavernDialog(screen *ebiten.Image, dialogX, dialogY, dia
 func (ui *UISystem) drawTavernStash(screen *ebiten.Image, area layoutRect) {
 	g := ui.game
 	if g.stash == nil {
-		drawCenteredUIText(screen, "The shared stash could not be loaded.", area.x, area.y, area.w, area.h)
+		drawCenteredUIText(screen, uitext.Text("stash.load_failed"), area.x, area.y, area.w, area.h)
 		return
 	}
-	drawUIText(screen, "Shared across all saves.", area.x+16, area.y+10)
-	ui.drawStashManager(screen, computeStashLayoutForArea(area, 46), ui.topModalLayer() == modalLayerDialog)
+	ui.drawStashManager(screen, computeStashLayoutForArea(area), ui.topModalLayer() == modalLayerDialog)
 }
 
 func (ui *UISystem) drawTavernServices(screen *ebiten.Image, npc *character.NPC, area layoutRect) {

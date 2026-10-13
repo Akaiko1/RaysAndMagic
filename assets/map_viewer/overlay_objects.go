@@ -349,7 +349,7 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 			out = append(out, overlayString("Loot table", &q.LootTable, "Optional loot rolled on use. Needs the loot message too.", append([]string{""}, v.overlayCatalog("loots", "loot_tables")...)...), overlayString("Loot message", &q.LootLine, "Shown with the loot. Required with a loot table."))
 		}
 		out = append(out, overlayString("Before the quest needs it", &q.NotYet, "Shown while the quest does not need this object yet."), overlayString("When it counts", &q.Took, "Shown when using the object is credited."), overlayString("When the quest completes", &q.Completed, "Shown when this completes the quest."), overlayBool("Hide map marker", &q.HideMapMarker, "Do not mark this object on the world map."), overlayNote("A quest object must hide after use or have a Message after use (object settings)."))
-	case "back", "leave", "open_roster", "manage_stash":
+	case "back", "leave", "open_roster", "manage_stash", "manage_collections":
 		out = append(out, overlayInfo("Parameters", "No additional parameters", "This action uses the game's shared conversation or party service."))
 	}
 	out = append(out, overlayAction("Remove this action", "Removes this action and its nested branches. Undo restores them.", func() {

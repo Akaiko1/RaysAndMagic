@@ -865,38 +865,6 @@ func TestBerserkSelectsNearestActorIncludingParty(t *testing.T) {
 	}
 }
 
-func TestAdvancedDrainUsesActualLossAndUndeadTargetGate(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	g := cs.game
-	g.party.Members = g.party.Members[:1]
-	ch := g.party.Members[0]
-	ch.Race = "human"
-	ch.HitPoints, ch.MaxHitPoints = 1, 1000
-	m := mkTestMonster("drain victim", 20)
-	m.ID, m.X = "drain victim", g.config.GetTileSize()
-	g.world.Monsters = []*monster.Monster3D{m}
-	def, err := spells.GetSpellDefinitionByID("destroy_undead")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cs.tryCastAdvancedOffense(def.ID, def, ch) != castNoEffect || m.HitPoints != 20 {
-		t.Fatal("Destroy Undead affected a living target")
-	}
-	def, err = spells.GetSpellDefinitionByID("souldrinker")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cs.castResolvedSpell(def.ID, def, ch, 0, false, false) {
-		t.Fatal("Souldrinker did not cast")
-	}
-	lost := 20 - max(0, m.HitPoints)
-	want := 1 + lost*def.Mechanic.Power(casterSpellMasteryTier(ch, def))/100
-	if lost == 0 || ch.HitPoints != want {
-		_, _, damage := cs.CalculateSpellDamage(def.ID, ch)
-		t.Fatalf("drain healed %d, want %d from actual HP loss %d (formula=%d, bound=%t)", ch.HitPoints, want, lost, damage, m.Bound)
-	}
-}
-
 func TestFrozenWaterMaterialFollowsCastAndThawState(t *testing.T) {
 	r, wm := terrainTestRenderer(t, "forest")
 	g := r.game

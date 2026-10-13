@@ -28,25 +28,18 @@ func (g *MMGame) ensureStashLoaded() bool {
 		return false
 	}
 	changed := false
-	for i := range s.Slots {
-		if !stash.IsEmpty(s.Slots[i]) {
-			normalizeItemFromConfig(&s.Slots[i])
-			if items.EnsureInstanceID(&s.Slots[i]) {
-				changed = true
-			}
+	s.Each(func(it *items.Item) {
+		normalizeItemFromConfig(it)
+		if items.EnsureInstanceID(it) {
+			changed = true
 		}
-	}
-	for i := range s.CardSlots {
-		if !stash.IsEmpty(s.CardSlots[i]) {
-			normalizeItemFromConfig(&s.CardSlots[i])
-			if items.EnsureInstanceID(&s.CardSlots[i]) {
-				changed = true
-			}
-		}
+	})
+	if returnUnlistedCollectionItems(s) {
+		changed = true
 	}
 	g.stash = s
 	if changed {
-		_ = stash.Save(g.stash) // one-time id migration of the chest file
+		_ = stash.Save(g.stash) // one-time id and unlisted-place migration of the chest file
 	}
 	return true
 }
@@ -135,7 +128,8 @@ func (g *MMGame) stampPartyInstanceIDs() bool {
 	return changed
 }
 
-// reconcilePartyAgainstStash drops chest-owned units from every place a save
+// reconcilePartyAgainstStash drops stash-owned units (chest, legendary
+// collection, card album) from every place a save
 // can carry an item: bag, all rosters' equipment/quick slots, and the card
 // collection and ground containers. Stackable items can contain multiple origins
 // after UI merges, so claims are consumed globally. Zero-ID legacy items
@@ -167,12 +161,7 @@ func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlot
 			owned[it.InstanceID]++
 		}
 	}
-	for i := range shared.Slots {
-		claim(shared.Slots[i])
-	}
-	for i := range shared.CardSlots {
-		claim(shared.CardSlots[i])
-	}
+	shared.Each(func(it *items.Item) { claim(*it) })
 	if len(owned) == 0 {
 		return false
 	}

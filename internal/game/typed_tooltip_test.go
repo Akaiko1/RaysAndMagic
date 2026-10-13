@@ -68,8 +68,9 @@ func TestTypedRowsReachItemAndSpellHovers(t *testing.T) {
 					ui.drawInventoryContent(h.screen, content)
 					want = GetItemTooltipRows(item, hero, g.combat, full)
 				case "stash":
+					// Storage shows the base card, like a shop.
 					ui.stashCellTooltip(item, image.Rect(10, 10, 74, 74), 30, 30)
-					want = GetItemTooltipRows(item, hero, g.combat, full)
+					want = GetItemTooltipRows(item, nil, g.combat, full)
 				case "merchant":
 					g.dialogActive = true
 					g.dialogNPC = &character.NPC{Name: "Trader", MerchantStock: []*character.MerchantStockItem{{Item: item, Cost: 10, Quantity: 1}}}

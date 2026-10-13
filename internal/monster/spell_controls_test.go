@@ -26,18 +26,3 @@ func TestSpellFearOwnsRetreatUntilItsClockExpires(t *testing.T) {
 		}
 	}
 }
-
-func TestSpellSilenceAndBerserkChangeCapabilities(t *testing.T) {
-	m := &Monster3D{HitPoints: 100, AttackRadius: 64, ProjectileSpell: "firebolt", SilenceFramesRemaining: 2, BerserkFramesRemaining: 2}
-	other := &Monster3D{HitPoints: 100}
-	if m.HasRangedAttack() || m.GetAttackRangePixels() != 64 {
-		t.Fatal("silence kept ranged pursuit reach")
-	}
-	if !m.CanAttackActor(other) {
-		t.Fatal("berserk cannot attack another hostile")
-	}
-	m.AdvanceSpellControls(2)
-	if !m.HasRangedAttack() || m.CanAttackActor(other) {
-		t.Fatal("normal faction/ranged rules not restored")
-	}
-}

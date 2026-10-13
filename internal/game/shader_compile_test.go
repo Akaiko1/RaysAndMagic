@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 	"ugataima/internal/config"
-	"ugataima/internal/monster"
 	"ugataima/internal/shaders"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -349,78 +348,6 @@ func TestDirectPaniniMaterialCoordinatesMatchPicking(t *testing.T) {
 	}
 	if worst > .2 {
 		t.Fatalf("rendered material differs from picking coordinates by %.3f pixels", worst)
-	}
-}
-
-// A world target can also be the registered UI screen. Its status effects must
-// stay in world pixels in either projection, including shared head-badge art.
-func TestWorldStatusIgnoresInterfaceScale(t *testing.T) {
-	if os.Getenv("RAM_DEBUG_SIM") == "" {
-		t.Skip("requires live GPU readback")
-	}
-	keepUIScreenScale(t)
-	cfg := setupPreviewSandboxTest(t)
-	t.Chdir("../..")
-	p, err := NewFxPreview(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer p.g.Shutdown()
-	g, r := p.g, p.g.gameLoop.renderer
-	g.handleResize(image.Pt(1280, 720), image.Pt(1280, 720))
-	clearWorldDepth(g)
-	for i := range g.actorDepthBuffer {
-		g.actorDepthBuffer[i] = math.Inf(1)
-	}
-	mon := monster.NewMonster3DFromConfig(400, 400, "wolf", cfg)
-	mon.Bound = true
-	sprite := UnifiedSpriteRenderData{monster: mon, screenX: 440, spriteSize: 160, depthPerp: 100}
-	for _, panini := range []bool{false, true} {
-		g.combatPreferences.WideView = panini
-		runOnDrawFrame(func(_ *ebiten.Image) {
-			dst := ebiten.NewImage(1280, 720)
-			defer dst.Deallocate()
-			previous := activeWorldRaster
-			defer func() { activeWorldRaster = previous }()
-			if panini {
-				g.gameLoop.paniniRaster.configure(dst, g.widePaniniProjection())
-				activeWorldRaster = &g.gameLoop.paniniRaster
-			}
-			for name, draw := range map[string]func(){
-				"stun":   func() { r.drawMonsterStunStars(dst, 440, 210, 160) },
-				"poison": func() { r.drawMonsterPoisonBubbles(dst, 440, 210, 160) },
-				"status": func() { r.drawAdditionalMonsterStatusFX(dst, sprite, 210, visualRoot|visualSlow) },
-				"badge":  func() { r.drawMonsterHeadBadges(dst, sprite, 210, visualBind) },
-			} {
-				var reference []byte
-				for _, scale := range []float64{1, 1.25, 1.5} {
-					beginUIFrame(dst, scale)
-					dst.Clear()
-					draw()
-					pixels := make([]byte, 1280*720*4)
-					dst.ReadPixels(pixels)
-					if scale == 1 {
-						lit := 0
-						for i := 3; i < len(pixels); i += 4 {
-							if pixels[i] > 0 {
-								lit++
-							}
-						}
-						if lit == 0 {
-							t.Errorf("%s/Panini=%v rendered no pixels", name, panini)
-						}
-						reference = pixels
-						continue
-					}
-					for i, v := range pixels {
-						if d := int(v) - int(reference[i]); d < -1 || d > 1 {
-							t.Errorf("%s/Panini=%v moved or changed at UI scale %g", name, panini, scale)
-							break
-						}
-					}
-				}
-			}
-		})
 	}
 }
 

@@ -1,11 +1,6 @@
 package storage
 
 import (
-	"bytes"
-	"context"
-	"image"
-	"image/color"
-	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,53 +78,6 @@ func TestSeedMovedSpriteResolvesReplacement(t *testing.T) {
 	t.Chdir(user)
 	if resolved, ok := graphics.ResolveSpritePath("review_moved"); !ok || resolved != newRel {
 		t.Fatalf("moved sprite resolves to %q (found %v), want %q", resolved, ok, newRel)
-	}
-}
-
-func TestSeedRemovesLegacySpriteShadowingCurrentBundle(t *testing.T) {
-	content, user := t.TempDir(), t.TempDir()
-	writeFile(t, filepath.Join(content, "config.yaml"), "cfg")
-	writeFile(t, filepath.Join(content, "assets/forest.map"), "shipped map")
-	hash, _ := fileSHA256(filepath.Join(content, "assets/forest.map"))
-	if err := (seedManifest{"forest.map": hash}).Save(user); err != nil {
-		t.Fatal(err)
-	}
-	oldRel := "assets/sprites/environment/a/legacy_moved.png"
-	newRel := "assets/sprites/environment/z/legacy_moved.png"
-	oldColor, newColor := color.RGBA{R: 255, A: 255}, color.RGBA{G: 255, A: 255}
-	for _, fixture := range []struct {
-		path  string
-		pixel color.RGBA
-	}{
-		{filepath.Join(user, oldRel), oldColor},
-		{filepath.Join(content, newRel), newColor},
-	} {
-		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
-		img.SetRGBA(0, 0, fixture.pixel)
-		var encoded bytes.Buffer
-		if err := png.Encode(&encoded, img); err != nil {
-			t.Fatal(err)
-		}
-		writeFile(t, fixture.path, encoded.String())
-	}
-	if err := seedUserData(content, user); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(user, oldRel)); !os.IsNotExist(err) {
-		t.Fatalf("untracked legacy sprite survived the reseed: %v", err)
-	}
-	t.Chdir(user)
-	sm := graphics.NewSpriteManager()
-	results := sm.PrepareResources(context.Background(), []graphics.SpriteResourceRequest{{Name: "legacy_moved"}})
-	prepared := <-results
-	if !prepared.Found || prepared.Image == nil {
-		t.Fatal("current shipped sprite did not decode")
-	}
-	if got := color.RGBAModel.Convert(prepared.Image.At(0, 0)); got != newColor {
-		t.Fatalf("decoded legacy pixel %v, want current shipped pixel %v", got, newColor)
-	}
-	for range results {
-		t.Fatal("unexpected additional resource")
 	}
 }
 

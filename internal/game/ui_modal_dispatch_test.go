@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -115,15 +116,8 @@ func TestDisplayedPointerGesturesReachUpdate(t *testing.T) {
 					dx, dy = slots[0].Min.X+3, slots[0].Min.Y+3
 				case "standalone stash", "tavern stash":
 					g.stash = &stash.Stash{}
-					layout := computeStashLayout(1024, 768)
-					if kind == "tavern stash" {
-						g.dialogActive, g.dialogNPC, g.dialogTab = true, tavernTestNPC(), 1
-						dlg := npcDialogLayout(g)
-						layout = computeStashLayoutForArea(tavernContentRect(dlg.x, dlg.y, dlg.w, dlg.h), 46)
-					} else {
-						g.stashScreenOpen = true
-					}
-					src, dst := stashCellRect(layout.centerX, layout.invTop, 0), stashCellRect(layout.centerX, layout.chestTop, 0)
+					layout := openStashHost(g, kind == "tavern stash")
+					src, dst := stashGridCell(layout.bag, layout.bagCols, 0), stashGridCell(layout.chest, stashChestCols, 0)
 					sx, sy, dx, dy = src.Min.X+3, src.Min.Y+3, dst.Min.X+3, dst.Min.Y+3
 				case "merchant":
 					g.dialogActive = true
@@ -178,6 +172,93 @@ func TestDisplayedPointerGesturesReachUpdate(t *testing.T) {
 					}
 				} else if g.stash.Slots[0].Count() != 5 || len(g.party.Inventory) != 0 {
 					t.Fatal("stash drop did not transfer the stack")
+				}
+			})
+		}
+	}
+}
+
+// openStashHost shows the stash in the tavern's Stash tab or the standalone
+// modal and returns the grids it draws.
+func openStashHost(g *MMGame, tavern bool) stashLayout {
+	if !tavern {
+		g.stashScreenOpen = true
+		_, layout := computeStashLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight())
+		return layout
+	}
+	g.dialogActive, g.dialogNPC, g.dialogTab = true, tavernTestNPC(), 1
+	dlg := npcDialogLayout(g)
+	return computeStashLayoutForArea(tavernContentRect(dlg.x, dlg.y, dlg.w, dlg.h))
+}
+
+// A double-click moves a cell across through the real press/release path in
+// both hosts: a bag stack onto its chest stack or else the first free cell, a
+// chest item into the bag. One click, or a full chest, moves nothing.
+func TestStashDoubleClickMovesItemsAcross(t *testing.T) {
+	potion := func(n int) items.Item {
+		it := items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: n}
+		items.EnsureInstanceID(&it)
+		return it
+	}
+	sword := func() items.Item {
+		it := items.Item{Name: "Iron Sword", Type: items.ItemWeapon}
+		items.EnsureInstanceID(&it)
+		return it
+	}
+	full := map[int]items.Item{}
+	fullWant := map[int]string{}
+	for i := range stash.SlotCount {
+		full[i], fullWant[i] = sword(), "Iron Sword x1"
+	}
+	for _, tc := range []struct {
+		name      string
+		bag       []items.Item
+		chest     map[int]items.Item
+		fromChest int // -1 clicks bag cell 0
+		clicks    int
+		wantBag   int            // units left in the bag
+		wantChest map[int]string // filled cells afterwards
+	}{
+		{"bag stack joins its chest stack", []items.Item{potion(3)}, map[int]items.Item{0: sword(), 5: potion(2)}, -1, 2, 0, map[int]string{0: "Iron Sword x1", 5: "Health Potion x5"}},
+		{"bag item takes the first free cell", []items.Item{sword()}, map[int]items.Item{0: potion(2)}, -1, 2, 0, map[int]string{0: "Health Potion x2", 1: "Iron Sword x1"}},
+		{"chest item goes to the bag", nil, map[int]items.Item{7: potion(4)}, 7, 2, 4, map[int]string{}},
+		{"one click moves nothing", []items.Item{sword()}, nil, -1, 1, 1, map[int]string{}},
+		{"a full chest refuses", []items.Item{potion(1)}, full, -1, 2, 1, fullWant},
+	} {
+		for _, tavern := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/tavern=%v", tc.name, tavern), func(t *testing.T) {
+				h := newDisplayedModalHarness(t, 1024, 768)
+				g := h.g
+				fp := installFakePointer(t)
+				g.party.Inventory = append([]items.Item(nil), tc.bag...)
+				g.stash = &stash.Stash{}
+				for i, it := range tc.chest {
+					g.stash.Slots[i] = it
+				}
+				layout := openStashHost(g, tavern)
+				cell := stashGridCell(layout.bag, layout.bagCols, 0)
+				if tc.fromChest >= 0 {
+					cell = stashGridCell(layout.chest, stashChestCols, tc.fromChest)
+				}
+				fp.moveTo(cell.Min.X+cell.Dx()/2, cell.Min.Y+cell.Dy()/2)
+				for range tc.clicks {
+					fp.press()
+					h.pointerStep()
+					fp.release()
+					h.pointerStep()
+				}
+				units := 0
+				for _, it := range g.party.Inventory {
+					units += it.Count()
+				}
+				got := map[int]string{}
+				for i, it := range g.stash.Slots {
+					if !stash.IsEmpty(it) {
+						got[i] = fmt.Sprintf("%s x%d", it.Name, it.Count())
+					}
+				}
+				if units != tc.wantBag || !reflect.DeepEqual(got, tc.wantChest) {
+					t.Fatalf("bag holds %d units, chest %v; want %d and %v", units, got, tc.wantBag, tc.wantChest)
 				}
 			})
 		}

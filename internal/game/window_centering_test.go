@@ -24,7 +24,7 @@ func TestWindowsCenteredOnEveryInterfaceFrame(t *testing.T) {
 			fromRect := func(r image.Rectangle) layoutRect { return layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()} }
 			settingsTitle := makeAudioSettingsPanelLayout(w, hh, true)
 			settingsEsc := makeAudioSettingsPanelLayout(w, hh, false)
-			stash := computeStashLayout(w, hh)
+			stash, _ := computeStashLayout(w, hh)
 			lx, ly, lw, lh, _, _ := levelUpChoiceLayout(levelUp, w, hh)
 			npc := npcDialogLayout(g)
 			cx, cy, cw, ch := combatLogPanelLayout(g)
@@ -43,7 +43,7 @@ func TestWindowsCenteredOnEveryInterfaceFrame(t *testing.T) {
 				{"combat log", layoutRect{cx, cy, cw, ch}, frame},
 				{"camp", layoutCampConfirmation(w, hh).panel, frame},
 				{"profile", profilePanelRect(w, hh), frame},
-				{"stash", layoutRect{stash.popupX, stash.popupY, stash.popupW, stash.popupH}, frame},
+				{"stash", stash, frame},
 				{"stack split", fromRect(stackSplitPickerRect(w, hh)), frame},
 				{"level-up choice", layoutRect{lx, ly, lw, lh}, frame},
 				{"npc dialog", layoutRect{npc.x, npc.y, npc.w, npc.h}, frame},

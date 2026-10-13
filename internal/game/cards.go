@@ -154,15 +154,13 @@ func stashOwnsCardKey(shared *stash.Stash, key string) bool {
 	if shared == nil || key == "" {
 		return false
 	}
-	for _, bank := range [][]items.Item{shared.Slots[:], shared.CardSlots[:]} {
-		for _, it := range bank {
-			normalizeItemFromConfig(&it)
-			if itemCardKey(it) == key {
-				return true
-			}
-		}
-	}
-	return false
+	owns := false
+	shared.Each(func(it *items.Item) {
+		card := *it
+		normalizeItemFromConfig(&card)
+		owns = owns || itemCardKey(card) == key
+	})
+	return owns
 }
 
 // resolveSavedCardSlots is the load contract for both gameplay and browsing.
@@ -509,12 +507,7 @@ func (g *MMGame) cardSummonOwnedSources() []cardSummonSource {
 		}
 	}
 	if g.stash != nil {
-		for _, it := range g.stash.Slots {
-			appendItem(it)
-		}
-		for _, it := range g.stash.CardSlots {
-			appendItem(it)
-		}
+		g.stash.Each(func(it *items.Item) { appendItem(*it) })
 	}
 	return sources
 }

@@ -33,7 +33,6 @@ dialog.double_click_a_card_to_slot_it: "Double-click a card to slot it  |  Doubl
 dialog.double_click_a_charm_to_have_it: "Double-click a charm to have it cast. ESC to leave."
 dialog.double_click_to_add_to_collection: "Double-click to add to collection"
 dialog.double_click_to_remove: "Double-click to remove"
-dialog.drag_items_between_the_chest_and_your: "Drag items between the chest and your bag. Right-click splits stacks."
 dialog.esc_close: "ESC: Close"
 dialog.for_gold: "%s for %s - %d gold"
 dialog.for_sale: "For Sale"

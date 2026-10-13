@@ -33,7 +33,13 @@ const (
 type UISystem struct {
 	modeDomainIcons      map[string]modeDomainIconCache
 	modeDomainIconShader *ebiten.Shader
-	atlas                worldAtlas
+	// The Storage Clerk's collections screen: the surface shader and its
+	// reused draw state, catalog items per key, and the bag's filed indices.
+	collectionShader    *ebiten.Shader
+	collectionDraw      collectionDraw
+	collectionTemplates map[string]items.Item
+	collectionBag       []collectionBagEntry
+	atlas               worldAtlas
 
 	journalRewardItems      map[string]items.Item
 	journalItemsCatalog     *config.ItemSystemConfig
@@ -266,6 +272,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// Draw tavern stash screen if open
 	if ui.game.stashScreenOpen {
 		ui.drawStashScreen(screen)
+	}
+	if ui.game.collectionScreenOpen {
+		ui.drawCollectionScreen(screen)
 	}
 	if ui.stackSplitPicker.open {
 		ui.drawStackSplitPicker(screen)

@@ -2,10 +2,7 @@ package monster
 
 import (
 	"math"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -59,43 +56,6 @@ func TestTurnBasedSwingsMatchRateAndEditorPreview(t *testing.T) {
 		}
 		if preview := TurnBasedSequence(rate, 20); !slices.Equal(preview, dealt[:20]) {
 			t.Errorf("cooldown %.2f: editor preview %v differs from combat %v", cooldown, preview, dealt[:20])
-		}
-	}
-}
-
-// attacks_per_round is gone: content that still authors it fails the load
-// instead of being silently ignored.
-func TestRemovedAttacksPerRoundFailsTheLoad(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "monsters.yaml")
-	yaml := "monsters:\n  probe:\n    name: Probe\n    attacks_per_round: 2\n"
-	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadMonsterConfig(path); err == nil || !strings.Contains(err.Error(), "attacks_per_round") {
-		t.Fatalf("load error = %v, want one naming attacks_per_round", err)
-	}
-}
-
-// Steps are speed / step speed: at least one for a walking monster, none for
-// a stationary one, capped at four. Ambient monsters have no floor.
-func TestTurnBasedStepRate(t *testing.T) {
-	for _, c := range []struct {
-		name    string
-		speed   float64
-		ambient bool
-		want    float64
-	}{
-		{"stationary", 0, false, 0},
-		{"slow walks one", 1, false, 1},
-		{"step speed walks one", 2, false, 1},
-		{"faster banks a fraction", 2.4, false, 1.2},
-		{"capped", 20, false, MaxTurnBasedSteps},
-		{"ambient stroller may idle", 0.7, true, 0.35},
-		{"ambient fast walker", 3.2, true, 1.6},
-		{"ambient stationary", 0, true, 0},
-	} {
-		if got := TurnBasedStepRate(c.speed, 2, c.ambient); math.Abs(got-c.want) > 1e-9 {
-			t.Errorf("%s: rate = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

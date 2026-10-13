@@ -258,6 +258,12 @@ func (ih *InputHandler) handleTopModalInput() bool {
 		if ih.keys.Consume(ebiten.KeyEscape) {
 			g.closeStashScreen()
 		}
+	case modalLayerCollection:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.closeCollectionScreen()
+		} else if ih.keys.Consume(ebiten.KeyTab) {
+			g.setCollectionTab(1 - g.collectionTab)
+		}
 	case modalLayerStackSplit:
 		// The picker types like a form: digits write the quantity (first digit
 		// replaces the prefill), arrows step it, Enter confirms, ESC cancels.
@@ -1860,7 +1866,6 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	kind := ih.game.npcDialogKindFor(npc)
 	if kind == dialogKindTavern {
 		ih.game.stashInvPage = 0
-		ih.game.stashShowCards = false
 		if !ih.game.ensureStashLoaded() {
 			ih.game.AddCombatMessage("Could not load the shared stash.")
 		}
@@ -2304,6 +2309,17 @@ func (g *MMGame) dialogDoubleClick(zone string, index int) bool {
 // cursor and a stray click would sell it too).
 func (ih *InputHandler) resetDialogDoubleClick() {
 	ih.game.resetDialogClickTracker()
+}
+
+// consumeDoubleClickIn takes a queued left click inside the bounds and reports
+// whether it completes a double-click on zone+index; the tracker restarts
+// after one, since the action usually shifts what lies under the cursor.
+func (g *MMGame) consumeDoubleClickIn(zone string, index int, x1, y1, x2, y2 int) bool {
+	if !g.consumeLeftClickIn(x1, y1, x2, y2) || !g.dialogDoubleClick(zone, index) {
+		return false
+	}
+	g.resetDialogClickTracker()
+	return true
 }
 
 // resetDialogClickTracker clears the dialog double-click tracker. Shared with
@@ -2823,6 +2839,11 @@ func (ih *InputHandler) handleOpenRoster() {
 func (ih *InputHandler) handleManageStash() {
 	ih.game.closeConversation()
 	ih.game.openStash()
+}
+
+func (ih *InputHandler) handleManageCollections() {
+	ih.game.closeConversation()
+	ih.game.openCollectionScreen()
 }
 
 // creditClearedKillQuests completes any of the NPC's active kill quests whose

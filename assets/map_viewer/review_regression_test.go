@@ -105,8 +105,7 @@ func TestSaveBrowserCollectionUsesLoadRulesReadOnly(t *testing.T) {
 	t.Cleanup(func() { storage.SetDataRootForTesting("") })
 	card := items.CreateItemFromYAML("troll_card")
 	card.InstanceID = 987
-	owned := stash.Stash{}
-	owned.CardSlots[0] = card
+	owned := stash.Stash{Album: map[string][]items.Item{"troll_card": {card}}}
 	if err := stash.Save(&owned); err != nil {
 		t.Fatal(err)
 	}

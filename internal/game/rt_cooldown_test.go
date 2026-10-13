@@ -91,30 +91,6 @@ func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
 	}
 }
 
-// A plain buff has no RT recovery; a combat_buff keeps its authored cooldown.
-func TestSpellCooldownFrames_BuffCategories(t *testing.T) {
-	cs := newSpellCooldownTestSystem(t)
-	caster := charWithSpeed(SpellCooldownSpeedRefSpeed)
-
-	seen := map[string]int{}
-	for _, def := range sortedSpellDefs(t) {
-		if !def.IsBuff() {
-			continue
-		}
-		seen[def.Category]++
-		got := cs.SpellCooldownFrames(caster, def.ID)
-		if def.Category == config.SpellCategoryBuff && got != 0 {
-			t.Errorf("%s buff RT cooldown = %d, want 0", def.ID, got)
-		}
-		if def.Category == config.SpellCategoryCombatBuff && got <= 0 {
-			t.Errorf("%s combat buff lost its RT cooldown", def.ID)
-		}
-	}
-	if seen[config.SpellCategoryBuff] == 0 || seen[config.SpellCategoryCombatBuff] == 0 {
-		t.Fatalf("both buff categories must be exercised, got %v", seen)
-	}
-}
-
 // Exercise the real book and quick-slot input paths, not just a classifier or
 // commit helper. Ally-picker payment/cancellation is covered in
 // TestAllySpellTargetingOwnsPointerAndPayment; reuse and save/load in

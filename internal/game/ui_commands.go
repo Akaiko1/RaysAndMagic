@@ -184,12 +184,22 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 		}
 	}
 	if g.stash != nil {
+		// Every chest cell by position (empty ones too); the collections as an
+		// order-free sum, since map order is random and sorting would allocate
+		// every frame.
 		for _, it := range g.stash.Slots {
 			item(it)
 		}
-		for _, it := range g.stash.CardSlots {
-			item(it)
+		var places uint64
+		for _, it := range g.stash.Collection {
+			places += uiItemIdentity(it)
 		}
+		for _, page := range g.stash.Album {
+			for i, it := range page {
+				places += uiItemIdentity(it) ^ uint64(i+1)*0x9e3779b97f4a7c15
+			}
+		}
+		mix(places)
 	}
 	if g.dialogActive && g.dialogNPC != nil {
 		for _, entry := range g.merchantVisibleStock() {

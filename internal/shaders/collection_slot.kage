@@ -1,0 +1,439 @@
+//kage:unit pixels
+package main
+
+// The Storage Clerk's collections, one quad per surface (Mode):
+// 0 showcase niche over an item icon: a rounded well pressed into the case's
+//   velvet, the piece on its floor under the lamp with one soft legendary glow
+//   and a passing glint; an empty well shows the piece's shape
+//   pressed into the velvet;
+// 1 binder pocket over a card icon: the card and the copies behind it on the
+//   black backing, under a frosted sleeve; the card's holo foil follows Tilt;
+// 2 binder sheet: the backing and plastic between the pockets, weld seams,
+//   punched holes on the ring side;
+// 3 binder rings and their plate across the gutter of a spread;
+// 4 brass plaque under a niche;
+// 5 binder cover: black leatherette with a stitched edge;
+// 6 showcase bed: the velvet between the wells, shaded by the case walls;
+// 7 showcase cabinet: polished dark wood around the case.
+// Modes 0 and 1 read the icon (src in texels; the quad runs Margin texels past
+// the icon or the card). The others have no image and get src as 0..1.
+// Page is the surface the sheen and glass share, in dst pixels (x, y, w, h),
+// so one reflection runs across neighbouring quads. Scale is pixels per UI
+// unit. DstMin is the destination's bounds origin: positions are measured
+// from it, not from the texture the image lives on.
+
+var Mode float
+var Filled float
+var Hover float
+var Time float
+var Margin float
+var Copies float
+var Side float     // sheet: ring holes along the left (-1) or right (1) edge, 0 none
+var Gap float      // sheet: the weld band between pockets, pixels
+var Scale float
+var Scroll float   // showcase: the case's scroll in UI units, so its velvet moves with the wells
+var Seed float     // showcase: one well's own phase
+var Tilt vec2      // binder: the card's tilt toward the light, -1..1
+var Layout vec4    // binder: pocket columns, rows, ring-hole inset (UI units), ring count
+var DstMin vec2
+var CardRect vec4  // card bounds inside the icon, 0..1 (x0, y0, x1, y1)
+var Page vec4
+var Grid vec4      // sheet: first seam (x, y) and pocket pitch (x, y) in page pixels; rings: hole x left/right, wire radius, plate half width
+var Accent vec3
+
+func hash(p vec2) float {
+	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453)
+}
+
+// vnoise is smooth value noise.
+func vnoise(p vec2) float {
+	i := floor(p)
+	f := fract(p)
+	f = f * f * (3 - 2*f)
+	a := hash(i)
+	b := hash(i + vec2(1, 0))
+	c := hash(i + vec2(0, 1))
+	d := hash(i + vec2(1, 1))
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y)
+}
+
+func luma(c vec3) float {
+	return dot(c, vec3(.299, .587, .114))
+}
+
+// silhouette keys an icon's black backing: 1 on the item, 0 on the ground.
+func silhouette(c vec3) float {
+	return smoothstep(.03, .12, max(c.r, max(c.g, c.b)))
+}
+
+func rainbow(t float) vec3 {
+	return .5 + .5*cos(6.2832*(t+vec3(0, .33, .67)))
+}
+
+// pagePos is a dst position in the shared page, 0..1.
+func pagePos(dst vec2) vec2 {
+	return (dst - Page.xy) / max(Page.zw, vec2(1))
+}
+
+// units is a dst position in UI units from the page origin.
+func units(dst vec2) vec2 {
+	return (dst - Page.xy) / max(Scale, .01)
+}
+
+// boxDist is the signed distance from p to a box of half size h around c.
+func boxDist(p, c, h vec2) float {
+	d := abs(p-c) - h
+	return length(max(d, 0)) + min(max(d.x, d.y), 0)
+}
+
+func inBox(p vec2) float {
+	return step(0, p.x) * step(p.x, 1) * step(0, p.y) * step(p.y, 1)
+}
+
+// The binder page: black backing under clear plastic. sheetHaze is the
+// plastic's milkiness over an empty pocket and the welds alike.
+const sheetHaze = .11
+
+func backing(u vec2) vec3 {
+	return vec3(.026, .026, .031) * (.88 + .24*hash(floor(u)))
+}
+
+func plastic(col vec3, haze float) vec3 {
+	return mix(col, vec3(.40, .43, .49), haze)
+}
+
+// sleeveSheen is the window light on the binder's plastic, in page space: a
+// broad glow and a crisp double streak, bent a little by each pocket's pillow.
+func sleeveSheen(pg vec2, bend float) vec3 {
+	t := pg.x*.82 + pg.y*.57 + bend
+	s := .045*exp(-(t-.30)*(t-.30)*10) + .10*exp(-(t-.74)*(t-.74)*420) + .045*exp(-(t-.79)*(t-.79)*1400)
+	return vec3(.92, .95, 1) * s
+}
+
+// caseGlass is the showcase's front glass, in case space: one broad soft
+// reflection and a crisp streak across every well.
+func caseGlass(pg vec2) vec3 {
+	g := pg.x*.9 + pg.y*.42
+	return vec3(1, .97, .92) * (.035*exp(-(g-.28)*(g-.28)*12) + .065*exp(-(g-.66)*(g-.66)*900) + .03*exp(-(g-.71)*(g-.71)*2500))
+}
+
+// bed is the case's crushed velvet at a dst position: its pile and mottling
+// scroll with the wells, the lamp along the top of the case and the walls'
+// shade stay with the case.
+func bed(p vec2) vec3 {
+	u := units(p) + vec2(0, Scroll)
+	pg := pagePos(p)
+	pile := .95 + .1*hash(floor(u*2))
+	q := mat2(.8, .6, -.6, .8) * u
+	crush := vnoise(q*.035+vec2(3.1, 1.7))*.65 + vnoise(q*.09+vec2(9.2, 4.4))*.35
+	lamp := .55 + .5*exp(-pg.y*pg.y*3) + .1*exp(-(pg.x-.5)*(pg.x-.5)*3)
+	col := vec3(.19, .032, .055) * pile * (.86 + .28*crush) * lamp
+	// Velvet's sheen: where the nap is crushed flat it catches the lamp.
+	col += vec3(.17, .06, .08) * smoothstep(.55, .85, crush) * lamp * .45
+	w := units(p)
+	e := min(min(w.x, Page.z/max(Scale, .01)-w.x), Page.w/max(Scale, .01)-w.y)
+	col *= .5 + .5*smoothstep(0, 18, e)
+	col *= .55 + .45*smoothstep(0, 26, w.y)
+	return col
+}
+
+func Fragment(dst vec4, src vec2, color vec4) vec4 {
+	a := color.a
+	p := dst.xy - imageDstOrigin() + DstMin
+	if Mode < .5 {
+		return vec4(niche(p, src)*a, a)
+	}
+	if Mode < 1.5 {
+		return vec4(pocket(p, src)*a, a)
+	}
+	if Mode < 2.5 {
+		return vec4(sheet(p)*a, a)
+	}
+	if Mode < 3.5 {
+		return rings(p) * a
+	}
+	if Mode < 4.5 {
+		return vec4(plaque(src)*a, a)
+	}
+	if Mode < 5.5 {
+		return vec4(cover(p)*a, a)
+	}
+	if Mode < 6.5 {
+		return vec4((bed(p)+caseGlass(pagePos(p)))*a, a)
+	}
+	return vec4(cabinet(p)*a, a)
+}
+
+func niche(dst vec2, src vec2) vec3 {
+	size := imageSrc0Size()
+	local := (src - imageSrc0Origin()) / size
+	mr := Margin / size.x
+	p := (local + mr) / (1 + 2*mr) // 0..1 over the niche
+	icon := imageSrc0At(src)
+	s := silhouette(icon.rgb)
+	col := bed(dst)
+
+	// The well: a rounded recess in the velvet. Its upper wall faces away from
+	// the lamp and falls into shadow, the lower wall catches it; the bed's lip
+	// above the well is lit, the one below creased.
+	d := boxDist(p, vec2(.5), vec2(.5-.07-.12)) - .12
+	n := normalize(p - clamp(p, vec2(.19), vec2(.81)) + vec2(0, .0001))
+	inWell := 1 - smoothstep(-.004, .004, d)
+	wallBand := inWell * (1 - smoothstep(0, .085, -d))
+	spot := exp(-((p.x-.5)*(p.x-.5)*2.4+(p.y-.42)*(p.y-.42)*2.6)) * (1 + Hover*.25)
+	floorC := bed(dst) * (.62 + .55*spot)
+	floorC *= 1 - .35*wallBand*(1+n.y)*.5
+	floorC += vec3(.20, .07, .09) * wallBand * max(0, n.y) * .7
+	floorC *= 1 - .55*wallBand*max(0, -n.y)
+	col = mix(col, floorC, inWell)
+	lip := (1 - smoothstep(0, .035, d)) * (1 - inWell)
+	col += vec3(.16, .07, .07) * lip * max(0, -n.y)
+	col *= 1 - .35*lip*max(0, n.y)
+
+	if Filled > .5 {
+		// The piece on the floor: one soft legendary glow behind it, a warm rim
+		// where the lamp grazes its top and a glint passing over it. Nothing is
+		// built from offset copies of the silhouette: on pixel art each copy
+		// reads as another, ghosted piece.
+		hp := (p - vec2(.5, .48)) * vec2(1, 1.1)
+		pulse := .8 + .2*sin(Time*1.4+Seed*2.3)
+		col += Accent * exp(-dot(hp, hp)*7) * .22 * pulse * inWell
+		piece := icon.rgb * (.74 + .5*spot) * vec3(1, .97, .92)
+		above := silhouette(imageSrc0At(src-vec2(0, 2)).rgb)
+		piece += vec3(.14, .10, .05) * clamp(s-above, 0, 1) * (.4 + spot)
+		g := local.x*.7 + local.y*.7 - (fract(Time*.11+Seed*.37)*3.2 - .9)
+		piece += vec3(1, .95, .85) * exp(-g*g*90) * smoothstep(.2, .7, luma(icon.rgb)) * .55
+		col = mix(col, piece, s)
+	} else {
+		// The empty well: the piece's shape pressed into its floor, the shape's
+		// upper inner wall in shadow, the lower one lit.
+		up := silhouette(imageSrc0At(src-vec2(0, 3)).rgb)
+		down := silhouette(imageSrc0At(src+vec2(0, 3)).rgb)
+		col = mix(col, col*.5, s)
+		col *= 1 - .5*clamp(s-up, 0, 1)
+		col += vec3(.18, .07, .08) * clamp(s-down, 0, 1) * (.35 + spot)
+	}
+	col += caseGlass(pagePos(dst))
+	col += Accent * Hover * .16 * wallBand
+	return col
+}
+
+// cabinet is polished dark wood: long grain with a few figured rings and the
+// lamp's soft reflection near the top.
+func cabinet(p vec2) vec3 {
+	u := units(p)
+	grain := vnoise(vec2(u.x*.03, u.y*.55)) * .6 + vnoise(vec2(u.x*.11, u.y*1.9)) * .4
+	rings := .5 + .5*sin(u.y*.35+grain*7)
+	col := mix(vec3(.11, .045, .025), vec3(.19, .085, .045), grain*.7+rings*.3)
+	col += vec3(.10, .06, .03) * exp(-pow(pagePos(p).y-.06, 2)*60)
+	return col
+}
+
+func pocket(dst vec2, src vec2) vec3 {
+	size := imageSrc0Size()
+	local := (src - imageSrc0Origin()) / size
+	card := CardRect.zw - CardRect.xy
+	cu := (local - CardRect.xy) / card // 0..1 over the card
+	mr := Margin / (size * card)
+	pp := (cu + mr) / (1 + 2*mr) // 0..1 over the pocket
+	pg := pagePos(dst)
+	u := units(dst)
+	icon := imageSrc0At(src)
+	inCard := inBox(cu)
+	col := backing(u)
+
+	// The copies behind the front card, their card-stock edges stepping out
+	// down-right, each a little deeper in the pocket's shadow.
+	off := vec2(.026, .019)
+	for j := 0; j < 3; j++ {
+		k := float(3 - j)
+		if k < Copies {
+			q := cu - off*k
+			edge := min(min(q.x, 1-q.x), min(q.y, 1-q.y))
+			stock := vec3(.60, .55, .45) * (1 - .17*k) * (.8 + .2*smoothstep(0, .02, edge))
+			col = mix(col, stock, inBox(q))
+		}
+	}
+	// The front card's shadow on the backing and the copies.
+	d := boxDist(cu, vec2(.5)+vec2(.012, .016), vec2(.5))
+	col *= 1 - .55*(1-smoothstep(0, .03, d))*(1-inCard)
+
+	lum := luma(icon.rgb)
+	art := vec3(lum*.13+.028) * vec3(.95, .97, 1.04) // an empty pocket's faint placeholder
+	if Filled > .5 {
+		art = icon.rgb
+		// The card stock catches the light along its top and left, dips along
+		// the bottom and right.
+		art += vec3(.11) * (1 - smoothstep(0, .012, cu.y))
+		art += vec3(.06) * (1 - smoothstep(0, .012, cu.x))
+		art *= 1 - .22*(1-smoothstep(0, .014, 1-cu.y))
+		art = holoFoil(art, cu, src, .45+.55*Hover)
+	}
+	col = mix(col, art, inCard)
+
+	// The sleeve: milky over the empty pocket and the welds, clearer where it
+	// lies on a card, pillowing towards the opening at the top.
+	haze := sheetHaze
+	if Filled > .5 {
+		haze = mix(sheetHaze, .035, smoothstep(-.02, .03, -boxDist(cu, vec2(.5), vec2(.5))))
+	}
+	haze *= (1 + .35*(1-pp.y)) * (1 + .5*Hover)
+	col = plastic(col, haze)
+	col += sleeveSheen(pg, (pp.y-.5)*.025+(pp.x-.5)*.01)
+	// The opening lip along the top.
+	col += vec3(.18, .19, .21) * exp(-(pp.y-.04)*(pp.y-.04)*6000)
+	col += Accent * Hover * .06 * inCard
+	return col
+}
+
+// holoFoil is a holo card's foil tilted under a lamp: rainbow bands whose
+// colour shifts with the tilt, brightest along the line the light reflects
+// from, a soft glare where it falls and a few glints catching it. The art's
+// luminance, smoothed over neighbouring texels, masks it so dark ink stays dark.
+func holoFoil(art vec3, cu vec2, src vec2, strength float) vec3 {
+	light := vec2(.5) + Tilt*vec2(.45, .5)
+	m := luma(imageSrc0At(src+vec2(-.75, -.75)).rgb) + luma(imageSrc0At(src+vec2(.75, -.75)).rgb)
+	m += luma(imageSrc0At(src+vec2(-.75, .75)).rgb) + luma(imageSrc0At(src+vec2(.75, .75)).rgb)
+	m = smoothstep(.06, .7, m*.25)
+	axis := vec2(.62, .78)
+	phase := dot(cu-.5, axis)*2.2 - dot(Tilt, vec2(.8, .6))*.9 + .05*sin((cu.x+cu.y)*7+Tilt.x*2)
+	near := dot(cu-light, axis)
+	sheen := exp(-near * near * 5)
+	foil := rainbow(phase) * (.14 + .5*sheen) * (.3 + .7*m) * strength
+	art += foil * (.4 + .6*art)
+	gd := (cu - light) * vec2(1, .75)
+	glare := exp(-dot(gd, gd) * 9)
+	art = mix(art, vec3(1, .98, .94), glare*.15*strength)
+	// Glints: soft four-point stars on a jittered grid of square cells.
+	g := cu * vec2(9, 13)
+	c := floor(g)
+	h := hash(c)
+	f := fract(g) - (vec2(hash(c+.17), hash(c+.53))*.6 + .2)
+	r := length(f)
+	star := exp(-r*r*40) + .6*(exp(-abs(f.x)*28)*exp(-abs(f.y)*6)+exp(-abs(f.y)*28)*exp(-abs(f.x)*6))*exp(-r*r*12)
+	twinkle := smoothstep(.55, 1, .5+.5*sin(Time*2.1+h*50))
+	art += vec3(1, .97, .92) * star * twinkle * step(.78, h) * (.2 + sheen + glare) * .45 * strength
+	return art
+}
+
+func sheet(dst vec2) vec3 {
+	u := units(dst)
+	l := dst - Page.xy // page pixels
+	col := plastic(backing(u), sheetHaze)
+	// Weld seams around every pocket: two pressed lines with a row of dots
+	// between them, centred in the band between neighbouring pockets.
+	fx := (l.x - Grid.x) / Grid.z
+	fy := (l.y - Grid.y) / Grid.w
+	ix := clamp(floor(fx+.5), 0, Layout.x)
+	iy := clamp(floor(fy+.5), 0, Layout.y)
+	dx := abs(l.x - (Grid.x + ix*Grid.z))
+	dy := abs(l.y - (Grid.y + iy*Grid.w))
+	inside := step(Grid.x-Gap*.5, l.x) * step(l.x, Grid.x+Layout.x*Grid.z+Gap*.5) * step(Grid.y-Gap*.5, l.y) * step(l.y, Grid.y+Layout.y*Grid.w+Gap*.5)
+	dist := min(dx, dy) / max(Scale, .01) // UI units from the seam's centre
+	along := l.y
+	if dy < dx {
+		along = l.x
+	}
+	along /= max(Scale, .01)
+	dots := step(fract(along/3.2), .5) * (1 - smoothstep(.5, 1.1, dist))
+	lines := exp(-(dist-2.4)*(dist-2.4)*5)
+	weld := (lines*.10 + dots*.09) * inside
+	col += vec3(.80, .84, .90) * weld
+	col *= 1 - .25*exp(-(dist-1.6)*(dist-1.6)*3)*inside*(1-dots)
+	// The punched holes the rings run through.
+	if Side != 0 {
+		hx := Page.z*.5 + Side*(Page.z*.5-Layout.z*Scale)
+		hole := 100.0
+		for k := 0; k < 8; k++ {
+			if float(k) < Layout.w {
+				hy := Page.w * (float(k)*2 + 1) / (2 * Layout.w)
+				hole = min(hole, length(vec2(l.x-hx, l.y-hy))/max(Scale, .01))
+			}
+		}
+		col = mix(col, vec3(.008, .008, .01), 1-smoothstep(3.6, 4.4, hole))
+		col += vec3(.22, .23, .26) * exp(-(hole-4.6)*(hole-4.6)*2)
+	}
+	col += sleeveSheen(pagePos(dst), 0)
+	// The page edge: a fused rim of plastic.
+	e := min(min(l.x, Page.z-l.x), min(l.y, Page.w-l.y)) / max(Scale, .01)
+	col += vec3(.20, .21, .24) * exp(-e * e * .8)
+	return col
+}
+
+// rings is premultiplied: the plate, then each ring's shadow and wire, laid
+// over a transparent gutter.
+func rings(dst vec2) vec4 {
+	l := dst - Page.xy
+	px := max(Scale, .01)
+	c := vec3(0)
+	a := 0.0
+	// The plate: brushed steel along the spine, rounded across its width.
+	t := (l.x - Page.z*.5) / Grid.w
+	if abs(t) < 1 {
+		n := vnoise(vec2(l.x/px*1.3, l.y/px*.04))
+		plate := vec3(.30, .31, .35) * (.55 + .5*sqrt(1-t*t)) * (.92 + .16*n)
+		plate += vec3(.45) * exp(-(t+.35)*(t+.35)*18)
+		a = smoothstep(1, .88, abs(t)) * smoothstep(0, 3*px, l.y) * smoothstep(0, 3*px, Page.w-l.y)
+		c = plate * a
+	}
+	// The rings arch from one page's holes to the other's: polished wire with
+	// a highlight along its top and a soft shadow below.
+	for k := 0; k < 8; k++ {
+		if float(k) >= Layout.w {
+			continue
+		}
+		hy := Page.w * (float(k)*2 + 1) / (2 * Layout.w)
+		x := clamp(l.x, Grid.x, Grid.y)
+		along := (x - Grid.x) / max(Grid.y-Grid.x, 1)
+		sh := .5 * (1 - smoothstep(.6, 1.7, length(vec2(l.x-x, l.y-hy-Grid.z*.9))/Grid.z))
+		c *= 1 - sh
+		a += sh * (1 - a)
+		r := length(vec2(l.x-x, l.y-hy)) / Grid.z
+		if r < 1 {
+			w := (l.y - hy) / Grid.z
+			metal := vec3(.70, .71, .75) * (.35 + .65*sqrt(1-r*r))
+			metal += vec3(.9) * exp(-(w+.45)*(w+.45)*14) * (.6 + .4*sin(along*3.1416))
+			// The ends dip into the holes.
+			metal *= .5 + .5*smoothstep(0, .1, min(along, 1-along))
+			cov := smoothstep(1, .82, r)
+			c = metal*cov + c*(1-cov)
+			a = cov + a*(1-cov)
+		}
+	}
+	return vec4(c, a)
+}
+
+func plaque(uv vec2) vec3 {
+	brass := mix(vec3(.17, .13, .08), vec3(.36, .26, .13), Filled)
+	n := vnoise(vec2(uv.x*6, uv.y*90))
+	col := brass * (.86 + .14*n)
+	// A soft reflection across the plate, a lit top bevel, a shaded bottom.
+	col += vec3(.20, .16, .09) * Filled * exp(-(uv.x-.3)*(uv.x-.3)*6) * (1 - uv.y)
+	col += vec3(.25, .20, .12) * (1 - smoothstep(0, .12, uv.y))
+	col *= 1 - .45*smoothstep(.82, 1, uv.y)
+	edge := min(uv.x, 1-uv.x) * 8
+	col *= .7 + .3*smoothstep(0, .25, edge)
+	return col
+}
+
+func cover(dst vec2) vec3 {
+	u := units(dst)
+	l := u
+	w := Page.zw / max(Scale, .01)
+	// Pebbled leatherette with a dull sheen.
+	grain := vnoise(u*.9) * .6 + vnoise(u*2.3) * .4
+	col := vec3(.055, .052, .055) * (.75 + .5*grain)
+	col += vec3(.05) * exp(-pow(pagePos(dst).x*.7+pagePos(dst).y*.5-.45, 2)*6)
+	// The stitched edge, a few units in.
+	e := min(min(l.x, w.x-l.x), min(l.y, w.y-l.y))
+	along := l.x + l.y
+	if min(l.x, w.x-l.x) < min(l.y, w.y-l.y) {
+		along = l.y
+	} else {
+		along = l.x
+	}
+	stitch := step(fract(along/6), .6) * exp(-(e-6)*(e-6)*2)
+	col += vec3(.16, .15, .14) * stitch
+	col *= .6 + .4*smoothstep(0, 3, e)
+	return col
+}

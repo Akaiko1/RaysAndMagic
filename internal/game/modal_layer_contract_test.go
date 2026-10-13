@@ -49,6 +49,7 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 		{name: "promotion", want: modalLayerPromotion, set: func(g *MMGame, _ *UISystem) { g.promotionPickerOpen = true }, pauses: true},
 		{name: "roster", want: modalLayerRoster, set: func(g *MMGame, _ *UISystem) { g.rosterScreenOpen = true }, pauses: true},
 		{name: "stash", want: modalLayerStash, set: func(g *MMGame, _ *UISystem) { g.stashScreenOpen = true }, pauses: true},
+		{name: "collection", want: modalLayerCollection, set: func(g *MMGame, _ *UISystem) { g.collectionScreenOpen = true }, pauses: true},
 		{name: "stack split", want: modalLayerStackSplit, set: func(g *MMGame, ui *UISystem) {
 			g.stashScreenOpen = true
 			ui.stackSplitPicker.open = true
@@ -249,7 +250,6 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 			}
 		}, true},
 		{"member hired", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.party.Reserve = g.party.Reserve[:len(g.party.Reserve)-1] }, true},
-		{"embedded stash tab", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.stashShowCards = true }, true},
 		{"embedded stash page", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.stashInvPage++ }, true},
 		{"embedded roster selection", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.rosterSelectedActive = 2 }, true},
 		{"trader character selection", openDialog, func(_ *testing.T, g *MMGame, _ *UISystem) { g.selectedCharIdx = 1 }, true},

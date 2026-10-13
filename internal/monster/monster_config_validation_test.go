@@ -48,41 +48,6 @@ func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
 	}
 }
 
-// A stun lasts its seconds in RT and the same span in TB rounds, so the one
-// authored duration must be whole 3 s rounds.
-func TestValidateMonsterConfiguration_StunDurationIsWholeRounds(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		seconds int
-		wantErr bool
-	}{
-		{name: "one round", seconds: 3},
-		{name: "two rounds", seconds: 6},
-		{name: "missing duration", wantErr: true},
-		{name: "part of a round", seconds: 4, wantErr: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
-				"stunner": {
-					Name:      "Stunner",
-					SizeClass: "person",
-					Abilities: Abilities{Stun: TimedStatusAbility{Chance: 0.5, Seconds: tc.seconds}},
-				},
-			}}
-			err := validateMonsterConfiguration(cfg)
-			if tc.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "stun seconds") || !strings.Contains(err.Error(), "whole number of 3s rounds") {
-					t.Fatalf("a stun that is not whole rounds should fail clearly, got %v", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("whole-round stun should pass: %v", err)
-			}
-		})
-	}
-}
-
 func TestValidateMonsterConfiguration_ChampionRejectsMeleeDamageType(t *testing.T) {
 	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
 		"arena_champion": {

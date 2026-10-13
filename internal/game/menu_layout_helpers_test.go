@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	uitext "ugataima/assets/text"
+	"ugataima/internal/stash"
 )
 
 // Menu layout boxes. Each collision-prone menu exposes its sections (headings,
@@ -291,24 +292,26 @@ func cardCollectorLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 
 // stashLayoutBoxes returns the stash modal's region and its section boxes.
 func stashLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
-	L := computeStashLayout(screenW, screenH)
-	region := uiBox{"stash-popup", L.popupX, L.popupY, stashPopupW, stashPopupH}
-	gridX := L.centerX - L.gridW/2
-	chestH := L.chestRows*stashCellSize + (L.chestRows-1)*stashCellGap
-	bagH := L.bagRows*stashCellSize + (L.bagRows-1)*stashCellGap
-	toggle := stashToggleRect(L)
-	boxes := []uiBox{
-		textLineBox("title", "Tavern Stash", L.popupX+16, L.popupY+14),
-		textLineBox("subtitle", stashSubtitle, L.popupX+16, L.popupY+34),
-		// "Card Vault - cards only" is the wider of the two tab headings; check it.
-		centeredTextBox("chest-heading", "Card Vault - cards only", L.popupX, L.chestTop-16, stashPopupW, 14),
-		{"chest-tab-toggle", toggle.Min.X, toggle.Min.Y, toggle.Dx(), toggle.Dy()},
-		{"chest-cells", gridX, L.chestTop, L.gridW, chestH},
-		centeredTextBox("bag-heading", "Your Bag", L.popupX, L.invTop-16, stashPopupW, 14),
-		{"bag-cells", gridX, L.invTop, L.gridW, bagH},
-		{"pager", gridX, L.pagerY, L.gridW, 18},
+	popup, L := computeStashLayout(screenW, screenH)
+	return namedLayoutBox("stash-popup", popup), append([]uiBox{
+		textLineBox("title", uitext.Text("stash.title"), popup.x+16, popup.y+14),
+		{"hint", popup.x + 16, popup.y + 34, min(uiTextWidth(uitext.Text("stash.hint")), popup.w-72), uiTextCharHeight},
+	}, stashManagerBoxes(L)...)
+}
+
+// stashManagerBoxes are the stash grids and their labels in either host.
+func stashManagerBoxes(L stashLayout) []uiBox {
+	// The widest the counter gets: every cell full.
+	counter := fmt.Sprintf("%d / %d", stash.SlotCount, stash.SlotCount)
+	return []uiBox{
+		textLineBox("chest-heading", uitext.Text("stash.chest"), L.chest.x, L.headY),
+		textLineBox("chest-counter", counter, L.chest.right()-uiTextWidth(counter), L.headY),
+		namedLayoutBox("chest-cells", L.chest),
+		{"chest-note", L.chest.x, L.noteY, min(uiTextWidth(uitext.Text("stash.shared")), L.chest.w), uiTextCharHeight},
+		textLineBox("bag-heading", uitext.Text("stash.bag"), L.bag.x, L.headY),
+		namedLayoutBox("bag-cells", L.bag),
+		{"pager", L.bag.x, L.noteY, L.bag.w, pagerBtnH},
 	}
-	return region, boxes
 }
 
 // saveMenuLayoutBoxes returns the in-game save/load menu's region (panel + the
@@ -378,6 +381,42 @@ func skillTrainerPopupLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 		x, y, w, h := skillTrainerOptionRect(px, py, row)
 		// -2/+4: the hover/selection background pads the row rect vertically.
 		boxes = append(boxes, uiBox{fmt.Sprintf("option-row-%d", row), x, y - 2, w, h + 4})
+	}
+	return region, boxes
+}
+
+// collectionLayoutBoxes returns the Storage Clerk's collections screen: its
+// panel and the leaf sections of one tab (showcase or binder) beside the bag.
+func collectionLayoutBoxes(screenW, screenH, tab int) (uiBox, []uiBox) {
+	L := computeCollectionLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH), tab)
+	region := namedLayoutBox("collection-panel", L.panel)
+	title, progress, about := uitext.Text("collection.tab_showcase"), uitext.Text("collection.progress_showcase", 99, 99), uitext.Text("collection.about_showcase")
+	if tab == collectionTabBinder {
+		title, progress, about = uitext.Text("collection.tab_binder"), uitext.Text("collection.progress_binder", 99, 99, 999), uitext.Text("collection.about_binder", stash.AlbumCopies)
+	}
+	boxes := []uiBox{
+		namedLayoutBox("tab-showcase", L.tabs[0]),
+		namedLayoutBox("tab-binder", L.tabs[1]),
+		namedLayoutBox("close", L.close),
+		textLineBox("title", title, L.page.x+16, L.page.y+10),
+		textLineBox("progress", progress, L.page.right()-16-uiTextWidth(progress), L.page.y+10),
+		{"about", L.page.x + 16, L.page.y + 28, min(uiTextWidth(about), L.page.w-32), uiTextCharHeight},
+		centeredTextBox("bag-heading", uitext.Text("collection.bag"), L.side.x, L.side.y+10, L.side.w, 16),
+		namedLayoutBox("bag-cells", L.bagGrid),
+		namedLayoutBox("bag-pager", L.pager),
+		{"bag-hint", L.hint.x, L.hint.y, L.hint.w, len(wrapUIText(collectionBagHint(tab == collectionTabBinder), L.hint.w)) * collectionHintLineH},
+		// The side column's bottom edge: the hint must end above it.
+		{"bag-column-end", L.side.x, L.side.bottom(), L.side.w, 1},
+	}
+	if tab == collectionTabBinder {
+		for i, page := range L.pages {
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("binder-page-%d", i), page))
+		}
+		boxes = append(boxes, namedLayoutBox("page-turner", L.turner))
+	} else {
+		// The case's brass trim runs one unit outside its glass.
+		trim := layoutRect{L.glass.x - 1, L.glass.y - 1, L.glass.w + 2, L.glass.h + 2}
+		boxes = append(boxes, namedLayoutBox("showcase-case", trim), namedLayoutBox("showcase-scrollbar", L.track))
 	}
 	return region, boxes
 }

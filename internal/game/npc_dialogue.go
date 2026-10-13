@@ -621,6 +621,9 @@ var dialogActions = map[string]func(*InputHandler, *character.NPC, *character.NP
 	"manage_stash": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
 		ih.handleManageStash()
 	},
+	"manage_collections": func(ih *InputHandler, _ *character.NPC, _ *character.NPCDialogueChoice) {
+		ih.handleManageCollections()
+	},
 }
 
 // gatedServiceActions are the dialogue actions that ARE a service, and so are
@@ -637,6 +640,7 @@ var gatedServiceActions = map[string]bool{
 	"buy_food":           true,
 	"open_roster":        true,
 	"manage_stash":       true,
+	"manage_collections": true,
 	"cast_buff":          true,
 	"start_arena_duel":   true,
 	"wait_until_night":   true, // paid waiting, priced in npcs.yaml

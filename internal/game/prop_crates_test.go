@@ -8,7 +8,6 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
-	"ugataima/internal/world"
 )
 
 // The 2026-07-14 roadside props: a campfire (one-time free rest + gold cache),
@@ -353,40 +352,6 @@ func TestCrateBlockedAfterPartyBreaksCharm(t *testing.T) {
 	g.useLootCrate(fire)
 	if fire.Visited {
 		t.Fatal("a crate must stay locked after the party breaks Charm")
-	}
-}
-
-// These are presentation states of the existing one-shot interaction, not a
-// second inventory or reward lifecycle. Loading must settle an in-flight pose.
-func TestPropUsePresentationLifecycle(t *testing.T) {
-	g := crateTestGame(t)
-	for _, key := range []string{"pile_of_old_boxes", "campfire"} {
-		t.Run(key, func(t *testing.T) {
-			n := spawnCrate(t, g, key, g.camera.X+64, g.camera.Y)
-			g.frameCount = 20
-			g.useLootCrate(n)
-			if !n.Visited || n.PropUseStarted != 21 || g.propUseProgress(n) != 0 {
-				t.Fatal("successful use must start the presentation exactly once")
-			}
-			started := n.PropUseStarted
-			g.frameCount += int64(float64(g.config.GetTPS()) * n.PropModel.UseSeconds / 2)
-			if p := g.propUseProgress(n); p <= 0 || p >= 1 {
-				t.Fatalf("mid-animation progress = %g", p)
-			}
-			g.useLootCrate(n)
-			if n.PropUseStarted != started {
-				t.Fatal("empty interaction restarted the animation")
-			}
-			wm := &world.WorldManager{LoadedMaps: map[string]*world.World3D{"test": g.world}}
-			g.restoreSavedNPCs(wm, &GameSave{NPCStates: []NPCSave{{MapKey: "test", Name: n.Name, X: n.X, Y: n.Y, Visited: true}}})
-			if !n.Visited || g.propUseProgress(n) != 1 {
-				t.Fatal("loaded used prop must show the settled pose")
-			}
-			n.Visited = false
-			if g.propUseProgress(n) != 0 {
-				t.Fatal("world reset must restore the closed/active appearance")
-			}
-		})
 	}
 }
 

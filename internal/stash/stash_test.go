@@ -73,16 +73,17 @@ func TestStash_CorruptFileErrors(t *testing.T) {
 	}
 }
 
-// A full chest keeps every general and card slot across a reload.
+// A full chest, the legendary collection and the card album all survive a
+// reload.
 func TestStash_FullChestKeepsEverySlot(t *testing.T) {
 	freshSaveDir(t)
 
-	s := &stash.Stash{}
+	s := &stash.Stash{
+		Collection: map[string]items.Item{"amber_talisman": {Name: "Amber Talisman", Type: items.ItemAccessory, InstanceID: 300}},
+		Album:      map[string][]items.Item{"rat_card": {{Name: "Sewer Rat Card", Type: items.ItemCard, InstanceID: 400}, {Name: "Sewer Rat Card", Type: items.ItemCard, InstanceID: 401}}},
+	}
 	for i := range s.Slots {
 		s.Slots[i] = items.Item{Name: fmt.Sprintf("Item %d", i), Type: items.ItemAccessory, InstanceID: uint64(100 + i)}
-	}
-	for i := range s.CardSlots {
-		s.CardSlots[i] = items.Item{Name: fmt.Sprintf("Card %d", i), Type: items.ItemCard, InstanceID: uint64(200 + i)}
 	}
 	if err := stash.Save(s); err != nil {
 		t.Fatalf("save: %v", err)
@@ -96,9 +97,39 @@ func TestStash_FullChestKeepsEverySlot(t *testing.T) {
 			t.Errorf("slot %d = %+v, want %+v", i, got.Slots[i], want)
 		}
 	}
-	for i, want := range s.CardSlots {
-		if got.CardSlots[i].Name != want.Name || got.CardSlots[i].Type != want.Type || got.CardSlots[i].InstanceID != want.InstanceID {
-			t.Errorf("card slot %d = %+v, want %+v", i, got.CardSlots[i], want)
-		}
+	if c := got.Collection["amber_talisman"]; c.InstanceID != 300 {
+		t.Errorf("collection stamp = %+v", c)
+	}
+	if page := got.Album["rat_card"]; len(page) != 2 || page[1].InstanceID != 401 {
+		t.Errorf("album page = %+v", page)
+	}
+}
+
+// The retired 8 + 8 layout (general cells plus a card vault) loads with every
+// card moved into the free general cells, from the chest file and from a
+// transfer journal written before the change.
+func TestStash_OldCardVaultMovesIntoGeneralCells(t *testing.T) {
+	freshSaveDir(t)
+	old := `{"slots":[{"Name":"Belt of Strength","Type":2,"instance_id":1},{},{"Name":"Health Potion","Type":3,"instance_id":2},{},{},{},{},{}],` +
+		`"card_slots":[{"Name":"Sewer Rat Card","Type":9,"instance_id":3},{},{"Name":"Spider Card","Type":9,"instance_id":4},{},{},{},{},{}]}`
+	if err := os.WriteFile(storage.AppSavePath("stash.json"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := stash.Load()
+	if err != nil {
+		t.Fatalf("load old layout: %v", err)
+	}
+	var ids []uint64
+	got.Each(func(it *items.Item) { ids = append(ids, it.InstanceID) })
+	if fmt.Sprint(ids) != "[1 3 2 4]" || got.Slots[0].InstanceID != 1 || got.Slots[1].InstanceID != 3 || got.Slots[2].InstanceID != 2 || got.Slots[3].InstanceID != 4 {
+		t.Fatalf("migrated cells = %v (first free cells take the cards in order)", ids)
+	}
+	journal := `{"id":"7","before":` + old + `,"after":` + old + `}`
+	if err := os.WriteFile(storage.AppSavePath("stash-transfer.json"), []byte(journal), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	j, err := stash.LoadTransferJournal()
+	if err != nil || j.Before.Slots[1].InstanceID != 3 || j.After.Slots[3].InstanceID != 4 {
+		t.Fatalf("old journal did not migrate: %+v, %v", j, err)
 	}
 }

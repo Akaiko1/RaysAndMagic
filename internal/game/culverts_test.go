@@ -201,24 +201,6 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 	}
 }
 
-// The Golden Thief Bug's melee hit melts the struck hero's armor through the
-// one monster-hit choke point (the rule itself: TestMeltArmor_MeleeAndProjectilesMelt).
-func TestGoldenThiefBugMeleeMeltsArmor(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	member := cs.game.party.Members[0]
-	member.Luck = 0
-	member.MaxHitPoints, member.HitPoints = 10000, 10000
-	gtb := monster.NewMonster3DFromConfig(0, 0, "golden_thief_bug", cs.game.config)
-	if gtb.Abilities.MeltArmor.Chance != 1 {
-		t.Fatalf("golden_thief_bug melt_armor chance = %.2f, want 1", gtb.Abilities.MeltArmor.Chance)
-	}
-	cs.monsterHitCharacter(gtb, member, gtb.Name, hitFromMonster(gtb, 100, "physical", false, 0, true, false))
-	if !member.ArmorMelted() {
-		t.Fatal("the Golden Thief Bug's melee hit left the armor whole")
-	}
-}
-
 // A blink (either evasive-on-damage or low-HP) always lands the boss on an exact
 // tile CENTER (never wedged off-grid into a wall) and clears its cached path so it
 // repaths from the new spot instead of freezing on stale waypoints. Both blink

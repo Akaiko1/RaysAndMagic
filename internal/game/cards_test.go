@@ -749,8 +749,7 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 			if tt.inBag {
 				g.party.Inventory = append(g.party.Inventory, card)
 			} else if tt.inStash {
-				g.stash = &stash.Stash{}
-				g.stash.CardSlots[0] = card
+				g.stash = &stash.Stash{Album: map[string][]items.Item{"orc_warlord_card": {card}}}
 			} else if !g.setCardCollectionSlot(0, card) {
 				t.Fatal("could not slot summon card")
 			}
@@ -806,7 +805,7 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 					t.Fatal("could not re-slot migrated inventory card")
 				}
 			} else if tt.inStash {
-				g.stash.CardSlots[0] = items.Item{}
+				g.stash.Album = nil
 				g.party.Inventory = append(g.party.Inventory, card)
 				if !g.placeCardFromInventory(len(g.party.Inventory) - 1) {
 					t.Fatal("could not re-slot migrated stash card")
@@ -1008,8 +1007,7 @@ func TestSaveLoad_LegacyCardCollectionClearsStashOwnedKey(t *testing.T) {
 	owned := items.CreateItemFromYAML("puma_card")
 	owned.InstanceID = 777
 	loaded := newTestGame(cfg, w)
-	loaded.stash = &stash.Stash{}
-	loaded.stash.CardSlots[0] = owned
+	loaded.stash = &stash.Stash{Album: map[string][]items.Item{"puma_card": {owned}}}
 
 	if err := loaded.applySave(wm, &save); err != nil {
 		t.Fatalf("apply save: %v", err)

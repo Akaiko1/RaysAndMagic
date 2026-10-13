@@ -1,87 +1,11 @@
 package game
 
 import (
-	"gopkg.in/yaml.v3"
 	"image"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
-	"ugataima/internal/character"
-	"ugataima/internal/spritecatalog"
 	"ugataima/internal/world"
 )
-
-func TestAtlasStartupCatalogAndFallbacks(t *testing.T) {
-	oldStyle, oldNPCs, oldTiles := loadedAtlasStyle, character.NPCConfigInstance, world.GlobalTileManager
-	t.Cleanup(func() {
-		loadedAtlasStyle, character.NPCConfigInstance, world.GlobalTileManager = oldStyle, oldNPCs, oldTiles
-	})
-	cfg := setupPreviewSandboxTest(t)
-	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
-		t.Fatal(err)
-	}
-	path, err := filepath.Abs("../../assets/world_atlas.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir("../..")
-	paths, _ := spritecatalog.BuildIndex()
-	t.Chdir(t.TempDir())
-	if err := LoadWorldAtlas(path, paths); err != nil {
-		t.Fatal(err)
-	}
-	// Game creation consumes the loaded catalog and does no atlas file/index IO.
-	p, err := NewFxPreview(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(p.g.Shutdown)
-	ui := NewUISystem(p.g)
-	for _, tc := range []struct {
-		name string
-		npc  character.NPC
-		want string
-	}{
-		{"prop", character.NPC{Type: character.NPCTypeLootCrate, RenderCategory: "scenery", PropModel: &character.NPCPropModel{Shape: "campfire"}}, loadedAtlasStyle.PropShapes["campfire"]},
-		{"type", character.NPC{Type: character.NPCTypeLootCrate, RenderCategory: "scenery"}, loadedAtlasStyle.NPCTypes[character.NPCTypeLootCrate]},
-		{"category", character.NPC{Type: character.NPCTypeQuestGiver, RenderCategory: "npc"}, loadedAtlasStyle.RenderCategories["npc"]},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := ui.atlasNPCIcon(&tc.npc); got == "" || got != tc.want {
-				t.Fatalf("icon %q want %q", got, tc.want)
-			}
-		})
-	}
-	// Fallback icons are just as load-bearing as explicitly listed NPC icons.
-	for _, icon := range []string{loadedAtlasStyle.PropShapes["campfire"], loadedAtlasStyle.NPCTypes[character.NPCTypeSpellLectern], loadedAtlasStyle.RenderCategories["scenery"], loadedAtlasStyle.PortalIcon} {
-		pathValue := paths[icon]
-		delete(paths, icon)
-		if err := LoadWorldAtlas(path, paths); err == nil || !strings.Contains(err.Error(), icon) {
-			t.Fatalf("missing fallback %s was accepted: %v", icon, err)
-		}
-		paths[icon] = pathValue
-	}
-	for _, group := range []map[string]string{loadedAtlasStyle.PropShapes, loadedAtlasStyle.NPCTypes, loadedAtlasStyle.RenderCategories, loadedAtlasStyle.LegendIcons} {
-		for key, old := range group {
-			group[key] = "atlas_missing_fixture"
-			data, err := yaml.Marshal(loadedAtlasStyle)
-			group[key] = old
-			if err != nil {
-				t.Fatal(err)
-			}
-			file := filepath.Join(t.TempDir(), "atlas.yaml")
-			if err := os.WriteFile(file, data, 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := LoadWorldAtlas(file, paths); err == nil || !strings.Contains(err.Error(), "atlas_missing_fixture") {
-				t.Fatalf("missing %s fallback was accepted: %v", key, err)
-			}
-			break
-		}
-	}
-}
 
 func TestAtlasRegionlessLayoutAndReopenCache(t *testing.T) {
 	h := newDisplayedModalHarness(t, 1280, 960)

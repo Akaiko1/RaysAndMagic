@@ -121,38 +121,6 @@ func TestStashTransfer_ChestToChestSwap(t *testing.T) {
 	}
 }
 
-// TestStashCardSlot_OnlyCards covers the card-only bank: a monster card deposits
-// into a card slot, but a non-card is refused (stays in the bag, slot untouched).
-func TestStashCardSlot_OnlyCards(t *testing.T) {
-	g := stashTestGame(t)
-	g.party.AddItem(items.Item{Name: "Jellyfish Card", Type: items.ItemCard})
-	g.party.AddItem(items.Item{Name: "Belt of Strength", Type: items.ItemAccessory})
-
-	// Card -> card slot 0: accepted.
-	g.stashDragFrom = stashDragInvBase + 0
-	g.resolveStashDrop(stashAddr{stashKindCard, 0})
-	if g.stash.CardSlots[0].Name != "Jellyfish Card" {
-		t.Fatalf("card slot 0 = %q, want Jellyfish Card", g.stash.CardSlots[0].Name)
-	}
-
-	// Non-card -> card slot 1: rejected. The belt is now bag index 0 (the card left).
-	g.stashDragFrom = stashDragInvBase + 0
-	g.resolveStashDrop(stashAddr{stashKindCard, 1})
-	if !stash.IsEmpty(g.stash.CardSlots[1]) {
-		t.Errorf("card slot 1 should stay empty for a non-card, got %q", g.stash.CardSlots[1].Name)
-	}
-	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Name != "Belt of Strength" {
-		t.Errorf("rejected non-card must stay in the bag, got %+v", g.party.Inventory)
-	}
-
-	// Withdraw the card back to the bag.
-	g.stashDragFrom = stashCardDragBase + 0
-	g.resolveStashDrop(stashAddr{stashKindBag, 0})
-	if !stash.IsEmpty(g.stash.CardSlots[0]) {
-		t.Errorf("card slot 0 should be empty after withdraw, got %q", g.stash.CardSlots[0].Name)
-	}
-}
-
 // TestSaveRowModel pins the save-row table: the Autosave and Quicksave rows
 // are written by the game and load-only in the menus; manual rows keep their
 // old saveN.json files and slot numbers.

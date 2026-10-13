@@ -118,15 +118,17 @@ func TestTavernServiceCardsStayInsideContent(t *testing.T) {
 
 func TestEmbeddedStashLayoutStaysInsideContent(t *testing.T) {
 	area := tavernContentRect(0, 0, tavernDialogWidth, tavernDialogHeight)
-	layout := computeStashLayoutForArea(area, 46)
-	toggle := stashToggleRect(layout)
-	if toggle.Min.X < area.x || toggle.Max.X > area.right() || toggle.Min.Y < area.y || toggle.Max.Y > area.bottom() {
-		t.Fatalf("stash toggle %v escapes content %+v", toggle, area)
-	}
-	lastChest := stashCellRect(layout.centerX, layout.chestTop, stashInvMaxShown-1)
-	lastBag := stashCellRect(layout.centerX, layout.invTop, stashInvMaxShown-1)
-	if lastChest.Max.Y > area.bottom() || lastBag.Max.Y > area.bottom() || layout.pagerY+20 > area.bottom() {
-		t.Fatalf("embedded stash escapes content: chest=%v bag=%v pagerY=%d area=%+v", lastChest, lastBag, layout.pagerY, area)
+	content := namedLayoutBox("content", area)
+	boxes := stashManagerBoxes(computeStashLayoutForArea(area))
+	for i, b := range boxes {
+		if !content.contains(b) {
+			t.Fatalf("%s %+v escapes content %+v", b.Name, b, area)
+		}
+		for _, o := range boxes[i+1:] {
+			if b.overlaps(o) {
+				t.Fatalf("%s %+v overlaps %s %+v", b.Name, b, o.Name, o)
+			}
+		}
 	}
 }
 

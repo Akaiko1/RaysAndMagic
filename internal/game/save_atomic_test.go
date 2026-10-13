@@ -53,12 +53,14 @@ func TestSaveReplacementEntryPoints(t *testing.T) {
 				case "stash_transfer":
 					snapshot := g.stashSnapshot()
 					g.stash.Slots[0] = items.Item{Name: "Transfer fixture", Type: items.ItemAccessory}
+					g.stash.Collection = map[string]items.Item{"fixture": {Name: "Stamp fixture", Type: items.ItemAccessory}}
+					g.stash.Album = map[string][]items.Item{"fixture": {{Name: "Card fixture", Type: items.ItemCard}}}
 					ok := g.commitStashTransfer(snapshot)
 					if ok == fail {
 						t.Fatalf("transfer success=%v, failure case=%v", ok, fail)
 					}
-					if fail && g.stash.Slots[0].Name != "" {
-						t.Fatal("failed autosave did not restore stash")
+					if fail && (g.stash.Slots[0].Name != "" || len(g.stash.Collection) != 0 || len(g.stash.Album) != 0) {
+						t.Fatal("failed autosave did not restore the chest, collection and album")
 					}
 				}
 				if entry != "stash_transfer" && (err != nil) != fail {

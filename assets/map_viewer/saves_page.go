@@ -454,7 +454,7 @@ func buildStashDetail() (party, loot []infoLine) {
 	party = []infoLine{
 		{text: "Shared Stash", col: color.White},
 		{text: "stash.json - one chest shared by every save", col: mobStatDefault},
-		{text: "Managed in-game at the tavern (Manage your stash)", col: mobStatDefault},
+		{text: "Chest at the tavern; collection and album at the Storage Clerk", col: mobStatDefault},
 	}
 	s, err := game.ReadStashSnapshot()
 	if err != nil {
@@ -464,25 +464,42 @@ func buildStashDetail() (party, loot []infoLine) {
 	addl := func(col color.Color, format string, args ...any) {
 		loot = append(loot, infoLine{text: fmt.Sprintf(format, args...), col: col})
 	}
-	appendBank := func(title string, slots []items.Item) {
-		used := 0
-		for _, it := range slots {
-			if !stash.IsEmpty(it) {
-				used++
-			}
-		}
-		loot = appendInfoHeader(loot, "%s (%d/%d)", title, used, len(slots))
-		for i, it := range slots {
-			if stash.IsEmpty(it) {
-				addl(mobStatHeader, "  %d: -", i+1)
-				continue
-			}
-			game.RefreshItemFromConfig(&it)
-			loot = append(loot, infoLine{text: fmt.Sprintf("  %d: %s", i+1, it.Name), col: game.ItemRarityColor(it), item: &it})
+	addItem := func(label string, it items.Item) {
+		game.RefreshItemFromConfig(&it)
+		loot = append(loot, infoLine{text: label + it.Name, col: game.ItemRarityColor(it), item: &it})
+	}
+	used := 0
+	for _, it := range s.Slots {
+		if !stash.IsEmpty(it) {
+			used++
 		}
 	}
-	appendBank("Item Slots", s.Slots[:])
-	appendBank("Card Slots", s.CardSlots[:])
+	loot = appendInfoHeader(loot, "Chest (%d/%d)", used, len(s.Slots))
+	for i, it := range s.Slots {
+		if !stash.IsEmpty(it) {
+			addItem(fmt.Sprintf("  %d: ", i+1), it)
+		}
+	}
+	stamps := game.LegendaryCollectionKeys()
+	loot = appendInfoHeader(loot, "Legendary Collection (%d/%d)", len(s.Collection), len(stamps))
+	for _, key := range stamps {
+		if it, ok := s.Collection[key]; ok {
+			addItem("  ", it)
+		}
+	}
+	pages, cards := game.CardAlbumKeys(), 0
+	for _, page := range s.Album {
+		cards += len(page)
+	}
+	loot = appendInfoHeader(loot, "Card Album (%d/%d cards, %d copies)", len(s.Album), len(pages), cards)
+	for _, key := range pages {
+		if page := s.Album[key]; len(page) > 0 {
+			addItem(fmt.Sprintf("  x%d ", len(page)), page[0])
+		}
+	}
+	if len(stamps) == 0 && len(pages) == 0 {
+		addl(mobStatHeader, "  (item catalog not loaded)")
+	}
 	return party, loot
 }
 
