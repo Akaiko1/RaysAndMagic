@@ -127,7 +127,8 @@ func TestCrossfireSplashIndependentOfLethality(t *testing.T) {
 // was aimed at: it never flies on to hit what stands behind, a monster still
 // on that spot takes it, and a blast goes off there. A target that steps off
 // the line lets the shot fly on along its line, never rising, until it meets
-// the floor. A live target that stays is the control.
+// the floor; one that runs on along the line is chased level at its body's
+// height and caught. A live target that stays is the control.
 func TestAimedShotHitsOrLands(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, tc := range []struct {
@@ -135,6 +136,7 @@ func TestAimedShotHitsOrLands(t *testing.T) {
 			spell, bolt, dies bool
 			aimPartner        bool
 			moves             bool
+			flees             bool // runs straight away along the line
 			partner           bool
 			targetHit         bool
 			partnerHit        bool
@@ -144,6 +146,7 @@ func TestAimedShotHitsOrLands(t *testing.T) {
 			{name: "arrow_dead", dies: true},
 			{name: "arrow_dead_partner_on_spot", dies: true, partner: true, partnerHit: true},
 			{name: "arrow_moved", moves: true},
+			{name: "slow_arrow_chases_a_fleeing_target", flees: true, targetHit: true},
 			{name: "arrow_aimed_at_stacked_partner", partner: true, aimPartner: true, partnerHit: true},
 			{name: "bolt_aimed_at_stacked_partner", spell: true, bolt: true, partner: true, aimPartner: true, partnerHit: true},
 			{name: "blast_alive", spell: true, targetHit: true, neighbourHit: true},
@@ -164,6 +167,9 @@ func TestAimedShotHitsOrLands(t *testing.T) {
 				neighbour := mob("neighbour", spotX, spotY+1.5*ts)
 				behind := mob("behind", spotX+5*ts, spotY)
 				g.world.Monsters = []*monsterPkg.Monster3D{target, neighbour, behind}
+				if tc.flees {
+					g.world.Monsters = []*monsterPkg.Monster3D{target, neighbour}
+				}
 				if tc.partner {
 					partner.ID = "zz-partner" // auto-aim and an ID tie-break pick the target
 					g.world.Monsters = append(g.world.Monsters, partner)
@@ -175,6 +181,11 @@ func TestAimedShotHitsOrLands(t *testing.T) {
 				hero := g.party.Members[0]
 				g.selectedChar = 0
 				hero.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
+				if tc.flees {
+					// 4 tiles a second: running 2 tiles a second from 4 tiles out, the
+					// goblin is caught at 8, beyond where the shot's line meets the floor.
+					hero.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("bow_of_hellfire")
+				}
 				var aimDistance float64
 				var launch projectileLaunch
 				if tc.spell {
@@ -202,6 +213,9 @@ func TestAimedShotHitsOrLands(t *testing.T) {
 				defer g.threading.Shutdown()
 				gl := &GameLoop{game: g}
 				farthest := 0.0
+				g.renderHelper = NewRenderingHelper(g)
+				aimDrop := launch.eyeDrop(g, launch.x+launch.dx*aimDistance, launch.y+launch.dy*aimDistance)
+				chaseDrop := [2]float64{math.Inf(1), math.Inf(-1)}
 				for tick := 0; tick < 600 && g.projectileCount() > 0; tick++ {
 					if tick == 2 && tc.dies {
 						target.HitPoints = 0 // killed by a faster shot
@@ -210,9 +224,17 @@ func TestAimedShotHitsOrLands(t *testing.T) {
 						target.Y -= 1.5 * ts // steps off the line
 						g.collisionSystem.UpdateEntity(target.ID, target.X, target.Y)
 					}
+					if tc.flees && target.HitPoints == target.MaxHitPoints {
+						target.X += 2 * ts / float64(g.config.GetTPS())
+						g.collisionSystem.UpdateEntity(target.ID, target.X, target.Y)
+					}
 					gl.updateProjectilesAndImpacts()
 					for _, a := range g.arrows {
 						farthest = max(farthest, a.X-g.camera.X)
+						if tc.flees && a.X-g.camera.X > aimDistance {
+							d := a.Launch.eyeDrop(g, a.X, a.Y)
+							chaseDrop = [2]float64{min(chaseDrop[0], d), max(chaseDrop[1], d)}
+						}
 					}
 					for _, p := range g.magicProjectiles {
 						farthest = max(farthest, p.X-g.camera.X)
@@ -224,12 +246,18 @@ func TestAimedShotHitsOrLands(t *testing.T) {
 					if farthest > aimDistance+ts/2 {
 						t.Fatalf("the shot flew on %.2f tiles past its fallen target's spot", (farthest-aimDistance)/ts)
 					}
+				case tc.flees:
+					if !hurt(target) || farthest <= launch.floorDistance {
+						t.Fatalf("the chasing shot was not past its floor point (%.2f tiles) when it caught the target: flew %.2f, hit=%v", launch.floorDistance/ts, farthest/ts, hurt(target))
+					}
+					if math.Abs(chaseDrop[0]-aimDrop) > 1e-6 || math.Abs(chaseDrop[1]-aimDrop) > 1e-6 {
+						t.Fatalf("the chasing shot left the body's height: drop %.3f..%.3f tiles, aimed %.3f", chaseDrop[0]/ts, chaseDrop[1]/ts, aimDrop/ts)
+					}
 				case tc.moves:
 					floor := launch.floorDistance
 					if floor <= aimDistance+ts || math.Abs(farthest-floor) > ts/2 || hurt(target) {
 						t.Fatalf("a missed shot should fly on to the floor at %.2f tiles, flew %.2f (aim %.2f)", floor/ts, farthest/ts, aimDistance/ts)
 					}
-					g.renderHelper = NewRenderingHelper(g)
 					last := 0.0
 					for travel := aimDistance; travel <= floor; travel += ts / 4 {
 						drop := launch.eyeDrop(g, launch.x+launch.dx*travel, launch.y+launch.dy*travel)

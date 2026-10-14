@@ -138,9 +138,10 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 
 // landShots ends each aimed arrow or spell shot that missed (projectileLaunch
 // landing): on the spot its fallen target stood, or where its line meets the
-// floor, with the shot's own impact drawn there; a blast still goes off.
-// Collisions resolve first, so a monster still standing on that spot takes
-// the shot.
+// floor, with the shot's own impact drawn there; a blast still goes off. A
+// shot about to reach its aim point first learns whether its target is still
+// ahead (reachAimPoint). Collisions resolve first, so a monster still standing
+// on that spot takes the shot.
 func (cs *CombatSystem) landShots() {
 	g := cs.game
 	anchor := func(l projectileLaunch, onFloor bool) monsterVisualAnchor {
@@ -154,6 +155,7 @@ func (cs *CombatSystem) landShots() {
 		if !a.Active || a.LifeTime <= 0 {
 			continue
 		}
+		a.Launch.reachAimPoint(cs, a.ID, a.X, a.Y, a.VelX, a.VelY)
 		x, y, onFloor, ok := a.Launch.landing(a.X, a.Y, a.VelX, a.VelY)
 		if !ok {
 			continue
@@ -169,6 +171,7 @@ func (cs *CombatSystem) landShots() {
 		if !p.Active || p.LifeTime <= 0 || p.NoCollide {
 			continue
 		}
+		p.Launch.reachAimPoint(cs, p.ID, p.X, p.Y, p.VelX, p.VelY)
 		x, y, onFloor, ok := p.Launch.landing(p.X, p.Y, p.VelX, p.VelY)
 		if !ok {
 			continue

@@ -31,6 +31,10 @@ type projectileLaunch struct {
 	// floor along its straight line, and lands; zero when the line never
 	// sinks (it is level or rises, or there is no aim).
 	floorDistance float64
+	// level is decided at the aim point: the target was still ahead in the
+	// shot's path, so the shot flies on level at its body height and can
+	// still catch it instead of sinking to the floor.
+	level bool
 }
 
 // lobHandTiles is the throwing hand's height above the floor.
@@ -108,8 +112,8 @@ func (p projectileLaunch) targetOffset(cs *CombatSystem) (float64, float64, bool
 // landing is where an aimed shot ends without a hit, on the tick it crosses
 // that point. If its selected target died before the shot arrived, it ends on
 // the spot it was aimed at; otherwise one flying on past that spot ends where
-// its line meets the floor (onFloor). A shot through its target (pierce) is
-// not affected.
+// its line meets the floor (onFloor), unless it flies level after a target
+// still ahead (level). A shot through its target (pierce) is not affected.
 func (p projectileLaunch) landing(x, y, vx, vy float64) (lx, ly float64, onFloor, ok bool) {
 	if p.target == nil || p.passed || p.aimDistance <= 0 {
 		return 0, 0, false, false
@@ -119,10 +123,32 @@ func (p projectileLaunch) landing(x, y, vx, vy float64) (lx, ly float64, onFloor
 	switch {
 	case !p.target.IsAlive() && crossed(p.aimDistance):
 		return p.x + p.dx*p.aimDistance, p.y + p.dy*p.aimDistance, false, true
-	case p.floorDistance > p.aimDistance && crossed(p.floorDistance):
+	case !p.level && p.floorDistance > p.aimDistance && crossed(p.floorDistance):
 		return p.x + p.dx*p.floorDistance, p.y + p.dy*p.floorDistance, true, true
 	}
 	return 0, 0, false, false
+}
+
+// reachAimPoint decides level on the tick the shot at (x, y) moving (vx, vy)
+// will reach the spot it was aimed at: its living target is still ahead in
+// its path when the target's body, widened by the shot's own, still covers the
+// shot's line beyond that spot.
+func (p *projectileLaunch) reachAimPoint(cs *CombatSystem, shotID string, x, y, vx, vy float64) {
+	if p.target == nil || p.passed || p.aimDistance <= 0 || !p.target.IsAlive() {
+		return
+	}
+	travel := (x-p.x)*p.dx + (y-p.y)*p.dy
+	if travel >= p.aimDistance || travel+vx*p.dx+vy*p.dy < p.aimDistance {
+		return
+	}
+	body, shot := cs.game.collisionSystem.GetEntityByID(p.target.ID), cs.game.collisionSystem.GetEntityByID(shotID)
+	if body == nil || body.BoundingBox == nil || shot == nil || shot.BoundingBox == nil {
+		return
+	}
+	tx, ty := p.target.X-p.x, p.target.Y-p.y
+	lx, ly := math.Abs(p.dy), math.Abs(p.dx) // the line's sideways axis, by magnitude
+	reach := (body.BoundingBox.Width+shot.BoundingBox.Width)/2*lx + (body.BoundingBox.Height+shot.BoundingBox.Height)/2*ly
+	p.level = tx*p.dx+ty*p.dy > p.aimDistance && math.Abs(-tx*p.dy+ty*p.dx) <= reach
 }
 
 // partyProjectileLaunch is shared by weapons, spells and flasks. Explicit aim

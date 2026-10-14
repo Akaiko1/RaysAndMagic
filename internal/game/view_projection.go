@@ -148,10 +148,11 @@ func lobHeight(t, start, apex float64) float64 {
 
 // eyeDrop is how far below eye level a shot is drawn, in world units. A lob
 // follows its arc; any other shot runs a straight 3D line from the launch (or
-// the actor a continuation left) to the target's visible body, and a shot
-// that flies on past that spot without hitting keeps the line until it meets
-// the floor (where it lands). Only a shot through its target (pierce) eases
-// back to eye level. Physical flight and collision remain in world XY.
+// the actor a continuation left) to the target's visible body. Past that spot
+// a shot whose target is still ahead flies level at that body's height; one
+// whose target stepped aside keeps the line until it meets the floor (where it
+// lands). Only a shot through its target (pierce) eases back to eye level.
+// Physical flight and collision remain in world XY.
 func (p projectileLaunch) eyeDrop(g *MMGame, x, y float64) float64 {
 	tile := g.config.GetTileSize()
 	if p.lobApex > 0 && p.distance > 0 {
@@ -192,6 +193,9 @@ func (p projectileLaunch) eyeDrop(g *MMGame, x, y float64) float64 {
 	}
 	aimDrop := drop(anchor, ax, ay)
 	if p.aimDistance > 0 && !p.passed && travel > p.aimDistance {
+		if p.level {
+			return aimDrop
+		}
 		if p.floorDistance > p.aimDistance {
 			t := (travel - p.aimDistance) / (p.floorDistance - p.aimDistance)
 			return min(eyeHeightTiles*tile, aimDrop+(eyeHeightTiles*tile-aimDrop)*t)
