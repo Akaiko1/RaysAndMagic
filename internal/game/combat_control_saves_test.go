@@ -42,7 +42,7 @@ func TestControlSavingThrowsThroughInput(t *testing.T) {
 					if (m.ControlDRActive() || m.SilenceFramesRemaining > 0) == saves {
 						t.Fatalf("control active=%v, saves=%v", m.ControlDRActive(), saves)
 					}
-					if c.SpellPoints != sp-g.combat.effectiveSpellCost(c, def.SpellPointsCost) {
+					if c.SpellPoints != sp-c.MeditatedSPCost(def.SpellPointsCost) {
 						t.Fatal("resisted/successful cast did not spend mana exactly once")
 					}
 					if tb && c.ActionsRemaining != actions-1 || !tb && c.RTCooldown <= 0 {

@@ -27,19 +27,21 @@ func TestEditorCardsWired(t *testing.T) {
 					it = items.CreateWeaponFromYAML(c.key)
 				case cardItem:
 					it = items.CreateItemFromYAML(c.key)
-				case cardSpell:
+				case cardAction:
 					if trap, ok := config.TrapItem(c.key); ok {
 						it = trap
 					} else if technique, ok := config.TechniqueItem(c.key); ok {
 						it = technique
 					} else {
-						var err error
-						it, err = spells.CreateSpellItem(spells.SpellID(c.key))
-						if err != nil {
-							t.Fatal(err)
-						}
-						want = game.GetSpellTooltipRows(spells.SpellID(c.key), nil, nil, true)
+						t.Fatalf("action card %q is neither a trap nor a technique", c.key)
 					}
+				case cardSpell:
+					var err error
+					it, err = spells.CreateSpellItem(spells.SpellID(c.key))
+					if err != nil {
+						t.Fatal(err)
+					}
+					want = game.GetSpellTooltipRows(spells.SpellID(c.key), nil, nil, true)
 				}
 				if len(want) == 0 {
 					want = game.GetItemTooltipRows(it, nil, nil, true)

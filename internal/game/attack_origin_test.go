@@ -39,10 +39,10 @@ func TestFlyingPartyAttackOrigins(t *testing.T) {
 						caster.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
 					case "spell":
 						caster.LearnSpell("fireball")
-						caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+						caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 					case "heal":
 						caster.LearnSpell("heal_other")
-						caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
+						caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
 						g.party.Members[1].HitPoints = g.party.Members[1].MaxHitPoints / 4
 					}
 					acted := false

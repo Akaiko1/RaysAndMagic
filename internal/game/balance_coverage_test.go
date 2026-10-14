@@ -63,6 +63,7 @@ var balanceAbilities = []balanceAbility{
 	{name: "trap_volley", bareLine: func(l string, _ map[string]string) bool { return l == "The ground erupts in brood-fire!" }},
 	{name: "inferno", bareLine: func(l string, _ map[string]string) bool { return strings.HasPrefix(l, "Inferno scorches ") }},
 	{name: "pounce", foeLine: foeLine("<foe> pounces at the party!")},
+	{name: "phase_shift", foeLine: foeLine("<foe> phase-shifts toward the party!")},
 	{name: "poison", bareLine: heroLine(" is poisoned!")},
 	{name: "ignite", bareLine: heroLine(" bursts into flames!", " catches fire!")},
 	{name: "stun", bareLine: heroLine(" is stunned!")},

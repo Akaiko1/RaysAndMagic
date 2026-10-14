@@ -8,7 +8,9 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
 
@@ -452,12 +454,12 @@ func TestSmartAttack_TrapFallbackIsSilent(t *testing.T) {
 			spBefore := thief.SpellPoints
 			msgsBefore := len(g.GetCombatMessages())
 
-			acted, castID := g.combat.SmartAttack()
+			action := g.combat.SmartAttack()
 
-			if castID != "" {
-				t.Errorf("no trap should have been armed, castID=%q", castID)
+			if action.Trap != "" {
+				t.Errorf("no trap should have been armed, trap=%q", action.Trap)
 			}
-			if !acted {
+			if !action.Acted {
 				t.Error("Space must still act (weapon swing fallback)")
 			}
 			if thief.SpellPoints != spBefore {
@@ -473,13 +475,13 @@ func TestSmartAttack_TrapFallbackIsSilent(t *testing.T) {
 	}
 }
 
-// Explicit F (CastEquippedSpell) announces WHY the trap was refused.
+// Explicit F announces WHY the trap was refused.
 func TestExplicitF_TrapRefusalAnnounces(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	thief.SpellPoints = 0
 	g.selectedChar = 0
 	msgsBefore := len(g.GetCombatMessages())
-	if g.combat.CastEquippedSpell() {
+	if fired, _ := NewInputHandler(g).useSlottedActionResolved(thief); fired {
 		t.Fatal("cast must fail without SP")
 	}
 	found := false
@@ -490,5 +492,52 @@ func TestExplicitF_TrapRefusalAnnounces(t *testing.T) {
 	}
 	if !found {
 		t.Error("explicit F must announce the SP shortfall")
+	}
+}
+
+// A slotted spell or trap is ready by the SP its use pays, read live: a saved
+// slot item keeps the SpellCost from before a spells.yaml/traps.yaml change.
+func TestSlottedActionReadinessUsesLiveSPCost(t *testing.T) {
+	newThiefTestGame(t) // loads the content tables
+	trapKey := config.TrapKeysOrdered()[0]
+	trapDef, _ := config.GetTrapDefinition(trapKey)
+	spellDef, err := spells.GetSpellDefinitionByID("fireball")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		slot func() items.Item
+		live int
+	}{
+		{"spell", func() items.Item {
+			return items.Item{Name: spellDef.Name, Type: items.ItemBattleSpell, SpellEffect: "fireball"}
+		}, spellDef.SpellPointsCost},
+		{"trap", func() items.Item {
+			it, _ := config.TrapItem(trapKey)
+			return it
+		}, trapDef.SPCost},
+	} {
+		for _, stale := range []int{-1, +10} {
+			t.Run(fmt.Sprintf("%s/stale%+d", tc.name, stale), func(t *testing.T) {
+				g, thief := newThiefTestGame(t)
+				slot := tc.slot()
+				slot.SpellCost = tc.live + stale
+				thief.Equipment[items.SlotQuickAction] = slot
+				price := thief.MeditatedSPCost(tc.live)
+				for _, sp := range []int{price - 1, price} {
+					thief.SpellPoints = sp
+					want := sp >= price
+					if got := g.actionCapable(0, rtActSlotted); got != want {
+						t.Errorf("SP %d, live price %d: ready=%v want %v", sp, price, got, want)
+					}
+					before := len(g.GetCombatMessages())
+					NewInputHandler(g).announceCastShortfall(0)
+					if shortfall := len(g.GetCombatMessages()) > before; shortfall == want {
+						t.Errorf("SP %d, live price %d: shortfall announced=%v", sp, price, shortfall)
+					}
+				}
+			})
+		}
 	}
 }

@@ -205,5 +205,51 @@ func TestCharFlagConditions(t *testing.T) {
 }
 
 // The DoTs' per-second hero loss, from the status table.
-func poisonPerTick() int { return config.Status("poison").PartyDamagePerSecond }
-func burnPerTick() int   { return config.Status("burn").PartyDamagePerSecond }
+// dotPerTick is the expected loss of one DoT tick on a hero of maxHP, worked
+// out here from the status row: its percent of max HP, at least its minimum.
+func dotPerTick(key string, maxHP int) int {
+	s := config.Status(key)
+	return max(s.PercentPerSecond*maxHP/100, s.MinimumDamage)
+}
+
+func poisonPerTick() int { return dotPerTick("poison", 50) }
+func burnPerTick() int   { return dotPerTick("burn", 50) }
+
+// Hero poison and burn take a percent of max HP per tick: a small pool loses
+// the floor, a large one its percent, and the two DoTs stack, in both modes.
+func TestCharDoTScalesWithMaxHP(t *testing.T) {
+	// The real tick rate: burn banks half a game second against poison.
+	tps := config.GetTargetTPS()
+	for _, maxHP := range []int{50, 1000} {
+		for _, key := range []string{"poison", "burn", "both"} {
+			for _, tb := range []bool{false, true} {
+				c := &MMCharacter{Name: "T", HitPoints: maxHP, MaxHitPoints: maxHP}
+				want := 0
+				if key != "burn" {
+					c.ApplyPoison(3 * tps)
+					want += 3 * dotPerTick("poison", maxHP)
+				}
+				if key != "poison" {
+					c.ApplyBurn(3 * tps)
+					want += 3 * dotPerTick("burn", maxHP)
+				}
+				if tb {
+					c.TickPoisonTurn(3*tps, tps)
+					c.TickBurnTurn(3*tps, tps)
+				} else {
+					for range 3 * tps {
+						c.updatePoison(tps)
+						c.updateBurn(tps)
+					}
+				}
+				if lost := maxHP - c.HitPoints; lost != want {
+					t.Errorf("%s on %d max HP (TB=%v) took %d, want %d", key, maxHP, tb, lost, want)
+				}
+			}
+		}
+	}
+	// The large pool must be past both floors, or the percent goes untested.
+	if dotPerTick("poison", 1000) <= config.Status("poison").MinimumDamage || dotPerTick("burn", 1000) <= config.Status("burn").MinimumDamage {
+		t.Fatal("fixture: 1000 max HP does not lift the DoTs above their floors")
+	}
+}

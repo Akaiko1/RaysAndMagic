@@ -23,15 +23,14 @@ type StatusDefinition struct {
 	Monsters string `yaml:"monsters"`
 	Rule     string `yaml:"rule"`
 
-	PartyDamagePerSecond    int   `yaml:"party_damage_per_second"`
-	MonsterPercentPerSecond int   `yaml:"monster_percent_per_second"`
-	BossPercentPerSecond    int   `yaml:"boss_percent_per_second"`
-	MonsterMinimumDamage    int   `yaml:"monster_minimum_damage"`
-	RepeatPercents          []int `yaml:"repeat_percents"`
-	RepeatResetSeconds      int   `yaml:"repeat_reset_seconds"`
-	HinderPercent           int   `yaml:"hinder_percent"`
-	SkipEveryTurns          int   `yaml:"skip_every_turns"`
-	Seconds                 int   `yaml:"seconds"`
+	PercentPerSecond     int   `yaml:"percent_per_second"`
+	BossPercentPerSecond int   `yaml:"boss_percent_per_second"`
+	MinimumDamage        int   `yaml:"minimum_damage"`
+	RepeatPercents       []int `yaml:"repeat_percents"`
+	RepeatResetSeconds   int   `yaml:"repeat_reset_seconds"`
+	HinderPercent        int   `yaml:"hinder_percent"`
+	SkipEveryTurns       int   `yaml:"skip_every_turns"`
+	Seconds              int   `yaml:"seconds"`
 }
 
 // statusRule is what the code needs from one status: which sides it reaches
@@ -43,8 +42,8 @@ type statusRule struct {
 }
 
 var statusRules = []statusRule{
-	{key: "poison", party: true, monster: true, numbers: []string{"party_damage_per_second", "monster_percent_per_second", "monster_minimum_damage"}},
-	{key: "burn", party: true, monster: true, numbers: []string{"party_damage_per_second", "monster_percent_per_second", "boss_percent_per_second", "monster_minimum_damage"}},
+	{key: "poison", party: true, monster: true, numbers: []string{"percent_per_second", "minimum_damage"}},
+	{key: "burn", party: true, monster: true, numbers: []string{"percent_per_second", "boss_percent_per_second", "minimum_damage"}},
 	{key: "stun", party: true, monster: true, numbers: []string{"repeat_percents", "repeat_reset_seconds"}},
 	{key: "root", party: true, monster: true},
 	{key: "slow", party: true, monster: true, numbers: []string{"hinder_percent", "skip_every_turns"}},
@@ -213,14 +212,13 @@ func validateRepeatPercents(p []int) error {
 // statusNumberBounds bounds every number a row may carry (inclusive); seconds
 // also need whole rounds and repeat_percents is checked as a whole.
 var statusNumberBounds = map[string][2]int{
-	"party_damage_per_second":    {1, 1000},
-	"monster_percent_per_second": {1, 100},
-	"boss_percent_per_second":    {1, 100},
-	"monster_minimum_damage":     {1, 1000},
-	"repeat_reset_seconds":       {CombatRoundSeconds, 3600},
-	"hinder_percent":             {1, 99},
-	"skip_every_turns":           {2, 100},
-	"seconds":                    {CombatRoundSeconds, 3600},
+	"percent_per_second":      {1, 100},
+	"boss_percent_per_second": {1, 100},
+	"minimum_damage":          {1, 1000},
+	"repeat_reset_seconds":    {CombatRoundSeconds, 3600},
+	"hinder_percent":          {1, 99},
+	"skip_every_turns":        {2, 100},
+	"seconds":                 {CombatRoundSeconds, 3600},
 }
 
 // statusNumber is one numeric field of a row, in declaration order.
@@ -275,8 +273,9 @@ func (d *StatusDefinition) numbers() map[string]string {
 // derived are the placeholder values computed from a row's numbers.
 func (d *StatusDefinition) derived() map[string]string {
 	out := map[string]string{"armor_cap_percent": strconv.Itoa(ArmorElementalMitigationCap)}
-	if d.PartyDamagePerSecond > 0 {
-		out["party_damage_per_round"] = strconv.Itoa(d.PartyDamagePerSecond * CombatRoundSeconds)
+	if d.PercentPerSecond > 0 {
+		out["percent_per_round"] = strconv.Itoa(d.PercentPerSecond * CombatRoundSeconds)
+		out["minimum_per_round"] = strconv.Itoa(d.MinimumDamage * CombatRoundSeconds)
 	}
 	if d.RepeatResetSeconds > 0 {
 		out["repeat_reset_rounds"] = strconv.Itoa(CombatRounds(d.RepeatResetSeconds))
@@ -345,12 +344,20 @@ func HinderKeepPercent() int { return hinderKeep(HinderPercent()) }
 
 func hinderKeep(hinderPercent int) int { return 100 - hinderPercent }
 
-// BurnPercent is a burning monster's loss per second, in percent of max HP.
-func BurnPercent(boss bool) int {
-	if boss {
-		return Status("burn").BossPercentPerSecond
+// DoTPercent is a damage-over-time status's loss per second in percent of the
+// victim's max HP; a boss loses its row's boss_percent_per_second when set.
+func DoTPercent(key string, boss bool) int {
+	s := Status(key)
+	if boss && s.BossPercentPerSecond > 0 {
+		return s.BossPercentPerSecond
 	}
-	return Status("burn").MonsterPercentPerSecond
+	return s.PercentPerSecond
+}
+
+// DoTDamage is one once-per-second tick of a damage-over-time status on a
+// hero or monster of maxHP: its percent of max HP, at least the row's minimum.
+func DoTDamage(key string, maxHP int, boss bool) int {
+	return max(DoTPercent(key, boss)*maxHP/100, Status(key).MinimumDamage)
 }
 
 // ArmorMeltSeconds is how long melted armor lasts.

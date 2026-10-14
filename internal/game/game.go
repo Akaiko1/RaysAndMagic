@@ -55,12 +55,14 @@ const maxCombatLogHistory = 500
 const (
 	ProjectileOwnerPlayer ProjectileOwner = iota
 	ProjectileOwnerMonster
-	// ProjectileOwnerBoundUndead is a bound undead's projectile: it damages enemy
-	// (non-controlled) monsters, but never the party or other controlled allies.
-	ProjectileOwnerBoundUndead
-	// ProjectileOwnerMonsterAtBound is an enemy mob's projectile aimed at a
-	// bound undead: it damages ONLY bound monsters (the undead), never the party.
-	ProjectileOwnerMonsterAtBound
+	// ProjectileOwnerPartyAlly is a party ally's projectile (any Bound monster:
+	// summons, card allies, bound undead): it damages enemy monsters, but never
+	// the party or other allies.
+	ProjectileOwnerPartyAlly
+	// ProjectileOwnerMonsterAtActor is a non-ally monster's projectile aimed at
+	// another monster (a party ally, a caravan, prey): it damages only what its
+	// shooter may attack (CanAttackActor), never the party.
+	ProjectileOwnerMonsterAtActor
 	// ProjectileOwnerReflected is a monster projectile turned back by the
 	// Broodscale Aegis. It can hit only the monster that originally fired it.
 	ProjectileOwnerReflected
@@ -70,12 +72,13 @@ const (
 // player to talk to NPCs and trigger interactables.
 const InteractionDistance = 128.0
 
+// MagicProjectile is a spell or magical shot in flight: party and monster spell
+// projectiles, Shrapmetal fragments and a spell's visual-only flights. Only
+// spells and magical projectiles belong here; anything else thrown or shot
+// gets its own type (Arrow, FlaskProjectile).
 type MagicProjectile struct {
-	Launch                             projectileLaunch      // Runtime-only; save/load discards projectiles.
-	HitBudget                          *spellVolleyHitBudget // Shared by the physical fragments of one cast; also runtime-only.
-	FlaskKey                           string
-	FlaskRemaining, FlaskRadius        float64
-	FlaskPoisonFrames, FlaskBurnFrames int
+	Launch    projectileLaunch      // Runtime-only; save/load discards projectiles.
+	HitBudget *spellVolleyHitBudget // Shared by the physical fragments of one cast; also runtime-only.
 
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
@@ -332,9 +335,9 @@ type MMGame struct {
 	lastQuickClickedCh int
 	lastQuickClickedSl int
 
-	// Double-click support for utility spell icons (dispelling)
-	lastUtilitySpellClickTime int64  // Time of last utility spell icon click in milliseconds
-	lastClickedUtilitySpell   string // Icon of last clicked utility spell
+	// Double-click on a buff status icon dispels it.
+	lastBuffIconClickTime int64  // Time of the last buff icon click in milliseconds
+	lastClickedBuffIcon   string // Source id of the last clicked buff icon
 
 	// Cached images for performance
 	skyImg            *ebiten.Image
@@ -363,6 +366,7 @@ type MMGame struct {
 	// Combat effects
 	magicProjectiles []MagicProjectile
 	arrows           []Arrow
+	flasks           []FlaskProjectile
 	groundContainers []GroundContainer
 	monsterCorpses   []monsterCorpse // unified loot bags + treasure chests on the ground
 	// containerFanOffsets caches each container's render-only fan offset for the
@@ -377,7 +381,7 @@ type MMGame struct {
 	collapsedSpellSchools map[character.MagicSchoolID]bool
 
 	// Utility spell status icons (data-driven)
-	utilitySpellStatuses   map[spells.SpellID]*UtilitySpellStatus
+	buffStatuses           map[string]*BuffStatus
 	slashEffects           []SlashEffect
 	spellHitEffects        []SpellHitEffect
 	elementalAttackEffects []elementalAttackEffect
@@ -474,7 +478,7 @@ type MMGame struct {
 	// it lands (balance tooling reads pre-hit HP here).
 	heroHitObserver func(hero *character.MMCharacter, source string, damage int)
 
-	// boundAllies caches the bound undead (bind_undead) present this frame so the
+	// boundAllies caches the party allies (Bound monsters) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an
 	// O(n^2) scan in the common (no-bind) case. Rebuilt each frame before the
 	// monster update; see refreshMonsterAIState.
@@ -544,7 +548,7 @@ type MMGame struct {
 	// Spellbook UI
 	selectedSchool          int
 	selectedSpell           int
-	spellInputCooldown      int // gameplay input stagger; pauses with the world
+	actionInputStagger      int // gameplay input stagger; pauses with the world
 	tabbedMenuInputCooldown int // hub-only navigation debounce; advances while the hub is open
 
 	// Screen banners: the queue of headings waiting their turn at the top of the
@@ -985,7 +989,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 		selectedSchool:        0,
 		selectedSpell:         0,
 		collapsedSpellSchools: make(map[character.MagicSchoolID]bool),
-		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
+		buffStatuses:          make(map[string]*BuffStatus),
 		combatLogHistory:      make([]combatLogEntry, 0),
 		maxMessages:           4, // Show last 4 messages
 
@@ -2471,10 +2475,12 @@ func (g *MMGame) refreshMonsterAIState() {
 			m.AIFoe = nil
 			m.AITargetX, m.AITargetY = m.X, m.Y
 			m.BossAggro = false
+			g.combat.refreshPhaseShiftPlan(m) // an inert actor keeps no blink plan
 			continue
 		}
 		g.combat.refreshMonsterAITarget(m)
 		m.LimitPlayerEngagement(g.camera.X, g.camera.Y)
+		g.combat.refreshPhaseShiftPlan(m) // the plan the parallel pursuit follows (monster_phase_shift.go)
 	}
 	g.updateAdventureArena()
 	g.ejectPartyTargetingMonsters()
@@ -2720,11 +2726,11 @@ func (g *MMGame) rtCharReady(idx int) bool {
 type rtActionKind int
 
 const (
-	rtActNone   rtActionKind = iota
-	rtActWeapon              // R: melee/ranged weapon
-	rtActSmart               // Space: slotted combat spell else weapon
-	rtActCast                // F: cast the slotted spell
-	rtActHeal                // C/H: cast the best known heal
+	rtActNone    rtActionKind = iota
+	rtActWeapon               // R: melee/ranged weapon
+	rtActSmart                // Space: heal, slotted spell, flask or trap, else weapon
+	rtActSlotted              // F: use the quick action (spell, technique, flask or trap)
+	rtActHeal                 // C/H: cast the best known heal
 )
 
 // rtActionCapable reports whether a party member CAN perform a real-time action
@@ -2747,27 +2753,19 @@ func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 	switch kind {
 	case rtActWeapon:
 		return m.HasWeaponInEitherHand()
-	case rtActCast:
+	case rtActSlotted:
 		if key, ok := g.slottedTechnique(idx); ok {
 			d := config.Technique(key)
 			return d != nil && !d.IsStep() && g.techniqueRefusal(idx, key) == ""
 		}
-		spell, ok := m.Equipment[items.SlotSpell]
+		spell, ok := m.Equipment[items.SlotQuickAction]
 		if !ok {
 			return false
 		}
 		if spell.Type == items.ItemThrowable {
-			return m.HasSkill(character.SkillBombThrowing) && g.flaskStock(m, string(spell.SpellEffect)) > 0
+			return m.HasSkill(character.SkillBombThrowing) && g.flaskStock(m, spell.Flask) > 0
 		}
-		cost := spell.SpellCost
-		// Traps: the live traps.yaml cost is the truth (a rebalance must not
-		// be fooled by the SpellCost frozen into an old save's slot item).
-		if spell.Type == items.ItemTrap {
-			if def, defOk := config.GetTrapDefinition(string(spell.SpellEffect)); defOk {
-				cost = def.SPCost
-			}
-		}
-		return g.combat == nil || m.SpellPoints >= g.combat.effectiveSpellCost(m, cost)
+		return m.SpellPoints >= m.MeditatedSPCost(slottedSPCost(spell))
 	case rtActHeal:
 		if g.combat == nil {
 			return false
@@ -3058,7 +3056,7 @@ func (g *MMGame) equipPartyItemFromInventory(itemIndex, characterIndex int, owne
 
 func (g *MMGame) equipPartyItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot, owner ...*character.MMCharacter) bool {
 	bag := g.party.Bag(owner...)
-	if slot == items.SlotSpell && itemIndex >= 0 && itemIndex < len(bag.Items()) {
+	if slot == items.SlotQuickAction && itemIndex >= 0 && itemIndex < len(bag.Items()) {
 		if key, d := flaskDefinition(bag.Items()[itemIndex]); d != nil {
 			return g.equipFlask(characterIndex, key)
 		}
@@ -3623,20 +3621,6 @@ func (mpw *MagicProjectileWrapper) GetPosition() (float64, float64) {
 }
 
 func (mpw *MagicProjectileWrapper) SetPosition(x, y float64) {
-	p := mpw.MagicProjectile
-	if p.FlaskKey != "" && p.Active {
-		distance := math.Hypot(x-p.X, y-p.Y)
-		if distance >= p.FlaskRemaining && distance > 0 {
-			ratio := p.FlaskRemaining / distance
-			x = p.X + (x-p.X)*ratio
-			y = p.Y + (y-p.Y)*ratio
-			p.Active = false
-			mpw.pendingImpact = true
-			mpw.impactX, mpw.impactY = x, y
-		}
-		p.FlaskRemaining = max(0, p.FlaskRemaining-distance)
-	}
-
 	mpw.MagicProjectile.X = x
 	mpw.MagicProjectile.Y = y
 	// Update collision system position
@@ -3678,11 +3662,7 @@ func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
 	if mpw.MagicProjectile == nil || mpw.game == nil {
 		return
 	}
-	if mpw.MagicProjectile.FlaskKey != "" {
-		mpw.game.combat.detonateFlask(mpw.MagicProjectile, mpw.impactX, mpw.impactY)
-		return
-	}
-	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType, nil)
+	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType, monsterVisualAnchor{})
 	if mpw.game.combat != nil {
 		mpw.game.combat.burstSpellShot(mpw.MagicProjectile, mpw.impactX, mpw.impactY, nil)
 	}
@@ -3752,7 +3732,7 @@ func (aw *ArrowWrapper) ApplyCollisionEffects() {
 	// Staff/book bolt -> magical burst on wall/terrain impact, not an arrow puff
 	// (shares the monster-hit decision so the staff never "explodes like an arrow").
 	def, _ := config.GetWeaponDefinition(aw.Arrow.BowKey)
-	aw.game.spawnWeaponBoltImpact(aw.impactX, aw.impactY, def, SpellParticleCount, SpellParticleSize, nil)
+	aw.game.spawnWeaponBoltImpact(aw.impactX, aw.impactY, def, SpellParticleCount, SpellParticleSize, monsterVisualAnchor{})
 }
 
 func (aw *ArrowWrapper) GetLifetime() int {

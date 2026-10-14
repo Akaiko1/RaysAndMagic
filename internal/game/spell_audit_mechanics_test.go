@@ -207,7 +207,7 @@ func TestBookHealTargets(t *testing.T) {
 					x, y = left+tc.pointer*w+w/2, top+h/2
 				}
 				rawCursorPosition = func() (int, int) { return x, y }
-				if fired, _ := NewInputHandler(g).castSlottedSpellResolved(g.party.Members[0]); !fired {
+				if fired, _ := NewInputHandler(g).useSlottedActionResolved(g.party.Members[0]); !fired {
 					t.Fatal("F cast refused")
 				}
 			}
@@ -239,7 +239,7 @@ func TestTownPortalChargesOnConfirm(t *testing.T) {
 					ih := NewInputHandler(g)
 					switch entry {
 					case "quick":
-						ih.castSlottedSpell(caster)
+						ih.useSlottedAction(caster)
 					case "book":
 						g.menuOpen, g.currentTab = true, TabSpellbook
 						schools := spellbookSchoolsWithSpells(caster)
@@ -264,7 +264,7 @@ func TestTownPortalChargesOnConfirm(t *testing.T) {
 						return
 					}
 					g.confirmTownPortal("other")
-					if caster.SpellPoints != 100-g.combat.effectiveSpellCost(caster, def.SpellPointsCost) {
+					if caster.SpellPoints != 100-caster.MeditatedSPCost(def.SpellPointsCost) {
 						t.Fatalf("confirm paid %d SP", 100-caster.SpellPoints)
 					}
 					if tb && caster.ActionsRemaining != 0 {
@@ -344,7 +344,7 @@ func TestZoneTicksMeetArmorLikeProjectiles(t *testing.T) {
 				z := &PersistentDamageZone{SpellID: spell, FieldID: 1, X: 5 * ts, Y: 5 * ts, Radius: 2 * ts, FramesLeft: 60, TickDamage: 100}
 				g.combat.damageZoneMonsters(spell, []*PersistentDamageZone{z}, []*PersistentDamageZone{z})
 				bolt := &MagicProjectile{ID: "bolt", Active: true, LifeTime: 60, Damage: 100, SpellType: spell, Attacker: g.party.Members[0]}
-				g.combat.applyProjectileDamage(bolt, "magic_projectile", shot, bolt.ID)
+				g.combat.applyProjectileDamage(bolt, shot, bolt.ID)
 				if got := 10000 - bare.HitPoints; got != 100 {
 					t.Fatalf("unarmored tick %d, want 100", got)
 				}
@@ -365,7 +365,7 @@ func TestCooldownShowsQuickeningOnlyWhileActive(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			char := cs.game.party.Members[0]
 			if active {
-				cs.game.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 600, RecoveryPct: 20})
+				cs.game.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Frames: 600, RecoveryPct: 20})
 			}
 			card := GetSpellTooltipRows("fireball", char, cs, true).String()
 			if got := strings.Contains(card, "Quickening: -20% recovery"); got != active {

@@ -14,15 +14,26 @@ func TestCelestialArmorAbsorbsPeriodicDamageInBothModes(t *testing.T) {
 			for _, effect := range []struct {
 				name         string
 				poison, burn bool
-				damage       int
-			}{{"poison", true, false, 3}, {"burn", false, true, 9}, {"both", true, true, 12}} {
+			}{{"poison", true, false}, {"burn", false, true}, {"both", true, true}} {
+				// None, part, and more than the three seconds of DoT; a restored
+				// barrier keeps at most the spell's power.
 				for _, budget := range []int{0, 2, 20} {
 					t.Run(fmt.Sprintf("TB=%v/restored=%v/%s/budget=%d", tb, restored, effect.name, budget), func(t *testing.T) {
 						g := advancedSupportGame(t, tb)
 						castAdvancedSupport(t, g, "celestial_armor", 0, nil)
 						g.advancedBuff("celestial_armor").Absorb = budget
 						c := g.party.Members[1]
+						// A small pool, so the barrier can hold all three seconds.
+						const full = 100
+						c.HitPoints, c.MaxHitPoints = full, full
 						tps := g.config.GetTPS()
+						damage := 0
+						if effect.poison {
+							damage += 3 * heroDoTPerSecond("poison", c.MaxHitPoints)
+						}
+						if effect.burn {
+							damage += 3 * heroDoTPerSecond("burn", c.MaxHitPoints)
+						}
 						if effect.poison {
 							c.ApplyPoison(10 * tps)
 						}
@@ -52,7 +63,7 @@ func TestCelestialArmorAbsorbsPeriodicDamageInBothModes(t *testing.T) {
 							for range tps {
 								g.updatePartyClocks()
 							}
-							if c.HitPoints != 1000 {
+							if c.HitPoints != full {
 								t.Fatal("TB deliberation advanced periodic damage")
 							}
 							g.startPartyTurn()
@@ -62,15 +73,15 @@ func TestCelestialArmorAbsorbsPeriodicDamageInBothModes(t *testing.T) {
 								g.sweepLethalDoTVictims()
 							}
 						}
-						if want := 1000 - max(0, effect.damage-budget); c.HitPoints != want {
+						if want := full - max(0, damage-budget); c.HitPoints != want {
 							t.Fatalf("%s bypassed absorption: HP=%d, want %d", effect.name, c.HitPoints, want)
 						}
 						remaining := 0
 						if b := g.advancedBuff("celestial_armor"); b != nil {
 							remaining = b.Absorb
 						}
-						if remaining != max(0, budget-effect.damage) {
-							t.Fatalf("shared barrier=%d after %d periodic damage, initial=%d", remaining, effect.damage, budget)
+						if remaining != max(0, budget-damage) {
+							t.Fatalf("shared barrier=%d after %d periodic damage, initial=%d", remaining, damage, budget)
 						}
 						poisonPhase, burnPhase := c.DoTTickTimers()
 						if effect.poison && poisonPhase != tps/3 || effect.burn && burnPhase != tps/3 {
@@ -92,8 +103,10 @@ func TestCelestialArmorPeriodicPoolAndLethalOrdering(t *testing.T) {
 				g.advancedBuff("celestial_armor").Absorb = budget
 				castAdvancedSupport(t, g, "preservation", 0, nil)
 				tps := g.config.GetTPS()
+				// 100 max HP burns 3 a tick: budget 4 shields one hero and part of
+				// the next, 6 both.
 				for _, c := range g.party.Members[1:3] {
-					c.HitPoints = 1
+					c.HitPoints, c.MaxHitPoints = 1, 100
 					c.ApplyBurn(tps)
 					c.RestoreDoTTickTimers(0, 0)
 				}

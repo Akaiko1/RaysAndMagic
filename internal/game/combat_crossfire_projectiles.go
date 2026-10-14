@@ -25,7 +25,6 @@ func projectileSourceMonster(projectile interface{}) *monsterPkg.Monster3D {
 // riders, splash, ricochet, or armor-pierce inheritance.
 func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 	projectile interface{},
-	projectileType string,
 	target *monsterPkg.Monster3D,
 	entityID string,
 ) {
@@ -36,26 +35,24 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 	var parts damagecalc.Parts
 	var damageTypeStr string
 	var weaponDef *config.WeaponDefinitionConfig
-	switch projectileType {
-	case "magic_projectile":
-		mp, ok := projectile.(*MagicProjectile)
-		if !ok || !mp.Active || mp.LifeTime <= 0 || mp.Owner != ProjectileOwnerReflected {
+	switch shot := projectile.(type) {
+	case *MagicProjectile:
+		if !shot.Active || shot.LifeTime <= 0 || shot.Owner != ProjectileOwnerReflected {
 			return
 		}
-		mp.Active = false
-		parts = damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
-		damageTypeStr = spellDamageTypeStr(mp.SpellType)
+		shot.Active = false
+		parts = damagecalc.Parts{Normal: shot.Damage, True: shot.TrueDamage}
+		damageTypeStr = spellDamageTypeStr(shot.SpellType)
 		fxX, fxY := cs.monsterVisualPos(target)
-		cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType, target)
-	case "arrow":
-		ar, ok := projectile.(*Arrow)
-		if !ok || !ar.Active || ar.LifeTime <= 0 || ar.Owner != ProjectileOwnerReflected {
+		cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, shot.SpellType, visualAnchorFor(target))
+	case *Arrow:
+		if !shot.Active || shot.LifeTime <= 0 || shot.Owner != ProjectileOwnerReflected {
 			return
 		}
-		ar.Active = false
-		parts = damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
-		damageTypeStr = normalizeDamageTypeStr(ar.DamageType)
-		weaponDef = lookupWeaponConfigByKey(ar.BowKey)
+		shot.Active = false
+		parts = damagecalc.Parts{Normal: shot.Damage, True: shot.TrueDamage}
+		damageTypeStr = normalizeDamageTypeStr(shot.DamageType)
+		weaponDef = lookupWeaponConfigByKey(shot.BowKey)
 		cs.spawnRangedHitEffect(target, weaponDef, parts.Total())
 	default:
 		return
@@ -83,10 +80,10 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 }
 
 // resolveMonsterProjectileVsMonster applies a monster-fired projectile's hit to
-// another monster (bound undead <-> enemy crossfire). Damage is the projectile's
+// another monster (party ally <-> enemy crossfire). Damage is the projectile's
 // own; a kill is finalized like any other, so a fallen enemy or bound ally
 // rewards the party and a pure party summon gives nothing.
-func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}, pType string, target *monsterPkg.Monster3D, entityID string) {
+func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}, target *monsterPkg.Monster3D, entityID string) {
 	var parts damagecalc.Parts
 	var dmgTypeStr, spellFx, sourceName string
 	var disintegrateChance, aoeRadiusTiles float64
@@ -94,42 +91,40 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	var weaponDef *config.WeaponDefinitionConfig
 	var srcMonster *monsterPkg.Monster3D
 	var owner ProjectileOwner
-	switch pType {
-	case "magic_projectile":
-		mp := projectile.(*MagicProjectile)
-		if !mp.Active || mp.LifeTime <= 0 {
+	switch shot := projectile.(type) {
+	case *MagicProjectile:
+		if !shot.Active || shot.LifeTime <= 0 {
 			return
 		}
-		mp.Active = false
-		parts = damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}
-		sourceName, spellFx = mp.SourceName, mp.SpellType
-		disintegrateChance = mp.DisintegrateChance
-		grazesDodge = mp.GrazesDodge
-		srcMonster = mp.SourceMonster
-		owner = mp.Owner
-		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
+		shot.Active = false
+		parts = damagecalc.Parts{Normal: shot.Damage, True: shot.TrueDamage}
+		sourceName, spellFx = shot.SourceName, shot.SpellType
+		disintegrateChance = shot.DisintegrateChance
+		grazesDodge = shot.GrazesDodge
+		srcMonster = shot.SourceMonster
+		owner = shot.Owner
+		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(shot.SpellType))
 		dmgTypeStr = spellDef.DamageType()
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
-	case "arrow":
-		ar := projectile.(*Arrow)
-		if !ar.Active || ar.LifeTime <= 0 {
+	case *Arrow:
+		if !shot.Active || shot.LifeTime <= 0 {
 			return
 		}
-		ar.Active = false
-		parts = damagecalc.Parts{Normal: ar.Damage, True: ar.TrueDamage}
-		sourceName = ar.SourceName
-		disintegrateChance = ar.DisintegrateChance
-		grazesDodge = ar.GrazesDodge
-		dmgTypeStr = normalizeDamageTypeStr(ar.DamageType)
-		srcMonster = ar.SourceMonster
-		owner = ar.Owner
+		shot.Active = false
+		parts = damagecalc.Parts{Normal: shot.Damage, True: shot.TrueDamage}
+		sourceName = shot.SourceName
+		disintegrateChance = shot.DisintegrateChance
+		grazesDodge = shot.GrazesDodge
+		dmgTypeStr = normalizeDamageTypeStr(shot.DamageType)
+		srcMonster = shot.SourceMonster
+		owner = shot.Owner
 		// A weapon projectile carries its own AoE rider (a champion's archmage staff,
 		// Bow of Hellfire): read it so the impact splashes nearby monsters, matching
 		// the spell path above and the party-side splash.
-		if ar.BowKey != "" {
-			if wd, ok := config.GetWeaponDefinition(ar.BowKey); ok && wd != nil {
+		if shot.BowKey != "" {
+			if wd, ok := config.GetWeaponDefinition(shot.BowKey); ok && wd != nil {
 				weaponDef = wd
-				if !ar.SuppressAoE {
+				if !shot.SuppressAoE {
 					aoeRadiusTiles = wd.AoeRadiusTiles
 				}
 			}
@@ -149,7 +144,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	}
 	if spellFx != "" {
 		tx, ty := cs.monsterVisualPos(target) // banded/pulled: burst where the mob is DRAWN
-		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx, target)
+		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx, visualAnchorFor(target))
 	}
 
 	// kill finalizes a slain crossfire target through the same kill choke point as
@@ -269,7 +264,7 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(
 		return
 	}
 	hurts := source.CanAttackActor
-	if owner == ProjectileOwnerBoundUndead {
+	if owner == ProjectileOwnerPartyAlly {
 		hurts = cs.boundAllyCanDamageMonster
 	}
 	// An explosion cannot be Perfect-Dodged, but still uses the victim's armor,

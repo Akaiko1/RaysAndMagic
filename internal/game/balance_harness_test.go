@@ -192,7 +192,7 @@ func TestBalanceArenaStartsClean(t *testing.T) {
 		*b.active, *b.duration = true, 99
 	}
 	g.currentTurn, g.partyActionsUsed, g.partyPenaltyFreeActionsUsed, g.monsterTurnResolved = 1, 3, 1, true
-	g.spellInputCooldown, g.viewTurnFramesLeft = 30, 10
+	g.actionInputStagger, g.viewTurnFramesLeft = 30, 10
 
 	a.reset()
 	for _, b := range g.timedBuffs() {
@@ -201,9 +201,9 @@ func TestBalanceArenaStartsClean(t *testing.T) {
 			break
 		}
 	}
-	if len(g.world.Monsters) != 0 || g.combatBuffs != nil || g.statBuffs != nil || g.spellInputCooldown != 0 || g.viewTurnFramesLeft != 0 {
+	if len(g.world.Monsters) != 0 || g.combatBuffs != nil || g.statBuffs != nil || g.actionInputStagger != 0 || g.viewTurnFramesLeft != 0 {
 		t.Errorf("reset left monsters %d, combat buffs %v, stat buffs %v, cooldowns %d/%d",
-			len(g.world.Monsters), g.combatBuffs, g.statBuffs, g.spellInputCooldown, g.viewTurnFramesLeft)
+			len(g.world.Monsters), g.combatBuffs, g.statBuffs, g.actionInputStagger, g.viewTurnFramesLeft)
 	}
 	a.stage("classic", 15, []string{"goblin"})
 	if len(g.traps) != 0 || len(g.persistentDamageZones) != 0 {

@@ -345,6 +345,7 @@ func (ui *UISystem) drawAlchemyWorkbench(screen *ebiten.Image, c *character.MMCh
 }
 func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMCharacter, l rareBookLayout) {
 	g := ui.game
+	charIdx := g.selectedChar // the hero this book shows; the click runs in Update
 	if config.GlobalTechniques == nil || len(config.GlobalTechniques.Techniques) == 0 {
 		return
 	}
@@ -430,7 +431,7 @@ func (ui *UISystem) drawPilgrimTechniques(screen *ebiten.Image, c *character.MMC
 		ui.rareBookText(screen, d.Trigger, p.trigger)
 	}
 	half := (p.actions.w - 8) / 2
-	ui.rareBookButton(screen, layoutRect{p.actions.x, p.actions.y, half, p.actions.h}, fittingUIForm(half-6, "Equip quick action", "Equip"), c.Level >= d.Level, func() { c.Equipment[items.SlotSpell] = it })
+	ui.rareBookButton(screen, layoutRect{p.actions.x, p.actions.y, half, p.actions.h}, fittingUIForm(half-6, "Equip quick action", "Equip"), c.Level >= d.Level, func() { g.bindQuickAction(charIdx, it) })
 	ui.rareBookButton(screen, layoutRect{p.actions.x + half + 8, p.actions.y, p.actions.w - half - 8, p.actions.h}, fittingUIForm(p.actions.w-half-14, "Use technique", "Use"), c.Level >= d.Level, func() { g.useTechniqueFromBook(d.Key) })
 	if p.message.h > 0 {
 		ui.rareBookText(screen, message, p.message)

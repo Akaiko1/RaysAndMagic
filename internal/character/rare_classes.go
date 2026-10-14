@@ -16,7 +16,7 @@ type RareClassState struct {
 	FlowDistance float64         `json:"flow_distance,omitempty"`
 	KitGranted   bool            `json:"kit_granted,omitempty"`
 	Automatic    map[string]bool `json:"automatic,omitempty"`
-	AutoFrames   int             `json:"auto_frames,omitempty"` // Legacy input, migrated to SpellState on load.
+	AutoFrames   int             `json:"auto_frames,omitempty"` // Legacy input, migrated to MMCharacter.AutocastFrames on load.
 	FlowFrames   int             `json:"flow_frames,omitempty"` // Legacy save field; migrated to one persistent charge on load.
 	FlowCharges  int             `json:"flow_charges,omitempty"`
 	Anchor       SpatialAnchor   `json:"anchor,omitempty"`

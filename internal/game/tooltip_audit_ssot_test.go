@@ -68,7 +68,7 @@ func TestTooltip_SpellCardRules(t *testing.T) {
 			setup: func(c *character.MMCharacter) {
 				c.Skills[character.SkillMeditation] = &character.Skill{Mastery: character.MasteryGrandMaster}
 			},
-			want: []string{"Base Cost:", fmt.Sprintf("Meditation - Grandmaster: -%d%%", MeditationGMSpellCostReductionPct)},
+			want: []string{"Base Cost:", fmt.Sprintf("Meditation - Grandmaster: -%d%%", MeditationGMSPCostReductionPct)},
 		},
 		{name: "no Meditation keeps one cost row", spell: "fireball", absent: []string{"Base Cost:", "Meditation -"}},
 	} {

@@ -29,8 +29,8 @@ func TestRareFlaskImpactLifecycle(t *testing.T) {
 					if !g.throwFlask(0, key, false) {
 						t.Fatal("throw failed")
 					}
-					p := &g.magicProjectiles[0]
-					w := MagicProjectileWrapper{MagicProjectile: p, game: g, collisionSystem: g.collisionSystem, projectileID: p.ID}
+					p := &g.flasks[0]
+					w := FlaskProjectileWrapper{Flask: p, game: g, collisionSystem: g.collisionSystem}
 					distance := p.Launch.distance / 2
 					if hit == "range" {
 						distance = p.Launch.distance
@@ -38,17 +38,18 @@ func TestRareFlaskImpactLifecycle(t *testing.T) {
 					x, y := g.camera.X+distance, g.camera.Y
 					m := zoneVictim(t, g)
 					m.X, m.Y, m.ArmorClass = x, y, 0
+					g.collisionSystem.UpdateEntity(m.ID, x, y)
 					hp := m.HitPoints
 					w.SetPosition(x, y)
 					if hit == "body" {
-						g.combat.applyProjectileDamage(p, "magic_projectile", m, p.ID)
+						g.combat.CheckProjectileMonsterCollisions()
 					} else {
 						if hit == "wall" {
 							w.OnCollision(x, y)
 						}
 						w.ApplyCollisionEffects()
 					}
-					assertFlaskTileFootprint(t, g, x, y, p.FlaskRadius)
+					assertFlaskTileFootprint(t, g, x, y, p.Radius)
 					if hp-m.HitPoints != p.Damage {
 						t.Fatalf("damage=%d want=%d", hp-m.HitPoints, p.Damage)
 					}
@@ -125,7 +126,7 @@ func TestRareFlaskRetunedGroundFootprint(t *testing.T) {
 					if !g.throwFlask(0, key, false) {
 						t.Fatal("throw failed")
 					}
-					p := &g.magicProjectiles[0]
+					p := &g.flasks[0]
 					tile := float64(g.config.GetTileSize())
 					x, y := g.camera.X+(3+offset)*tile, g.camera.Y+offset*tile
 					g.combat.detonateFlask(p, x, y)
@@ -148,7 +149,7 @@ func TestRareFlaskGroundVisibility(t *testing.T) {
 			d, _ := config.GetItemDefinition(key)
 			tile := float64(g.config.GetTileSize())
 			x, y := g.camera.X+4*tile, g.camera.Y
-			p := &MagicProjectile{FlaskRadius: 2 * tile, FlaskPoisonFrames: d.Flask.PoisonSeconds[0], FlaskBurnFrames: d.Flask.BurnSeconds[0]}
+			p := &FlaskProjectile{Radius: 2 * tile, PoisonFrames: d.Flask.PoisonSeconds[0], BurnFrames: d.Flask.BurnSeconds[0]}
 			g.createFlaskImpact(p, x, y, d.BrewColor)
 			initial := g.spellHitEffects[0]
 			initial.Particles = append([]SpellHitParticle(nil), initial.Particles...)
@@ -216,7 +217,7 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 						} else {
 							g.tickRareClassClocks(fold.ReuseSeconds * g.config.GetTPS())
 						}
-						g.spellInputCooldown = 0
+						g.actionInputStagger = 0
 					}
 					for hop := 0; hop < 3; hop++ {
 						if hop > 0 {
@@ -225,7 +226,7 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 						c.ActionsRemaining = 0
 						c.RTCooldown = 123
 						it, _ := config.TechniqueItem("fold_step")
-						c.Equipment[items.SlotSpell] = it
+						c.Equipment[items.SlotQuickAction] = it
 						rareInputCast(g, NewInputHandler(g), tb)
 						if math.Abs(g.camera.X-x-float64((hop+1)*tiles)*ts) > .01 || c.ActionsRemaining != 0 || c.RTCooldown != 123 {
 							t.Fatal("equipped F step did not use mastery range for free")
@@ -401,7 +402,7 @@ func TestRarePathfindingPartyAndRunning(t *testing.T) {
 					ih.pendingRepeat = rtActWeapon
 					ih.performPendingRepeat()
 				case "held_cast":
-					ih.pendingRepeat = rtActCast
+					ih.pendingRepeat = rtActSlotted
 					ih.performPendingRepeat()
 				case "mouse":
 					m := zoneVictim(t, g)

@@ -346,12 +346,13 @@ func TestSmartAttack_MonkSkipsOffensiveQuickSpellForWeaponAttack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup: CreateSpellItem(mind_blast): %v", err)
 	}
-	member.Equipment[items.SlotSpell] = spellItem
+	member.Equipment[items.SlotQuickAction] = spellItem
 	member.SpellPoints, member.MaxSpellPoints = 50, 50
 	g.selectedChar = 0
 	g.world.Monsters = nil
 
-	acted, spellID := cs.SmartAttack()
+	action := cs.SmartAttack()
+	acted, spellID := action.Acted, action.Spell
 	if !acted {
 		t.Fatal("monk smart attack should swing fists when no heal is needed")
 	}
@@ -412,7 +413,7 @@ func TestSpiritualTrainingFreeOffensiveProcOnly(t *testing.T) {
 			if err != nil {
 				t.Fatalf("setup: CreateSpellItem(%s): %v", tc.spell, err)
 			}
-			member.Equipment[items.SlotSpell] = spellItem
+			member.Equipment[items.SlotQuickAction] = spellItem
 			member.SpellPoints, member.MaxSpellPoints = 20, 20
 			g.selectedChar = 0
 
@@ -451,7 +452,7 @@ func TestSpiritualTrainingRollsOnAttackActionWithoutMonsterHit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setup: CreateSpellItem(mind_blast): %v", err)
 	}
-	member.Equipment[items.SlotSpell] = spellItem
+	member.Equipment[items.SlotQuickAction] = spellItem
 	member.SpellPoints, member.MaxSpellPoints = 20, 20
 	g.selectedChar = 0
 	g.world.Monsters = nil
@@ -632,7 +633,7 @@ func TestSmartAttack_OffhandFallbackDoesNotCastPastMainCooldown(t *testing.T) {
 		t.Fatalf("setup: CreateSpellItem(firebolt): %v", err)
 	}
 	member.LearnSpell("firebolt")
-	member.Equipment[items.SlotSpell] = spellItem
+	member.Equipment[items.SlotQuickAction] = spellItem
 	member.SpellPoints, member.MaxSpellPoints = 99, 99
 	g.selectedChar = 0
 
@@ -642,7 +643,8 @@ func TestSmartAttack_OffhandFallbackDoesNotCastPastMainCooldown(t *testing.T) {
 		t.Fatal("an off-hand-ready dual-wielder should still qualify for Space")
 	}
 	projBefore := len(g.magicProjectiles)
-	acted, spellID := cs.SmartAttack()
+	action := cs.SmartAttack()
+	acted, spellID := action.Acted, action.Spell
 	if !acted {
 		t.Fatal("Space should swing the off-hand weapon")
 	}
@@ -655,7 +657,7 @@ func TestSmartAttack_OffhandFallbackDoesNotCastPastMainCooldown(t *testing.T) {
 
 	// Sanity: once the main hand is ready, Space DOES cast the equipped spell.
 	member.RTCooldown = 0
-	if _, spellID := cs.SmartAttack(); spellID == "" {
+	if cs.SmartAttack().Spell == "" {
 		t.Error("with the main hand ready, Space should cast the equipped offensive spell")
 	}
 }

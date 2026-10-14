@@ -9,7 +9,6 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
-	"ugataima/internal/spells"
 )
 
 func TestFileRestoreReplacesTimelineInDependencyOrder(t *testing.T) {
@@ -43,7 +42,7 @@ func TestFileRestoreReplacesTimelineInDependencyOrder(t *testing.T) {
 				g.questSpawnsDone = map[string]bool{"previous_spawn": true}
 				g.waterBreathingActive, g.waterBreathingDuration = false, 0
 				g.statBuffs = nil
-				g.utilitySpellStatuses = nil
+				g.buffStatuses = nil
 				g.turnBasedMonsterStunned = nil
 				g.camera.X = 2.5 * ts
 				g.arrows = []Arrow{{ID: "previous_projectile", Active: true}}
@@ -53,7 +52,7 @@ func TestFileRestoreReplacesTimelineInDependencyOrder(t *testing.T) {
 				if !reflect.DeepEqual(g.dialogState, dialogState{dialogLastClickedIdx: -1}) || !reflect.DeepEqual(g.menuState, menuState{saveRenameSlot: -1, audioSliderDrag: -1}) {
 					t.Fatal("file load retained the previous UI owners")
 				}
-				if !g.waterBreathingActive || g.waterBreathingDuration != 123 || len(g.statBuffs) != 1 || g.statBuffs[0].Frames != 91 || g.utilitySpellStatuses[spells.SpellID("bless")] == nil {
+				if !g.waterBreathingActive || g.waterBreathingDuration != 123 || len(g.statBuffs) != 1 || g.statBuffs[0].Frames != 91 || g.buffStatuses["bless"] == nil {
 					t.Fatal("restored effects and their presentation disagree before the first tick")
 				}
 				if len(g.world.Monsters) != 1 || len(g.turnBasedMonsterStunned) != 1 || !g.turnBasedMonsterStunned[g.world.Monsters[0]] || g.world.Monsters[0].ID != mob.ID {

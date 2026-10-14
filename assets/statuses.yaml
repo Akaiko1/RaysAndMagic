@@ -6,7 +6,7 @@
 # - party / monsters: what the status does to each side; leave one out when the
 #   status never reaches that side. rule: a mechanic both sides share.
 # - {field} in a text is replaced by this row's number of that name, or by a
-#   derived value (party_damage_per_round, repeat_reset_rounds, recovery_percent,
+#   derived value (percent_per_round, repeat_reset_rounds, recovery_percent,
 #   action_percent, armor_cap_percent, duration), so a text cannot drift from
 #   the mechanic it describes.
 #
@@ -19,21 +19,19 @@ statuses:
   poison:
     name: "Poisoned"
     short: "Poison"
-    party_damage_per_second: 1
-    monster_percent_per_second: 1
-    monster_minimum_damage: 1
-    party: "Loses {party_damage_per_second} HP per second ({party_damage_per_round} per TB turn)."
-    monsters: "Loses {monster_percent_per_second}% of max HP per second, at least {monster_minimum_damage}. Undead are immune."
+    percent_per_second: 1
+    minimum_damage: 1
+    party: "Loses {percent_per_second}% of max HP per second, at least {minimum_damage} ({percent_per_round}% per TB turn, at least {minimum_per_round})."
+    monsters: "Loses {percent_per_second}% of max HP per second, at least {minimum_damage}. Undead are immune."
 
   burn:
     name: "Burning"
     short: "Burn"
-    party_damage_per_second: 3
-    monster_percent_per_second: 3
+    percent_per_second: 3
     boss_percent_per_second: 1
-    monster_minimum_damage: 3
-    party: "Loses {party_damage_per_second} HP per second ({party_damage_per_round} per TB turn); stacks with poison."
-    monsters: "Loses {monster_percent_per_second}% of max HP per second ({boss_percent_per_second}% for bosses), at least {monster_minimum_damage}."
+    minimum_damage: 3
+    party: "Loses {percent_per_second}% of max HP per second, at least {minimum_damage} ({percent_per_round}% per TB turn, at least {minimum_per_round}); stacks with poison."
+    monsters: "Loses {percent_per_second}% of max HP per second ({boss_percent_per_second}% for bosses), at least {minimum_damage}."
 
   stun:
     name: "Stunned"

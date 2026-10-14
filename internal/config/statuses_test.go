@@ -26,7 +26,7 @@ func TestStatusTableRejectsBrokenRows(t *testing.T) {
 		{"shipped table", "", func(map[string]map[string]any) {}},
 		{"missing row", `"poison" is missing`, func(r map[string]map[string]any) { delete(r, "poison") }},
 		{"unknown row", `unknown status "frozen"`, func(r map[string]map[string]any) { r["frozen"] = map[string]any{"name": "Frozen", "monsters": "x"} }},
-		{"missing number", "monster_minimum_damage is required", func(r map[string]map[string]any) { delete(r["burn"], "monster_minimum_damage") }},
+		{"missing number", "minimum_damage is required", func(r map[string]map[string]any) { delete(r["burn"], "minimum_damage") }},
 		{"stray number", "seconds is not read", func(r map[string]map[string]any) { r["root"]["seconds"] = 3 }},
 		{"unknown placeholder", "{nope} has no value", func(r map[string]map[string]any) { r["root"]["party"] = "Pinned for {nope}." }},
 		{"side mismatch", "must match the sides", func(r map[string]map[string]any) { delete(r["weaken"], "monsters") }},
@@ -36,9 +36,9 @@ func TestStatusTableRejectsBrokenRows(t *testing.T) {
 		{"slow skips every turn", "skip_every_turns 1 must be 2..100", func(r map[string]map[string]any) { r["slow"]["skip_every_turns"] = 1 }},
 		{"repeats never fail", "run from 100 down to 0", func(r map[string]map[string]any) { r["stun"]["repeat_percents"] = []int{100, 50} }},
 		{"repeats grow", "must never grow", func(r map[string]map[string]any) { r["stun"]["repeat_percents"] = []int{100, 200, 25, 0} }},
-		{"burn heals", "monster_percent_per_second -3 must be 1..100", func(r map[string]map[string]any) { r["burn"]["monster_percent_per_second"] = -3 }},
+		{"burn heals", "percent_per_second -3 must be 1..100", func(r map[string]map[string]any) { r["burn"]["percent_per_second"] = -3 }},
 		{"boss burn over a whole bar", "boss_percent_per_second 101 must be 1..100", func(r map[string]map[string]any) { r["burn"]["boss_percent_per_second"] = 101 }},
-		{"poison heals heroes", "party_damage_per_second -1 must be 1..1000", func(r map[string]map[string]any) { r["poison"]["party_damage_per_second"] = -1 }},
+		{"poison floor heals", "minimum_damage -1 must be 1..1000", func(r map[string]map[string]any) { r["poison"]["minimum_damage"] = -1 }},
 		{"slow stops the party", "hinder_percent 100 must be 1..99", func(r map[string]map[string]any) { r["slow"]["hinder_percent"] = 100 }},
 		{"unknown field", "field speed not found", func(r map[string]map[string]any) { r["slow"]["speed"] = 3 }},
 	} {
@@ -83,7 +83,7 @@ func TestStatusTextsStateTheirNumbers(t *testing.T) {
 	poison, slow, melt := Status("poison"), Status("slow"), Status("armor_melt")
 	p := slow.HinderPercent
 	for _, tc := range []struct{ got, want string }{
-		{poison.PartyText(), fmt.Sprintf("Loses %d HP per second (%d per TB turn).", poison.PartyDamagePerSecond, poison.PartyDamagePerSecond*CombatRoundSeconds)},
+		{poison.PartyText(), fmt.Sprintf("Loses %d%% of max HP per second, at least %d (%d%% per TB turn, at least %d).", poison.PercentPerSecond, poison.MinimumDamage, poison.PercentPerSecond*CombatRoundSeconds, poison.MinimumDamage*CombatRoundSeconds)},
 		{slow.MonsterText(), fmt.Sprintf("loses one turn in every %d", slow.SkipEveryTurns)},
 		{slow.PartyText(), fmt.Sprintf("Moves %d%% slower and recovers %d%% slower", p, int(math.Round(100*float64(p)/float64(100-p))))},
 		{melt.RuleText(), fmt.Sprintf("Lasts %ds / %d TB turns.", melt.Seconds, melt.Seconds/CombatRoundSeconds)},

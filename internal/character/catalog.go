@@ -33,8 +33,8 @@ const (
 	MasteryArmorACPerLevel = 2
 	// ArmorGMDodgeBonus: extra Perfect-Dodge % per GM-mastered armor type worn.
 	ArmorGMDodgeBonus = 5
-	// MeditationGMSpellCostReductionPct: a GM meditator pays this % less SP per spell.
-	MeditationGMSpellCostReductionPct = 25
+	// MeditationGMSPCostReductionPct: a GM meditator pays this % less SP for spells, traps and techniques.
+	MeditationGMSPCostReductionPct = 25
 	// LearningXPPctPerTier: +% experience this character gains per Learning tier.
 	LearningXPPctPerTier = 10
 	// LearningGMPartyXPPct: a GM "teacher" grants this extra % XP to the whole party.
@@ -433,7 +433,7 @@ func (s SkillType) grandmasterDescription() string {
 	case SkillBodybuilding:
 		return uitext.Text("skill.bodybuilding_grandmaster", BodybuildingGMMaxHPPct)
 	case SkillMeditation:
-		return uitext.Text("skill.meditation_grandmaster", MeditationGMSpellCostReductionPct)
+		return uitext.Text("skill.meditation_grandmaster", MeditationGMSPCostReductionPct)
 	case SkillLearning:
 		return uitext.Text("skill.learning_grandmaster", LearningGMPartyXPPct)
 	case SkillArmsMaster:

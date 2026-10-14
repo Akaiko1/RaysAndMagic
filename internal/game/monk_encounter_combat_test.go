@@ -210,8 +210,8 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 						}
 					} else {
 						target := &monster.Monster3D{ID: "victim", Name: "Victim", HitPoints: 100, MaxHitPoints: 100}
-						p.Owner = ProjectileOwnerMonsterAtBound
-						cs.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
+						p.Owner = ProjectileOwnerMonsterAtActor
+						cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
 						if (target.StunFramesRemaining > 0) != (!champion || spell == "lightning") {
 							t.Fatalf("crossfire stun frames=%d", target.StunFramesRemaining)
 						}

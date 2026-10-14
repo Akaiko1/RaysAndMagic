@@ -93,17 +93,17 @@ func equipTrap(char *character.MMCharacter, key string) bool {
 		return false
 	}
 	it, _ := config.TrapItem(key)
-	char.Equipment[items.SlotSpell] = it
+	char.Equipment[items.SlotQuickAction] = it
 	return true
 }
 
 // equippedTrapKey returns the trap key armed in the quick slot, if any.
 func equippedTrapKey(char *character.MMCharacter) (string, bool) {
-	it, ok := char.Equipment[items.SlotSpell]
+	it, ok := char.Equipment[items.SlotQuickAction]
 	if !ok || it.Type != items.ItemTrap {
 		return "", false
 	}
-	return string(it.SpellEffect), true
+	return it.Trap, true
 }
 
 // availableTraps returns the trap keys the character can use, in book order.
@@ -155,7 +155,7 @@ func (cs *CombatSystem) trapRefusal(caster *character.MMCharacter, def *config.T
 	if caster.Level < def.Level {
 		return fmt.Sprintf("%s needs level %d for %s.", caster.Name, def.Level, def.Name)
 	}
-	if spCost := cs.effectiveSpellCost(caster, def.SPCost); caster.SpellPoints < spCost {
+	if spCost := caster.MeditatedSPCost(def.SPCost); caster.SpellPoints < spCost {
 		return fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)", caster.Name, def.Name, caster.SpellPoints, spCost)
 	}
 	if cs.game.ownerTrapCount(caster) >= MaxTrapsPerOwner {
@@ -183,7 +183,7 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 	if msg := cs.trapRefusal(caster, def); msg != "" {
 		return refuse(msg)
 	}
-	spCost := cs.effectiveSpellCost(caster, def.SPCost)
+	spCost := caster.MeditatedSPCost(def.SPCost)
 
 	tileX, tileY, ok := cs.pickTrapTile()
 	if !ok {

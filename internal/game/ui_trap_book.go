@@ -91,10 +91,7 @@ func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int,
 		drawCenteredUIText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
 	}
 
-	cost := def.SPCost
-	if ui.game.combat != nil {
-		cost = ui.game.combat.effectiveSpellCost(char, def.SPCost)
-	}
+	cost := char.MeditatedSPCost(def.SPCost)
 	// The selection glow extends below the icon; labels draw over it.
 	armed, equipped := equippedTrapKey(char)
 	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},

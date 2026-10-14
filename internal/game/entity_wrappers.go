@@ -77,7 +77,7 @@ func (g *MMGame) ConvertProjectilesToWrappers() []entities.ProjectileUpdateInter
 	g.reusableProjectileWrappers = g.reusableProjectileWrappers[:0]
 
 	// Ensure capacity is sufficient
-	totalCount := len(g.magicProjectiles) + len(g.arrows)
+	totalCount := g.projectileCount()
 	if cap(g.reusableProjectileWrappers) < totalCount {
 		g.reusableProjectileWrappers = make([]entities.ProjectileUpdateInterface, 0, totalCount)
 	}
@@ -86,6 +86,10 @@ func (g *MMGame) ConvertProjectilesToWrappers() []entities.ProjectileUpdateInter
 	for i := range g.magicProjectiles {
 		g.reusableProjectileWrappers = append(g.reusableProjectileWrappers,
 			CreateMagicProjectileWrapper(&g.magicProjectiles[i], g.collisionSystem, g.magicProjectiles[i].ID, g))
+	}
+
+	for i := range g.flasks {
+		g.reusableProjectileWrappers = append(g.reusableProjectileWrappers, createFlaskWrapper(&g.flasks[i], g.collisionSystem, g))
 	}
 
 	// Convert arrows
@@ -135,37 +139,76 @@ func recycleProjectileWrapper(wrapper entities.ProjectileUpdateInterface) {
 		magicProjectileWrapperPool.Put(w)
 	case *ArrowWrapper:
 		arrowWrapperPool.Put(w)
+	case *FlaskProjectileWrapper:
+		flaskWrapperPool.Put(w)
 	}
 }
 
-// RemoveInactiveEntities removes inactive projectiles from slices using in-place filtering
-// This avoids allocating new slices each frame to reduce GC pressure
+// RemoveInactiveEntities drops landed and expired shots of every family in
+// place (no per-frame allocation) with their collision entities.
 func (g *MMGame) RemoveInactiveEntities() {
-	// Remove inactive magic projectiles using in-place filtering
-	writeIdx := 0
-	for readIdx := range g.magicProjectiles {
-		if g.magicProjectiles[readIdx].Active && g.magicProjectiles[readIdx].LifeTime > 0 {
-			if writeIdx != readIdx {
-				g.magicProjectiles[writeIdx] = g.magicProjectiles[readIdx]
-			}
-			writeIdx++
-		} else {
-			g.collisionSystem.UnregisterEntity(g.magicProjectiles[readIdx].ID)
-		}
-	}
-	g.magicProjectiles = g.magicProjectiles[:writeIdx]
+	g.magicProjectiles = keepFlying(g.collisionSystem, g.magicProjectiles)
+	g.arrows = keepFlying(g.collisionSystem, g.arrows)
+	g.flasks = keepFlying(g.collisionSystem, g.flasks)
+}
 
-	// Remove inactive arrows using in-place filtering
-	writeIdx = 0
-	for readIdx := range g.arrows {
-		if g.arrows[readIdx].Active && g.arrows[readIdx].LifeTime > 0 {
-			if writeIdx != readIdx {
-				g.arrows[writeIdx] = g.arrows[readIdx]
+// projectileCount is every shot in flight: spells, arrows and flasks.
+func (g *MMGame) projectileCount() int {
+	return len(g.magicProjectiles) + len(g.arrows) + len(g.flasks)
+}
+
+// clearProjectiles drops every shot in flight with its collision entity.
+// switchToMap keeps the collision system, so stale entities must go.
+func (g *MMGame) clearProjectiles() {
+	g.magicProjectiles = dropShots(g.collisionSystem, g.magicProjectiles)
+	g.arrows = dropShots(g.collisionSystem, g.arrows)
+	g.flasks = dropShots(g.collisionSystem, g.flasks)
+}
+
+// inFlight is the lifecycle view every projectile family shares.
+type inFlight interface {
+	collisionID() string
+	flying() bool
+}
+
+func (p *MagicProjectile) collisionID() string { return p.ID }
+func (p *MagicProjectile) flying() bool        { return p.Active && p.LifeTime > 0 }
+func (p *Arrow) collisionID() string           { return p.ID }
+func (p *Arrow) flying() bool                  { return p.Active && p.LifeTime > 0 }
+func (p *FlaskProjectile) collisionID() string { return p.ID }
+func (p *FlaskProjectile) flying() bool        { return p.Active && p.LifeTime > 0 }
+
+// keepFlying filters shots in place, unregistering each one that landed or
+// expired.
+func keepFlying[T any, P interface {
+	*T
+	inFlight
+}](cs *collision.CollisionSystem, shots []T) []T {
+	kept := 0
+	for i := range shots {
+		if P(&shots[i]).flying() {
+			if kept != i {
+				shots[kept] = shots[i]
 			}
-			writeIdx++
-		} else {
-			g.collisionSystem.UnregisterEntity(g.arrows[readIdx].ID)
+			kept++
+		} else if cs != nil {
+			cs.UnregisterEntity(P(&shots[i]).collisionID())
 		}
 	}
-	g.arrows = g.arrows[:writeIdx]
+	clear(shots[kept:]) // the spare capacity holds no stale actors
+	return shots[:kept]
+}
+
+// dropShots unregisters every shot and empties the slice, keeping its capacity.
+func dropShots[T any, P interface {
+	*T
+	inFlight
+}](cs *collision.CollisionSystem, shots []T) []T {
+	if cs != nil {
+		for i := range shots {
+			cs.UnregisterEntity(P(&shots[i]).collisionID())
+		}
+	}
+	clear(shots)
+	return shots[:0]
 }

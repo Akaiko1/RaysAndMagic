@@ -325,8 +325,8 @@ func TestAuthoredProjectileStunPreserved(t *testing.T) {
 					frames, turns = c.StunFramesRemaining, c.StunTurnsRemaining
 				} else {
 					target := &monster.Monster3D{ID: "target", Name: "Target", HitPoints: 10000, MaxHitPoints: 10000}
-					p.Owner = ProjectileOwnerMonsterAtBound
-					cs.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
+					p.Owner = ProjectileOwnerMonsterAtActor
+					cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
 					frames, turns = target.StunFramesRemaining, target.StunTurnsRemaining
 				}
 				if frames != rider.Seconds*g.config.GetTPS() || turns != config.CombatRounds(rider.Seconds) {
@@ -357,9 +357,10 @@ func TestChampionSpellSplashDoesNotInheritWeaponStun(t *testing.T) {
 			g.party.Members = g.party.Members[:1]
 			c := g.party.Members[0]
 			c.HitPoints, c.MaxHitPoints = 10000, 10000
-			cs.spawnMonsterSpellProjectile(source, "fireball", target.X, target.Y, ProjectileOwnerMonsterAtBound)
+			c.Luck = 0 // no Perfect Dodge: the splash must land for its stun to show
+			cs.spawnMonsterSpellProjectile(source, "fireball", target.X, target.Y, ProjectileOwnerMonsterAtActor)
 			p := &g.magicProjectiles[0]
-			cs.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
+			cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
 			want := 0
 			if spellStun {
 				want = 3 * g.config.GetTPS()

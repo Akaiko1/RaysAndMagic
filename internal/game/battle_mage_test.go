@@ -292,7 +292,7 @@ func TestStrongMagicExchangeTable(t *testing.T) {
 		caster.Skills[character.SkillStrongMagic] = &character.Skill{Mastery: character.MasteryGrandMaster}
 		caster.HitPoints, caster.MaxHitPoints = 200, 200
 		caster.SpellPoints, caster.MaxSpellPoints = 100, 100
-		cost := cs.effectiveSpellCost(caster, rockBlast.SpellPointsCost)
+		cost := caster.MeditatedSPCost(rockBlast.SpellPointsCost)
 		if !cs.castResolvedSpell("rock_blast", rockBlast, caster, cost, false, false) {
 			t.Fatal("rock_blast cast failed")
 		}
@@ -368,7 +368,7 @@ func TestStrongMagicBoostsEveryCastForm(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s definition: %v", spellID, err)
 		}
-		cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+		cost := caster.MeditatedSPCost(def.SpellPointsCost)
 		if !cs.castResolvedSpell(spellID, def, caster, cost, false, false) {
 			t.Fatalf("%s cast failed", spellID)
 		}
@@ -458,7 +458,7 @@ func TestStrongMagicOutgoingBuffOrderTable(t *testing.T) {
 					Damage: parts.Normal, TrueDamage: parts.True, SpellType: "rock_blast", Attacker: caster,
 				}
 				before := mob.HitPoints
-				cs.applyProjectileDamage(projectile, "magic_projectile", mob, projectile.ID)
+				cs.applyProjectileDamage(projectile, mob, projectile.ID)
 				return formResult{got: before - mob.HitPoints, want: parts.Total() + flatBonus}
 			},
 		},
@@ -516,7 +516,7 @@ func TestStrongMagicOutgoingBuffOrderTable(t *testing.T) {
 			caster.Luck = 0
 			caster.Skills[character.SkillStrongMagic] = &character.Skill{Mastery: character.MasteryGrandMaster}
 			cs.game.combatBuffs = []TimedCombatBuff{{
-				SpellID: "test-outgoing-buff", Frames: 600,
+				ID: "test-outgoing-buff", Frames: 600,
 				OutBonus: flatBonus, OutDamageType: "all",
 			}}
 			mob := mkTestMonster("Target", 10000)
@@ -552,7 +552,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s definition: %v", spellID, err)
 		}
-		return cs.castResolvedSpell(spellID, def, caster, cs.effectiveSpellCost(caster, def.SpellPointsCost), false, false)
+		return cs.castResolvedSpell(spellID, def, caster, caster.MeditatedSPCost(def.SpellPointsCost), false, false)
 	}
 
 	t.Run("confirmed firewall burns HP", func(t *testing.T) {
@@ -647,7 +647,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		caster := gmCaster(cs)
 		cs.game.combatBuffs = []TimedCombatBuff{{
-			SpellID: "test-outgoing-buff", Frames: 600,
+			ID: "test-outgoing-buff", Frames: 600,
 			OutBonus: 7, OutDamageType: "all",
 		}}
 		for _, tc := range []struct {
@@ -690,7 +690,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		caster := gmCaster(cs)
 		cs.game.combatBuffs = []TimedCombatBuff{{
-			SpellID: "test-outgoing-buff", Frames: 600,
+			ID: "test-outgoing-buff", Frames: 600,
 			OutBonus: 7, OutDamageType: "all",
 		}}
 		lines := buildSpellComparisonRowsByID("rock_blast", "firebolt", caster, cs).Lines()
@@ -741,7 +741,7 @@ func TestStrongMagicSpellCardStatesHPCost(t *testing.T) {
 				}
 				caster.HitPoints, caster.MaxHitPoints = 500, 500
 				caster.SpellPoints, caster.MaxSpellPoints = 500, 500
-				cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+				cost := caster.MeditatedSPCost(def.SpellPointsCost)
 				want := character.StrongMagicHPCost(cost, strongMagicPct(caster, def))
 				card := GetSpellTooltipRows(key, caster, cs, false).String()
 				shown := strings.Contains(card, "Strong Magic: also burns")

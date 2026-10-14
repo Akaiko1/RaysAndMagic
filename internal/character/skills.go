@@ -434,3 +434,13 @@ func ArmorSkillForCategory(category string) (SkillType, bool) {
 	}
 	return t, true
 }
+
+// MeditatedSPCost is the SP a spell, trap or technique costs this caster: a
+// Grandmaster meditator pays MeditationGMSPCostReductionPct less, rounded to
+// the nearest SP so a cheap action never becomes free.
+func (c *MMCharacter) MeditatedSPCost(base int) int {
+	if c != nil && c.SkillTier(SkillMeditation) >= int(MasteryGrandMaster) {
+		return (base*(100-MeditationGMSPCostReductionPct) + 50) / 100
+	}
+	return base
+}

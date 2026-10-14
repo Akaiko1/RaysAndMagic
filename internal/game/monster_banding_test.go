@@ -378,7 +378,7 @@ func TestResolveMonsterProjectileVsMonster_ScattersVictimsBand(t *testing.T) {
 		ID: "crossfire-bolt", Active: true, LifeTime: 10,
 		Damage: 999, SourceName: "Bound Skeleton", DamageType: "physical",
 	}
-	game.combat.resolveMonsterProjectileVsMonster(ar, "arrow", victim, ar.ID)
+	game.combat.resolveMonsterProjectileVsMonster(ar, victim, ar.ID)
 
 	if victim.IsAlive() {
 		t.Fatal("setup: the bolt should have killed the victim")

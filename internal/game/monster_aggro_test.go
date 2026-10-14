@@ -159,9 +159,10 @@ func TestPursuitTemporaryRetaliation(t *testing.T) {
 					t.Fatal("the fight outlived the lapsed retaliation")
 				}
 				m.AttackCDFrames, m.OffHandCDFrames, m.PounceCDFrames, m.PounceCDTurns, m.PounceCDRate = 2, 3, 4, 2, 2
+				m.PhaseShiftCDFrames, m.PhaseShiftCDTurns, m.PhaseShiftCDRate = 4, 2, 2
 				m.BossCD, m.InfernoCDFrames, m.TrapVolleyCDFrames, m.TrapVolleyTurnCD, m.TrapVolleyCDRate = 2, 2, 4, 2, 2
 				g.combat.HandleMonsterInteractions()
-				if m.AttackCDFrames != 1 || m.OffHandCDFrames != 2 || m.PounceCDFrames != 3 {
+				if m.AttackCDFrames != 1 || m.OffHandCDFrames != 2 || m.PounceCDFrames != 3 || m.PhaseShiftCDFrames != 3 {
 					t.Fatal("calm monster froze its attack recovery")
 				}
 				if boss && (m.BossCD != 1 || m.InfernoCDFrames != 1 || m.TrapVolleyCDFrames != 3 || len(g.bossFireTraps) != 0) {

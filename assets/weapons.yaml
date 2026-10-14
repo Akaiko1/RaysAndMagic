@@ -337,7 +337,7 @@ weapons:
     damage: 9
     range: 6  # ranged: hurls a magic bolt
     bonus_stat: "Intellect"
-    damage_type: "air"  # real magic type: ignores armor, meets Air resistance (no arrow armor-pierce)
+    damage_type: "air"  # real magic type: elemental armor curve, meets Air resistance (no arrow armor-pierce)
     crit_chance: 10
     rarity: "common"
     value: 90
@@ -519,7 +519,7 @@ weapons:
     damage: 15
     range: 6  # ranged: hurls a magic bolt
     bonus_stat: "Intellect"
-    damage_type: "air"  # real magic type: ignores armor, meets Air resistance (no arrow armor-pierce)
+    damage_type: "air"  # real magic type: elemental armor curve, meets Air resistance (no arrow armor-pierce)
     crit_chance: 12
     rarity: "uncommon"
     value: 160

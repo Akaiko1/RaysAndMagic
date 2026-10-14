@@ -403,7 +403,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 		if m.AttackCDFrames == 0 {
 			m.AttackCDFrames = m.AttackCooldownFrames()
 			cs.game.armMonsterAttackAnimation(m)
-			cs.performMonsterAttackAgainstMonster(m, foe, ProjectileOwnerMonsterAtBound)
+			cs.performMonsterAttackAgainstMonster(m, foe, ProjectileOwnerMonsterAtActor)
 		}
 		return true
 	}

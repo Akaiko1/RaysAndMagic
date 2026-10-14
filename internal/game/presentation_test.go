@@ -34,7 +34,7 @@ func TestPresentationEntryPoints(t *testing.T) {
 			g.slashEffects = []SlashEffect{{Active: true, MaxFrames: 20}}
 			g.spellHitEffects = []SpellHitEffect{{Active: true, Particles: []SpellHitParticle{{Active: true, LifeTime: 20, MaxLife: 20}}}}
 			g.persistentDamageZones = []PersistentDamageZone{{SpellID: "hot_steam", MapKey: fxStageMapKey, FramesLeft: 50, IntervalFrames: 30}}
-			g.spellInputCooldown = 10
+			g.actionInputStagger = 10
 			projectileX := 5.5 * cfg.GetTileSize()
 			g.magicProjectiles = []MagicProjectile{{ID: "presentation-test", X: projectileX, Y: 8.5 * cfg.GetTileSize(), VelX: 1, LifeTime: 20, Active: true, SpellType: "firebolt", Owner: ProjectileOwnerPlayer}}
 			step := gl.updateExploration
@@ -119,7 +119,7 @@ func TestPresentationEntryPoints(t *testing.T) {
 			if got := g.persistentDamageZones[0].FramesLeft; got != 50-zoneTicks {
 				t.Errorf("zone lifetime=%d, want %d (one RT update)", got, 50-zoneTicks)
 			}
-			if g.spellInputCooldown != 10-worldTicks {
+			if g.actionInputStagger != 10-worldTicks {
 				t.Error("presentation changed gameplay cooldown pause rules")
 			}
 			if entry == "after_input" && g.combatLogOpen {

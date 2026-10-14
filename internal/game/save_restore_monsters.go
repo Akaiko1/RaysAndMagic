@@ -209,6 +209,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.PounceCDFrames = ms.PounceCDFrames
 				m.PounceCDTurns = ms.PounceCDTurns
 				m.PounceCDRate = ms.PounceCDRate
+				m.PhaseShiftCDFrames = ms.PhaseShiftCDFrames
+				m.PhaseShiftCDTurns = ms.PhaseShiftCDTurns
+				m.PhaseShiftCDRate = ms.PhaseShiftCDRate
 				m.TurnBasedSwingCarry = ms.TurnBasedSwingCarry
 				m.TurnBasedStepCarry = ms.TurnBasedStepCarry
 				m.BossCD = ms.BossCD
@@ -271,8 +274,8 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 			}
 			// Idol-ward immediately at restore. Unlike BossDormant (per-monster
 			// above), it's cross-monster - it counts the live idols on THIS map - so
-			// it must run after the loop. Same first-frame reason: refreshBoundUndead-
-			// Cache recomputes it every frame but runs AFTER input, so without this the
+			// it must run after the loop. Same first-frame reason: refreshMonsterAIState
+			// recomputes it every frame but runs AFTER input, so without this the
 			// warded boss would be hittable on the first frame after a load.
 			liveIdols := 0
 			for _, mm := range w.Monsters {

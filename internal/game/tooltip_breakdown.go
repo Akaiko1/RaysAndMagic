@@ -42,7 +42,7 @@ func spellAreaLines(def spells.SpellDefinition) []string {
 		}
 		if def.ZoneBurnSeconds > 0 {
 			lines = append(lines, fmt.Sprintf("Sets monsters it touches burning for %.0fs: %d%% of max HP per second (%d%% on bosses), ignoring fire resistance",
-				def.ZoneBurnSeconds, config.BurnPercent(false), config.BurnPercent(true)))
+				def.ZoneBurnSeconds, config.DoTPercent("burn", false), config.DoTPercent("burn", true)))
 		}
 		lines = append(lines, "A monster that walks in is hit at once")
 		lines = append(lines, fmt.Sprintf("RT: one tick every %.0fs", def.ZoneTickSeconds))
@@ -93,40 +93,56 @@ func addCooldownAdjustments(sec *ttSection, cs *CombatSystem, raw, clamped, tota
 
 // addCastingCost shows the SP a cast pays and returns it.
 func addCastingCost(sec *ttSection, base int, ch *character.MMCharacter, cs *CombatSystem) int {
-	cost := base
-	if cs != nil {
-		cost = cs.effectiveSpellCost(ch, base)
-	}
+	cost := ch.MeditatedSPCost(base)
 	if cost != base {
 		sec.AddDetail("Base Cost: %d SP", base)
-		sec.AddDetail("Meditation - Grandmaster: -%d%%", MeditationGMSpellCostReductionPct)
+		sec.AddDetail("Meditation - Grandmaster: -%d%%", MeditationGMSPCostReductionPct)
 	}
 	sec.Add("Cost: %d SP", cost)
 	return cost
 }
 
 func addSpellCooldown(sec *ttSection, id spells.SpellID, ch *character.MMCharacter, cs *CombatSystem) {
-	tb := "1 action"
 	def, err := spells.GetSpellDefinitionByID(id)
-	isSpell := err == nil
-	if isSpell {
-		tb = character.SpellTBCost(def)
+	if err != nil {
+		return
 	}
-	if ch == nil || cs == nil {
-		if base, ok := baseCastCooldownSeconds(id); ok && base > 0 {
+	tb := character.SpellTBCost(def)
+	if !def.HasRTCooldown() {
+		// Buffs have no personal RT cooldown; a TB cast still spends the action.
+		sec.Add("No RT cooldown - TB: %s", tb)
+		return
+	}
+	var cd *cooldownBreakdown
+	if ch != nil && cs != nil {
+		b := cs.spellCooldownBreakdown(ch, id)
+		cd = &b
+	}
+	addCooldownStages(sec, def.CooldownSeconds, tb, cd, cs)
+}
+
+// addActionCooldown is the recovery of a non-spell action (a trap): one TB
+// action, Speed-scaled in RT, no spell staff perk.
+func addActionCooldown(sec *ttSection, seconds float64, ch *character.MMCharacter, cs *CombatSystem) {
+	var cd *cooldownBreakdown
+	if ch != nil && cs != nil {
+		b := cs.actionCooldownBreakdown(ch, seconds)
+		cd = &b
+	}
+	addCooldownStages(sec, seconds, "1 action", cd, cs)
+}
+
+// addCooldownStages shows the base cooldown without a hero, the full Speed,
+// weapon, limit and Quickening breakdown with one.
+func addCooldownStages(sec *ttSection, base float64, tb string, cd *cooldownBreakdown, cs *CombatSystem) {
+	if cd == nil {
+		if base > 0 {
 			sec.Add("Base cooldown: %.2fs", base)
 			sec.AddDetail("Scales with caster Speed - TB: %s", tb)
-		} else if isSpell && !def.HasRTCooldown() {
-			sec.Add("No RT cooldown - TB: %s", tb)
 		}
 		return
 	}
-	cd := cs.spellCooldownBreakdown(ch, id)
 	if cd.TotalFrames <= 0 {
-		// Buffs have no personal RT cooldown; a TB cast still spends the action.
-		if isSpell && !def.HasRTCooldown() {
-			sec.Add("No RT cooldown - TB: %s", tb)
-		}
 		return
 	}
 	sec.AddDetail("Base cooldown: %.2fs", character.CardSeconds(cd.BaseSeconds))

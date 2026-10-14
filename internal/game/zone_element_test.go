@@ -152,7 +152,7 @@ func TestZone_TurnBasedTickCountAndEntryOrder(t *testing.T) {
 
 	runOneMonsterTurn(g, gl)
 
-	burnPerTick := max(3, standing.MaxHitPoints*config.BurnPercent(standing.IsBoss())/100)
+	burnPerTick := max(3, standing.MaxHitPoints*config.DoTPercent("burn", standing.IsBoss())/100)
 	if got, want := before-standing.HitPoints, ticksPerTurn*(perTick+burnPerTick); got != want {
 		t.Errorf("standing mob took %d over one turn, want %d (%d field ticks x %d, plus burning)",
 			got, want, ticksPerTurn, perTick)

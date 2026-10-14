@@ -238,8 +238,8 @@ func TestSkillTooltipAuditRetunedFlaskWiring(t *testing.T) {
 				if !g.throwFlask(0, key, false) {
 					t.Fatal("retuned flask refused")
 				}
-				p := g.magicProjectiles[0]
-				if p.Damage != d.Flask.Damage[tier]+c.GetEffectiveIntellect()/3 || p.FlaskPoisonFrames != d.Flask.PoisonSeconds[tier]*g.config.GetTPS() || p.FlaskBurnFrames != d.Flask.BurnSeconds[tier]*g.config.GetTPS() {
+				p := g.flasks[0]
+				if p.Damage != d.Flask.Damage[tier]+c.GetEffectiveIntellect()/3 || p.PoisonFrames != d.Flask.PoisonSeconds[tier]*g.config.GetTPS() || p.BurnFrames != d.Flask.BurnSeconds[tier]*g.config.GetTPS() {
 					t.Fatal("projectile did not use the live mastery table")
 				}
 				text := masteryTooltipRowsForSkill(character.SkillBombThrowing).String()

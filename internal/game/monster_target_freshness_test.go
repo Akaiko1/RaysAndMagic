@@ -45,7 +45,7 @@ func TestMonsterTargetPositionFreshness(t *testing.T) {
 					if !ok || x != 4.5*ts || y != 5.5*ts {
 						t.Fatal("worker snapshot changed after another actor moved/died")
 					}
-					blocked := gl.attackTargetTile(m)
+					blocked := gl.game.attackTargetTile(m)
 					if dead {
 						if blocked != nil {
 							t.Fatal("dead foe still reserves a target tile")

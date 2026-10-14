@@ -149,6 +149,7 @@ type CharacterSave struct {
 	RareClass          character.RareClassState                 `json:"rare_class,omitempty"`
 	SpellState         character.SpellState                     `json:"spell_state,omitempty"`
 	AutoDrinkCooldown  int                                      `json:"auto_drink_cooldown,omitempty"`
+	AutocastFrames     int                                      `json:"autocast_frames,omitempty"`
 	DesignatedTargetID string                                   `json:"designated_target_id,omitempty"`
 	DesignationFrames  int                                      `json:"designation_frames,omitempty"`
 	Name               string                                   `json:"name"`
@@ -375,6 +376,9 @@ type MonsterSave struct {
 	PounceCDFrames      int                                    `json:"pounce_cd_frames,omitempty"`
 	PounceCDTurns       int                                    `json:"pounce_cd_turns,omitempty"`
 	PounceCDRate        int                                    `json:"pounce_cd_rate,omitempty"`
+	PhaseShiftCDFrames  int                                    `json:"phase_shift_cd_frames,omitempty"`
+	PhaseShiftCDTurns   int                                    `json:"phase_shift_cd_turns,omitempty"`
+	PhaseShiftCDRate    int                                    `json:"phase_shift_cd_rate,omitempty"`
 	TurnBasedSwingCarry float64                                `json:"tb_swing_carry,omitempty"` // fractional TB swing banked between attack actions
 	TurnBasedStepCarry  float64                                `json:"tb_step_carry,omitempty"`  // fractional TB step banked between movement actions
 	BossCD              int                                    `json:"boss_cd,omitempty"`

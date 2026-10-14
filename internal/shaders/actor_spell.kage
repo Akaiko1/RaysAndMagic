@@ -48,9 +48,10 @@ func actorNoise(p vec2) vec2 {
 
 func Fragment(dst vec4,src vec2,color vec4,custom vec4) vec4 {
 	p:=src-imageSrc0Origin()
-	t,seed,style:=custom.x,custom.y,custom.z
+	t,seed,style,headroom:=custom.x,custom.y,custom.z,custom.w
 	if style<.5 {return mindWeb(p,t,seed)}
-	if max(abs(p.x),abs(p.y))>1 {return vec4(0)}
+	// The frame is the unit square; a style with headroom rises above its top.
+	if abs(p.x)>1 || p.y>1 || p.y < -1-headroom {return vec4(0)}
 	fade:=smoothstep(0,.09,t)*(1-smoothstep(.62,1,t))
 	rgb:=vec3(0)
 	a:=float(0)
@@ -63,7 +64,8 @@ func Fragment(dst vec4,src vec2,color vec4,custom vec4) vec4 {
 		fold:=pow(max(0,sin(r*24+n.x*5-t*4)),4)
 		rib:=pow(max(0,sin(p.x*18+n.y*5)),10)
 		sag:=.38+.20*sin(p.x*12+seed)+t*.22
-		strands:=rib*smoothstep(-.25,.05,p.y)*(1-smoothstep(sag,sag+.18,p.y))
+		// The strands hang inside the mud's footprint, never out to the frame.
+		strands:=rib*smoothstep(-.25,.05,p.y)*(1-smoothstep(sag,sag+.18,p.y))*(1-smoothstep(.62,.88,abs(p.x)))
 		rgb=mix(vec3(.12,.057,.019),vec3(.72,.43,.14),fold*.65+n.y*.25)
 		a=bank*(.36+fold*.38)+strands*.65
 	} else if style<2.5 {

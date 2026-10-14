@@ -75,7 +75,7 @@ func TestPlayerSpellEntriesRequireKnowledge(t *testing.T) {
 				before := caster.SpellPoints
 				switch entry {
 				case "equipped":
-					caster.Equipment[items.SlotSpell] = item
+					caster.Equipment[items.SlotQuickAction] = item
 					if got := g.combat.CastEquippedSpell(); got != known {
 						t.Fatalf("cast=%v, known=%v", got, known)
 					}
@@ -84,15 +84,15 @@ func TestPlayerSpellEntriesRequireKnowledge(t *testing.T) {
 					caster.QuickSlots[0] = &item
 					g.useQuickSlot(0, 0)
 				case "targeted_heal":
-					caster.Equipment[items.SlotSpell] = item
+					caster.Equipment[items.SlotQuickAction] = item
 					g.party.Members[1].HitPoints = 1
 					if got := g.combat.CastEquippedHealOnTarget(1); got != known {
 						t.Fatalf("heal=%v, known=%v", got, known)
 					}
 				case "panel_binding":
-					delete(caster.Equipment, items.SlotSpell)
-					g.bindQuickSpellFromPanel(0, item)
-					_, got := caster.Equipment[items.SlotSpell]
+					delete(caster.Equipment, items.SlotQuickAction)
+					g.bindQuickAction(0, item)
+					_, got := caster.Equipment[items.SlotQuickAction]
 					if got != known {
 						t.Fatal("panel binding bypassed ownership")
 					}

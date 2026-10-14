@@ -545,16 +545,16 @@ func TestVictoryScreenStopsTheWorldClock(t *testing.T) {
 
 	const frames = 30
 	g.gameVictory = true
-	g.spellInputCooldown = frames + 5 // a second clock, decremented once per live frame
-	beforeClock, beforeCooldown := g.dayNightFrames, g.spellInputCooldown
+	g.actionInputStagger = frames + 5 // a second clock, decremented once per live frame
+	beforeClock, beforeCooldown := g.dayNightFrames, g.actionInputStagger
 	runFrames(frames)
 	if g.dayNightFrames != beforeClock {
 		t.Errorf("the day/night clock advanced %d frames behind the victory screen",
 			g.dayNightFrames-beforeClock)
 	}
-	if g.spellInputCooldown != beforeCooldown {
+	if g.actionInputStagger != beforeCooldown {
 		t.Errorf("the action cooldown aged %d frames behind the victory screen",
-			beforeCooldown-g.spellInputCooldown)
+			beforeCooldown-g.actionInputStagger)
 	}
 
 	// Positive control: the same frames with the screen closed DO advance both, or
@@ -564,7 +564,7 @@ func TestVictoryScreenStopsTheWorldClock(t *testing.T) {
 	if g.dayNightFrames == beforeClock {
 		t.Fatal("the day/night clock did not move with no overlay either - the test proves nothing")
 	}
-	if g.spellInputCooldown == beforeCooldown {
+	if g.actionInputStagger == beforeCooldown {
 		t.Fatal("the cooldown did not move with no overlay either - the test proves nothing")
 	}
 }

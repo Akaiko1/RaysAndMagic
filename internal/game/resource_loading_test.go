@@ -146,7 +146,7 @@ func TestLoadingUpdateFreezesSimulationAndRetiresInput(t *testing.T) {
 				gl := loadingFixture(t)
 				g := gl.game
 				g.turnBasedMode = tb
-				g.frameCount, g.uiFrameCount, g.spellInputCooldown = 71, 31, 17
+				g.frameCount, g.uiFrameCount, g.actionInputStagger = 71, 31, 17
 				g.party.Members[0].RTCooldown = 25
 				g.screenBannerQueue = []screenBanner{{text: "Quest news", frame: 13}}
 				g.mouseLeftClicks = []queuedClick{{x: 10, y: 10}}
@@ -168,7 +168,7 @@ func TestLoadingUpdateFreezesSimulationAndRetiresInput(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if g.frameCount != 71 || g.spellInputCooldown != 17 || g.party.Members[0].RTCooldown != 25 || g.party.Members[0].HitPoints != hp {
+				if g.frameCount != 71 || g.actionInputStagger != 17 || g.party.Members[0].RTCooldown != 25 || g.party.Members[0].HitPoints != hp {
 					t.Fatal("loading advanced world clocks or combat")
 				}
 				if g.uiFrameCount != 34 {

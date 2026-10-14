@@ -120,9 +120,9 @@ func validateTrapConfig(cfg *TrapSystemConfig) error {
 }
 
 // TrapItem builds the quick-slot item form of a trap - the ONE constructor
-// (class kits, the trap book and tests all use it). It lives in the SAME
-// Equipment[SlotSpell] slot quick spells use, so the HUD, RT capability
-// checks and save round-trip work unchanged.
+// (class kits, the trap book and tests all use it). It shares the
+// Equipment[SlotQuickAction] slot with spells, techniques and flasks; its cost
+// and cooldown always come from traps.yaml.
 func TrapItem(key string) (items.Item, bool) {
 	def, ok := GetTrapDefinition(key)
 	if !ok {
@@ -132,8 +132,7 @@ func TrapItem(key string) (items.Item, bool) {
 		Name:        def.Name,
 		Type:        items.ItemTrap,
 		Description: def.Description,
-		SpellCost:   def.SPCost,
-		SpellEffect: items.SpellEffect(key),
+		Trap:        key,
 		Attributes:  make(map[string]int),
 	}, true
 }

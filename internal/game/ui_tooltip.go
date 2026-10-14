@@ -68,8 +68,8 @@ func itemTooltipWithUsageRows(item items.Item, char *character.MMCharacter, comb
 			core = buildTechniqueTooltipUnifiedRows(d, char, combatSystem, full)
 		}
 	case items.ItemTrap:
-		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
-			core = buildTrapTooltipUnifiedRows(string(item.SpellEffect), def, char, combatSystem, full)
+		if def, ok := config.GetTrapDefinition(item.Trap); ok {
+			core = buildTrapTooltipUnifiedRows(item.Trap, def, char, combatSystem, full)
 		}
 	case items.ItemWeapon:
 		core = buildWeaponTooltipUnifiedRows(item, char, combatSystem, full)
@@ -153,7 +153,7 @@ func GetSpellComparisonTooltipRows(spellID spells.SpellID, char *character.MMCha
 	if char == nil || combatSystem == nil || combatSystem.game == nil {
 		return nil
 	}
-	equipped, hasEquipped := char.Equipment[items.SlotSpell]
+	equipped, hasEquipped := char.Equipment[items.SlotQuickAction]
 	if !hasEquipped {
 		return nil
 	}
@@ -294,11 +294,7 @@ func buildSpellComparisonRowsByID(itemID, equippedID spells.SpellID, char *chara
 	}
 
 	// Costs as actually paid (Meditation GM discount), matching the main tooltip.
-	itemCost, eqCost := itemDef.SpellPointsCost, equippedDef.SpellPointsCost
-	if combatSystem != nil {
-		itemCost = combatSystem.effectiveSpellCost(char, itemCost)
-		eqCost = combatSystem.effectiveSpellCost(char, eqCost)
-	}
+	itemCost, eqCost := char.MeditatedSPCost(itemDef.SpellPointsCost), char.MeditatedSPCost(equippedDef.SpellPointsCost)
 	lines := character.CardRows{{Text: fmt.Sprintf("Equipped: %s", equippedDef.Name), Kind: character.CardRowTitle}, {Text: "After equipping (current -> new)", Kind: character.CardRowCategory}}
 	casting := ttSection{Title: "CASTING"}
 	damageSection := ttSection{Title: "DAMAGE"}

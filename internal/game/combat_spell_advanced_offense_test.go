@@ -94,7 +94,7 @@ func TestDestroyUndeadExecutionAndFallbackThroughInput(t *testing.T) {
 				}
 				wantSP := sp
 				if wantPaid {
-					wantSP -= g.combat.effectiveSpellCost(c, d.SpellPointsCost)
+					wantSP -= c.MeditatedSPCost(d.SpellPointsCost)
 				}
 				if c.SpellPoints != wantSP {
 					t.Fatalf("SP=%d, want %d", c.SpellPoints, wantSP)
@@ -140,7 +140,7 @@ func TestShrapmetalConeThroughInput(t *testing.T) {
 				if len(g.magicProjectiles) != d.Mechanic.Projectiles(tier) {
 					t.Fatalf("wrong fragment count: %d", len(g.magicProjectiles))
 				}
-				if c.SpellPoints != 1000-g.combat.effectiveSpellCost(c, d.SpellPointsCost) || tb && c.ActionsRemaining != 1 || !tb && c.RTCooldown <= 0 {
+				if c.SpellPoints != 1000-c.MeditatedSPCost(d.SpellPointsCost) || tb && c.ActionsRemaining != 1 || !tb && c.RTCooldown <= 0 {
 					t.Fatal("volley did not spend exactly one spell action")
 				}
 				// Every fragment carries the full single-shot payload: authored base
@@ -229,7 +229,7 @@ func TestShrapmetalSharedHitLimitThroughCollision(t *testing.T) {
 							t.Fatalf("%s lost %d HP, want %d", target.ID, got, want)
 						}
 					}
-					if c.SpellPoints != 1000-2*g.combat.effectiveSpellCost(c, d.SpellPointsCost) {
+					if c.SpellPoints != 1000-2*c.MeditatedSPCost(d.SpellPointsCost) {
 						t.Fatal("hits charged extra mana")
 					}
 				})

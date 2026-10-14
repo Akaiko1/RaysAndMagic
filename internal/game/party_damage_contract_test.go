@@ -51,7 +51,7 @@ func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 							ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
 							g.combat.designationRoll = func(int) int { return 0 }
 							g.cardSlots = [MaxCardSlots]cardSlot{}
-							g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+							g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
 							def, _ := config.GetWeaponDefinition(key)
 							primary, secondary := partyDamageTargets(g, tile)
 							if marks == "primary" || marks == "both" {
@@ -76,7 +76,7 @@ func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 							if def.Range > 3 {
 								shot := &Arrow{ID: "splash-contract", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer,
 									Attacker: ch, BowKey: key, Damage: normal, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), Crit: critical}
-								g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+								g.combat.applyProjectileDamage(shot, primary, shot.ID)
 								if ch.DesignatedTargetID != primary.ID {
 									t.Fatal("successful ranged hit did not replace the mark")
 								}
@@ -123,7 +123,7 @@ func TestDesignationConversionAndRestoredMark(t *testing.T) {
 				g.combat.designationRoll = func(int) int { return 0 }
 				g.cardSlots = [MaxCardSlots]cardSlot{}
 				g.cardSlots[0].key = "masked_hexer_girl_card"
-				g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+				g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
 				primary, secondary := partyDamageTargets(g, tile)
 				for _, m := range g.world.Monsters {
 					m.Resistances = map[monsterPkg.DamageType]int{monsterPkg.DamageDark: 50}
@@ -140,7 +140,7 @@ func TestDesignationConversionAndRestoredMark(t *testing.T) {
 				if ranged {
 					shot := &Arrow{ID: "conversion", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch,
 						BowKey: "idol_breakers_maul", Damage: 101, TrueDamage: 13, DamageType: "physical"}
-					g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+					g.combat.applyProjectileDamage(shot, primary, shot.ID)
 				} else {
 					ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("idol_breakers_maul")
 					old := def.TrueDamage
@@ -186,7 +186,7 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 				g.combat.designationRoll = func(int) int { return 0 }
 				g.cardSlots = [MaxCardSlots]cardSlot{}
 				g.cardSlots[0].key = "elf_archer_card"
-				g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+				g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
 				primary, secondary := partyDamageTargets(g, tile)
 				secondary.MonsterType = "dragon"
 				g.designateTarget(ch, secondary)
@@ -207,7 +207,7 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 					}
 				default:
 					shot := &MagicProjectile{ID: "spell-contract", Active: true, LifeTime: 60, Damage: normal, TrueDamage: trueDamage, SpellType: key, Attacker: ch}
-					g.combat.applyProjectileDamage(shot, "magic_projectile", primary, shot.ID)
+					g.combat.applyProjectileDamage(shot, primary, shot.ID)
 					splash = def.AoeRadiusTiles > 0
 				}
 				for i, victim := range []*monsterPkg.Monster3D{primary, secondary} {
@@ -248,7 +248,7 @@ func TestDesignationContinuationUsesLaunchPayloadAndCurrentMark(t *testing.T) {
 					} else {
 						shot.RicochetLeft = 1
 					}
-					g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+					g.combat.applyProjectileDamage(shot, primary, shot.ID)
 					if got := 10000 - primary.HitPoints; got != 213 {
 						t.Fatalf("marked first impact took %d, want 213", got)
 					}
@@ -262,7 +262,7 @@ func TestDesignationContinuationUsesLaunchPayloadAndCurrentMark(t *testing.T) {
 					if markNext {
 						g.designateTarget(ch, secondary)
 					}
-					g.combat.applyProjectileDamage(next, "arrow", secondary, next.ID)
+					g.combat.applyProjectileDamage(next, secondary, next.ID)
 					want := 113
 					if markNext {
 						want = 213
@@ -303,7 +303,7 @@ func TestDesignationImpactEligibility(t *testing.T) {
 			switch state {
 			case "spell":
 				shot := &MagicProjectile{ID: "spell", Active: true, LifeTime: 60, Attacker: ch, SpellType: "fireball", Damage: 100}
-				g.combat.applyProjectileDamage(shot, "magic_projectile", primary, shot.ID)
+				g.combat.applyProjectileDamage(shot, primary, shot.ID)
 			default:
 				shot := &Arrow{ID: "eligibility", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: "bow_of_hellfire", Damage: 100, DamageType: "dark"}
 				if state == "proc bolt" {
@@ -311,7 +311,7 @@ func TestDesignationImpactEligibility(t *testing.T) {
 					// A proc has no splash, so check its direct hit against the marked foe.
 					primary = secondary
 				}
-				g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+				g.combat.applyProjectileDamage(shot, primary, shot.ID)
 			}
 			if got := 10000 - secondary.HitPoints; got != want {
 				t.Fatalf("%s: marked victim took %d, want %d", state, got, want)
@@ -384,7 +384,7 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 			if def.Range > 3 {
 				shot := &Arrow{ID: "single", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: key,
 					Damage: 100, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), ElementalAbilityDamage: firstHitBonus}
-				g.combat.applyProjectileDamage(shot, "arrow", primary, shot.ID)
+				g.combat.applyProjectileDamage(shot, primary, shot.ID)
 			} else {
 				g.combat.ApplyDamageToMonster(primary, 100, def.Name, false)
 			}

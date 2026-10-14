@@ -168,7 +168,7 @@ type inventoryPaperdollSlot struct {
 // art deliberately uses one identical 118x118 master slot in every position.
 var inventoryPaperdollSlots = []inventoryPaperdollSlot{
 	{items.SlotAmulet, inventorySourceRect{112, 138, 118, 118}},
-	{items.SlotSpell, inventorySourceRect{452, 138, 118, 118}},
+	{items.SlotQuickAction, inventorySourceRect{452, 138, 118, 118}},
 	{items.SlotHelmet, inventorySourceRect{282, 136, 118, 118}},
 	{items.SlotMainHand, inventorySourceRect{92, 402, 118, 118}},
 	{items.SlotArmor, inventorySourceRect{282, 360, 118, 118}},
@@ -284,7 +284,7 @@ func (ui *UISystem) drawItemIcon(screen *ebiten.Image, item items.Item, x, y, w,
 	// everywhere.
 	n := item.Count()
 	if item.Type == items.ItemThrowable {
-		n = ui.game.flaskStock(actor, string(item.SpellEffect))
+		n = ui.game.flaskStock(actor, item.Flask)
 	}
 	if n > 1 || item.Type == items.ItemThrowable || showSingleCount && item.Stackable() {
 		// Use the existing metal text at native size, independent of the icon
@@ -793,12 +793,9 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 	statsY := nameY + uiTextCharHeight + 2
 	// Show the cost actually paid (Meditation GM discount applied) so the card
 	// and its red "can't afford" outline match what casting will charge.
-	cost := def.SpellPointsCost
-	if ui.game.combat != nil {
-		cost = ui.game.combat.effectiveSpellCost(currentChar, def.SpellPointsCost)
-	}
+	cost := currentChar.MeditatedSPCost(def.SpellPointsCost)
 	// The selection glow extends below the icon; labels draw over it.
-	quick, equipped := currentChar.Equipment[items.SlotSpell]
+	quick, equipped := currentChar.Equipment[items.SlotQuickAction]
 	drawBookEntryState(screen, layoutRect{iconX, iconY, iconSize, iconSize},
 		selected, equipped && string(quick.SpellEffect) == string(spellID), false, currentChar.SpellPoints >= cost, SchoolColor(school.String()))
 	drawCenteredUIText(screen, name, x+4, nameY, w-8, uiTextCharHeight)

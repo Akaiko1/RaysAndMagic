@@ -601,7 +601,7 @@ type CameraConfig struct {
 }
 
 type UIConfig struct {
-	SpellInputCooldown int                   `yaml:"spell_input_cooldown"`
+	InputStaggerFrames int                   `yaml:"input_stagger_frames"` // frames between accepted gameplay inputs (actions, Space pickup/talk, tabbed menus)
 	DamageBlinkFrames  int                   `yaml:"damage_blink_frames"`
 	TurnBasedMouseHold MouseHoldTimingConfig `yaml:"turn_based_mouse_hold"`
 }
@@ -738,7 +738,7 @@ type SpellDefinitionConfig struct {
 	// cooldown_seconds. Mana, TB action costs and any reuse timer still apply.
 	Category string `yaml:"category,omitempty"`
 	// CooldownSeconds is the real-time cast cooldown for this spell at the
-	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it.
+	// reference Speed (see ActionCooldownSpeedRefSpeed); Speed scales it.
 	// Required for non-buffs and forbidden for buffs (zero recovery by rule).
 	CooldownSeconds float64 `yaml:"cooldown_seconds,omitempty"`
 	ReuseSeconds    int     `yaml:"reuse_seconds,omitempty"` // Personal spell lockout, independent of action recovery.
@@ -925,7 +925,8 @@ type SpellDefinitionConfig struct {
 }
 
 type MonsterAIConfig struct {
-	Pursuit MonsterPursuitConfig `yaml:"pursuit"`
+	Pursuit    MonsterPursuitConfig    `yaml:"pursuit"`
+	PhaseShift MonsterPhaseShiftConfig `yaml:"phase_shift"`
 
 	// AI behavior timers in engine update ticks (see engine.tps).
 	IdlePatrolTimer int `yaml:"idle_patrol_timer"`
@@ -1579,9 +1580,10 @@ type WeaponDefinitionConfig struct {
 	// Used for legendaries with a bespoke cadence (e.g. Bow of Hellfire = 1.7, slow).
 	// 0 = use the category default.
 	CooldownMultiplier float64 `yaml:"cooldown_multiplier,omitempty"`
-	// SpellCooldownMultiplier, when > 0, scales the cooldown of EVERY spell the
+	// SpellCooldownMultiplier, when > 0, scales the cooldown of every spell the
 	// wielder casts while this weapon is in their main hand (e.g. Archmage
-	// Staff = 0.8 -> -20% spell cooldown). 0 = no effect.
+	// Staff = 0.8 -> -20% spell cooldown). Techniques, flasks and traps ignore
+	// it. 0 = no effect.
 	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
 	// ProjectileSchool, when set ("air"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
@@ -1852,8 +1854,14 @@ func LoadConfig(filename string) (*Config, error) {
 	if err := config.MonsterAI.Pursuit.validate(); err != nil {
 		return nil, err
 	}
+	if err := config.MonsterAI.PhaseShift.validate(); err != nil {
+		return nil, err
+	}
 	if config.MonsterAI.TurnStepSpeed <= 0 {
 		return nil, fmt.Errorf("monster_ai.turn_step_speed must be positive")
+	}
+	if config.UI.InputStaggerFrames <= 0 {
+		return nil, fmt.Errorf("ui.input_stagger_frames must be positive")
 	}
 	if err := config.UI.TurnBasedMouseHold.validate(); err != nil {
 		return nil, err

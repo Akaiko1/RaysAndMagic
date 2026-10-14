@@ -274,7 +274,7 @@ func TestDesignationUsesWeaponImpactAndExpires(t *testing.T) {
 			t.Fatal("shot failed")
 		}
 		a := &g.arrows[len(g.arrows)-1]
-		g.combat.applyProjectileDamage(a, "arrow", m, a.ID)
+		g.combat.applyProjectileDamage(a, m, a.ID)
 		return before - m.HitPoints
 	}
 	first := fire()
@@ -507,7 +507,7 @@ func TestOverwatchCombatLogIdentity(t *testing.T) {
 				if a.Overwatch != reaction || a.Label != "" {
 					t.Fatal("reaction provenance changed bonus-bolt classification")
 				}
-				g.combat.applyProjectileDamage(a, "arrow", m, a.ID)
+				g.combat.applyProjectileDamage(a, m, a.ID)
 				messages := g.combatLogHistory[launchEntries:]
 				if len(messages) == 0 || strings.Contains(messages[0].Text, "Overwatch") != reaction {
 					t.Fatalf("impact lost reaction identity: %+v", messages)

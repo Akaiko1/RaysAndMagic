@@ -200,11 +200,11 @@ func TestMonsterCrossfireProjectile_CarriesTrueDamage(t *testing.T) {
 		LifeTime:      1,
 		DamageType:    monsterPkg.DamagePhysical.String(),
 		TrueDamage:    20,
-		Owner:         ProjectileOwnerBoundUndead,
+		Owner:         ProjectileOwnerPartyAlly,
 		SourceName:    source.Name,
 		SourceMonster: source,
 	}
-	cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
+	cs.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
 
 	if got := 100 - target.HitPoints; got != 10 {
 		t.Fatalf("crossfire projectile dealt %d, want 10 resistance-reduced true damage through soak", got)

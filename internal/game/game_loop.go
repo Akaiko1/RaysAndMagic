@@ -31,17 +31,16 @@ type GameLoop struct {
 	timedBuffRegistry []timedBuff
 
 	// Per-tick scratch buffers, reset with [:0]/clear instead of reallocating.
-	monsterFrameBuf       []monsterFramePosition
-	monsterWalkPlayback   map[*monster.Monster3D]monsterWalkPlayback
-	bandersBuf            []*monster.Monster3D
-	bandSinglesBuf        []*monster.Monster3D
-	bandIDsBuf            []int
-	bandParentBuf         []int
-	bandHandled           map[*monster.Monster3D]bool
-	bandUsedSingles       map[*monster.Monster3D]bool
-	attackPostBuf         []*monster.Monster3D
-	combatTransitStackBuf []*monster.Monster3D
-	combatTransitTileBuf  map[attackPostTile]struct{}
+	monsterFrameBuf     []monsterFramePosition
+	monsterWalkPlayback map[*monster.Monster3D]monsterWalkPlayback
+	bandersBuf          []*monster.Monster3D
+	bandSinglesBuf      []*monster.Monster3D
+	bandIDsBuf          []int
+	bandParentBuf       []int
+	bandHandled         map[*monster.Monster3D]bool
+	bandUsedSingles     map[*monster.Monster3D]bool
+	attackPostBuf       []*monster.Monster3D
+	tileFanBuf          []*monster.Monster3D
 }
 
 type monsterFramePosition struct {
@@ -170,7 +169,7 @@ func (gl *GameLoop) updateExploration() {
 	// same step, so clocks and overlay lifetimes cannot drift apart.
 	gl.game.updateInterfacePresentation()
 	// Hub navigation remains responsive while its overlay pauses the world.
-	// Keep this separate from spellInputCooldown: that field also spaces combat
+	// Keep this separate from actionInputStagger: that field also spaces combat
 	// actions and therefore belongs to the paused simulation below.
 	if gl.game.menuOpen && gl.game.tabbedMenuInputCooldown > 0 {
 		gl.game.tabbedMenuInputCooldown--
@@ -518,6 +517,7 @@ func (gl *GameLoop) updateProjectilesParallel() {
 	// Check for projectile-monster collisions BEFORE movement to prevent tunneling
 	gl.game.combat.CheckProjectilePlayerCollisions()
 	gl.game.combat.CheckProjectileMonsterCollisions()
+	gl.game.combat.landShots()
 
 	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()
@@ -704,7 +704,7 @@ func (gl *GameLoop) updateSlashEffects() {
 // updatePerformanceMetrics updates game-specific performance metrics
 func (gl *GameLoop) updatePerformanceMetrics() {
 	monstersUpdated := uint64(len(gl.game.world.Monsters))
-	projectilesActive := int32(len(gl.game.magicProjectiles) + len(gl.game.arrows))
+	projectilesActive := int32(gl.game.projectileCount())
 	collisionsDetected := uint64(0) // Could be updated by collision detection system
 
 	gl.game.threading.PerformanceMonitor.UpdateGameMetrics(monstersUpdated, projectilesActive, collisionsDetected)
@@ -718,8 +718,8 @@ func (gl *GameLoop) updateSpecialEffects() {
 
 	// Gameplay input stagger advances with the simulation. The character hub
 	// has a separate debounce above so overlays cannot drain combat timing.
-	if gl.game.spellInputCooldown > 0 {
-		gl.game.spellInputCooldown--
+	if gl.game.actionInputStagger > 0 {
+		gl.game.actionInputStagger--
 	}
 
 	if !gl.game.turnBasedMode {
@@ -897,9 +897,9 @@ func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserve
 		buff.onActivate()
 	}
 	if preserveLonger {
-		g.updateUtilityStatus(buff.id, *buff.duration, true)
+		g.updateBuffStatus(string(buff.id), *buff.duration, true)
 	} else {
-		g.setUtilityStatus(buff.id, *buff.duration)
+		g.setBuffStatus(string(buff.id), *buff.duration)
 	}
 	return timedBuffApplied
 }
@@ -995,7 +995,7 @@ func (gl *GameLoop) returnFromUnderwater() {
 
 // hasActiveProjectiles checks if there are any active projectiles to update
 func (gl *GameLoop) hasActiveProjectiles() bool {
-	return len(gl.game.magicProjectiles) > 0 || len(gl.game.arrows) > 0
+	return gl.game.projectileCount() > 0
 }
 
 // isEncounterMonster checks if a monster is part of an encounter with rewards

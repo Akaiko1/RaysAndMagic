@@ -695,7 +695,7 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 
 	placement := ttSection{Title: "PLACEMENT"}
 	addCastingCost(&placement, def.SPCost, char, cs)
-	addSpellCooldown(&placement, spells.SpellID(key), char, cs)
+	addActionCooldown(&placement, def.CooldownSeconds, char, cs)
 	placement.Add("Range: %d tiles", TrapPlaceRangeTiles)
 	// A trap ages one round's worth of seconds per turn-based round.
 	rounds := config.CombatRounds(def.LifetimeSeconds)
@@ -893,7 +893,7 @@ func addFlaskSections(dmg, effect, use *ttSection, key string, f *config.FlaskDe
 	}
 	use.Add("Requires Bomb Throwing. Uses own bag, then shared bag.")
 	if cs != nil && bearer != nil {
-		use.Add("%s", cooldownLine(cs, cs.SpellCooldownFrames(bearer, spells.SpellID(key))))
+		use.Add("%s", cooldownLine(cs, cs.FlaskCooldownFrames(bearer, key)))
 	} else {
 		use.Add("%s", character.CooldownLine(f.CooldownSeconds))
 	}

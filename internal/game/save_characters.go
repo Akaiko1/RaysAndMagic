@@ -35,15 +35,16 @@ func normalizeItemFromConfig(item *items.Item) {
 		return
 	}
 	if item.Type == items.ItemThrowable {
-		if fresh, ok := config.FlaskItem(string(item.SpellEffect)); ok {
+		// Older saves kept the flask key in SpellEffect.
+		if fresh, ok := config.FlaskItem(cmp.Or(item.Flask, string(item.SpellEffect))); ok {
 			*item = fresh
 		}
 		return
 	}
-	// Trap quick-slot items refresh from traps.yaml (name/cost rebalances
-	// reach saved slots), keyed by SpellEffect.
+	// Trap quick-slot items refresh from traps.yaml (name rebalances reach
+	// saved slots). Older saves kept the trap key in SpellEffect.
 	if item.Type == items.ItemTrap {
-		if fresh, ok := config.TrapItem(string(item.SpellEffect)); ok {
+		if fresh, ok := config.TrapItem(cmp.Or(item.Trap, string(item.SpellEffect))); ok {
 			fresh.InstanceID = item.InstanceID
 			*item = fresh
 		}
@@ -170,8 +171,9 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	}
 	m.RareClass = cs.RareClass.Clone()
 	m.SpellState = cs.SpellState.Clone()
-	m.SpellState.AutoFrames = max(m.SpellState.AutoFrames, m.RareClass.AutoFrames)
-	m.RareClass.AutoFrames = 0
+	// Older saves kept the autocast budget in the spell or rare-class state.
+	m.AutocastFrames = max(cs.AutocastFrames, m.SpellState.LegacyAutoFrames, m.RareClass.AutoFrames)
+	m.SpellState.LegacyAutoFrames, m.RareClass.AutoFrames = 0, 0
 	for id, frames := range m.SpellState.ReuseFrames {
 		d, ok := config.GetSpellDefinition(id)
 		if !ok || d.ReuseSeconds <= 0 || frames <= 0 {
@@ -270,6 +272,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs.RareClass = m.RareClass.Clone()
 	cs.SpellState = m.SpellState.Clone()
 	cs.AutoDrinkCooldown = m.AutoDrinkCooldown
+	cs.AutocastFrames = m.AutocastFrames
 	cs.DesignatedTargetID, cs.DesignationFrames = m.DesignatedTargetID, m.DesignationFrames
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.BurnFramesRemaining = m.BurnFramesRemaining

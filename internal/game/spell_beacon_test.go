@@ -39,7 +39,7 @@ func TestBeaconBindingRecallAndRefusal(t *testing.T) {
 			}
 			open()
 			g.confirmBeacon(0, true)
-			cost := g.combat.effectiveSpellCost(c, d.SpellPointsCost)
+			cost := c.MeditatedSPCost(d.SpellPointsCost)
 			if c.SpellPoints != before-cost || len(c.SpellState.Beacons) != 1 {
 				t.Fatalf("bind paid %d, marks=%d", before-c.SpellPoints, len(c.SpellState.Beacons))
 			}

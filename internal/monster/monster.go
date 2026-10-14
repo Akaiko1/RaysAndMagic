@@ -496,6 +496,13 @@ type Monster3D struct {
 	PounceCDTurns  int // turn-based cooldown countdown (turns)
 	PounceCDRate   int // persisted frames-per-turn rate keeping mode switches proportional
 
+	// Phase Shift cooldown remainders (Abilities.PhaseShift): the same rated
+	// pair as pounce. PhasePlan is runtime only, refreshed by the serial planner.
+	PhaseShiftCDFrames int
+	PhaseShiftCDTurns  int
+	PhaseShiftCDRate   int
+	PhasePlan          PhaseShiftPlan
+
 	// Boss is the static YAML classification. Runtime code uses IsBoss rather
 	// than inferring bosshood from the currently-authored special abilities.
 	Boss bool
@@ -531,8 +538,8 @@ type Monster3D struct {
 	BandPeers        []*Monster3D // transient local encounter index, rebuilt each simulation pass
 	BandID           int          // transient: stable runtime band membership; 0 = solo/unbanded
 	BandLeaderID     string       // transient: mob ID of this band's stable leader (leader marks itself); "" = none
-	BandStackIndex   int          // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
-	BandStackCount   int          // render-only (per-tick): size of the banded stack (0/1 = not stacked)
+	BandStackIndex   int          // transient (per-tick): position in the band (0 = leader); set by updateMonsterBands
+	BandStackCount   int          // transient (per-tick): size of the band (0/1 = not stacked); loot guards read it
 	// AttackPost is a transient logical reservation for a monster's current
 	// combat tile, whether it is attacking the party or another monster. It is
 	// deliberately not physical collision: combatants can pass through every
@@ -547,16 +554,19 @@ type Monster3D struct {
 	// monster's claimed attack tile. It cannot attack there; party melee arcs
 	// skip this incidental overlap, while AoE continues to use real positions.
 	AttackTransit bool
-	// TransitStack* is render-only. It fans combatants that temporarily share a
-	// tile, without making them an actual calm band or changing combat.
-	TransitStackIndex                        int
-	TransitStackCount                        int
-	TransitStackActive                       bool
-	TransitStackOffsetX, TransitStackOffsetY float64
-	Relentless                               bool // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
-	BossWarded                               bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshMonsterAIState)
-	BossLastHP                               int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
-	BossHurtPending                          bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	// Fan is render-only: the slot and eased offset that spread live monsters
+	// sharing a tile in the picture (updateTileFans). It never moves them.
+	Fan TileFan
+	// DeathDrawX/Y is where the monster was drawn as it died (render-only,
+	// set by the kill): its corpse, loot hop and the shots still aimed at it
+	// keep that spot however the camera moves afterwards.
+	DeathDrawX, DeathDrawY float64
+	DeathDrawn             bool
+
+	Relentless      bool // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
+	BossWarded      bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshMonsterAIState)
+	BossLastHP      int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
+	BossHurtPending bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 	// Summon (Abilities.Summon): the save-backed latch once the guaranteed
 	// first summon has happened.
 	SummonFirstDone bool   // save-backed latch once the guaranteed summon has happened
@@ -766,37 +776,26 @@ func (m *Monster3D) ApplyPoison(frames int) bool {
 	return status.Refresh(&m.PoisonedFramesRemaining, frames)
 }
 
-func (m *Monster3D) applyPercentDoTTicks(ticks, pct, minimum int) {
+func (m *Monster3D) applyDoTTicks(key string, ticks int) {
 	if ticks <= 0 || m.HitPoints <= 0 || m.IsDamageInvulnerable() {
 		return
 	}
-	dmg := pct * m.MaxHitPoints / 100
-	if dmg < minimum {
-		dmg = minimum
-	}
-	m.HitPoints -= dmg * ticks
+	m.HitPoints -= config.DoTDamage(key, m.MaxHitPoints, m.IsBoss()) * ticks
 	if m.HitPoints < 0 {
 		m.HitPoints = 0
 	}
 }
 
-func (m *Monster3D) tickPercentDoT(remaining, timer *int, elapsedFrames, pct, minimum int) {
+func (m *Monster3D) tickDoT(key string, remaining, timer *int, elapsedFrames int) {
 	ticks, _ := status.TickDoT(remaining, timer, elapsedFrames, m.dotTPS())
-	m.applyPercentDoTTicks(ticks, pct, minimum)
+	m.applyDoTTicks(key, ticks)
 }
 
 func (m *Monster3D) tickPoison(elapsedFrames int) {
 	if m.PoisonedFramesRemaining <= 0 {
 		return
 	}
-	poison := config.Status("poison")
-	m.tickPercentDoT(
-		&m.PoisonedFramesRemaining,
-		&m.poisonTickTimer,
-		elapsedFrames,
-		poison.MonsterPercentPerSecond,
-		poison.MonsterMinimumDamage,
-	)
+	m.tickDoT("poison", &m.PoisonedFramesRemaining, &m.poisonTickTimer, elapsedFrames)
 }
 
 // dotTPS is the shared cadence reference for poison and burn ticks.
@@ -942,13 +941,7 @@ func (m *Monster3D) tickBurn(elapsedFrames int) {
 	if m.BurnFramesRemaining <= 0 || elapsedFrames <= 0 {
 		return
 	}
-	m.tickPercentDoT(
-		&m.BurnFramesRemaining,
-		&m.burnTickTimer,
-		elapsedFrames,
-		config.BurnPercent(m.IsBoss()),
-		config.Status("burn").MonsterMinimumDamage,
-	)
+	m.tickDoT("burn", &m.BurnFramesRemaining, &m.burnTickTimer, elapsedFrames)
 }
 
 // TickBurn advances the burn timer by one REAL-TIME frame.

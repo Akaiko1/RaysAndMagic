@@ -165,7 +165,7 @@ func buildCharacterDetails(cfg *config.Config, cols int) []charDetail {
 				d.rows = append(d.rows, spellRows...)
 			}
 
-			// Starting equipment (with icons). The equipped spell slot is skipped -
+			// Starting equipment (with icons). The quick-action slot is skipped -
 			// it just duplicates a spell already listed under "Starting spells".
 			equipRows := []panelRow{}
 			for _, s := range items.DisplayEquipSlots {

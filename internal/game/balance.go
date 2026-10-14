@@ -15,17 +15,17 @@ import (
 // shares them too - see character/catalog.go); these are thin re-exports so the
 // existing combat references keep compiling unchanged. The VALUE is defined once.
 const (
-	MasteryWeaponTrueDamagePerTier    = character.MasteryWeaponTrueDamagePerTier
-	WeaponGMCritBonus                 = character.WeaponGMCritBonus
-	MasteryArmorACPerLevel            = character.MasteryArmorACPerLevel
-	ArmorGMDodgeBonus                 = character.ArmorGMDodgeBonus
-	LearningXPPctPerTier              = character.LearningXPPctPerTier
-	LearningGMPartyXPPct              = character.LearningGMPartyXPPct
-	ArmsMasterDamagePerTier           = character.ArmsMasterDamagePerTier
-	ArmsMasterGMCritBonus             = character.ArmsMasterGMCritBonus
-	DisarmTrapDamageReductionPerTier  = character.DisarmTrapDamageReductionPerTier
-	MerchantPricePctPerTier           = character.MerchantPricePctPerTier
-	MeditationGMSpellCostReductionPct = character.MeditationGMSpellCostReductionPct
+	MasteryWeaponTrueDamagePerTier   = character.MasteryWeaponTrueDamagePerTier
+	WeaponGMCritBonus                = character.WeaponGMCritBonus
+	MasteryArmorACPerLevel           = character.MasteryArmorACPerLevel
+	ArmorGMDodgeBonus                = character.ArmorGMDodgeBonus
+	LearningXPPctPerTier             = character.LearningXPPctPerTier
+	LearningGMPartyXPPct             = character.LearningGMPartyXPPct
+	ArmsMasterDamagePerTier          = character.ArmsMasterDamagePerTier
+	ArmsMasterGMCritBonus            = character.ArmsMasterGMCritBonus
+	DisarmTrapDamageReductionPerTier = character.DisarmTrapDamageReductionPerTier
+	MerchantPricePctPerTier          = character.MerchantPricePctPerTier
+	MeditationGMSPCostReductionPct   = character.MeditationGMSPCostReductionPct
 )
 
 // turnBasedPeriodicEffectFrames converts the shared seconds-per-round policy to
@@ -194,12 +194,12 @@ const (
 	RTCooldownMinFrames = 12  // ~0.10s at 120 TPS
 	RTCooldownMaxFrames = 900 // ~7.50s at 120 TPS
 
-	// Non-buff spell cooldowns are required in spells.yaml as
-	// `cooldown_seconds`. The authored seconds are the cooldown at the reference
-	// Speed below; Speed scales it via spellCooldownSpeedFactor.
-	SpellCooldownSpeedRefSpeed  = 25   // Speed at which a spell's authored seconds apply as-is
-	SpellCooldownSpeedFactorMin = 0.5  // fastest characters: x0.5 (never below half)
-	SpellCooldownSpeedFactorMax = 1.35 // slowest characters: x1.35
+	// Spells (non-buffs), techniques, flasks and traps author
+	// `cooldown_seconds`: the cooldown at the reference Speed below. Speed
+	// scales it via actionCooldownSpeedFactor.
+	ActionCooldownSpeedRefSpeed  = 25   // Speed at which authored seconds apply as-is
+	ActionCooldownSpeedFactorMin = 0.5  // fastest characters: x0.5 (never below half)
+	ActionCooldownSpeedFactorMax = 1.35 // slowest characters: x1.35
 )
 
 // Per-weapon-TYPE attack-cooldown multipliers are DATA, not code: they live in

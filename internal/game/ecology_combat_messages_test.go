@@ -74,23 +74,23 @@ func TestEcologyCombatMessagePolicy(t *testing.T) {
 								cs.monsterStrikeMonster(source, target)
 							}
 						case "arrow":
-							p := &Arrow{ID: "test", Active: true, LifeTime: 10, Damage: 20, DamageType: "physical", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtBound}
+							p := &Arrow{ID: "test", Active: true, LifeTime: 10, Damage: 20, DamageType: "physical", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtActor}
 							if outcome == "true_dodge" {
 								p.TrueDamage = 3
 							}
 							if outcome == "disintegrate" {
 								p.DisintegrateChance = 1
 							}
-							cs.resolveMonsterProjectileVsMonster(p, "arrow", target, p.ID)
+							cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
 						case "spell":
-							p := &MagicProjectile{ID: "test", Active: true, LifeTime: 10, Damage: 20, SpellType: "fireball", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtBound}
+							p := &MagicProjectile{ID: "test", Active: true, LifeTime: 10, Damage: 20, SpellType: "fireball", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtActor}
 							if outcome == "true_dodge" {
 								p.TrueDamage = 3
 							}
 							if outcome == "disintegrate" {
 								p.DisintegrateChance = 1
 							}
-							cs.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
+							cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
 						}
 						switch kind {
 						case "wildlife":
@@ -298,8 +298,8 @@ func TestCaravanProjectileStunDoesNotSpamLog(t *testing.T) {
 	// Force the stun roll; verify the rider retains its effect without
 	// adding a white stun/resist line beside the single red caravan alert.
 	for i := 0; i < 5; i++ {
-		p := &MagicProjectile{ID: fmt.Sprint(i), Active: true, LifeTime: 10, Damage: 1, SpellType: "psychic_shock", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtBound}
-		g.combat.resolveMonsterProjectileVsMonster(p, "magic_projectile", target, p.ID)
+		p := &MagicProjectile{ID: fmt.Sprint(i), Active: true, LifeTime: 10, Damage: 1, SpellType: "psychic_shock", SourceName: source.Name, SourceMonster: source, Owner: ProjectileOwnerMonsterAtActor}
+		g.combat.resolveMonsterProjectileVsMonster(p, target, p.ID)
 	}
 	assertCaravanAlerts(t, g, 1)
 	if target.StunDRStacks == 0 {

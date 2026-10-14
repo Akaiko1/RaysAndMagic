@@ -930,7 +930,7 @@ func itemTooltipIconName(item items.Item) string {
 			return d.Icon
 		}
 	case items.ItemThrowable:
-		return "icon_item_" + string(item.SpellEffect)
+		return "icon_item_" + item.Flask
 	case items.ItemWeapon:
 		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
 		if !ok {
@@ -944,7 +944,7 @@ func itemTooltipIconName(item items.Item) string {
 			return spellTooltipIconName(spells.SpellID(item.SpellEffect))
 		}
 	case items.ItemTrap:
-		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
+		if def, ok := config.GetTrapDefinition(item.Trap); ok {
 			return def.Icon
 		}
 	}

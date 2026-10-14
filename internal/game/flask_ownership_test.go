@@ -67,7 +67,7 @@ func TestFlaskOwnershipThroughCombat(t *testing.T) {
 					if !strings.Contains(messages[len(messages)-1], fmt.Sprintf("(%d in bag)", want)) {
 						t.Fatal("equip message uses another hero's stock")
 					}
-					if g.actionCapable(0, rtActCast) != available || g.combat.smartActionAvailable(hero) != available {
+					if g.actionCapable(0, rtActSlotted) != available || g.combat.smartActionAvailable(hero) != available {
 						t.Fatal("combat selection disagrees with actor's flask supply")
 					}
 					actions, cooldown := hero.ActionsRemaining, hero.RTCooldown
@@ -75,13 +75,13 @@ func TestFlaskOwnershipThroughCombat(t *testing.T) {
 						t.Fatal("throw disagrees with actor's flask supply")
 					}
 					if available {
-						if len(g.magicProjectiles) != 1 || g.magicProjectiles[0].Attacker != hero || g.flaskStock(hero, key) != want-1 {
+						if len(g.flasks) != 1 || g.flasks[0].Attacker != hero || g.flaskStock(hero, key) != want-1 {
 							t.Fatal("throw lost actor or failed to spend exactly one bottle")
 						}
 						if owner != nil && owner.Inventory[0].Count() != 2 || source == "both" && g.party.Inventory[0].Count() != 3 {
 							t.Fatal("throw must spend personal stock before shared stock")
 						}
-					} else if len(g.magicProjectiles) != 0 || hero.ActionsRemaining != actions || hero.RTCooldown != cooldown || owner != nil && owner.Inventory[0].Count() != 3 {
+					} else if len(g.flasks) != 0 || hero.ActionsRemaining != actions || hero.RTCooldown != cooldown || owner != nil && owner.Inventory[0].Count() != 3 {
 						t.Fatal("unavailable throw changed stock or combat state")
 					}
 				})

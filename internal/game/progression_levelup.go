@@ -309,9 +309,9 @@ func (g *MMGame) applyLevelUpOption(char *character.MMCharacter, option levelUpC
 	switch option.choice.Type {
 	case "spell":
 		if addSpellByID(char, option.spellID) {
-			g.AddCombatMessage(fmt.Sprintf("%s learned %s!", char.Name, spellDisplayName(option.spellID)))
+			g.AddCombatMessage(fmt.Sprintf("%s learned %s!", char.Name, spellName(option.spellID)))
 		} else {
-			g.AddCombatMessage(fmt.Sprintf("%s already knows %s.", char.Name, spellDisplayName(option.spellID)))
+			g.AddCombatMessage(fmt.Sprintf("%s already knows %s.", char.Name, spellName(option.spellID)))
 		}
 	case "weapon_mastery", "armor_mastery":
 		if g.trainSkill(char, option.skillType) {
@@ -646,10 +646,17 @@ func characterKnowsSpellByID(char *character.MMCharacter, spellID spells.SpellID
 	return char != nil && char.KnowsSpell(spellID)
 }
 
-// spellDisplayName names any timed-status source: spell, crate buff, technique or draught.
-func spellDisplayName(spellID spells.SpellID) string {
-	id := string(spellID)
-	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+// spellName is a spell's display name, or its id when the catalog lacks it.
+func spellName(id spells.SpellID) string {
+	if def, err := spells.GetSpellDefinitionByID(id); err == nil {
+		return def.Name
+	}
+	return string(id)
+}
+
+// buffSourceName names any timed-status source: spell, crate buff, technique or draught.
+func buffSourceName(id string) string {
+	if def, err := spells.GetSpellDefinitionByID(spells.SpellID(id)); err == nil {
 		return def.Name
 	}
 	if b := config.CrateBuff(id); b != nil {

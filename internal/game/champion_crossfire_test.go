@@ -375,9 +375,9 @@ func TestChampionRangedAoESplashesSummonsAndParty(t *testing.T) {
 	bolt := &Arrow{
 		ID: "test_bolt", Active: true, LifeTime: 10, Damage: 80,
 		BowKey: "archmage_staff", DamageType: "fire", SourceName: sorc.Name,
-		SourceMonster: sorc, Owner: ProjectileOwnerMonsterAtBound,
+		SourceMonster: sorc, Owner: ProjectileOwnerMonsterAtActor,
 	}
-	cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
+	cs.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
 
 	if target.HitPoints >= 5000 {
 		t.Error("the bolt's direct target must be hit")
@@ -441,9 +441,9 @@ func TestChampionCrossfireAoESparesSourceAndEnemyAllies(t *testing.T) {
 	bolt := &Arrow{
 		ID: "crossfire_aoe", Active: true, LifeTime: 10, Damage: 80,
 		BowKey: "archmage_staff", DamageType: "fire", SourceName: sorc.Name,
-		SourceMonster: sorc, Owner: ProjectileOwnerMonsterAtBound,
+		SourceMonster: sorc, Owner: ProjectileOwnerMonsterAtActor,
 	}
-	cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
+	cs.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
 
 	if sorc.HitPoints != sorcHP {
 		t.Errorf("crossfire source HP = %d, want %d", sorc.HitPoints, sorcHP)

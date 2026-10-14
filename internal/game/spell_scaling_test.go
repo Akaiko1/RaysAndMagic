@@ -17,8 +17,8 @@ import (
 
 func TestOutgoingDamageBonusFiltersByDamageType(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
-	game.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 600, OutBonus: 3, OutDamageType: "physical"})
-	game.addCombatBuff(TimedCombatBuff{SpellID: "hour_of_power", Frames: 600, OutBonus: 5})
+	game.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 600, OutBonus: 3, OutDamageType: "physical"})
+	game.addCombatBuff(TimedCombatBuff{ID: "hour_of_power", Frames: 600, OutBonus: 5})
 
 	if got := game.combatBuffOutBonusForDamageType("physical"); got != 8 {
 		t.Errorf("physical outgoing bonus = %d, want 8", got)

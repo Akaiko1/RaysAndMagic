@@ -223,14 +223,14 @@ func TestDarkElfBindingDirectHitEntryPoints(t *testing.T) {
 			"spell projectile",
 			func(cs *CombatSystem, caster *character.MMCharacter, target *monster.Monster3D) {
 				p := &MagicProjectile{ID: "racial-spell", Active: true, LifeTime: 10, Damage: 25, SpellType: "firebolt", Attacker: caster}
-				cs.applyProjectileDamage(p, "magic_projectile", target, p.ID)
+				cs.applyProjectileDamage(p, target, p.ID)
 			},
 		},
 		{
 			"weapon projectile",
 			func(cs *CombatSystem, caster *character.MMCharacter, target *monster.Monster3D) {
 				p := &Arrow{ID: "racial-arrow", Active: true, LifeTime: 10, Damage: 25, DamageType: "physical", Attacker: caster, Owner: ProjectileOwnerPlayer}
-				cs.applyProjectileDamage(p, "arrow", target, p.ID)
+				cs.applyProjectileDamage(p, target, p.ID)
 			},
 		},
 		{
@@ -472,7 +472,7 @@ func assertMasterProvidenceBuff(t *testing.T, g *MMGame, id spells.SpellID) {
 		return
 	}
 	got := g.combatBuffs[0]
-	if got.SpellID != string(id) || got.SourceID != celestialProvidenceSourceID {
+	if got.ID != string(id) || got.SourceID != celestialProvidenceSourceID {
 		t.Fatalf("Providence combat buff = %+v, want %s owned by Providence", got, id)
 	}
 	ref := newTestCombatSystemWithConfig(t)
@@ -544,7 +544,7 @@ func TestCelestialProvidenceOwnershipAcrossRecastAndRemoval(t *testing.T) {
 		{
 			name: "combat buff", spellID: "heroism",
 			install: func(g *MMGame, source string) {
-				g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", SourceID: source, Frames: 60, OutBonus: 7})
+				g.addCombatBuff(TimedCombatBuff{ID: "heroism", SourceID: source, Frames: 60, OutBonus: 7})
 			},
 			lookup: func(g *MMGame, id string) (string, int, bool) {
 				b, ok := g.combatBuffByID(id)
@@ -609,7 +609,7 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 		{
 			name: "manual combat falls back to stat", manualSpellID: "heroism", fallbackSpellID: "bless",
 			installManual: func(g *MMGame) {
-				g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 999, OutBonus: 10})
+				g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 999, OutBonus: 10})
 			},
 			manualStillOwned: func(g *MMGame) bool {
 				b, ok := g.combatBuffByID("heroism")
@@ -658,7 +658,7 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 		g := newTestCombatSystemWithConfig(t).game
 		g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
 		g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 999, Bonuses: character.UniformStatBonuses(10)})
-		g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 999, OutBonus: 10})
+		g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 999, OutBonus: 10})
 
 		g.refreshCelestialProvidence()
 		bless, blessOK := g.statBuffByID("bless")
@@ -679,7 +679,7 @@ func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 		Bonuses: character.UniformStatBonuses(8),
 	}}))
 	combat := restoreCombatBuffs(buildCombatBuffSaves([]TimedCombatBuff{{
-		SpellID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 42, OutBonus: 7,
+		ID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 42, OutBonus: 7,
 	}}))
 	if len(stat) != 1 || stat[0].SourceID != celestialProvidenceSourceID ||
 		len(combat) != 1 || combat[0].SourceID != celestialProvidenceSourceID {
@@ -692,7 +692,7 @@ func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 		combat []TimedCombatBuff
 	}{
 		{"legacy stat", []TimedStatBuff{{SpellID: "bless", Frames: 42}}, nil},
-		{"legacy combat", nil, []TimedCombatBuff{{SpellID: "heroism", Frames: 42}}},
+		{"legacy combat", nil, []TimedCombatBuff{{ID: "heroism", Frames: 42}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -701,7 +701,7 @@ func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 			if len(tt.stat) != 0 {
 				g.celestialBuffSpellID = tt.stat[0].SpellID
 			} else {
-				g.celestialBuffSpellID = tt.combat[0].SpellID
+				g.celestialBuffSpellID = tt.combat[0].ID
 			}
 			g.restoreCelestialProvidenceOwnership(0)
 			if len(g.statBuffs) != 0 && g.statBuffs[0].SourceID != celestialProvidenceSourceID {
@@ -732,7 +732,7 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 		Bonuses: character.UniformStatBonuses(8),
 	})
 	g.addCombatBuff(TimedCombatBuff{
-		SpellID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 60, OutBonus: 7,
+		ID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 60, OutBonus: 7,
 	})
 	dispeller := &monster.Monster3D{Name: "Dispeller", Abilities: monster.Abilities{Dispel: monster.ChanceAbility{Chance: 1}}}
 	cs.applyMonsterHitRiders(dispeller, "", heroHitTarget{cs, g.party.Members[0]}, true)
@@ -745,7 +745,7 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 
 	// A player recast of the same spell replaces ownership and becomes normally
 	// dispellable again.
-	g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 90, OutBonus: 3})
+	g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 90, OutBonus: 3})
 	if !g.removeCombatBuff("heroism") {
 		t.Fatal("player-owned recast was incorrectly protected from dispel")
 	}

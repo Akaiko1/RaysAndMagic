@@ -77,6 +77,9 @@ func (d MonsterDefinition) AttackLines(contexts ...CombatEffectContext) []Effect
 			} else {
 				addSchool(school, fmt.Sprintf("Ranged weapon: %s (%s)", w.Name, school))
 			}
+			if w.AoeRadiusTiles > 0 {
+				addSchool(school, fmt.Sprintf("Projectile AoE: whole party on hit (weapon radius %.1f)", w.AoeRadiusTiles))
+			}
 		} else {
 			add(fmt.Sprintf("Ranged weapon: %s", d.ProjectileWeapon))
 		}

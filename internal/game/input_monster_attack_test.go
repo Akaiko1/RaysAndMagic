@@ -31,7 +31,7 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	g.world.Monsters = []*monster.Monster3D{m}
 	for _, ch := range g.party.Members {
 		ch.HitPoints = ch.MaxHitPoints
-		delete(ch.Equipment, items.SlotSpell)
+		delete(ch.Equipment, items.SlotQuickAction)
 		ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
 		ch.ActionsRemaining = 10
 		ch.RTCooldown, ch.OffHandRTCooldown = 0, 0
@@ -51,8 +51,8 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	tick := func() {
 		g.frameCount++
 		g.uiFrameCount++
-		if g.spellInputCooldown > 0 {
-			g.spellInputCooldown--
+		if g.actionInputStagger > 0 {
+			g.actionInputStagger--
 		}
 		for _, ch := range g.party.Members {
 			if ch.RTCooldown > 0 {
@@ -168,7 +168,7 @@ func TestMouseSmartAttackTBCadence(t *testing.T) {
 			switch tc.action {
 			case "spell":
 				hero.LearnSpell("fireball")
-				hero.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+				hero.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 				hero.SpellPoints, hero.MaxSpellPoints = 1000, 1000
 			case "flask":
 				hero.Skills[character.SkillBombThrowing] = &character.Skill{Mastery: character.MasteryNovice}
@@ -190,7 +190,11 @@ func TestMouseSmartAttackTBCadence(t *testing.T) {
 			assertActions := func(want int) {
 				t.Helper()
 				shots := len(g.slashEffects)
-				if tc.action != "weapon" {
+				switch tc.action {
+				case "weapon":
+				case "flask":
+					shots = len(g.flasks)
+				default:
 					shots = len(g.magicProjectiles)
 				}
 				if shots != want || hero.ActionsRemaining != 20-want {
@@ -290,7 +294,7 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 				case "stash picked up":
 					g.stashDragPickedUp = true
 				case "cooldown":
-					g.spellInputCooldown = 1000
+					g.actionInputStagger = 1000
 				case "turn":
 					if tb {
 						g.currentTurn = 1
@@ -660,7 +664,7 @@ func TestMouseSmartAttackPreservesHealingPriority(t *testing.T) {
 		g, _, fp, _, tick := mouseCombatHarness(t, tb)
 		caster := g.party.Members[0]
 		caster.LearnSpell("heal_other")
-		caster.Equipment[items.SlotSpell] = items.Item{Name: "Heal", Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
+		caster.Equipment[items.SlotQuickAction] = items.Item{Name: "Heal", Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
 		caster.SpellPoints, caster.MaxSpellPoints = 50, 50
 		hurt := g.party.Members[1]
 		hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
@@ -682,12 +686,12 @@ func TestMouseSmartAttackSpellAndSharedInput(t *testing.T) {
 				switch entry {
 				case "spell":
 					caster.LearnSpell("fireball")
-					caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+					caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 					caster.SpellPoints, caster.MaxSpellPoints = 100, 100
 				case "simultaneous keyboard":
 					ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == ebiten.KeyR })
 				case "initial cooldown":
-					g.spellInputCooldown = 30
+					g.actionInputStagger = 30
 				}
 				facing := g.camera.Angle
 				fp.press()
@@ -916,18 +920,18 @@ func TestPartyActionChainsPastSelectedMember(t *testing.T) {
 func TestEnsureTBActorUsesActionCapability(t *testing.T) {
 	g, _, _, _, _ := mouseCombatHarness(t, true)
 	caster := g.party.Members[2]
-	caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+	caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 	caster.SpellPoints = caster.MaxSpellPoints
-	if !g.actionCapable(2, rtActCast) || g.actionCapable(0, rtActCast) {
+	if !g.actionCapable(2, rtActSlotted) || g.actionCapable(0, rtActSlotted) {
 		t.Fatal("bad caster fixture")
 	}
 	g.selectedChar, g.parkSelection = 0, true
-	if !g.ensureTBActor(rtActCast) || g.selectedChar != 2 || g.parkSelection {
+	if !g.ensureTBActor(rtActSlotted) || g.selectedChar != 2 || g.parkSelection {
 		t.Fatalf("cast request selected %d parked=%v, want the capable caster", g.selectedChar, g.parkSelection)
 	}
 	caster.ActionsRemaining = 0
 	g.selectedChar = 0
-	if g.ensureTBActor(rtActCast) || g.selectedChar != 0 {
+	if g.ensureTBActor(rtActSlotted) || g.selectedChar != 0 {
 		t.Fatalf("cast request with no capable actor moved selection to %d", g.selectedChar)
 	}
 	if !g.ensureTBActor(rtActSmart) || g.selectedChar != 0 {
@@ -1098,7 +1102,7 @@ func TestMouseHoldDisplayedPartyCycle(t *testing.T) {
 					}
 					if i == 3 {
 						h.LearnSpell("firebolt")
-						h.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
+						h.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
 						h.SpellPoints, h.MaxSpellPoints = 1000, 1000
 					}
 				}

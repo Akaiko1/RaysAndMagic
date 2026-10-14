@@ -99,7 +99,7 @@ func (g *MMGame) advancedBuff(kind string) *TimedCombatBuff {
 		if !b.active() {
 			continue
 		}
-		if d, ok := config.GetSpellDefinition(b.SpellID); ok && d.Mechanic != nil && d.Mechanic.Kind == kind {
+		if d, ok := config.GetSpellDefinition(b.ID); ok && d.Mechanic != nil && d.Mechanic.Kind == kind {
 			return b
 		}
 	}
@@ -160,7 +160,7 @@ func (cs *CombatSystem) tryCastAdvancedSupport(id spells.SpellID, d spells.Spell
 			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
 			return castRejected
 		}
-		b := TimedCombatBuff{SpellID: string(id), Frames: frames, MasteryTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == "haste"}
+		b := TimedCombatBuff{ID: string(id), Frames: frames, MasteryTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == "haste"}
 		if m.Kind == "celestial_armor" {
 			b.Absorb = m.Power(tier)
 		}
@@ -245,7 +245,7 @@ func (g *MMGame) eachDispellableProjectile(radius float64, visit func(active *bo
 // from ordinary arrows. Friendly, reflected, and expired shots are untouched.
 func (g *MMGame) dispellableProjectile(active bool, lifetime int, owner ProjectileOwner, magical bool, x, y, limit float64) bool {
 	return active && lifetime > 0 && magical &&
-		(owner == ProjectileOwnerMonster || owner == ProjectileOwnerMonsterAtBound) &&
+		(owner == ProjectileOwnerMonster || owner == ProjectileOwnerMonsterAtActor) &&
 		math.Hypot(x-g.camera.X, y-g.camera.Y) <= limit
 }
 

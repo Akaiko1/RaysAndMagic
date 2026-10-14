@@ -735,7 +735,7 @@ func TestPhysicalProjectilesPierceArmor(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		bolt := func(spell string) func(m *monsterPkg.Monster3D) {
 			return func(m *monsterPkg.Monster3D) {
-				cs.applyProjectileDamage(&MagicProjectile{Active: true, LifeTime: 1, Damage: damage, SpellType: spell, Owner: ProjectileOwnerPlayer, Attacker: cs.game.party.Members[0]}, "magic_projectile", m, m.ID)
+				cs.applyProjectileDamage(&MagicProjectile{Active: true, LifeTime: 1, Damage: damage, SpellType: spell, Owner: ProjectileOwnerPlayer, Attacker: cs.game.party.Members[0]}, m, m.ID)
 			}
 		}
 		for _, tc := range []struct {
@@ -744,14 +744,14 @@ func TestPhysicalProjectilesPierceArmor(t *testing.T) {
 			deliver func(m *monsterPkg.Monster3D)
 		}{
 			{"party physical arrow", true, func(m *monsterPkg.Monster3D) {
-				cs.applyProjectileDamage(&Arrow{Active: true, LifeTime: 1, Damage: damage, DamageType: "physical", BowKey: "elven_bow", Owner: ProjectileOwnerPlayer}, "arrow", m, m.ID)
+				cs.applyProjectileDamage(&Arrow{Active: true, LifeTime: 1, Damage: damage, DamageType: "physical", BowKey: "elven_bow", Owner: ProjectileOwnerPlayer}, m, m.ID)
 			}},
 			{"party Shrapmetal fragment", true, bolt("shrapmetal")},
 			{"party fire bolt", false, bolt("firebolt")},
 			{"party Harm Flask splash", true, func(m *monsterPkg.Monster3D) {
 				m.X, m.Y = cs.game.camera.X+128, cs.game.camera.Y
 				cs.game.world.Monsters = []*monsterPkg.Monster3D{m}
-				cs.detonateFlask(&MagicProjectile{Active: true, LifeTime: 1, Damage: damage, FlaskKey: "harm_flask", FlaskRadius: 64, Owner: ProjectileOwnerPlayer, Attacker: cs.game.party.Members[0]}, m.X, m.Y)
+				cs.detonateFlask(&FlaskProjectile{Active: true, LifeTime: 1, Damage: damage, Key: "harm_flask", Radius: 64, Attacker: cs.game.party.Members[0]}, m.X, m.Y)
 			}},
 			{"physical melee packet", false, func(m *monsterPkg.Monster3D) {
 				cs.applyMonsterDamagePacket(m, singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, "physical", 0), monsterDamageOptions{})

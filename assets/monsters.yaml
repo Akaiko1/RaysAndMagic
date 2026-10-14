@@ -21,6 +21,7 @@ monsters:
     projectile_spell: "firebolt"
     ranged_attack_range: 5
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Burning Strip"
         kind: "strike"
@@ -55,6 +56,7 @@ monsters:
       water: -20
     boss: false
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Cinder Charge"
         kind: "charge"
@@ -88,6 +90,7 @@ monsters:
       water: -20
     boss: false
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Heat Discharge"
         kind: "strike"
@@ -147,6 +150,7 @@ monsters:
     projectile_spell: "ice_bolt"
     ranged_attack_range: 5
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Slowing Wave"
         kind: "slow"
@@ -180,6 +184,7 @@ monsters:
       fire: -20
     boss: false
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Coiled Frost"
         kind: "slow"
@@ -214,6 +219,7 @@ monsters:
       fire: -20
     boss: false
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Circulation Shield"
         kind: "shield"
@@ -286,6 +292,7 @@ monsters:
     projectile_spell: "rock_blast"
     ranged_attack_range: 5
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Anchor Roots"
         kind: "root"
@@ -319,6 +326,7 @@ monsters:
       air: -20
     boss: false
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Shard Cone"
         kind: "strike"
@@ -352,6 +360,7 @@ monsters:
       air: -20
     boss: false
     abilities:
+      phase_shift: {range_tiles: 5, cooldown_seconds: 9}
       telegraph:
         name: "Ground Shock"
         kind: "strike"

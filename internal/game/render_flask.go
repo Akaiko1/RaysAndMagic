@@ -11,8 +11,8 @@ type flaskRenderPose struct{ x, y, size, angle float64 }
 
 // The arc is presentation only: the same XY projectile still hits bodies,
 // doors, walls and its range endpoint. Travel, not Draw time, drives its spin.
-func (r *Renderer) flaskProjectilePose(p MagicProjectile) (flaskRenderPose, bool) {
-	if !p.Active || p.FlaskKey == "" {
+func (r *Renderer) flaskProjectilePose(p FlaskProjectile) (flaskRenderPose, bool) {
+	if !p.Active {
 		return flaskRenderPose{}, false
 	}
 	g := r.game
@@ -23,7 +23,7 @@ func (r *Renderer) flaskProjectilePose(p MagicProjectile) (flaskRenderPose, bool
 	if !ok {
 		return flaskRenderPose{}, false
 	}
-	t := max(0, min(1, 1-p.FlaskRemaining/max(1, p.Launch.distance)))
+	t := max(0, min(1, 1-p.Remaining/max(1, p.Launch.distance)))
 	pose := flaskRenderPose{
 		x:     float64(projected.screenX) + float64(g.worldWidth())*.13*math.Pow(1-t, 3),
 		y:     projected.centerY,
@@ -36,12 +36,16 @@ func (r *Renderer) flaskProjectilePose(p MagicProjectile) (flaskRenderPose, bool
 	}
 	return pose, true
 }
-func (r *Renderer) drawFlaskProjectile(screen *ebiten.Image, p MagicProjectile) {
+func (r *Renderer) drawFlaskProjectile(screen *ebiten.Image, idx int) {
+	if idx < 0 || idx >= len(r.game.flasks) {
+		return
+	}
+	p := r.game.flasks[idx]
 	pose, ok := r.flaskProjectilePose(p)
 	if !ok {
 		return
 	}
-	d, ok := config.GetItemDefinition(p.FlaskKey)
+	d, ok := config.GetItemDefinition(p.Key)
 	if !ok || d.Flask == nil {
 		return
 	}

@@ -52,7 +52,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 		return false
 	}
 
-	spell, hasSpell := caster.Equipment[items.SlotSpell]
+	spell, hasSpell := caster.Equipment[items.SlotQuickAction]
 	if !hasSpell {
 		return false
 	}
@@ -144,7 +144,7 @@ func knownHealChain(caster *character.MMCharacter) []spells.SpellDefinition {
 
 // healCastableNow: not under its personal reuse lockout, and payable.
 func (cs *CombatSystem) healCastableNow(caster *character.MMCharacter, def spells.SpellDefinition) bool {
-	return caster.SpellState.Reusable(string(def.ID)) && caster.SpellPoints >= cs.effectiveSpellCost(caster, def.SpellPointsCost)
+	return caster.SpellState.Reusable(string(def.ID)) && caster.SpellPoints >= caster.MeditatedSPCost(def.SpellPointsCost)
 }
 
 // bestKnownHealSpell returns the first heal of the caster's chain it can cast
@@ -192,7 +192,7 @@ func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.Spel
 func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.SpellDefinition, targetIndex int) bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 	req := spellCastRequest{ID: spellID, Definition: def, Caster: caster,
-		Cost: cs.effectiveSpellCost(caster, def.SpellPointsCost), PlayerInitiated: true}
+		Cost: caster.MeditatedSPCost(def.SpellPointsCost), PlayerInitiated: true}
 	outcome := cs.executeSpellCast(req, func() spellCastOutcome {
 		if def.Mechanic != nil {
 			return cs.applySpellEffect(spellID, def, caster, true)

@@ -318,14 +318,7 @@ func (p *FxPreview) clearTransient() {
 	g.world.SetTerrainPassageActive(false)
 	g.world.SetWalkOnWaterActive(false)
 	g.world.SetWaterBreathingActive(false)
-	for i := range g.magicProjectiles {
-		g.collisionSystem.UnregisterEntity(g.magicProjectiles[i].ID)
-	}
-	for i := range g.arrows {
-		g.collisionSystem.UnregisterEntity(g.arrows[i].ID)
-	}
-	g.magicProjectiles = g.magicProjectiles[:0]
-	g.arrows = g.arrows[:0]
+	g.clearProjectiles()
 	g.slashEffects = g.slashEffects[:0]
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.impactLights = g.impactLights[:0]

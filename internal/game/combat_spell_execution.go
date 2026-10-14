@@ -22,18 +22,12 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 		return false
 	}
 
-	spell, hasSpell := caster.Equipment[items.SlotSpell]
+	spell, hasSpell := caster.Equipment[items.SlotQuickAction]
 	if !hasSpell {
 		return false // No spell equipped
 	}
-	if spell.Type == items.ItemTrap {
-		// Thief quick slot: F arms the slotted trap exactly like a quick
-		// spell - explicit cast, so refusal messages stay on.
-		_, placed := cs.tryPlaceQuickTrap(caster, true)
-		return placed
-	}
 	if spell.Type != items.ItemBattleSpell && spell.Type != items.ItemUtilitySpell {
-		return false // SlotSpell should only contain spells
+		return false // a technique, trap or flask: not cast here
 	}
 
 	spellID := spells.SpellID(spell.SpellEffect)
@@ -93,7 +87,7 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, def spells.Spe
 
 func (cs *CombatSystem) castPlayerSpell(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, announce bool) bool {
 	return cs.castSpell(spellCastRequest{ID: spellID, Definition: def, Caster: caster,
-		Cost: cs.effectiveSpellCost(caster, def.SpellPointsCost), Announce: announce,
+		Cost: caster.MeditatedSPCost(def.SpellPointsCost), Announce: announce,
 		PlayerInitiated: true, ActionProcs: true}).handled()
 }
 
@@ -263,7 +257,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		}
 
 		if !timedBuffActivated {
-			cs.game.setUtilityStatus(spellID, duration)
+			cs.game.setBuffStatus(string(spellID), duration)
 		}
 		cs.playSpellBuffFx(spellID)
 		return castCommitted
@@ -342,6 +336,6 @@ func (cs *CombatSystem) EquipSelectedSpell() {
 		return
 	}
 
-	// Equip the spell item in the unified spell slot
-	currentChar.Equipment[items.SlotSpell] = item
+	// Ready the spell as the quick action
+	currentChar.Equipment[items.SlotQuickAction] = item
 }

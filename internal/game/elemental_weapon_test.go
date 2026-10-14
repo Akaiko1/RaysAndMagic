@@ -116,7 +116,7 @@ func fireFlowstaff(t *testing.T, cs *CombatSystem, target *monster.Monster3D) in
 	// A launch snapshot cannot read the new stat at impact.
 	old := hero.Intellect
 	hero.Intellect += 300
-	cs.applyProjectileDamage(&shot, "arrow", target, shot.ID)
+	cs.applyProjectileDamage(&shot, target, shot.ID)
 	hero.Intellect = old
 	cs.game.arrows[index] = shot
 	return want

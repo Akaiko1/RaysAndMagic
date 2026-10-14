@@ -139,16 +139,16 @@ func TestEffectiveSpellCost_MeditationGM(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	m := cs.game.party.Members[0]
 	delete(m.Skills, character.SkillMeditation)
-	if got := cs.effectiveSpellCost(m, 100); got != 100 {
+	if got := m.MeditatedSPCost(100); got != 100 {
 		t.Fatalf("no Meditation -> cost %d, want 100", got)
 	}
 	m.Skills[character.SkillMeditation] = gmSkill()
-	if got := cs.effectiveSpellCost(m, 100); got != 100-MeditationGMSpellCostReductionPct {
-		t.Errorf("GM Meditation -> cost %d, want %d", got, 100-MeditationGMSpellCostReductionPct)
+	if got := m.MeditatedSPCost(100); got != 100-MeditationGMSPCostReductionPct {
+		t.Errorf("GM Meditation -> cost %d, want %d", got, 100-MeditationGMSPCostReductionPct)
 	}
 	// The discount rounds to the nearest SP: a cheap spell is never made free.
 	for _, tc := range [][2]int{{0, 0}, {1, 1}, {2, 2}, {3, 2}, {4, 3}, {5, 4}, {6, 5}, {8, 6}, {12, 9}} {
-		if got := cs.effectiveSpellCost(m, tc[0]); got != tc[1] {
+		if got := m.MeditatedSPCost(tc[0]); got != tc[1] {
 			t.Errorf("GM Meditation: cost %d -> %d, want %d", tc[0], got, tc[1])
 		}
 	}

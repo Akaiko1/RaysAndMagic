@@ -166,14 +166,14 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 func (g *MMGame) restoreSavedEffectPresentation(wm *world.WorldManager, save *GameSave) {
 	// Rebuild HUD buff icons from the single timed-buff registry (same source the
 	// per-frame update uses), so a restored buff shows its timer immediately.
-	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
+	g.buffStatuses = make(map[string]*BuffStatus)
 	for _, b := range g.timedBuffs() {
-		g.updateUtilityStatus(b.id, *b.duration, *b.active)
+		g.updateBuffStatus(string(b.id), *b.duration, *b.active)
 	}
 	// Registry buffs (stat + combat) show their timers immediately too, not
 	// only after the first tick refreshes them.
 	for _, b := range g.statBuffs {
-		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
+		g.updateBuffStatus(b.SpellID, b.Frames, true)
 	}
 	for _, b := range g.combatBuffs {
 		// statusDuration keeps a charge-only buff (Preservation) as "until spent".

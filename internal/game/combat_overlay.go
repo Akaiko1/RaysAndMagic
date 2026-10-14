@@ -56,16 +56,20 @@ func (g *MMGame) monsterInPartyFight(m *monster.Monster3D, px, py float64) bool 
 // combatAuraMoveSteps is the movement reach the overlay outlines: the monster's
 // next passes, each at its fractional, accumulating step rate.
 func (g *MMGame) combatAuraMoveSteps(m *monster.Monster3D) int {
+	return m.PeekTurnBasedSteps(g.monsterTurnPasses(m))
+}
+
+// monsterTurnPasses is how many monster passes the coming turn gives m.
+func (g *MMGame) monsterTurnPasses(m *monster.Monster3D) int {
 	if g.monsterMovementHeld(m) {
 		return 0
 	}
-	passes := g.monsterTurnState.plannedPasses()
 	if g.currentTurn == 1 && g.turnBasedMonsterPassesLeft > 0 {
-		passes = g.turnBasedMonsterPassesLeft
+		return g.turnBasedMonsterPassesLeft
 	} else if g.currentTurn == 0 && g.movementGrantsExtraMonsterPass() {
-		passes = 2
+		return 2
 	}
-	return m.PeekTurnBasedSteps(passes)
+	return g.monsterTurnState.plannedPasses()
 }
 
 func (g *MMGame) combatAuraMovement(c *combatAuraScratch, m *monster.Monster3D, steps int, ts float64) {
@@ -94,6 +98,9 @@ func (g *MMGame) combatAuraMovement(c *combatAuraScratch, m *monster.Monster3D, 
 		}
 		begin = end
 	}
+	if landing, ok := g.phaseShiftLandingNextTurn(m); ok {
+		c.tiles[landing] = true
+	}
 	if len(c.tiles) == 1 {
 		clear(c.tiles)
 	}
@@ -110,7 +117,7 @@ func (g *MMGame) combatAuraAttacks(c *combatAuraScratch, m *monster.Monster3D, t
 			return
 		}
 		px, py := TileCenterFromTile(x, y, ts)
-		if g.combat.monsterAttackPointInReachTB(m, px, py) || g.combat.monsterPouncePointInReachTB(m, px, py, g.combatAuraPounceCooldown(m)) {
+		if g.combat.monsterAttackPointInReachTB(m, px, py) || g.combat.monsterPouncePointInReachTB(m, px, py, g.combatAuraTurnCooldown(m.PounceCDTurns)) {
 			c.tiles[[2]int{x, y}] = true
 		}
 	}
@@ -132,7 +139,7 @@ func (g *MMGame) combatAuraAttacks(c *combatAuraScratch, m *monster.Monster3D, t
 	if !m.HasRangedAttack() {
 		areaReach = int(math.Ceil(m.GetAttackRangePixels() / ts))
 	}
-	if m.CanPounce() && g.combatAuraPounceCooldown(m) <= 0 {
+	if m.CanPounce() && g.combatAuraTurnCooldown(m.PounceCDTurns) <= 0 {
 		areaReach = max(areaReach, int(m.PounceRangePixels()/ts))
 	}
 	if areaReach > 1 {
@@ -149,11 +156,13 @@ func (g *MMGame) combatAuraAttacks(c *combatAuraScratch, m *monster.Monster3D, t
 	}
 }
 
-func (g *MMGame) combatAuraPounceCooldown(m *monster.Monster3D) int {
+// combatAuraTurnCooldown is a monster cooldown as it will stand on the
+// monster's coming turn: one tick lower while that turn's tick is still due.
+func (g *MMGame) combatAuraTurnCooldown(turns int) int {
 	if g.currentTurn == 0 || !g.turnBasedMonsterStatusTick {
-		return max(0, m.PounceCDTurns-1)
+		return max(0, turns-1)
 	}
-	return m.PounceCDTurns
+	return turns
 }
 
 func (g *MMGame) prepareCombatAura(c *combatAuraScratch, ts float64) bool {
@@ -226,7 +235,7 @@ type combatAuraActorKey struct {
 	x, y, rangePixels, pounce                                                 float64
 	targetX, targetY                                                          float64
 	behavior                                                                  monster.AIBehaviorMode
-	steps, cooldown                                                           int
+	steps, cooldown, phaseCooldown                                            int
 	alive, hostile, hasTarget, ranged, champion, flying, pounceReady, stunned bool
 	bounds                                                                    [4]int
 	hasBounds                                                                 bool
@@ -244,7 +253,7 @@ func (g *MMGame) combatAuraStateKey(px, py, radius, ts float64) uint64 {
 		}
 		_, tx, ty, target := g.monsterAttackTarget(m)
 		state := combatAuraActorKey{id: m.ID, x: m.X, y: m.Y, rangePixels: m.GetAttackRangePixels(), pounce: m.PounceRangePixels(), targetX: tx, targetY: ty,
-			behavior: m.CurrentAIBehavior(), steps: g.combatAuraMoveSteps(m), cooldown: g.combatAuraPounceCooldown(m), alive: m.IsAlive(), hostile: g.battlefieldCombatant(m), hasTarget: target, ranged: m.HasRangedAttack(), champion: m.IsChampion(), flying: m.Flying, pounceReady: m.CanPounce(), stunned: m.StunTurnsRemaining > 0 || g.turnBasedMonsterStunned[m]}
+			behavior: m.CurrentAIBehavior(), steps: g.combatAuraMoveSteps(m), cooldown: g.combatAuraTurnCooldown(m.PounceCDTurns), phaseCooldown: g.combatAuraTurnCooldown(m.PhaseShiftCDTurns), alive: m.IsAlive(), hostile: g.battlefieldCombatant(m), hasTarget: target, ranged: m.HasRangedAttack(), champion: m.IsChampion(), flying: m.Flying, pounceReady: m.CanPounce(), stunned: m.StunTurnsRemaining > 0 || g.turnBasedMonsterStunned[m]}
 		if m.AmbientBounds != nil {
 			state.bounds = *m.AmbientBounds
 			state.hasBounds = true

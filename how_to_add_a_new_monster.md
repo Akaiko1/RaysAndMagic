@@ -136,6 +136,7 @@ monsters:
 | `root_party` | `chance`, `seconds` | An attack roots the whole party. |
 | `rear_blink` | `chance`, `range_tiles` | A ranged attacker blinks behind the party and strikes. Needs a ranged attack; `range_tiles` runs from 2 up to `ranged_attack_range`. |
 | `pounce` | `range_tiles`, `cooldown_seconds` | Leaps to melee from range, e.g. the puma. |
+| `phase_shift` | `range_tiles`, `cooldown_seconds` | A walker blinks up to `range_tiles` (2-8) straight along a row or column across chasms or water, onto the first walkable tile beyond them (it may pass over the party), toward the party, only when its pursuit finds no walking route to an attack position or that walk is more than `monster_ai.phase_shift.detour_factor` times the walk-and-blink plan (config.yaml; the cooldown still to run counts as walking; with no route it waits on the launch tile). Walls, doors and exits block it. Not for `flying: true`; `cooldown_seconds` is whole 3 s rounds. Planning it costs several pursuit repaths per replan: author it for small dungeon maps, not open-world packs. E.g. the solstice chamber mobs. |
 | `poison` | `chance`, `duration_seconds` | A hit poisons the target. |
 | `ignite` | `chance`, `duration_seconds` | A hit sets the target on fire. |
 | `stun` | `chance`, `seconds` | A hit stuns the target. |

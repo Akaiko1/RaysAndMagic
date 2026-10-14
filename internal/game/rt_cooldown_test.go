@@ -72,7 +72,7 @@ func sortedSpellDefs(t *testing.T) []spells.SpellDefinition {
 func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
 	cs := newSpellCooldownTestSystem(t)
 	tps := cs.game.config.GetTPS()
-	caster := charWithSpeed(SpellCooldownSpeedRefSpeed)
+	caster := charWithSpeed(ActionCooldownSpeedRefSpeed)
 
 	checked := 0
 	for _, def := range sortedSpellDefs(t) {
@@ -128,7 +128,7 @@ func TestSpellInputRecoveryByEffect(t *testing.T) {
 					c := g.party.Members[0]
 					c.RecalculateMaxStatsKeepingCurrent(g.config)
 					d, _ := spells.GetSpellDefinitionByID(spells.SpellID(tc.id))
-					cost := g.combat.effectiveSpellCost(c, d.SpellPointsCost)
+					cost := c.MeditatedSPCost(d.SpellPointsCost)
 					sp, actions := c.SpellPoints, c.ActionsRemaining
 					pressKeys(NewInputHandler(g), ebiten.KeyF)
 					if c.SpellPoints != sp-cost || g.menuOpen {
@@ -144,8 +144,8 @@ func TestSpellInputRecoveryByEffect(t *testing.T) {
 					if (c.RTCooldown == 0) != tc.noRecovery {
 						t.Fatalf("personal recovery=%d; want none=%v", c.RTCooldown, tc.noRecovery)
 					}
-					if !tb && !book && g.spellInputCooldown != rtActionStagger {
-						t.Fatalf("input stagger=%d, want %d", g.spellInputCooldown, rtActionStagger)
+					if !tb && !book && g.actionInputStagger != rtActionStagger {
+						t.Fatalf("input stagger=%d, want %d", g.actionInputStagger, rtActionStagger)
 					}
 					for _, viewer := range []*character.MMCharacter{nil, c} {
 						card := GetSpellTooltipRows(d.ID, viewer, g.combat, true).String()
@@ -210,7 +210,7 @@ func TestRTSpellBookCommitArmsPersonalCooldown(t *testing.T) {
 func TestSpellCooldownFrames_SpeedScales(t *testing.T) {
 	cs := newSpellCooldownTestSystem(t)
 	slow := cs.SpellCooldownFrames(charWithSpeed(5), "fireball")
-	ref := cs.SpellCooldownFrames(charWithSpeed(SpellCooldownSpeedRefSpeed), "fireball")
+	ref := cs.SpellCooldownFrames(charWithSpeed(ActionCooldownSpeedRefSpeed), "fireball")
 	fast := cs.SpellCooldownFrames(charWithSpeed(50), "fireball")
 	if !(slow > ref && ref > fast) {
 		t.Errorf("expected slow(%d) > ref(%d) > fast(%d)", slow, ref, fast)

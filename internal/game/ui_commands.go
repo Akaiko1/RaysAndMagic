@@ -164,7 +164,7 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 						mix(0)
 					}
 				}
-				for slot := items.EquipSlot(0); slot <= items.SlotSpell; slot++ {
+				for slot := items.EquipSlot(0); slot <= items.SlotQuickAction; slot++ {
 					it, ok := ch.Equipment[slot]
 					mix(uint64(slot))
 					mix(uint64(boolInt(ok)))
@@ -478,7 +478,7 @@ func uiItemIdentity(it items.Item) uint64 {
 	mix(it.InstanceID)
 	mix(uint64(it.Type))
 	mix(uint64(it.Count()))
-	for _, text := range []string{it.Name, string(it.SpellEffect), it.Technique} {
+	for _, text := range []string{it.Name, string(it.SpellEffect), it.Technique, it.Trap, it.Flask} {
 		for i := 0; i < len(text); i++ {
 			mix(uint64(text[i]))
 		}

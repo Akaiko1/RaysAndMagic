@@ -19,7 +19,7 @@ import (
 // and accepts drag-and-drop (items from the bag, spells from the book). In game
 // the bar floats above the party cards and double-click uses the slot:
 //   weapon -> equip/swap, potion -> drink one, spell -> cast.
-// Independent of the Space/SmartAttack quick-spell (see character.QuickSlots doc).
+// Independent of the F/Space quick action (see character.QuickSlots doc).
 
 const (
 	quickSlotBarSprite     = "quick_slots_bar"
@@ -96,7 +96,7 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 			if interactive && item != nil &&
 				item.VirtualAction() &&
 				ui.game.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
-				ui.game.bindQuickSpellFromPanel(charIdx, *item)
+				ui.game.bindQuickAction(charIdx, *item)
 			}
 		})
 		// Hide the icon of the cell the cursor is currently carrying out of.
@@ -295,10 +295,11 @@ func (ui *UISystem) quickRareActionDragSource(item items.Item, rect layoutRect) 
 	}
 }
 
-// bindQuickSpellFromPanel binds a spell/trap sitting in the quick-slot BAR (the
-// panel) as the character's single Space quick-spell (Equipment[SlotSpell]),
-// leaving the item in the bar. Right-click entry point for the bar cells.
-func (g *MMGame) bindQuickSpellFromPanel(charIdx int, it items.Item) {
+// bindQuickAction binds a spell, trap, technique or flask as the character's
+// single F/Space quick action (Equipment[SlotQuickAction]) after the binding
+// checks. Entry point for the quick-slot bar's right-click (the item stays in
+// the bar) and the Pilgrim book's Equip button.
+func (g *MMGame) bindQuickAction(charIdx int, it items.Item) {
 	if charIdx < 0 || charIdx >= len(g.party.Members) {
 		return
 	}
@@ -306,17 +307,17 @@ func (g *MMGame) bindQuickSpellFromPanel(charIdx int, it items.Item) {
 	switch it.Type {
 	case items.ItemTechnique, items.ItemThrowable:
 		if canBindQuickItem(ch, &it) {
-			ch.Equipment[items.SlotSpell] = it
+			ch.Equipment[items.SlotQuickAction] = it
 		}
 
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		if !characterKnowsSpellByID(ch, spells.SpellID(it.SpellEffect)) {
 			return
 		}
-		ch.Equipment[items.SlotSpell] = it
+		ch.Equipment[items.SlotQuickAction] = it
 		g.AddCombatMessage(fmt.Sprintf("%s set as %s's quick spell", it.Name, ch.Name))
 	case items.ItemTrap:
-		if equipTrap(ch, string(it.SpellEffect)) {
+		if equipTrap(ch, it.Trap) {
 			g.AddCombatMessage(fmt.Sprintf("%s armed in %s's quick slot", it.Name, ch.Name))
 		} else {
 			g.AddCombatMessage(fmt.Sprintf("%s can't arm %s yet", ch.Name, it.Name))
@@ -820,7 +821,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		return
 	}
 	if item.Type == items.ItemThrowable {
-		g.throwFlask(charIdx, string(item.SpellEffect), true)
+		g.throwFlask(charIdx, item.Flask, true)
 		return
 	}
 	// Spells and traps ARE combat actions: gated by readiness, and a successful one
@@ -843,7 +844,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	case items.ItemTrap:
 		// Arm the trap recipe in the world (same path as the trap-book double-click).
 		// The recipe is book-owned, so the slot keeps the trap for reuse.
-		trapKey := string(item.SpellEffect)
+		trapKey := item.Trap
 		if _, placed := g.combat.placeTrapByKey(ch, trapKey, true); placed {
 			acted, cdFrames = true, g.combat.TrapCooldownFrames(ch, trapKey)
 		}
@@ -855,6 +856,22 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 			ch.RTCooldown = cdFrames
 		}
 	}
+}
+
+// slottedSPCost is the base SP price the quick-slot spell or trap pays, read
+// live from spells.yaml / traps.yaml: a saved slot item keeps an old copy.
+func slottedSPCost(slot items.Item) int {
+	switch slot.Type {
+	case items.ItemTrap:
+		if def, ok := config.GetTrapDefinition(slot.Trap); ok {
+			return def.SPCost
+		}
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(slot.SpellEffect)); err == nil {
+			return def.SpellPointsCost
+		}
+	}
+	return 0
 }
 
 // Spell shortcuts are owned by the recipient's spellbook. Ordinary items can

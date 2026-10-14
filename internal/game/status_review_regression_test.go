@@ -128,8 +128,8 @@ func TestStatusReviewProvidenceCleanup(t *testing.T) {
 					g.dayNightFrames = g.dayNightPhaseStartFrame(true) - 1
 					g.dayNightIsNight = false
 					g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: celestialProvidenceSourceID, Frames: 1})
-					g.addCombatBuff(TimedCombatBuff{SpellID: "stone_skin", SourceID: celestialProvidenceSourceID, Frames: 1})
-					g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 1000})
+					g.addCombatBuff(TimedCombatBuff{ID: "stone_skin", SourceID: celestialProvidenceSourceID, Frames: 1})
+					g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 1000})
 					g.celestialBuffSpellID = marker
 					if saved {
 						save := auditSaveJSON(t, g.buildSave(wm))

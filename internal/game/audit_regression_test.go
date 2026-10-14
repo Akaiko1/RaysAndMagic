@@ -460,7 +460,7 @@ func TestAuditTrainerPresses(t *testing.T) {
 			pressed = false
 			for frame := 0; frame < 20; frame++ {
 				ih.keys.BeginFrame()
-				g.spellInputCooldown = 0
+				g.actionInputStagger = 0
 				ih.handleSkillTrainerInput()
 			}
 			if g.party.Gold != gold || g.dialogSelectedSpell != selection {
@@ -497,9 +497,9 @@ func TestAuditDisintegratePreservesSplash(t *testing.T) {
 				case "melee":
 					cs.ApplyDamageToMonster(main, 20, def.Name, false)
 				case "arrow":
-					cs.applyProjectileDamage(&Arrow{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, BowKey: "tonbogiri", Owner: ProjectileOwnerPlayer}, "arrow", main, main.ID)
+					cs.applyProjectileDamage(&Arrow{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, BowKey: "tonbogiri", Owner: ProjectileOwnerPlayer}, main, main.ID)
 				case "spell":
-					cs.applyProjectileDamage(&MagicProjectile{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, SpellType: "fireball"}, "magic_projectile", main, main.ID)
+					cs.applyProjectileDamage(&MagicProjectile{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, SpellType: "fireball"}, main, main.ID)
 				}
 				if main.IsAlive() != (kind != "beast") {
 					t.Fatalf("primary alive=%v for %s", main.IsAlive(), kind)

@@ -190,21 +190,34 @@ func (cs *CombatSystem) blinkBehindParty(m *monster.Monster3D, cadence monsterAt
 		if g.collisionSystem.IsMonsterAttackPostReserved(m.ID, x, y) || !g.collisionSystem.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying) || !cs.attackLineClear(x, y, px, py) {
 			continue
 		}
-		g.releaseMonsterAttackPost(m)
-		m.X, m.Y = x, y
-		g.collisionSystem.UpdateEntity(m.ID, x, y)
+		g.relocateMonster(m, x, y)
 		if !cs.monsterAttackStillValid(m, monsterAttackDestination{}, cadence) || !g.tryClaimMonsterAttackPost(m) {
 			m.X, m.Y = oldX, oldY
 			g.collisionSystem.UpdateEntity(m.ID, oldX, oldY)
 			g.tryClaimMonsterAttackPost(m)
 			continue
 		}
-		m.ResetPathfinding()
-		m.Direction = math.Atan2(py-y, px-x)
-		g.spawnBlinkLightColumn(oldX, oldY)
-		g.spawnBlinkLightColumn(x, y)
+		cs.settleBlink(m, oldX, oldY)
 		g.AddCombatMessage(fmt.Sprintf("%s slips behind the party!", m.Name))
 		return true
 	}
 	return false
+}
+
+// relocateMonster teleports a monster to a spot its caller already checked: it
+// leaves its attack post and moves its collision box.
+func (g *MMGame) relocateMonster(m *monster.Monster3D, x, y float64) {
+	g.releaseMonsterAttackPost(m)
+	m.X, m.Y = x, y
+	g.collisionSystem.UpdateEntity(m.ID, x, y)
+}
+
+// settleBlink finishes a blink (Rear Blink, Phase Shift): a fresh route, the
+// party in view, and a light column where it left and where it arrived.
+func (cs *CombatSystem) settleBlink(m *monster.Monster3D, oldX, oldY float64) {
+	m.ResetPathfinding()
+	px, py := cs.logicalCameraXY()
+	m.Direction = math.Atan2(py-m.Y, px-m.X)
+	cs.game.spawnBlinkLightColumn(oldX, oldY)
+	cs.game.spawnBlinkLightColumn(m.X, m.Y)
 }

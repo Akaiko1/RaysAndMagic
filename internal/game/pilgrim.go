@@ -117,13 +117,13 @@ func (g *MMGame) partyNeedsHaste() bool {
 	return eligible > pool+speed
 }
 func (g *MMGame) techniqueSPCost(c *character.MMCharacter, d *config.TechniqueDefinition) int {
-	return g.combat.effectiveSpellCost(c, config.TierValue(d.SPCost, c.SkillTier(character.SkillTranslocation)))
+	return c.MeditatedSPCost(config.TierValue(d.SPCost, c.SkillTier(character.SkillTranslocation)))
 }
 func (g *MMGame) techniqueCooldown(c *character.MMCharacter, d *config.TechniqueDefinition) int {
 	if d.IsStep() || d.CooldownSeconds == 0 {
 		return 0
 	}
-	return g.combat.castCooldownFrames(c, d.CooldownSeconds)
+	return g.combat.actionCooldownBreakdown(c, d.CooldownSeconds).TotalFrames
 }
 
 // useTechnique is the single manual/book/quick/autocast transaction. Rejection
@@ -153,7 +153,7 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 		case config.TechniquePurify:
 			g.purifyParty()
 		case config.TechniqueDodge, config.TechniqueHaste:
-			b := TimedCombatBuff{SpellID: config.TechniqueID(d.Key), Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, MasteryTier: tier}
+			b := TimedCombatBuff{ID: config.TechniqueID(d.Key), Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, MasteryTier: tier}
 			applyTechniqueBuff(&b, d, tier)
 			b.DeferFirstTurnTick = d.Kind == config.TechniqueHaste
 			g.addCombatBuff(b)
@@ -178,7 +178,7 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 		g.consumeCharacterActionWithRTCooldown(idx, cooldown)
 	}
 	if !automatic {
-		g.spellInputCooldown = rtActionStagger
+		g.actionInputStagger = rtActionStagger
 	}
 	return true
 }
@@ -240,6 +240,7 @@ func (g *MMGame) tickRareClassClocks(frames int) {
 		}
 		c.RareClass.Tick(frames)
 		c.SpellState.Tick(frames)
+		c.AutocastFrames = max(0, c.AutocastFrames-frames)
 		if c.HasCondition(character.ConditionDead) || c.HasCondition(character.ConditionEradicated) {
 			c.RareClass.Anchor = character.SpatialAnchor{}
 		}
@@ -400,14 +401,13 @@ func (g *MMGame) automaticCastDelayFrames() int {
 }
 
 // canAutocast is independent of action points and recovery. Both spellbook
-// spells and Pilgrim techniques share one personal budget; old technique
-// budgets migrate into it when a save is restored.
+// spells and Pilgrim techniques share one personal budget, AutocastFrames.
 func (g *MMGame) canAutocast(index int) bool {
 	if g.party == nil || index < 0 || index >= len(g.party.Members) {
 		return false
 	}
 	c := g.party.Members[index]
-	if c == nil || !c.CanUseCombatAction() || c.SpellState.AutoFrames > 0 {
+	if c == nil || !c.CanUseCombatAction() || c.AutocastFrames > 0 {
 		return false
 	}
 	if g.turnBasedMode {
@@ -417,7 +417,7 @@ func (g *MMGame) canAutocast(index int) bool {
 }
 
 func (g *MMGame) finishAutocast(c *character.MMCharacter, fxStart int) {
-	c.SpellState.AutoFrames = g.automaticCastDelayFrames()
+	c.AutocastFrames = g.automaticCastDelayFrames()
 	g.queueAutocastFx(fxStart)
 }
 
@@ -440,7 +440,7 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 		if err != nil || !d.HasAutocast() {
 			continue
 		}
-		if !characterKnowsSpellByID(c, d.ID) || c.SpellPoints < g.combat.effectiveSpellCost(c, d.SpellPointsCost) {
+		if !characterKnowsSpellByID(c, d.ID) || c.SpellPoints < c.MeditatedSPCost(d.SpellPointsCost) {
 			continue
 		}
 		if !g.spellAutocastFires(d) {
@@ -448,7 +448,7 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 		}
 		fxStart := len(g.buffFxAnims)
 		outcome := g.combat.castSpell(spellCastRequest{
-			ID: d.ID, Definition: d, Caster: c, Cost: g.combat.effectiveSpellCost(c, d.SpellPointsCost),
+			ID: d.ID, Definition: d, Caster: c, Cost: c.MeditatedSPCost(d.SpellPointsCost),
 			PlayerInitiated: true, Automatic: true,
 		})
 		if outcome != castCommitted {
@@ -536,7 +536,7 @@ func (g *MMGame) partyHardPressed() bool {
 }
 func (gl *GameLoop) updateAutomaticTechniques() {
 	g := gl.game
-	if g.party == nil || g.world == nil || g.gameplayPausedByOverlay() || g.automaticInventoryBlocked() || g.spellInputCooldown > 0 {
+	if g.party == nil || g.world == nil || g.gameplayPausedByOverlay() || g.automaticInventoryBlocked() || g.actionInputStagger > 0 {
 		return
 	}
 	if gl.inputHandler != nil && gl.inputHandler.isRunning() && !g.partyFireWhileRunning() {
@@ -580,7 +580,7 @@ func (g *MMGame) slottedTechnique(idx int) (string, bool) {
 	if idx < 0 || idx >= len(g.party.Members) {
 		return "", false
 	}
-	it := g.party.Members[idx].Equipment[items.SlotSpell]
+	it := g.party.Members[idx].Equipment[items.SlotQuickAction]
 	return it.Technique, it.Type == items.ItemTechnique
 }
 
@@ -597,7 +597,7 @@ func (ih *InputHandler) tryExplicitSlottedStep() bool {
 	}
 	// Handled is independent of success: an explicit step may never fall through
 	// to another hero's spell, including during the global input stagger.
-	if g.spellInputCooldown == 0 {
+	if g.actionInputStagger == 0 {
 		g.useTechnique(g.selectedChar, key, false, true)
 	}
 	return true

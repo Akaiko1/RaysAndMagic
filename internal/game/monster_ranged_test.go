@@ -267,7 +267,7 @@ func TestMonsterRangedAttack_CrossfireUsesSamePointBlankRule(t *testing.T) {
 		Resistances:  make(map[monsterPkg.DamageType]int),
 	}
 
-	cs.performMonsterAttackAgainstMonster(attacker, target, ProjectileOwnerMonsterAtBound)
+	cs.performMonsterAttackAgainstMonster(attacker, target, ProjectileOwnerMonsterAtActor)
 	if len(cs.game.arrows) != 0 {
 		t.Fatalf("point-blank crossfire spawned %d projectiles, want melee", len(cs.game.arrows))
 	}
@@ -276,7 +276,7 @@ func TestMonsterRangedAttack_CrossfireUsesSamePointBlankRule(t *testing.T) {
 	}
 
 	target.X = 2 * tile
-	cs.performMonsterAttackAgainstMonster(attacker, target, ProjectileOwnerMonsterAtBound)
+	cs.performMonsterAttackAgainstMonster(attacker, target, ProjectileOwnerMonsterAtActor)
 	if len(cs.game.arrows) != 1 {
 		t.Fatalf("distant crossfire spawned %d projectiles, want 1", len(cs.game.arrows))
 	}

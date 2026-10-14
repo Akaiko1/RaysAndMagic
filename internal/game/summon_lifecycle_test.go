@@ -191,7 +191,7 @@ func TestPartyHitsBreakCharmOnEveryTarget(t *testing.T) {
 		{name: "spell_aoe", targets: []tile{{1, 0}, {2, 0}},
 			apply: func(_ *testing.T, cs *CombatSystem, targets []*monsterPkg.Monster3D) {
 				bolt := &MagicProjectile{ID: "test_fireball", Active: true, LifeTime: 1, Damage: 20, SpellType: "fireball"}
-				cs.applyProjectileDamage(bolt, "magic_projectile", targets[0], bolt.ID)
+				cs.applyProjectileDamage(bolt, targets[0], bolt.ID)
 			}},
 	} {
 		for _, tb := range []bool{false, true} {

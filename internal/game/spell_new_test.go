@@ -129,7 +129,7 @@ func TestInferno_OutgoingBuffAppliesOnlyToMonsters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inferno def: %v", err)
 	}
-	game.addCombatBuff(TimedCombatBuff{SpellID: "hour_of_power", Frames: 600, OutBonus: 5})
+	game.addCombatBuff(TimedCombatBuff{ID: "hour_of_power", Frames: 600, OutBonus: 5})
 
 	for _, member := range game.party.Members {
 		member.MaxHitPoints, member.HitPoints = 1000, 1000

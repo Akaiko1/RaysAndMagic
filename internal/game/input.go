@@ -370,10 +370,10 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	// Reset spell/UI selections and cooldowns
 	g.selectedSchool = 0
 	g.selectedSpell = 0
-	g.spellInputCooldown = 0
+	g.actionInputStagger = 0
 	g.tabbedMenuInputCooldown = 0
 	g.collapsedSpellSchools = make(map[character.MagicSchoolID]bool)
-	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
+	g.buffStatuses = make(map[string]*BuffStatus)
 	g.lastBookClickTime = 0
 	g.lastClickedBookEntry = -1
 	g.lastClickedBookGroup = -1
@@ -940,17 +940,17 @@ func (ih *InputHandler) handleCombatInput() {
 	// input cooldown. Skipped once this press has fired a combat action, so the
 	// SAME tap that killed a mob can't immediately grab the bag it dropped
 	// (release + press again to pick up).
-	if spacePickupWanted(spaceJust, ih.spaceHoldFrames) && !ih.spacePressActed && ih.game.spellInputCooldown == 0 {
+	if spacePickupWanted(spaceJust, ih.spaceHoldFrames) && !ih.spacePressActed && ih.game.actionInputStagger == 0 {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
-			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+			ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 			return
 		}
 	}
 	// Space interacts with the NPC in focus (centred + adjacent tile). Loot at
 	// the feet wins above so an NPC can never block a pickup. Fresh press only -
 	// a held Space keeps its combat meaning.
-	if spaceJust && ih.game.spellInputCooldown == 0 && ih.tryFocusedNPCInteraction() {
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+	if spaceJust && ih.game.actionInputStagger == 0 && ih.tryFocusedNPCInteraction() {
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 		return
 	}
 	if running {
@@ -975,7 +975,7 @@ func (ih *InputHandler) handleCombatInput() {
 	case spaceJust:
 		kind = rtActSmart
 	case fJust:
-		kind = rtActCast
+		kind = rtActSlotted
 	case cJust || hJust:
 		kind = rtActHeal
 	case repeat && rHeld:
@@ -983,7 +983,7 @@ func (ih *InputHandler) handleCombatInput() {
 	case repeat && spaceHeld:
 		kind = rtActSmart
 	case repeat && fHeld:
-		kind = rtActCast
+		kind = rtActSlotted
 	case repeat && (cHeld || hHeld):
 		kind = rtActHeal
 	}
@@ -1006,7 +1006,7 @@ func (ih *InputHandler) handleCombatInput() {
 func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool) bool {
 	// A spatial step is an explicit selected-hero command, never part of the
 	// held action chain. It alone may bypass personal cooldown and TB AP.
-	if kind == rtActCast && freshCast && ih.tryExplicitSlottedStep() {
+	if kind == rtActSlotted && freshCast && ih.tryExplicitSlottedStep() {
 		return true
 	}
 	// Capture the requested patient before actor selection can move off a KO.
@@ -1024,7 +1024,7 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 		// Explicit F with nothing castable: say WHY once per fresh press (the
 		// TB path announces through the cast itself; holds stay silent so a
 		// held key can't spam). Space keeps its silent weapon fallback.
-		if kind == rtActCast && freshCast && ih.game.combatActorAllowed(ih.game.selectedChar) {
+		if kind == rtActSlotted && freshCast && ih.game.combatActorAllowed(ih.game.selectedChar) {
 			ih.announceCastShortfall(ih.game.selectedChar)
 		}
 		ih.game.advanceRTActor(kind)
@@ -1040,7 +1040,7 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 
 	// Gate: short global stagger AND the selected member ready+capable. A capable
 	// member on cooldown lands here and simply waits (no fire, no chat spam).
-	if ih.game.spellInputCooldown != 0 || !ih.game.rtActionReady(ih.game.selectedChar, kind) {
+	if ih.game.actionInputStagger != 0 || !ih.game.rtActionReady(ih.game.selectedChar, kind) {
 		return false
 	}
 	sel := ih.game.party.Members[ih.game.selectedChar]
@@ -1067,19 +1067,19 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 			}
 			break
 		}
-		acted, spellID := ih.game.combat.SmartAttack()
+		action := ih.game.combat.SmartAttack()
 		switch {
-		case spellID != "":
-			ih.commitRTAction(rtActSmart, ih.game.combat.SpellCooldownFrames(sel, spellID))
-		case acted:
+		case action.Swing():
 			ih.commitRTWeaponAttack(rtActSmart, sel)
+		case action.Acted:
+			ih.commitRTAction(rtActSmart, action.Recovery)
 		default:
 			// Nothing this hero could do (no weapon, no castable spell, no one
 			// to heal): hand the selection on instead of looping on them.
 			ih.game.advanceRTActor(rtActSmart)
 		}
-	case rtActCast:
-		ih.castSlottedSpell(sel)
+	case rtActSlotted:
+		ih.useSlottedAction(sel)
 	case rtActHeal:
 		ih.castBestHeal(sel, healRecipient)
 	}
@@ -1092,7 +1092,7 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 func (ih *InputHandler) commitRTAction(kind rtActionKind, cooldownFrames int) {
 	sel := ih.game.party.Members[ih.game.selectedChar]
 	sel.RTCooldown = cooldownFrames
-	ih.game.spellInputCooldown = rtActionStagger
+	ih.game.actionInputStagger = rtActionStagger
 	ih.game.advanceRTActor(kind)
 }
 
@@ -1109,13 +1109,13 @@ func (ih *InputHandler) commitRTWeaponAttack(kind rtActionKind, sel *character.M
 		sel.RTCooldown = ih.game.combat.WeaponCooldownFrames(sel)
 	}
 	sel.NextTBAttackOffHand = slot == items.SlotMainHand
-	ih.game.spellInputCooldown = rtActionStagger
+	ih.game.actionInputStagger = rtActionStagger
 	ih.game.advanceRTActor(kind)
 }
 
 // announceCastShortfall explains a refused explicit cast (F) for the member
-// the player had selected: not enough SP for the slotted spell/trap. Uses the
-// LIVE trap cost (saved items may carry stale SpellCost).
+// the player had selected: not enough SP for the slotted spell/trap, at the
+// live cost the cast pays (slottedSPCost).
 func (ih *InputHandler) announceCastShortfall(idx int) {
 	if idx < 0 || idx >= len(ih.game.party.Members) {
 		return
@@ -1124,52 +1124,54 @@ func (ih *InputHandler) announceCastShortfall(idx int) {
 	if m == nil || !m.CanAct() {
 		return
 	}
-	slot, ok := m.Equipment[items.SlotSpell]
+	slot, ok := m.Equipment[items.SlotQuickAction]
 	if !ok {
 		return
 	}
-	cost := slot.SpellCost
-	if slot.Type == items.ItemTrap {
-		if def, defOk := config.GetTrapDefinition(string(slot.SpellEffect)); defOk {
-			cost = def.SPCost
-		}
-	}
-	cost = ih.game.combat.effectiveSpellCost(m, cost)
+	cost := m.MeditatedSPCost(slottedSPCost(slot))
 	if m.SpellPoints < cost {
 		ih.game.AddCombatMessage(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
 			m.Name, slot.Name, m.SpellPoints, cost))
 	}
 }
 
-// castSlottedSpellResolved performs the slotted-spell cast the F key triggers in
-// both modes: a heal spell aims at the mouse-picked party member, anything else
-// casts directly. Reports whether it fired and the spell's ID for cooldown lookup.
-// The caller commits the result per mode (RT cooldown vs TB action slot).
-func (ih *InputHandler) castSlottedSpellResolved(sel *character.MMCharacter) (bool, spells.SpellID) {
-	spell, hasSpell := sel.Equipment[items.SlotSpell]
-	if !hasSpell {
-		return false, ""
+// useSlottedActionResolved performs the slotted spell or trap the F key
+// triggers in both modes: a heal spell aims at the mouse-picked party member, a
+// trap arms with its refusals announced, anything else casts directly. Reports
+// whether it fired and its RT recovery, measured after it landed. The caller
+// commits the result per mode (RT cooldown vs TB action slot).
+func (ih *InputHandler) useSlottedActionResolved(sel *character.MMCharacter) (bool, int) {
+	cs := ih.game.combat
+	slot, ok := sel.Equipment[items.SlotQuickAction]
+	if !ok {
+		return false, 0
 	}
-	spellID := spells.SpellID(spell.SpellEffect)
-	if spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther {
+	if slot.Type == items.ItemTrap {
+		trapKey, placed := cs.tryPlaceQuickTrap(sel, true)
+		return placed, cs.TrapCooldownFrames(sel, trapKey)
+	}
+	spellID := spells.SpellID(slot.SpellEffect)
+	fired := false
+	if slot.SpellEffect == items.SpellEffectHealSelf || slot.SpellEffect == items.SpellEffectHealOther {
 		mouseX, mouseY := uiCursorPosition()
-		targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
-		return ih.game.combat.CastEquippedHealOnTarget(targetCharIndex), spellID
+		fired = cs.CastEquippedHealOnTarget(ih.resolveHealTarget(slot, mouseX, mouseY))
+	} else {
+		fired = cs.CastEquippedSpell()
 	}
-	return ih.game.combat.CastEquippedSpell(), spellID
+	return fired, cs.SpellCooldownFrames(sel, spellID)
 }
 
-// castSlottedSpell casts the selected character's slotted spell (F key) and, in
+// useSlottedAction casts the selected character's slotted spell (F key) and, in
 // real-time mode, applies the cooldown only if the cast actually fired.
-func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
-	if handled, used := ih.game.useSlottedRareAction(ih.game.selectedChar, rtActCast, true); handled {
+func (ih *InputHandler) useSlottedAction(sel *character.MMCharacter) {
+	if handled, used := ih.game.useSlottedRareAction(ih.game.selectedChar, rtActSlotted, true); handled {
 		if used {
-			ih.game.advanceRTActor(rtActCast)
+			ih.game.advanceRTActor(rtActSlotted)
 		}
 		return
 	}
-	if fired, spellID := ih.castSlottedSpellResolved(sel); fired {
-		ih.commitRTAction(rtActCast, ih.game.combat.SpellCooldownFrames(sel, spellID))
+	if fired, recovery := ih.useSlottedActionResolved(sel); fired {
+		ih.commitRTAction(rtActSlotted, recovery)
 	}
 }
 
@@ -1224,7 +1226,7 @@ func (ih *InputHandler) handleUIInput() {
 	}
 	// Tab hotkeys (Spellbook/Inventory/Characters/Quests/Cards): same toggle
 	// body, one per key. Characters is on P ('party'); C casts the best combat heal.
-	menuCooldown := ih.game.spellInputCooldown
+	menuCooldown := ih.game.actionInputStagger
 	if ih.game.menuOpen {
 		menuCooldown = ih.game.tabbedMenuInputCooldown
 	}
@@ -1689,7 +1691,7 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 	}
 	if g.currentTab == tab {
 		g.menuOpen = false
-		g.spellInputCooldown = g.config.UI.SpellInputCooldown
+		g.actionInputStagger = g.config.UI.InputStaggerFrames
 		return
 	}
 	g.currentTab = tab
@@ -1706,7 +1708,7 @@ func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
 		// No spell highlighted until the user clicks or navigates.
 		ih.game.selectedSpell = -1
 	}
-	ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
+	ih.game.tabbedMenuInputCooldown = ih.game.config.UI.InputStaggerFrames
 }
 
 // handleTabbedMenuInput processes input when the tabbed menu is open
@@ -1718,7 +1720,7 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 	// Close menu with Escape
 	if ih.keys.Consume(ebiten.KeyEscape) {
 		ih.game.menuOpen = false
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 		return
 	}
 
@@ -1726,7 +1728,7 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 	// click, including for a dead or eradicated member whose inventory is open.
 	for idx, key := range [...]ebiten.Key{ebiten.Key1, ebiten.Key2, ebiten.Key3, ebiten.Key4} {
 		if ih.keyHeld(key) && ih.game.selectPartyMemberManually(idx) {
-			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.SpellInputCooldown
+			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.InputStaggerFrames
 		}
 	}
 
@@ -1774,9 +1776,9 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	}
 	if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
 		if ih.useSelectedBookEntryFromHub() {
-			g.spellInputCooldown = g.config.UI.SpellInputCooldown
+			g.actionInputStagger = g.config.UI.InputStaggerFrames
 		} else {
-			g.tabbedMenuInputCooldown = g.config.UI.SpellInputCooldown
+			g.tabbedMenuInputCooldown = g.config.UI.InputStaggerFrames
 		}
 	}
 }
@@ -1886,17 +1888,17 @@ func (ih *InputHandler) handleDialogInput() {
 	// skillTrainerPopup flag and peels off the popup before the dialog).
 
 	// Navigate characters with Left/Right arrows
-	if ih.keyHeld(ebiten.KeyLeft) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyLeft) && ih.game.actionInputStagger == 0 {
 		if ih.game.selectedCharIdx > 0 {
 			ih.game.selectedCharIdx--
 		}
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
-	if ih.keyHeld(ebiten.KeyRight) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyRight) && ih.game.actionInputStagger == 0 {
 		if ih.game.selectedCharIdx < len(ih.game.party.Members)-1 {
 			ih.game.selectedCharIdx++
 		}
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
 
 	// Handle different NPC capabilities
@@ -2412,7 +2414,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	// round (alive + conscious + has an action slot). Same key scheme as
 	// real-time (R/Space/F/C); turn-based gates on action slots (not frame
 	// cooldowns) and consumes a slot per action via consumeSelectedCharAction.
-	if ih.game.spellInputCooldown != 0 {
+	if ih.game.actionInputStagger != 0 {
 		return
 	}
 	kind := rtActNone
@@ -2425,24 +2427,24 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 		if ih.tryFocusedNPCInteraction() {
 			// Dialog opens; talking costs no action slot.
-			ih.game.spellInputCooldown = ih.actionCooldown(15)
+			ih.game.actionInputStagger = ih.actionCooldown(15)
 			return
 		}
 		kind = rtActSmart
 	case ih.keys.Consume(ebiten.KeyF): // cast slotted spell
-		kind = rtActCast
+		kind = rtActSlotted
 	case ih.keys.Consume(ebiten.KeyC) || ih.keys.Consume(ebiten.KeyH): // cast best known heal (H = legacy alias)
 		kind = rtActHeal
 	}
 	if kind == rtActNone {
 		return
 	}
-	if kind == rtActCast && ih.tryExplicitSlottedStep() {
+	if kind == rtActSlotted && ih.tryExplicitSlottedStep() {
 		return
 	}
 	// Like the real-time chain, a member who cannot take this action hands it
 	// to the next one who can. F still says why the selected caster could not.
-	if kind == rtActCast && ih.game.canSelectChar(ih.game.selectedChar) && !ih.game.actionCapable(ih.game.selectedChar, rtActCast) {
+	if kind == rtActSlotted && ih.game.canSelectChar(ih.game.selectedChar) && !ih.game.actionCapable(ih.game.selectedChar, rtActSlotted) {
 		ih.announceCastShortfall(ih.game.selectedChar)
 	}
 	healRecipient := -1
@@ -2453,11 +2455,11 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		if kind == rtActSmart || kind == rtActWeapon {
 			ih.game.passTBAttackRequest()
 		}
-		ih.game.spellInputCooldown = ih.actionCooldown(15)
+		ih.game.actionInputStagger = ih.actionCooldown(15)
 		return
 	}
 	selected := ih.game.party.Members[ih.game.selectedChar]
-	if kind == rtActCast {
+	if kind == rtActSlotted {
 		if handled, _ := ih.game.useSlottedRareAction(ih.game.selectedChar, kind, true); handled {
 			return
 		}
@@ -2467,19 +2469,19 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		if ih.game.combat.EquipmentMeleeAttack() {
 			ih.game.consumeSelectedCharWeaponAction()
 		}
-		ih.game.spellInputCooldown = ih.actionCooldown(15)
+		ih.game.actionInputStagger = ih.actionCooldown(15)
 	case rtActSmart:
 		ih.performTurnBasedSmartAttack()
-	case rtActCast:
-		if fired, spellID := ih.castSlottedSpellResolved(selected); fired {
-			ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
+	case rtActSlotted:
+		if fired, recovery := ih.useSlottedActionResolved(selected); fired {
+			ih.game.consumeSelectedCharActionWithRTCooldown(recovery)
 		}
-		ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
+		ih.game.actionInputStagger = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
 	case rtActHeal:
 		if cast, spellID := ih.game.combat.CastBestHealOnTarget(healRecipient); cast {
 			ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
 		}
-		ih.game.spellInputCooldown = ih.actionCooldown(15)
+		ih.game.actionInputStagger = ih.actionCooldown(15)
 	}
 }
 
@@ -2661,21 +2663,21 @@ func (ih *InputHandler) handleSpellTraderInput() {
 
 	spellKeys := npcSpellKeys(ih.game.dialogNPC)
 
-	if ih.keyHeld(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyUp) && ih.game.actionInputStagger == 0 {
 		ih.navigateSpellSelectionUp(spellKeys)
 		ih.syncSpellTraderPageToSelection(spellKeys)
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
-	if ih.keyHeld(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyDown) && ih.game.actionInputStagger == 0 {
 		ih.navigateSpellSelectionDown(spellKeys)
 		ih.syncSpellTraderPageToSelection(spellKeys)
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
 
 	// Purchase spell with Enter
-	if ih.keyHeld(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyEnter) && ih.game.actionInputStagger == 0 {
 		ih.purchaseSelectedSpell()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
 }
 
@@ -2692,27 +2694,27 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 		ih.game.dialogSelectedSpell = len(options) - 1
 	}
 
-	if ih.keys.Consume(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyUp) && ih.game.actionInputStagger == 0 {
 		if ih.game.dialogSelectedSpell > 0 {
 			ih.game.dialogSelectedSpell--
 		} else {
 			ih.game.dialogSelectedSpell = len(options) - 1
 		}
 		ih.syncSkillTrainerPageToSelection()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
-	if ih.keys.Consume(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyDown) && ih.game.actionInputStagger == 0 {
 		if ih.game.dialogSelectedSpell < len(options)-1 {
 			ih.game.dialogSelectedSpell++
 		} else {
 			ih.game.dialogSelectedSpell = 0
 		}
 		ih.syncSkillTrainerPageToSelection()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
-	if ih.keys.Consume(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyEnter) && ih.game.actionInputStagger == 0 {
 		ih.purchaseSelectedTraining()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
 }
 
@@ -2773,17 +2775,17 @@ func (ih *InputHandler) handleEncounterInput() {
 	}
 
 	// Navigate choices with Up/Down arrows
-	if ih.keyHeld(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyUp) && ih.game.actionInputStagger == 0 {
 		if ih.game.selectedChoice > 0 {
 			ih.game.selectedChoice--
 		}
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
-	if ih.keyHeld(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
+	if ih.keyHeld(ebiten.KeyDown) && ih.game.actionInputStagger == 0 {
 		if ih.game.selectedChoice < len(choices)-1 {
 			ih.game.selectedChoice++
 		}
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
 	}
 
 	// Select with Enter or a number key (1-9). Edge-triggered: executing a

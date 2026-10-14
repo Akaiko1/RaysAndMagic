@@ -19,12 +19,12 @@ var (
 
 // buffStatusCardRows is the status-rail hover card: the running effect with its
 // live magnitudes, the time left on both clocks, and how to end it.
-func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardRows, plate color.Color) {
-	id := string(s.SpellID)
+func (g *MMGame) buffStatusCardRows(s *BuffStatus) (rows character.CardRows, plate color.Color) {
+	id := s.ID
 	name, subtitle := s.Label, ""
 	plate = schoolPlateColor("")
 	var mechanics []string
-	if def, err := spells.GetSpellDefinitionByID(s.SpellID); err == nil {
+	if def, err := spells.GetSpellDefinitionByID(spells.SpellID(id)); err == nil {
 		name = cmp.Or(name, def.Name)
 		subtitle = spellSchoolsLabel(def) + " Magic"
 		plate = schoolPlateColor(def.School)
@@ -42,7 +42,7 @@ func (g *MMGame) buffStatusCardRows(s *UtilitySpellStatus) (rows character.CardR
 		name = cmp.Or(name, def.Name)
 		subtitle = uitext.Text("buff.source_draught")
 	}
-	name = cmp.Or(name, spellDisplayName(s.SpellID))
+	name = cmp.Or(name, buffSourceName(id))
 	providence := g.phaseOwnsBuff(id)
 	if providence {
 		subtitle = uitext.Text("buff.source_providence")

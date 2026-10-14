@@ -27,6 +27,10 @@ type projectileLaunch struct {
 	// lobApex draws a lobbed shot cresting this far (world units) above the
 	// hand-to-landing line over distance; zero flies straight.
 	lobApex float64
+	// floorDistance is where a shot flying on past its aim point meets the
+	// floor along its straight line, and lands; zero when the line never
+	// sinks (it is level or rises, or there is no aim).
+	floorDistance float64
 }
 
 // lobHandTiles is the throwing hand's height above the floor.
@@ -48,9 +52,29 @@ func (cs *CombatSystem) continuationLaunch(from, to *monster.Monster3D) projecti
 		return projectileLaunch{}
 	}
 	fx, fy := cs.monsterVisualPos(from)
-	return projectileLaunch{x: from.X, y: from.Y, dx: (to.X - from.X) / d, dy: (to.Y - from.Y) / d,
+	p := projectileLaunch{x: from.X, y: from.Y, dx: (to.X - from.X) / d, dy: (to.Y - from.Y) / d,
 		target: to, aimX: to.X, aimY: to.Y, aimDistance: d, startX: fx - from.X, startY: fy - from.Y,
 		startAnchor: visualAnchorFor(from), aimAnchor: visualAnchorFor(to)}
+	p.floorDistance = p.lineMeetsFloor(cs.game.config.GetTileSize())
+	return p
+}
+
+// lineMeetsFloor is the travel at which the straight line from the launch
+// height (the eye, or the body a continuation left) through the aimed body
+// reaches the floor; zero when that line never sinks.
+func (p projectileLaunch) lineMeetsFloor(tile float64) float64 {
+	if p.aimDistance <= 0 || p.aimAnchor.sizeTiles <= 0 {
+		return 0
+	}
+	from := eyeHeightTiles * tile
+	if p.startAnchor.sizeTiles > 0 {
+		from = p.startAnchor.bodyHeight(tile)
+	}
+	to := p.aimAnchor.bodyHeight(tile)
+	if to >= from {
+		return 0
+	}
+	return p.aimDistance * from / (from - to)
 }
 
 // piercing hands the launch to a continuation that has just struck victim.
@@ -66,16 +90,39 @@ func (p projectileLaunch) piercing(cs *CombatSystem, victim *monster.Monster3D) 
 	return p
 }
 
-// targetOffset is the selected target's drawn offset from its release position.
+// targetOffset is the selected target's drawn offset from its release
+// position. A target that died where it stood keeps the offset it was drawn
+// with as it died (monsterVisualPos), so the shot neither jumps sideways nor
+// follows the camera.
 func (p projectileLaunch) targetOffset(cs *CombatSystem) (float64, float64, bool) {
 	if p.passed {
 		return p.passedX, p.passedY, true
 	}
-	if p.target == nil || !p.target.IsAlive() || p.aimDistance <= 0 || p.target.X != p.aimX || p.target.Y != p.aimY {
+	if p.target == nil || p.aimDistance <= 0 || p.target.X != p.aimX || p.target.Y != p.aimY {
 		return 0, 0, false
 	}
 	tx, ty := cs.monsterVisualPos(p.target)
 	return tx - p.aimX, ty - p.aimY, true
+}
+
+// landing is where an aimed shot ends without a hit, on the tick it crosses
+// that point. If its selected target died before the shot arrived, it ends on
+// the spot it was aimed at; otherwise one flying on past that spot ends where
+// its line meets the floor (onFloor). A shot through its target (pierce) is
+// not affected.
+func (p projectileLaunch) landing(x, y, vx, vy float64) (lx, ly float64, onFloor, ok bool) {
+	if p.target == nil || p.passed || p.aimDistance <= 0 {
+		return 0, 0, false, false
+	}
+	travel := (x-p.x)*p.dx + (y-p.y)*p.dy
+	crossed := func(at float64) bool { return travel >= at && travel-(vx*p.dx+vy*p.dy) < at }
+	switch {
+	case !p.target.IsAlive() && crossed(p.aimDistance):
+		return p.x + p.dx*p.aimDistance, p.y + p.dy*p.aimDistance, false, true
+	case p.floorDistance > p.aimDistance && crossed(p.floorDistance):
+		return p.x + p.dx*p.floorDistance, p.y + p.dy*p.floorDistance, true, true
+	}
+	return 0, 0, false, false
 }
 
 // partyProjectileLaunch is shared by weapons, spells and flasks. Explicit aim
@@ -111,6 +158,7 @@ func (cs *CombatSystem) partyProjectileLaunch(angle, maxRange float64, explicit 
 			launch.distance = min(maxRange, d)
 			launch.target, launch.aimAnchor = best, visualAnchorFor(best)
 			launch.aimX, launch.aimY, launch.aimDistance = best.X, best.Y, d
+			launch.floorDistance = launch.lineMeetsFloor(g.config.GetTileSize())
 		}
 	}
 	launch.dx, launch.dy = math.Cos(launch.angle), math.Sin(launch.angle)

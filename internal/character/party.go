@@ -404,7 +404,7 @@ func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int,
 	if !success {
 		return false
 	}
-	if slot != items.SlotSpell {
+	if slot != items.SlotQuickAction {
 		p.Bag(owner...).Add(item)
 	}
 	return true

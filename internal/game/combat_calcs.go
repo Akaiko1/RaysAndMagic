@@ -475,23 +475,25 @@ func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, wea
 	return result
 }
 
-// spellCooldownSpeedFactor scales a spell's authored cooldown_seconds by Speed,
-// reusing the same Speed curve as weapons so faster casters also cast faster.
-// 1.0 at the reference Speed, clamped to [Min, Max].
-func spellCooldownSpeedFactor(speed int) float64 {
-	ref := float64(calculateSpeedActionCooldownFrames(SpellCooldownSpeedRefSpeed))
+// actionCooldownSpeedFactor scales an authored cooldown_seconds (spell,
+// technique, flask or trap) by Speed, reusing the weapons' Speed curve so
+// faster heroes recover faster. 1.0 at the reference Speed, clamped to
+// [Min, Max].
+func actionCooldownSpeedFactor(speed int) float64 {
+	ref := float64(calculateSpeedActionCooldownFrames(ActionCooldownSpeedRefSpeed))
 	cur := float64(calculateSpeedActionCooldownFrames(speed))
 	factor := cur / ref
-	if factor < SpellCooldownSpeedFactorMin {
-		return SpellCooldownSpeedFactorMin
+	if factor < ActionCooldownSpeedFactorMin {
+		return ActionCooldownSpeedFactorMin
 	}
-	if factor > SpellCooldownSpeedFactorMax {
-		return SpellCooldownSpeedFactorMax
+	if factor > ActionCooldownSpeedFactorMax {
+		return ActionCooldownSpeedFactorMax
 	}
 	return factor
 }
 
-type spellCooldownBreakdown struct {
+// cooldownBreakdown is one timed action's RT recovery, stage by stage.
+type cooldownBreakdown struct {
 	BaseSeconds            float64
 	Speed                  int
 	SpeedFactor            float64
@@ -502,26 +504,68 @@ type spellCooldownBreakdown struct {
 	QuickenPct             int
 }
 
-// SpellCooldownFrames scales the authored cooldown by caster Speed and the
-// equipped weapon's spell_cooldown_multiplier. Buffs have no personal cooldown.
+// SpellCooldownFrames is a spell's recovery: Speed, the main-hand staff's
+// spell_cooldown_multiplier, the RT limits and Quickening. Buffs have no
+// personal cooldown.
 func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID spells.SpellID) int {
 	return cs.spellCooldownBreakdown(char, spellID).TotalFrames
 }
 
-func (cs *CombatSystem) spellCooldownBreakdown(char *character.MMCharacter, spellID spells.SpellID) spellCooldownBreakdown {
-	seconds, ok := baseCastCooldownSeconds(spellID)
-	return cs.castCooldownBreakdown(char, seconds, ok)
+func (cs *CombatSystem) spellCooldownBreakdown(char *character.MMCharacter, spellID spells.SpellID) cooldownBreakdown {
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return cs.cooldownBreakdown(nil, 0, "", 1)
+	}
+	seconds := 0.0
+	if def.HasRTCooldown() {
+		seconds = def.CooldownSeconds
+	}
+	name, mult := spellStaff(char)
+	return cs.cooldownBreakdown(char, seconds, name, mult)
 }
 
-// castCooldownFrames scales any authored cast cooldown the way a spell's is
-// scaled; Pilgrim techniques use it with their own cooldown_seconds.
-func (cs *CombatSystem) castCooldownFrames(char *character.MMCharacter, seconds float64) int {
-	return cs.castCooldownBreakdown(char, seconds, true).TotalFrames
+// spellStaff is the main-hand weapon's spell_cooldown_multiplier, the caster
+// staff perk. Only spells read it.
+func spellStaff(char *character.MMCharacter) (string, float64) {
+	if char == nil {
+		return "", 1
+	}
+	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
+		if def, _, found := config.GetWeaponDefinitionByName(weapon.Name); found && def != nil && def.SpellCooldownMultiplier > 0 {
+			return weapon.Name, def.SpellCooldownMultiplier
+		}
+	}
+	return "", 1
 }
 
-func (cs *CombatSystem) castCooldownBreakdown(char *character.MMCharacter, seconds float64, known bool) spellCooldownBreakdown {
-	result := spellCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
-	if cs == nil || cs.game == nil || char == nil || !known {
+// actionCooldownBreakdown is the recovery of a technique, flask or trap:
+// Speed, the RT limits and Quickening, without the spell staff perk.
+func (cs *CombatSystem) actionCooldownBreakdown(char *character.MMCharacter, seconds float64) cooldownBreakdown {
+	return cs.cooldownBreakdown(char, seconds, "", 1)
+}
+
+func (cs *CombatSystem) TrapCooldownFrames(char *character.MMCharacter, trapKey string) int {
+	def, ok := config.GetTrapDefinition(trapKey)
+	if !ok {
+		return cs.cooldownBreakdown(nil, 0, "", 1).TotalFrames
+	}
+	return cs.actionCooldownBreakdown(char, def.CooldownSeconds).TotalFrames
+}
+
+func (cs *CombatSystem) FlaskCooldownFrames(char *character.MMCharacter, flaskKey string) int {
+	def, ok := config.GetItemDefinition(flaskKey)
+	if !ok || def.Flask == nil {
+		return cs.cooldownBreakdown(nil, 0, "", 1).TotalFrames
+	}
+	return cs.actionCooldownBreakdown(char, def.Flask.CooldownSeconds).TotalFrames
+}
+
+// cooldownBreakdown scales authored seconds by Speed and the weapon
+// multiplier, then applies the RT limits and Quickening. A nil hero (unknown
+// action) gets the minimum recovery.
+func (cs *CombatSystem) cooldownBreakdown(char *character.MMCharacter, seconds float64, weaponName string, weaponMult float64) cooldownBreakdown {
+	result := cooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
+	if cs == nil || cs.game == nil || char == nil {
 		return result
 	}
 	if seconds == 0 {
@@ -530,41 +574,12 @@ func (cs *CombatSystem) castCooldownBreakdown(char *character.MMCharacter, secon
 	}
 	result.BaseSeconds = seconds
 	result.Speed = char.GetEffectiveSpeed()
-	result.SpeedFactor = spellCooldownSpeedFactor(result.Speed)
-	frames := seconds * float64(cs.game.config.GetTPS()) * result.SpeedFactor
-	// Equipped-weapon spell-cooldown modifier (caster staff perk).
-	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
-		if def, _, found := config.GetWeaponDefinitionByName(weapon.Name); found && def != nil && def.SpellCooldownMultiplier > 0 {
-			result.WeaponMultiplier = def.SpellCooldownMultiplier
-			result.WeaponName = weapon.Name
-			frames *= result.WeaponMultiplier
-		}
-	}
+	result.SpeedFactor = actionCooldownSpeedFactor(result.Speed)
+	result.WeaponName, result.WeaponMultiplier = weaponName, weaponMult
+	frames := seconds * float64(cs.game.config.GetTPS()) * result.SpeedFactor * weaponMult
 	result.RawFrames = int(math.Round(frames))
 	result.ClampedFrames = clampRTCooldown(result.RawFrames)
 	result.QuickenPct = cs.game.quickenRecoveryPct(char)
 	result.TotalFrames = cs.game.quickenRecovery(char, result.ClampedFrames)
 	return result
-}
-
-func (cs *CombatSystem) TrapCooldownFrames(char *character.MMCharacter, trapKey string) int {
-	return cs.SpellCooldownFrames(char, spells.SpellID(trapKey))
-}
-
-// baseCastCooldownSeconds is shared by combat and character-free catalog cards.
-// Buffs spend an action in TB but have no personal cooldown in RT.
-func baseCastCooldownSeconds(id spells.SpellID) (float64, bool) {
-	if def, ok := config.GetItemDefinition(string(id)); ok && def.Flask != nil {
-		return def.Flask.CooldownSeconds, true
-	}
-	if def, ok := config.GetTrapDefinition(string(id)); ok {
-		return def.CooldownSeconds, true
-	}
-	if def, err := spells.GetSpellDefinitionByID(id); err == nil {
-		if !def.HasRTCooldown() {
-			return 0, true
-		}
-		return def.CooldownSeconds, true
-	}
-	return 0, false
 }

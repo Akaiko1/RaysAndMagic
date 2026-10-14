@@ -17,7 +17,7 @@ type TimedStatBuff struct {
 	Bonuses  character.StatBonuses
 }
 
-func (b TimedStatBuff) buffSpellID() string  { return b.SpellID }
+func (b TimedStatBuff) buffKey() string      { return b.SpellID }
 func (b TimedStatBuff) buffSourceID() string { return b.SourceID }
 
 // addStatBuff activates a stat buff (same-spell recast refreshes) and pushes

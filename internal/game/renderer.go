@@ -722,24 +722,26 @@ func (r *Renderer) updateActiveLights() {
 		})
 	}
 
-	// Spell projectiles glow in flight: the floor shader pools light under
-	// them (and calculateBrightnessWithTorchLight lifts nearby sprites), so a
-	// fireball lights its way down a dark corridor.
+	// Spell projectiles and thrown flasks glow in flight: the floor shader
+	// pools light under them (and calculateBrightnessWithTorchLight lifts
+	// nearby sprites), so a fireball lights its way down a dark corridor.
 	tile := float64(r.game.config.GetTileSize())
+	radius := tile * 2.2
+	glow := func(x, y float64) {
+		dx, dy := x-camX, y-camY
+		if maxDist := viewDist + radius; dx*dx+dy*dy <= maxDist*maxDist {
+			r.activeLights = append(r.activeLights, LightSource{X: x, Y: y, Radius: radius, Intensity: 0.45})
+		}
+	}
 	for i := range r.game.magicProjectiles {
-		p := &r.game.magicProjectiles[i]
-		if !p.Active {
-			continue
+		if p := &r.game.magicProjectiles[i]; p.Active {
+			glow(p.X, p.Y)
 		}
-		radius := tile * 2.2
-		dx := p.X - camX
-		dy := p.Y - camY
-		if maxDist := viewDist + radius; dx*dx+dy*dy > maxDist*maxDist {
-			continue
+	}
+	for i := range r.game.flasks {
+		if f := &r.game.flasks[i]; f.Active {
+			glow(f.X, f.Y)
 		}
-		r.activeLights = append(r.activeLights, LightSource{
-			X: p.X, Y: p.Y, Radius: radius, Intensity: 0.45,
-		})
 	}
 
 	// Impact flashes fade out with their remaining life.
@@ -3767,9 +3769,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		case SpriteTypeZoneEffect:
 			r.drawZoneVisual(screen, r.zoneVisuals[s.tileX])
 		case SpriteTypeProjectile:
-			if s.tileX == projectileEntryArrow {
+			switch s.tileX {
+			case projectileEntryArrow:
 				r.drawArrow(screen, s.tileY)
-			} else {
+			case projectileEntryFlask:
+				r.drawFlaskProjectile(screen, s.tileY)
+			default:
 				r.drawMagicProjectile(screen, s.tileY)
 			}
 		}
@@ -4635,10 +4640,6 @@ func (r *Renderer) collectProjectiles(sprites []UnifiedSpriteRenderData, camX, c
 		if !p.Active {
 			continue
 		}
-		if p.FlaskKey != "" { // a bottle names its element, not a spell
-			add(projectileEntryMagic, i, p.Launch, p.X, p.Y, p.VelX, p.VelY)
-			continue
-		}
 		graphics, ok := r.game.magicProjectileGraphics(*p)
 		if !ok {
 			continue
@@ -4660,6 +4661,11 @@ func (r *Renderer) collectProjectiles(sprites []UnifiedSpriteRenderData, camX, c
 			add(projectileEntryArrow, i, a.Launch, a.X, a.Y, a.VelX, a.VelY)
 		}
 	}
+	for i := range r.game.flasks {
+		if f := &r.game.flasks[i]; f.Active {
+			add(projectileEntryFlask, i, f.Launch, f.X, f.Y, f.VelX, f.VelY)
+		}
+	}
 	return sprites
 }
 
@@ -4667,6 +4673,7 @@ func (r *Renderer) collectProjectiles(sprites []UnifiedSpriteRenderData, camX, c
 const (
 	projectileEntryMagic = iota
 	projectileEntryArrow
+	projectileEntryFlask
 )
 
 // projectileViewMargin keeps a shot just outside the view in the painter pass
@@ -4800,17 +4807,12 @@ func (r *Renderer) drawProjectileCollisionBox(screen *ebiten.Image, screenX, scr
 	worldDrawImage(screen, r.whiteImg, boxOpts)
 }
 
-// drawMagicProjectile draws one spell, flask or visual-only flight. The sorted
-// sprite pass calls it at the shot's depth, so trees and actors in front hide it.
+// drawMagicProjectile draws one spell or visual-only flight. The sorted sprite
+// pass calls it at the shot's depth, so trees and actors in front hide it.
 func (r *Renderer) drawMagicProjectile(screen *ebiten.Image, idx int) {
 	glowBlend := additiveGlowBlend
 	magicProjectile := r.game.magicProjectiles[idx]
 	if !magicProjectile.Active {
-		return
-	}
-
-	if magicProjectile.FlaskKey != "" {
-		r.drawFlaskProjectile(screen, magicProjectile)
 		return
 	}
 	// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").

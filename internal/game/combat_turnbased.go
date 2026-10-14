@@ -323,7 +323,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				gl.game.releaseMonsterAttackPost(m)
 				gl.monsterMoveTurnBased(m)
 			}
-		} else {
+		} else if !gl.tryPhaseShiftTB(m) {
+			// Phase Shift is this turn's movement; without it the walk runs.
 			gl.monsterMoveTurnBased(m)
 		}
 
@@ -566,17 +567,23 @@ func (gl *GameLoop) monsterApproachStepTB(monster *monster.Monster3D, tileSize f
 		return
 	}
 
+	// Phase Shift plan: no walking route worth taking, so walk to the launch
+	// tile and hold there; the blink is a later turn's movement.
+	if gl.stepTowardPhaseLaunchTB(monster, tileSize) {
+		return
+	}
+
 	// A* FIRST. In TB, melee contact is tile-adjacent only, so do not reuse the
 	// RT "within attack radius" goals: they can pick a dead-end bank tile across
 	// water as "close enough", then the monster turns around next move.
 	if !monster.HasRangedAttack() {
-		goals := gl.turnBasedMeleeGoalTiles(monster, targetX, targetY)
+		goals := gl.game.turnBasedMeleeGoalTiles(monster, targetX, targetY)
 		if len(goals) == 0 {
 			// All adjacent attack posts are currently unavailable. Route to the
 			// next free ring around the target instead of falling back to a greedy
 			// cardinal move; this is the normal movement after a failed pounce when
 			// allies temporarily surround its landing tiles.
-			goals = gl.turnBasedBlockedMeleeApproachGoalTiles(monster, targetX, targetY)
+			goals = gl.game.turnBasedBlockedMeleeApproachGoalTiles(monster, targetX, targetY)
 		}
 		if gl.moveMonsterAlongTBGoals(monster, goals, tileSize) {
 			return
@@ -585,8 +592,8 @@ func (gl *GameLoop) monsterApproachStepTB(monster *monster.Monster3D, tileSize f
 		// Ranged hunting the party repositions onto a row/column firing lane;
 		// against a monster foe there is no alignment rule - plain approach.
 		if monster.AIFoe == nil && !monster.Bound && gl.game.collisionSystem != nil {
-			if goals := gl.turnBasedRangedGoalTiles(monster); len(goals) > 0 {
-				if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals, gl.attackTargetTile(monster)); ok {
+			if goals := gl.game.turnBasedRangedGoalTiles(monster); len(goals) > 0 {
+				if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals, gl.game.attackTargetTile(monster)); ok {
 					wx, wy := TileCenterFromTile(nx, ny, tileSize)
 					if gl.commitMonsterMoveTB(monster, wx, wy) {
 						return
@@ -616,7 +623,7 @@ func (gl *GameLoop) moveMonsterAlongTBGoals(m *monster.Monster3D, goals []monste
 	if m == nil || len(goals) == 0 || tileSize <= 0 || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
 		return false
 	}
-	if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals, gl.attackTargetTile(m)); ok {
+	if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals, gl.game.attackTargetTile(m)); ok {
 		wx, wy := TileCenterFromTile(nx, ny, tileSize)
 		if gl.commitMonsterMoveTB(m, wx, wy) {
 			return true
@@ -625,23 +632,23 @@ func (gl *GameLoop) moveMonsterAlongTBGoals(m *monster.Monster3D, goals []monste
 	return false
 }
 
-func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
-	if m == nil || gl.game == nil || gl.game.collisionSystem == nil {
+func (g *MMGame) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
+	if m == nil || g == nil || g.collisionSystem == nil {
 		return nil
 	}
-	tileSize := float64(gl.game.config.GetTileSize())
+	tileSize := float64(g.config.GetTileSize())
 	targetTileX, targetTileY := TileIndex(targetX, tileSize), TileIndex(targetY, tileSize)
 
 	goals := make([]monster.TileCoord, 0, 24)
 	addGoal := func(tx, ty int, requireLOS bool) {
 		wx, wy := TileCenterFromTile(tx, ty, tileSize)
-		if gl.game.monsterHasAttackTarget(m) && gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
+		if g.monsterHasAttackTarget(m) && g.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
 			return
 		}
-		if !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
+		if !g.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 			return
 		}
-		if requireLOS && !gl.game.combat.attackLineClear(wx, wy, targetX, targetY) {
+		if requireLOS && !g.combat.attackLineClear(wx, wy, targetX, targetY) {
 			return
 		}
 		goals = append(goals, monster.TileCoord{X: tx, Y: ty})
@@ -664,11 +671,11 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 // they let a pouncer advance after its landing ring is occupied without using a
 // separate greedy step that could disagree with terrain override pathing.
 // The ring itself is shared with RT pursuit (MeleeApproachRingGoals).
-func (gl *GameLoop) turnBasedBlockedMeleeApproachGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
-	if m == nil || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
+func (g *MMGame) turnBasedBlockedMeleeApproachGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
+	if m == nil || g == nil || g.collisionSystem == nil {
 		return nil
 	}
-	return m.MeleeApproachRingGoals(gl.game.collisionSystem, targetX, targetY)
+	return m.MeleeApproachRingGoals(g.collisionSystem, targetX, targetY)
 }
 
 // moveMonsterOffAttackTargetTileTB repairs an attacker that starts a turn on
@@ -713,28 +720,28 @@ func uniqueTileGoals(goals []monster.TileCoord) []monster.TileCoord {
 // correct for RT ranged mobs but bad for TB: it can pick a diagonal in-range
 // tile where the monster still cannot shoot, causing archers to shuffle around
 // other archers instead of taking a second firing position.
-func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.TileCoord {
-	if m == nil || gl.game == nil || gl.game.collisionSystem == nil {
+func (g *MMGame) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.TileCoord {
+	if m == nil || g == nil || g.collisionSystem == nil {
 		return nil
 	}
-	tileSize := float64(gl.game.config.GetTileSize())
+	tileSize := float64(g.config.GetTileSize())
 	rangeTiles := int(m.GetAttackRangePixels() / tileSize)
 	if rangeTiles < 1 {
 		rangeTiles = 1
 	}
-	ptx, pty := gl.game.GetPlayerTilePosition()
-	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
+	playerX, playerY := g.partyFightPos() // logical: the TB overlay reads this during Draw's shake
+	ptx, pty := TileIndex(playerX, tileSize), TileIndex(playerY, tileSize)
 
 	goals := make([]monster.TileCoord, 0, rangeTiles*4)
 	addGoal := func(tx, ty int) {
 		wx, wy := TileCenterFromTile(tx, ty, tileSize)
-		if gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
+		if g.collisionSystem.IsMonsterAttackPostReserved(m.ID, wx, wy) {
 			return
 		}
-		if !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
+		if !g.collisionSystem.CanMoveToWithTileOverrides(m.ID, wx, wy, m.WalkableTileOverrides, m.Flying) {
 			return
 		}
-		if !gl.game.combat.attackLineClear(wx, wy, playerX, playerY) {
+		if !g.combat.attackLineClear(wx, wy, playerX, playerY) {
 			return
 		}
 		goals = append(goals, monster.TileCoord{X: tx, Y: ty})
@@ -762,12 +769,12 @@ func (gl *GameLoop) endMonsterTurn() {
 }
 
 // attackTargetTile uses the same resolved target as movement and combat.
-func (gl *GameLoop) attackTargetTile(m *monster.Monster3D) *monster.TileCoord {
-	_, x, y, ok := gl.game.monsterAttackTarget(m)
+func (g *MMGame) attackTargetTile(m *monster.Monster3D) *monster.TileCoord {
+	_, x, y, ok := g.monsterAttackTarget(m)
 	if !ok {
 		return nil
 	}
-	ts := gl.game.config.GetTileSize()
+	ts := g.config.GetTileSize()
 	return &monster.TileCoord{X: TileIndex(x, ts), Y: TileIndex(y, ts)}
 }
 
@@ -777,6 +784,7 @@ func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses 
 	if tickTurnStatuses {
 		m.TickRetaliation(true)
 		m.TickPounceCooldownTurn()
+		m.TickPhaseShiftCooldownTurn()
 		m.TickPoisonTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
 		m.TickBurnTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS()))   // Drakefang ignite; stacks with poison
 		m.TickArmorShredTurn()                                             // Pit Labrys shred decays regardless of stun

@@ -210,16 +210,16 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 		t.Fatalf("statBonuses: got %+v want %+v", loaded.statBonuses, game.statBonuses)
 	}
 
-	if loaded.utilitySpellStatuses == nil {
-		t.Fatalf("utilitySpellStatuses not initialized")
+	if loaded.buffStatuses == nil {
+		t.Fatalf("buffStatuses not initialized")
 	}
-	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("torch_light")]; !ok || status.Duration != loaded.torchLightDuration {
+	if status, ok := loaded.buffStatuses["torch_light"]; !ok || status.Duration != loaded.torchLightDuration {
 		t.Fatalf("utility torch_light missing or duration mismatch")
 	}
-	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("bless")]; !ok || status.Duration != wantBless.Frames {
+	if status, ok := loaded.buffStatuses["bless"]; !ok || status.Duration != wantBless.Frames {
 		t.Fatalf("utility bless icon missing right after load (ok=%v)", ok)
 	}
-	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("hot_steam")]; !ok || status.Duration != 42 {
+	if status, ok := loaded.buffStatuses["hot_steam"]; !ok || status.Duration != 42 {
 		t.Fatalf("utility hot_steam icon missing right after TB load (ok=%v)", ok)
 	}
 	if len(loaded.persistentDamageZones) != 1 || loaded.persistentDamageZones[0].FieldID != 77 ||
@@ -262,6 +262,7 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	mob.PounceCDFrames = 361
 	mob.PounceCDTurns = 2
 	mob.PounceCDRate = 240
+	mob.PhaseShiftCDFrames, mob.PhaseShiftCDTurns, mob.PhaseShiftCDRate = 361, 2, 240
 	mob.SoakDamage = 5
 	mob.SoakFrames = 361
 	mob.SoakTurns = 4
@@ -336,6 +337,11 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	if loadedMob.PounceCDFrames != 121 || loadedMob.PounceCDTurns != 1 {
 		t.Fatalf("pounce after load/tick = %d frames/%d turns, want 121/1",
 			loadedMob.PounceCDFrames, loadedMob.PounceCDTurns)
+	}
+	loadedMob.TickPhaseShiftCooldownTurn()
+	if loadedMob.PhaseShiftCDFrames != 121 || loadedMob.PhaseShiftCDTurns != 1 || loadedMob.PhaseShiftCDRate != 240 {
+		t.Fatalf("phase shift after load/tick = %d frames/%d turns/rate %d, want 121/1/240",
+			loadedMob.PhaseShiftCDFrames, loadedMob.PhaseShiftCDTurns, loadedMob.PhaseShiftCDRate)
 	}
 	loadedMob.TickArmorShredTurn()
 	if loadedMob.ArmorShredFramesRemaining != 241 || loadedMob.ArmorShredTurnsRemaining != 3 {

@@ -171,7 +171,7 @@ func TestTooltipComparisonUsesEffectiveValuesAndDirection(t *testing.T) {
 		}
 		old, _ := spells.GetSpellDefinitionByID(pair[0])
 		next, _ := spells.GetSpellDefinitionByID(pair[1])
-		want := fmt.Sprintf("Spell Points: %d -> %d", cs.effectiveSpellCost(ch, old.SpellPointsCost), cs.effectiveSpellCost(ch, next.SpellPointsCost))
+		want := fmt.Sprintf("Spell Points: %d -> %d", ch.MeditatedSPCost(old.SpellPointsCost), ch.MeditatedSPCost(next.SpellPointsCost))
 		if !strings.Contains(card, want) {
 			t.Fatal(card)
 		}
@@ -223,7 +223,7 @@ func TestTooltipItemContributionAndRecovery(t *testing.T) {
 func TestTooltipSpellComparisonDamageUnits(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	ch := gmReferenceChar(cs.game.config)
-	cs.game.combatBuffs = []TimedCombatBuff{{SpellID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"}}
+	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"}}
 	types := []struct {
 		id    spells.SpellID
 		label string

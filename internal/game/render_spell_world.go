@@ -34,7 +34,8 @@ var spellWorldStyles = map[string]struct {
 	mechanic       string
 	material       int
 	y, rx, ry      float64
-	outlivesTarget bool // stays at the cast contact after a lethal hit
+	headroom       float64 // the shape rises this share of ry above its frame's top
+	outlivesTarget bool    // stays at the cast contact after a lethal hit
 }{
 	"glacier":      {mechanic: "frozen_ground", material: -1},
 	"sun_pyre":     {mechanic: "destroy_undead", material: -1, outlivesTarget: true},
@@ -42,7 +43,7 @@ var spellWorldStyles = map[string]struct {
 	"earth_drag":   {mechanic: "slow", material: 1, y: .85, rx: .55, ry: .24},
 	"blood_frenzy": {mechanic: "berserk", material: 2, y: .15, rx: .34, ry: .34},
 	"holy_dread":   {mechanic: "turn_undead", material: 3, y: .43, rx: .58, ry: .65},
-	"dread_shroud": {mechanic: "mass_fear", material: 4, y: .40, rx: .55, ry: .63},
+	"dread_shroud": {mechanic: "mass_fear", material: 4, y: .40, rx: .55, ry: .63, headroom: .3},
 }
 
 func (g *MMGame) expireSpellWorldVisuals() {
@@ -214,11 +215,13 @@ func (r *Renderer) drawMonsterSpellVisuals(dst *ebiten.Image, s UnifiedSpriteRen
 		m.vertices, m.indices = m.vertices[:0], m.indices[:0]
 		appendSpan := func(left, right int) {
 			base := uint16(len(m.vertices))
-			for _, p := range [4][2]float64{{float64(left), -1}, {float64(right), -1}, {float64(left), 1}, {float64(right), 1}} {
+			top := -1 - style.headroom
+			for _, p := range [4][2]float64{{float64(left), top}, {float64(right), top}, {float64(left), 1}, {float64(right), 1}} {
 				vertex := weaponMaterialVertex(p[0], cy+p[1]*ry, (p[0]-cx)/rx, p[1], [3]int{202, 139, 255}, 1)
 				vertex.Custom0 = float32(age / spellWorldVisualSeconds)
 				vertex.Custom1 = float32(monsterBurnSalt(s.monster.ID)) * .013
 				vertex.Custom2 = float32(style.material)
+				vertex.Custom3 = float32(style.headroom)
 				m.vertices = append(m.vertices, vertex)
 			}
 			m.indices = append(m.indices, base, base+1, base+2, base+1, base+3, base+2)

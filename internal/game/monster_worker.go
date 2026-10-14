@@ -24,7 +24,9 @@ func (g *MMGame) monsterFrameContext() monsterFrameContext {
 	}
 	frame := monsterFrameContext{tick: g.frameCount}
 	if g.camera != nil {
-		frame.partyX, frame.partyY, frame.hasParty = g.camera.X, g.camera.Y, true
+		// The logical position: Draw shakes the camera (the TB overlay reads this).
+		frame.partyX, frame.partyY = g.partyFightPos()
+		frame.hasParty = true
 	}
 	return frame
 }

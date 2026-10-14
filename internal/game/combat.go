@@ -31,6 +31,7 @@ type CombatSystem struct {
 	projectilePierceRoll func(int) int // physicalProjectilePierces' dice (rand.Intn) for tests
 	designationRoll      func(int) int
 	partyAimTarget       *monsterPkg.Monster3D
+	phase                phaseScratch // Phase Shift planner buffers
 	partyAimAngle        float64
 	reactionRoll         func() float64
 	controlSaveRoll      func() float64
@@ -462,14 +463,12 @@ func (cs *CombatSystem) summonCardAllies(source cardSummonSource, n int) int {
 //     (Monk skips this: their quick spell is reserved for Spiritual Training).
 //  3. Otherwise swing the equipped weapon.
 //
-// Returns (acted, castSpellID): acted is false when NOTHING happened (no
-// wounded+heal, no castable quick spell, no weapon) so turn-based slots aren't
-// burned; castSpellID is non-empty when a spell was cast (RT picks the spell
-// cooldown from it, else the weapon cooldown).
-func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
+// Acted is false when NOTHING happened (no wounded+heal, no castable quick
+// spell, no trap, no weapon) so turn-based slots aren't burned.
+func (cs *CombatSystem) SmartAttack() smartAction {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 	if !caster.CanUseCombatAction() {
-		return false, ""
+		return smartAction{}
 	}
 
 	// In RT, a dual-wielder can reach Space with the main hand / cast cooldown
@@ -479,23 +478,36 @@ func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 	if cs.game.turnBasedMode || caster.RTCooldown <= 0 {
 		// Can't pay / can't land it -> fall through to attack.
 		if healID, def, target, ok := cs.smartHealPlan(caster); ok && cs.castKnownHealOn(healID, def, target) {
-			return true, healID
+			return smartAction{Acted: true, Spell: healID, Recovery: cs.SpellCooldownFrames(caster, healID)}
 		}
 
 		if spellID, ok := cs.smartOffensiveSpell(caster); ok && cs.CastEquippedSpell() {
-			return true, spellID
+			return smartAction{Acted: true, Spell: spellID, Recovery: cs.SpellCooldownFrames(caster, spellID)}
 		}
 
 		// Trap book (thief): Space arms the slotted trap before falling back to
 		// the weapon. Silent on refusal (no SP / limit / no room) - quick spells
 		// fall through to the weapon just as quietly via their canPay pre-check.
 		if trapKey, placed := cs.tryPlaceQuickTrap(caster, false); placed {
-			return true, spells.SpellID(trapKey)
+			return smartAction{Acted: true, Trap: trapKey, Recovery: cs.TrapCooldownFrames(caster, trapKey)}
 		}
 	}
 
-	return cs.EquipmentMeleeAttack(), ""
+	return smartAction{Acted: cs.EquipmentMeleeAttack()}
 }
+
+// smartAction is what Space did: a spell, a trap, or else a weapon swing.
+// Recovery is the cast or trap's RT cooldown, measured after it landed; a
+// swing keeps its own weapon timing.
+type smartAction struct {
+	Acted    bool
+	Spell    spells.SpellID
+	Trap     string
+	Recovery int
+}
+
+// Swing reports a weapon attack.
+func (a smartAction) Swing() bool { return a.Acted && a.Spell == "" && a.Trap == "" }
 
 // smartActionAvailable reports whether SmartAttack has any branch for this
 // member, without acting. Target, range and trap room are left to the action.
@@ -506,8 +518,8 @@ func (cs *CombatSystem) smartActionAvailable(caster *character.MMCharacter) bool
 	if caster.HasWeaponInEitherHand() {
 		return true
 	}
-	if action := caster.Equipment[items.SlotSpell]; action.Type == items.ItemThrowable {
-		return caster.HasSkill(character.SkillBombThrowing) && cs.game.flaskStock(caster, string(action.SpellEffect)) > 0
+	if action := caster.Equipment[items.SlotQuickAction]; action.Type == items.ItemThrowable {
+		return caster.HasSkill(character.SkillBombThrowing) && cs.game.flaskStock(caster, action.Flask) > 0
 	}
 	if _, _, _, ok := cs.smartHealPlan(caster); ok {
 		return true
@@ -524,13 +536,13 @@ func (cs *CombatSystem) smartOffensiveSpell(caster *character.MMCharacter) (spel
 	if caster.Class == character.ClassMonk {
 		return "", false
 	}
-	spell, ok := caster.Equipment[items.SlotSpell]
+	spell, ok := caster.Equipment[items.SlotQuickAction]
 	if !ok {
 		return "", false
 	}
 	spellID := spells.SpellID(spell.SpellEffect)
 	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil || !def.IsOffensive() || caster.SpellPoints < cs.effectiveSpellCost(caster, spell.SpellCost) {
+	if err != nil || !def.IsOffensive() || caster.SpellPoints < caster.MeditatedSPCost(def.SpellPointsCost) {
 		return "", false
 	}
 	return spellID, true
@@ -544,7 +556,7 @@ func (cs *CombatSystem) smartOffensiveSpell(caster *character.MMCharacter) (spel
 func (cs *CombatSystem) smartHealPlan(caster *character.MMCharacter) (spells.SpellID, spells.SpellDefinition, int, bool) {
 	chain := knownHealChain(caster)
 	candidates := make([]spells.SpellDefinition, 0, len(chain)+1)
-	if spell, hasSpell := caster.Equipment[items.SlotSpell]; hasSpell {
+	if spell, hasSpell := caster.Equipment[items.SlotQuickAction]; hasSpell {
 		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(spell.SpellEffect)); err == nil && def.IsHeal() &&
 			(healReachOf(def) != healReachSelf || len(chain) == 0 || healReachOf(chain[0]) == healReachSelf) {
 			candidates = append(candidates, def)
@@ -1346,9 +1358,13 @@ func (cs *CombatSystem) monsterFrontSlotGeometry(mon *monsterPkg.Monster3D) (sid
 // renderer fans them out to read as several). Every impact/splash FX anchors
 // here so it lands where the player SEES the monster, not at its real tile -
 // the renderer's monsterVisualPosition delegates to this so the two can't drift.
+// A dead monster stays where it was drawn as it died.
 func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, float64) {
 	if mon == nil {
 		return 0, 0
+	}
+	if mon.DeathDrawn && !mon.IsAlive() {
+		return mon.DeathDrawX, mon.DeathDrawY
 	}
 	x, y := mon.X, mon.Y
 	if _, px, py, pulled, ok := cs.monsterFrontSlotGeometry(mon); ok && pulled {
@@ -1359,6 +1375,14 @@ func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, fl
 		x, y = x+ox, y+oy
 	}
 	return x, y
+}
+
+// monsterVisualStackOffset is the tile-fan part of where a monster is drawn,
+// seen from the logical camera (monster.FanVisualOffset); x, y is the
+// presented base point, a TB pulled slot included.
+func (g *MMGame) monsterVisualStackOffset(m *monsterPkg.Monster3D, x, y float64) (float64, float64) {
+	camX, camY := g.partyFightPos()
+	return monsterPkg.FanVisualOffset(m, x, y, camX, camY, g.config.GetTileSize())
 }
 
 // spawnMonsterHitBurst bursts generic impact particles where a monster is DRAWN
@@ -1628,6 +1652,7 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	}
 
 	monster.TickPounceCooldownFrame()
+	monster.TickPhaseShiftCooldownFrame()
 	monster.LimitPlayerEngagement(cs.game.camera.X, cs.game.camera.Y)
 	behavior := monster.CurrentAIBehavior()
 	if !monster.IsInCombat() && behavior != monsterPkg.AIBehaviorEvasive {
@@ -1707,6 +1732,12 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	attackRange := monster.GetAttackRangePixels()
 
 	dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
+
+	// Phase Shift (real-time): on the planner's launch tile, cross the gap
+	// instead of waiting at its edge. A movement: no strike this frame.
+	if cs.tryPhaseShift(monster, false) {
+		return
+	}
 
 	// Pounce (real-time): from within pounce range but beyond melee, leap
 	// to melee contact and strike immediately, then go on cooldown.
@@ -2330,7 +2361,7 @@ func (cs *CombatSystem) trySpiritualTraining(attacker *character.MMCharacter) {
 	if chance <= 0 || rand.Intn(100) >= chance {
 		return
 	}
-	spell, ok := attacker.Equipment[items.SlotSpell]
+	spell, ok := attacker.Equipment[items.SlotQuickAction]
 	if !ok || (spell.Type != items.ItemBattleSpell && spell.Type != items.ItemUtilitySpell) {
 		return
 	}
@@ -2455,7 +2486,7 @@ func (t heroHitTarget) dispel(monster *monsterPkg.Monster3D) {
 		if cs.game.combatBuffs[i].SourceID != "" {
 			continue
 		}
-		pool = append(pool, dispelTarget{cs.game.combatBuffs[i].SpellID, true})
+		pool = append(pool, dispelTarget{cs.game.combatBuffs[i].ID, true})
 	}
 	if len(pool) == 0 {
 		return
@@ -2741,7 +2772,7 @@ func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weap
 	}
 	size := SpellParticleSize + damage/8
 	vx, vy := cs.monsterVisualPos(monster) // burst where the monster is drawn (pulled slot in TB)
-	cs.game.spawnWeaponBoltImpact(vx, vy, weaponDef, count, size, monster)
+	cs.game.spawnWeaponBoltImpact(vx, vy, weaponDef, count, size, visualAnchorFor(monster))
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
@@ -2908,7 +2939,8 @@ func (cs *CombatSystem) spawnMonsterRangedAttackAt(monster *monsterPkg.Monster3D
 }
 
 // spawnMonsterRangedAttackAtMonster aims spawnMonsterRangedAttackAt at another
-// monster (BoundUndead: bound undead -> enemy; MonsterAtBound: mob -> bound undead).
+// monster (PartyAlly: a party ally's shot at an enemy; MonsterAtActor: a mob's
+// shot at an ally, a caravan or prey).
 func (cs *CombatSystem) spawnMonsterRangedAttackAtMonster(monster, target *monsterPkg.Monster3D, owner ProjectileOwner) bool {
 	return cs.spawnMonsterRangedAttackAt(monster, target.X, target.Y, owner)
 }
@@ -3185,6 +3217,8 @@ func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 		}
 	}
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+	m.DeathDrawX, m.DeathDrawY = cs.monsterVisualPos(m)
+	m.DeathDrawn = true
 	cs.game.recordAdventureBoss(m)
 	if m.IsCaravan() {
 		cs.game.recordCaravanLoss(m.ID)

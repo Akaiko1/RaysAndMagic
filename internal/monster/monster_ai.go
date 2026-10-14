@@ -750,6 +750,11 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 		m.stallTimer = 0
 	}
 
+	// Phase Shift (phase_shift.go) takes over while its serial plan is active.
+	if m.followPhaseShiftPlan(collisionChecker, playerX, playerY) {
+		return
+	}
+
 	// Arbitration invariant: the A* route moves first; greedy fallbacks run
 	// ONLY when it produced no move - a greedy step that can preempt a live
 	// path 2-cycles with it at an obstacle corner.
@@ -1226,14 +1231,17 @@ func (m *Monster3D) advancePathIndexToCurrentTile() bool {
 }
 
 func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX, targetY float64) []TileCoord {
-	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
-	targetTileX := m.worldToTile(targetX)
-	targetTileY := m.worldToTile(targetY)
+	return m.findPathToGoals(collisionChecker, targetX, targetY, m.collectGoalTiles(collisionChecker, targetX, targetY))
+}
 
-	goals := m.collectGoalTiles(collisionChecker, targetX, targetY)
+// findPathToGoals is findPathToTarget's search over already collected goals.
+func (m *Monster3D) findPathToGoals(collisionChecker CollisionChecker, targetX, targetY float64, goals []TileCoord) []TileCoord {
 	if len(goals) == 0 {
 		return nil
 	}
+	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
+	targetTileX := m.worldToTile(targetX)
+	targetTileY := m.worldToTile(targetY)
 
 	rangeTiles := int(math.Ceil(m.AlertRadius / m.tileSize()))
 	if rangeTiles < 4 {
@@ -1251,6 +1259,17 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 	maxY := mathutil.IntMax(start.Y, targetTileY) + rangeTiles
 
 	return m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY, m.blockedAttackTargetTile(targetX, targetY))
+}
+
+// PursuitRoute is the real-time pursuit toward the target: its attack
+// positions and the length in steps of the route its search (window and node
+// budget) finds to one of them, -1 when it finds none.
+func (m *Monster3D) PursuitRoute(collisionChecker CollisionChecker, targetX, targetY float64) ([]TileCoord, int) {
+	if collisionChecker == nil {
+		return nil, -1
+	}
+	goals := m.collectGoalTiles(collisionChecker, targetX, targetY)
+	return goals, len(m.findPathToGoals(collisionChecker, targetX, targetY, goals)) - 1
 }
 
 // NextPathStepTile returns the next cardinal tile this monster should step to en
@@ -1271,8 +1290,24 @@ func (m *Monster3D) NextPathStepTile(collisionChecker CollisionChecker, targetX,
 // ranged monsters that need a row/column firing lane rather than any tile inside
 // their circular projectile range.
 func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goals []TileCoord, blocked *TileCoord) (tileX, tileY int, ok bool) {
-	if collisionChecker == nil || len(goals) == 0 {
+	path := m.pathToAny(collisionChecker, goals, blocked)
+	if len(path) < 2 {
 		return 0, 0, false
+	}
+	return path[1].X, path[1].Y, true
+}
+
+// PathTilesToAny is the length in steps of NextPathStepTileToAny's route, or
+// -1 when that search finds none.
+func (m *Monster3D) PathTilesToAny(collisionChecker CollisionChecker, goals []TileCoord, blocked *TileCoord) int {
+	return len(m.pathToAny(collisionChecker, goals, blocked)) - 1
+}
+
+// pathToAny is the A* route to the nearest of goals inside a window around the
+// monster and the goals; nil when there is none.
+func (m *Monster3D) pathToAny(collisionChecker CollisionChecker, goals []TileCoord, blocked *TileCoord) []TileCoord {
+	if collisionChecker == nil || len(goals) == 0 {
+		return nil
 	}
 	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
 
@@ -1307,11 +1342,7 @@ func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goa
 	minY := mathutil.IntMin(start.Y, minGoalY) - rangeTiles
 	maxY := mathutil.IntMax(start.Y, maxGoalY) + rangeTiles
 
-	path := m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY, blocked)
-	if len(path) < 2 {
-		return 0, 0, false
-	}
-	return path[1].X, path[1].Y, true
+	return m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY, blocked)
 }
 
 func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTileX, targetTileY int) []TileCoord {

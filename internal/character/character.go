@@ -133,7 +133,7 @@ type MMCharacter struct {
 	// inventory and lives in the slot (nil = empty). Physical slot items still
 	// count as carried stock for quests, crafting and exchanges. Spells hold a temporary
 	// spell item (spellbook-owned; never returned to inventory). Independent of
-	// the Space/SmartAttack quick-spell (Equipment[SlotSpell]).
+	// the F/Space quick action (Equipment[SlotQuickAction]).
 	QuickSlots [QuickSlotCount]*items.Item
 
 	// Status effects
@@ -142,6 +142,9 @@ type MMCharacter struct {
 	AutoDrinkCooldown  int
 	DesignatedTargetID string
 	DesignationFrames  int
+	// AutocastFrames is the hero's one autocast budget, shared by spellbook
+	// and technique autocasts.
+	AutocastFrames int
 
 	// Poison status timer and tick accumulator (frames).
 	PoisonFramesRemaining int
@@ -440,14 +443,14 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 		// Fail fast on a bad key, but only when traps.yaml is loaded -
 		// config-less unit tests build parties without the trap catalog.
 		if it, ok := config.TrapItem(stats.QuickTrap); ok {
-			c.Equipment[items.SlotSpell] = it
+			c.Equipment[items.SlotQuickAction] = it
 		} else if config.GlobalTrapConfig != nil {
 			panic(fmt.Sprintf("class %q: unknown quick_trap %q in config.yaml", key, stats.QuickTrap))
 		}
 	}
 	if stats.QuickSpell != "" {
 		if spellItem, err := spells.CreateSpellItem(spells.SpellID(stats.QuickSpell)); err == nil {
-			c.Equipment[items.SlotSpell] = spellItem
+			c.Equipment[items.SlotQuickAction] = spellItem
 		}
 	}
 }
@@ -755,7 +758,7 @@ func (c *MMCharacter) TickPoisonTurn(elapsedFrames, tps int, absorbDoT ...func(i
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-	c.dotDamage(dotTickDamage("poison", ticks), absorbDoT...)
+	c.dotDamage(c.dotTickDamage("poison", ticks), absorbDoT...)
 }
 
 // TickBurnTurn advances ignite by one TB round, mirroring TickPoisonTurn.
@@ -764,7 +767,7 @@ func (c *MMCharacter) TickBurnTurn(elapsedFrames, tps int, absorbDoT ...func(int
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
-	c.dotDamage(dotTickDamage("burn", ticks), absorbDoT...)
+	c.dotDamage(c.dotTickDamage("burn", ticks), absorbDoT...)
 }
 
 // DoTTickTimers exposes the persisted sub-second cadence phase for poison and
@@ -1007,18 +1010,18 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 	}
 }
 
-// dotTickDamage is a hero's loss for ticks once-per-second ticks of a DoT
-// status, at the status table's party_damage_per_second.
-func dotTickDamage(key string, ticks int) int {
+// dotTickDamage is the hero's loss for ticks once-per-second ticks of a DoT
+// status: the status table's percent of max HP per tick, at least its minimum.
+func (c *MMCharacter) dotTickDamage(key string, ticks int) int {
 	if ticks <= 0 {
 		return 0
 	}
-	return ticks * config.Status(key).PartyDamagePerSecond
+	return ticks * config.DoTDamage(key, c.MaxHitPoints, false)
 }
 
 func (c *MMCharacter) updateBurn(tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.BurnFramesRemaining, &c.burnTickTimer, 1, tps)
-	c.dotDamage(dotTickDamage("burn", ticks), absorbDoT...)
+	c.dotDamage(c.dotTickDamage("burn", ticks), absorbDoT...)
 	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
@@ -1045,7 +1048,7 @@ func (c *MMCharacter) IsStunned() bool {
 
 func (c *MMCharacter) updatePoison(tps int, absorbDoT ...func(int) int) {
 	ticks, expired := status.TickDoT(&c.PoisonFramesRemaining, &c.poisonTickTimer, 1, tps)
-	c.dotDamage(dotTickDamage("poison", ticks), absorbDoT...)
+	c.dotDamage(c.dotTickDamage("poison", ticks), absorbDoT...)
 	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
@@ -1355,7 +1358,7 @@ func (c *MMCharacter) EquipDestination(item items.Item) (items.EquipSlot, bool) 
 			}
 		}
 	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTechnique, items.ItemThrowable:
-		slot = items.SlotSpell
+		slot = items.SlotQuickAction
 	case items.ItemArmor:
 		slot = item.PreferredSlot(items.SlotArmor)
 	case items.ItemAccessory:
@@ -1424,11 +1427,11 @@ func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 		return slot == items.SlotOffHand && c.CanDualWield()
 	case items.ItemTechnique:
 		d := config.Technique(item.Technique)
-		return slot == items.SlotSpell && c.Class == ClassWayfarer && d != nil && c.Level >= d.Level
+		return slot == items.SlotQuickAction && c.Class == ClassWayfarer && d != nil && c.Level >= d.Level
 	case items.ItemThrowable:
-		return slot == items.SlotSpell && c.HasSkill(SkillBombThrowing)
+		return slot == items.SlotQuickAction && c.HasSkill(SkillBombThrowing)
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
-		return slot == items.SlotSpell
+		return slot == items.SlotQuickAction
 	case items.ItemArmor:
 		return slot == item.PreferredSlot(items.SlotArmor) && c.CanEquipArmor(item)
 	case items.ItemAccessory:

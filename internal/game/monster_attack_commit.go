@@ -164,9 +164,9 @@ func (cs *CombatSystem) monsterAttackAim(m *monster.Monster3D, target monsterAtt
 		x, y := cs.logicalCameraXY()
 		return x, y, ProjectileOwnerMonster
 	}
-	owner := ProjectileOwnerMonsterAtBound
+	owner := ProjectileOwnerMonsterAtActor
 	if m.Bound {
-		owner = ProjectileOwnerBoundUndead
+		owner = ProjectileOwnerPartyAlly
 	}
 	return target.foe.X, target.foe.Y, owner
 }

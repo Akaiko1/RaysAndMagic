@@ -76,9 +76,9 @@ func TestElementalDraughtSharedDamagePaths(t *testing.T) {
 			g := cs.game
 			g.turnBasedMode = tb
 			for _, pct := range []int{15, 30, 40} {
-				g.addCombatBuff(TimedCombatBuff{SpellID: fmt.Sprint(pct), Frames: 600, OutDamageType: "fire", OutPercent: pct})
+				g.addCombatBuff(TimedCombatBuff{ID: fmt.Sprint(pct), Frames: 600, OutDamageType: "fire", OutPercent: pct})
 			}
-			g.addCombatBuff(TimedCombatBuff{SpellID: "flat", Frames: 600, OutBonus: 10})
+			g.addCombatBuff(TimedCombatBuff{ID: "flat", Frames: 600, OutBonus: 10})
 			m, _ := partyDamageTargets(g, 64)
 			attack := cs.newPartyWeaponAttack(100, 20, "fire", nil, "test", false, false, 0)
 			if hit := cs.applyPartyMonsterAttack(m, attack); hit.Normal != 154 || hit.True != 28 {

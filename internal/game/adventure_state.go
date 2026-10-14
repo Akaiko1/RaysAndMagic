@@ -124,10 +124,7 @@ func (g *MMGame) canPrepareSpell(id string) bool {
 		if c == nil || !c.CanUseCombatAction() || !c.KnowsSpell(def.ID) {
 			continue
 		}
-		cost := def.SpellPointsCost
-		if g.combat != nil {
-			cost = g.combat.effectiveSpellCost(c, cost)
-		}
+		cost := c.MeditatedSPCost(def.SpellPointsCost)
 		if c.SpellPoints >= cost {
 			return true
 		}

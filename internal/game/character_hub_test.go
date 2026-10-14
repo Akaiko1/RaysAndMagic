@@ -33,7 +33,7 @@ func TestCharacterHubPauseKeepsPartyCardVisualTimersMoving(t *testing.T) {
 	g.menuOpen = true
 	g.cardFxTimers[fxBlink][0] = 2
 	g.cardSummonCooldowns = map[string]int{"test-card": 2}
-	g.spellInputCooldown = 2
+	g.actionInputStagger = 2
 	g.tabbedMenuInputCooldown = 2
 	gl := &GameLoop{game: g, inputHandler: NewInputHandler(g)}
 
@@ -45,14 +45,14 @@ func TestCharacterHubPauseKeepsPartyCardVisualTimersMoving(t *testing.T) {
 	if got := g.cardSummonCooldowns["test-card"]; got != 2 {
 		t.Fatalf("gameplay cooldown = %d, want 2 while character hub is open", got)
 	}
-	if got := g.spellInputCooldown; got != 2 {
+	if got := g.actionInputStagger; got != 2 {
 		t.Fatalf("gameplay input cooldown = %d, want 2 while hub is open", got)
 	}
 	if got := g.tabbedMenuInputCooldown; got != 1 {
 		t.Fatalf("character-hub input cooldown = %d, want 1 while hub is open", got)
 	}
 	gl.updateExploration()
-	if got := g.spellInputCooldown; got != 2 {
+	if got := g.actionInputStagger; got != 2 {
 		t.Fatalf("gameplay input cooldown = %d, want 2 after two paused ticks", got)
 	}
 	if got := g.tabbedMenuInputCooldown; got != 0 {

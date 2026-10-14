@@ -229,7 +229,7 @@ func (g *MMGame) buildBenchMembers(p BenchParty, level int) ([]*character.MMChar
 		}
 		// The build lists everything worn; the kit keeps only its readied spell.
 		for slot := range m.Equipment {
-			if slot != items.SlotSpell {
+			if slot != items.SlotQuickAction {
 				delete(m.Equipment, slot)
 			}
 		}
@@ -247,8 +247,8 @@ func (g *MMGame) buildBenchMembers(p BenchParty, level int) ([]*character.MMChar
 			if err != nil || action.Type == items.ItemConsumable || !canBindQuickItem(m, &action) {
 				return nil, fmt.Errorf("bench: %s cannot ready %s", data.Name, build.Spell)
 			}
-			m.Equipment[items.SlotSpell] = action
-		} else if kit := m.Equipment[items.SlotSpell].SpellEffect; slices.Contains(p.WithoutSpells, string(kit)) {
+			m.Equipment[items.SlotQuickAction] = action
+		} else if kit := m.Equipment[items.SlotQuickAction].SpellEffect; slices.Contains(p.WithoutSpells, string(kit)) {
 			return nil, fmt.Errorf("bench: %s still readies the kit's %s; ready another action", data.Name, kit)
 		}
 		if len(build.Quick) > len(m.QuickSlots) {

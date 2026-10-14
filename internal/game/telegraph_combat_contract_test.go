@@ -429,7 +429,7 @@ func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
 					isolateTrueDamageMember(second, 0)
 					second.HitPoints, second.MaxHitPoints = 10000, 10000
 					g.party.Members = append(g.party.Members, second)
-					g.combatBuffs = []TimedCombatBuff{{SpellID: "protection_from_magic", Frames: 1000, Charges: 1}}
+					g.combatBuffs = []TimedCombatBuff{{ID: "protection_from_magic", Frames: 1000, Charges: 1}}
 					a := &monster.TelegraphedAttack{Name: "Test impact", Kind: kind, School: school, DamagePercent: 100, DurationSeconds: 9}
 					m.Telegraph = monster.TelegraphState{Tiles: [][2]int{{6, 6}}, Direction: [2]int{-1, 0}}
 					hasControl := func() bool {
@@ -467,7 +467,7 @@ func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
 	}
 	// Elemental immunity is not ward immunity: zero damage must not cancel control.
 	g, _, m := telegraphContractGame(t, false)
-	g.combatBuffs = []TimedCombatBuff{{SpellID: "test_resist", Frames: 1000, ResistSchool: "water", ResistSchoolPct: 100}}
+	g.combatBuffs = []TimedCombatBuff{{ID: "test_resist", Frames: 1000, ResistSchool: "water", ResistSchoolPct: 100}}
 	m.Telegraph = monster.TelegraphState{Tiles: [][2]int{{6, 6}}}
 	g.resolveMonsterTelegraph(m, &monster.TelegraphedAttack{Name: "Resisted root", Kind: "root", School: "water", DamagePercent: 100, DurationSeconds: 6})
 	if g.party.Members[0].HitPoints != 10000 || g.partyRoot.Frames == 0 {

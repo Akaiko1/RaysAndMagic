@@ -14,7 +14,6 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
-	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -818,7 +817,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			mainText, mainColor = "W "+weapon.Name, ui.itemRarityColor(weapon)
 		}
 		spellText, spellColor := "S None", color.Color(color.RGBA{135, 143, 158, 255})
-		if spell, ok := member.Equipment[items.SlotSpell]; ok {
+		if spell, ok := member.Equipment[items.SlotQuickAction]; ok {
 			spellText, spellColor = "S "+spell.Name, color.RGBA{145, 192, 255, 255}
 		}
 		offText, offColor := "O None", color.Color(color.RGBA{135, 143, 158, 255})
@@ -1261,19 +1260,19 @@ func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isH
 // party deck; drawing, hover and dispel clicks all read these rects.
 type spellStatusRailLayout struct {
 	bar      layoutRect
-	statuses []*UtilitySpellStatus
+	statuses []*BuffStatus
 	icons    []layoutRect
 }
 
 func (g *MMGame) spellStatusRail() (spellStatusRailLayout, bool) {
-	statuses := make([]*UtilitySpellStatus, 0, len(g.utilitySpellStatuses))
-	for _, status := range g.utilitySpellStatuses {
+	statuses := make([]*BuffStatus, 0, len(g.buffStatuses))
+	for _, status := range g.buffStatuses {
 		if status != nil && status.Duration != 0 {
 			statuses = append(statuses, status)
 		}
 	}
 	sort.Slice(statuses, func(i, j int) bool {
-		return statuses[i].SpellID < statuses[j].SpellID
+		return statuses[i].ID < statuses[j].ID
 	})
 	if len(statuses) == 0 {
 		return spellStatusRailLayout{}, false
@@ -1332,7 +1331,7 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	for i, status := range rail.statuses {
 		icon := rail.icons[i]
 		x, y, w, h := ui.drawSpellIcon(screen, icon.x, icon.y, icon.w, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
-		ui.handleSpellIconClick(x, y, w, h, status.SpellID)
+		ui.handleBuffIconClick(x, y, w, h, status.ID)
 		mouseX, mouseY := uiCursorPosition()
 		if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 			lines, plate := ui.game.buffStatusCardRows(status)
@@ -1387,10 +1386,10 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 	return x, y, size, size
 }
 
-// handleSpellIconClick handles mouse clicks on spell status icons for dispelling
-func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells.SpellID) {
+// handleBuffIconClick dispels a party buff on a double-click of its status icon.
+func (ui *UISystem) handleBuffIconClick(x, y, width, height int, id string) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, width, height}, func() { ui.handleSpellIconClick(x, y, width, height, spellID) })
+		ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, width, height}, func() { ui.handleBuffIconClick(x, y, width, height, id) })
 		return
 	}
 
@@ -1399,45 +1398,45 @@ func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells
 		currentTime := ui.game.mouseLeftClickAt
 
 		// Check for a fast double-click on the same icon.
-		doubleClick := withinDoubleClickWindow(currentTime, ui.game.lastUtilitySpellClickTime) &&
-			ui.game.lastClickedUtilitySpell == string(spellID)
+		doubleClick := withinDoubleClickWindow(currentTime, ui.game.lastBuffIconClickTime) &&
+			ui.game.lastClickedBuffIcon == id
 		if doubleClick {
-			// Double-click detected - dispel the spell
-			ui.dispelUtilitySpell(spellID)
+			// Double-click detected - dispel the buff
+			ui.dispelBuff(id)
 			// Reset click tracking
-			ui.game.lastUtilitySpellClickTime = 0
-			ui.game.lastClickedUtilitySpell = ""
+			ui.game.lastBuffIconClickTime = 0
+			ui.game.lastClickedBuffIcon = ""
 		} else {
 			// Single click - record for potential double-click
-			ui.game.lastUtilitySpellClickTime = currentTime
-			ui.game.lastClickedUtilitySpell = string(spellID)
+			ui.game.lastBuffIconClickTime = currentTime
+			ui.game.lastClickedBuffIcon = id
 		}
 	}
 }
 
-// dispelUtilitySpell removes an active utility spell effect by triggering natural expiration
-func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
+// dispelBuff ends an active party buff the way it would expire naturally.
+func (ui *UISystem) dispelBuff(id string) {
 	// Flag effects (torch / wizard eye / water): zero the duration and let the
 	// next tick expire it naturally - onExpire side effects (e.g. the
 	// underwater return teleport) fire exactly as on a normal timeout.
 	for _, b := range ui.game.timedBuffs() {
-		if b.id != spellID {
+		if string(b.id) != id {
 			continue
 		}
 		if *b.active {
 			*b.duration = 0
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
+			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", buffSourceName(id)))
 		}
 		return
 	}
-	// Registry buffs (stat AND combat) dispel by spell id.
-	if _, ok := ui.game.statBuffByID(string(spellID)); ok {
-		if ui.game.removeStatBuff(string(spellID)) {
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
+	// Registry buffs (stat AND combat) dispel by source id.
+	if _, ok := ui.game.statBuffByID(id); ok {
+		if ui.game.removeStatBuff(id) {
+			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", buffSourceName(id)))
 		}
-	} else if _, ok := ui.game.combatBuffByID(string(spellID)); ok {
-		if ui.game.removeCombatBuff(string(spellID)) {
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
+	} else if _, ok := ui.game.combatBuffByID(id); ok {
+		if ui.game.removeCombatBuff(id) {
+			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", buffSourceName(id)))
 		}
 	}
 }

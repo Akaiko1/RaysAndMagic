@@ -218,6 +218,7 @@ func (p *MobPreview) Step() {
 	}
 	gl.faceMonstersAlongFrameMotion(start)
 	gl.updateMonsterBands()
+	gl.updateTileFans() // draws the band apart as the stage camera sees it
 }
 
 // The specimen walks the normal ambient path. Only checkpoint advancement is

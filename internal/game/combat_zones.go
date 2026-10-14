@@ -112,7 +112,7 @@ func (cs *CombatSystem) castPersistentDamageZone(spellID spells.SpellID, def spe
 	}
 	cs.mergeZoneCastWithPolicy(cells, automatic)
 	cs.game.AddCombatMessage(spellCastMessage(def))
-	cs.game.setUtilityStatus(spellID, frames)
+	cs.game.setBuffStatus(string(spellID), frames)
 	return castCommitted
 }
 
@@ -611,11 +611,11 @@ func (gl *GameLoop) advancePersistentDamageZones(elapsedFrames int) {
 	gl.game.persistentDamageZones = zones[:w]
 	gl.game.combat.billZoneTicks(firing)
 	for id, left := range maxLeft {
-		gl.game.updateUtilityStatus(spells.SpellID(id), left, true)
+		gl.game.updateBuffStatus(id, left, true)
 	}
 	for id := range expired {
 		if maxLeft[id] == 0 {
-			gl.game.updateUtilityStatus(spells.SpellID(id), 0, false)
+			gl.game.updateBuffStatus(id, 0, false)
 		}
 	}
 }
@@ -642,7 +642,7 @@ func (g *MMGame) syncPersistentDamageZoneStatuses() {
 		}
 	}
 	for id, left := range maxLeft {
-		g.updateUtilityStatus(spells.SpellID(id), left, left > 0)
+		g.updateBuffStatus(id, left, left > 0)
 	}
 }
 

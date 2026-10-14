@@ -63,3 +63,35 @@ func TestValidateMonsterConfiguration_ChampionRejectsMeleeDamageType(t *testing.
 		t.Fatalf("champion melee_damage_type conflict should fail clearly, got: %v", err)
 	}
 }
+
+// Phase Shift is a walker's gap crossing with an authored reach and a cooldown
+// in whole rounds; a flyer already crosses gaps, so it is rejected.
+func TestValidateMonsterConfiguration_PhaseShift(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		flying  bool
+		ability PhaseShiftAbility
+		wantErr string
+	}{
+		{name: "walker_ok", ability: PhaseShiftAbility{RangeTiles: 5, CooldownSeconds: 9}},
+		{name: "flyer", flying: true, ability: PhaseShiftAbility{RangeTiles: 5, CooldownSeconds: 9}, wantErr: "phase_shift is for walkers"},
+		{name: "range_too_short", ability: PhaseShiftAbility{RangeTiles: 1, CooldownSeconds: 9}, wantErr: "phase_shift needs range_tiles"},
+		{name: "range_too_long", ability: PhaseShiftAbility{RangeTiles: MaxPhaseShiftRangeTiles + 1, CooldownSeconds: 9}, wantErr: "phase_shift needs range_tiles"},
+		{name: "cooldown_not_whole_rounds", ability: PhaseShiftAbility{RangeTiles: 5, CooldownSeconds: 10}, wantErr: "whole number"},
+		{name: "cooldown_missing", ability: PhaseShiftAbility{RangeTiles: 5}, wantErr: "whole number"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def := MonsterDefinition{Name: "X", SizeClass: "person", Flying: tc.flying, Abilities: Abilities{PhaseShift: tc.ability}}
+			err := validateMonsterConfiguration(&MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"walker": def}})
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("valid phase_shift must pass: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}

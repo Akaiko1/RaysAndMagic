@@ -518,7 +518,7 @@ func TestLootGuardSpidersDoNotReformBandWhilePursuing(t *testing.T) {
 		prepareLootGuardsForTest(game, loop)
 		runLootGuardRealTimeStep(game, loop)
 		loop.updateMonsterBands()
-		loop.updateCombatTransitVisualStacks()
+		loop.updateTileFans()
 		for _, guard := range []*monster.Monster3D{first, second} {
 			if guard.LootGuarding || guard.BandID != 0 || guard.LootGuardTargetKey != "" {
 				t.Fatalf("frame %d: %s re-formed its guard band while pursuing: guarding=%v band=%d target=%q",

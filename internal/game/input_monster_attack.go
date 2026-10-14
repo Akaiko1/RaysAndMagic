@@ -142,12 +142,12 @@ func (ih *InputHandler) performMouseSmartAttack(target *monster.Monster3D) bool 
 		return false
 	}
 	if g.turnBasedMode {
-		if g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.partyAllExhausted() || g.spellInputCooldown != 0 {
+		if g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.partyAllExhausted() || g.actionInputStagger != 0 {
 			return false
 		}
 		if !g.ensureTBActor(rtActSmart) {
 			if g.passTBAttackRequest() {
-				g.spellInputCooldown = ih.actionCooldown(15)
+				g.actionInputStagger = ih.actionCooldown(15)
 				return true
 			}
 			return false
@@ -170,13 +170,10 @@ func (ih *InputHandler) performTurnBasedSmartAttack() {
 		return
 	}
 	g := ih.game
-	selected := g.party.Members[g.selectedChar]
-	if acted, spellID := g.combat.SmartAttack(); acted {
-		if spellID == "" {
-			g.consumeSelectedCharWeaponAction()
-		} else {
-			g.consumeSelectedCharActionWithRTCooldown(g.combat.SpellCooldownFrames(selected, spellID))
-		}
+	if action := g.combat.SmartAttack(); action.Swing() {
+		g.consumeSelectedCharWeaponAction()
+	} else if action.Acted {
+		g.consumeSelectedCharActionWithRTCooldown(action.Recovery)
 	}
-	g.spellInputCooldown = ih.actionCooldown(15)
+	g.actionInputStagger = ih.actionCooldown(15)
 }

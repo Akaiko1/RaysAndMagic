@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,12 +22,56 @@ func (g *MMGame) LoadPlayerProfile() {
 	if g.playerProfile != nil {
 		return
 	}
+	g.openPlayerProfile(storage.AppSavePath("player_profile.json"))
+}
+
+func (g *MMGame) openPlayerProfile(path string) {
 	g.playerProfileError = ""
-	p, err := playerprofile.Open(storage.AppSavePath("player_profile.json"))
+	p, err := playerprofile.Open(path)
 	g.playerProfile = p
 	if err != nil {
 		g.playerProfileError = err.Error()
 		fmt.Printf("Warning: player statistics unavailable: %v\n", err)
+		return
+	}
+	g.reconcileProfileLootGroups()
+}
+
+// profileLootGroup is the collecting statistic an item unit counts toward:
+// cards, legendary loot (by its current rarity), or neither.
+func profileLootGroup(it items.Item) string {
+	switch {
+	case it.Type == items.ItemCard:
+		return "cards_found"
+	case strings.EqualFold(it.Rarity, "legendary"):
+		return "legendary_loot"
+	}
+	return ""
+}
+
+func profileItemKey(it items.Item) string { return fmt.Sprintf("%d:%s", it.Type, it.Name) }
+
+// reconcileProfileLootGroups keeps Legendary loot to items that are legendary
+// in the current catalog: a rarity rebalance (or a removed item) drops the old
+// entry and its units from the statistic.
+func (g *MMGame) reconcileProfileLootGroups() {
+	d := &g.playerProfile.Data
+	changed := false
+	for key, e := range d.Rankings["legendary_loot"] {
+		typ, name, _ := strings.Cut(key, ":")
+		if n, err := strconv.Atoi(typ); err == nil {
+			it := items.Item{Type: items.ItemType(n), Name: name}
+			normalizeItemFromConfig(&it)
+			if profileLootGroup(it) == "legendary_loot" {
+				continue
+			}
+		}
+		delete(d.Rankings["legendary_loot"], key)
+		d.Counters["legendary_loot"] = max(0, d.Counters["legendary_loot"]-e.Count)
+		changed = true
+	}
+	if changed {
+		g.playerProfile.Checkpoint()
 	}
 }
 
@@ -208,20 +253,14 @@ func (g *MMGame) recordProfileLootSource(loot []items.Item, chest bool) {
 	}
 	for _, it := range loot {
 		n := int64(it.Count())
-		key, icon := fmt.Sprintf("%d:%s", it.Type, it.Name), itemTooltipIconName(it)
+		key, icon := profileItemKey(it), itemTooltipIconName(it)
 		g.playerProfile.Data.Add("loot", n)
 		g.playerProfile.Data.RankValued("loot", key, it.Name, icon, n, int64(it.Attributes["value"]))
 		if chest {
 			g.playerProfile.Data.Add("chest_loot", n)
 			g.playerProfile.Data.Rank("chest_loot", key, it.Name, icon, n)
 		}
-		group := ""
-		if it.Type == items.ItemCard {
-			group = "cards_found"
-		} else if strings.EqualFold(it.Rarity, "legendary") {
-			group = "legendary_loot"
-		}
-		if group != "" {
+		if group := profileLootGroup(it); group != "" {
 			g.playerProfile.Data.Add(group, n)
 			g.playerProfile.Data.Rank(group, key, it.Name, icon, n)
 		}

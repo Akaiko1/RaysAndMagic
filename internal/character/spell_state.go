@@ -24,8 +24,10 @@ type SpellState struct {
 	Effects     []PersonalSpellEffect `json:"effects,omitempty"`
 	Automatic   map[string]bool       `json:"automatic,omitempty"`
 	ReuseFrames map[string]int        `json:"reuse_frames,omitempty"`
-	AutoFrames  int                   `json:"auto_frames,omitempty"`
-	Beacons     []SpellBeacon         `json:"beacons,omitempty"`
+	// LegacyAutoFrames is the old home of the autocast budget, migrated to
+	// MMCharacter.AutocastFrames on load.
+	LegacyAutoFrames int           `json:"auto_frames,omitempty"`
+	Beacons          []SpellBeacon `json:"beacons,omitempty"`
 }
 
 func (s SpellState) Clone() SpellState {
@@ -42,7 +44,6 @@ func (s SpellState) Reusable(id string) bool {
 }
 
 func (s *SpellState) Tick(frames int) {
-	s.AutoFrames = max(0, s.AutoFrames-frames)
 	for id, remaining := range s.ReuseFrames {
 		if remaining <= frames {
 			delete(s.ReuseFrames, id)

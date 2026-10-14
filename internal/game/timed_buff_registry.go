@@ -1,25 +1,22 @@
 package game
 
-import (
-	"ugataima/internal/spells"
-)
-
-// Generic plumbing shared by every spell-keyed timed buff list (combat buffs,
-// stat buffs): find / upsert / remove / tick all live here once, so the typed
+// Generic plumbing shared by every timed buff list keyed by source id (combat
+// buffs, stat buffs): find / upsert / remove / tick all live here once, so the typed
 // registries can't drift in behaviour (replace-on-recast, HUD status refresh,
 // expiry filtering).
 
-// spellKeyedBuff is any timed buff entry keyed by its source spell id.
-type spellKeyedBuff interface {
-	buffSpellID() string
+// keyedBuff is any timed buff entry keyed by its source id: a spell,
+// config.TechniqueID, config.CrateID or a draught item key.
+type keyedBuff interface {
+	buffKey() string
 	buffSourceID() string
 }
 
-// upsertBuff replaces the existing entry from the same spell (recast refreshes
+// upsertBuff replaces the existing entry from the same source (recast refreshes
 // duration/values rather than stacking duplicates) or appends a new one.
-func upsertBuff[T spellKeyedBuff](list []T, b T) []T {
+func upsertBuff[T keyedBuff](list []T, b T) []T {
 	for i := range list {
-		if list[i].buffSpellID() == b.buffSpellID() {
+		if list[i].buffKey() == b.buffKey() {
 			list[i] = b
 			return list
 		}
@@ -31,17 +28,17 @@ func upsertBuff[T spellKeyedBuff](list []T, b T) []T {
 // casts are owned by their spell id. A system-granted cast can use a distinct
 // source id, so later cleanup cannot remove a player's refreshed cast of the
 // same spell.
-func buffRegistryID[T spellKeyedBuff](b T) string {
+func buffRegistryID[T keyedBuff](b T) string {
 	if sourceID := b.buffSourceID(); sourceID != "" {
 		return sourceID
 	}
-	return b.buffSpellID()
+	return b.buffKey()
 }
 
 // buffByID returns the active entry for a spell, if any.
-func buffByID[T spellKeyedBuff](list []T, spellID string) (T, bool) {
+func buffByID[T keyedBuff](list []T, spellID string) (T, bool) {
 	for i := range list {
-		if list[i].buffSpellID() == spellID {
+		if list[i].buffKey() == spellID {
 			return list[i], true
 		}
 	}
@@ -51,10 +48,10 @@ func buffByID[T spellKeyedBuff](list []T, spellID string) (T, bool) {
 
 // removeBuffByID drops the entry owned by buffID and clears the actual spell's
 // HUD status. Reports whether anything was removed.
-func removeBuffByID[T spellKeyedBuff](g *MMGame, list []T, buffID string) ([]T, bool) {
+func removeBuffByID[T keyedBuff](g *MMGame, list []T, buffID string) ([]T, bool) {
 	for i := range list {
 		if buffRegistryID(list[i]) == buffID {
-			g.updateUtilityStatus(spells.SpellID(list[i].buffSpellID()), 0, false)
+			g.updateBuffStatus(list[i].buffKey(), 0, false)
 			return append(list[:i], list[i+1:]...), true
 		}
 	}
@@ -64,7 +61,7 @@ func removeBuffByID[T spellKeyedBuff](g *MMGame, list []T, buffID string) ([]T, 
 // tickBuffList decrements every entry's frames, refreshes its HUD status, and
 // filters out the expired ones. Reports whether any entry expired so callers
 // can re-derive aggregates.
-func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, elapsed int, advance func(*T, int) int) ([]T, bool) {
+func tickBuffList[T keyedBuff](g *MMGame, list []T, elapsed int, advance func(*T, int) int) ([]T, bool) {
 	if len(list) == 0 {
 		return list, false
 	}
@@ -74,11 +71,11 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, elapsed int, advance fu
 		left := advance(&list[i], elapsed)
 		b := list[i]
 		if left != 0 {
-			g.updateUtilityStatus(spells.SpellID(b.buffSpellID()), left, true)
+			g.updateBuffStatus(b.buffKey(), left, true)
 			list[w] = b
 			w++
 		} else {
-			g.updateUtilityStatus(spells.SpellID(b.buffSpellID()), 0, false)
+			g.updateBuffStatus(b.buffKey(), 0, false)
 			expired = true
 		}
 	}

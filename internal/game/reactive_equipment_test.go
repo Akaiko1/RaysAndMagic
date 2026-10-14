@@ -130,7 +130,7 @@ func TestReactiveCardsAndShellThroughCombat(t *testing.T) {
 				hit := func() {
 					if ranged {
 						shot := &Arrow{ID: "reactive", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: key, Damage: 100, DamageType: "physical"}
-						g.combat.applyProjectileDamage(shot, "arrow", m, shot.ID)
+						g.combat.applyProjectileDamage(shot, m, shot.ID)
 					} else {
 						g.combat.ApplyDamageToMonster(m, 100, def.Name, false)
 					}
@@ -424,7 +424,7 @@ func TestArrowContinuationDoesNotSpendFreshDodgeCharges(t *testing.T) {
 				shot.RicochetLeft = 1
 			}
 			ch.ReactiveCombat.DodgeCharges = 2
-			g.combat.applyProjectileDamage(shot, "arrow", m, shot.ID)
+			g.combat.applyProjectileDamage(shot, m, shot.ID)
 			if ch.ReactiveCombat.DodgeCharges != 0 {
 				t.Fatal("primary failed to consume charges")
 			}
@@ -434,7 +434,7 @@ func TestArrowContinuationDoesNotSpendFreshDodgeCharges(t *testing.T) {
 			cont := g.arrows[0]
 			ch.ReactiveCombat.DodgeCharges = 2
 			before := next.HitPoints
-			g.combat.applyProjectileDamage(&cont, "arrow", next, cont.ID)
+			g.combat.applyProjectileDamage(&cont, next, cont.ID)
 			if ch.ReactiveCombat.DodgeCharges != 2 || before-next.HitPoints != 100 {
 				t.Fatalf("continuation spent or used fresh charges: charges=%d damage=%d", ch.ReactiveCombat.DodgeCharges, before-next.HitPoints)
 			}

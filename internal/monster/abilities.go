@@ -21,6 +21,7 @@ type Abilities struct {
 	RearBlink    RearBlinkAbility    `yaml:"rear_blink,omitempty"`
 	TrapVolley   TrapVolleyAbility   `yaml:"trap_volley,omitempty"`
 	Pounce       PounceAbility       `yaml:"pounce,omitempty"`
+	PhaseShift   PhaseShiftAbility   `yaml:"phase_shift,omitempty"`
 	Poison       DoTAbility          `yaml:"poison,omitempty"`
 	Ignite       DoTAbility          `yaml:"ignite,omitempty"`
 	Stun         TimedStatusAbility  `yaml:"stun,omitempty"`
@@ -74,6 +75,16 @@ type TrapVolleyAbility struct {
 type PounceAbility struct {
 	RangeTiles      float64 `yaml:"range_tiles"`
 	CooldownSeconds float64 `yaml:"cooldown_seconds"`
+}
+
+// PhaseShiftAbility: a walker blinks up to RangeTiles straight along a row or
+// column across a chasm or water, onto the first walkable tile beyond it,
+// when it has no walking route to the party or the detour is far longer.
+// Walls, doors and exits block the blink. Planning it is expensive
+// (phase_shift.go): author it for monsters of small dungeon maps.
+type PhaseShiftAbility struct {
+	RangeTiles      int `yaml:"range_tiles"`
+	CooldownSeconds int `yaml:"cooldown_seconds"` // whole rounds, the same span in both modes
 }
 
 // FireburstAbility: a fire blast instead of the normal attack.
@@ -218,6 +229,18 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 			},
 		},
 		{
+			kind: "phase_shift", present: set(a.PhaseShift),
+			problems: func() []string {
+				problems := need(a.PhaseShift.RangeTiles >= 2 && a.PhaseShift.RangeTiles <= MaxPhaseShiftRangeTiles,
+					fmt.Sprintf("phase_shift needs range_tiles from 2 to %d", MaxPhaseShiftRangeTiles))
+				problems = append(problems, need(!d.Flying, "phase_shift is for walkers: a flying monster already crosses gaps")...)
+				return append(problems, duration("phase_shift cooldown", a.PhaseShift.CooldownSeconds)...)
+			},
+			lines: func() []EffectLine {
+				return line(fmt.Sprintf("Phase Shift: crosses chasms and water, %d tiles, every %s", a.PhaseShift.RangeTiles, config.DurationText(a.PhaseShift.CooldownSeconds)))
+			},
+		},
+		{
 			kind: "poison", present: set(a.Poison),
 			problems: func() []string {
 				return append(chance("poison", a.Poison.Chance), duration("poison", a.Poison.DurationSeconds)...)
@@ -264,7 +287,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 					need(a.Fireburst.DamageMin > 0 && a.Fireburst.DamageMax >= a.Fireburst.DamageMin, "fireburst needs damage_min/damage_max (max >= min > 0)")...)
 			},
 			lines: func() []EffectLine {
-				return schoolLine(damagecalc.Fire.String(), fmt.Sprintf("Fireburst: %.0f%% for %d-%d", a.Fireburst.Chance*100, a.Fireburst.DamageMin, a.Fireburst.DamageMax))
+				return schoolLine(damagecalc.Fire.String(), fmt.Sprintf("Fireburst: %.0f%% for %d-%d to whole party", a.Fireburst.Chance*100, a.Fireburst.DamageMin, a.Fireburst.DamageMax))
 			},
 		},
 		{

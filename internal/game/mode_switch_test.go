@@ -17,7 +17,7 @@ func TestModeSwitch_PreservesRTCooldowns(t *testing.T) {
 		member.OffHandRTCooldown = 20 + i
 		member.NextTBAttackOffHand = i%2 == 0
 	}
-	game.spellInputCooldown = 9
+	game.actionInputStagger = 9
 
 	game.ToggleTurnBasedMode() // TB -> RT
 	if game.turnBasedMode || !game.turnBasedTurnSuspended {
@@ -83,8 +83,8 @@ func assertModeSwitchCooldowns(t *testing.T, game *MMGame) {
 			t.Errorf("member %d TB hand cursor = %v, want %v", i, member.NextTBAttackOffHand, want)
 		}
 	}
-	if game.spellInputCooldown != 9 {
-		t.Errorf("spell input cooldown = %d, want 9", game.spellInputCooldown)
+	if game.actionInputStagger != 9 {
+		t.Errorf("spell input cooldown = %d, want 9", game.actionInputStagger)
 	}
 }
 
@@ -391,12 +391,13 @@ func TestTurnBasedSmartAttackIgnoresRetainedRTCooldown(t *testing.T) {
 		t.Fatalf("create firebolt: %v", err)
 	}
 	member.LearnSpell("firebolt")
-	member.Equipment[items.SlotSpell] = spell
+	member.Equipment[items.SlotQuickAction] = spell
 	member.SpellPoints, member.MaxSpellPoints = 99, 99
 	member.RTCooldown = 999
 	game.selectedChar = 0
 
-	acted, spellID := combat.SmartAttack()
+	action := combat.SmartAttack()
+	acted, spellID := action.Acted, action.Spell
 	if !acted || spellID != "firebolt" {
 		t.Fatalf("TB SmartAttack with retained RT cooldown = acted:%v spell:%q, want true/firebolt", acted, spellID)
 	}

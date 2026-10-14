@@ -180,7 +180,7 @@ func TestInputHandlerHeldKeysThroughSeam(t *testing.T) {
 		}{
 			{"R", ebiten.KeyR, rtActWeapon},
 			{"Space", ebiten.KeySpace, rtActSmart},
-			{"F", ebiten.KeyF, rtActCast},
+			{"F", ebiten.KeyF, rtActSlotted},
 			{"C", ebiten.KeyC, rtActHeal},
 			{"H", ebiten.KeyH, rtActHeal},
 		}

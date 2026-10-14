@@ -29,6 +29,14 @@ func clockSaveFixture(t *testing.T) (*MMGame, *GameLoop, *world.WorldManager) {
 	return g, gl, wm
 }
 
+// heroDoTPerSecond is the expected loss of one DoT tick on a hero of maxHP,
+// worked out here from the status row: its percent of max HP, at least its
+// minimum.
+func heroDoTPerSecond(key string, maxHP int) int {
+	s := config.Status(key)
+	return max(s.PercentPerSecond*maxHP/100, s.MinimumDamage)
+}
+
 func TestStatusClockPartyDoTEntryAndRound(t *testing.T) {
 	for _, kind := range []string{"poison", "burn", "both"} {
 		t.Run(kind, func(t *testing.T) {
@@ -63,10 +71,10 @@ func TestStatusClockPartyDoTEntryAndRound(t *testing.T) {
 			g.startPartyTurn()
 			perSecond := 0
 			if kind != "burn" {
-				perSecond++
+				perSecond += heroDoTPerSecond("poison", c.MaxHitPoints)
 			}
 			if kind != "poison" {
-				perSecond += 3
+				perSecond += heroDoTPerSecond("burn", c.MaxHitPoints)
 			}
 			if c.HitPoints != before.HitPoints-3*perSecond {
 				t.Fatalf("round damage=%d", 1000-c.HitPoints)
@@ -81,7 +89,7 @@ func TestStatusClockPartyDoTEntryAndRound(t *testing.T) {
 			}
 			extra := 0
 			if kind != "burn" {
-				extra = config.Status("poison").PartyDamagePerSecond
+				extra = heroDoTPerSecond("poison", c.MaxHitPoints)
 			}
 			if c.HitPoints != before.HitPoints-3*perSecond-extra {
 				t.Fatal("RT did not resume saved sub-second phase")
@@ -205,7 +213,7 @@ func TestStatusClockProvidenceCalendar(t *testing.T) {
 					if g.dayNightIsNight || !g.phaseOwnsBuff(string(id)) {
 						t.Fatal("Providence expired early")
 					}
-					rows, _ := g.buffStatusCardRows(&UtilitySpellStatus{SpellID: id, Duration: 1})
+					rows, _ := g.buffStatusCardRows(&BuffStatus{ID: string(id), Duration: 1})
 					card := rows.Lines()
 					tooltip := strings.Join(card, " ")
 					if !strings.Contains(tooltip, "Until dusk") || strings.Contains(tooltip, "dispel") || strings.Contains(tooltip, "turn") {
@@ -226,7 +234,7 @@ func TestStatusClockProvidenceCalendar(t *testing.T) {
 					if id == "bless" {
 						g.addStatBuff(TimedStatBuff{SpellID: string(id), Frames: 1000})
 					} else {
-						g.addCombatBuff(TimedCombatBuff{SpellID: string(id), Frames: 1000})
+						g.addCombatBuff(TimedCombatBuff{ID: string(id), Frames: 1000})
 					}
 					g.advanceDayNightToPhase(false)
 					g.finishDayNightSkipImmediately()

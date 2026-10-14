@@ -129,13 +129,13 @@ func TestCombatAttackTransitIsWalkableSkipsArcAndTakesAoe(t *testing.T) {
 	game.world.Monsters = []*monster.Monster3D{holder, transit}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	gl.reconcileMonsterAttackPosts()
-	gl.updateCombatTransitVisualStacks()
+	gl.updateTileFans()
 
 	if !holder.AttackPost || !transit.AttackTransit {
 		t.Fatalf("setup: holder post=%v transit=%v", holder.AttackPost, transit.AttackTransit)
 	}
-	if holder.TransitStackCount != 2 || transit.TransitStackCount != 2 {
-		t.Fatalf("co-located post/transit mobs must be fanned, counts=%d/%d", holder.TransitStackCount, transit.TransitStackCount)
+	if holder.Fan.Count != 2 || transit.Fan.Count != 2 {
+		t.Fatalf("co-located post/transit mobs must be fanned, counts=%d/%d", holder.Fan.Count, transit.Fan.Count)
 	}
 	if !game.collisionSystem.CanMoveTo("player", holder.X, holder.Y) ||
 		!game.collisionSystem.Snapshot().CanMoveToWithTileOverrides(transit.ID, holder.X, holder.Y, transit.WalkableTileOverrides, transit.Flying) {
@@ -203,7 +203,7 @@ func TestCombatTransitVisualStackStaysOnOccupiedTile(t *testing.T) {
 				if TileIndex(x, ts) != TileIndex(m.X, ts) || TileIndex(y, ts) != TileIndex(m.Y, ts) {
 					t.Fatalf("sprite crossed physical tile: actor %.4f,%.4f sprite %.4f,%.4f", m.X/ts, m.Y/ts, x/ts, y/ts)
 				}
-				if m.BandID != 0 || math.Hypot(x-m.X, y-m.Y) > bandFanRadiusTiles*ts+1e-8 {
+				if m.BandID != 0 || math.Hypot(x-m.X, y-m.Y) > monster.TileFanRadiusTiles*ts+1e-8 {
 					t.Fatal("visual stack changed band or left compact fan")
 				}
 			}
@@ -212,7 +212,7 @@ func TestCombatTransitVisualStackStaysOnOccupiedTile(t *testing.T) {
 				for i, m := range game.world.Monsters {
 					checkTile(m)
 					x, y := r.monsterVisualPosition(m)
-					if m.TransitStackCount != 3 {
+					if m.Fan.Count != 3 {
 						t.Fatal("co-located actors lost stack")
 					}
 					if math.Hypot(x-previous[i][0], y-previous[i][1]) > ts*.055 {
@@ -226,7 +226,7 @@ func TestCombatTransitVisualStackStaysOnOccupiedTile(t *testing.T) {
 			}
 			for _, m := range game.world.Monsters {
 				x, y := m.X, m.Y
-				gl.updateCombatTransitVisualStacks()
+				gl.updateTileFans()
 				if m.X != x || m.Y != y {
 					t.Fatal("visual update moved a physical actor")
 				}
@@ -257,7 +257,7 @@ func TestCombatTransitVisualStackStaysOnOccupiedTile(t *testing.T) {
 			}
 			for _, m := range game.world.Monsters {
 				x, y := r.monsterVisualPosition(m)
-				if m.TransitStackActive || m.TransitStackCount != 0 || x != m.X || y != m.Y {
+				if m.Fan.Active || m.Fan.Count != 0 || x != m.X || y != m.Y {
 					t.Fatal("separated actor did not settle at its physical position")
 				}
 			}
@@ -277,17 +277,17 @@ func TestCombatTransitVisualStackIncludesCalmOccupant(t *testing.T) {
 	calm.State = monster.StateIdle
 	game.world.Monsters = []*monster.Monster3D{pursuer, calm}
 
-	gl.updateCombatTransitVisualStacks()
-	if pursuer.TransitStackCount != 2 || calm.TransitStackCount != 2 {
+	gl.updateTileFans()
+	if pursuer.Fan.Count != 2 || calm.Fan.Count != 2 {
 		t.Fatalf("active/calm overlap must fan both standees, counts=%d/%d",
-			pursuer.TransitStackCount, calm.TransitStackCount)
+			pursuer.Fan.Count, calm.Fan.Count)
 	}
 
 	pursuer.X += tileSize
-	gl.updateCombatTransitVisualStacks()
-	if pursuer.TransitStackCount != 0 || calm.TransitStackCount != 0 {
+	gl.updateTileFans()
+	if pursuer.Fan.Count != 0 || calm.Fan.Count != 0 {
 		t.Fatalf("separated active/calm standees retained stack counts=%d/%d",
-			pursuer.TransitStackCount, calm.TransitStackCount)
+			pursuer.Fan.Count, calm.Fan.Count)
 	}
 }
 
@@ -310,7 +310,7 @@ func TestSummonAttackPostsArePassThroughAndArbitrateTransit(t *testing.T) {
 		t.Fatal("setup: both hostile mobs must select the closer card summon")
 	}
 	gl.reconcileMonsterAttackPosts()
-	gl.updateCombatTransitVisualStacks()
+	gl.updateTileFans()
 
 	posts := 0
 	var holder, transit *monster.Monster3D
@@ -335,8 +335,8 @@ func TestSummonAttackPostsArePassThroughAndArbitrateTransit(t *testing.T) {
 	if transit.State != monster.StatePursuing || game.combat.monsterCanAttackMonster(transit, ally) {
 		t.Fatal("summon-targeting transit mob must keep seeking and cannot strike from the occupied post")
 	}
-	if holder.TransitStackCount != 2 || transit.TransitStackCount != 2 {
-		t.Fatalf("summon post stack must fan both mobs, counts=%d/%d", holder.TransitStackCount, transit.TransitStackCount)
+	if holder.Fan.Count != 2 || transit.Fan.Count != 2 {
+		t.Fatalf("summon post stack must fan both mobs, counts=%d/%d", holder.Fan.Count, transit.Fan.Count)
 	}
 	if !game.collisionSystem.CanMoveTo("player", holder.X, holder.Y) {
 		t.Fatal("the party must be able to walk through a summon-targeting attack post")

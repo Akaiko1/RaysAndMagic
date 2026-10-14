@@ -7,7 +7,6 @@ import (
 
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
-	"ugataima/internal/spells"
 )
 
 func statusHUDCatalog() []string {
@@ -41,13 +40,13 @@ func TestStatusHUDCatalog(t *testing.T) {
 	for _, key := range statusHUDCatalog() {
 		for _, restored := range []bool{false, true} {
 			t.Run(key+"/restored="+map[bool]string{false: "false", true: "true"}[restored], func(t *testing.T) {
-				g.utilitySpellStatuses = nil
+				g.buffStatuses = nil
 				if restored {
-					g.updateUtilityStatus(spells.SpellID(key), 120, true)
+					g.updateBuffStatus(key, 120, true)
 				} else {
-					g.setUtilityStatus(spells.SpellID(key), 120)
+					g.setBuffStatus(key, 120)
 				}
-				status := g.utilitySpellStatuses[spells.SpellID(key)]
+				status := g.buffStatuses[key]
 				if status == nil {
 					t.Fatal("no active status")
 				}

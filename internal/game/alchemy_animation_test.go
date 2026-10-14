@@ -183,29 +183,28 @@ func TestFlaskSpriteTravelAndVisibility(t *testing.T) {
 				if !g.throwFlask(0, key, false) {
 					t.Fatal("throw refused")
 				}
-				p := g.magicProjectiles[len(g.magicProjectiles)-1]
-				if p.Launch.distance != p.FlaskRemaining || p.Launch.distance <= 0 {
+				p := g.flasks[len(g.flasks)-1]
+				if p.Launch.distance != p.Remaining || p.Launch.distance <= 0 {
 					t.Fatal("throw omitted visual travel snapshot")
 				}
 				g.depthBuffer = nil
 				g.camera.ViewDist = p.Launch.distance * 2
 				g.camera.FOV = math.Pi / 2
 				r := &Renderer{game: g}
-				// The painter pass must collect the thrown bottle: it names an
-				// element, not a spell, so a spell-graphics lookup would drop it.
+				// The painter pass must collect the thrown bottle under its own entry.
 				g.renderHelper = NewRenderingHelper(g)
-				in := g.magicProjectiles[len(g.magicProjectiles)-1]
+				in := g.flasks[len(g.flasks)-1]
 				in.X += in.VelX * 20
-				g.magicProjectiles[len(g.magicProjectiles)-1] = in
+				g.flasks[len(g.flasks)-1] = in
 				collected := false
 				for _, s := range r.collectProjectiles(nil, g.camera.X, g.camera.Y, math.Cos(g.camera.Angle), math.Sin(g.camera.Angle), g.camera.ViewDist*g.camera.ViewDist) {
-					collected = collected || s.spriteType == SpriteTypeProjectile && s.tileX == projectileEntryMagic && s.tileY == len(g.magicProjectiles)-1
+					collected = collected || s.spriteType == SpriteTypeProjectile && s.tileX == projectileEntryFlask && s.tileY == len(g.flasks)-1
 				}
 				if !collected {
 					t.Fatal("the painter pass dropped the thrown flask")
 				}
 				var poses []flaskRenderPose
-				wrapper := MagicProjectileWrapper{MagicProjectile: &p}
+				wrapper := FlaskProjectileWrapper{Flask: &p}
 				for _, fraction := range []float64{.1, .5, .95} {
 					travel := fraction * p.Launch.distance
 					wrapper.SetPosition(g.camera.X+travel, g.camera.Y)
@@ -291,15 +290,15 @@ func TestFlaskSpriteTravelAndVisibility(t *testing.T) {
 				g.sprites = sm
 				g.depthBuffer = nil
 				p.X = g.camera.X + p.Launch.distance/2
-				p.FlaskRemaining = p.Launch.distance / 2
+				p.Remaining = p.Launch.distance / 2
 				screen := ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 				defer screen.Deallocate()
 				for _, active := range []bool{true, false} {
 					p.Active = active
-					g.magicProjectiles = []MagicProjectile{p}
+					g.flasks = []FlaskProjectile{p}
 					runOnDrawFrame(func(_ *ebiten.Image) {
 						screen.Clear()
-						r.drawMagicProjectile(screen, 0)
+						r.drawFlaskProjectile(screen, 0)
 						pixels := make([]byte, 4*screen.Bounds().Dx()*screen.Bounds().Dy())
 						screen.ReadPixels(pixels)
 						visible := 0

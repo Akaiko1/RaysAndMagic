@@ -4,10 +4,10 @@ import "math/rand"
 
 // Paint the blast footprint with the same tile scatter as Earthquake and
 // Starburst. Damage already resolved once; every particle here is visual only.
-func (g *MMGame) createFlaskImpact(p *MagicProjectile, x, y float64, tint [3]int) {
+func (g *MMGame) createFlaskImpact(p *FlaskProjectile, x, y float64, tint [3]int) {
 	tile := float64(g.config.GetTileSize())
 	ground, height := g.groundOffsetY(), g.offsetYPerTileHeight()
-	g.spawnTileScatterFx(x, y, p.FlaskRadius/tile, func(wx, wy float64) []SpellHitParticle {
+	g.spawnTileScatterFx(x, y, p.Radius/tile, func(wx, wy float64) []SpellHitParticle {
 		parts := make([]SpellHitParticle, 0, 12)
 		for i := 0; i < 12; i++ {
 			// Each patch throws a small asymmetric spray off its own floor.
@@ -25,7 +25,7 @@ func (g *MMGame) createFlaskImpact(p *MagicProjectile, x, y float64, tint [3]int
 				Solid:   true, DepthTest: true, Active: true,
 			}
 			switch {
-			case p.FlaskBurnFrames > 0:
+			case p.BurnFrames > 0:
 				// Hot flecks rise from a short low flare on every affected tile.
 				particle.VelX *= .4
 				particle.VelY = -(.7 + rand.Float64()*1.2)
@@ -38,7 +38,7 @@ func (g *MMGame) createFlaskImpact(p *MagicProjectile, x, y float64, tint [3]int
 					particle.Color = tint
 					life = 18 + rand.Intn(10)
 				}
-			case p.FlaskPoisonFrames > 0:
+			case p.PoisonFrames > 0:
 				// Liquid drops fall; a few slower colored motes linger above them.
 				particle.VelY *= .65
 				particle.Gravity = .1
@@ -68,7 +68,7 @@ func (g *MMGame) createFlaskImpact(p *MagicProjectile, x, y float64, tint [3]int
 	// marks the physical damage footprint.
 	lx, ly, _, _ := p.Launch.renderMotion(g.combat, x, y, p.VelX, p.VelY)
 	g.hitEffectsMu.Lock()
-	g.impactLights = append(g.impactLights, ImpactLight{X: lx, Y: ly, Radius: p.FlaskRadius,
+	g.impactLights = append(g.impactLights, ImpactLight{X: lx, Y: ly, Radius: p.Radius,
 		Intensity: .6, Life: impactLightFrames, MaxLife: impactLightFrames})
 	g.hitEffectsMu.Unlock()
 }

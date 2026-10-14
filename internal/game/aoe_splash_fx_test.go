@@ -17,18 +17,20 @@ func TestAoeSplashFX_AnchorsOnStackPosition(t *testing.T) {
 	g := cs.game
 	ts := float64(g.config.GetTileSize())
 
-	// Two banded pumas snapped onto the SAME tile (how the band pass leaves a
-	// stack): leader index 0, follower index 1 - fanned apart only at draw time.
+	// Two pumas on the SAME tile: slots 0 and 1 of the tile fan, drawn apart
+	// only at draw time.
 	center := &monsterPkg.Monster3D{
 		Name: "Puma", HitPoints: 200, MaxHitPoints: 200,
-		X: 10.5 * ts, Y: 10.5 * ts, BandStackCount: 2, BandStackIndex: 0,
+		X: 10.5 * ts, Y: 10.5 * ts, Fan: settledTileFan(0, 2, ts),
 	}
 	follower := &monsterPkg.Monster3D{
 		Name: "Puma", HitPoints: 200, MaxHitPoints: 200,
-		X: 10.5 * ts, Y: 10.5 * ts, BandStackCount: 2, BandStackIndex: 1,
+		X: 10.5 * ts, Y: 10.5 * ts, Fan: settledTileFan(1, 2, ts),
 	}
 	g.camera.X, g.camera.Y, g.camera.Angle = 8.5*ts, 10.5*ts, 0
 	g.world.Monsters = []*monsterPkg.Monster3D{center, follower}
+	// The second of two slots stands 0.16 tile along the world line (+X),
+	// farther from the camera, so it is drawn there.
 	wantX, wantY := 10.66*ts, 10.5*ts
 
 	g.spellHitEffects = g.spellHitEffects[:0]

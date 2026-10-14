@@ -350,7 +350,9 @@ func TestMonsterAnimationAssets(t *testing.T) {
 }
 
 // Invariant: final hit effects, corpse and loot share the actor's visible
-// anchor, while dead actors never remain eligible combat targets.
+// anchor, while dead actors never remain eligible combat targets. The dead
+// actor stays drawn where it died when the camera turns or moves afterwards,
+// so shots still aimed at it land on the corpse.
 // Case table: RT diagonal = true position; TB front/back = true position;
 // TB clear left/right diagonal = pulled position; occluded diagonal = true
 // position; band/transit offsets remain additive in both modes. Persistence is
@@ -383,8 +385,7 @@ func TestMonsterDeathKeepsVisualAnchor(t *testing.T) {
 			}
 			m := monster.NewMonster3DFromConfig((2.5+float64(tc.dx))*ts, (2.5+float64(tc.dy))*ts, "bandit", g.config)
 			if tc.banded {
-				m.BandStackCount = 3
-				m.BandStackIndex = 1
+				m.Fan = settledTileFan(1, 3, ts)
 			}
 			_, _, _, pulled, ok := g.combat.pulledFrontSlot(m)
 			if (ok && pulled) != tc.wantPull {
@@ -402,6 +403,11 @@ func TestMonsterDeathKeepsVisualAnchor(t *testing.T) {
 			}
 			if len(g.groundContainers) == 0 || g.groundContainers[0].hop.fromX != x || g.groundContainers[0].hop.fromY != y {
 				t.Fatal("loot did not leave the visible body")
+			}
+			g.camera.Angle = math.Pi / 2
+			g.camera.X -= ts / 2
+			if dx, dy := g.combat.monsterVisualPos(m); dx != c.x || dy != c.y {
+				t.Fatalf("the dead actor's drawn spot followed the camera: (%.2f,%.2f) want the corpse (%.2f,%.2f)", dx/ts, dy/ts, c.x/ts, c.y/ts)
 			}
 		})
 	}

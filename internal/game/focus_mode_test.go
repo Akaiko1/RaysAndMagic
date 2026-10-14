@@ -204,18 +204,18 @@ func TestFocusModeRestrictsRealTimeActorCycle(t *testing.T) {
 
 func TestFocusModeDoesNotFallBackOutsideFocus(t *testing.T) {
 	g := focusModeTestGame(t)
-	g.party.Members[0].Equipment[items.SlotSpell] = items.Item{
+	g.party.Members[0].Equipment[items.SlotQuickAction] = items.Item{
 		Name:      "Test spell",
 		SpellCost: 0,
 	}
-	delete(g.party.Members[1].Equipment, items.SlotSpell)
+	delete(g.party.Members[1].Equipment, items.SlotQuickAction)
 	g.togglePartyFocus(1)
 	g.selectedChar = 0
 
-	if got := g.nextReadyRTActor(rtActCast); got != -1 {
+	if got := g.nextReadyRTActor(rtActSlotted); got != -1 {
 		t.Fatalf("cast escaped focus to actor %d", got)
 	}
-	g.advanceRTActor(rtActCast)
+	g.advanceRTActor(rtActSlotted)
 	if g.selectedChar != 0 {
 		t.Fatalf("failed focused cast moved selection to %d", g.selectedChar)
 	}

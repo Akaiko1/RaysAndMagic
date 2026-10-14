@@ -96,7 +96,7 @@ camera:
 
 # UI settings
 ui:
-  spell_input_cooldown: 10
+  input_stagger_frames: 10  # frames between accepted gameplay inputs (actions, Space pickup/talk, tabbed menus)
   damage_blink_frames: 3    # Number of frames to blink red when taking damage
   turn_based_mouse_hold:
     delay_seconds: 0.6     # Wait after pressing before automatic attacks start.
@@ -512,6 +512,11 @@ monster_ai:
     retaliation_seconds: 10
     retaliation_turns: 4
     retaliation_margin_tiles: 2  # extra reach beyond the incoming shot distance
+  phase_shift:                   # abilities.phase_shift planner (costly: for small dungeon maps)
+    detour_factor: 2             # blink only when the pursuit route is over this x the plan
+    window_tiles: 24             # search margin around the party and the monster
+    max_walk_tiles: 16           # farthest walk to a launch tile
+    replan_frames: 30            # real-time plans refresh at least this often
   default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
   # No detection without line of sight: an unaware monster never aggros through
   # walls/trees (hard rule in PlayerDetectionRange, not a multiplier).

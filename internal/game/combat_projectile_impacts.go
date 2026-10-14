@@ -23,7 +23,6 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 	type projectileInfo struct {
 		entityID string
 		data     interface{}
-		pType    string
 		owner    ProjectileOwner
 		index    int
 	}
@@ -32,7 +31,7 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 	for i := range cs.game.arrows {
 		if cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 && cs.game.arrows[i].Owner != ProjectileOwnerMonster {
 			snapshot := cs.game.arrows[i]
-			projectiles = append(projectiles, projectileInfo{snapshot.ID, &snapshot, "arrow", snapshot.Owner, i})
+			projectiles = append(projectiles, projectileInfo{snapshot.ID, &snapshot, snapshot.Owner, i})
 		}
 	}
 	for i := range cs.game.magicProjectiles {
@@ -41,15 +40,21 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 		}
 		if cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 && cs.game.magicProjectiles[i].Owner != ProjectileOwnerMonster {
 			snapshot := cs.game.magicProjectiles[i]
-			projectiles = append(projectiles, projectileInfo{snapshot.ID, &snapshot, "magic_projectile", snapshot.Owner, i})
+			projectiles = append(projectiles, projectileInfo{snapshot.ID, &snapshot, snapshot.Owner, i})
+		}
+	}
+	for i := range cs.game.flasks {
+		if cs.game.flasks[i].Active && cs.game.flasks[i].LifeTime > 0 {
+			snapshot := cs.game.flasks[i]
+			projectiles = append(projectiles, projectileInfo{snapshot.ID, &snapshot, ProjectileOwnerPlayer, i})
 		}
 	}
 	for _, proj := range projectiles {
 		var hitMonster *monsterPkg.Monster3D
 		bestWorldDistance := math.MaxFloat64
-		crossfire := proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound
+		crossfire := proj.owner == ProjectileOwnerPartyAlly || proj.owner == ProjectileOwnerMonsterAtActor
 		reflected := proj.owner == ProjectileOwnerReflected
-		projectileX, projectileY := cs.getProjectilePosition(proj.data, proj.pType)
+		projectileX, projectileY := cs.getProjectilePosition(proj.data)
 
 		for _, monster := range cs.game.world.Monsters {
 			if ar, ok := proj.data.(*Arrow); ok && ar.Backwash != nil && ar.Backwash.Target != monster {
@@ -71,12 +76,12 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			if ar, ok := proj.data.(*Arrow); ok && ar.SkipMonster == monster {
 				continue
 			}
-			// Crossfire faction rules: a bound undead's bolt skips controlled allies
-			// (hits enemies); a mob's anti-undead bolt hits ONLY the bound undead.
-			if proj.owner == ProjectileOwnerBoundUndead && !cs.boundAllyCanDamageMonster(monster) {
+			// Crossfire faction rules: an ally's bolt skips the other allies (hits
+			// enemies); a mob's bolt at another monster hits only what that mob may attack.
+			if proj.owner == ProjectileOwnerPartyAlly && !cs.boundAllyCanDamageMonster(monster) {
 				continue
 			}
-			if proj.owner == ProjectileOwnerMonsterAtBound && !projectileSourceMonster(proj.data).CanAttackActor(monster) {
+			if proj.owner == ProjectileOwnerMonsterAtActor && !projectileSourceMonster(proj.data).CanAttackActor(monster) {
 				continue
 			}
 			targetEntity := cs.game.collisionSystem.GetEntityByID(monster.ID)
@@ -89,6 +94,8 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 				launch = p.Launch
 			case *MagicProjectile:
 				launch = p.Launch
+			case *FlaskProjectile:
+				launch = p.Launch
 			}
 			if proj.owner == ProjectileOwnerPlayer && !launch.reaches(projectileX, projectileY, targetEntity.BoundingBox) {
 				continue
@@ -98,7 +105,7 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			}
 			distSq := DistanceSquared(monster.X, monster.Y, projectileX, projectileY)
 			if hitMonster == nil || distSq < bestWorldDistance ||
-				(distSq == bestWorldDistance && monster.ID < hitMonster.ID) {
+				(distSq == bestWorldDistance && hitsFirst(monster, hitMonster, launch.target)) {
 				bestWorldDistance = distSq
 				hitMonster = monster
 			}
@@ -108,11 +115,11 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			// Crossfire retains its monster-vs-monster riders, while player
 			// projectiles use the full party-damage path.
 			if reflected {
-				cs.resolveReflectedMonsterProjectile(proj.data, proj.pType, hitMonster, proj.entityID)
+				cs.resolveReflectedMonsterProjectile(proj.data, hitMonster, proj.entityID)
 			} else if crossfire {
-				cs.resolveMonsterProjectileVsMonster(proj.data, proj.pType, hitMonster, proj.entityID)
+				cs.resolveMonsterProjectileVsMonster(proj.data, hitMonster, proj.entityID)
 			} else {
-				cs.applyProjectileDamage(proj.data, proj.pType, hitMonster, proj.entityID)
+				cs.applyProjectileDamage(proj.data, hitMonster, proj.entityID)
 			}
 		}
 		// Impact riders may append either projectile family. Resolve the detached
@@ -122,9 +129,66 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			cs.game.arrows[proj.index] = *snapshot
 		case *MagicProjectile:
 			cs.game.magicProjectiles[proj.index] = *snapshot
+		case *FlaskProjectile:
+			cs.game.flasks[proj.index] = *snapshot
 		}
 
 	}
+}
+
+// landShots ends each aimed arrow or spell shot that missed (projectileLaunch
+// landing): on the spot its fallen target stood, or where its line meets the
+// floor, with the shot's own impact drawn there; a blast still goes off.
+// Collisions resolve first, so a monster still standing on that spot takes
+// the shot.
+func (cs *CombatSystem) landShots() {
+	g := cs.game
+	anchor := func(l projectileLaunch, onFloor bool) monsterVisualAnchor {
+		if onFloor {
+			return floorAnchor
+		}
+		return visualAnchorFor(l.target)
+	}
+	for i := range g.arrows {
+		a := &g.arrows[i]
+		if !a.Active || a.LifeTime <= 0 {
+			continue
+		}
+		x, y, onFloor, ok := a.Launch.landing(a.X, a.Y, a.VelX, a.VelY)
+		if !ok {
+			continue
+		}
+		a.Active, a.X, a.Y = false, x, y
+		fx, fy, _, _ := a.Launch.renderMotion(cs, x, y, 0, 0)
+		def, _ := config.GetWeaponDefinition(a.BowKey)
+		g.spawnWeaponBoltImpact(fx, fy, def, SpellParticleCount, SpellParticleSize, anchor(a.Launch, onFloor))
+	}
+	// A blast can kill and spawn new shots: index the live slice each time.
+	for i := 0; i < len(g.magicProjectiles); i++ {
+		p := &g.magicProjectiles[i]
+		if !p.Active || p.LifeTime <= 0 || p.NoCollide {
+			continue
+		}
+		x, y, onFloor, ok := p.Launch.landing(p.X, p.Y, p.VelX, p.VelY)
+		if !ok {
+			continue
+		}
+		p.Active, p.X, p.Y = false, x, y
+		shot := *p
+		fx, fy, _, _ := shot.Launch.renderMotion(cs, x, y, 0, 0)
+		g.CreateSpellHitEffectFromSpell(fx, fy, shot.SpellType, anchor(shot.Launch, onFloor))
+		cs.burstSpellShot(&shot, x, y, nil)
+	}
+}
+
+// hitsFirst breaks a tie between two bodies the same distance from a shot,
+// such as a stacked band drawn fanned apart: the one the shot was aimed at
+// takes it, otherwise the lower ID. A nearer body still intercepts first.
+func hitsFirst(m, other, aimed *monsterPkg.Monster3D) bool {
+	if m == aimed || other == aimed {
+		return m == aimed
+	}
+	return m.ID < other.ID
 }
 
 // CheckProjectilePlayerCollisions checks for collisions between monster projectiles and the player.
@@ -275,13 +339,13 @@ func (cs *CombatSystem) applyMonsterProjectileDamageToChar(src *monsterPkg.Monst
 }
 
 // getProjectilePosition returns the X, Y position of a projectile
-func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectileType string) (float64, float64) {
-	switch projectileType {
-	case "magic_projectile":
-		p := projectile.(*MagicProjectile)
+func (cs *CombatSystem) getProjectilePosition(projectile interface{}) (float64, float64) {
+	switch p := projectile.(type) {
+	case *MagicProjectile:
 		return p.X, p.Y
-	case "arrow":
-		p := projectile.(*Arrow)
+	case *Arrow:
+		return p.X, p.Y
+	case *FlaskProjectile:
 		return p.X, p.Y
 	}
 	return 0, 0
@@ -293,7 +357,7 @@ func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectile
 func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY float64, isSpell, isRanged bool, damageTypeStr string, monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, damage int) {
 	if isSpell {
 		if mp, ok := projectile.(*MagicProjectile); ok {
-			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType, monster)
+			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType, visualAnchorFor(monster))
 		} else {
 			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize, monster)
 		}
@@ -303,7 +367,7 @@ func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY fl
 }
 
 // applyProjectileDamage applies damage from a projectile to a monster and generates combat messages
-func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectileType string, monster *monsterPkg.Monster3D, entityID string) {
+func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *monsterPkg.Monster3D, entityID string) {
 	if shot, ok := projectile.(*Arrow); ok && shot.Backwash != nil {
 		cs.resolveBackwashCharge(shot, monster)
 		return
@@ -311,10 +375,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// This guard is also kept at the resolver boundary for direct callers.
 	// Do not consume or unregister the projectile: pure summons are transparent.
 	if isPurePartySummon(monster) {
-		return
-	}
-	if p, ok := projectile.(*MagicProjectile); ok && p.FlaskKey != "" {
-		cs.detonateFlask(p, p.X, p.Y)
 		return
 	}
 	var damage int
@@ -337,15 +397,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var ricochetArrow *Arrow
 	var spellShot *MagicProjectile
 
-	switch projectileType {
-	case "magic_projectile":
-		mp := projectile.(*MagicProjectile)
-		if !mp.Active || mp.LifeTime <= 0 {
+	switch shot := projectile.(type) {
+	case *MagicProjectile:
+		if !shot.Active || shot.LifeTime <= 0 {
 			return
 		}
-		damage, isCrit = mp.Damage, mp.Crit
-		disintegrateChance = mp.DisintegrateChance
-		spellID := spells.SpellID(mp.SpellType)
+		damage, isCrit = shot.Damage, shot.Crit
+		disintegrateChance = shot.DisintegrateChance
+		spellID := spells.SpellID(shot.SpellType)
 		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
 		weaponName = spellDef.Name
 		damageTypeStr = spellDef.DamageType()
@@ -358,24 +417,23 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		stunChance = spellDef.StunChance
 		stunSeconds = spellDef.StunDurationSeconds
 		starburstFx = spellDef.StarburstFx
-		mp.Active = false
+		shot.Active = false
 		isSpell = true
-		spellShot = mp
+		spellShot = shot
 
-	case "arrow":
-		ar := projectile.(*Arrow)
-		if !ar.Active || ar.LifeTime <= 0 {
+	case *Arrow:
+		if !shot.Active || shot.LifeTime <= 0 {
 			return
 		}
-		ricochetArrow = ar
-		damage, isCrit = ar.Damage, ar.Crit
-		disintegrateChance = ar.DisintegrateChance
+		ricochetArrow = shot
+		damage, isCrit = shot.Damage, shot.Crit
+		disintegrateChance = shot.DisintegrateChance
 		weaponName = "Arrow"
-		damageTypeStr = normalizeDamageTypeStr(ar.DamageType)
-		ar.Active = false
+		damageTypeStr = normalizeDamageTypeStr(shot.DamageType)
+		shot.Active = false
 		isRanged = true
-		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" && ar.Label == "" {
-			weaponDef = lookupWeaponConfigByKey(ar.BowKey)
+		if shot.Owner == ProjectileOwnerPlayer && shot.BowKey != "" && shot.Label == "" {
+			weaponDef = lookupWeaponConfigByKey(shot.BowKey)
 			if weaponDef != nil {
 				aoeRadiusTiles = weaponDef.AoeRadiusTiles
 				if weaponDef.Name != "" {
@@ -385,19 +443,22 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		// A labeled bolt (Bandit Card proc) reports under its own name - the
 		// BowKey above may be the hunting-bow PHYSICS fallback of a melee wielder.
-		if ar.Label != "" {
-			weaponName = ar.Label
+		if shot.Label != "" {
+			weaponName = shot.Label
 		}
 		// Arena Arbalest: the bolt goes through the first target and flies on as
 		// a continuation that can never re-hit the monster it pierced. Spawned
 		// before damage resolution so even a killing hit passes through.
-		if ar.PierceLeft > 0 && ar.Owner == ProjectileOwnerPlayer {
-			cont := *ar
-			cont.PierceLeft = ar.PierceLeft - 1
+		if shot.PierceLeft > 0 && shot.Owner == ProjectileOwnerPlayer {
+			cont := *shot
+			cont.PierceLeft = shot.PierceLeft - 1
 			cont.SkipMonster = monster
-			cont.Launch = ar.Launch.piercing(cs, monster)
+			cont.Launch = shot.Launch.piercing(cs, monster)
 			cs.spawnArrowContinuation(cont, weaponDef)
 		}
+	case *FlaskProjectile:
+		cs.detonateFlask(shot, shot.X, shot.Y)
+		return
 	default:
 		return
 	}

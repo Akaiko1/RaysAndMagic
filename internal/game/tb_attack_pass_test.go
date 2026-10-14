@@ -29,7 +29,7 @@ func equipTBAttackLoadout(t *testing.T, g *MMGame, idx int, loadout string) *cha
 		if !ok {
 			t.Fatal("cleave_trap missing")
 		}
-		m.Equipment[items.SlotSpell] = trap
+		m.Equipment[items.SlotQuickAction] = trap
 	}
 	delete(m.Equipment, items.SlotMainHand)
 	delete(m.Equipment, items.SlotOffHand)
@@ -37,21 +37,21 @@ func equipTBAttackLoadout(t *testing.T, g *MMGame, idx int, loadout string) *cha
 	fireball := items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 	switch loadout {
 	case "unarmed":
-		m.Equipment[items.SlotSpell] = items.Item{Name: "Fly", Type: items.ItemUtilitySpell, SpellEffect: "fly", SpellCost: 12}
+		m.Equipment[items.SlotQuickAction] = items.Item{Name: "Fly", Type: items.ItemUtilitySpell, SpellEffect: "fly", SpellCost: 12}
 	case "spell without SP":
-		m.Equipment[items.SlotSpell] = fireball
+		m.Equipment[items.SlotQuickAction] = fireball
 		m.SpellPoints = 0
 	case "monk spell":
 		m.Class = character.ClassMonk
-		m.Equipment[items.SlotSpell] = fireball
+		m.Equipment[items.SlotQuickAction] = fireball
 	case "armed":
 		m.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
 	case "offensive spell":
 		m.LearnSpell("fireball")
-		m.Equipment[items.SlotSpell] = fireball
+		m.Equipment[items.SlotQuickAction] = fireball
 	case "heal plan":
 		m.LearnSpell("heal_other")
-		m.Equipment[items.SlotSpell] = items.Item{Name: "Heal", Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
+		m.Equipment[items.SlotQuickAction] = items.Item{Name: "Heal", Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffectHealOther, SpellCost: 4}
 		hurt := g.party.Members[(idx+1)%len(g.party.Members)]
 		hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
 	}
@@ -114,7 +114,7 @@ func TestTBAttackRequestPassesWhenNobodyCanAttack(t *testing.T) {
 					tick()
 				case "hold":
 					// The press is refused by the shared stagger; the repeat acts.
-					g.spellInputCooldown = 30
+					g.actionInputStagger = 30
 					fp.press()
 					tick()
 					fp.hold()
@@ -170,7 +170,7 @@ func TestPartyActionChainSkipsMembersWhoCannotAttack(t *testing.T) {
 		}
 		fp.release()
 		tick()
-		g.spellInputCooldown = 0
+		g.actionInputStagger = 0
 		fp.press()
 		tick()
 		if !tbPassAnnounced(g) || g.currentTurn != 1 {
@@ -225,7 +225,7 @@ func TestTBAttackPassAfterSaveLoad(t *testing.T) {
 	ih := NewInputHandler(g)
 	ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == ebiten.KeySpace })
 	ih.keys.BeginFrame()
-	g.spellInputCooldown = 0
+	g.actionInputStagger = 0
 	ih.handleTurnBasedInput()
 	if !tbPassAnnounced(g) || g.currentTurn != 1 {
 		t.Fatalf("restored round did not pass: turn=%d", g.currentTurn)

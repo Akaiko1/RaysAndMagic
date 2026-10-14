@@ -54,10 +54,10 @@ func TestMonsterVsMonsterUsesTargetArmorAndDodge(t *testing.T) {
 		bolt := &Arrow{
 			ID: "armor_bolt", Active: true, LifeTime: 1, Damage: 100,
 			DamageType: monsterPkg.DamageFire.String(),
-			Owner:      ProjectileOwnerBoundUndead, SourceMonster: source, SourceName: source.Name,
+			Owner:      ProjectileOwnerPartyAlly, SourceMonster: source, SourceName: source.Name,
 		}
 
-		cs.resolveMonsterProjectileVsMonster(bolt, "arrow", target, bolt.ID)
+		cs.resolveMonsterProjectileVsMonster(bolt, target, bolt.ID)
 		want := cs.applyMonsterArmor(100, monsterPkg.DamageFire.String(), target.EffectiveArmorClass(), true, false)
 		if got := 1000 - target.HitPoints; got != want {
 			t.Fatalf("ranged fire dealt %d through target armor, want %d", got, want)
@@ -198,7 +198,7 @@ func TestBanditBoltDoesNotInheritFallbackBowCombatRules(t *testing.T) {
 
 	target := mkTestMonster("Dodger", 100)
 	target.PerfectDodge = 100
-	cs.applyProjectileDamage(bolt, "arrow", target, bolt.ID)
+	cs.applyProjectileDamage(bolt, target, bolt.ID)
 	if target.HitPoints != target.MaxHitPoints {
 		t.Fatalf("Bandit Bolt pierced dodge via fallback bow mastery: HP %d/%d", target.HitPoints, target.MaxHitPoints)
 	}
@@ -234,7 +234,7 @@ func TestDamageTooltipsUseLiveSourceFormula(t *testing.T) {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "samurai_card"
 	g.cardSlots[1].key = "masked_serpent_dancer_card"
-	g.addCombatBuff(TimedCombatBuff{SpellID: "test", Frames: 600, OutBonus: 5, OutDamageType: "all"})
+	g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 5, OutDamageType: "all"})
 
 	weapon, err := items.TryCreateWeaponFromYAML("idol_breakers_maul")
 	if err != nil {

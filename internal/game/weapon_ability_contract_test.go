@@ -195,7 +195,7 @@ func TestWeaponContinuationCollisionContract(t *testing.T) {
 					}
 					def, _ := config.GetWeaponDefinition(key)
 					ar := Arrow{ID: "origin", Active: true, LifeTime: 100, Damage: 10, Owner: ProjectileOwnerPlayer, BowKey: key, DamageType: "physical", X: first.X, Y: first.Y, VelX: 8, PierceLeft: def.PierceCount, RicochetLeft: def.RicochetTargets}
-					cs.applyProjectileDamage(&ar, "arrow", first, ar.ID)
+					cs.applyProjectileDamage(&ar, first, ar.ID)
 					if len(g.arrows) != 1 {
 						t.Fatalf("continuations=%d want 1", len(g.arrows))
 					}
@@ -274,7 +274,7 @@ func TestWeaponAndCardBonusTargetContract(t *testing.T) {
 						cs.ApplyDamageToMonster(m, 200, def.Name, false)
 					case "projectile":
 						ar := Arrow{ID: "bonus-arrow", Active: true, LifeTime: 100, Damage: 200, Owner: ProjectileOwnerPlayer, BowKey: "elven_bow", DamageType: "physical"}
-						cs.applyProjectileDamage(&ar, "arrow", m, ar.ID)
+						cs.applyProjectileDamage(&ar, m, ar.ID)
 					case "splash":
 						center := mkTestMonster("Center", 1000)
 						attack := cs.newPartyMonsterAttack(200, 0, "physical", 0, def, def.Name, true, false, false)
@@ -314,7 +314,7 @@ func TestElvenBowAllAuthoredDragonFamilies(t *testing.T) {
 			hit := func() int {
 				m.HitPoints = m.MaxHitPoints
 				ar := Arrow{ID: "dragon-bonus", Active: true, LifeTime: 100, Damage: 10000, Owner: ProjectileOwnerPlayer, BowKey: "elven_bow", DamageType: "physical"}
-				cs.applyProjectileDamage(&ar, "arrow", m, ar.ID)
+				cs.applyProjectileDamage(&ar, m, ar.ID)
 				return m.MaxHitPoints - m.HitPoints
 			}
 			withBonus := hit()
@@ -408,7 +408,7 @@ func TestSpellDisintegrateLaunchSnapshot(t *testing.T) {
 // only player/crossfire payloads can disintegrate, and all respect immunity.
 func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 	for _, kind := range []string{"arrow", "magic_projectile"} {
-		for _, owner := range []ProjectileOwner{ProjectileOwnerPlayer, ProjectileOwnerBoundUndead, ProjectileOwnerReflected} {
+		for _, owner := range []ProjectileOwner{ProjectileOwnerPlayer, ProjectileOwnerPartyAlly, ProjectileOwnerReflected} {
 			for _, state := range []string{"landed", "undead", "dragon", "boss", "warded", "sealed", "dodged"} {
 				t.Run(fmt.Sprintf("%s/owner=%v/%s", kind, owner, state), func(t *testing.T) {
 					cs := newTestCombatSystemWithConfig(t)

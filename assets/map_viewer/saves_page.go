@@ -676,8 +676,10 @@ func cardForSavedItem(it items.Item) contentCard {
 	switch it.Type {
 	case items.ItemWeapon:
 		kind = cardWeapon
-	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTrap:
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		kind = cardSpell
+	case items.ItemTechnique, items.ItemTrap:
+		kind = cardAction
 	}
 	return contentCard{kind: kind, name: it.Name, rarity: it.Rarity,
 		tooltipRows: game.GetItemTooltipRows(it, nil, nil, true)}

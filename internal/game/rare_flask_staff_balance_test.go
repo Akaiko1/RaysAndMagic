@@ -39,11 +39,11 @@ func TestRareBalanceFlaskMasteryDamageAndBurn(t *testing.T) {
 					if !g.throwFlask(0, key, false) {
 						t.Fatal("flask did not launch")
 					}
-					p := &g.magicProjectiles[0]
+					p := &g.flasks[0]
 					wantDamage := d.Flask.Damage[tier] + c.GetEffectiveIntellect()/character.BombThrowingIntellectDivisor
 					burnSeconds := d.Flask.BurnSeconds[tier]
-					if p.Damage != wantDamage || p.FlaskBurnFrames != burnSeconds*g.config.GetTPS() {
-						t.Fatalf("launch damage/burn=%d/%d, expected %d/%d", p.Damage, p.FlaskBurnFrames, wantDamage, burnSeconds*g.config.GetTPS())
+					if p.Damage != wantDamage || p.BurnFrames != burnSeconds*g.config.GetTPS() {
+						t.Fatalf("launch damage/burn=%d/%d, expected %d/%d", p.Damage, p.BurnFrames, wantDamage, burnSeconds*g.config.GetTPS())
 					}
 					m := zoneVictim(t, g)
 					m.ArmorClass = 0

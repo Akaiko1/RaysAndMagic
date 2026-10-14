@@ -13,12 +13,12 @@ import (
 // a magical school burst for a staff/book (projectile_school set), a fire/element
 // burst for an AoE bow (e.g. Bow of Hellfire), and nothing for a plain arrow -
 // the arrow simply vanishes on hit. Single source for the monster- and wall-hit paths.
-func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDefinitionConfig, count, size int, target *monsterPkg.Monster3D) {
+func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDefinitionConfig, count, size int, anchor monsterVisualAnchor) {
 	if weaponDef == nil {
 		return
 	}
 	if weaponDef.ProjectileSchool != "" {
-		g.createSpellHitEffectStyled(x, y, normalizeDamageTypeStr(weaponDef.ProjectileSchool), count, size, false, visualAnchorFor(target), weaponImpactColor(weaponDef))
+		g.createSpellHitEffectStyled(x, y, normalizeDamageTypeStr(weaponDef.ProjectileSchool), count, size, false, anchor, weaponImpactColor(weaponDef))
 		return
 	}
 	// Explosive arrows (AoE bows, e.g. Bow of Hellfire) burst in their damage element.
@@ -27,7 +27,7 @@ func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDef
 		if element == monsterPkg.DamagePhysical {
 			element = monsterPkg.DamageFire
 		}
-		g.createSpellHitEffectStyled(x, y, element.String(), count, size, false, visualAnchorFor(target), weaponImpactColor(weaponDef))
+		g.createSpellHitEffectStyled(x, y, element.String(), count, size, false, anchor, weaponImpactColor(weaponDef))
 	}
 	// Plain arrow: no impact effect - it just disappears.
 }
@@ -58,7 +58,7 @@ const (
 )
 
 // CreateSpellHitEffectFromSpell spawns spell hit particles scaled by base damage and hit radius.
-func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string, target *monsterPkg.Monster3D) {
+func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string, anchor monsterVisualAnchor) {
 	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellID))
 	element := monsterPkg.DamagePhysical.String()
 	damage := 1
@@ -104,7 +104,7 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string, tar
 	if cfgDef, ok := config.GetSpellDefinition(spellID); ok && cfgDef.Graphics != nil {
 		rgb = cfgDef.Graphics.Color
 	}
-	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, stars, visualAnchorFor(target), rgb)
+	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, stars, anchor, rgb)
 
 	// Heavy spells rattle the view: shake amplitude follows the same damage +
 	// blast levers as the particles, so a bolt barely taps and a fireball kicks.

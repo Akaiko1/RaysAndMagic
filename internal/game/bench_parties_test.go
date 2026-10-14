@@ -450,8 +450,8 @@ func checkBenchParty(t *testing.T, g *MMGame, p BenchParty, level int, gates map
 				t.Errorf("%s quick slot %d holds %v, authored %s", m.Name, j, q, key)
 			}
 		}
-		if build.Spell != "" && string(m.Equipment[items.SlotSpell].SpellEffect) != build.Spell {
-			t.Errorf("%s readies %q, authored %s", m.Name, m.Equipment[items.SlotSpell].SpellEffect, build.Spell)
+		if readied := quickSlotKey(m.Equipment[items.SlotQuickAction]); build.Spell != "" && readied != build.Spell {
+			t.Errorf("%s readies %q, authored %s", m.Name, readied, build.Spell)
 		}
 		// Every open school knows all of its spells but the party's withheld ones.
 		for school, s := range m.MagicSchools {

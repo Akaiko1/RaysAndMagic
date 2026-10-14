@@ -19,7 +19,7 @@ type TimedCombatBuff struct {
 	ExtraActions       int
 	DeferFirstTurnTick bool
 
-	SpellID       string // source id: spell, config.TechniqueID, config.CrateID or draught item (HUD status + replace-on-recast key)
+	ID            string // source id: spell, config.TechniqueID, config.CrateID or draught item (HUD status + replace-on-recast key)
 	SourceID      string // optional owner for system-granted cleanup
 	Frames        int    // frames remaining
 	OutBonus      int    // flat add to party outgoing damage
@@ -42,7 +42,7 @@ type TimedCombatBuff struct {
 	ReflectionPct int
 }
 
-func (b TimedCombatBuff) buffSpellID() string  { return b.SpellID }
+func (b TimedCombatBuff) buffKey() string      { return b.ID }
 func (b TimedCombatBuff) buffSourceID() string { return b.SourceID }
 
 func (b TimedCombatBuff) active() bool { return b.Frames > 0 || b.Charges > 0 || b.Absorb > 0 }
@@ -65,7 +65,7 @@ func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, f
 		itemKey = def.BrewedFrom
 	}
 	return TimedCombatBuff{
-		SpellID:         itemKey,
+		ID:              itemKey,
 		Frames:          frames,
 		ResistSchool:    def.ResistBuffSchool,
 		ResistSchoolPct: def.ResistBuffSchoolPct,
@@ -84,7 +84,7 @@ func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, f
 // the spell authors a *_grandmaster cap.
 func timedCombatBuffFromSpell(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, frames int, sourceID string) TimedCombatBuff {
 	return TimedCombatBuff{
-		SpellID:         string(spellID),
+		ID:              string(spellID),
 		SourceID:        sourceID,
 		Frames:          frames,
 		OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
@@ -104,7 +104,7 @@ func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
 
 // refreshCombatBuffStatus shows a granted buff's HUD timer before its first tick.
 func (g *MMGame) refreshCombatBuffStatus(b TimedCombatBuff) {
-	g.updateUtilityStatus(spells.SpellID(b.SpellID), b.statusDuration(), true)
+	g.updateBuffStatus(b.ID, b.statusDuration(), true)
 }
 
 // removeCombatBuff drops a combat buff by ownership id. Ordinary casts use the
@@ -210,7 +210,7 @@ type CombatBuffSave struct {
 	MasteryTier        int  `json:"technique_tier,omitempty"`
 	DeferFirstTurnTick bool `json:"defer_first_turn_tick,omitempty"`
 
-	SpellID         string `json:"spell_id"`
+	ID              string `json:"spell_id"` // source id; the key predates non-spell buffs
 	SourceID        string `json:"source_id,omitempty"`
 	Frames          int    `json:"frames"`
 	OutBonus        int    `json:"out_bonus,omitempty"`
@@ -233,7 +233,7 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 	for i, b := range buffs {
 		out[i] = CombatBuffSave{
 			Charges: b.Charges, Absorb: b.Absorb,
-			SpellID:     b.SpellID,
+			ID:          b.ID,
 			CombatClock: b.CombatClock, MasteryTier: b.MasteryTier, DeferFirstTurnTick: b.DeferFirstTurnTick,
 			SourceID:        b.SourceID,
 			Frames:          b.Frames,
@@ -244,7 +244,7 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 			ResistSchool:    b.ResistSchool,
 			ArmorBonus:      b.ArmorBonus,
 		}
-		if def, ok := config.GetItemDefinition(b.SpellID); ok && def.HasTimedBuff() {
+		if def, ok := config.GetItemDefinition(b.ID); ok && def.HasTimedBuff() {
 			out[i].ResistSchoolPct = 0
 			out[i].ResistSchool = ""
 			out[i].ArmorBonus = 0
@@ -254,8 +254,8 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 }
 
 func savedCombatBuffItem(s CombatBuffSave) (*config.ItemDefinitionConfig, string, bool) {
-	if def, ok := config.GetItemDefinition(s.SpellID); ok && def.HasTimedBuff() {
-		return def, s.SpellID, true
+	if def, ok := config.GetItemDefinition(s.ID); ok && def.HasTimedBuff() {
+		return def, s.ID, true
 	}
 	if config.GlobalItems == nil {
 		return nil, "", false
@@ -290,12 +290,12 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 	}
 	out := make([]TimedCombatBuff, len(saves))
 	for i, s := range saves {
-		if _, err := spells.GetSpellDefinitionByID(spells.SpellID(s.SpellID)); err != nil && config.Technique(s.SpellID) != nil {
-			s.SpellID = config.TechniqueID(s.SpellID) // older saves stored the bare technique key
+		if _, err := spells.GetSpellDefinitionByID(spells.SpellID(s.ID)); err != nil && config.Technique(s.ID) != nil {
+			s.ID = config.TechniqueID(s.ID) // older saves stored the bare technique key
 		}
 		b := TimedCombatBuff{
 			Charges: max(0, s.Charges), Absorb: max(0, s.Absorb),
-			SpellID:     s.SpellID,
+			ID:          s.ID,
 			CombatClock: s.CombatClock, MasteryTier: s.MasteryTier, DeferFirstTurnTick: s.DeferFirstTurnTick,
 			SourceID:        s.SourceID,
 			Frames:          s.Frames,
@@ -306,12 +306,12 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 			ResistSchool:    s.ResistSchool, // draughts: not spell-backed, school rides the save
 			ArmorBonus:      s.ArmorBonus,
 		}
-		if d := config.TechniqueFromID(s.SpellID); d != nil {
+		if d := config.TechniqueFromID(s.ID); d != nil {
 			b.CombatClock = true
 			applyTechniqueBuff(&b, d, s.MasteryTier)
 		}
 		// Static source data is re-derived so a YAML rebalance reaches old saves.
-		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(s.SpellID)); err == nil {
+		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(s.ID)); err == nil {
 			if def.Mechanic != nil {
 				restoreAdvancedBuff(&b, def)
 			}
@@ -319,7 +319,7 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 			b.ResistSchool = def.ResistBuffSchool
 		} else if def, key, ok := savedCombatBuffItem(s); ok {
 			if itemBuff, valid := timedCombatBuffFromItem(key, def, s.Frames); valid {
-				b.SpellID = itemBuff.SpellID
+				b.ID = itemBuff.ID
 				b.ResistSchool = itemBuff.ResistSchool
 				b.ResistSchoolPct = itemBuff.ResistSchoolPct
 				b.ArmorBonus = itemBuff.ArmorBonus
@@ -330,7 +330,7 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 				b.ManaRegenPct = itemBuff.ManaRegenPct
 			}
 		}
-		if def := config.CrateBuff(s.SpellID); def != nil {
+		if def := config.CrateBuff(s.ID); def != nil {
 			applyCrateBuff(&b, def)
 		}
 		out[i] = b

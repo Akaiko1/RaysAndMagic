@@ -38,16 +38,6 @@ func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellTy
 	return 0
 }
 
-// effectiveSpellCost applies a Grandmaster meditator's percent spell-cost
-// reduction, rounded to the nearest SP so a cheap spell is never made free.
-// Single source used by every SP check/deduction site.
-func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCost int) int {
-	if caster != nil && caster.SkillTier(character.SkillMeditation) >= int(character.MasteryGrandMaster) {
-		baseCost = (baseCost*(100-MeditationGMSpellCostReductionPct) + 50) / 100
-	}
-	return baseCost
-}
-
 // CalculatePersistentDamageZoneTickDamage is the per-tick damage of any
 // persistent damage zone, including Hot Steam and Firewall. The YAML
 // zone_tick_damage is the flat base, plus Intellect/divisor and the caster's
@@ -315,7 +305,7 @@ func (cs *CombatSystem) tryCastAoeStunBy(spellID spells.SpellID, def spells.Spel
 		lead = def.Name
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s - %d foe(s) stunned!", lead, stunned))
-	cs.game.setUtilityStatus(spellID, frames)
+	cs.game.setBuffStatus(string(spellID), frames)
 	return true
 }
 
@@ -363,7 +353,7 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	cs.game.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, ""))
 	cs.game.logCombat(logToneGood, "%s empowers the party!", logKeyword("buff", def.Name))
-	cs.game.setUtilityStatus(spellID, frames)
+	cs.game.setBuffStatus(string(spellID), frames)
 	return true
 }
 

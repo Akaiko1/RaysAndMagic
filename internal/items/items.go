@@ -21,11 +21,11 @@ const (
 	SlotAmulet
 	SlotRing1
 	SlotRing2
-	SlotSpell // Unified spell slot for any spell
+	SlotQuickAction // The readied F/Space action: a spell, technique, trap or flask
 )
 
 // DisplayEquipSlots is the canonical render order of wearable equipment slots
-// (excludes the spell slot). UI panels iterate this so adding a slot surfaces it
+// (excludes the quick-action slot). UI panels iterate this so adding a slot surfaces it
 // everywhere without re-encoding the order per screen.
 var DisplayEquipSlots = []EquipSlot{
 	SlotMainHand, SlotOffHand, SlotArmor, SlotHelmet, SlotBoots,
@@ -55,7 +55,7 @@ func (s EquipSlot) DisplayName() string {
 		return "Amulet"
 	case SlotRing1, SlotRing2:
 		return "Ring"
-	case SlotSpell:
+	case SlotQuickAction:
 		return "Quick Slot"
 	}
 	return "Gear"
@@ -91,12 +91,18 @@ type Item struct {
 	ArmorCategory string
 	// Set is the armor-set key (items.yaml item_sets) this piece belongs to.
 	Set string `json:"set,omitempty"`
-	// For spells
+	// Spell fields: a spell shortcut, or the spell a device casts. Only spells
+	// belong here; techniques, traps and flasks use their own keys below.
+	// Older saves kept those keys in SpellEffect; loading migrates them.
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
 	// Technique is an ItemTechnique shortcut's techniques.yaml key.
 	Technique string `json:"technique,omitempty"`
+	// Trap is an ItemTrap shortcut's traps.yaml key.
+	Trap string `json:"trap,omitempty"`
+	// Flask is an ItemThrowable shortcut's items.yaml flask key.
+	Flask string `json:"flask,omitempty"`
 }
 
 // StackLineage identifies quantity fungible units that came from the same

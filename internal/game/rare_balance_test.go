@@ -231,7 +231,7 @@ func TestRareFlaskDamageUsesOnlyIntellect(t *testing.T) {
 					g.party.AddItem(it)
 					d, _ := config.GetItemDefinition(key)
 					want := d.Flask.Damage[tier] + c.GetEffectiveIntellect()/3
-					if !g.throwFlask(0, key, false) || g.magicProjectiles[0].Damage != want {
+					if !g.throwFlask(0, key, false) || g.flasks[0].Damage != want {
 						t.Fatalf("projectile damage must be %d", want)
 					}
 					tip := buildSimpleItemTooltipWithPartyRows(it, true, c, g.party, g.combat, itemUsage{}).String()

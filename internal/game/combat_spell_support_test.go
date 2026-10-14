@@ -67,7 +67,7 @@ func TestPersonalSpellDamageSchoolReachesWeaponHits(t *testing.T) {
 							// authored data is reloaded before impact.
 							c.SpellState.Effects = nil
 							def.Mechanic.DamageSchool = "fire"
-							g.combat.applyProjectileDamage(&g.arrows[0], "arrow", m, "")
+							g.combat.applyProjectileDamage(&g.arrows[0], m, "")
 						}
 						want := sourceDamage * aura.Mechanic.Power(0) / 100
 						if immune {
@@ -85,7 +85,7 @@ func TestPersonalSpellDamageSchoolReachesWeaponHits(t *testing.T) {
 
 func TestDispelUsesAllHostileMagicalProjectileRoutes(t *testing.T) {
 	for _, kind := range []string{"spell", "elemental_arrow", "physical_arrow"} {
-		for _, owner := range []ProjectileOwner{ProjectileOwnerMonster, ProjectileOwnerMonsterAtBound, ProjectileOwnerPlayer, ProjectileOwnerBoundUndead, ProjectileOwnerReflected} {
+		for _, owner := range []ProjectileOwner{ProjectileOwnerMonster, ProjectileOwnerMonsterAtActor, ProjectileOwnerPlayer, ProjectileOwnerPartyAlly, ProjectileOwnerReflected} {
 			for _, state := range []string{"inside", "boundary", "outside", "expired", "inactive"} {
 				t.Run(fmt.Sprintf("%s/owner=%d/%s", kind, owner, state), func(t *testing.T) {
 					g := advancedSupportGame(t, false)
@@ -113,7 +113,7 @@ func TestDispelUsesAllHostileMagicalProjectileRoutes(t *testing.T) {
 						g.arrows = []Arrow{{ID: id, X: x, Y: g.camera.Y, LifeTime: life, Active: active, Owner: owner, DamageType: school}}
 					}
 					g.collisionSystem.RegisterEntity(collision.NewEntity(id, x, g.camera.Y, 1, 1, collision.CollisionTypeProjectile, false))
-					eligible := kind != "physical_arrow" && (owner == ProjectileOwnerMonster || owner == ProjectileOwnerMonsterAtBound) && (state == "inside" || state == "boundary")
+					eligible := kind != "physical_arrow" && (owner == ProjectileOwnerMonster || owner == ProjectileOwnerMonsterAtActor) && (state == "inside" || state == "boundary")
 					if got := g.hostileMagicNearby(def.Mechanic.RadiusTiles); got != eligible {
 						t.Fatalf("autocast usefulness=%v, want %v", got, eligible)
 					}
@@ -396,7 +396,7 @@ func TestAdvancedCleanseAutocastTransaction(t *testing.T) {
 					case "overlay":
 						g.menuOpen = true
 					case "guard":
-						c.SpellState.AutoFrames = 100
+						c.AutocastFrames = 100
 					}
 					ap, sp, otherAP, recovery := c.ActionsRemaining, c.SpellPoints, patient.ActionsRemaining, c.RTCooldown
 					(&GameLoop{game: g}).updateAutomaticTechniques()
@@ -406,13 +406,13 @@ func TestAdvancedCleanseAutocastTransaction(t *testing.T) {
 						}
 						return
 					}
-					if patient.Purifiable() || c.SpellPoints != sp-d.SpellPointsCost || c.SpellState.AutoFrames != g.config.GetTPS()*9 {
+					if patient.Purifiable() || c.SpellPoints != sp-d.SpellPointsCost || c.AutocastFrames != g.config.GetTPS()*9 {
 						t.Fatal("automatic spell cleanse did not commit exactly once")
 					}
 					if c.ActionsRemaining != ap || c.RTCooldown != recovery || g.selectedChar != 1 || patient.ActionsRemaining != otherAP {
 						t.Fatal("automatic spell charged the wrong action or stole selection")
 					}
-					if g.spellInputCooldown != 0 {
+					if g.actionInputStagger != 0 {
 						t.Fatal("automatic spell blocked manual input")
 					}
 					if g.partyPenaltyFreeActionsUsed != 0 || g.partyActionsUsed != 0 {
@@ -449,7 +449,7 @@ func TestAdvancedVampirismHealsActualDodgeDamage(t *testing.T) {
 				before := m.HitPoints
 				if ranged {
 					shot := &Arrow{ID: "vampire-dodge", Active: true, Owner: ProjectileOwnerPlayer, LifeTime: 60, Attacker: c, BowKey: "hunting_bow", Damage: 100, TrueDamage: trueDamage, DamageType: "physical", VampiricPct: d.Mechanic.Power(3)}
-					g.combat.applyProjectileDamage(shot, "arrow", m, shot.ID)
+					g.combat.applyProjectileDamage(shot, m, shot.ID)
 				} else {
 					g.combat.ApplyDamageToMonster(m, 100, "Iron Sword", false)
 				}
@@ -549,11 +549,11 @@ func TestAutocastDuplicateCasters(t *testing.T) {
 				sp1, sp2 := first.SpellPoints, second.SpellPoints
 				gl.updateAutomaticTechniques()
 				paid := first.SpellPoints
-				if paid >= sp1 || first.SpellState.AutoFrames != g.config.AutocastIntervalRounds*g.combatRoundFrames() {
+				if paid >= sp1 || first.AutocastFrames != g.config.AutocastIntervalRounds*g.combatRoundFrames() {
 					t.Fatal("first eligible caster did not commit with the authored autocast interval")
 				}
 				gl.updateAutomaticTechniques()
-				if first.SpellPoints != paid || second.SpellPoints != sp2 || second.SpellState.AutoFrames != 0 {
+				if first.SpellPoints != paid || second.SpellPoints != sp2 || second.AutocastFrames != 0 {
 					t.Fatal("duplicate autocast spent mana or locked the standby caster")
 				}
 				if first.ActionsRemaining != 2 || second.ActionsRemaining != 2 || first.RTCooldown != 0 || second.RTCooldown != 0 {
@@ -577,7 +577,7 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 			patient.AddCondition(character.ConditionPoisoned)
 			gl := &GameLoop{game: g}
 			gl.updateAutomaticTechniques()
-			if c.SpellState.AutoFrames != budget {
+			if c.AutocastFrames != budget {
 				t.Fatal("commit did not start the two-round budget")
 			}
 			// A different automatic ability uses the same personal lock. Manual
@@ -594,10 +594,10 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 			if g.turnBasedMode && c.ActionsRemaining != 1 {
 				t.Fatal("manual technique lost its normal action cost")
 			}
-			g.spellInputCooldown = 0
+			g.actionInputStagger = 0
 			sp := c.SpellPoints
 			gl.updateAutomaticTechniques()
-			if c.SpellPoints != sp || c.SpellState.AutoFrames != budget {
+			if c.SpellPoints != sp || c.AutocastFrames != budget {
 				t.Fatal("manual use changed the automatic budget or a sibling bypassed it")
 			}
 			switch clock {
@@ -609,7 +609,7 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 				g.tickRareClassClocks(g.config.GetTPS())
 				g.turnBasedMode = true
 				g.startPartyTurn(true) // Entering TB grants no elapsed time.
-				if c.SpellState.AutoFrames != budget-g.config.GetTPS() {
+				if c.AutocastFrames != budget-g.config.GetTPS() {
 					t.Fatal("mode entry shortened the automatic budget")
 				}
 				g.startPartyTurn()
@@ -618,10 +618,10 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 			if c.SpellPoints != sp {
 				t.Fatal("autocast retriggered before round 3 / the full budget")
 			}
-			remaining := c.SpellState.AutoFrames
+			remaining := c.AutocastFrames
 			c = restoreCharacterSave(buildCharacterSave(c))
 			g.party.Members[0] = c
-			if c.SpellState.AutoFrames != remaining {
+			if c.AutocastFrames != remaining {
 				t.Fatal("save/load changed the remaining automatic budget")
 			}
 			if clock == "TB" {
@@ -767,10 +767,10 @@ func TestHealTriageChain(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				caster.SpellPoints = g.combat.effectiveSpellCost(caster, first.SpellPointsCost) - 1
+				caster.SpellPoints = caster.MeditatedSPCost(first.SpellPointsCost) - 1
 			}
 			if tc.slotted != "" {
-				caster.Equipment[items.SlotSpell] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(tc.slotted)}
+				caster.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(tc.slotted)}
 			}
 			// The caster and an ally are both wounded, so a self-only heal has
 			// its target too.
@@ -781,7 +781,7 @@ func TestHealTriageChain(t *testing.T) {
 			var cast bool
 			var id spells.SpellID
 			if tc.space {
-				_, id = g.combat.SmartAttack()
+				id = g.combat.SmartAttack().Spell
 				cast = id != ""
 			} else {
 				cast, id = g.combat.CastBestHealOnTarget(1)
@@ -821,7 +821,7 @@ func TestChargeOnlyBuffIconSurvivesLoad(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			g := advancedSupportGame(t, false)
 			castAdvancedSupport(t, g, key, 1, nil)
-			cast := g.utilitySpellStatuses[spells.SpellID(key)]
+			cast := g.buffStatuses[key]
 			if cast == nil {
 				t.Fatal("fixture: the cast shows no icon")
 			}
@@ -834,10 +834,10 @@ func TestChargeOnlyBuffIconSurvivesLoad(t *testing.T) {
 			if err := json.Unmarshal(raw, &save); err != nil {
 				t.Fatal(err)
 			}
-			g.combatBuffs, g.utilitySpellStatuses = nil, nil
+			g.combatBuffs, g.buffStatuses = nil, nil
 			g.restoreSavedEffects(&save)
 			g.restoreSavedEffectPresentation(nil, &save)
-			got := g.utilitySpellStatuses[spells.SpellID(key)]
+			got := g.buffStatuses[key]
 			if got == nil || got.Duration != want.Duration {
 				t.Fatalf("restored icon %+v, want %+v", got, want)
 			}
@@ -911,8 +911,8 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					cost = g.combat.effectiveSpellCost(c, d.SpellPointsCost)
-					c.Equipment[items.SlotSpell] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(id), SpellCost: d.SpellPointsCost}
+					cost = c.MeditatedSPCost(d.SpellPointsCost)
+					c.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(id), SpellCost: d.SpellPointsCost}
 				}
 				patient := g.party.Members[1]
 				patient.HitPoints = 1
@@ -922,7 +922,7 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 				m.BeginPlayerEngagement()
 				gl := &GameLoop{game: g}
 				gl.updateAutomaticTechniques()
-				if c.SpellPoints != 1000-cost || c.SpellState.AutoFrames <= 0 || c.ActionsRemaining != 3 || c.RTCooldown != 0 {
+				if c.SpellPoints != 1000-cost || c.AutocastFrames <= 0 || c.ActionsRemaining != 3 || c.RTCooldown != 0 {
 					t.Fatal("autocast did not pay only mana and start its automatic budget")
 				}
 				raw, err := json.Marshal(buildCharacterSave(c))
@@ -939,14 +939,16 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 						t.Fatal(err)
 					}
 					state[field.timer] = json.RawMessage("9999")
-					if field.state == "rare_class" {
-						state["auto_frames"] = json.RawMessage(fmt.Sprint(c.SpellState.AutoFrames))
+					// Older saves kept the budget in the rare-class (technique) or spell state.
+					if (field.state == "rare_class") == (technique != nil) {
+						state["auto_frames"] = json.RawMessage(fmt.Sprint(c.AutocastFrames))
 					}
 					legacy[field.state], err = json.Marshal(state)
 					if err != nil {
 						t.Fatal(err)
 					}
 				}
+				delete(legacy, "autocast_frames")
 				raw, err = json.Marshal(legacy)
 				if err != nil {
 					t.Fatal(err)
@@ -955,7 +957,7 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 				if err = json.Unmarshal(raw, &saved); err != nil {
 					t.Fatal(err)
 				}
-				budget := c.SpellState.AutoFrames
+				budget := c.AutocastFrames
 				c = restoreCharacterSave(saved)
 				g.party.Members[0] = c
 				c.ActionsRemaining, c.RTCooldown = 3, 0
@@ -967,7 +969,7 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 				}
 				for n := 0; n < count; n++ {
 					patient.AddCondition(character.ConditionPoisoned)
-					g.selectedChar, g.spellInputCooldown, c.RTCooldown = 0, 0, 0
+					g.selectedChar, g.actionInputStagger, c.RTCooldown = 0, 0, 0
 					ap, sp := c.ActionsRemaining, c.SpellPoints
 					if technique != nil {
 						if !g.useTechnique(0, key, false, false) {
@@ -976,13 +978,13 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 					} else {
 						ih := &InputHandler{game: g}
 						if tb {
-							fired, id := ih.castSlottedSpellResolved(c)
+							fired, recovery := ih.useSlottedActionResolved(c)
 							if !fired {
 								t.Fatal("manual spell rejected during automatic suppression")
 							}
-							g.consumeSelectedCharActionWithRTCooldown(g.combat.SpellCooldownFrames(c, id))
+							g.consumeSelectedCharActionWithRTCooldown(recovery)
 						} else {
-							ih.castSlottedSpell(c)
+							ih.useSlottedAction(c)
 						}
 					}
 					// Recovery uses the newly applied Haste effect, just like input.
@@ -994,8 +996,8 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 					if tb {
 						wantAP--
 					}
-					if c.SpellPoints != sp-cost || c.ActionsRemaining != wantAP || c.RTCooldown != cooldown || c.SpellState.AutoFrames != budget {
-						t.Fatalf("manual use: SP=%d/%d AP=%d/%d recovery=%d/%d automatic=%d/%d", c.SpellPoints, sp-cost, c.ActionsRemaining, wantAP, c.RTCooldown, cooldown, c.SpellState.AutoFrames, budget)
+					if c.SpellPoints != sp-cost || c.ActionsRemaining != wantAP || c.RTCooldown != cooldown || c.AutocastFrames != budget {
+						t.Fatalf("manual use: SP=%d/%d AP=%d/%d recovery=%d/%d automatic=%d/%d", c.SpellPoints, sp-cost, c.ActionsRemaining, wantAP, c.RTCooldown, cooldown, c.AutocastFrames, budget)
 					}
 					if count == 2 && patient.Purifiable() {
 						t.Fatal("manual cleanse left the affliction")
@@ -1003,7 +1005,7 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 				}
 				g.combatBuffs = nil
 				patient.AddCondition(character.ConditionPoisoned)
-				g.spellInputCooldown = 0
+				g.actionInputStagger = 0
 				sp := c.SpellPoints
 				gl.updateAutomaticTechniques()
 				if c.SpellPoints != sp || !patient.Purifiable() {

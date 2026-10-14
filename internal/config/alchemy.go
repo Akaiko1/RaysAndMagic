@@ -306,7 +306,7 @@ func FlaskItem(key string) (items.Item, bool) {
 	if d == nil || d.Flask == nil {
 		return items.Item{}, false
 	}
-	return items.Item{Name: d.Name, Type: items.ItemThrowable, SpellEffect: items.SpellEffect(key), Description: d.Description}, true
+	return items.Item{Name: d.Name, Type: items.ItemThrowable, Flask: key, Description: d.Description}, true
 }
 func FlaskKeys() []string {
 	var keys []string

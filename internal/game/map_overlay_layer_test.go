@@ -183,7 +183,7 @@ func TestQuickSlotBarUnderModalIsNotInteractive(t *testing.T) {
 		t.Fatal("control failed: an interactive bar ignored the right click")
 	}
 	// Snapshot AFTER the control: that binding is the expected state to hold.
-	boundAfterControl, hadBinding := member.Equipment[items.SlotSpell]
+	boundAfterControl, hadBinding := member.Equipment[items.SlotQuickAction]
 
 	// Under a modal layer the same click must be left alone.
 	g.mouseRightClicks = []queuedClick{rightClick}
@@ -191,7 +191,7 @@ func TestQuickSlotBarUnderModalIsNotInteractive(t *testing.T) {
 	if len(g.mouseRightClicks) != 1 {
 		t.Fatal("a decorative bar consumed a right click belonging to the modal above it")
 	}
-	bound, has := member.Equipment[items.SlotSpell]
+	bound, has := member.Equipment[items.SlotQuickAction]
 	if has != hadBinding || bound.Name != boundAfterControl.Name {
 		t.Fatal("the hidden bar changed the quick spell under a modal layer")
 	}

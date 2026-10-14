@@ -47,6 +47,9 @@ const (
 	cardItem
 	cardSpell
 	cardSkill
+	// cardAction is a technique or trap: a book action that is not a spell. It
+	// carries its own icon and shares the spell accent.
+	cardAction
 )
 
 // groupCardsBySection collapses each section into ONE contiguous run, keeping
@@ -283,7 +286,7 @@ func buildTechniqueCards() []contentCard {
 			panic("unknown catalog technique: " + d.Key)
 		}
 		cards = append(cards, contentCard{
-			kind:        cardSpell,
+			kind:        cardAction,
 			section:     section,
 			key:         d.Key,
 			name:        d.Name,
@@ -315,7 +318,7 @@ func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard
 	}
 	rows := game.GetItemTooltipRows(it, nil, nil, true)
 	return contentCard{
-		kind:        cardSpell,
+		kind:        cardAction,
 		section:     section,
 		key:         key,
 		name:        def.Name,

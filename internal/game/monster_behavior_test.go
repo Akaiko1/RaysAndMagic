@@ -889,7 +889,7 @@ func TestBindUndead_RangedLichFiresBoundProjectile(t *testing.T) {
 		t.Fatalf("bound lich should have fired exactly one projectile (was %d, now %d)", n0, projCount())
 	}
 	bolt := game.magicProjectiles[len(game.magicProjectiles)-1]
-	if bolt.Owner != ProjectileOwnerBoundUndead {
+	if bolt.Owner != ProjectileOwnerPartyAlly {
 		t.Errorf("lich bolt should be charmed-owned, got %v", bolt.Owner)
 	}
 	if bolt.VelX <= 0 {
@@ -925,19 +925,19 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 		t.Fatalf("bandit should be a ranged mob")
 	}
 
-	// Mob fires an anti-undead bolt; it is tagged so it can only hit the undead.
-	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, undead, ProjectileOwnerMonsterAtBound) {
+	// Mob fires at the bound undead; its owner lets it hit only what the mob may attack.
+	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, undead, ProjectileOwnerMonsterAtActor) {
 		t.Fatalf("mob should have spawned a bolt")
 	}
 	bolt := &game.arrows[len(game.arrows)-1]
-	if bolt.Owner != ProjectileOwnerMonsterAtBound {
-		t.Errorf("mob bolt should be owner MonsterAtBound, got %v", bolt.Owner)
+	if bolt.Owner != ProjectileOwnerMonsterAtActor {
+		t.Errorf("mob bolt should be owner MonsterAtActor, got %v", bolt.Owner)
 	}
 
 	// Resolve the bolt on the bound undead -> it dies and, as a former enemy,
 	// gives its normal XP and gold bag.
 	xp0, bags0 := game.party.Members[0].Experience, len(game.groundContainers)
-	game.combat.resolveMonsterProjectileVsMonster(bolt, "arrow", undead, bolt.ID)
+	game.combat.resolveMonsterProjectileVsMonster(bolt, undead, bolt.ID)
 	if undead.IsAlive() {
 		t.Error("bound undead should die to the lethal bolt")
 	}
@@ -952,12 +952,12 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 	markCardAlly(ally)
 	game.world.Monsters = []*monster.Monster3D{bandit, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, ally, ProjectileOwnerMonsterAtBound) {
+	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, ally, ProjectileOwnerMonsterAtActor) {
 		t.Fatal("mob should fire at a card ally")
 	}
 	cardBolt := &game.arrows[len(game.arrows)-1]
 	xpCard, bagsCard := game.party.Members[0].Experience, len(game.groundContainers)
-	game.combat.resolveMonsterProjectileVsMonster(cardBolt, "arrow", ally, cardBolt.ID)
+	game.combat.resolveMonsterProjectileVsMonster(cardBolt, ally, cardBolt.ID)
 	if ally.IsAlive() {
 		t.Error("card ally should die to the lethal bolt")
 	}
@@ -972,12 +972,12 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 	game.world.Monsters = append(game.world.Monsters, enemy, lich)
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	game.combat.applyBindUndead(lich, 300, "Bind Undead")
-	if !game.combat.spawnMonsterRangedAttackAtMonster(lich, enemy, ProjectileOwnerBoundUndead) {
+	if !game.combat.spawnMonsterRangedAttackAtMonster(lich, enemy, ProjectileOwnerPartyAlly) {
 		t.Fatalf("lich should have spawned a bolt")
 	}
 	mbolt := &game.magicProjectiles[len(game.magicProjectiles)-1]
 	xp1 := game.party.Members[0].Experience
-	game.combat.resolveMonsterProjectileVsMonster(mbolt, "magic_projectile", enemy, mbolt.ID)
+	game.combat.resolveMonsterProjectileVsMonster(mbolt, enemy, mbolt.ID)
 	if enemy.IsAlive() {
 		t.Fatalf("1-HP enemy should die to the charmed bolt")
 	}

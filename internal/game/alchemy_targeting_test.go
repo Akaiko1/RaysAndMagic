@@ -58,7 +58,7 @@ func sendFlaskInput(g *MMGame, ih *InputHandler, input string, target *monster.M
 		ih.pendingRepeat = rtActSmart
 		ih.performPendingRepeat()
 	} else if input == "F" {
-		ih.performRTCombatAction(rtActCast, true)
+		ih.performRTCombatAction(rtActSlotted, true)
 	} else {
 		ih.performRTCombatAction(rtActSmart, false)
 	}
@@ -66,10 +66,10 @@ func sendFlaskInput(g *MMGame, ih *InputHandler, input string, target *monster.M
 
 func assertFlaskAim(t *testing.T, g *MMGame, key string, target *monster.Monster3D) {
 	t.Helper()
-	if len(g.magicProjectiles) != 1 || g.flaskStock(g.party.Members[0], key) != 2 {
-		t.Fatalf("one launch must consume one bottle: shots=%d stock=%d", len(g.magicProjectiles), g.flaskStock(g.party.Members[0], key))
+	if len(g.flasks) != 1 || g.flaskStock(g.party.Members[0], key) != 2 {
+		t.Fatalf("one launch must consume one bottle: shots=%d stock=%d", len(g.flasks), g.flaskStock(g.party.Members[0], key))
 	}
-	p := g.magicProjectiles[0]
+	p := g.flasks[0]
 	wantAngle := g.camera.Angle
 	d, _ := config.GetItemDefinition(key)
 	wantDistance := float64(d.Flask.RangeTiles) * g.config.GetTileSize()
@@ -167,8 +167,8 @@ func TestAlchemyFlaskInputAndImpact(t *testing.T) {
 						t.Fatal("throw changed the camera or leaked target state")
 					}
 					g.camera.Angle = math.Pi // Rotation cannot redirect an airborne bottle.
-					p := &g.magicProjectiles[0]
-					wrapper := MagicProjectileWrapper{MagicProjectile: p, game: g, collisionSystem: g.collisionSystem, projectileID: p.ID}
+					p := &g.flasks[0]
+					wrapper := FlaskProjectileWrapper{Flask: p, game: g, collisionSystem: g.collisionSystem}
 					for n := 0; n < 2*g.config.GetTPS() && p.Active; n++ {
 						wrapper.SetPosition(p.X+p.VelX, p.Y+p.VelY)
 						wrapper.ApplyCollisionEffects()

@@ -92,14 +92,14 @@ func TestAIChampionSpellsFollowTarget(t *testing.T) {
 								p := &g.magicProjectiles[len(g.magicProjectiles)-1]
 								owner := ProjectileOwnerMonster
 								if redirected {
-									owner = ProjectileOwnerMonsterAtBound
+									owner = ProjectileOwnerMonsterAtActor
 								}
 								if p.Owner != owner || p.VelX <= 0 || p.VelY != 0 || p.SpellType != spell {
 									t.Fatalf("wrong projectile target/owner: %+v", p)
 								}
 								if redirected {
 									before := foe.HitPoints
-									g.combat.resolveMonsterProjectileVsMonster(p, "magic_projectile", foe, p.ID)
+									g.combat.resolveMonsterProjectileVsMonster(p, foe, p.ID)
 									if foe.HitPoints >= before {
 										t.Fatal("spell did not damage summon at impact")
 									}

@@ -114,12 +114,12 @@ func TestBuffHoverEffectsAppearOnce(t *testing.T) {
 						}
 						if restored {
 							g.statBuffs, g.combatBuffs = nil, nil
-							g.utilitySpellStatuses = nil
+							g.buffStatuses = nil
 							g.restoreSavedEffects(&save)
 							g.restoreSavedEffectPresentation(wm, &save)
 						}
 						rail, ok := g.spellStatusRail()
-						if !ok || len(rail.statuses) != 1 || rail.statuses[0].SpellID != def.ID {
+						if !ok || len(rail.statuses) != 1 || rail.statuses[0].ID != string(def.ID) {
 							t.Fatalf("rail = %+v, want only %s", rail.statuses, tc.key)
 						}
 						icon := rail.icons[0]

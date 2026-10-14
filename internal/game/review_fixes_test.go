@@ -44,7 +44,7 @@ func TestRicochetContinuationGetsFreshLifetime(t *testing.T) {
 		Owner:        ProjectileOwnerPlayer,
 	}
 	g.arrows = append(g.arrows, ar)
-	cs.applyProjectileDamage(&g.arrows[len(g.arrows)-1], "arrow", first, ar.ID)
+	cs.applyProjectileDamage(&g.arrows[len(g.arrows)-1], first, ar.ID)
 
 	var cont *Arrow
 	for i := range g.arrows {
@@ -138,7 +138,7 @@ func TestRicochetRequiresLandedProjectileHit(t *testing.T) {
 				RicochetLeft: 1, Owner: ProjectileOwnerPlayer,
 			}
 			g.arrows = append(g.arrows, ar)
-			cs.applyProjectileDamage(&g.arrows[0], "arrow", first, ar.ID)
+			cs.applyProjectileDamage(&g.arrows[0], first, ar.ID)
 
 			for i := range g.arrows {
 				if cont := &g.arrows[i]; cont.Active && cont.SkipMonster == first {

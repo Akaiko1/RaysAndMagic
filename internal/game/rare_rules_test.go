@@ -86,7 +86,7 @@ func TestRareRulesExplicitStepOwnsRefusal(t *testing.T) {
 					other.ActionsRemaining = 2
 					g.party.Members = []*character.MMCharacter{c, other}
 					it, _ := config.TechniqueItem(key)
-					c.Equipment[items.SlotSpell] = it
+					c.Equipment[items.SlotQuickAction] = it
 					switch reason {
 					case "reuse":
 						g.spatialReuseFrames = 1
@@ -99,7 +99,7 @@ func TestRareRulesExplicitStepOwnsRefusal(t *testing.T) {
 						c.AddCondition(character.ConditionUnconscious)
 						g.parkSelection = true
 					case "stagger":
-						g.spellInputCooldown = 1
+						g.actionInputStagger = 1
 					}
 					x, y, sp, ap := g.camera.X, g.camera.Y, c.SpellPoints, c.ActionsRemaining
 					rareInputCast(g, NewInputHandler(g), tb)
@@ -133,10 +133,16 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 					if d := config.Technique(action); d != nil {
 						return g.techniqueCooldown(actor, d)
 					}
+					if _, ok := config.GetTrapDefinition(action); ok {
+						return g.combat.TrapCooldownFrames(actor, action)
+					}
+					if d, ok := config.GetItemDefinition(action); ok && d.Flask != nil {
+						return g.combat.FlaskCooldownFrames(actor, action)
+					}
 					return g.combat.SpellCooldownFrames(actor, spells.SpellID(action))
 				}
 				base := frames()
-				g.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
+				g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
 				want := base
 				if actor == c && base > 0 {
 					want = clampRTCooldown(base * 65 / 100)
@@ -153,49 +159,75 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 		g.combatBuffs = nil
 		first := monsterPkg.NewMonster3DFromConfig(0, 0, key, g.config)
 		g.mirrorChampionStats(first)
-		g.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
+		g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
 		second := monsterPkg.NewMonster3DFromConfig(0, 0, key, g.config)
 		g.mirrorChampionStats(second)
 		if second.AttackCooldownMultiplier != first.AttackCooldownMultiplier {
 			t.Fatal("party Quickening changed enemy champion cadence")
 		}
 	}
-	// Exercise the actual commits, including the staff modifier shared with spells.
+	// The staff's spell_cooldown_multiplier reaches spells only. Every commit
+	// goes through the real F / Space input; Space has no technique branch.
 	staff, ok := config.GetWeaponDefinition("archmage_staff")
 	if !ok || staff.SpellCooldownMultiplier <= 0 || staff.SpellCooldownMultiplier >= 1 {
 		t.Fatal("archmage_staff must author a spell_cooldown_multiplier below 1")
 	}
-	for _, action := range []string{"purify", "harm_flask"} {
-		t.Run("commit/"+action, func(t *testing.T) {
-			g, c := rareClassGame(t, character.ClassAlchemist, false)
-			if action == "purify" {
-				c.Class = character.ClassWayfarer
-				c.Skills[character.SkillTranslocation] = &character.Skill{Mastery: character.MasteryNovice}
-				g.party.Members[1].AddCondition(character.ConditionPoisoned)
-			}
-			c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("archmage_staff")
-			c.Speed = 16
-			g.addCombatBuff(TimedCombatBuff{SpellID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
-			seconds, _ := baseCastCooldownSeconds(spells.SpellID(action))
-			if d := config.Technique(action); d != nil {
-				seconds = d.CooldownSeconds
-			}
-			want := clampRTCooldown(clampRTCooldown(int(math.Round(seconds*float64(g.config.GetTPS())*spellCooldownSpeedFactor(c.GetEffectiveSpeed())*staff.SpellCooldownMultiplier))) * 65 / 100)
-			if action == "purify" {
-				if !g.useTechnique(0, action, false, false) {
-					t.Fatal("purify rejected")
+	trap, _ := config.GetTrapDefinition("cleave_trap")
+	flask, _ := config.GetItemDefinition("harm_flask")
+	firebolt, _ := spells.GetSpellDefinitionByID("firebolt")
+	kinds := []struct {
+		name    string
+		class   character.CharacterClass
+		seconds float64
+		staffed bool
+		slot    func() items.Item
+	}{
+		{"spell", character.ClassSorcerer, firebolt.CooldownSeconds, true, func() items.Item { it, _ := spells.CreateSpellItem("firebolt"); return it }},
+		{"technique", character.ClassWayfarer, config.Technique("purify").CooldownSeconds, false, func() items.Item { it, _ := config.TechniqueItem("purify"); return it }},
+		{"flask", character.ClassAlchemist, flask.Flask.CooldownSeconds, false, func() items.Item { it, _ := config.FlaskItem("harm_flask"); return it }},
+		{"trap", character.ClassThief, trap.CooldownSeconds, false, func() items.Item { it, _ := config.TrapItem("cleave_trap"); return it }},
+	}
+	for _, k := range kinds {
+		for _, tb := range []bool{false, true} {
+			for _, key := range []string{"F", "Space"} {
+				if k.name == "technique" && key == "Space" {
+					continue
 				}
-			} else {
-				it, _ := items.TryCreateItemFromYAML(action)
-				g.party.AddItem(it)
-				if !g.throwFlask(0, action, false) {
-					t.Fatal("flask rejected")
-				}
+				t.Run(fmt.Sprintf("commit/%s/%s/TB=%v", k.name, key, tb), func(t *testing.T) {
+					g, c := rareClassGame(t, k.class, tb)
+					switch k.name {
+					case "spell":
+						c.LearnSpell("firebolt")
+					case "technique":
+						g.party.Members[1].AddCondition(character.ConditionPoisoned)
+					case "flask":
+						it, _ := items.TryCreateItemFromYAML("harm_flask")
+						g.party.AddItem(it)
+					}
+					c.Equipment[items.SlotQuickAction] = k.slot()
+					c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("archmage_staff")
+					c.Speed = 16
+					g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
+					mult := 1.0
+					if k.staffed {
+						mult = staff.SpellCooldownMultiplier
+					}
+					want := clampRTCooldown(clampRTCooldown(int(math.Round(k.seconds*float64(g.config.GetTPS())*actionCooldownSpeedFactor(c.GetEffectiveSpeed())*mult))) * 65 / 100)
+					ih := NewInputHandler(g)
+					switch {
+					case key == "F":
+						rareInputCast(g, ih, tb)
+					case tb:
+						ih.performTurnBasedSmartAttack()
+					default:
+						ih.performRTCombatAction(rtActSmart, true)
+					}
+					if c.RTCooldown != want {
+						t.Fatalf("recovery=%d want Speed+Quickening%s=%d", c.RTCooldown, map[bool]string{true: "+staff"}[k.staffed], want)
+					}
+				})
 			}
-			if c.RTCooldown != want {
-				t.Fatalf("commit recovery=%d want shared staff+Speed+Quickening=%d", c.RTCooldown, want)
-			}
-		})
+		}
 	}
 }
 
@@ -486,16 +518,16 @@ func TestRareRulesSharedSplashVictims(t *testing.T) {
 					}
 					before, primary := target.HitPoints, center.HitPoints
 					g.world.Monsters = append(g.world.Monsters, nil)
-					var p MagicProjectile
+					var p FlaskProjectile
 					if source == "splash" {
 						attack := g.combat.newPartyMonsterAttack(40, 0, "fire", 0, nil, "Test Splash", false, true, false)
 						g.combat.applyAoeSplash(center, attack, 2)
 					} else {
-						p = MagicProjectile{Active: true, LifeTime: 100, FlaskKey: source, FlaskRadius: 2 * ts, Damage: 40, Attacker: c}
+						p = FlaskProjectile{Active: true, LifeTime: 100, Key: source, Radius: 2 * ts, Damage: 40, Attacker: c}
 						if source == "venom_flask" {
-							p.FlaskPoisonFrames = 120
+							p.PoisonFrames = 120
 						} else if source == "fire_flask" {
-							p.FlaskBurnFrames = 120
+							p.BurnFrames = 120
 						}
 						g.combat.detonateFlask(&p, center.X, center.Y)
 					}

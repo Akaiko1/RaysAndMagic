@@ -30,9 +30,9 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 					t.Fatal(err)
 				}
 				d := config.CrateBuff(kind)
-				g.addCombatBuff(TimedCombatBuff{SpellID: kind, Frames: duration, HPRegenPct: d.HPRegenPct, ManaRegenPct: d.ManaRegenPct})
+				g.addCombatBuff(TimedCombatBuff{ID: kind, Frames: duration, HPRegenPct: d.HPRegenPct, ManaRegenPct: d.ManaRegenPct})
 			case "heroism":
-				g.addCombatBuff(TimedCombatBuff{SpellID: kind, Frames: duration, OutBonus: 10})
+				g.addCombatBuff(TimedCombatBuff{ID: kind, Frames: duration, OutBonus: 10})
 			case "flame_ward_draught", "solstice_fire_advanced_ward":
 				def, _ := config.GetItemDefinition(kind)
 				b, ok := timedCombatBuffFromItem(kind, def, duration)
@@ -80,7 +80,7 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 					t.Fatalf("remaining %d, want %d", got, want)
 				}
 				if want > 0 {
-					s := g.utilitySpellStatuses[spells.SpellID(kind)]
+					s := g.buffStatuses[kind]
 					if s == nil || s.Duration != want {
 						t.Fatal("HUD does not match timer")
 					}
@@ -125,7 +125,7 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			if kind == "bless" && g.statBonuses != (character.StatBonuses{}) {
 				t.Fatal("expired stat bonus remains")
 			}
-			if _, ok := g.utilitySpellStatuses[spells.SpellID(kind)]; ok {
+			if _, ok := g.buffStatuses[kind]; ok {
 				t.Fatal("expired HUD remains")
 			}
 			if config.CrateBuff(kind) == nil && kind != "heroism" && kind != "flame_ward_draught" && kind != "solstice_fire_advanced_ward" && kind != "bless" && expired != 1 {
@@ -140,7 +140,7 @@ func TestPartyBuffExpiresOnResolvedRound(t *testing.T) {
 		t.Run(fmt.Sprint(left), func(t *testing.T) {
 			g, gl, _ := tbBehaviorGame(t, 12, 12)
 			g.gameLoop = gl
-			g.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: left, OutBonus: 4})
+			g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: left, OutBonus: 4})
 			g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: left, Bonuses: character.UniformStatBonuses(4)})
 			g.torchLightActive, g.torchLightDuration = true, left
 			gl.updateSpecialEffects()

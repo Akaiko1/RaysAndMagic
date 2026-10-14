@@ -38,7 +38,7 @@ func TestDeferredSpellInputHandoff(t *testing.T) {
 							t.Fatal(err)
 						}
 						c.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{character.MagicSchoolID(d.School): {KnownSpells: []spells.SpellID{id}}}
-						c.Equipment[items.SlotSpell] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(id)}
+						c.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(id)}
 						c.SpellPoints, c.MaxSpellPoints, c.ActionsRemaining, c.RTCooldown = 100, 100, 2, 0
 						switch state {
 						case "no SP":
@@ -88,7 +88,7 @@ func TestIdentifyTargetingOwnsPointerAndPayment(t *testing.T) {
 				c := g.party.Members[0]
 				c.Class = character.ClassSorcerer
 				c.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{character.MagicSchoolMind: {KnownSpells: []spells.SpellID{"identify_monster"}}}
-				c.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "identify_monster"}
+				c.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "identify_monster"}
 				c.SpellPoints, c.MaxSpellPoints = 100, 100
 				sp, actions, hp := c.SpellPoints, c.ActionsRemaining, target.HitPoints
 				g.menuOpen, g.currentTab = true, TabSpellbook
@@ -132,7 +132,7 @@ func TestIdentifyTargetingOwnsPointerAndPayment(t *testing.T) {
 				}
 				if choice == "target" {
 					d, _ := spells.GetSpellDefinitionByID("identify_monster")
-					if g.identifiedMonster != target || g.identifySelecting || c.SpellPoints != sp-g.combat.effectiveSpellCost(c, d.SpellPointsCost) || !g.gameplayPausedByOverlay() {
+					if g.identifiedMonster != target || g.identifySelecting || c.SpellPoints != sp-c.MeditatedSPCost(d.SpellPointsCost) || !g.gameplayPausedByOverlay() {
 						t.Fatal("visible target click did not pay once and open a paused report")
 					}
 					if tb && c.ActionsRemaining != actions-1 || !tb && c.RTCooldown <= 0 {
@@ -176,7 +176,7 @@ func TestAllySpellTargetingOwnsPointerAndPayment(t *testing.T) {
 					d, _ := spells.GetSpellDefinitionByID(id)
 					c.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{character.MagicSchoolID(d.School): {KnownSpells: []spells.SpellID{id}}}
 					c.SpellPoints, c.MaxSpellPoints = 100, 100
-					c.Equipment[items.SlotSpell] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(id)}
+					c.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(id)}
 					sp, actions := c.SpellPoints, c.ActionsRemaining
 					g.menuOpen, g.currentTab = true, TabSpellbook
 					g.selectedSchool, g.selectedSpell = 0, 0
@@ -219,7 +219,7 @@ func TestAllySpellTargetingOwnsPointerAndPayment(t *testing.T) {
 						ih.HandleInput()
 					}
 					if choice == "other" || choice == "self" {
-						if len(g.party.Members[index].SpellState.Effects) != 1 || g.allySpellSelecting || g.gameplayPausedByOverlay() || c.SpellPoints != sp-g.combat.effectiveSpellCost(c, d.SpellPointsCost) {
+						if len(g.party.Members[index].SpellState.Effects) != 1 || g.allySpellSelecting || g.gameplayPausedByOverlay() || c.SpellPoints != sp-c.MeditatedSPCost(d.SpellPointsCost) {
 							t.Fatal("card click did not enchant the chosen hero, pay once and resume")
 						}
 						wantActions := actions

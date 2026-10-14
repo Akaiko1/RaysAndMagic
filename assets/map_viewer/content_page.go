@@ -411,7 +411,7 @@ func cardAccentColor(c *contentCard) color.RGBA {
 		switch c.kind {
 		case cardWeapon:
 			return color.RGBA{210, 105, 80, 255}
-		case cardSpell:
+		case cardSpell, cardAction:
 			return color.RGBA{95, 155, 225, 255}
 		case cardSkill:
 			return viewerHeaderTextColor

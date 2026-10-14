@@ -24,7 +24,8 @@ func TestSavedItemAccentUsesTypeWithoutRarity(t *testing.T) {
 	}{
 		{items.ItemWeapon, cardWeapon}, {items.ItemArmor, cardItem}, {items.ItemAccessory, cardItem},
 		{items.ItemConsumable, cardItem}, {items.ItemQuest, cardItem}, {items.ItemTrinket, cardItem}, {items.ItemCard, cardItem},
-		{items.ItemBattleSpell, cardSpell}, {items.ItemUtilitySpell, cardSpell}, {items.ItemTrap, cardSpell},
+		{items.ItemBattleSpell, cardSpell}, {items.ItemUtilitySpell, cardSpell}, {items.ItemTrap, cardAction},
+		{items.ItemTechnique, cardAction}, {items.ItemThrowable, cardItem}, {items.ItemDevice, cardItem},
 	} {
 		for _, rarity := range []string{"", "legendary"} {
 			it := items.Item{Name: "Unknown saved item", Type: tc.kind, Rarity: rarity}

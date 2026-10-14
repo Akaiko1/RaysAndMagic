@@ -58,7 +58,7 @@ func (g *MMGame) advanceUtilityBuffs(frames int) {
 	hadPassage := g.partyHasTerrainPassage()
 	for _, buff := range g.timedBuffs() {
 		tickBuff(buff.active, buff.duration, frames, buff.onExpire)
-		g.updateUtilityStatus(buff.id, *buff.duration, *buff.active)
+		g.updateBuffStatus(string(buff.id), *buff.duration, *buff.active)
 	}
 	if hadPassage && !g.partyHasTerrainPassage() {
 		g.settleAfterTerrainPassage()

@@ -78,7 +78,7 @@ func TestPointerProjectileKeepsLaunchAim(t *testing.T) {
 				ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
 				if kind == "spell" {
 					ch.LearnSpell("fireball")
-					ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
+					ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "fireball", SpellCost: 4}
 					ch.SpellPoints, ch.MaxSpellPoints = 100, 100
 				}
 				fp.press()
@@ -246,7 +246,7 @@ func TestPointerGroundSpellsKeepAim(t *testing.T) {
 				ch := g.party.Members[0]
 				ch.LearnSpell(spells.SpellID(key))
 				ch.SpellPoints, ch.MaxSpellPoints = 500, 500
-				ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect(key), SpellCost: 25}
+				ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect(key), SpellCost: 25}
 				fp.press()
 				tick()
 				if key == "stone_blossom" {
@@ -336,7 +336,7 @@ func TestProjectileInputParity(t *testing.T) {
 							stripNewClassSkillsForLegacyFixtures(g.party)
 							for _, hero := range g.party.Members {
 								hero.HitPoints, hero.ActionsRemaining = hero.MaxHitPoints, 10
-								delete(hero.Equipment, items.SlotSpell)
+								delete(hero.Equipment, items.SlotQuickAction)
 								hero.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
 							}
 							ch := g.party.Members[0]
@@ -345,7 +345,7 @@ func TestProjectileInputParity(t *testing.T) {
 							if kind == "firebolt" || kind == "fireball" {
 								ch.LearnSpell(spells.SpellID(kind))
 								ch.SpellPoints, ch.MaxSpellPoints = 100, 100
-								ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect(kind), SpellCost: 2}
+								ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect(kind), SpellCost: 2}
 							} else {
 								ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(kind)
 							}
@@ -436,15 +436,20 @@ func TestProjectileInputParity(t *testing.T) {
 									t.Fatal("RT presentation retained a pulled TB slot")
 								}
 								g.turnBasedMode = tb
+								drawnX, drawnY := g.combat.monsterVisualPos(m)
 								for _, change := range []string{"moved", "dead"} {
 									beforeY, beforeHP := m.Y, m.HitPoints
+									// A moved target leaves the shot on its physical ray; a
+									// dead one keeps the spot it was drawn on (its corpse).
+									wantX, wantY := launch.aimX, launch.aimY
 									if change == "moved" {
 										m.Y += ts
 									} else {
 										m.HitPoints = 0
+										wantX, wantY = drawnX, drawnY
 									}
 									x, y, _, _ = launch.renderMotion(g.combat, launch.aimX, launch.aimY, vx, vy)
-									if math.Hypot(x-launch.aimX, y-launch.aimY) > 1e-6 {
+									if math.Hypot(x-wantX, y-wantY) > 1e-6 {
 										t.Fatalf("%s target redirected flight presentation", change)
 									}
 									m.Y, m.HitPoints = beforeY, beforeHP
@@ -512,7 +517,7 @@ func TestMouseHoldTracksMovingProjectileTarget(t *testing.T) {
 					ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("alien_blaster")
 					if kind == "firebolt" {
 						ch.LearnSpell("firebolt")
-						ch.Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
+						ch.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemBattleSpell, SpellEffect: "firebolt", SpellCost: 2}
 						ch.SpellPoints, ch.MaxSpellPoints = 1000, 1000
 					}
 				}

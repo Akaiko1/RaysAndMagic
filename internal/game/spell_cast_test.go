@@ -38,7 +38,7 @@ func equipSpellAndPrepareCaster(t *testing.T, cs *CombatSystem, spellKey string,
 		caster.Equipment = make(map[items.EquipSlot]items.Item)
 	}
 	caster.LearnSpell(spells.SpellID(spellKey))
-	caster.Equipment[items.SlotSpell] = spellItem
+	caster.Equipment[items.SlotQuickAction] = spellItem
 	caster.SpellPoints = sp
 	caster.Intellect = intellect
 	cs.game.selectedChar = 0
@@ -65,13 +65,13 @@ func TestCastEquippedSpell(t *testing.T) {
 			if err != nil {
 				t.Fatalf("fireball def: %v", err)
 			}
-			cost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+			cost := caster.MeditatedSPCost(def.SpellPointsCost)
 			if cost <= 0 {
 				t.Fatalf("fireball must cost SP, got %d", cost)
 			}
 			equipSpellAndPrepareCaster(t, cs, "fireball", cost+tc.spare, 0)
 			if !tc.equip {
-				delete(caster.Equipment, items.SlotSpell)
+				delete(caster.Equipment, items.SlotQuickAction)
 			}
 			before := caster.SpellPoints
 			if got := cs.CastEquippedSpell(); got != tc.wantPay {

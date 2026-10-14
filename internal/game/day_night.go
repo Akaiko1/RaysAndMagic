@@ -156,7 +156,7 @@ func (g *MMGame) restoreCelestialProvidenceOwnership(sourceVersion int) {
 		}
 	}
 	for i := range g.combatBuffs {
-		if g.combatBuffs[i].SpellID == spellID {
+		if g.combatBuffs[i].ID == spellID {
 			if g.combatBuffs[i].SourceID == "" {
 				g.combatBuffs[i].SourceID = celestialProvidenceSourceID
 			}
@@ -225,7 +225,7 @@ func (g *MMGame) refreshCelestialProvidence() {
 		g.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, celestialProvidenceSourceID))
 	}
 	g.celestialBuffSpellID = string(spellID)
-	g.setUtilityStatus(spellID, frames)
+	g.setBuffStatus(string(spellID), frames)
 	g.combat.playSpellBuffFx(spellID)
 	g.AddCombatMessage(fmt.Sprintf("Celestial Providence grants Master-tier %s until the next dawn or dusk.", def.Name))
 }

@@ -258,7 +258,7 @@ func (a *balanceArena) unseal(m *monster.Monster3D) {
 func (a *balanceArena) partyAct() {
 	g := a.g
 	ih := g.gameLoop.inputHandler
-	if !g.turnBasedMode || g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.spellInputCooldown != 0 || g.partyAllExhausted() || g.gameplayPausedByOverlay() {
+	if !g.turnBasedMode || g.currentTurn != 0 || g.viewTurnFramesLeft > 0 || g.actionInputStagger != 0 || g.partyAllExhausted() || g.gameplayPausedByOverlay() {
 		a.readyFrames = 0
 		return
 	}
@@ -331,7 +331,7 @@ func (a *balanceArena) revive() bool {
 				continue
 			}
 			def, err := spells.GetSpellDefinitionByID(spells.SpellID(q.SpellEffect))
-			if err != nil || !(def.Revive || def.ReviveHpPct > 0) || m.SpellPoints < g.combat.effectiveSpellCost(m, def.SpellPointsCost) {
+			if err != nil || !(def.Revive || def.ReviveHpPct > 0) || m.SpellPoints < m.MeditatedSPCost(def.SpellPointsCost) {
 				continue
 			}
 			g.selectedChar = i
@@ -356,7 +356,7 @@ type purifyProbe struct {
 func (a *balanceArena) probePurify() purifyProbe {
 	p := purifyProbe{useful: a.g.partyNeedsPurify(), autoFrames: map[string]int{}}
 	for _, m := range a.g.party.Members {
-		p.autoFrames[m.Name] = m.SpellState.AutoFrames
+		p.autoFrames[m.Name] = m.AutocastFrames
 	}
 	return p
 }
@@ -371,12 +371,12 @@ func (a *balanceArena) noteTechniques(before purifyProbe) {
 			continue
 		}
 		for _, b := range g.combatBuffs {
-			if config.Technique(b.SpellID) != nil && a.techSeen[m.Name+b.SpellID] == 0 {
-				a.techSeen[m.Name+b.SpellID] = 1
-				a.tally(m.Name, "technique:"+b.SpellID)
+			if d := config.TechniqueFromID(b.ID); d != nil && a.techSeen[m.Name+d.Key] == 0 {
+				a.techSeen[m.Name+d.Key] = 1
+				a.tally(m.Name, b.ID)
 			}
 		}
-		restarted := before.autoFrames[m.Name] == 0 && m.SpellState.AutoFrames > 0
+		restarted := before.autoFrames[m.Name] == 0 && m.AutocastFrames > 0
 		if a.techSeen[m.Name+"purify"] == 0 && restarted && before.useful && !g.partyNeedsPurify() {
 			a.techSeen[m.Name+"purify"] = 1
 			a.tally(m.Name, "technique:purify")
@@ -404,8 +404,8 @@ type actionProbe struct {
 func (a *balanceArena) actionProbe(i int) actionProbe {
 	g := a.g
 	m := g.party.Members[i]
-	p := actionProbe{sp: m.SpellPoints, traps: len(g.traps), readied: string(m.Equipment[items.SlotSpell].SpellEffect)}
-	if m.Equipment[items.SlotSpell].Type == items.ItemThrowable {
+	p := actionProbe{sp: m.SpellPoints, traps: len(g.traps), readied: quickSlotKey(m.Equipment[items.SlotQuickAction])}
+	if m.Equipment[items.SlotQuickAction].Type == items.ItemThrowable {
 		p.flasks = g.flaskStock(m, p.readied)
 	}
 	for _, o := range g.party.Members {
@@ -425,7 +425,7 @@ func (p actionProbe) kind(a *balanceArena, i int) string {
 	switch {
 	case len(g.traps) > p.traps || (readiedTrap && m.SpellPoints < p.sp):
 		return "trap"
-	case m.Equipment[items.SlotSpell].Type == items.ItemThrowable && g.flaskStock(m, p.readied) < p.flasks:
+	case m.Equipment[items.SlotQuickAction].Type == items.ItemThrowable && g.flaskStock(m, p.readied) < p.flasks:
 		return "flask:" + p.readied
 	case m.SpellPoints < p.sp && hp > p.alliesHP:
 		return "heal"
@@ -465,7 +465,7 @@ func (a *balanceArena) mostlyMelee() bool {
 			continue
 		}
 		standing++
-		action := m.Equipment[items.SlotSpell]
+		action := m.Equipment[items.SlotQuickAction]
 		_, spell := g.combat.smartOffensiveSpell(m)
 		weapon := lookupWeaponConfigByName(m.Equipment[items.SlotMainHand].Name)
 		if spell || action.Type == items.ItemThrowable || action.Type == items.ItemTrap || (weapon != nil && weapon.IsRanged()) {
@@ -563,7 +563,7 @@ func (a *balanceArena) reset() {
 	}
 	g.gameOver = false
 	g.levelUpChoiceQueue = g.levelUpChoiceQueue[:0]
-	g.spellInputCooldown, g.viewTurnFramesLeft = 0, 0
+	g.actionInputStagger, g.viewTurnFramesLeft = 0, 0
 	if g.turnBasedMode {
 		g.ToggleTurnBasedMode()
 	}

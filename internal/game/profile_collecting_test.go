@@ -182,3 +182,46 @@ func TestProfileSectionsStayWithinThree(t *testing.T) {
 		}
 	}
 }
+
+// Legendary loot follows the current catalog: an item demoted since it was
+// found leaves the statistic with its units when the profile opens, a
+// still-legendary find stays, and the repair persists.
+func TestProfileLegendaryLootFollowsCatalogRarity(t *testing.T) {
+	g := crateTestGame(t)
+	demoted, err := items.TryCreateItemFromYAML("diamond")
+	if err != nil || demoted.Rarity == "legendary" {
+		t.Fatalf("fixture: diamond must exist below legendary (%v, %q)", err, demoted.Rarity)
+	}
+	var still items.Item
+	for _, key := range sortedMapKeys(config.GlobalItems.Items) {
+		if it, err := items.TryCreateItemFromYAML(key); err == nil && it.Type != items.ItemCard && it.Rarity == "legendary" {
+			still = it
+			break
+		}
+	}
+	if still.Name == "" {
+		t.Fatal("fixture: no legendary item in the catalog")
+	}
+	path := filepath.Join(t.TempDir(), "profile.json")
+	legacy, err := playerprofile.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.playerProfile = legacy
+	demoted.Rarity, demoted.Quantity, still.Quantity = "legendary", 2, 1 // as found before the rebalance
+	g.recordProfileLoot([]items.Item{demoted, still})
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	g.playerProfile = nil
+	g.openPlayerProfile(path)
+	t.Cleanup(func() { g.playerProfile.Close() })
+	d := &g.playerProfile.Data
+	if d.Counters["legendary_loot"] != 1 || len(d.Rankings["legendary_loot"]) != 1 || d.Rankings["legendary_loot"][profileItemKey(still)].Count != 1 {
+		t.Fatalf("legendary loot after the rebalance: %d units, ranking %v", d.Counters["legendary_loot"], d.Rankings["legendary_loot"])
+	}
+	if d.Counters["loot"] != 3 {
+		t.Fatalf("the repair must leave total loot alone, got %d", d.Counters["loot"])
+	}
+	assertProfileMetricsPersist(t, g.playerProfile, path)
+}

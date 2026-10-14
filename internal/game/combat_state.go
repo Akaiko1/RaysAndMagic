@@ -19,18 +19,7 @@ func (g *MMGame) clearTransientCombatState() {
 	g.clearBuildingEntities()
 	g.clearLockedDoorEntities()
 	g.projectileMutex.Lock()
-	if g.collisionSystem != nil {
-		// applySave rebuilds the collision system anyway; switchToMap keeps it,
-		// so stale projectile entities must be dropped explicitly.
-		for i := range g.magicProjectiles {
-			g.collisionSystem.UnregisterEntity(g.magicProjectiles[i].ID)
-		}
-		for i := range g.arrows {
-			g.collisionSystem.UnregisterEntity(g.arrows[i].ID)
-		}
-	}
-	g.magicProjectiles = g.magicProjectiles[:0]
-	g.arrows = g.arrows[:0]
+	g.clearProjectiles()
 	g.projectileMutex.Unlock()
 	// Stone Blossom blooms scheduled mid-flight belong to the map they were
 	// aimed on - a map switch/load must not detonate them at the same

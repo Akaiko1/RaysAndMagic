@@ -48,7 +48,7 @@ func TestDisintegrate_NoDamageSpamOnImmuneTarget(t *testing.T) {
 		DisintegrateChance: def.DisintegrateChance,
 		Damage:             0,
 	}
-	g.combat.applyProjectileDamage(mp, "magic_projectile", mob, mp.ID)
+	g.combat.applyProjectileDamage(mp, mob, mp.ID)
 
 	var b strings.Builder
 	for _, e := range g.combatLogHistory {
@@ -107,7 +107,7 @@ func TestDisintegrate_SearsBoss(t *testing.T) {
 				chance = 1
 			}
 			mp := &MagicProjectile{ID: "mp_sear", Attacker: thief, Active: true, LifeTime: 60, SpellType: string(def.ID), DisintegrateChance: chance}
-			g.combat.applyProjectileDamage(mp, "magic_projectile", mob, mp.ID)
+			g.combat.applyProjectileDamage(mp, mob, mp.ID)
 
 			want := 1000
 			if proc {

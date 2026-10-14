@@ -93,7 +93,7 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 // gain granted to the current pools too).
 func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig) {
 	if b := crate.Buff; b != nil {
-		buff := TimedCombatBuff{SpellID: config.CrateID(npc.Key), Frames: b.DurationSeconds * g.config.GetTPS()}
+		buff := TimedCombatBuff{ID: config.CrateID(npc.Key), Frames: b.DurationSeconds * g.config.GetTPS()}
 		applyCrateBuff(&buff, b)
 		g.addCombatBuff(buff)
 		g.refreshCombatBuffStatus(buff)

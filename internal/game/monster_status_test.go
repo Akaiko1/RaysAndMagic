@@ -195,7 +195,7 @@ func TestTurnBasedPeriodicEffectsBillThreeSecondsPerRound(t *testing.T) {
 			member.PoisonFramesRemaining, member.BurnFramesRemaining, wantStep)
 	}
 	wantTicks := config.CombatRoundSeconds
-	if want := 100 - wantTicks*(config.Status("poison").PartyDamagePerSecond+config.Status("burn").PartyDamagePerSecond); member.HitPoints != want {
+	if want := 100 - wantTicks*(heroDoTPerSecond("poison", 100)+heroDoTPerSecond("burn", 100)); member.HitPoints != want {
 		t.Fatalf("party DoTs must deal %d ticks each per round: HP=%d, want %d", wantTicks, member.HitPoints, want)
 	}
 

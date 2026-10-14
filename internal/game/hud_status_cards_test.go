@@ -60,7 +60,7 @@ func TestBuffStatusCardStatesLiveEffectThroughTheHover(t *testing.T) {
 				}
 				g.turnBasedMode = tb
 				rail, ok := g.spellStatusRail()
-				if !ok || len(rail.statuses) != 1 || rail.statuses[0].SpellID != def.ID {
+				if !ok || len(rail.statuses) != 1 || rail.statuses[0].ID != string(def.ID) {
 					t.Fatalf("rail = %+v, want only %s", rail.statuses, row.key)
 				}
 				icon, status := rail.icons[0], rail.statuses[0]
@@ -173,7 +173,7 @@ func TestBuffStatusCardNamesNonSpellSources(t *testing.T) {
 			}
 			g.turnBasedMode = tb
 			g.tickCombatBuffs() // the frame tick puts the draught on the rail
-			status := g.utilitySpellStatuses["flame_ward_draught"]
+			status := g.buffStatuses["flame_ward_draught"]
 			if status == nil {
 				t.Fatal("drunk draught never reached the status rail")
 			}
@@ -197,7 +197,7 @@ func TestBuffStatusCardNamesNonSpellSources(t *testing.T) {
 			}
 			d := config.Technique("quickening")
 			tier := c.SkillTier(character.SkillTranslocation)
-			status := g.utilitySpellStatuses[spells.SpellID(config.TechniqueID("quickening"))]
+			status := g.buffStatuses[config.TechniqueID("quickening")]
 			if status == nil {
 				t.Fatal("quickening never reached the status rail")
 			}
@@ -257,7 +257,7 @@ func TestBuffStatusCardFollowsTheCastersMastery(t *testing.T) {
 				if !cs.CastEquippedSpell() {
 					t.Fatalf("%s cast failed", key)
 				}
-				rows, _ := g.buffStatusCardRows(g.utilitySpellStatuses[def.ID])
+				rows, _ := g.buffStatusCardRows(g.buffStatuses[string(def.ID)])
 				card := rows.Lines()
 				seconds := def.DurationSeconds(int(tier))
 				for _, want := range []string{ladders[key](def, int(tier)), "Remaining: " + strconv.Itoa(seconds) + "s"} {

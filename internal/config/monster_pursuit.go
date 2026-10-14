@@ -13,14 +13,17 @@ type MonsterPursuitConfig struct {
 }
 
 func (c MonsterPursuitConfig) validate() error {
-	for key, value := range map[string]float64{
-		"max_radius_tiles":         c.MaxRadiusTiles,
-		"retaliation_seconds":      c.RetaliationSeconds,
-		"retaliation_turns":        float64(c.RetaliationTurns),
-		"retaliation_margin_tiles": c.RetaliationMarginTiles,
+	for _, field := range []struct {
+		key   string
+		value float64
+	}{
+		{"max_radius_tiles", c.MaxRadiusTiles},
+		{"retaliation_seconds", c.RetaliationSeconds},
+		{"retaliation_turns", float64(c.RetaliationTurns)},
+		{"retaliation_margin_tiles", c.RetaliationMarginTiles},
 	} {
-		if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 {
-			return fmt.Errorf("monster_ai.pursuit.%s must be finite and positive", key)
+		if math.IsNaN(field.value) || math.IsInf(field.value, 0) || field.value <= 0 {
+			return fmt.Errorf("monster_ai.pursuit.%s must be finite and positive", field.key)
 		}
 	}
 	return nil

@@ -51,9 +51,9 @@ func (ui *UISystem) drawBeaconPicker(screen *ebiten.Image) {
 	if n <= 0 {
 		return
 	}
-	p := ui.advancedMagicPanel(screen, 680, 128+n*84, spellDisplayName(g.townPortalSpell))
+	p := ui.advancedMagicPanel(screen, 680, 128+n*84, spellName(g.townPortalSpell))
 	d, _ := spells.GetSpellDefinitionByID(g.townPortalSpell)
-	drawCenteredTextWithShadow(screen, uitext.Text("beacon.cost", g.townPortalCaster.Name, g.combat.effectiveSpellCost(g.townPortalCaster, d.SpellPointsCost)), p.x+24, p.y+48, p.w-48, 24, beaconInk.muted)
+	drawCenteredTextWithShadow(screen, uitext.Text("beacon.cost", g.townPortalCaster.Name, g.townPortalCaster.MeditatedSPCost(d.SpellPointsCost)), p.x+24, p.y+48, p.w-48, 24, beaconInk.muted)
 	rowH := (p.h - 128) / n
 	_, canBind := g.currentBeacon()
 	for i := 0; i < n; i++ {
