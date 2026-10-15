@@ -98,7 +98,7 @@ func fxCategoryChoices(items []game.FxItem) []string {
 		}
 	}
 	choices := []string{"All effects"}
-	for _, k := range []game.FxKind{game.FxSpell, game.FxWeapon, game.FxTrap, game.FxTile, game.FxCard, game.FxStatus} {
+	for _, k := range []game.FxKind{game.FxSpell, game.FxWeapon, game.FxFlask, game.FxTrap, game.FxTile, game.FxCard, game.FxStatus} {
 		kind := fxKindTag(k)
 		choices = append(choices, kind)
 		choices = append(choices, slices.Sorted(maps.Keys(subgroups[kind]))...)

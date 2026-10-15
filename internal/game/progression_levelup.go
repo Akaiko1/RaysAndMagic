@@ -161,12 +161,9 @@ func (g *MMGame) learningTeacherBonusPct() int {
 	if g.party == nil {
 		return 0
 	}
-	rosters := [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive}
-	for _, roster := range rosters {
-		for _, m := range roster {
-			if m != nil && m.HitPoints > 0 && m.SkillTier(character.SkillLearning) >= int(character.MasteryGrandMaster) {
-				return LearningGMPartyXPPct
-			}
+	for m := range g.party.Heroes() {
+		if m.HitPoints > 0 && m.SkillTier(character.SkillLearning) >= int(character.MasteryGrandMaster) {
+			return LearningGMPartyXPPct
 		}
 	}
 	return 0

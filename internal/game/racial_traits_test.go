@@ -292,6 +292,23 @@ func TestDarkElfBindingDirectHitEntryPoints(t *testing.T) {
 	}
 }
 
+// A thrown flask is a consumable, not a weapon, spell or trap hit: its burst
+// always deals damage, even with the binding forced to proc.
+func TestDarkElfBindingSkipsFlaskBursts(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	cs.racialProcRoll = func(int) bool { return true }
+	caster := cs.game.party.Members[0]
+	caster.Race = "dark_elf"
+	caster.EnsureRacialTraits(nil)
+	target := newRacialTarget("flask", "beast")
+	target.X, target.Y = 64, 64
+	cs.game.world.Monsters = []*monster.Monster3D{target}
+	cs.detonateFlask(&FlaskProjectile{Active: true, LifeTime: 1, Damage: 25, Key: "harm_flask", Radius: 64, Attacker: caster}, 64, 64)
+	if target.Bound || target.HitPoints >= 1000 {
+		t.Fatalf("flask burst bound=%v HP=%d, want damage and no binding", target.Bound, target.HitPoints)
+	}
+}
+
 func TestDarkElfBindingPersistentDamageZones(t *testing.T) {
 	tests := []struct {
 		spellID     spells.SpellID

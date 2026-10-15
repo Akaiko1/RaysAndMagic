@@ -89,3 +89,50 @@ func TestFlaskOwnershipThroughCombat(t *testing.T) {
 		}
 	}
 }
+
+// Space availability mirrors its dispatch: a ready slotted throw, else
+// SmartAttack's heal. A recharging retort never hides the heal behind it.
+func TestSmartAvailabilityFallsThroughRechargingThrow(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		recharging, wound  bool
+		wantAvail, wantAct bool
+	}{
+		{"ready", false, false, true, true},
+		{"recharging-ally-wounded", true, true, true, true},
+		{"recharging-nobody-hurt", true, false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, ch := rareClassGame(t, character.ClassAlchemist, false)
+			ch.Skills[character.SkillAlchemy].Mastery = character.MasteryNovice
+			ch.Skills[character.SkillBombThrowing].Mastery = character.MasteryNovice
+			delete(ch.Equipment, items.SlotMainHand)
+			delete(ch.Equipment, items.SlotOffHand)
+			ch.LearnSpell("heal_other")
+			g.party.Inventory = nil
+			ch.Inventory = []items.Item{items.CreateItemFromYAML("solstice_everflow_retort")}
+			if !g.equipFlask(0, "solstice_everflow_retort") {
+				t.Fatal("retort not slotted")
+			}
+			if tc.recharging {
+				ch.Inventory[0].DeviceCooldownFrames = 400
+			}
+			ally := g.party.Members[1]
+			if tc.wound {
+				ally.HitPoints = ally.MaxHitPoints / 10
+			}
+			if got := g.combat.smartActionAvailable(ch); got != tc.wantAvail {
+				t.Fatalf("available=%v, want %v", got, tc.wantAvail)
+			}
+			acted := false
+			if _, thrown := g.useSlottedRareAction(0, rtActSmart, false); thrown {
+				acted = true
+			} else {
+				acted = g.combat.SmartAttack().Acted
+			}
+			if acted != tc.wantAct {
+				t.Fatalf("Space acted=%v, want %v", acted, tc.wantAct)
+			}
+		})
+	}
+}

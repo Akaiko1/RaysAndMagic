@@ -50,7 +50,7 @@ func (v *viewer) overlayBossPicker(d *overlayDocument) {
 	v.overlayChoose("Choose a boss", "Select an archetype, then click its position. The map keeps one boss policy.", choices, func(key string) error {
 		d.checkpoint()
 		if d.state.Adventure.Boss == nil {
-			d.state.Adventure.Boss = &config.AdventureBoss{Monster: key, EveryActions: 2}
+			d.state.Adventure.Boss = &config.AdventureBoss{Monster: key, CooldownSeconds: 6}
 		}
 		old := d.state.Adventure.Boss.Monster
 		d.state.Adventure.Boss.Monster = key

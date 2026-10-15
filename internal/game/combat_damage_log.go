@@ -51,9 +51,20 @@ type damageLog struct {
 	Source   logPart
 	Target   damageLogTarget
 	Amount   int
-	School   string
+	School   string // the number's tint and named school; "" is true damage
 	Kind     damageLogKind
 	Critical bool
+}
+
+// logSlot marks where a catalog line takes a styled log part: render the
+// line with it for each %s, then pass it through styledFormat.
+const logSlot = "\x00"
+
+// styledFormat turns a catalog line rendered with logSlot markers into a
+// logCombat format: each marker takes one styled part, and literal percent
+// signs are escaped.
+func styledFormat(rendered string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(rendered, "%", "%%"), logSlot, "%s")
 }
 
 // reportDamage is the sole numeric damage-message formatter. Call immediately
@@ -68,9 +79,8 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 	amount := logDamage(hit.Amount, hit.School)
 	args := []any{hit.Source, hit.Target.name, amount}
 	// Explicit keys let the catalog audit check every authored template and its
-	// arity. A private marker keeps styling separate from fmt expansion; escape
-	// literal percent signs before passing the resulting pattern to logCombat.
-	const slot = "\x00"
+	// arity; styledFormat turns the logSlot markers into styled log parts.
+	const slot = logSlot
 	var format string
 	switch kind {
 	case damageLogHit:
@@ -85,20 +95,20 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 	case damageLogScorch:
 		format = uitext.Text("combat.damage.scorch", slot, slot, slot)
 	case damageLogDodge:
-		format = uitext.Text("combat.damage.dodge", slot, slot, slot)
-		args = []any{hit.Target.name, hit.Source, logTrueDamage(hit.Amount)}
+		format = uitext.Text("combat.damage.dodge", slot, slot, slot, slot)
+		args = []any{hit.Target.name, hit.Source, amount, logDamageSchool(hit.School)}
 	case damageLogHeroDodge:
-		format = uitext.Text("combat.damage.hero_dodge", slot, slot, slot)
-		args = []any{hit.Target.name, hit.Source, logTrueDamage(hit.Amount)}
+		format = uitext.Text("combat.damage.hero_dodge", slot, slot, slot, slot)
+		args = []any{hit.Target.name, hit.Source, amount, logDamageSchool(hit.School)}
 	case damageLogReflection:
 		format = uitext.Text("combat.damage.reflection", slot, slot)
 		args = []any{hit.Target.name, amount}
 	case damageLogSacrifice:
 		format = uitext.Text("combat.damage.sacrifice", slot, slot, slot)
-		args = []any{hit.Target.name, logTrueDamage(hit.Amount), hit.Source}
+		args = []any{hit.Target.name, amount, hit.Source}
 	case damageLogBurnCost:
 		format = uitext.Text("combat.damage.burn_cost", slot, slot)
-		args = []any{hit.Target.name, logTrueDamage(hit.Amount)}
+		args = []any{hit.Target.name, amount}
 	case damageLogStrike:
 		format = uitext.Text("combat.damage.strike", slot, slot, slot)
 	case damageLogBoundStrike:
@@ -107,14 +117,13 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 		format = uitext.Text("combat.damage.bolt", slot, slot, slot)
 	case damageLogProjectile:
 		format = uitext.Text("combat.damage.projectile", slot, slot, slot, slot)
-		args = append(args, logSchoolWord(hit.School, hit.School))
+		args = append(args, logDamageSchool(hit.School))
 	case damageLogBurst:
 		format = uitext.Text("combat.damage.burst", slot, slot, slot)
-		args[2] = logTrueDamage(hit.Amount)
 	default:
 		panic("unknown damage log kind: " + string(kind))
 	}
-	format = strings.ReplaceAll(strings.ReplaceAll(format, "%", "%%"), slot, "%s")
+	format = styledFormat(format)
 	args = append([]any{logCrit(hit.Critical)}, args...)
 	args = append(args, logHP(hit.Target.hp, hit.Target.maxHP))
 	g.logCombat(tone, "%s"+format+" %s", args...)

@@ -2,8 +2,10 @@ package monster
 
 import (
 	"fmt"
+
 	"reflect"
 	"strings"
+	uitext "ugataima/assets/text"
 
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -34,6 +36,7 @@ type Abilities struct {
 	Inferno      InfernoAbility      `yaml:"inferno,omitempty"`
 	Teleport     TeleportAbility     `yaml:"teleport,omitempty"`
 	Summon       SummonAbility       `yaml:"summon,omitempty"`
+	Push         PushAbility         `yaml:"push,omitempty"`
 	Enrage       EnrageAbility       `yaml:"enrage,omitempty"`
 }
 
@@ -126,13 +129,22 @@ type TeleportAbility struct {
 	Chance float64 `yaml:"chance"` // per action
 }
 
-// SummonAbility: on its action the boss may rally adds.
+// SummonAbility: the boss rallies adds, on a roll (chance, first_guaranteed)
+// at its action or on a timer (cooldown_seconds).
 type SummonAbility struct {
 	Chance          float64  `yaml:"chance"`           // per action
 	FirstGuaranteed bool     `yaml:"first_guaranteed"` // the first summon ignores Chance; refills use it
+	CooldownSeconds int      `yaml:"cooldown_seconds"` // a sure summon each time this timer runs out, in place of the roll
 	Monsters        []string `yaml:"monsters"`         // monster keys to pick from
 	Count           int      `yaml:"count"`            // adds per summon (default 1)
 	Max             int      `yaml:"max"`              // cap on live summons (0 = uncapped)
+}
+
+// PushAbility: once its cooldown is over, a chamber boss's next landed attack
+// also shoves the party one tile toward the nearest lane of its current
+// phase. It is free: the boss still attacks.
+type PushAbility struct {
+	CooldownSeconds int `yaml:"cooldown_seconds"` // whole rounds, the same span in both modes
 }
 
 // EnrageAbility: at or below AtHP the boss hits harder and/or faster.
@@ -193,7 +205,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 				return append(chance("root_party", a.RootParty.Chance), duration("root_party", a.RootParty.Seconds)...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Party root: %.0f%% per attack, %s", a.RootParty.Chance*100, config.DurationText(a.RootParty.Seconds)))
+				return line(uitext.Text("monster.ability.root_party", a.RootParty.Chance*100, config.DurationText(a.RootParty.Seconds)))
 			},
 		},
 		{
@@ -204,7 +216,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 						"rear_blink needs a ranged attack and range_tiles from 2 up to its range")...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Rear blink and strike: %.0f%% per attack, %.0f tiles", a.RearBlink.Chance*100, a.RearBlink.RangeTiles))
+				return line(uitext.Text("monster.ability.rear_blink", a.RearBlink.Chance*100, a.RearBlink.RangeTiles))
 			},
 		},
 		{
@@ -217,7 +229,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 			},
 			lines: func() []EffectLine {
 				t := a.TrapVolley
-				return schoolLine(damagecalc.Fire.String(), fmt.Sprintf("Trap field: sows %d fire traps (%.0f dmg) within %.0f tiles every %.0fs / %d turns",
+				return schoolLine(damagecalc.Fire.String(), uitext.Text("monster.ability.trap_volley",
 					t.Count, float64(t.Damage), t.RadiusTiles, t.IntervalSeconds, t.IntervalTurns))
 			},
 		},
@@ -225,7 +237,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 			kind: "pounce", present: set(a.Pounce),
 			problems: func() []string { return need(a.Pounce.RangeTiles > 0, "pounce needs range_tiles") },
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Pounce: %.1f tiles every %.0fs", a.Pounce.RangeTiles, a.Pounce.CooldownSeconds))
+				return line(uitext.Text("monster.ability.pounce", a.Pounce.RangeTiles, a.Pounce.CooldownSeconds))
 			},
 		},
 		{
@@ -237,7 +249,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 				return append(problems, duration("phase_shift cooldown", a.PhaseShift.CooldownSeconds)...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Phase Shift: crosses chasms and water, %d tiles, every %s", a.PhaseShift.RangeTiles, config.DurationText(a.PhaseShift.CooldownSeconds)))
+				return line(uitext.Text("monster.ability.phase_shift", a.PhaseShift.RangeTiles, config.DurationText(a.PhaseShift.CooldownSeconds)))
 			},
 		},
 		{
@@ -246,7 +258,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 				return append(chance("poison", a.Poison.Chance), duration("poison", a.Poison.DurationSeconds)...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Poison: %.0f%% for %s", a.Poison.Chance*100, config.DurationText(a.Poison.DurationSeconds)))
+				return line(uitext.Text("monster.ability.poison", a.Poison.Chance*100, config.DurationText(a.Poison.DurationSeconds)))
 			},
 		},
 		{
@@ -255,7 +267,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 				return append(chance("ignite", a.Ignite.Chance), duration("ignite", a.Ignite.DurationSeconds)...)
 			},
 			lines: func() []EffectLine {
-				return schoolLine(damagecalc.Fire.String(), fmt.Sprintf("Ignite: %.0f%% for %s", a.Ignite.Chance*100, config.DurationText(a.Ignite.DurationSeconds)))
+				return schoolLine(damagecalc.Fire.String(), uitext.Text("monster.ability.ignite", a.Ignite.Chance*100, config.DurationText(a.Ignite.DurationSeconds)))
 			},
 		},
 		{
@@ -264,19 +276,19 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 				return append(chance("stun", a.Stun.Chance), duration("stun", a.Stun.Seconds)...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Stun: %.0f%% for %s", a.Stun.Chance*100, config.DurationText(a.Stun.Seconds)))
+				return line(uitext.Text("monster.ability.stun", a.Stun.Chance*100, config.DurationText(a.Stun.Seconds)))
 			},
 		},
 		{
 			kind: "dispel", present: set(a.Dispel),
 			problems: func() []string { return chance("dispel", a.Dispel.Chance) },
-			lines:    func() []EffectLine { return line(fmt.Sprintf("Dispel buff: %.0f%%", a.Dispel.Chance*100)) },
+			lines:    func() []EffectLine { return line(uitext.Text("monster.ability.dispel", a.Dispel.Chance*100)) },
 		},
 		{
 			kind: "melt_armor", present: set(a.MeltArmor),
 			problems: func() []string { return chance("melt_armor", a.MeltArmor.Chance) },
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Melt armor: %.0f%% on hit: armor reduces physical damage by at most %d%% for %s",
+				return line(uitext.Text("monster.ability.melt_armor",
 					a.MeltArmor.Chance*100, config.ArmorElementalMitigationCap, config.DurationText(config.ArmorMeltSeconds())))
 			},
 		},
@@ -287,7 +299,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 					need(a.Fireburst.DamageMin > 0 && a.Fireburst.DamageMax >= a.Fireburst.DamageMin, "fireburst needs damage_min/damage_max (max >= min > 0)")...)
 			},
 			lines: func() []EffectLine {
-				return schoolLine(damagecalc.Fire.String(), fmt.Sprintf("Fireburst: %.0f%% for %d-%d to whole party", a.Fireburst.Chance*100, a.Fireburst.DamageMin, a.Fireburst.DamageMax))
+				return schoolLine(damagecalc.Fire.String(), uitext.Text("monster.ability.fireburst", a.Fireburst.Chance*100, a.Fireburst.DamageMin, a.Fireburst.DamageMax))
 			},
 		},
 		{
@@ -301,7 +313,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 			},
 			lines: func() []EffectLine {
 				school := normalizeEffectSchool(a.DragonBreath.DamageType)
-				return schoolLine(school, fmt.Sprintf("Dragon Breath: %.0f%% %s attack to whole party", a.DragonBreath.Chance*100, school))
+				return schoolLine(school, uitext.Text("monster.ability.dragon_breath", a.DragonBreath.Chance*100, school))
 			},
 		},
 		{
@@ -310,7 +322,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 				return append(chance("piercing_shot", a.PiercingShot.Chance), need(a.PiercingShot.Targets > 0, "piercing_shot needs targets")...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Piercing shot: %.0f%% (%d targets)", a.PiercingShot.Chance*100, a.PiercingShot.Targets))
+				return line(uitext.Text("monster.ability.piercing_shot", a.PiercingShot.Chance*100, a.PiercingShot.Targets))
 			},
 		},
 		{
@@ -320,7 +332,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 					need(a.AllyHeal.Amount > 0 && a.AllyHeal.RadiusTiles > 0, "ally_heal needs amount and radius_tiles")...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Heals allies: %.0f%% for %d (%.0f tiles)", a.AllyHeal.Chance*100, a.AllyHeal.Amount, a.AllyHeal.RadiusTiles))
+				return line(uitext.Text("monster.ability.ally_heal", a.AllyHeal.Chance*100, a.AllyHeal.Amount, a.AllyHeal.RadiusTiles))
 			},
 		},
 		{
@@ -332,7 +344,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 					need(a.Inferno.Damage > 0 && a.Inferno.RangeTiles > 0, "inferno needs damage and range_tiles")...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Inferno nova: %.0f%% for %d fire damage (%.1f tiles)", a.Inferno.Chance*100, a.Inferno.Damage, a.Inferno.RangeTiles))
+				return line(uitext.Text("monster.ability.inferno", a.Inferno.Chance*100, a.Inferno.Damage, a.Inferno.RangeTiles))
 			},
 		},
 		{
@@ -341,19 +353,32 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 				return append(chance("teleport", a.Teleport.Chance), need(a.Teleport.AtHP > 0, "teleport needs at_hp")...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Blinks at/below %d HP (%.0f%%)", a.Teleport.AtHP, a.Teleport.Chance*100))
+				return line(uitext.Text("monster.ability.teleport", a.Teleport.AtHP, a.Teleport.Chance*100))
 			},
 		},
 		{
 			kind: "summon", bossOnly: true,
 			present: set(a.Summon),
 			problems: func() []string {
+				s := a.Summon
 				// first_guaranteed with chance 0 is a one-shot summon.
-				rate := need(a.Summon.Chance >= 0 && a.Summon.Chance <= 1 && (a.Summon.Chance > 0 || a.Summon.FirstGuaranteed),
+				rate := need(s.Chance >= 0 && s.Chance <= 1 && (s.Chance > 0 || s.FirstGuaranteed),
 					"summon needs a chance in (0,1], or first_guaranteed for a one-shot summon")
-				return append(rate, need(len(a.Summon.Monsters) > 0, "summon needs monsters")...)
+				if s.CooldownSeconds != 0 {
+					rate = append(need(s.Chance == 0 && !s.FirstGuaranteed, "summon cooldown_seconds replaces chance and first_guaranteed"),
+						duration("summon cooldown", s.CooldownSeconds)...)
+				}
+				return append(rate, need(len(s.Monsters) > 0, "summon needs monsters")...)
 			},
 			lines: func() []EffectLine { return line(a.Summon.line()) },
+		},
+		{
+			// Lanes come from the boss's chamber: the map load checks it has some.
+			kind: "push", bossOnly: true, present: set(a.Push),
+			problems: func() []string { return duration("push cooldown", a.Push.CooldownSeconds) },
+			lines: func() []EffectLine {
+				return line(uitext.Text("monster.ability.push", config.DurationText(a.Push.CooldownSeconds)))
+			},
 		},
 		{
 			kind: "enrage", bossOnly: true, present: set(a.Enrage),
@@ -362,7 +387,7 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 					need(a.Enrage.DamageMult > 0 || a.Enrage.CooldownMult > 0, "enrage needs damage_mult or cooldown_mult")...)
 			},
 			lines: func() []EffectLine {
-				return line(fmt.Sprintf("Enrages at/below %d HP: dmg x%.1f, cd x%.1f", a.Enrage.AtHP, effectiveMultiplier(a.Enrage.DamageMult), effectiveMultiplier(a.Enrage.CooldownMult)))
+				return line(uitext.Text("monster.ability.enrage", a.Enrage.AtHP, effectiveMultiplier(a.Enrage.DamageMult), effectiveMultiplier(a.Enrage.CooldownMult)))
 			},
 		},
 	}
@@ -373,14 +398,18 @@ func (s SummonAbility) line() string {
 	if n == 0 {
 		n = 1
 	}
-	capText := "no live summon cap"
+	capText := uitext.Text("monster.ability.summon_no_cap")
 	if s.Max > 0 {
-		capText = fmt.Sprintf("max %d alive", s.Max)
+		capText = uitext.Text("monster.ability.summon_cap", s.Max)
+	}
+	adds := strings.Join(s.Monsters, ", ")
+	if s.CooldownSeconds > 0 {
+		return uitext.Text("monster.ability.summon_timer", n, adds, config.DurationText(s.CooldownSeconds), capText)
 	}
 	if s.FirstGuaranteed {
-		return fmt.Sprintf("Summons %dx {%s}: first guaranteed, then %.0f%% (%s)", n, strings.Join(s.Monsters, ", "), s.Chance*100, capText)
+		return uitext.Text("monster.ability.summon_first", n, adds, s.Chance*100, capText)
 	}
-	return fmt.Sprintf("Summons %dx {%s}: %.0f%% (%s)", n, strings.Join(s.Monsters, ", "), s.Chance*100, capText)
+	return uitext.Text("monster.ability.summon_chance", n, adds, s.Chance*100, capText)
 }
 
 // AbilityKinds lists the YAML kinds of the abilities this monster authors, in

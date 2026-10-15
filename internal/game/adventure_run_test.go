@@ -364,7 +364,7 @@ func TestChamberArenaLifecycle(t *testing.T) {
 				}
 				outX, outY := (float64(r[0])-.5)*ts, py
 				messages := len(g.combatLogHistory)
-				if g.collisionSystem.CanMoveTo("player", outX, outY) || g.canMovePartyTo(outX, outY) || g.safeForcedArrival(r[0]-1, TileIndex(py, ts), "") {
+				if g.collisionSystem.CanMoveTo("player", outX, outY) || g.canMovePartyTo(outX, outY) || g.forcedArrivalOpen(r[0]-1, TileIndex(py, ts)) {
 					t.Fatal("arena accepted an outside landing")
 				}
 				if len(g.combatLogHistory) != messages {

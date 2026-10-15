@@ -1,10 +1,10 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"slices"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -21,9 +21,10 @@ func flaskDefinition(item items.Item) (string, *config.ItemDefinitionConfig) {
 }
 
 type flaskSupply struct {
-	count int
-	bag   character.InventoryBag
-	index int
+	count  int
+	bag    character.InventoryBag
+	index  int
+	device *items.Item
 }
 
 // Count, availability and payment use the same acting hero's stock: personal
@@ -34,30 +35,55 @@ func (g *MMGame) availableFlasks(actor *character.MMCharacter, key string) flask
 	if !ok || d.Flask == nil || g.party == nil || actor == nil || !slices.Contains(g.party.Members, actor) {
 		return supply
 	}
-	for _, bag := range [2]character.InventoryBag{g.party.Bag(actor), g.party.Bag()} {
-		for i, it := range bag.Items() {
-			if it.Type != items.ItemConsumable || it.Name != d.Name {
-				continue
-			}
-			supply.count += it.Count()
-			if supply.index < 0 {
-				supply.bag, supply.index = bag, i
+	consider := func(it *items.Item, bag character.InventoryBag, index int) {
+		if (it.Type != items.ItemConsumable && !(d.Flask.Reusable && it.Type == items.ItemDevice)) || it.Name != d.Name {
+			return
+		}
+		supply.count += it.Count()
+		if supply.index < 0 && supply.device == nil || d.Flask.Reusable && supply.device.DeviceCooldownFrames > 0 && it.DeviceCooldownFrames <= 0 {
+			supply.bag, supply.index = bag, index
+			if d.Flask.Reusable {
+				supply.device = it
 			}
 		}
 	}
+	visitBag := func(bag character.InventoryBag) {
+		stock := bag.Items()
+		for i := range stock {
+			consider(&stock[i], bag, i)
+		}
+	}
+	visitBag(g.party.Bag(actor))
+	visitBag(g.party.Bag())
 	return supply
 }
 
 func (g *MMGame) flaskStock(actor *character.MMCharacter, key string) int {
 	return g.availableFlasks(actor, key).count
 }
+
+func (g *MMGame) flaskReady(actor *character.MMCharacter, key string) bool {
+	d, ok := config.GetItemDefinition(key)
+	if !ok || d.Flask == nil || actor == nil {
+		return false
+	}
+	if _, missing := actor.FlaskSkillMissing(d.Flask); missing {
+		return false
+	}
+	supply := g.availableFlasks(actor, key)
+	return supply.index >= 0 && !d.Flask.Reusable || supply.device != nil && supply.device.DeviceCooldownFrames <= 0
+}
 func (g *MMGame) equipFlask(idx int, key string) bool {
 	if idx < 0 || idx >= len(g.party.Members) {
 		return false
 	}
 	c := g.party.Members[idx]
-	if !c.HasSkill(character.SkillBombThrowing) {
-		g.AddCombatMessage("Bomb Throwing is required.")
+	d, ok := config.GetItemDefinition(key)
+	if !ok || d.Flask == nil {
+		return false
+	}
+	if skill, missing := c.FlaskSkillMissing(d.Flask); missing {
+		g.AddCombatMessage(uitext.Text("item.flask_skill_required", skill))
 		return false
 	}
 	it, ok := config.FlaskItem(key)
@@ -65,11 +91,11 @@ func (g *MMGame) equipFlask(idx int, key string) bool {
 		return false
 	}
 	c.Equipment[items.SlotQuickAction] = it
-	g.AddCombatMessage(fmt.Sprintf("%s readies %s (%d in bag).", c.Name, it.Name, g.flaskStock(c, key)))
+	g.AddCombatMessage(uitext.Text("item.flask_readied", c.Name, it.Name, g.flaskStock(c, key)))
 	return true
 }
 func flaskDamage(c *character.MMCharacter, d *config.FlaskDefinition) int {
-	return config.TierValue(d.Damage, c.SkillTier(character.SkillBombThrowing)) + c.GetEffectiveIntellect()/character.BombThrowingIntellectDivisor
+	return config.TierValue(d.Damage, c.SkillTier(character.FlaskMasterySkill(d))) + c.GetEffectiveIntellect()/character.BombThrowingIntellectDivisor
 }
 
 func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
@@ -84,21 +110,24 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 		return false
 	}
 	if idx < 0 || idx >= len(g.party.Members) || !g.canSpendCombatAction(idx) || (!g.turnBasedMode && !g.combatActorAllowed(idx)) {
-		return refuse("This hero is not ready.")
+		return refuse(uitext.Text("item.device_cannot_act"))
 	}
 	c := g.party.Members[idx]
-	if !c.HasSkill(character.SkillBombThrowing) {
-		return refuse("Bomb Throwing is required.")
+	if skill, missing := c.FlaskSkillMissing(d.Flask); missing {
+		return refuse(uitext.Text("item.flask_skill_required", skill))
 	}
 	if g.combat.partyInsideSolidTerrain() || g.collisionSystem == nil {
-		return refuse("No room to throw.")
+		return refuse(uitext.Text("item.flask_no_room"))
 	}
 	supply := g.availableFlasks(c, key)
-	if supply.index < 0 {
-		return refuse("No " + d.Name + " in this hero's bag or the shared bag.")
+	if supply.index < 0 && supply.device == nil {
+		return refuse(uitext.Text("item.flask_none", d.Name))
+	}
+	if d.Flask.Reusable && supply.device.DeviceCooldownFrames > 0 {
+		return refuse(uitext.Text("item.device_recharging", d.Name))
 	}
 	f := d.Flask
-	tier := c.SkillTier(character.SkillBombThrowing)
+	tier := c.SkillTier(character.FlaskMasterySkill(f))
 	tps := g.config.GetTPS()
 	tile := float64(g.config.GetTileSize())
 	speed := 8 * tile / float64(tps)
@@ -106,24 +135,32 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 	launch.lobApex = flaskApexTiles * tile
 	a, distance := launch.angle, launch.distance
 	p := FlaskProjectile{
-		Launch:       launch,
-		ID:           g.GenerateProjectileID("flask"),
-		Key:          key,
-		PoisonFrames: config.TierValue(f.PoisonSeconds, tier) * tps,
-		BurnFrames:   config.TierValue(f.BurnSeconds, tier) * tps,
-		Radius:       float64(f.RadiusTiles) * tile,
-		Remaining:    distance,
-		Attacker:     c,
-		X:            g.camera.X,
-		Y:            g.camera.Y,
-		VelX:         math.Cos(a) * speed,
-		VelY:         math.Sin(a) * speed,
-		Damage:       flaskDamage(c, f),
-		LifeTime:     10 * tps,
-		Active:       true,
+		ActorID:          relicActorID(c),
+		Reusable:         f.Reusable,
+		CatalysisPercent: config.TierValue(f.CatalysisPercent, tier),
+		CatalysisFrames:  f.CatalysisSeconds * tps,
+		Launch:           launch,
+		ID:               g.GenerateProjectileID("flask"),
+		Key:              key,
+		PoisonFrames:     config.TierValue(f.PoisonSeconds, tier) * tps,
+		BurnFrames:       config.TierValue(f.BurnSeconds, tier) * tps,
+		Radius:           float64(f.RadiusTiles) * tile,
+		Remaining:        distance,
+		Attacker:         c,
+		X:                g.camera.X,
+		Y:                g.camera.Y,
+		VelX:             math.Cos(a) * speed,
+		VelY:             math.Sin(a) * speed,
+		Damage:           flaskDamage(c, f),
+		LifeTime:         10 * tps,
+		Active:           true,
 	}
-	if !supply.bag.Consume(supply.index, 1) {
-		return false
+	if f.Reusable {
+		g.armDeviceRecharge(supply.device)
+	} else {
+		if !supply.bag.Consume(supply.index, 1) {
+			return false
+		}
 	}
 	g.flasks = append(g.flasks, p)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(p.ID, p.X, p.Y, 10, 10, collision.CollisionTypeProjectile, false))
@@ -155,9 +192,21 @@ func (cs *CombatSystem) detonateFlask(p *FlaskProjectile, x, y float64) {
 	attack.Packet = cs.newPartyMonsterDamagePacket(p.Damage, 0, d.Flask.Element, 0, false)
 	attack.Packet = cs.elementalBuffPacket(attack.Packet)
 	attack.Attacker = p.Attacker
-	cs.applyAoeSplashAt(x, y, attack, p.Radius/float64(cs.game.config.GetTileSize()), nil, func(m *monster.Monster3D, actual int) {
-		cs.reportIndirectHit(m, actual, d.Name)
+	// A flask is a consumable, not a weapon, spell or trap hit: the Dark Elf
+	// binding never replaces it (skill.dark_elf_binding), and each victim's
+	// packet takes its own catalysis.
+	cs.forEachSplashVictim(x, y, p.Radius/float64(cs.game.config.GetTileSize()), nil, func(m *monster.Monster3D) {
+		victimAttack := attack
+		victimAttack.Packet = catalyzedFlaskPacket(m, p, attack.Packet)
+		actual := cs.applyPartyMonsterAttack(m, victimAttack).Total()
+		cs.reportIndirectHit(m, actual, d.Name, normalizeDamageTypeStr(d.Flask.Element))
 		if m.IsAlive() {
+			if p.CatalysisPercent > 0 && p.CatalysisFrames > 0 && p.ActorID != 0 {
+				if m.Relics.Catalysis == nil {
+					m.Relics.Catalysis = make(map[uint64]monster.CatalysisMark)
+				}
+				m.Relics.Catalysis[p.ActorID] = monster.CatalysisMark{Percent: p.CatalysisPercent, Frames: p.CatalysisFrames}
+			}
 			if p.PoisonFrames > 0 {
 				m.ApplyPoison(p.PoisonFrames)
 			}
@@ -185,4 +234,20 @@ func (g *MMGame) useSlottedRareAction(idx int, kind rtActionKind, announce bool)
 		return true, g.throwFlask(idx, it.Flask, announce)
 	}
 	return false, false
+}
+
+func catalyzedFlaskPacket(victim *monster.Monster3D, shot *FlaskProjectile, packet monsterDamagePacket) monsterDamagePacket {
+	if shot.Reusable || shot.ActorID == 0 || victim == nil {
+		return packet
+	}
+	mark, ok := victim.Relics.Catalysis[shot.ActorID]
+	if !ok || mark.Frames <= 0 || mark.Percent <= 0 {
+		return packet
+	}
+	delete(victim.Relics.Catalysis, shot.ActorID)
+	packet.Components = slices.Clone(packet.Components)
+	for i := range packet.Components {
+		packet.Components[i].Parts.Normal = packet.Components[i].Parts.Normal * (100 + mark.Percent) / 100
+	}
+	return packet
 }

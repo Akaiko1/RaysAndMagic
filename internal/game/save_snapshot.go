@@ -175,6 +175,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			rootHeldThisTurn, slowPctThisTurn, weakenPctThisTurn := mon.TurnDebuffLatches()
 			poisonTickTimer, burnTickTimer := mon.DoTTickTimers()
 			saveEntry := MonsterSave{
+				Relics:        mon.Relics.Clone(),
 				AmbientThreat: mon.Threat,
 				Arbor:         mon.Arbor,
 				Population:    mon.Population,
@@ -257,6 +258,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				BossHurtPending:         mon.BossHurtPending,
 				BossLastHP:              mon.BossLastHP,
 				SummonFirstDone:         mon.SummonFirstDone,
+				SummonCD:                mon.SummonCD.Saved(),
+				PushCD:                  mon.PushCD.Saved(),
+				LaneCD:                  mon.LaneCD.Saved(),
 				SummonedBy:              mon.SummonedBy,
 				SummonerName:            mon.SummonerName,
 			}

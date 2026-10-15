@@ -76,6 +76,7 @@ var balanceAbilities = []balanceAbility{
 	{name: "teleport", foeLine: foeLine("<foe> blinks away in a golden flash!")},
 	{name: "ally_heal", foeLine: foePrefix("<foe> mends ")},
 	{name: "summon", foeLine: foeLine("<foe> raises the war-banner - retainers rush to its side!")},
+	{name: "push", foeLine: foePrefix("<foe> shoves the party toward ")},
 	{name: "alarm_rally", authored: func(d monster.MonsterDefinition) bool { return d.RallyOnAggroTiles > 0 }, foeLine: foePrefix("<foe> rings out")},
 	{name: "death_rally", authored: func(d monster.MonsterDefinition) bool { return d.DeathRalliesType != "" },
 		foeLine: foePrefix("<foe> falls - its retainers turn on you")},

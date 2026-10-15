@@ -13,6 +13,10 @@ import (
 // bursts at the end of its range, on a wall or on a body, and detonateFlask
 // resolves its splash.
 type FlaskProjectile struct {
+	ActorID                  uint64
+	CatalysisPercent         int
+	CatalysisFrames          int
+	Reusable                 bool
 	Launch                   projectileLaunch // Runtime-only; save/load discards projectiles.
 	ID                       string
 	Key                      string // items.yaml flask key

@@ -26,7 +26,7 @@ func TestFxPreview_CatalogAndSpawnCycle(t *testing.T) {
 	for _, it := range items {
 		kinds[it.Kind]++
 	}
-	for _, k := range []FxKind{FxSpell, FxWeapon, FxTrap, FxCard, FxStatus} {
+	for _, k := range []FxKind{FxSpell, FxWeapon, FxTrap, FxCard, FxStatus, FxFlask} {
 		if kinds[k] == 0 {
 			t.Errorf("FX catalog has no entries of kind %d", k)
 		}
@@ -309,6 +309,65 @@ func TestFxPreview_AttackCompletesBeforeReplay(t *testing.T) {
 	for _, zone := range p.g.persistentDamageZones {
 		if zone.FieldID != field {
 			t.Fatal("field preview stacked a new cast over its active field")
+		}
+	}
+}
+
+// Reward variants share the ordinary weapon stage and complete their real
+// flight/contact cycle before replay. A charged staff adds its landed flare;
+// a returning dagger must reach its return leg without a staged visible actor.
+func TestFxPreview_RewardAttackCycles(t *testing.T) {
+	cfg := setupPreviewSandboxTest(t)
+	p, err := NewFxPreview(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.g.Shutdown()
+	for _, tc := range []struct {
+		key                       string
+		kind                      FxKind
+		charged, flare, returning bool
+	}{
+		{"solstice_sun_crucible", FxWeapon, false, false, false},
+		{"solstice_sun_crucible", FxWeapon, true, true, false},
+		{"solstice_returning_gale", FxWeapon, false, false, true},
+		{"solstice_stone_script", FxWeapon, false, false, false},
+		{"solstice_everflow_retort", FxFlask, false, false, false},
+	} {
+		found := false
+		for _, it := range p.Items() {
+			if it.Kind != tc.kind || it.Key != tc.key || it.charged != tc.charged {
+				continue
+			}
+			found = true
+			p.Select(it)
+			sawFlare, sawReturn, finished := false, false, false
+			for frame := 0; frame < 8*cfg.GetTPS(); frame++ {
+				if len(p.g.world.Monsters) != 0 {
+					t.Fatalf("%s: visible weapon-stage actor", tc.key)
+				}
+				for _, shot := range p.g.arrows {
+					sawReturn = sawReturn || shot.Signature.ReturnLeg
+				}
+				sawFlare = sawFlare || countWorldVisuals(p.g, worldSolarFlare) > 0
+				if !p.attackVisualsActive() {
+					finished = true
+					break
+				}
+				before := p.tick
+				p.Step()
+				if before > 0 && p.tick == 0 {
+					finished = true
+					break
+				}
+			}
+			if !finished || sawFlare != tc.flare || sawReturn != tc.returning {
+				t.Errorf("%s charged=%v: finished=%v flare=%v return=%v", tc.key, tc.charged, finished, sawFlare, sawReturn)
+			}
+			break
+		}
+		if !found {
+			t.Errorf("missing catalog variant: %+v", tc)
 		}
 	}
 }

@@ -94,6 +94,9 @@ func (b MovementBounds) Allows(box *BoundingBox) bool {
 	return x0 >= b.MinX && y0 >= b.MinY && x1 <= b.MaxX && y1 <= b.MaxY
 }
 
+// MovementBounds is the box this entity's movement must stay inside.
+func (e *Entity) MovementBounds() MovementBounds { return e.movementBounds }
+
 // WithMovementBounds configures a new entity before it is registered.
 func (e *Entity) WithMovementBounds(bounds MovementBounds) *Entity {
 	e.movementBounds = bounds

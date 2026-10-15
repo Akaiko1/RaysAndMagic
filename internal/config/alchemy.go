@@ -10,14 +10,18 @@ import (
 )
 
 type FlaskDefinition struct {
-	Sprite          string  `yaml:"sprite"`
-	Element         string  `yaml:"element"`
-	Damage          [4]int  `yaml:"damage"`
-	PoisonSeconds   [4]int  `yaml:"poison_seconds"`
-	BurnSeconds     [4]int  `yaml:"burn_seconds"`
-	RangeTiles      int     `yaml:"range_tiles"`
-	RadiusTiles     int     `yaml:"radius_tiles"`
-	CooldownSeconds float64 `yaml:"cooldown_seconds"`
+	Reusable         bool    `yaml:"reusable,omitempty"` // a throw_flask device scaled by Alchemy, never consumed
+	CatalysisPercent [4]int  `yaml:"catalysis_percent,omitempty"`
+	CatalysisSeconds int     `yaml:"catalysis_seconds,omitempty"`
+	ProjectileFx     string  `yaml:"projectile_fx,omitempty"`
+	Sprite           string  `yaml:"sprite"`
+	Element          string  `yaml:"element"`
+	Damage           [4]int  `yaml:"damage"`
+	PoisonSeconds    [4]int  `yaml:"poison_seconds"`
+	BurnSeconds      [4]int  `yaml:"burn_seconds"`
+	RangeTiles       int     `yaml:"range_tiles"`
+	RadiusTiles      int     `yaml:"radius_tiles"`
+	CooldownSeconds  float64 `yaml:"cooldown_seconds"`
 }
 type AlchemyAlternative struct {
 	Items []string `yaml:"items"`
@@ -241,12 +245,15 @@ func validateCraftedItem(key string, d *ItemDefinitionConfig) error {
 		return fmt.Errorf("item %q: crafted products require consumable type and value 1", key)
 	}
 	if f := d.Flask; f != nil {
+		if err := validateFlaskCapability(key, d); err != nil {
+			return err
+		}
 		element, err := canonicalDamageSchool(f.Element)
 		if err != nil {
 			return err
 		}
 		f.Element = element
-		if f.Sprite == "" || !d.CraftedOnly || f.RangeTiles < 1 || f.RadiusTiles < 1 || f.CooldownSeconds <= 0 || d.HealBase > 0 || d.ManaBase > 0 || d.Revive || d.SummonDistanceTiles > 0 || d.HasTimedBuff() {
+		if (f.Sprite == "" && f.ProjectileFx == "") || (!d.CraftedOnly && !f.Reusable) || f.RangeTiles < 1 || f.RadiusTiles < 1 || f.CooldownSeconds <= 0 || d.HealBase > 0 || d.ManaBase > 0 || d.Revive || d.SummonDistanceTiles > 0 || d.HasTimedBuff() {
 			return fmt.Errorf("item %q: invalid throwable flask", key)
 		}
 		for i := range f.Damage {
@@ -319,4 +326,41 @@ func FlaskKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// validateFlaskCapability: a reusable flask is exactly a throw_flask device
+// (device rules in validateDeviceDefinition) with its own projectile look.
+func validateFlaskCapability(key string, d *ItemDefinitionConfig) error {
+	f := d.Flask
+	if f == nil {
+		return nil
+	}
+	if d.BrewColor == ([3]int{}) {
+		return fmt.Errorf("item %q: a flask needs brew_color, the tint of its burst", key)
+	}
+	if f.Reusable != (d.UseAction == "throw_flask") {
+		return fmt.Errorf("item %q: a reusable flask is exactly a throw_flask device", key)
+	}
+	if f.Reusable && (d.CraftedOnly || f.ProjectileFx == "") {
+		return fmt.Errorf("item %q: a reusable flask is never crafted and needs projectile_fx", key)
+	}
+	if !f.Reusable && f.ProjectileFx != "" {
+		return fmt.Errorf("item %q: projectile_fx is for reusable flasks", key)
+	}
+	if f.CatalysisSeconds != 0 {
+		if !f.Reusable {
+			return fmt.Errorf("item %q: catalysis requires reusable", key)
+		}
+		if err := ValidateEffectSeconds("flask catalysis_seconds", f.CatalysisSeconds); err != nil {
+			return err
+		}
+		for _, pct := range f.CatalysisPercent {
+			if !validPercent(pct) {
+				return fmt.Errorf("item %q: catalysis_percent must be 1..100 at every mastery", key)
+			}
+		}
+	} else if f.CatalysisPercent != [4]int{} {
+		return fmt.Errorf("item %q: catalysis_percent requires catalysis_seconds", key)
+	}
+	return nil
 }

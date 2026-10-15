@@ -147,8 +147,6 @@ func (g *MMGame) restoreSavedTimeline(wm *world.WorldManager, save *GameSave, ta
 	// canon): a merged region key projects into the unified grid via the
 	// current layout and placement orientation.
 	playerX, playerY := wm.ProjectWorldPos(save.MapKey, save.PlayerX, save.PlayerY)
-	g.camera.X = playerX
-	g.camera.Y = playerY
+	g.setPartyPosition(playerX, playerY)
 	g.snapFacing(wm.ProjectAngle(save.MapKey, save.PlayerAngle))
-	g.collisionSystem.UpdateEntity("player", playerX, playerY)
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 )
 
@@ -114,18 +115,20 @@ func TestSolsticeAuthoredRoutesAndRewards(t *testing.T) {
 func TestAdventureBossPatternIsAtomic(t *testing.T) {
 	g, wm, _ := travelFixture(t)
 	g.combat = NewCombatSystem(g)
-	a := &config.AdventureConfig{Effects: []config.EnvironmentEffect{{ID: "a", Kind: "lane"}, {ID: "b", Kind: "lane"}}, Boss: &config.AdventureBoss{Monster: "boss", EveryActions: 2, Phases: []config.AdventureBossPhase{{BelowPercent: 25, Patterns: [][]string{{"a", "b"}}}}}}
+	a := &config.AdventureConfig{Effects: []config.EnvironmentEffect{{ID: "a", Kind: "lane"}, {ID: "b", Kind: "lane"}}, Boss: &config.AdventureBoss{Monster: "boss", CooldownSeconds: 6, Phases: []config.AdventureBossPhase{{BelowPercent: 25, Patterns: [][]string{{"a", "b"}}}}}}
 	wm.MapConfigs["forest"] = &config.MapConfig{Adventure: a}
 	m := &monster.Monster3D{Key: "boss", HomeMap: "forest", HitPoints: 25, MaxHitPoints: 100}
 	v := g.adventureVisit("forest")
-	v.BossActions = 1
 	v.effectState("b").Remaining = 1
-	if g.combat.runAdventureBossAction(m, true) || v.effectState("a").Warning > 0 {
+	if g.combat.runChamberBossFreeActions(m); v.effectState("a").Warning > 0 {
 		t.Fatal("half a pattern armed")
 	}
+	if !m.LaneCD.Active() {
+		t.Fatal("a pattern that could not fire kept the lane cooldown ready")
+	}
 	v.effectState("b").Remaining = 0
-	v.BossActions = 3
-	if !g.combat.runAdventureBossAction(m, true) || v.effectState("a").Warning != 1 || v.effectState("b").Warning != 1 {
+	m.LaneCD = status.DualClock{}
+	if g.combat.runChamberBossFreeActions(m); v.effectState("a").Warning != 1 || v.effectState("b").Warning != 1 {
 		t.Fatal("pair did not arm together")
 	}
 }

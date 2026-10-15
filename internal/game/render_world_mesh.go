@@ -214,6 +214,7 @@ func (r *Renderer) collectWorldModels() {
 	r.collectPropModels()
 	r.collectGlacierModels()
 	r.collectSunPyres()
+	r.collectSolarFlares()
 	if len(m.faces) > 0 {
 		r.prepareWorldMaterial()
 	}
@@ -281,12 +282,12 @@ type trapCachedModel struct {
 	triangles []worldModelTriangle
 }
 type worldModelBuilder struct {
-	triangles                 []worldModelTriangle
-	origin, axisX, axisY      [2]float64
-	r                         *Renderer
-	x, y, ts, progress, alpha float64
-	accent                    [3]int
-	fireScale, fireSeed       float64
+	triangles                     []worldModelTriangle
+	origin, axisX, axisY          [2]float64
+	r                             *Renderer
+	x, y, ts, progress, alpha     float64
+	accent                        [3]int
+	fireScale, fireSeed, fireBase float64
 }
 
 type worldClipPoint struct{ x, z, height, u, v float64 }
@@ -377,12 +378,12 @@ func (b *worldModelBuilder) projectTriangle(face *worldModelTriangle) {
 				vertex.Custom0 = float32(b.progress)
 			}
 			if face.material == worldFlame {
-				vertex.Custom0 = float32(p.height / b.ts * q)
+				vertex.Custom0 = float32((p.height/b.ts - b.fireBase) * q)
 				vertex.Custom1 = float32(face.alpha)
 				vertex.Custom3 = float32(worldFlame) + .125 + float32(b.fireSeed)*.75
 				vertex.ColorR = float32((cam.X - b.x) / b.ts)
 				vertex.ColorG = float32((cam.Y - b.y) / b.ts)
-				vertex.ColorB = .5
+				vertex.ColorB = float32(.5 - b.fireBase)
 				vertex.ColorA = float32(b.fireScale)
 			}
 			f.vertices[j] = vertex

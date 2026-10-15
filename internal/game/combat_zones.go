@@ -232,11 +232,9 @@ func (g *MMGame) persistentDamageZoneCaster(zone *PersistentDamageZone) *charact
 	if g == nil || g.party == nil || zone == nil || zone.CasterName == "" {
 		return nil
 	}
-	for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
-		for _, member := range roster {
-			if member != nil && member.Name == zone.CasterName {
-				return member
-			}
+	for member := range g.party.Heroes() {
+		if member.Name == zone.CasterName {
+			return member
 		}
 	}
 	return nil
@@ -507,7 +505,7 @@ func (cs *CombatSystem) damageZoneMonstersIn(spellID string, coverage, view []*P
 		)
 		attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, z.ResistPierce, nil, zoneSourceName(spellID), false, true, false)
 		actual := cs.applyPartyMonsterAttack(m, attack).Total()
-		cs.reportIndirectHit(m, actual, zoneSourceName(spellID))
+		cs.reportIndirectHit(m, actual, zoneSourceName(spellID), damageTypeStr)
 		if damageTypeStr == damagecalc.Water.String() {
 			cs.game.spawnSteamPuff(m.X, m.Y) // scalding steam keeps its own puff
 		}

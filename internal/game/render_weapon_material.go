@@ -36,15 +36,15 @@ type weaponMaterialState struct {
 
 func weaponMaterial(style string) int {
 	switch style {
-	case "solstice_thermal", "dragon_ember_egg", "dragon_fang", "fire":
+	case "solstice_thermal", "solstice_sun_crucible", "dragon_ember_egg", "dragon_fang", "fire":
 		return weaponHeat
 	case "rainfang", "solstice_flow", "dragon_tarn", "serpent_fang", "muramasa", "water":
 		return weaponLiquid
-	case "solstice_anchor", "idol_breaker", "dragon_roar", "earth":
+	case "solstice_anchor", "solstice_stone_script", "idol_breaker", "dragon_roar", "earth":
 		return weaponStone
 	case "kage_kunai", "dragon_hatchling", "dark":
 		return weaponVeil
-	case "duskneedle", "solstice_transfer":
+	case "duskneedle", "solstice_transfer", "solstice_returning_gale":
 		return weaponWind
 	case "tonbogiri", "agility_katar", "air", "arcane":
 		return weaponEnergy
@@ -263,6 +263,11 @@ func (r *Renderer) drawWeaponMaterialWarm(dst *ebiten.Image) {
 	r.resizeVolumeLayer(size)
 	for i, p := range [4][2]float64{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
 		r.weaponMaterialQuad[i] = weaponMaterialVertex(p[0], p[1], p[0], p[1], [3]int{}, 0)
+		r.weaponMaterialQuad[i].Custom2 = -1
+		r.weaponMaterialQuad[i].Custom3 = .25
+	}
+	if r.prepareRelicMaterial() {
+		worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.relicMaterialShader, &r.relicMaterialOpts)
 	}
 	for _, shader := range []*ebiten.Shader{r.fireflyShader, r.weaponRibbonShader, r.impactMaterialShader, r.weaponOrbShader, r.spellBodyShader, r.zonePlumeShader, r.bubbleShader, r.weaponBodyShader, r.spellBoltShader} {
 		if shader == r.zonePlumeShader {

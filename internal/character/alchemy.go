@@ -253,3 +253,48 @@ func (p *Party) MaxAlchemySelected(recipe *config.AlchemyRecipe, selected Alchem
 	}
 	return low
 }
+
+// FlaskMasterySkill scales a flask's damage tier: Alchemy for a reusable one,
+// Bomb Throwing otherwise.
+func FlaskMasterySkill(f *config.FlaskDefinition) SkillType {
+	if f != nil && f.Reusable {
+		return SkillAlchemy
+	}
+	return SkillBombThrowing
+}
+
+// FlaskSkills are the skills a hero needs to ready or throw a flask: Bomb
+// Throwing for every flask, plus the mastery that scales it when that
+// differs. Equipping, quick slots, readiness, the throw and the card's
+// requirement line all ask this one rule.
+func FlaskSkills(f *config.FlaskDefinition) []SkillType {
+	skills := []SkillType{SkillBombThrowing}
+	if m := FlaskMasterySkill(f); m != SkillBombThrowing {
+		skills = append(skills, m)
+	}
+	return skills
+}
+
+// FlaskSkillMissing is the first of FlaskSkills this hero lacks.
+func (c *MMCharacter) FlaskSkillMissing(f *config.FlaskDefinition) (SkillType, bool) {
+	for _, skill := range FlaskSkills(f) {
+		if !c.HasSkill(skill) {
+			return skill, true
+		}
+	}
+	return 0, false
+}
+
+// CanThrowFlask reports a hero holding every skill a flask item needs; a
+// throwable whose flask is unknown needs Bomb Throwing alone.
+func (c *MMCharacter) CanThrowFlask(key string) bool {
+	if c == nil {
+		return false
+	}
+	var f *config.FlaskDefinition
+	if d, ok := config.GetItemDefinition(key); ok {
+		f = d.Flask
+	}
+	_, missing := c.FlaskSkillMissing(f)
+	return !missing
+}

@@ -242,24 +242,13 @@ func (g *MMGame) buildBenchMembers(p BenchParty, level int) ([]*character.MMChar
 				return nil, fmt.Errorf("bench: %s cannot equip %s", data.Name, key)
 			}
 		}
-		if build.Spell != "" {
-			action, err := benchQuickItem(build.Spell)
-			if err != nil || action.Type == items.ItemConsumable || !canBindQuickItem(m, &action) {
-				return nil, fmt.Errorf("bench: %s cannot ready %s", data.Name, build.Spell)
+		if build.Spell == "" {
+			if kit := m.Equipment[items.SlotQuickAction].SpellEffect; slices.Contains(p.WithoutSpells, string(kit)) {
+				return nil, fmt.Errorf("bench: %s still readies the kit's %s; ready another action", data.Name, kit)
 			}
-			m.Equipment[items.SlotQuickAction] = action
-		} else if kit := m.Equipment[items.SlotQuickAction].SpellEffect; slices.Contains(p.WithoutSpells, string(kit)) {
-			return nil, fmt.Errorf("bench: %s still readies the kit's %s; ready another action", data.Name, kit)
 		}
-		if len(build.Quick) > len(m.QuickSlots) {
-			return nil, fmt.Errorf("bench: %s has %d quick slots", data.Name, len(m.QuickSlots))
-		}
-		for i, key := range build.Quick {
-			it, err := benchQuickItem(key)
-			if err != nil || !canBindQuickItem(m, &it) {
-				return nil, fmt.Errorf("bench: %s cannot quick-slot %s", data.Name, key)
-			}
-			m.QuickSlots[i] = &it
+		if err := readyBuildActions(m, build.Spell, build.Quick); err != nil {
+			return nil, fmt.Errorf("bench: %w", err)
 		}
 		m.CalculateDerivedStats(g.config)
 		m.HitPoints, m.SpellPoints = m.MaxHitPoints, m.MaxSpellPoints
@@ -332,6 +321,29 @@ func (g *MMGame) applyBenchPartyState(p BenchParty, level int) error {
 		if m != nil {
 			m.HitPoints, m.SpellPoints = m.MaxHitPoints, m.MaxSpellPoints
 		}
+	}
+	return nil
+}
+
+// readyBuildActions readies a built hero's action (a spell, flask, trap or
+// technique; "" keeps the class kit's) and binds the quick-slot bar.
+func readyBuildActions(m *character.MMCharacter, action string, quick []string) error {
+	if action != "" {
+		it, err := benchQuickItem(action)
+		if err != nil || it.Type == items.ItemConsumable || !canBindQuickItem(m, &it) {
+			return fmt.Errorf("%s cannot ready %s", m.Name, action)
+		}
+		m.Equipment[items.SlotQuickAction] = it
+	}
+	if len(quick) > len(m.QuickSlots) {
+		return fmt.Errorf("%s has %d quick slots", m.Name, len(m.QuickSlots))
+	}
+	for i, key := range quick {
+		it, err := benchQuickItem(key)
+		if err != nil || !canBindQuickItem(m, &it) {
+			return fmt.Errorf("%s cannot quick-slot %s", m.Name, key)
+		}
+		m.QuickSlots[i] = &it
 	}
 	return nil
 }

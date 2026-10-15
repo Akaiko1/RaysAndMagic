@@ -1,6 +1,8 @@
 package character
 
 import (
+	"iter"
+
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
@@ -271,10 +273,19 @@ func (p *Party) TakeStackUnits(index, quantity int) (items.Item, bool) {
 }
 func (p *Party) MergeStacks() {
 	p.Bag().MergeStacks()
-	for _, roster := range [][]*MMCharacter{p.Members, p.Reserve, p.Captive} {
-		for _, ch := range roster {
-			if ch != nil {
-				p.Bag(ch).MergeStacks()
+	for ch := range p.Heroes() {
+		p.Bag(ch).MergeStacks()
+	}
+}
+
+// Heroes walks every hero the party holds: members, reserve, then captives.
+func (p *Party) Heroes() iter.Seq[*MMCharacter] {
+	return func(yield func(*MMCharacter) bool) {
+		for _, roster := range [][]*MMCharacter{p.Members, p.Reserve, p.Captive} {
+			for _, ch := range roster {
+				if ch != nil && !yield(ch) {
+					return
+				}
 			}
 		}
 	}

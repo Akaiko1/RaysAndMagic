@@ -43,11 +43,19 @@ func TestMonsterLootGroupsValidateBeforePublication(t *testing.T) {
 			t.Fatalf("first_of table = %+v", a)
 		}
 	}
+	// A kill_only reference makes every drop it brings a kill trophy.
+	killOnly := func(t *testing.T, got *LootTablesConfig) {
+		if a := got.Loots["a"]; len(a) != 2 || !a[0].KillOnly || !a[1].KillOnly {
+			t.Fatalf("trophies = %+v", a)
+		}
+	}
 	for _, tc := range []struct {
 		name, body string
 		valid      bool
 		check      func(*testing.T, *LootTablesConfig)
 	}{
+		{"kill_only table reference", "loots:\n  a: [{type: table, key: g, kill_only: true}]\nloot_groups:\n  g: [{type: item, key: wolf_pelt, chance: 1}, {type: set, key: padded, chance: 0.1}]\n", true, killOnly},
+		{"kill_only gold", "loots:\n  a: [{type: gold, min: 1, max: 2, kill_only: true}]\n", false, nil},
 		{"nested", "loots:\n  wolf: [{type: item, key: wolf_pelt, chance: 1}]\n  strong: [{type: table, key: wolf, rolls: 5}, {type: table, key: herbs}]\nloot_groups:\n  herbs: [{type: harvest, key: mooncap, chance: 0.06}]\n", true, nested},
 		{"gold", "loots:\n  wolf: [{type: gold, min: 2, max: 5}, {type: item, key: wolf_pelt, chance: 1}]\n  strong: [{type: table, key: wolf}]\n", true, gold},
 		{"two gold entries", "loots:\n  a: [{type: gold, min: 1, max: 2}, {type: gold, min: 1, max: 2}]\n", false, nil},

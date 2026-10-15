@@ -279,55 +279,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				if !gl.game.combat.bossEvasive(m) {
 					gl.game.combat.armMonsterRTAttackCooldowns(m)
 				}
-				gl.game.refreshMonsterCollisionState(m)
-				continue
-			}
-		}
-
-		// Lured at a bound undead instead of the party: attack it (ranged mobs loose
-		// a bolt from within range, melee strike from an adjacent tile), else step
-		// toward it; never touch the party.
-		if foe := m.AIFoe; foe != nil && foe.IsAlive() {
-			if gl.tryMonsterAttackFoeTurnBased(m, foe) {
-				// Claimed a distinct logical attack post and spent the turn striking.
 			} else {
-				gl.monsterMoveTurnBased(m)
+				gl.monsterCombatStepTB(m)
 			}
-			gl.game.refreshMonsterCollisionState(m)
-			continue
+		} else {
+			gl.monsterCombatStepTB(m)
 		}
-
-		// Resolve aim after any earlier actor or special has displaced the party.
-		playerX, playerY = gl.game.combat.logicalCameraXY()
-
-		// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
-		// tile and strike. Brief turn cooldown.
-		if m.CanPounce() {
-			if gl.game.combat.monsterPouncePointInReachTB(m, playerX, playerY, m.PounceCDTurns) {
-				if gl.game.combat.executePounce(m, playerX, playerY) {
-					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
-					gl.monsterAttackTurnBased(m)
-					m.ArmPounceCooldown(gl.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
-					gl.game.refreshMonsterCollisionState(m)
-					continue
-				}
-				// Couldn't land adjacent - fall through to a normal step this turn.
-			}
-		}
-
-		if gl.game.combat.monsterAttackPointInReachTB(m, playerX, playerY) {
-			if gl.game.tryClaimMonsterAttackPost(m) {
-				m.State = monster.StateAttacking
-				gl.monsterAttackTurnBased(m)
-			} else {
-				gl.game.releaseMonsterAttackPost(m)
-				gl.monsterMoveTurnBased(m)
-			}
-		} else if !gl.tryPhaseShiftTB(m) {
-			// Phase Shift is this turn's movement; without it the walk runs.
-			gl.monsterMoveTurnBased(m)
-		}
-
 		gl.game.refreshMonsterCollisionState(m)
 	}
 
@@ -346,6 +303,52 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	// Always end monster turn and start party turn
 	// Even if no monsters acted, we need to return control to the party
 	gl.endMonsterTurn()
+}
+
+// monsterCombatStepTB is a fighting monster's TB action after its specials:
+// strike its foe or the party in reach, pounce, or step toward them.
+func (gl *GameLoop) monsterCombatStepTB(m *monster.Monster3D) {
+	// Lured at a bound undead instead of the party: attack it (ranged mobs loose
+	// a bolt from within range, melee strike from an adjacent tile), else step
+	// toward it; never touch the party.
+	if foe := m.AIFoe; foe != nil && foe.IsAlive() {
+		if gl.tryMonsterAttackFoeTurnBased(m, foe) {
+			// Claimed a distinct logical attack post and spent the turn striking.
+		} else {
+			gl.monsterMoveTurnBased(m)
+		}
+		return
+	}
+
+	// Resolve aim after any earlier actor or special has displaced the party.
+	playerX, playerY := gl.game.combat.logicalCameraXY()
+
+	// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
+	// tile and strike. Brief turn cooldown.
+	if m.CanPounce() {
+		if gl.game.combat.monsterPouncePointInReachTB(m, playerX, playerY, m.PounceCDTurns) {
+			if gl.game.combat.executePounce(m, playerX, playerY) {
+				gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
+				gl.monsterAttackTurnBased(m)
+				m.ArmPounceCooldown(gl.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
+				return
+			}
+			// Couldn't land adjacent - fall through to a normal step this turn.
+		}
+	}
+
+	if gl.game.combat.monsterAttackPointInReachTB(m, playerX, playerY) {
+		if gl.game.tryClaimMonsterAttackPost(m) {
+			m.State = monster.StateAttacking
+			gl.monsterAttackTurnBased(m)
+		} else {
+			gl.game.releaseMonsterAttackPost(m)
+			gl.monsterMoveTurnBased(m)
+		}
+	} else if !gl.tryPhaseShiftTB(m) {
+		// Phase Shift is this turn's movement; without it the walk runs.
+		gl.monsterMoveTurnBased(m)
+	}
 }
 
 // monsterAttackPointInReachTB is the shared spatial rule for normal party attacks
@@ -785,6 +788,7 @@ func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses 
 		m.TickRetaliation(true)
 		m.TickPounceCooldownTurn()
 		m.TickPhaseShiftCooldownTurn()
+		m.TickAbilityClocksTurn()
 		m.TickPoisonTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
 		m.TickBurnTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS()))   // Drakefang ignite; stacks with poison
 		m.TickArmorShredTurn()                                             // Pit Labrys shred decays regardless of stun

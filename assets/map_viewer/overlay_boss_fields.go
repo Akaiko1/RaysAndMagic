@@ -233,7 +233,7 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 				lanes = append(lanes, e.ID)
 			}
 		}
-		out := []overlayField{overlayHeading("Default pattern"), overlayInt("Lane attack every N actions", &b.EveryActions, "At least 2. A health phase can override this."), overlayList("Attack lanes", &b.Lanes, "Fired in turn while the boss's HP is above every health phase threshold.", lanes), overlayFloat("Attack range at or below 25% HP (tiles)", &b.LowHealthRange, "0 keeps the normal attack range."), overlayHeading("Health phases"), overlayAction("+ Add health phase", "Configure its threshold and attack volleys.", func() { v.overlayAddPhase(d) })}
+		out := []overlayField{overlayHeading("Default pattern"), overlayInt("Lane cooldown (seconds)", &b.CooldownSeconds, "Whole 3s rounds, at least 6. A health phase can override it. Free: rides the boss's landed attack."), overlayList("Attack lanes", &b.Lanes, "Fired in turn while the boss's HP is above every health phase threshold.", lanes), overlayFloat("Attack range at or below 25% HP (tiles)", &b.LowHealthRange, "0 keeps the normal attack range."), overlayHeading("Health phases"), overlayAction("+ Add health phase", "Configure its threshold and attack volleys.", func() { v.overlayAddPhase(d) })}
 		for i, phase := range b.Phases {
 			f := overlayNavigate(fmt.Sprintf("At or below %d%% HP", phase.BelowPercent), fmt.Sprintf("%d attack volleys", len(phase.Patterns)), "Edit this phase's conditions and attack sequence.", func() { v.overlaySelect("phase", i) })
 			f.depth = 1

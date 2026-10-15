@@ -145,12 +145,11 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 
 	cs.game.spawnStarburstFx(m.X, m.Y, m.RadiusTiles)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s blooms!", name))
-	hurts := func(t *monsterPkg.Monster3D) bool { return !isPurePartySummon(t) && !t.IsDamageInvulnerable() }
 	// Stone Blossom is artillery lobbed in a high arc, not a point blast: the
 	// bloom falls on everything around the landing point, walls or not.
 	bloom := cs.pointBlast(m.X, m.Y, m.RadiusTiles)
 	bloom.throughWalls = true
-	cs.forEachAreaVictim(bloom, hurts, func(target *monsterPkg.Monster3D) {
+	cs.forEachAreaVictim(bloom, partyAreaHurts, func(target *monsterPkg.Monster3D) {
 		if cs.tryDarkElfBindInstead(m.Caster, target) {
 			return
 		}

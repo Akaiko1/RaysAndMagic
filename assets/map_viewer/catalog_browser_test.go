@@ -292,7 +292,7 @@ func TestMobAbilityInspectorIncludesTelegraphAndEncounter(t *testing.T) {
 	old := mobsPage
 	t.Cleanup(func() { mobsPage = old })
 	d := monster.MonsterDefinition{Name: "Sentinel", Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Name: "Ground slam", Kind: "strike", School: "earth", Shape: "burst", Range: 3, WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3, DamagePercent: 150, DurationSeconds: 6, SustainDamage: 7, BelowHPPercent: 60}}}
-	v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"sentinel": d}}, maps: []mapInfo{{Key: "test_arena", Config: &config.MapConfig{Adventure: &config.AdventureConfig{Boss: &config.AdventureBoss{Monster: "sentinel", EveryActions: 3, Lanes: []string{"north"}}}}}}}
+	v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"sentinel": d}}, maps: []mapInfo{{Key: "test_arena", Config: &config.MapConfig{Adventure: &config.AdventureConfig{Boss: &config.AdventureBoss{Monster: "sentinel", CooldownSeconds: 9, Lanes: []string{"north"}}}}}}}
 	mobsPage.keys = []string{"sentinel"}
 	mobsPage.selIdx = 0
 	mobsPage.info = buildMobInfoRuntime("sentinel", d, nil, nil, 64)

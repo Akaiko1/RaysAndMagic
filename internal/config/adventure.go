@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"slices"
 )
 
 // AdventureConfig describes closed, calendar-owned visits and authored terrain.
@@ -64,11 +65,13 @@ type EnvironmentTile struct {
 	Tile string `yaml:"tile"`
 }
 type AdventureBoss struct {
-	Phases       []AdventureBossPhase `yaml:"phases,omitempty"`
-	Arena        *[4]int              `yaml:"arena,omitempty"`
-	Monster      string               `yaml:"monster"`
-	Lanes        []string             `yaml:"lanes"`
-	EveryActions int                  `yaml:"every_actions"`
+	Phases  []AdventureBossPhase `yaml:"phases,omitempty"`
+	Arena   *[4]int              `yaml:"arena,omitempty"`
+	Monster string               `yaml:"monster"`
+	Lanes   []string             `yaml:"lanes"`
+	// CooldownSeconds (whole rounds, at least 2) is the lane cadence: once it
+	// is over, the boss's next landed attack also marks the next pattern.
+	CooldownSeconds int `yaml:"cooldown_seconds"`
 	// HealPercent of max HP is restored every round (its seconds in RT) while
 	// the boss is below HealCeilingPercent of max HP.
 	HealPercent        int     `yaml:"heal_percent,omitempty"`
@@ -77,16 +80,18 @@ type AdventureBoss struct {
 	LowHealthRange     float64 `yaml:"low_health_range,omitempty"`
 }
 
-// Phases are ordered from high to low HP. Each pattern consumes one special
-// action, even when it contains several separately marked lanes.
+// Phases are ordered from high to low HP. Each pattern is one lane action,
+// even when it marks several lanes; lane actions ride the boss's landed
+// attack for free.
 type AdventureBossPhase struct {
-	BelowPercent int        `yaml:"below_percent"`
-	Patterns     [][]string `yaml:"patterns"`
-	EveryActions int        `yaml:"every_actions,omitempty"`
+	BelowPercent    int        `yaml:"below_percent"`
+	Patterns        [][]string `yaml:"patterns"`
+	CooldownSeconds int        `yaml:"cooldown_seconds,omitempty"` // 0 keeps the boss's
 }
 
-func (b *AdventureBoss) Pattern(hp, maxHP, actions int) []string {
-	every := b.EveryActions
+// phase is the lane patterns and their cooldown at an HP.
+func (b *AdventureBoss) phase(hp, maxHP int) ([][]string, int) {
+	cooldown := b.CooldownSeconds
 	patterns := make([][]string, len(b.Lanes))
 	for i, lane := range b.Lanes {
 		patterns[i] = []string{lane}
@@ -94,15 +99,41 @@ func (b *AdventureBoss) Pattern(hp, maxHP, actions int) []string {
 	for _, p := range b.Phases {
 		if hp*100 <= maxHP*p.BelowPercent {
 			patterns = p.Patterns
-			if p.EveryActions > 0 {
-				every = p.EveryActions
+			if p.CooldownSeconds > 0 {
+				cooldown = p.CooldownSeconds
 			}
 		}
 	}
-	if every < 1 || actions < 1 || actions%every != 0 || len(patterns) == 0 {
+	return patterns, cooldown
+}
+
+// Pattern is the phase's next lane pattern after fired earlier ones, in turn.
+func (b *AdventureBoss) Pattern(hp, maxHP, fired int) []string {
+	patterns, _ := b.phase(hp, maxHP)
+	if len(patterns) == 0 {
 		return nil
 	}
-	return patterns[(actions/every-1)%len(patterns)]
+	return patterns[max(0, fired)%len(patterns)]
+}
+
+// LaneCooldown is the phase's lane cooldown at an HP, in seconds.
+func (b *AdventureBoss) LaneCooldown(hp, maxHP int) int {
+	_, cooldown := b.phase(hp, maxHP)
+	return cooldown
+}
+
+// PhaseLanes lists every lane the boss fires at an HP, in pattern order.
+func (b *AdventureBoss) PhaseLanes(hp, maxHP int) []string {
+	patterns, _ := b.phase(hp, maxHP)
+	var out []string
+	for _, pattern := range patterns {
+		for _, id := range pattern {
+			if !slices.Contains(out, id) {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
 }
 
 func (s *AdventureSchedule) Destination(day int, night bool) string {
@@ -283,8 +314,9 @@ func (c *MapConfigs) ValidateAdventures() error {
 		if b := a.Boss; b != nil {
 			lastThreshold := 101
 			for _, phase := range b.Phases {
-				if phase.BelowPercent < 1 || phase.BelowPercent >= lastThreshold || len(phase.Patterns) == 0 || phase.EveryActions < 0 {
-					return fail("invalid boss phase order, patterns or cadence")
+				if phase.BelowPercent < 1 || phase.BelowPercent >= lastThreshold || len(phase.Patterns) == 0 ||
+					(phase.CooldownSeconds != 0 && ValidateEffectSeconds("boss phase cooldown_seconds", phase.CooldownSeconds) != nil) {
+					return fail("invalid boss phase order, patterns or cooldown (whole rounds)")
 				}
 				lastThreshold = phase.BelowPercent
 				for _, pattern := range phase.Patterns {
@@ -304,8 +336,11 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if b.Arena != nil && (!a.OpeningOwned || b.Arena[0] < 0 || b.Arena[1] < 0 || b.Arena[2] < b.Arena[0] || b.Arena[3] < b.Arena[1]) {
 				return fail("boss arena requires an opening-owned map and a valid rectangle")
 			}
-			if b.Monster == "" || b.EveryActions < 2 || b.ArmorFloor < 0 {
+			if b.Monster == "" || b.ArmorFloor < 0 {
 				return fail("invalid boss policy")
+			}
+			if ValidateEffectSeconds("boss cooldown_seconds", b.CooldownSeconds) != nil || CombatRounds(b.CooldownSeconds) < 2 {
+				return fail("boss cooldown_seconds must be whole rounds, at least 2")
 			}
 			if b.HealPercent < 0 || b.HealPercent > 100 || b.HealCeilingPercent < 0 || b.HealCeilingPercent > 100 || (b.HealPercent > 0 && b.HealCeilingPercent == 0) {
 				return fail("regeneration needs heal_percent 1..100 per round and heal_ceiling_percent 1..100")

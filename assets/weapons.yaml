@@ -7,6 +7,71 @@
 #   hitbox: standard | wide - closed set; sizes live in config.yaml world.projectile_hitboxes
 
 weapons:
+  solstice_sun_crucible:
+    name: "Sun Crucible"
+    description: "Three bronze ribs cradle a captive sun above a black segmented shaft."
+    category: staff
+    damage: 34
+    range: 7
+    bonus_stat: Intellect
+    damage_type: fire
+    crit_chance: 15
+    cooldown_multiplier: 0.9
+    rarity: legendary
+    value: 7500
+    no_loot: true
+    projectile_school: fire
+    signature:
+      kind: solar_flare
+      damage: 30
+      scaling_stat: Intellect
+      stat_divisor: 3
+      school: fire
+      charge_limit: 1
+      charge_move_tiles: 2
+      charge_on_offensive_cast: true
+      lane_behind_tiles: 2
+      lane_width_tiles: 1
+      burn_seconds: 6
+    physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
+    # Three times the shipped tiny_prop campfire's 0.30 scale.
+    graphics: {impact_flame_scale: 0.9, projectile_fx: solstice_sun_crucible, max_size: 32, min_size: 4, base_size: 16, color: [255, 143, 41]}
+
+  solstice_stone_script:
+    name: "Stone Script"
+    description: "A long faceted jade blade carries three bronze runes above a hooked crossguard."
+    category: sword
+    damage: 34
+    range: 1
+    bonus_stat: Intellect
+    damage_type: earth
+    crit_chance: 18
+    cooldown_multiplier: 1
+    rarity: legendary
+    value: 7500
+    no_loot: true
+    signature: {kind: rune_discharge, damage: 30, scaling_stat: Intellect, stat_divisor: 2, school: earth, sp_cost: 3}
+    melee: {arc_type: 3, animation_frames: 12}
+    graphics: {slash_fx: solstice_stone_script, slash_color: [67, 203, 143], slash_width: 30, slash_length: 70}
+
+  solstice_returning_gale:
+    name: "Returning Gale"
+    description: "A slender recurved silver-blue dagger returns along the wind, bronze ring singing."
+    category: dagger
+    damage: 24
+    range: 8
+    bonus_stat: Accuracy
+    bonus_stat_secondary: Speed
+    damage_type: air
+    crit_chance: 22
+    cooldown_multiplier: 0.6
+    rarity: legendary
+    value: 7500
+    no_loot: true
+    signature: {kind: returning, return_damage_percent: 50}
+    physics: {speed_tiles: 12, range_tiles: 8, hitbox: standard}
+    graphics: {projectile_fx: solstice_returning_gale, max_size: 160, min_size: 16, base_size: 96, color: [145, 203, 247]}
+
   duskneedle:
     name: "Duskneedle"
     description: "A moth-wing bow whose limbs stiffen beneath the night sky"

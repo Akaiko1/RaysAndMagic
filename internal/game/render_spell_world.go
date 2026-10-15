@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/shaders"
@@ -21,9 +22,14 @@ type spellWorldVisual struct {
 	born             int64
 	originX, originY float64
 	anchor           monsterVisualAnchor
+	// A lane flourish runs from the origin along (dx, dy) for length tiles.
+	dx, dy, length, scale float64
 }
 
 const spellWorldVisualSeconds = 2.8
+
+// worldSolarFlare is the Solar Flare's world flourish kind.
+const worldSolarFlare = "solar_flare"
 const worldGlacier = 13
 const worldFrost = 14
 const worldSunPyre = 15
@@ -36,20 +42,30 @@ var spellWorldStyles = map[string]struct {
 	y, rx, ry      float64
 	headroom       float64 // the shape rises this share of ry above its frame's top
 	outlivesTarget bool    // stays at the cast contact after a lethal hit
+	seconds        float64 // lifetime; 0 is spellWorldVisualSeconds
 }{
-	"glacier":      {mechanic: "frozen_ground", material: -1},
-	"sun_pyre":     {mechanic: "destroy_undead", material: -1, outlivesTarget: true},
-	"mind_web":     {mechanic: "feeblemind", material: 0, y: .13, rx: .28, ry: .23},
-	"earth_drag":   {mechanic: "slow", material: 1, y: .85, rx: .55, ry: .24},
-	"blood_frenzy": {mechanic: "berserk", material: 2, y: .15, rx: .34, ry: .34},
-	"holy_dread":   {mechanic: "turn_undead", material: 3, y: .43, rx: .58, ry: .65},
-	"dread_shroud": {mechanic: "mass_fear", material: 4, y: .40, rx: .55, ry: .63, headroom: .3},
+	"glacier":       {mechanic: "frozen_ground", material: -1},
+	"sun_pyre":      {mechanic: "destroy_undead", material: -1, outlivesTarget: true},
+	worldSolarFlare: {mechanic: string(config.SignatureSolarFlare), material: -1, outlivesTarget: true, seconds: .85},
+	"mind_web":      {mechanic: "feeblemind", material: 0, y: .13, rx: .28, ry: .23},
+	"earth_drag":    {mechanic: "slow", material: 1, y: .85, rx: .55, ry: .24},
+	"blood_frenzy":  {mechanic: "berserk", material: 2, y: .15, rx: .34, ry: .34},
+	"holy_dread":    {mechanic: "turn_undead", material: 3, y: .43, rx: .58, ry: .65},
+	"dread_shroud":  {mechanic: "mass_fear", material: 4, y: .40, rx: .55, ry: .63, headroom: .3},
+}
+
+// spellWorldSeconds is how long a flourish of this kind lasts.
+func spellWorldSeconds(kind string) float64 {
+	if s := spellWorldStyles[kind].seconds; s > 0 {
+		return s
+	}
+	return spellWorldVisualSeconds
 }
 
 func (g *MMGame) expireSpellWorldVisuals() {
 	dst := g.spellWorldVisuals[:0]
 	for _, v := range g.spellWorldVisuals {
-		if v.world == g.world && g.frameCount >= v.born && float64(g.frameCount-v.born)/float64(g.config.GetTPS()) < spellWorldVisualSeconds && (v.target == nil || v.target.IsAlive() || spellWorldStyles[v.kind].outlivesTarget) {
+		if v.world == g.world && g.frameCount >= v.born && float64(g.frameCount-v.born)/float64(g.config.GetTPS()) < spellWorldSeconds(v.kind) && (v.target == nil || v.target.IsAlive() || spellWorldStyles[v.kind].outlivesTarget) {
 			dst = append(dst, v)
 		}
 	}
@@ -241,6 +257,50 @@ func (r *Renderer) drawMonsterSpellVisuals(dst *ebiten.Image, s UnifiedSpriteRen
 		if len(m.indices) > 0 {
 			m.options.Images[0] = r.ensureFireNoise()
 			worldDrawTrianglesShader(dst, m.vertices, m.indices, m.shader, &m.options)
+		}
+	}
+}
+
+// collectSolarFlares raises a Solar Flare's fire along its lane. It joins the
+// normal world painter so nearer trees, actors and walls occlude it, including
+// after the victim dies.
+func (r *Renderer) collectSolarFlares() {
+	for _, v := range r.game.spellWorldVisuals {
+		if v.kind != worldSolarFlare || v.world != r.game.world {
+			continue
+		}
+		t := float64(r.game.frameCount-v.born) / float64(r.game.config.GetTPS()) / spellWorldSeconds(v.kind)
+		if t < 0 || t >= 1 {
+			continue
+		}
+		// The exact campfire volume/material, at the weapon's authored scale.
+		// Independent volumes keep correct scene ordering along the hit lane.
+		model := cachedPropModel(character.NPCPropModel{Shape: "campfire"})
+		sections := max(1, int(math.Ceil(v.length)))
+		for i := 0; i < sections; i++ {
+			local := (t - float64(i)/float64(sections)*.13) / .87
+			if local <= 0 || local >= 1 {
+				continue
+			}
+			distance := float64(i) * v.length / float64(sections)
+			ts := r.game.config.GetTileSize()
+			b := r.spellWorldBuilder(v.originX+v.dx*distance*ts, v.originY+v.dy*distance*ts, 1)
+			if b == nil {
+				continue
+			}
+			heat := smoothStep(local/.06) * (1 - smoothStep((local-.5)/.5))
+			b.fireScale = v.scale
+			b.fireBase = -.17 * v.scale
+			b.fireSeed = auraHash(int(v.originX), int(v.originY), i, 31)
+			pose := propPose{model: model, scale: v.scale, progress: 1 - heat}
+			pose.eachFlameFace(func(f worldModelTriangle) {
+				// The campfire starts above its logs; the impact starts on the floor.
+				for j := range f.points {
+					f.points[j].z += b.fireBase
+				}
+				f.center.z += b.fireBase
+				b.projectTriangle(&f)
+			})
 		}
 	}
 }

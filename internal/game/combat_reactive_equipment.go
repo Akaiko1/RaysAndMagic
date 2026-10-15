@@ -34,15 +34,10 @@ func (g *MMGame) normalizeReactiveCards() {
 		return
 	}
 	_, limit, step, _ := g.reactiveCardRules()
-	for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
-		for _, ch := range roster {
-			if ch == nil {
-				continue
-			}
-			ch.ReactiveCombat.DodgeCharges = min(max(0, ch.ReactiveCombat.DodgeCharges), limit)
-			if step == 0 {
-				ch.ReactiveCombat.LastAttackerID, ch.ReactiveCombat.RepeatedHits = "", 0
-			}
+	for ch := range g.party.Heroes() {
+		ch.ReactiveCombat.DodgeCharges = min(max(0, ch.ReactiveCombat.DodgeCharges), limit)
+		if step == 0 {
+			ch.ReactiveCombat.LastAttackerID, ch.ReactiveCombat.RepeatedHits = "", 0
 		}
 	}
 }
@@ -77,13 +72,12 @@ func (cs *CombatSystem) consumeDodgeCharge(attack partyMonsterAttack) partyMonst
 	return attack
 }
 
-func (g *MMGame) reactiveHitReduction(source *monsterPkg.Monster3D, target *character.MMCharacter, amount int) int {
+func (g *MMGame) reactiveHitReduction(source *monsterPkg.Monster3D, s *character.ReactiveCombatState, amount int) int {
 	// Terrain, crate traps and friendly splash are damage, not enemy hits.
 	// They neither consume the shell nor advance/reset the attacker chain.
 	if amount <= 0 || source == nil {
 		return amount
 	}
-	s := &target.ReactiveCombat
 	_, _, step, capPct := g.reactiveCardRules()
 	if step > 0 && source.ID != "" {
 		if s.LastAttackerID != source.ID {
@@ -104,7 +98,17 @@ func (g *MMGame) reactiveHitReduction(source *monsterPkg.Monster3D, target *char
 // Resolve one landed hit before HP loss, regardless of its attack dispatcher.
 func (cs *CombatSystem) resolveHeroHitDamage(source *monsterPkg.Monster3D, target *character.MMCharacter, amount int) int {
 	amount = cs.game.absorbCelestialDamage(amount)
-	return cs.redirectDamageThroughSacrifice(target, cs.game.reactiveHitReduction(source, target, amount))
+	return cs.redirectDamageThroughSacrifice(target, cs.game.reactiveHitReduction(source, &target.ReactiveCombat, amount))
+}
+
+// previewHeroHitDamage is resolveHeroHitDamage's defenses without spending
+// anything: Celestial Armor and the reactive shell and chain, the latter read
+// on a copy of the hero's reactive state. Sacrifice redirects a landed hit,
+// so a preview leaves it out.
+func (cs *CombatSystem) previewHeroHitDamage(source *monsterPkg.Monster3D, target *character.MMCharacter, amount int) int {
+	amount -= cs.game.celestialAbsorb(amount)
+	preview := target.ReactiveCombat
+	return cs.game.reactiveHitReduction(source, &preview, amount)
 }
 
 func (cs *CombatSystem) tryAttackZoneProc(def *config.WeaponDefinitionConfig, owner *character.MMCharacter) {

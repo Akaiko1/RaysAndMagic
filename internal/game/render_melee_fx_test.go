@@ -21,7 +21,8 @@ func TestShippedFxStylesResolve(t *testing.T) {
 	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
 		t.Fatalf("load spells: %v", err)
 	}
-	validateWeaponFxStyles()     // must not panic on shipped content
+	validateWeaponFxStyles() // must not panic on shipped content
+	validateFlaskFxStyles()
 	validateProjectileFxStyles() // must not panic on shipped content
 
 	// The procedural catalog must stay attached to real items, and every
@@ -180,6 +181,9 @@ func TestEndgameWeaponSetsAuthorBespokeFx(t *testing.T) {
 
 func TestProjectileFxRegistryDefinesSideAndHeadOnRenderers(t *testing.T) {
 	for style, fx := range weaponProjectileFxStyles {
+		if fx.volume != nil {
+			continue // A camera-space volume supplies every view in one renderer.
+		}
 		if fx.side == nil {
 			t.Errorf("projectile FX style %q has no side-on renderer", style)
 		}

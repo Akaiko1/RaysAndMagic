@@ -36,7 +36,9 @@ func TestCombatLogPiecesColorWhoAndWhat(t *testing.T) {
 		"charmed":           {logMonsterName(charmed), []coloredTextSegment{{"Kappa", logNeutral}}},
 		"enemy's breath":    {logMonsterAs(foe, "Ocelot's Breath"), []coloredTextSegment{{"Ocelot's Breath", logEnemy}}},
 		"true damage":       {logTrueDamage(12), []coloredTextSegment{{"12", logTrue}}},
-		"unknown school":    {logDamage(7, ""), []coloredTextSegment{{"7", SchoolColor("")}}},
+		"no school is true": {logDamage(7, ""), []coloredTextSegment{{"7", logTrue}}},
+		"named school":      {logDamageSchool("air"), []coloredTextSegment{{"air", SchoolColor("air")}}},
+		"no school named":   {logDamageSchool(""), []coloredTextSegment{{"true", logTrue}}},
 		"heal":              {logHealed(35), []coloredTextSegment{{"35", keywordColors["heal"]}}},
 		"spell points":      {logRecoveredSP(9), []coloredTextSegment{{"9", keywordColors["buff"]}}},
 		"no crit":           {logCrit(false), []coloredTextSegment{{"", combatMessageGold}}},
@@ -325,21 +327,51 @@ func TestDamageReportsCaptureResolvedHits(t *testing.T) {
 	g.combat.elementalWeaponBonus(m, 100, "fire", "Flame")
 	g.combat.applyTrapDamage(m, 40, "fire", "Fire Trap")
 	g.damageEnvironment(config.EnvironmentEffect{Name: "Heat", School: "physical", Damage: 30}, 1)
-	var hits []string
+	// Through a Perfect Dodge: a Grandmaster graze is the attack's school, a
+	// weapon's true damage alone is true.
+	graze := g.combat.newPartyWeaponAttack(40, 0, "fire", nil, "Blade", false, false, 0)
+	graze.GrazesDodge = true
+	g.combat.applyDamageThroughDodge(m, graze, hero, hero.Name, nil)
+	g.combat.applyDamageThroughDodge(m, g.combat.newPartyWeaponAttack(40, 6, "fire", nil, "Blade", false, false, 0), hero, hero.Name, nil)
+	// A bound ally's graze on a dodging foe reads the same way.
+	ally := spawnTestMonsterAt(g, 3, 1)
+	ally.Name, ally.Bound, ally.BoundFramesRemaining = "Ghoul", true, 1000
+	m.PerfectDodge = 100
+	g.combat.strikeMonsterPacketFor(ally, m, singleMonsterDamagePacket(damage.Parts{Normal: 40}, "fire", 0), nil, false, true, true)
+	var hits []combatLogEntry
 	for _, line := range g.combatLogHistory {
 		if strings.Contains(line.Text, "(HP:") {
-			hits = append(hits, line.Text)
+			hits = append(hits, line)
 		}
 	}
-	want := []string{
-		"Flame hits Dummy for 50 damage! (HP: 950/1000)",
-		"Dummy takes 20 damage from Fire Trap! (HP: 930/1000)",
-		"Heat hits " + hero.Name + " for 30 damage! (HP: 970/1000)",
+	want := []struct {
+		text, amount string
+		tint         color.Color
+	}{
+		{"Flame hits Dummy for 50 damage! (HP: 950/1000)", "50", SchoolColor("fire")},
+		{"Dummy takes 20 damage from Fire Trap! (HP: 930/1000)", "20", SchoolColor("fire")},
+		{"Heat hits " + hero.Name + " for 30 damage! (HP: 970/1000)", "30", logTrue},
+		{"Dummy dodges, but " + hero.Name + " lands 5 fire damage! (HP: 925/1000)", "5", SchoolColor("fire")},
+		{"Dummy dodges, but " + hero.Name + " lands 3 true damage! (HP: 922/1000)", "3", logTrue}, // true damage meets resistance
+		{"Dummy dodges, but Ghoul lands 5 fire damage! (HP: 917/1000)", "5", SchoolColor("fire")},
 	}
-	if strings.Join(hits, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("hit reports %q, want %q", hits, want)
+	if len(hits) != len(want) {
+		t.Fatalf("%d hit reports, want %d: %+v", len(hits), len(want), hits)
 	}
-	if m.HitPoints != 930 || hero.HitPoints != 970 {
+	for i, w := range want {
+		if hits[i].Text != w.text {
+			t.Fatalf("hit report %q, want %q", hits[i].Text, w.text)
+		}
+		// Every damage number wears its school's tint; no school is true damage.
+		tinted := false
+		for _, s := range hits[i].Segments {
+			tinted = tinted || s.text == w.amount && sameColor(s.color, w.tint)
+		}
+		if !tinted {
+			t.Fatalf("%q: amount %s not tinted %v: %+v", w.text, w.amount, w.tint, hits[i].Segments)
+		}
+	}
+	if m.HitPoints != 917 || hero.HitPoints != 970 {
 		t.Fatalf("reporting changed HP: monster=%d hero=%d", m.HitPoints, hero.HitPoints)
 	}
 }

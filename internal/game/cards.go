@@ -267,14 +267,20 @@ func (g *MMGame) cardCollectionEffectLines() []string {
 }
 
 // ValidateCardDrops enforces loots.yaml card_drop_chance on every monster
-// table: a boss: true monster drops its card at the boss rate, any other at
-// the monster rate, one roll each. Needs the monster and item catalogs.
+// table: bosses use their authored override or the ordinary boss rate; other
+// monsters use the monster rate, one roll each. Needs both catalogs.
 func ValidateCardDrops() error {
 	loots := config.GlobalLoots
 	if loots == nil || monsterPkg.MonsterConfig == nil {
 		return nil
 	}
 	rule := loots.CardDropChance
+	for key := range rule.BossOverrides {
+		def, known := monsterPkg.MonsterConfig.Monsters[key]
+		if !known || !def.Boss {
+			return fmt.Errorf("card_drop_chance.boss_overrides %q must name a boss", key)
+		}
+	}
 	isCard := func(e config.LootEntry) bool {
 		item, ok := config.GetItemDefinition(e.Key)
 		return e.Type == "item" && ok && item.Type == "card"
@@ -294,6 +300,9 @@ func ValidateCardDrops() error {
 			want := rule.Monster
 			if known && def.Boss {
 				want = rule.Boss
+				if override, ok := rule.BossOverrides[key]; ok {
+					want = override
+				}
 			}
 			if want <= 0 {
 				return fmt.Errorf("loots.yaml: card_drop_chance is required for monster cards")
@@ -374,6 +383,13 @@ func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionCon
 		agg.CardPoisonResistPct = 100
 	}
 	agg.CardDodgeChargePct, agg.CardDodgeChargeLimit, agg.CardRepeatedHitReductionPct, agg.CardRepeatedHitReductionCap = reactiveCardRules(defs)
+	// Non-stacking rules: the strongest copy's whole rule, never a sum.
+	for _, rule := range config.CardRules {
+		rule.Copy(agg, &config.ItemDefinitionConfig{})
+		if best := strongestCard(defs, rule); best != nil {
+			rule.Copy(agg, best)
+		}
+	}
 	return agg
 }
 

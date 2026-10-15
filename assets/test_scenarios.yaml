@@ -77,6 +77,44 @@ scenarios:
     endurance_target: 25
     learn_school_spells: true
     items: [health_potion, health_potion, health_potion, mana_potion, mana_potion]
+  # The Solstice chamber rewards worn by the classes they fit, level-35 builds
+  # by each class's auto stats; the four boss cards in the bag. Starts at the
+  # desert oasis beside Cartomancer Odette, who slots cards.
+  new_items:
+    level: 35
+    auto_stats: true
+    learn_school_spells: true
+    party:
+      - name: Isolde
+        class: battle_mage
+        skills: {sword: grandmaster, plate: grandmaster, strong_magic: grandmaster, spell_absorption: grandmaster}
+        schools: {earth: grandmaster}
+        equipment: [solstice_stone_script, clockplate_pauldrons, clockplate_cuirass, clockplate_helm, clockplate_greaves, chrono_cape, clockplate_gauntlets, belt_of_strength, kitsune_shrine_bell, magic_ring, onmyoji_talisman]
+        action: stone_skin
+        quick: [rock_blast, earthquake, stone_blossom, stun]
+      - name: Kael
+        class: wayfarer
+        skills: {staff: grandmaster, translocation: grandmaster, flowing_staff: grandmaster, pathfinding: master, meditation: expert}
+        equipment: [solstice_sun_crucible, jaguar_pelt_jerkin, feathered_headdress, cogleather_boots, chrono_cape, cogleather_gloves, belt_of_speed, kitsune_shrine_bell, rain_ward_ofuda, foxfire_ofuda]
+        quick: [fold_step, return_step, phase_veil, quickening, purify]
+      - name: Nyra
+        class: thief
+        race: dark_elf
+        skills: {dagger: grandmaster, trapper: grandmaster, sleight_of_hand: grandmaster, disarm_trap: grandmaster, lockpicking: expert, meditation: expert}
+        equipment: [solstice_returning_gale, cogleather_pauldrons, cogleather_jacket, cogleather_helm, cogleather_boots, chrono_cape, cogleather_gloves, belt_of_speed, puma_claw, magic_ring, magic_ring]
+        quick: [cleave_trap, bear_trap, stasis_trap, blast_trap]
+      - name: Elara
+        class: alchemist
+        skills: {alchemy: grandmaster, bomb_throwing: grandmaster, pharmacology: grandmaster, leather: master, bodybuilding: expert}
+        equipment: [minute_hand, cogleather_pauldrons, cogleather_jacket, cogleather_helm, cogleather_boots, spider_lily_obi, cogleather_gloves, belt_of_speed, serpent_idol_amulet, onmyoji_talisman, foxfire_ofuda]
+        action: solstice_everflow_retort
+    map: desert
+    x: 22
+    y: 25
+    angle: 0.7
+    safe_radius: 6
+    gold: 20000
+    items: [solstice_everflow_retort, solstice_aureth_card, solstice_neressa_card, solstice_talura_card, solstice_vaelith_card, fire_flask, fire_flask, fire_flask, harm_flask, harm_flask, harm_flask, health_potion, health_potion, health_potion, health_potion, mana_potion, mana_potion, mana_potion, mana_potion]
   # Benchmark parties (assets/bench_parties.yaml): one per party and level.
   bench_seabright_15: {bench_party: seabright, level: 15}
   bench_seabright_20: {bench_party: seabright, level: 20}

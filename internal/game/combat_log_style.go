@@ -81,6 +81,14 @@ func (p logJoined) logSegments() []coloredTextSegment {
 	return segs
 }
 
+// partyAttackerName names a party hit's source: its hero, else the party.
+func partyAttackerName(attacker *character.MMCharacter) string {
+	if attacker == nil {
+		return "The party"
+	}
+	return attacker.Name
+}
+
 // logHeroText is a party-side actor named by text ("The party", a hero).
 func logHeroText(name string) logPart { return logStyled{name, logHero} }
 
@@ -124,8 +132,20 @@ func logMonsterSide(m *monsterPkg.Monster3D) color.RGBA {
 }
 
 // logDamage is a damage figure in the color of its school.
+// logDamage is a damage number in its school's tint; no school is true damage.
 func logDamage(n int, school string) logPart {
+	if school == "" {
+		return logTrueDamage(n)
+	}
 	return logStyled{strconv.Itoa(n), logSchoolColor(school)}
+}
+
+// logDamageSchool names a hit's school in its tint; no school is true damage.
+func logDamageSchool(school string) logPart {
+	if school == "" {
+		return logStyled{"true", logTrue}
+	}
+	return logSchoolWord(school, school)
 }
 
 // logSchoolColor is a school's tint in the log: the tooltip palette, with

@@ -6,6 +6,14 @@ frames:
   asian: assets/sprites/interface/icon_frames/icon_frame_asian.png
   boss: assets/sprites/interface/icon_frames/icon_frame_boss.png
 icons:
+  icon_weapon_solstice_sun_crucible: boss
+  icon_weapon_solstice_stone_script: boss
+  icon_weapon_solstice_returning_gale: boss
+  icon_item_solstice_everflow_retort: boss
+  icon_item_solstice_aureth_card: boss
+  icon_item_solstice_neressa_card: boss
+  icon_item_solstice_talura_card: boss
+  icon_item_solstice_vaelith_card: boss
   icon_spell_fire_aura: basic
   icon_spell_haste: basic
   icon_spell_shield: basic

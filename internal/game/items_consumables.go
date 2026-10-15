@@ -82,7 +82,7 @@ func (g *MMGame) HealablePartyIndices() []int {
 		if cannotReceiveOrdinaryHealing(m) {
 			continue
 		}
-		if m.HitPoints > 0 && (m.HitPoints < m.MaxHitPoints || g.healingCardCanCleanse(m)) {
+		if m.HitPoints > 0 && g.healingPotionHasEffect(m) {
 			idxs = append(idxs, i)
 		}
 	}
@@ -110,6 +110,7 @@ func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
 	if ch.HitPoints > ch.MaxHitPoints {
 		ch.HitPoints = ch.MaxHitPoints
 	}
+	g.potionOverflow(ch, heal-(ch.HitPoints-before))
 	if ch.HitPoints > before {
 		g.TriggerPartyHeal(charIdx) // rising green "+" overlay
 	}
@@ -137,7 +138,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 	if cannotReceiveOrdinaryHealing(ch) {
 		return false // heals never revive - Eradicated needs the Resurrect spell
 	}
-	if ch.HitPoints >= ch.MaxHitPoints && !g.healingCardCanCleanse(ch) {
+	if !g.healingPotionHasEffect(ch) {
 		return false
 	}
 	before := ch.HitPoints
@@ -291,7 +292,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 				return false
 			}
 		}
-		if ch.HitPoints >= ch.MaxHitPoints && !g.healingCardCanCleanse(ch) {
+		if !g.healingPotionHasEffect(ch) {
 			// Nothing to heal: keep the potion instead of wasting it.
 			g.AddCombatMessage(fmt.Sprintf("%s is already at full health.", ch.Name))
 			return false

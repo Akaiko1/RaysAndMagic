@@ -126,6 +126,9 @@ func bombThrowingDescription() string {
 	for _, key := range keys {
 		d, _ := config.GetItemDefinition(key)
 		f := d.Flask
+		if f.Reusable {
+			continue // Its Alchemy scaling is described on the item itself.
+		}
 		geometry := [2]int{f.RangeTiles, f.RadiusTiles}
 		if len(geometryNames[geometry]) == 0 {
 			geometryOrder = append(geometryOrder, geometry)

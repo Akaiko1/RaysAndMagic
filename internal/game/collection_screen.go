@@ -47,13 +47,13 @@ const (
 	binderRings            = 3  // rings through each page
 	binderWire             = 3  // ring wire radius
 	binderPlate            = 6  // half width of the ring plate
-	// A pocket's sleeve reaches this share of the card past it on every side.
-	binderMarginFrac = .07
 )
 
-// albumCardRect is where the card sits inside every card icon, 0..1; measured
-// over the shipped icon_item_*_card set (x 25..102, y 8..119 of 128).
-var albumCardRect = [4]float32{25. / 128, 8. / 128, 103. / 128, 120. / 128}
+// binderMargin is how far a pocket's sleeve reaches past its card on each
+// side, as a share of the card's width and height. Every card is measured
+// inside its own icon (IconArtBounds) and fills the same share of its
+// pocket, whatever its size in the icon.
+var binderMargin = [2]float32{.07, .05}
 
 type collectionLayout struct {
 	panel, close layoutRect
@@ -462,29 +462,30 @@ const (
 
 // collectionDraw is the reused state of the collection surface draws.
 type collectionDraw struct {
-	uniforms         map[string]any
-	vertices         [4]ebiten.Vertex
-	opts             ebiten.DrawTrianglesShaderOptions
-	page, grid, card [4]float32
-	layout           [4]float32
-	accent           [3]float32
-	dstMin, tilt     [2]float32
+	uniforms             map[string]any
+	vertices             [4]ebiten.Vertex
+	opts                 ebiten.DrawTrianglesShaderOptions
+	page, grid, card     [4]float32
+	layout               [4]float32
+	accent               [3]float32
+	dstMin, tilt, margin [2]float32
 }
 
 // collectionSurface is one quad of the collection shader. icon and src (its
 // texels) are set for the niche and pocket; the other surfaces have no image.
 type collectionSurface struct {
-	mode           int
-	icon           *ebiten.Image
-	src            [4]float32
-	margin, copies float32
-	filled, hover  bool
-	page           layoutRect // the surface its sheen or glass spans
-	grid           [4]float32 // pixels: sheet pocket grid, ring geometry
-	gap, side      float32
-	scroll, seed   float32    // showcase: the case's scroll (UI units), a well's phase
-	tilt           [2]float32 // binder: a card's tilt toward the light, -1..1
-	accent         color.RGBA
+	mode          int
+	icon          *ebiten.Image
+	src, card     [4]float32 // pocket: the card inside the icon, 0..1
+	margin        [2]float32 // texels the quad runs past the icon or card
+	copies        float32
+	filled, hover bool
+	page          layoutRect // the surface its sheen or glass spans
+	grid          [4]float32 // pixels: sheet pocket grid, ring geometry
+	gap, side     float32
+	scroll, seed  float32    // showcase: the case's scroll (UI units), a well's phase
+	tilt          [2]float32 // binder: a card's tilt toward the light, -1..1
+	accent        color.RGBA
 }
 
 // drawCollectionPlace draws one showcase well or binder pocket over its icon;
@@ -500,14 +501,20 @@ func (ui *UISystem) drawCollectionPlace(dst *ebiten.Image, r layoutRect, art ite
 	s.mode, s.icon, s.filled, s.hover, s.copies, s.page, s.accent = collectionModeNiche, icon, filled, hover, float32(copies), page, accent
 	if binder {
 		// The quad runs over the card inside the icon plus the sleeve around it.
+		card, ok := ui.game.sprites.IconArtBounds(itemTooltipIconName(art))
+		if !ok {
+			card = image.Rect(0, 0, b.Dx(), b.Dy())
+		}
 		w, h := float32(b.Dx()), float32(b.Dy())
 		s.mode = collectionModePocket
-		s.margin = (albumCardRect[2] - albumCardRect[0]) * w * binderMarginFrac
-		s.src = [4]float32{float32(b.Min.X) + albumCardRect[0]*w - s.margin, float32(b.Min.Y) + albumCardRect[1]*h - s.margin,
-			float32(b.Min.X) + albumCardRect[2]*w + s.margin, float32(b.Min.Y) + albumCardRect[3]*h + s.margin}
+		s.card = [4]float32{float32(card.Min.X) / w, float32(card.Min.Y) / h, float32(card.Max.X) / w, float32(card.Max.Y) / h}
+		s.margin = [2]float32{float32(card.Dx()) * binderMargin[0], float32(card.Dy()) * binderMargin[1]}
+		s.src = [4]float32{float32(b.Min.X+card.Min.X) - s.margin[0], float32(b.Min.Y+card.Min.Y) - s.margin[1],
+			float32(b.Min.X+card.Max.X) + s.margin[0], float32(b.Min.Y+card.Max.Y) + s.margin[1]}
 	} else {
-		s.margin = float32(b.Dx()) * showcaseMarginFrac
-		s.src = [4]float32{float32(b.Min.X) - s.margin, float32(b.Min.Y) - s.margin, float32(b.Max.X) + s.margin, float32(b.Max.Y) + s.margin}
+		m := float32(b.Dx()) * showcaseMarginFrac
+		s.margin = [2]float32{m, m}
+		s.src = [4]float32{float32(b.Min.X) - m, float32(b.Min.Y) - m, float32(b.Max.X) + m, float32(b.Max.Y) + m}
 	}
 	ui.drawCollectionSurface(dst, r, s)
 }
@@ -536,14 +543,14 @@ func (ui *UISystem) drawCollectionSurface(dst *ebiten.Image, r layoutRect, s col
 	v[2] = ebiten.Vertex{DstX: dx0, DstY: dy1, SrcX: s.src[0], SrcY: s.src[3], ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1}
 	v[3] = ebiten.Vertex{DstX: dx1, DstY: dy1, SrcX: s.src[2], SrcY: s.src[3], ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1}
 	d.page = [4]float32{float32(pg.Min.X), float32(pg.Min.Y), float32(pg.Dx()), float32(pg.Dy())}
-	d.grid, d.card = s.grid, albumCardRect
+	d.grid, d.card, d.margin = s.grid, s.card, s.margin
 	d.accent = [3]float32{float32(s.accent.R) / 255, float32(s.accent.G) / 255, float32(s.accent.B) / 255}
 	u := d.uniforms
 	u["Mode"] = float32(s.mode)
 	u["Filled"] = boolFloat32(s.filled)
 	u["Hover"] = boolFloat32(s.hover)
 	u["Time"] = float32(float64(ui.game.uiFrameCount) / float64(max(1, ui.game.config.GetTPS())))
-	u["Margin"] = s.margin
+	u["Margin"] = d.margin[:]
 	u["Copies"] = s.copies
 	u["Side"] = s.side
 	u["Gap"] = s.gap

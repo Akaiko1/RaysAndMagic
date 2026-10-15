@@ -6,6 +6,7 @@ import (
 	"math/rand"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -51,11 +52,15 @@ func (cs *CombatSystem) runBossSpecials(m *monsterPkg.Monster3D, attackTick, tur
 		tickBossRecovery(m, turnBased)
 		return false
 	}
-	if cs.runAdventureBossAction(m, attackTick) {
-		return true
-	}
+	cs.updateChamberBossReach(m)
 	ready, infernoRollDue := tickBossRecovery(m, turnBased)
 	cs.tryBossTrapVolley(m, turnBased)
+	if cs.tryBossTimedSummon(m) {
+		if !turnBased {
+			cs.armMonsterRTAttackCooldowns(m) // the summon spends the boss's next attack
+		}
+		return true
+	}
 	return cs.updateBoss(m, ready, attackTick, infernoRollDue)
 }
 
@@ -139,25 +144,20 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 		m.Enraged = true
 		cs.game.logCombat(logToneBad, "%s flies into a %s!", logMonsterName(m), logKeyword("damage", "furious rage"))
 	}
-	// Summon fires on the melee attack moment OR when the boss TAKES DAMAGE while
-	// able to act. The hurt-provoke is the RT anti-kite: a boss being shot from
-	// range still rallies adds instead of standing helpless, so it can't be safely
-	// kited down. (In TB attackTick is already always true, so this adds nothing
-	// there.) CC is filtered by the caller loops; bossDisabled is belt-and-
-	// suspenders. One roll per damage event - BossHurtPending is latched from the
-	// HP delta at the top of this func and consumed here. Skip the roll entirely at
-	// the SummonMax cap (a passed roll would spawn nothing and fall through anyway).
+	// A rolled summon fires on the melee attack moment OR when the boss TAKES
+	// DAMAGE while able to act. The hurt-provoke is the RT anti-kite: a boss being
+	// shot from range still rallies adds instead of standing helpless, so it can't
+	// be safely kited down. (In TB attackTick is already always true, so this adds
+	// nothing there.) A timed summon (cooldown_seconds) never rolls here. CC is
+	// filtered by the caller loops; bossDisabled is belt-and-suspenders. One roll
+	// per damage event - BossHurtPending is latched from the HP delta at the top
+	// of this func and consumed here. Skip the roll entirely at the SummonMax cap
+	// (a passed roll would spawn nothing and fall through anyway).
 	hurtProvoke := m.BossHurtPending && !cs.bossDisabled(m)
 	m.BossHurtPending = false
-	if (attackTick || hurtProvoke) && len(m.Abilities.Summon.Monsters) > 0 &&
-		(m.Abilities.Summon.Max <= 0 || cs.countLiveSummons(m) < m.Abilities.Summon.Max) {
-		guaranteed := m.Abilities.Summon.FirstGuaranteed && !m.SummonFirstDone
-		if guaranteed || (m.Abilities.Summon.Chance > 0 && rand.Float64() < m.Abilities.Summon.Chance) {
-			if cs.summonBossAdds(m) {
-				m.SummonFirstDone = true
-				return true
-			}
-		}
+	if cs.bossSummonDue(m, attackTick, hurtProvoke) && cs.summonBossAdds(m) {
+		m.SummonFirstDone = true
+		return true
 	}
 
 	// The low-HP blink still fires only at the melee attack moment. Inferno is a
@@ -180,6 +180,32 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick, i
 		return true
 	}
 	return false // proceed to the normal attack (it may melt armor: abilities.melt_armor)
+}
+
+// bossSummonDue decides this tick's rolled summon: at the action or on a
+// hurt-provoke, below the live cap. A timed summon is tryBossTimedSummon's.
+func (cs *CombatSystem) bossSummonDue(m *monsterPkg.Monster3D, attackTick, hurtProvoke bool) bool {
+	s := m.Abilities.Summon
+	if len(s.Monsters) == 0 || s.CooldownSeconds > 0 || !(attackTick || hurtProvoke) || cs.summonsFull(m) {
+		return false
+	}
+	return (s.FirstGuaranteed && !m.SummonFirstDone) || (s.Chance > 0 && rand.Float64() < s.Chance)
+}
+
+// tryBossTimedSummon calls the adds each time summon.cooldown_seconds runs
+// out, when the live cap allows; the timer restarts either way. It does not
+// wait for an attack moment, so kiting cannot stall it.
+func (cs *CombatSystem) tryBossTimedSummon(m *monsterPkg.Monster3D) bool {
+	if m.Abilities.Summon.CooldownSeconds <= 0 || m.SummonCD.Active() || cs.bossDisabled(m) || cs.bossEvasive(m) {
+		return false
+	}
+	m.SummonCD.Arm(m.Abilities.Summon.CooldownSeconds, cs.game.config.GetTPS())
+	return !cs.summonsFull(m) && cs.summonBossAdds(m)
+}
+
+// summonsFull reports a boss at its live summon cap.
+func (cs *CombatSystem) summonsFull(m *monsterPkg.Monster3D) bool {
+	return m.Abilities.Summon.Max > 0 && cs.countLiveSummons(m) >= m.Abilities.Summon.Max
 }
 
 // bossInfernoInRange reports whether the party is inside the nova's authored
@@ -222,8 +248,10 @@ func (cs *CombatSystem) tryBossRangedInferno(m *monsterPkg.Monster3D, rollDue bo
 }
 
 // summonBossAdds rallies the boss's adds (war-banner): up to SummonCount monsters
-// from SummonMonsters spawned ~2 tiles out on walkable tiles, hostile on arrival.
-// Honours SummonMax (live summons of THIS boss). Returns true if any spawned.
+// from SummonMonsters spawned ~2 tiles out on walkable tiles inside the boss's
+// movement bounds, hostile on arrival and at the boss's auto-level. Honours
+// SummonMax (live summons of THIS boss). Returns true if any spawned. Adds give
+// no XP but drop their own gold and loot (killExperience): intended.
 func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 	if len(m.Abilities.Summon.Monsters) == 0 {
 		return false
@@ -240,6 +268,11 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 		n = m.Abilities.Summon.Max - liveSummons
 	}
 	tile := float64(cs.game.config.GetTileSize())
+	// Adds appear where the boss may move (a chamber arena).
+	var bounds collision.MovementBounds
+	if e := cs.game.collisionSystem.GetEntityByID(m.ID); e != nil {
+		bounds = e.MovementBounds()
+	}
 	spawned := 0
 	maxAttempts := n * 12
 	if maxAttempts < 12 {
@@ -250,11 +283,13 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 		angle := rand.Float64() * 2 * math.Pi
 		tx := m.X + math.Cos(angle)*2*tile
 		ty := m.Y + math.Sin(angle)*2*tile
-		sx, sy, ok := cs.findNearestSummonTile(tx, ty, 10)
+		sx, sy, ok := cs.findNearestSummonTileWithin(tx, ty, 10, bounds)
 		if !ok {
 			continue
 		}
 		add := monsterPkg.NewMonster3DFromConfig(sx, sy, key, cs.game.config)
+		// An auto-levelled boss calls adds of its own level.
+		scaleAdventureMonster(cs.game.config.AdventureScaling, add, m.AdventureScaleLevel)
 		add.WasAttacked = true
 		add.BeginPlayerEngagement() // summons wake hostile
 		add.SummonedBy = m.ID
@@ -272,6 +307,11 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 }
 
 func (cs *CombatSystem) findNearestSummonTile(targetX, targetY float64, maxRadius int) (float64, float64, bool) {
+	return cs.findNearestSummonTileWithin(targetX, targetY, maxRadius, collision.MovementBounds{})
+}
+
+// findNearestSummonTileWithin also keeps the tile centre inside bounds.
+func (cs *CombatSystem) findNearestSummonTileWithin(targetX, targetY float64, maxRadius int, bounds collision.MovementBounds) (float64, float64, bool) {
 	w := cs.game.GetCurrentWorld()
 	if w == nil || world.GlobalTileManager == nil {
 		return 0, 0, false
@@ -302,7 +342,7 @@ func (cs *CombatSystem) findNearestSummonTile(targetX, targetY float64, maxRadiu
 					continue
 				}
 				x, y := TileCenterFromTile(tx, ty, tile)
-				if cs.summonSpawnOccupied(x, y) {
+				if !bounds.Allows(collision.NewBoundingBox(x, y, 0, 0)) || cs.summonSpawnOccupied(x, y) {
 					continue
 				}
 				return x, y, true

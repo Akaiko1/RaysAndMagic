@@ -21,10 +21,12 @@ func (cs *CombatSystem) healMember(idx, amount int) {
 	if m == nil {
 		return
 	}
+	before := m.HitPoints
 	m.HitPoints += amount
 	if m.HitPoints > m.MaxHitPoints {
 		m.HitPoints = m.MaxHitPoints
 	}
+	cs.queueOverflow(m, amount-(m.HitPoints-before))
 	if m.HitPoints > 0 {
 		m.RemoveCondition(character.ConditionUnconscious)
 	}

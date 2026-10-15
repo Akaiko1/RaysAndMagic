@@ -61,6 +61,8 @@ func fxKindTag(k game.FxKind) string {
 		return "[card]"
 	case game.FxStatus:
 		return "[status]"
+	case game.FxFlask:
+		return "[flask]"
 	}
 	return "[?]"
 }

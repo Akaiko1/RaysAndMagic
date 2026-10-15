@@ -120,7 +120,7 @@ func ScaledRoundsText(pct int) string {
 	return strings.Join(from, "/") + " -> " + strings.Join(to, "/")
 }
 
-// DurationText is the one way an effect duration is written: "9s / 3 TB turns".
+// DurationText writes compact status durations through the catalog templates.
 func DurationText(seconds int) string {
 	rounds := CombatRounds(seconds)
 	return DurationTextOf(strconv.Itoa(seconds), strconv.Itoa(rounds), rounds == 1)
@@ -152,6 +152,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	}
 	var lines []string
 	lines = append(lines, w.ElementalAbility.Lines()...)
+	lines = append(lines, w.Signature.Lines()...)
 	lines = append(lines, w.reactiveEffectLines()...)
 	if damageType, err := damagecalc.ParseType(w.DamageType); includeStructured && err == nil && damageType != damagecalc.Physical {
 		lines = append(lines, uitext.Text("weapon.damage_type", titleCaseLower(damageType.String())))
@@ -583,6 +584,8 @@ type MeleeAttackConfig struct {
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
+	ImpactFlameScale float64 `yaml:"impact_flame_scale,omitempty"` // Scale of the shared one-tile campfire volume.
+
 	SlashLiftRatio float64 `yaml:"slash_lift_ratio,omitempty"` // Lift the complete swing by a fraction of view height.
 	SlashColor     [3]int  `yaml:"slash_color"`                // RGB color for slash effect
 	SlashWidth     int     `yaml:"slash_width"`                // Width of slash line
@@ -1539,6 +1542,7 @@ func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
 type WeaponDefinitionConfig struct {
+	Signature                 *WeaponSignatureConfig  `yaml:"signature,omitempty"`
 	NightBaseDamageMultiplier int                     `yaml:"night_base_damage_multiplier,omitempty"`
 	HitShellAbsorption        int                     `yaml:"hit_shell_absorption,omitempty"`
 	AttackZoneProc            *AttackZoneProcConfig   `yaml:"attack_zone_proc,omitempty"`
@@ -2399,6 +2403,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if err := def.ElementalAbility.validate(def); err != nil {
 			return fmt.Errorf("weapon %q: %w", key, err)
 		}
+		if err := def.Signature.validate(def); err != nil {
+			return fmt.Errorf("weapon %q: %w", key, err)
+		}
 		if err := def.validateReactiveEffects(); err != nil {
 			return fmt.Errorf("weapon %q: %w", key, err)
 		}
@@ -2470,6 +2477,11 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			if math.IsNaN(lift) || math.IsInf(lift, 0) || lift < 0 || lift > .5 || (def.IsRanged() && lift != 0) {
 				return fmt.Errorf("weapon '%s': slash_lift_ratio must be finite in [0,0.5] and melee-only", key)
 			}
+		}
+		// A Solar Flare staff, and only one, scales its impact flame.
+		if flame := def.Graphics != nil && def.Graphics.ImpactFlameScale != 0; flame != def.HasSignature(SignatureSolarFlare) ||
+			flame && !positive(def.Graphics.ImpactFlameScale) {
+			return fmt.Errorf("weapon '%s': impact_flame_scale is exactly for a solar flare, with a positive finite scale", key)
 		}
 		if def.IsRanged() {
 			if def.Physics == nil {
@@ -2794,6 +2806,19 @@ type ItemDefinitionConfig struct {
 	// Duplicate cards use the largest movement-burst radius, not its sum.
 	CardMoveAoeRadiusTiles float64 `yaml:"card_move_aoe_radius_tiles,omitempty"`
 
+	// Card rules: duplicates never stack; the strongest copy's whole rule
+	// applies (cardRules lists each rule by its strength field).
+	CardWildfireHPPct       int     `yaml:"card_wildfire_hp_pct,omitempty"`       // a burning enemy's death bursts for N% of its max HP as fire
+	CardWildfireRadiusTiles float64 `yaml:"card_wildfire_radius_tiles,omitempty"` // burst reach
+	CardWildfireBurnSeconds int     `yaml:"card_wildfire_burn_seconds,omitempty"` // burn on burst survivors
+	CardWildfireSchool      string  `yaml:"card_wildfire_school,omitempty"`       // the burst's damage school
+	CardOverflowPct         int     `yaml:"card_overflow_pct,omitempty"`          // N% of excess healing restores SP
+	CardOverflowCapPct      int     `yaml:"card_overflow_cap_pct,omitempty"`      // cap: N% of a healing spell's paid SP
+	CardCrumbleArmor        int     `yaml:"card_crumble_armor,omitempty"`         // armor removed per direct weapon hit
+	CardCrumbleCapPct       int     `yaml:"card_crumble_cap_pct,omitempty"`       // erosion cap: N% of the victim's base armor
+	CardStormReversalPct    int     `yaml:"card_storm_reversal_pct,omitempty"`    // N% of a perfectly dodged hit returned to the attacker
+	CardStormReversalSchool string  `yaml:"card_storm_reversal_school,omitempty"` // the returned damage's school
+
 	// PartyArmorBonus: flat AC granted to every OTHER party member while this
 	// item is equipped (the Parma's shield wall).
 	PartyArmorBonus           int `yaml:"party_armor_bonus,omitempty"`
@@ -2960,6 +2985,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			return err
 		}
 		if err := def.validateReactiveCard(); err != nil {
+			return fmt.Errorf("item %q: %w", key, err)
+		}
+		if err := def.validateCardRules(); err != nil {
 			return fmt.Errorf("item %q: %w", key, err)
 		}
 		if err := validateCraftedItem(key, def); err != nil {
@@ -3213,8 +3241,9 @@ type LootTablesConfig struct {
 // CardDropChance is the single drop rule for monster cards: boss: true
 // monsters drop theirs at Boss, every other monster at Monster.
 type CardDropChance struct {
-	Boss    float64 `yaml:"boss"`
-	Monster float64 `yaml:"monster"`
+	Boss          float64            `yaml:"boss"`
+	Monster       float64            `yaml:"monster"`
+	BossOverrides map[string]float64 `yaml:"boss_overrides,omitempty"`
 }
 
 // CrateConfig is one chest's loot + trap behavior. Tier semantics are data:
@@ -3359,10 +3388,11 @@ func CrateSoundKeys() []string {
 }
 
 type LootEntry struct {
-	Type   string  `yaml:"type"` // weapon|item|harvest|set|table|first_of|gold
-	Key    string  `yaml:"key"`
-	Chance float64 `yaml:"chance"`
-	Rolls  int     `yaml:"rolls,omitempty"` // independent attempts; 0 defaults to one
+	KillOnly bool    `yaml:"kill_only,omitempty"`
+	Type     string  `yaml:"type"` // weapon|item|harvest|set|table|first_of|gold
+	Key      string  `yaml:"key"`
+	Chance   float64 `yaml:"chance"`
+	Rolls    int     `yaml:"rolls,omitempty"` // independent attempts; 0 defaults to one
 	// Min and Max: a gold entry's coin range, or how many units an item, weapon,
 	// harvest or set entry drops when it lands (one when omitted).
 	Min int `yaml:"min,omitempty"`
@@ -3477,6 +3507,11 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	}
 	if r := loots.CardDropChance; r.Boss < 0 || r.Boss > 1 || r.Monster < 0 || r.Monster > 1 {
 		return nil, fmt.Errorf("card_drop_chance values must lie in 0..1")
+	}
+	for key, chance := range loots.CardDropChance.BossOverrides {
+		if key == "" || math.IsNaN(chance) || math.IsInf(chance, 0) || chance <= 0 || chance > 1 {
+			return nil, fmt.Errorf("card_drop_chance.boss_overrides %q must lie in (0,1]", key)
+		}
 	}
 	GlobalLoots = &loots
 	return &loots, nil

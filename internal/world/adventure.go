@@ -7,6 +7,12 @@ import (
 
 // Validate geometry before publishing a fresh visit or registering its actors.
 func validateAdventureWorld(key string, w *World3D, a *config.AdventureConfig) error {
+	// A push shoves the party toward a lane of the boss's own chamber.
+	for _, m := range w.Monsters {
+		if m.Abilities.Push.CooldownSeconds > 0 && (a == nil || a.Boss == nil || a.Boss.Monster != m.Key || len(a.Boss.Lanes) == 0) {
+			return fmt.Errorf("map %q: %s has push, which needs it to be the boss of a chamber with lanes", key, m.Key)
+		}
+	}
 	if a == nil {
 		return nil
 	}
@@ -35,11 +41,6 @@ func validateAdventureWorld(key string, w *World3D, a *config.AdventureConfig) e
 		x, y := e.Destination[0], e.Destination[1]
 		if !inBounds(x, y) || w.IsTileBlockingTerrainAt(x, y) {
 			return fail("blocked receiver: " + e.ID)
-		}
-		for _, other := range a.Effects {
-			if other.Contains(x, y) && other.Kind != "lane" {
-				return fail("receiver overlaps hazard: " + e.ID)
-			}
 		}
 	}
 	for _, c := range a.Controls {

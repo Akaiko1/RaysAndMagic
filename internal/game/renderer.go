@@ -292,6 +292,9 @@ type Renderer struct {
 	zonePlumeShader      *ebiten.Shader
 	fireNoise            *ebiten.Image
 	weaponBodyShader     *ebiten.Shader
+	relicMaterialShader  *ebiten.Shader
+	relicMaterialOpts    ebiten.DrawTrianglesShaderOptions
+	relicMaterialTime    [1]float32
 	bubbleShader         *ebiten.Shader
 	fireflyShader        *ebiten.Shader
 	weaponMaterialWarmed bool
@@ -4963,7 +4966,19 @@ func (r *Renderer) drawArrow(screen *ebiten.Image, idx int) {
 	screenX := proj.screenX
 	screenY := proj.screenY
 	arrowSize := proj.size
-	view := r.projectileView(arrow.X, arrow.Y, arrow.VelX, arrow.VelY)
+	visualVX, visualVY := arrow.VelX, arrow.VelY
+	if arrow.Signature.ReturnLeg {
+		// Rotate the complete centered knife through a half-turn. Travel owns
+		// the phase, so pausing or changing Draw frequency cannot advance it.
+		speed := math.Hypot(visualVX, visualVY)
+		progress := smoothStep((physical.DistanceTraveled - physical.Signature.TurnAtDistance) / math.Max(1, speed*float64(r.game.config.GetTPS())*.22))
+		from := physical.Signature.TurnFromAngle
+		// Keep one turn direction across the +/-pi seam as the party moves.
+		delta := math.Mod(math.Atan2(visualVY, visualVX)-from+2*math.Pi, 2*math.Pi)
+		angle := from + delta*progress
+		visualVX, visualVY = math.Cos(angle)*speed, math.Sin(angle)*speed
+	}
+	view := r.projectileView(arrow.X, arrow.Y, visualVX, visualVY)
 
 	// Draw collision box if enabled (draw first, so it's behind the arrow)
 	if r.game.showCollisionBoxes {
@@ -4997,6 +5012,16 @@ func (r *Renderer) drawArrow(screen *ebiten.Image, idx int) {
 	critBoost := 1.0
 	if arrow.Crit {
 		critBoost = 1.2
+	}
+	if draw := weaponProjectileFxStyles[bowDef.Graphics.ProjectileFx].volume; draw != nil {
+		convergence := 0.0
+		if !view.incoming() && arrow.Owner == ProjectileOwnerPlayer && arrow.Attacker != nil && !arrow.Signature.ReturnLeg {
+			convergence = bowHandConvergence(arrow.DistanceTraveled, r.game.config.GetTileSize()) * view.faceWeight()
+			centerX += float64(r.game.worldWidth()) * .055 * convergence
+			centerY += float64(r.game.worldHeight()) * .025 * convergence
+		}
+		draw(r, screen, centerX, centerY, float64(arrowSize), view, critBoost, convergence, seedFromID(arrow.ID))
+		return
 	}
 	if strings.EqualFold(bowDef.Category, "blaster") {
 		// Blasters fire slugs with a tracer streak, not fletched arrows.

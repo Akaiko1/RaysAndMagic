@@ -4,11 +4,15 @@ import "math"
 
 // Geometry and palette are part of the procedural asset, like pixels in an icon.
 // Combat values and effect selection remain in weapons.yaml.
+// Mesh materials, as numbered in weapon_body.kage and boss_relic.kage.
 const (
 	meshMetal = iota
 	meshGrip
 	meshStone
 	meshGlow
+	meshRelicGlass
+	meshRelicWater
+	meshRuneInlay
 )
 
 var (
@@ -143,6 +147,8 @@ var meleeWeaponMeshes volumeMeshCache
 func buildMeleeWeaponMesh(id int) []modelFace {
 	var m weaponMeshBuilder
 	switch {
+	case id == meleeBodyStoneScript:
+		m.stoneScript()
 	case id == meleeBodyRainfang:
 		m.rainfang()
 	case id == meleeBodyShellknocker:

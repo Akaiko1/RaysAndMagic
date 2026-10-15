@@ -29,6 +29,17 @@ func drawBindBadge(screen *ebiten.Image, cx, cy, radius float32) {
 	uiStrokeCircle(screen, cx+link*0.7, cy, link, 1.4, tint, true)
 }
 
+// Catalysis shares the compact head-badge row instead of competing with stun
+// stars. The three bubbles identify the prepared alchemical reaction.
+func drawCatalysisBadge(screen *ebiten.Image, cx, cy, radius float32) {
+	uiFillCircle(screen, cx, cy, radius, tacticalBadgeBackground, true)
+	for _, p := range [][3]float32{{-.32, .23, .27}, {.31, .14, .22}, {-.03, -.36, .19}} {
+		x, y, r := cx+p[0]*radius, cy+p[1]*radius, p[2]*radius
+		uiFillCircle(screen, x, y, r, color.RGBA{40, 181, 218, 255}, true)
+		uiFillCircle(screen, x-r*.25, y-r*.3, r*.3, color.RGBA{191, 249, 255, 255}, true)
+	}
+}
+
 // drawSummonerBadge marks an ally with its summoner: the hero's face in a
 // ring, so a glance tells whose it is.
 func drawSummonerBadge(screen, portrait *ebiten.Image, cx, cy, radius float32) {
@@ -66,12 +77,16 @@ var statusBadgeRenderers = map[statusVisuals]func(dst *ebiten.Image, cx, cy, rad
 
 // drawMonsterHeadBadges rides the small state markers in one row above the
 // head: the Sniper's designation reticle, the summoner's face, then each badge
-// motif in catalog order.
+// motif in catalog order, followed by the Catalysis reaction.
 func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRenderData, screenY int, badges statusVisuals) {
 	designated := r.game.designationBonus(s.monster) > 0
 	badges &= statusBadgeVisuals
 	summoner := r.game.summonerOf(s.monster)
-	if !designated && badges == 0 && summoner == nil {
+	catalysis := false
+	for _, mark := range s.monster.Relics.Catalysis {
+		catalysis = catalysis || mark.Frames > 0
+	}
+	if !designated && badges == 0 && summoner == nil && !catalysis {
 		return
 	}
 	// Hide the markers when their anchor is behind terrain, including a partly
@@ -99,6 +114,9 @@ func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRe
 			row = append(row, headBadge{radius, worldBadgeKey{kind: e.key}, statusBadgeRenderers[e.flag]})
 		}
 	}
+	if catalysis {
+		row = append(row, headBadge{radius, worldBadgeKey{kind: "catalysis"}, drawCatalysisBadge})
+	}
 	const gap = 4
 	var width, tallest float32
 	for _, b := range row {
@@ -106,7 +124,19 @@ func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRe
 		tallest = max(tallest, b.radius)
 	}
 	x := float32(s.screenX) - (width-gap)/2
-	y := headBadgeRowY(worldProjectionOf(screen), x, width-gap, tallest, float32(screenY))
+	proj := worldProjectionOf(screen)
+	y := headBadgeRowY(proj, x, width-gap, tallest, float32(screenY))
+	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
+		cy, _, ry := stunStarRingGeometry(proj, float64(s.screenX), float64(screenY), float64(s.spriteSize))
+		extent := float32(ry + float64(s.spriteSize)*.05)
+		above := float32(cy) - extent - tallest - 5
+		top := float32(proj.sourceEdgeY(float64(x), float64(x+width-gap), 3))
+		if above-tallest >= top {
+			y = above
+		} else {
+			y = max(y, float32(cy)+extent+tallest+5)
+		}
+	}
 	for _, b := range row {
 		r.drawWorldHeadBadge(screen, b.key, x+b.radius, y, b.radius, b.draw)
 		x += 2*b.radius + gap

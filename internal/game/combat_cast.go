@@ -97,7 +97,19 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 		return castRejected
 	}
 	caster.SpellPoints -= req.Cost
+	previousOverflow := cs.overflow
+	cs.overflow = nil
+	if def.IsHeal() {
+		cs.overflow = cs.beginOverflowCast(req.Cost)
+	}
+	defer func() { cs.overflow = previousOverflow }()
 	outcome := effect()
+	if outcome == castCommitted {
+		cs.overflow.commit()
+		if req.Cost > 0 && def.IsOffensive() {
+			g.chargeSignatureWeapons(caster, 0, true)
+		}
+	}
 	if outcome != castCommitted {
 		caster.SpellPoints += req.Cost
 	} else if def.ReuseSeconds > 0 {

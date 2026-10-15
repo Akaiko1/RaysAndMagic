@@ -45,6 +45,7 @@ const (
 	FxTile
 	FxCard
 	FxStatus
+	FxFlask
 )
 
 // FxItem is one selectable effect in the editor's FX tab.
@@ -57,6 +58,8 @@ type FxItem struct {
 	// Status exhibits: the motif, staged on the hero card or a stage monster.
 	status statusVisuals
 	onHero bool
+	// Charged variants are separate catalog entries; normal attacks stay comparable.
+	charged bool
 }
 
 const fxStageMapKey = "fx_stage"
@@ -241,7 +244,21 @@ func (p *FxPreview) Items() []FxItem {
 	}
 	sort.Strings(weaponKeys)
 	for _, k := range weaponKeys {
-		out = append(out, FxItem{Kind: FxWeapon, Key: k, Label: config.GlobalWeapons.Weapons[k].Name})
+		def := config.GlobalWeapons.Weapons[k]
+		out = append(out, FxItem{Kind: FxWeapon, Key: k, Label: def.Name})
+		if def.Signature != nil && def.Signature.ChargeLimit > 0 {
+			out = append(out, FxItem{Kind: FxWeapon, Key: k, Label: def.Name + " (charged)", charged: true})
+		}
+	}
+	var flaskKeys []string
+	for k, d := range config.GlobalItems.Items {
+		if d.Flask != nil {
+			flaskKeys = append(flaskKeys, k)
+		}
+	}
+	sort.Strings(flaskKeys)
+	for _, k := range flaskKeys {
+		out = append(out, FxItem{Kind: FxFlask, Key: k, Label: config.GlobalItems.Items[k].Name})
 	}
 
 	for _, k := range config.TrapKeysOrdered() {
@@ -403,9 +420,20 @@ func (p *FxPreview) spawn() {
 		if def, ok := config.GetWeaponDefinition(p.sel.Key); ok && def != nil {
 			// Straight into the slot: sandbox hero wields anything, class gates
 			// don't apply to a preview.
-			m.Equipment[items.SlotMainHand] = items.Item{Name: def.Name, Type: items.ItemWeapon}
+			m.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(p.sel.Key)
+			if p.sel.charged && def.Signature != nil {
+				it := m.Equipment[items.SlotMainHand]
+				it.Signature.Charges = def.Signature.ChargeLimit
+				m.Equipment[items.SlotMainHand] = it
+			}
 			g.combat.EquipmentMeleeAttack()
 		}
+	case FxFlask:
+		m.Skills[character.SkillBombThrowing] = &character.Skill{Mastery: character.MasteryGrandMaster}
+		m.Skills[character.SkillAlchemy] = &character.Skill{Mastery: character.MasteryGrandMaster}
+		m.Inventory = []items.Item{items.CreateItemFromYAML(p.sel.Key)}
+		g.equipFlask(0, p.sel.Key)
+		g.throwFlask(0, p.sel.Key, false)
 	case FxTrap:
 		if def, ok := config.GetTrapDefinition(p.sel.Key); ok && def != nil {
 			g.traps = g.traps[:0]
@@ -562,7 +590,7 @@ func (p *FxPreview) resolveStageImpacts() {
 	}
 	for i := range g.arrows {
 		shot := &g.arrows[i]
-		if !shot.Active {
+		if !shot.Active || shot.Signature.ReturnLeg {
 			continue
 		}
 		def, ok := config.GetWeaponDefinition(shot.BowKey)
@@ -574,10 +602,27 @@ func (p *FxPreview) resolveStageImpacts() {
 			continue
 		}
 		shot.X, shot.Y = x, y
-		wrapper := ArrowWrapper{Arrow: shot, game: g}
-		wrapper.OnCollision(x, y)
-		wrapper.ApplyCollisionEffects()
-		g.collisionSystem.UnregisterEntity(shot.ID)
+		if shot.Signature.Flare {
+			// The common contact plane acts as a hit for this exhibit. Resolve
+			// through combat, then remove the recipient before drawing: the
+			// weapon stage stays empty like every other ranged preview.
+			target := &monster.Monster3D{ID: "fx_contact", X: x, Y: y, HitPoints: 1000000, MaxHitPoints: 1000000, NoKillRewards: true}
+			staged := g.world.Monsters
+			g.world.Monsters = append(g.world.Monsters, target)
+			g.combat.applyProjectileDamage(shot, target, shot.ID)
+			g.world.Monsters = staged
+		} else {
+			wrapper := ArrowWrapper{Arrow: shot, game: g}
+			wrapper.OnCollision(x, y)
+			wrapper.ApplyCollisionEffects()
+		}
+	}
+	// The stage contact ends shots like a wall does: blades turn back first.
+	g.combat.turnSpentBlades()
+	for i := range g.arrows {
+		if shot := &g.arrows[i]; !shot.Active {
+			g.collisionSystem.UnregisterEntity(shot.ID)
+		}
 	}
 }
 
@@ -591,6 +636,7 @@ func (p *FxPreview) Step() {
 	gl := g.gameLoop
 	g.updateInterfacePresentation()
 	g.frameCount++
+	gl.renderer.prewarmPendingMapRenderResources()
 	gl.updateSpecialEffects()
 	gl.updateProjectilesAndImpacts()
 	p.resolveStageImpacts()
@@ -609,7 +655,7 @@ func (p *FxPreview) Step() {
 		interval = armedTicks + int(math.Ceil(trapBurstSeconds*float64(g.config.GetTPS()))) + 15
 	}
 	if p.tick >= interval {
-		if (p.sel.Kind == FxSpell || p.sel.Kind == FxWeapon) && p.attackVisualsActive() {
+		if (p.sel.Kind == FxSpell || p.sel.Kind == FxWeapon || p.sel.Kind == FxFlask) && p.attackVisualsActive() {
 			return
 		}
 		p.tick = 0
@@ -636,6 +682,11 @@ func (p *FxPreview) attackVisualsActive() bool {
 		}
 	}
 	for _, shot := range g.arrows {
+		if shot.Active {
+			return true
+		}
+	}
+	for _, shot := range g.flasks {
 		if shot.Active {
 			return true
 		}

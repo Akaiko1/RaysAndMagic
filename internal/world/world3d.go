@@ -314,11 +314,28 @@ func (w *World3D) RegisterMonstersWithCollisionSystem(collisionSystem *collision
 func (w *World3D) NewMonsterCollisionEntity(m *monster.Monster3D, kind collision.CollisionType) *collision.Entity {
 	width, height := m.GetSize()
 	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, kind, false)
-	if a := w.adventure; a != nil && a.Boss != nil && a.Boss.Monster == m.Key && a.Boss.Arena != nil {
+	if a := w.adventure; a != nil && a.Boss != nil && a.Boss.Arena != nil && w.inBossArena(m, a.Boss.Monster) {
 		b, ts := a.Boss.Arena, float64(w.config.GetTileSize())
 		entity.WithMovementBounds(collision.MovementBounds{Enabled: true, MinX: float64(b[0]) * ts, MinY: float64(b[1]) * ts, MaxX: float64(b[2]+1) * ts, MaxY: float64(b[3]+1) * ts})
 	}
 	return entity
+}
+
+// inBossArena reports the arena boss and the adds it summoned: they share its
+// arena, so an add cannot leave the party's locked fight.
+func (w *World3D) inBossArena(m *monster.Monster3D, boss string) bool {
+	if m.Key == boss {
+		return true
+	}
+	if m.SummonedBy == "" {
+		return false
+	}
+	for _, o := range w.Monsters {
+		if o != nil && o.ID == m.SummonedBy {
+			return o.Key == boss
+		}
+	}
+	return false
 }
 
 // IsTileBlocking implements the collision.TileChecker interface

@@ -88,14 +88,12 @@ func (g *MMGame) ensureAdditionalRecruits() {
 		}
 		found := false
 		experience := 0
-		for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
-			for _, ch := range roster {
-				if ch.Name == entry.Name {
-					found = true
-				}
-				if xp := earnedExperienceForCharacter(ch.Level, ch.Experience); xp > experience {
-					experience = xp
-				}
+		for ch := range g.party.Heroes() {
+			if ch.Name == entry.Name {
+				found = true
+			}
+			if xp := earnedExperienceForCharacter(ch.Level, ch.Experience); xp > experience {
+				experience = xp
 			}
 		}
 		if found {

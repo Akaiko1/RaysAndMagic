@@ -6,9 +6,12 @@ import (
 	"math/rand"
 	"slices"
 	"sort"
+
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
+	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -282,46 +285,66 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 	}
 }
 
-// applyEnvironmentArrival is called once from the common live-arrival path.
-// Loading restores states directly and never calls this method.
+// applyEnvironmentArrival runs on every live arrival: a step, a forced step
+// and a map arrival. Loading restores states directly and never calls it.
 func (g *MMGame) applyEnvironmentArrival() { g.resolveEnvironmentArrival(true) }
 
-// Forced movement must end on a safe receiving tile, never in another active
-// hazard or telegraph. Voluntary movement retains its normal arrival effects.
-func (g *MMGame) safeForcedArrival(x, y int, sourceEffect string) bool {
-	wx, wy := TileCenterFromTile(x, y, float64(g.config.GetTileSize()))
+// forcedArrivalOpen reports a tile a forced move may end on: one the party
+// can stand on that no monster holds. Hazards, lanes and telegraphs do not
+// matter.
+func (g *MMGame) forcedArrivalOpen(x, y int) bool {
+	ts := g.config.GetTileSize()
+	wx, wy := TileCenterFromTile(x, y, float64(ts))
 	if g.collisionSystem == nil || !g.collisionSystem.CanMoveTo("player", wx, wy) {
 		return false
 	}
-	if a := g.adventureConfig(currentMapKey()); a != nil {
-		v := g.adventureVisit(currentMapKey())
-		for _, e := range a.Effects {
-			if e.ID == sourceEffect || !e.Contains(x, y) || !g.effectEnabled(a, v, e) {
-				continue
-			}
-			if e.Kind == "lane" {
-				s := v.Effects[e.ID]
-				if s == nil || (s.Warning <= 0 && s.Remaining <= 0) {
-					continue
-				}
-			}
-			if e.Kind == "transfer" || e.Kind == "occupation" || e.Kind == "trap" || e.Kind == "lane" {
-				return false
-			}
-		}
-	}
 	if g.world != nil {
 		for _, m := range g.world.Monsters {
-			if m != nil && m.IsAlive() && TileIndex(m.X, g.config.GetTileSize()) == x && TileIndex(m.Y, g.config.GetTileSize()) == y {
-				return false
-			}
-			if g.telegraphAllowed(m) && m.TargetsParty() && m.Telegraph.TargetID == "" &&
-				(m.Telegraph.Warning > 0 || m.Telegraph.Remaining > 0) && slices.Contains(m.Telegraph.Tiles, [2]int{x, y}) {
+			if m != nil && m.IsAlive() && TileIndex(m.X, ts) == x && TileIndex(m.Y, ts) == y {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// forcePartyStep moves the party onto an open tile and lands it there
+// (arriveOnTile). False leaves the party where it was.
+func (g *MMGame) forcePartyStep(x, y int) bool {
+	if !g.forcedArrivalOpen(x, y) {
+		return false
+	}
+	g.displacePartyToTile(x, y)
+	g.arriveOnTile()
+	return true
+}
+
+// displacePartyToTile is displaceParty onto a tile centre (a push, a current,
+// the arena pull).
+func (g *MMGame) displacePartyToTile(x, y int) {
+	wx, wy := TileCenterFromTile(x, y, float64(g.config.GetTileSize()))
+	g.displaceParty(wx, wy, "")
+}
+
+// displaceParty moves the party anywhere but by its own step - a jump, a
+// Pilgrim teleport, a push, a current, the arena pull: movement effects see
+// the distance and credit names the adventure movement it counts as ("" for
+// none). The caller lands it (applyLandingTileEffects or arriveOnTile).
+func (g *MMGame) displaceParty(x, y float64, credit string) {
+	oldX, oldY := g.camera.X, g.camera.Y
+	g.setPartyPosition(x, y)
+	g.creditAdventureMovement(credit, oldX, oldY, x, y)
+	g.partyMoved(oldX, oldY)
+}
+
+// arriveOnTile is the arrival every move shares, in the step's order: loot
+// is picked up, then chamber effects arrive (plates fire, a current carries
+// the party on and picks up the receiver's loot). A step and a jump add
+// teleporters and deep water (applyLandingTileEffects); forced moves stop
+// here, since they run inside the AI pass where a map switch must not happen.
+func (g *MMGame) arriveOnTile() {
+	g.autoPickupLootBags()
+	g.applyEnvironmentArrival()
 }
 
 func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
@@ -331,63 +354,69 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 		return
 	}
 	v := g.adventureVisit(key)
-	tx, ty := g.GetPlayerTilePosition()
-	transferred := false
 	lo, hi := adventureBossAttack(g.config.AdventureScaling, a, v)
-	for _, e := range a.Effects {
-		e = effectDamage(e, lo, hi)
-		s := v.effectState(e.ID)
-		inside := e.Contains(tx, ty)
-		if !inside {
-			s.WasInside = false
-			s.Suppressed = false
-			if s.Rearm == 0 {
-				s.Triggered = false
-			}
-			continue
-		}
-		wasInside := s.WasInside
-		s.WasInside = true
-		if !g.effectEnabled(a, v, e) {
-			continue
-		}
-		if e.BossBelowPercent > 0 && (!s.Activated || s.Warning > 0) {
-			continue
-		}
-		if chargeTraps && e.Kind == "trap" && !wasInside && !s.Triggered && s.Rearm <= 0 {
-			s.Triggered = true
-			s.Rearm = 1
-			g.damageEnvironment(e, 1)
-		}
-		if e.Kind != "transfer" || s.Suppressed || transferred {
-			continue
-		}
-		if e.TriggerLane != "" {
-			lane := v.Effects[e.TriggerLane]
-			if lane == nil || lane.Warning > 0 || lane.Remaining <= 0 {
+	// One source can move the party once. The source tile resolves whole;
+	// the receiving tile then arrives like a step (its plates fire) without
+	// carrying the party on again.
+	transferred := false
+	for pass := range 2 {
+		tx, ty := g.GetPlayerTilePosition()
+		charge := chargeTraps || pass > 0
+		carried := false
+		for _, e := range a.Effects {
+			e = effectDamage(e, lo, hi)
+			s := v.effectState(e.ID)
+			inside := e.Contains(tx, ty)
+			if !inside {
+				s.WasInside = false
+				s.Suppressed = false
+				if s.Rearm == 0 {
+					s.Triggered = false
+				}
 				continue
 			}
-		}
-		x, y := e.Destination[0], e.Destination[1]
-		tile := float64(g.config.GetTileSize())
-		wx, wy := TileCenterFromTile(x, y, tile)
-		if !g.safeForcedArrival(x, y, e.ID) {
-			continue
-		}
-		oldX, oldY := g.camera.X, g.camera.Y
-		g.setPartyPosition(wx, wy)
-		g.notifyPilgrimDisplacement(oldX, oldY)
-		s.Suppressed = true
-		transferred = true
-		g.autoPickupLootBags()
-		// One source can move the party once. Reset entry latches at the legal
-		// receiving tile without recursively activating another transfer.
-		for _, other := range a.Effects {
-			if !other.Contains(x, y) {
-				v.effectState(other.ID).WasInside = false
+			wasInside := s.WasInside
+			s.WasInside = true
+			if !g.effectEnabled(a, v, e) {
+				continue
 			}
+			if e.BossBelowPercent > 0 && (!s.Activated || s.Warning > 0) {
+				continue
+			}
+			if charge && e.Kind == "trap" && !wasInside && !s.Triggered && s.Rearm <= 0 {
+				s.Triggered = true
+				s.Rearm = 1
+				g.damageEnvironment(e, 1)
+			}
+			// A current never chains: one under the receiving tile sleeps until
+			// the party steps off it (Suppressed clears once it is outside),
+			// whatever later releases transfers.
+			if e.Kind == "transfer" && pass > 0 {
+				s.Suppressed = true
+				continue
+			}
+			if e.Kind != "transfer" || s.Suppressed || transferred {
+				continue
+			}
+			if e.TriggerLane != "" {
+				lane := v.Effects[e.TriggerLane]
+				if lane == nil || lane.Warning > 0 || lane.Remaining <= 0 {
+					continue
+				}
+			}
+			x, y := e.Destination[0], e.Destination[1]
+			if !g.forcedArrivalOpen(x, y) {
+				continue
+			}
+			g.displacePartyToTile(x, y)
+			s.Suppressed = true
+			transferred, carried = true, true
+			g.autoPickupLootBags()
+			g.AddCombatMessage(e.Name + " carries the party to the receiving platform.")
 		}
-		g.AddCombatMessage(e.Name + " carries the party to the receiving platform.")
+		if !carried {
+			return
+		}
 	}
 }
 
@@ -467,48 +496,124 @@ func (g *MMGame) useAdventureControl(id string) {
 		g.endPartyTurnAfterMovement()
 	}
 }
-func (cs *CombatSystem) runAdventureBossAction(m *monster.Monster3D, attackTick bool) bool {
-	g := cs.game
+
+// chamberBoss returns a chamber boss's adventure policy, or nil for any other
+// monster.
+func (g *MMGame) chamberBoss(m *monster.Monster3D) *config.AdventureConfig {
 	a := g.adventureConfig(m.HomeMap)
-	if a == nil || a.Boss == nil || a.Boss.Monster != m.Key || cs.bossDisabled(m) {
-		return false
+	if a == nil || a.Boss == nil || a.Boss.Monster != m.Key {
+		return nil
 	}
-	if a.Boss.LowHealthRange > 0 {
-		if def, err := monster.MonsterConfig.GetMonsterByKey(m.Key); err == nil {
-			reach := def.RangedAttackRange
-			if m.HitPoints*100 <= m.MaxHitPoints*25 {
-				reach = a.Boss.LowHealthRange
-			}
-			m.RangedAttackRange = reach * float64(g.config.GetTileSize())
+	return a
+}
+
+// updateChamberBossReach sets a chamber boss's ranged reach for its HP before
+// it acts: low_health_range at or below 25% HP.
+func (cs *CombatSystem) updateChamberBossReach(m *monster.Monster3D) {
+	a := cs.game.chamberBoss(m)
+	if a == nil || a.Boss.LowHealthRange <= 0 || cs.bossDisabled(m) {
+		return
+	}
+	if def, err := monster.MonsterConfig.GetMonsterByKey(m.Key); err == nil {
+		reach := def.RangedAttackRange
+		if m.HitPoints*100 <= m.MaxHitPoints*25 {
+			reach = a.Boss.LowHealthRange
 		}
+		m.RangedAttackRange = reach * float64(cs.game.config.GetTileSize())
 	}
-	if !attackTick {
-		return false
+}
+
+// monsterAttackLanded runs when a monster's attack reaches its target, the
+// party or another actor, dodged or not: a melee strike at once, a shot when
+// it hits. A shot that flies past lands nothing.
+func (cs *CombatSystem) monsterAttackLanded(m *monster.Monster3D) {
+	if m != nil && m.IsBoss() {
+		cs.runChamberBossFreeActions(m)
+	}
+}
+
+// runChamberBossFreeActions follows each landed attack of a chamber boss
+// (monsterAttackLanded), RT and TB alike, whoever it struck: the next lane
+// pattern once the lane cooldown is over, then the push once its own is.
+// Neither spends the action; both cooldowns run in rounds like any other.
+func (cs *CombatSystem) runChamberBossFreeActions(m *monster.Monster3D) {
+	g := cs.game
+	a := g.chamberBoss(m)
+	if a == nil || !m.IsAlive() || m.IsAfraid() || m.IsSilenced() || cs.bossDisabled(m) {
+		return
 	}
 	v := g.adventureVisit(m.HomeMap)
-	v.BossActions++
-	pattern := a.Boss.Pattern(m.HitPoints, m.MaxHitPoints, v.BossActions)
-	// A pattern is one atomic action: never charge or arm just half of it.
+	tps := g.config.GetTPS()
+	if !m.LaneCD.Active() {
+		m.LaneCD.Arm(a.Boss.LaneCooldown(m.HitPoints, m.MaxHitPoints), tps)
+		g.announceAdventureBossLanes(m, a, v)
+	}
+	if cooldown := m.Abilities.Push.CooldownSeconds; cooldown > 0 && !m.PushCD.Active() {
+		m.PushCD.Arm(cooldown, tps)
+		g.pushPartyTowardLane(m, a, v)
+	}
+}
+
+// announceAdventureBossLanes marks the phase's next pattern; the turn passes
+// to the one after it even when this one cannot fire. A pattern is atomic:
+// never charge or arm just half of it.
+func (g *MMGame) announceAdventureBossLanes(m *monster.Monster3D, a *config.AdventureConfig, v *AdventureVisit) {
+	pattern := a.Boss.Pattern(m.HitPoints, m.MaxHitPoints, v.LanePatterns)
+	v.LanePatterns++
+	if len(pattern) == 0 {
+		return
+	}
 	for _, id := range pattern {
 		e := a.Effect(id)
 		if e == nil || !g.effectEnabled(a, v, *e) {
-			return false
+			return
 		}
 		s := v.effectState(id)
 		if s.Warning > 0 || s.Remaining > 0 {
-			return false
+			return
 		}
-	}
-	if len(pattern) == 0 {
-		return false
 	}
 	for _, id := range pattern {
 		e := a.Effect(id)
 		v.effectState(id).Warning = 1
 		g.AddCombatMessage(fmt.Sprintf("%s announces %s (%s): tiles %d,%d to %d,%d. Leave the marked lane!", m.Name, e.Name, e.School, e.Rect[0], e.Rect[1], e.Rect[2], e.Rect[3]))
 	}
-	return true
 }
+
+// pushPartyTowardLane shoves the party one tile toward the nearest enabled
+// lane of the boss's current phase, in whatever state that lane is. A party
+// already standing in one stays put; the longer axis is tried first.
+func (g *MMGame) pushPartyTowardLane(m *monster.Monster3D, a *config.AdventureConfig, v *AdventureVisit) {
+	px, py := g.GetPlayerTilePosition()
+	var lane *config.EnvironmentEffect
+	gapX, gapY, best := 0, 0, math.MaxInt
+	for _, id := range a.Boss.PhaseLanes(m.HitPoints, m.MaxHitPoints) {
+		e := a.Effect(id)
+		if e == nil || !g.effectEnabled(a, v, *e) {
+			continue
+		}
+		dx := min(max(px, e.Rect[0]), e.Rect[2]) - px
+		dy := min(max(py, e.Rect[1]), e.Rect[3]) - py
+		if d := mathutil.IntAbs(dx) + mathutil.IntAbs(dy); d < best {
+			lane, gapX, gapY, best = e, dx, dy, d
+		}
+	}
+	if lane == nil || best == 0 {
+		return
+	}
+	steps := [][2]int{{sign(gapX), 0}, {0, sign(gapY)}}
+	if mathutil.IntAbs(gapY) > mathutil.IntAbs(gapX) {
+		steps[0], steps[1] = steps[1], steps[0]
+	}
+	for _, step := range steps {
+		if step != [2]int{} && g.forcePartyStep(px+step[0], py+step[1]) {
+			g.logCombat(logToneBad, styledFormat(uitext.Text("adventure.boss_push", logSlot, logSlot, logSlot)),
+				logMonsterName(m), logAbility(uitext.Text("adventure.boss_push_action")), lane.Name)
+			return
+		}
+	}
+}
+
 func (g *MMGame) recordAdventureBoss(m *monster.Monster3D) {
 	if m == nil || m.SummonedBy != "" {
 		return

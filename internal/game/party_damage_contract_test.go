@@ -381,6 +381,9 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 				}
 			}
 			trueDamage, _ := g.combat.weaponMasteryStrike(ch, def)
+			if signature := def.Signature; signature != nil && signature.Kind == "rune_discharge" && ch.SpellPoints >= signature.SPCost {
+				firstHitBonus += statScaledDamage(signature.StatScaledDamage, ch)
+			}
 			if def.Range > 3 {
 				shot := &Arrow{ID: "single", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: key,
 					Damage: 100, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), ElementalAbilityDamage: firstHitBonus}

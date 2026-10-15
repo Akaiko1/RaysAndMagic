@@ -17,14 +17,16 @@ type weaponProjectileFxStyle struct {
 	headOn          weaponProjectileFxHeadOnDraw
 	incoming        weaponProjectileFxHeadOnDraw
 	viewIndependent bool
+	volume          func(*Renderer, *ebiten.Image, float64, float64, float64, projectileView, float64, float64, int)
 }
 
-// weaponProjectileFxStyles overlays a weapon-specific signature on top of the
-// normal arrow or spell orb. The base projectile remains intact, preserving
-// the readable silhouette shared by all ranged attacks.
+// Most signatures overlay the normal arrow or orb. A volume replaces that base
+// when the projectile itself is a physical weapon with its own silhouette.
 var weaponProjectileFxStyles = map[string]weaponProjectileFxStyle{
-	"duskneedle":    {side: (*Renderer).drawWeaponProjectileFxDuskneedle, headOn: (*Renderer).drawWeaponProjectileFxDuskneedleHeadOn, incoming: (*Renderer).drawWeaponProjectileFxDuskneedleIncoming},
-	"solstice_flow": {side: (*Renderer).drawWeaponProjectileFxSolsticeFlow, headOn: (*Renderer).drawWeaponProjectileFxSolsticeFlowHeadOn},
+	"solstice_sun_crucible":   {side: (*Renderer).drawSunCrucibleCorona, headOn: (*Renderer).drawSunCrucibleCoronaHeadOn},
+	"solstice_returning_gale": {volume: (*Renderer).drawReturningGaleProjectile},
+	"duskneedle":              {side: (*Renderer).drawWeaponProjectileFxDuskneedle, headOn: (*Renderer).drawWeaponProjectileFxDuskneedleHeadOn, incoming: (*Renderer).drawWeaponProjectileFxDuskneedleIncoming},
+	"solstice_flow":           {side: (*Renderer).drawWeaponProjectileFxSolsticeFlow, headOn: (*Renderer).drawWeaponProjectileFxSolsticeFlowHeadOn},
 	"arena_recurve": {
 		side:     (*Renderer).drawWeaponProjectileFxArenaRecurve,
 		headOn:   (*Renderer).drawWeaponProjectileFxArenaRecurveHeadOn,
@@ -85,6 +87,10 @@ func (r *Renderer) drawWeaponProjectileFx(style string, screen *ebiten.Image, cx
 
 // Fade authored projections without changing their critical size or thickness.
 func (r *Renderer) drawWeaponProjectileFxForView(style string, screen *ebiten.Image, cx, cy, size float64, view projectileView, critBoost float64, id int) {
+	if draw := weaponProjectileFxStyles[style].volume; draw != nil {
+		draw(r, screen, cx, cy, size, view, critBoost, 0, id)
+		return
+	}
 	if weaponProjectileFxStyles[style].viewIndependent {
 		r.drawWeaponProjectileFxHeadOn(style, screen, cx, cy, size, critBoost, 1, id)
 		return

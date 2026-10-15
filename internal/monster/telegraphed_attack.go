@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 )
 
@@ -101,22 +102,22 @@ func (a *TelegraphedAttack) lines(d MonsterDefinition) []EffectLine {
 	school := normalizeEffectSchool(a.School)
 	var out []EffectLine
 	add := func(text string) { out = append(out, EffectLine{Text: text, School: school}) }
-	add(fmt.Sprintf("%s: %s, %s, range %d tiles", a.Name, a.Kind, a.Shape, a.Range))
-	add(fmt.Sprintf("  Warning: %gs / %d rounds; cooldown: %gs / %d rounds", a.WarningSeconds, a.WarningRounds, a.CooldownSeconds, a.CooldownRounds))
+	add(uitext.Text("monster.telegraph", a.Name, a.Kind, a.Shape, a.Range))
+	add(uitext.Text("monster.telegraph_timing", config.NumberText(a.WarningSeconds), a.WarningRounds, config.NumberText(a.CooldownSeconds), a.CooldownRounds))
 	if a.Kind == "shield" {
-		add(fmt.Sprintf("  Ally shield: absorbs %d damage per hit", TelegraphShieldAbsorption(d.DamageMin, d.DamageMax)))
+		add(uitext.Text("monster.telegraph_shield", TelegraphShieldAbsorption(d.DamageMin, d.DamageMax)))
 	} else if a.DamagePercent > 0 {
-		add(fmt.Sprintf("  Damage: %d%% of attack", a.DamagePercent))
+		add(uitext.Text("monster.telegraph_damage", a.DamagePercent))
 	}
 	if a.DurationSeconds > 0 {
-		text := "  Duration: " + config.DurationText(a.DurationSeconds)
+		text := uitext.Text("monster.telegraph_duration", config.DurationText(a.DurationSeconds))
 		if a.Kind != "shield" && a.SustainDamage > 0 {
-			text += fmt.Sprintf("; sustained damage: %d", a.SustainDamage)
+			text += uitext.Text("monster.telegraph_sustain", a.SustainDamage)
 		}
 		add(text)
 	}
 	if a.BelowHPPercent > 0 {
-		out = append(out, EffectLine{Text: fmt.Sprintf("  Available below %d%% HP", a.BelowHPPercent)})
+		out = append(out, EffectLine{Text: uitext.Text("monster.telegraph_below_hp", a.BelowHPPercent)})
 	}
 	return out
 }

@@ -13,28 +13,42 @@
 # spawn, at most one per table) entry. An item-like entry may add min/max: how
 # many units drop when it lands (one stack, or separate pieces for gear).
 
-# The one card drop rule: a boss: true monster drops its card at `boss`, every
-# other monster at `monster`, one roll each. The boot rejects any card entry
-# in `loots` that disagrees, so author the same value there.
-card_drop_chance: {boss: 0.03, monster: 0.01}
+# Cards roll independently once. Named boss overrides replace the ordinary
+# boss rate; kill_only trophies never enter theft or map-cache pools.
+card_drop_chance:
+  boss: 0.03
+  monster: 0.01
+  boss_overrides: {solstice_aureth: 0.01, solstice_neressa: 0.01, solstice_talura: 0.01, solstice_vaelith: 0.01}
 
 loots:
   solstice_ember_elemental: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_living_ember", "chance": 0.4}]
   solstice_cinder_hound: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_heat_resistant_fang", "chance": 0.4}]
   solstice_kiln_automaton: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_furnace_ceramic", "chance": 0.4}]
-  solstice_aureth: [{type: gold, min: 15, max: 40}]
+  solstice_aureth:
+    - {type: gold, min: 15, max: 40}
+    - {type: item, key: solstice_aureth_card, chance: 0.01, kill_only: true}
+    - {type: weapon, key: solstice_sun_crucible, chance: 0.03, kill_only: true}
   solstice_tide_elemental: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_condensed_tideglass", "chance": 0.4}]
   solstice_cistern_eel: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_coldwater_gland", "chance": 0.4}]
   solstice_flow_automaton: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_circulation_membrane", "chance": 0.4}]
-  solstice_neressa: [{type: gold, min: 15, max: 40}]
+  solstice_neressa:
+    - {type: gold, min: 15, max: 40}
+    - {type: item, key: solstice_neressa_card, chance: 0.01, kill_only: true}
+    - {type: item, key: solstice_everflow_retort, chance: 0.03, kill_only: true}
   solstice_jade_elemental: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_anchor_crystal", "chance": 0.4}]
   solstice_shardback_burrower: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_mineral_plate", "chance": 0.4}]
   solstice_anchor_automaton: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_petrified_conductor", "chance": 0.4}]
-  solstice_talura: [{type: gold, min: 15, max: 40}]
+  solstice_talura:
+    - {type: gold, min: 15, max: 40}
+    - {type: item, key: solstice_talura_card, chance: 0.01, kill_only: true}
+    - {type: weapon, key: solstice_stone_script, chance: 0.03, kill_only: true}
   solstice_gale_elemental: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_bound_breath", "chance": 0.4}]
   solstice_storm_kite: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_charged_quill", "chance": 0.4}]
   solstice_transfer_automaton: [{type: gold, min: 15, max: 40}, {"type": "item", "key": "solstice_resonance_coil", "chance": 0.4}]
-  solstice_vaelith: [{type: gold, min: 15, max: 40}]
+  solstice_vaelith:
+    - {type: gold, min: 15, max: 40}
+    - {type: item, key: solstice_vaelith_card, chance: 0.01, kill_only: true}
+    - {type: weapon, key: solstice_returning_gale, chance: 0.03, kill_only: true}
 
   solstice_sunscarab:
     - {type: gold, min: 10, max: 25}

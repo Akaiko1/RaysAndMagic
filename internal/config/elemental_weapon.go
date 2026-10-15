@@ -3,20 +3,38 @@ package config
 import (
 	"fmt"
 	"math"
+	"strconv"
+
+	uitext "ugataima/assets/text"
 )
+
+// StatScaledDamage is a flat amount plus one effective stat divided:
+// damage + scaling_stat/stat_divisor. Without a divisor it is flat. Every
+// weapon rider resolves and prints it the same way.
+type StatScaledDamage struct {
+	Damage      int    `yaml:"damage"`
+	ScalingStat string `yaml:"scaling_stat,omitempty"`
+	StatDivisor int    `yaml:"stat_divisor,omitempty"`
+}
+
+// Text is the formula as cards print it: "12 + Speed/4", or "12" when flat.
+func (s StatScaledDamage) Text() string {
+	if s.StatDivisor <= 0 {
+		return strconv.Itoa(s.Damage)
+	}
+	return fmt.Sprintf("%d + %s/%d", s.Damage, s.ScalingStat, s.StatDivisor)
+}
 
 // ElementalWeaponAbility authors a direct-hit signature. Marks are shared by
 // the party; secondary damage never triggers another weapon rider.
 type ElementalWeaponAbility struct {
-	Kind            string  `yaml:"kind"`
-	Damage          int     `yaml:"damage"`
-	DurationSeconds int     `yaml:"duration_seconds"`
-	Hits            int     `yaml:"hits,omitempty"`
-	RangeTiles      float64 `yaml:"range_tiles,omitempty"`
-	ScalingStat     string  `yaml:"scaling_stat,omitempty"`
-	StatDivisor     int     `yaml:"stat_divisor,omitempty"`
-	MaxStacks       int     `yaml:"max_stacks,omitempty"`
-	HitsPerTarget   int     `yaml:"hits_per_target,omitempty"`
+	StatScaledDamage `yaml:",inline"`
+	Kind             string  `yaml:"kind"`
+	DurationSeconds  int     `yaml:"duration_seconds"`
+	Hits             int     `yaml:"hits,omitempty"`
+	RangeTiles       float64 `yaml:"range_tiles,omitempty"`
+	MaxStacks        int     `yaml:"max_stacks,omitempty"`
+	HitsPerTarget    int     `yaml:"hits_per_target,omitempty"`
 }
 
 func (a *ElementalWeaponAbility) validate(w *WeaponDefinitionConfig) error {
@@ -71,17 +89,120 @@ func (a *ElementalWeaponAbility) Lines() []string {
 	if a == nil {
 		return nil
 	}
-	duration := DurationText(a.DurationSeconds)
 	var effect string
 	switch a.Kind {
 	case "pressure":
-		effect = fmt.Sprintf("Pressure Vent: every %d hits on one target release %d + %s/%d extra fire damage.", a.Hits, a.Damage, a.ScalingStat, a.StatDivisor)
+		effect = uitext.Text("weapon.pressure_vent", a.Hits, a.Text())
 	case "backwash":
-		return []string{fmt.Sprintf("Backwash: %d + %s/%d water damage; a charge jumps between foes less than %g tiles apart with clear sight, up to %d hits per foe.", a.Damage, a.ScalingStat, a.StatDivisor, a.RangeTiles, a.HitsPerTarget)}
+		return []string{uitext.Text("weapon.backwash", a.Text(), NumberText(a.RangeTiles), a.HitsPerTarget)}
 	case "anchor":
-		effect = fmt.Sprintf("Stored Load: each hit adds a stack, then deals %d extra earth damage per stack on that target (maximum %d stacks).", a.Damage, a.MaxStacks)
+		effect = uitext.Text("weapon.stored_load", a.Damage, a.MaxStacks)
 	case "crosswind":
-		effect = fmt.Sprintf("Transfer: every %d hits on one target deal %d extra air damage and push it up to %g tiles away, stopping at obstacles.", a.Hits, a.Damage, a.RangeTiles)
+		effect = uitext.Text("weapon.transfer", a.Hits, a.Damage, NumberText(a.RangeTiles))
 	}
-	return []string{effect, "Marks shared by party; refreshed on hit: " + duration + "."}
+	return []string{effect, uitext.Text("weapon.marks_shared", DurationText(a.DurationSeconds))}
+}
+
+// SignatureKind is the closed set of weapon signatures.
+type SignatureKind string
+
+const (
+	SignatureSolarFlare    SignatureKind = "solar_flare"
+	SignatureRuneDischarge SignatureKind = "rune_discharge"
+	SignatureReturning     SignatureKind = "returning"
+)
+
+// WeaponSignatureConfig is a weapon's signature rider. Solar Flare and Rune
+// Discharge deal StatScaledDamage in School.
+type WeaponSignatureConfig struct {
+	StatScaledDamage      `yaml:",inline"`
+	Kind                  SignatureKind `yaml:"kind"`
+	School                string        `yaml:"school,omitempty"`
+	SPCost                int           `yaml:"sp_cost,omitempty"`
+	ChargeLimit           int           `yaml:"charge_limit,omitempty"`
+	ChargeMoveTiles       float64       `yaml:"charge_move_tiles,omitempty"` // a charge per this many tiles the party moves, any way
+	ChargeOnOffensiveCast bool          `yaml:"charge_on_offensive_cast,omitempty"`
+	LaneBehindTiles       float64       `yaml:"lane_behind_tiles,omitempty"`
+	LaneWidthTiles        float64       `yaml:"lane_width_tiles,omitempty"`
+	BurnSeconds           int           `yaml:"burn_seconds,omitempty"`
+	ReturnDamagePercent   int           `yaml:"return_damage_percent,omitempty"`
+}
+
+// HasSignature reports a weapon whose signature is kind.
+func (w *WeaponDefinitionConfig) HasSignature(kind SignatureKind) bool {
+	return w != nil && w.Signature != nil && w.Signature.Kind == kind
+}
+
+func positive(value float64) bool { return value > 0 && finite(value) }
+
+// NumberText prints a number without padding decimals (2, 0.5, 1.25).
+func NumberText(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+
+func (s *WeaponSignatureConfig) validate(d *WeaponDefinitionConfig) error {
+	if s == nil {
+		return nil
+	}
+	unused := *s
+	unused.Kind = ""
+	switch s.Kind {
+	case SignatureSolarFlare, SignatureRuneDischarge:
+		if s.Damage <= 0 || !validWeaponBonusStats[s.ScalingStat] || s.StatDivisor <= 0 {
+			return fmt.Errorf("signature requires positive damage/stat_divisor and a valid scaling_stat")
+		}
+		school, err := canonicalDamageSchool(s.School)
+		if err != nil {
+			return err
+		}
+		s.School = school
+		unused.StatScaledDamage, unused.School = StatScaledDamage{}, ""
+		if s.Kind == SignatureSolarFlare {
+			if d.Category != "staff" || !d.IsRanged() || s.ChargeLimit <= 0 || !positive(s.ChargeMoveTiles) || !positive(s.LaneBehindTiles) || !positive(s.LaneWidthTiles) {
+				return fmt.Errorf("solar_flare requires a ranged staff, charge limit, movement and lane geometry")
+			}
+			if err := ValidateEffectSeconds("solar_flare burn_seconds", s.BurnSeconds); err != nil {
+				return err
+			}
+			unused.ChargeLimit, unused.ChargeMoveTiles, unused.LaneBehindTiles, unused.LaneWidthTiles, unused.BurnSeconds = 0, 0, 0, 0, 0
+			unused.ChargeOnOffensiveCast = false
+		} else if d.IsRanged() || s.SPCost <= 0 {
+			return fmt.Errorf("rune_discharge requires a melee weapon and positive sp_cost")
+		} else {
+			unused.SPCost = 0
+		}
+	case SignatureReturning:
+		if d.Category != "dagger" || !d.IsRanged() || !validPercent(s.ReturnDamagePercent) {
+			return fmt.Errorf("returning requires a ranged dagger and return_damage_percent 1..100")
+		}
+		unused.ReturnDamagePercent = 0
+	default:
+		return fmt.Errorf("unknown weapon signature kind %q", s.Kind)
+	}
+	if unused != (WeaponSignatureConfig{}) {
+		return fmt.Errorf("signature %q has fields belonging to a different kind", s.Kind)
+	}
+	return nil
+}
+
+// FlareLine is what a stored Solar Flare charge releases.
+func (s *WeaponSignatureConfig) FlareLine() string {
+	return uitext.Text("weapon.solar_flare", s.Text(), s.School, NumberText(s.LaneWidthTiles), NumberText(s.LaneBehindTiles), DurationText(s.BurnSeconds))
+}
+
+func (s *WeaponSignatureConfig) Lines() []string {
+	if s == nil {
+		return nil
+	}
+	switch s.Kind {
+	case SignatureSolarFlare:
+		lines := []string{uitext.Text("weapon.solar_charge", uitext.Text("weapon.solar_flare_name"), NumberText(s.ChargeMoveTiles), s.ChargeLimit)}
+		if s.ChargeOnOffensiveCast {
+			lines = append(lines, uitext.Text("weapon.solar_charge_spell"))
+		}
+		return append(lines, s.FlareLine())
+	case SignatureRuneDischarge:
+		return []string{uitext.Text("weapon.rune_discharge", uitext.Text("weapon.rune_discharge_name"), s.SPCost, s.Text(), s.School)}
+	case SignatureReturning:
+		return []string{uitext.Text("weapon.returning_gale", s.ReturnDamagePercent)}
+	}
+	return nil
 }

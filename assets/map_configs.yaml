@@ -514,10 +514,10 @@ maps:
       controls: [{"id": "coolant_west", "disable": ["overheat_west", "kiln_lava", "archive_heat"], "message": "The archive vent and kiln channel cool. The western arena strip will stay safe.", "tiles": [{"x": 6, "y": 8, "tile": "empty"}, {"x": 16, "y": 18, "tile": "empty"}, {"x": 17, "y": 18, "tile": "empty"}, {"x": 18, "y": 18, "tile": "empty"}, {"x": 19, "y": 18, "tile": "empty"}, {"x": 20, "y": 18, "tile": "empty"}, {"x": 21, "y": 18, "tile": "empty"}, {"x": 22, "y": 18, "tile": "empty"}]}, {"id": "coolant_east", "disable": ["overheat_east", "regulator_lane_1"], "message": "The eastern strip cools. Aureth's lower firing row loses pressure."}]
       boss:
         monster: "solstice_aureth"
-        phases: [{"below_percent": 25, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]], "every_actions": 1}]
+        phases: [{"below_percent": 25, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]], "cooldown_seconds": 3}]
         arena: [24, 1, 30, 9]
         lanes: ["regulator_lane_0", "regulator_lane_1"]
-        every_actions: 2
+        cooldown_seconds: 6
     clear_encounters: [{"monsters": [{"type": "solstice_aureth", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_fire_boss_reward", "map": "solstice_fire", "tile_x": 27, "tile_y": 6, "loot_table": "solstice_fire_signature", "items": ["solstice_thermal_core"], "sprite": "chest"}}}]
 
   solstice_water:
@@ -542,7 +542,7 @@ maps:
         low_health_range: 7
         arena: [11, 18, 20, 24]
         lanes: ["regulator_lane_0", "regulator_lane_1"]
-        every_actions: 2
+        cooldown_seconds: 6
         heal_percent: 5
         heal_ceiling_percent: 50
     clear_encounters: [{"monsters": [{"type": "solstice_neressa", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_water_boss_reward", "map": "solstice_water", "tile_x": 15, "tile_y": 22, "loot_table": "solstice_water_signature", "items": ["solstice_flow_core"], "sprite": "chest"}}}]
@@ -566,10 +566,10 @@ maps:
       controls: [{"id": "brace_one", "disable": [], "armor_reduction_percent": 55, "message": "The load brace releases. Talura's armor loses more than half its strength."}, {"id": "brace_two", "disable": ["plate_row_2", "regulator_lane_1"], "message": "The north brace locks. Its pressure plate and the lower firing row are safe."}, {"id": "brace_three", "disable": ["plate_row_3", "ground_shock"], "message": "The south brace locks. Its plate is safe, and Talura's final ground shock cannot fire."}]
       boss:
         monster: "solstice_talura"
-        phases: [{"below_percent": 100, "patterns": [["regulator_lane_0"]]}, {"below_percent": 50, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]]}, {"below_percent": 25, "patterns": [["ground_shock"]], "every_actions": 1}]
+        phases: [{"below_percent": 100, "patterns": [["regulator_lane_0"]]}, {"below_percent": 50, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]]}, {"below_percent": 25, "patterns": [["ground_shock"]], "cooldown_seconds": 3}]
         arena: [24, 1, 30, 9]
         lanes: ["regulator_lane_0", "regulator_lane_1"]
-        every_actions: 2
+        cooldown_seconds: 6
     clear_encounters: [{"monsters": [{"type": "solstice_talura", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_earth_boss_reward", "map": "solstice_earth", "tile_x": 28, "tile_y": 6, "loot_table": "solstice_earth_signature", "items": ["solstice_anchor_core"], "sprite": "chest"}}}]
 
   solstice_air:
@@ -594,7 +594,7 @@ maps:
         phases: [{"below_percent": 100, "patterns": [["regulator_lane_0"]]}, {"below_percent": 50, "patterns": [["regulator_lane_0"], ["regulator_lane_1"]]}, {"below_percent": 25, "patterns": [["narrow_lane_0", "narrow_lane_1"]]}]
         arena: [22, 1, 29, 10]
         lanes: ["regulator_lane_0", "regulator_lane_1"]
-        every_actions: 2
+        cooldown_seconds: 6
     clear_encounters: [{"monsters": [{"type": "solstice_vaelith", "count": 1}], "rewards": {"completion_message": "The regulator falls. Its sealed equipment drawer opens.", "treasure_chest": {"id": "solstice_air_boss_reward", "map": "solstice_air", "tile_x": 25, "tile_y": 6, "loot_table": "solstice_air_signature", "items": ["solstice_vector_core"], "sprite": "chest"}}}]
 
   solstice_approach:

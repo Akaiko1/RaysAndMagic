@@ -91,7 +91,11 @@ func TestSolsticeTelegraphCrossfire(t *testing.T) {
 	}
 }
 
-func TestSolsticeForcedArrivalSafety(t *testing.T) {
+// TestSolsticeForcedArrival: a push or a current lands on any tile the party
+// can stand on that no monster holds, hazards included, and the landing
+// arrives like a step: a plate fires, another current carries a pushed party
+// on (a current never chains into a second one).
+func TestSolsticeForcedArrival(t *testing.T) {
 	for _, entry := range []string{"push", "transfer"} {
 		for _, hazard := range []string{"clear", "wall", "occupied", "occupation", "trap", "transfer", "lane-idle", "lane-warning", "lane-live", "disabled", "monster-warning", "monster-field"} {
 			t.Run(entry+"/"+hazard, func(t *testing.T) {
@@ -102,7 +106,7 @@ func TestSolsticeForcedArrivalSafety(t *testing.T) {
 				world.GlobalWorldManager.MapConfigs["forest"] = &config.MapConfig{Adventure: a}
 				placePlayerAtTile(g, 6, 6, 64)
 				v := g.adventureVisit("forest")
-				allowed := hazard == "clear" || hazard == "lane-idle" || hazard == "disabled"
+				allowed := hazard != "wall" && hazard != "occupied"
 				if hazard == "wall" {
 					g.world.Tiles[6][5] = world.TileWall
 				} else if hazard == "occupied" {
@@ -124,7 +128,7 @@ func TestSolsticeForcedArrivalSafety(t *testing.T) {
 					if hazard == "lane-idle" || hazard == "lane-warning" || hazard == "lane-live" {
 						kind = "lane"
 					}
-					a.Effects = append(a.Effects, config.EnvironmentEffect{ID: "hazard", Kind: kind, Rect: [4]int{5, 6, 5, 6}, Destination: [2]int{4, 6}})
+					a.Effects = append(a.Effects, config.EnvironmentEffect{ID: "hazard", Kind: kind, Rect: [4]int{5, 6, 5, 6}, Destination: [2]int{4, 6}, School: "fire", Damage: 5})
 					if hazard == "disabled" {
 						v.effectState("hazard").Disarmed = true
 					}
@@ -135,6 +139,7 @@ func TestSolsticeForcedArrivalSafety(t *testing.T) {
 						v.effectState("hazard").Remaining = 1
 					}
 				}
+				hp := partyHPSum(g)
 				if entry == "push" {
 					g.pushTelegraphParty([2]int{-1, 0})
 				} else {
@@ -146,8 +151,14 @@ func TestSolsticeForcedArrivalSafety(t *testing.T) {
 				if allowed {
 					wantX = 5
 				}
+				if allowed && hazard == "transfer" && entry == "push" {
+					wantX = 4
+				}
 				if x != wantX || y != 6 {
 					t.Fatalf("landed at %d,%d; want %d,6", x, y, wantX)
+				}
+				if fired := partyHPSum(g) < hp; fired != (hazard == "trap") {
+					t.Fatalf("plate fired=%v on a %s landing", fired, hazard)
 				}
 			})
 		}

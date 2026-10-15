@@ -49,6 +49,9 @@ func (r *Renderer) drawFlaskProjectile(screen *ebiten.Image, idx int) {
 	if !ok || d.Flask == nil {
 		return
 	}
+	if d.Flask.ProjectileFx != "" && r.drawRelicFlask(screen, pose, d.Flask.ProjectileFx) {
+		return
+	}
 	sprite := r.game.sprites.GetSprite(d.Flask.Sprite)
 	if sprite == nil {
 		return

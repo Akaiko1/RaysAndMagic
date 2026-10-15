@@ -41,13 +41,10 @@ func (cs *CombatSystem) tryPartyJump(name string, tiles float64, onCommit func()
 		g.AddCombatMessage("There is no room to land.")
 		return castNoEffect
 	}
-	oldX, oldY := g.camera.X, g.camera.Y
 	if onCommit != nil {
 		onCommit()
 	}
-	g.setPartyPosition(landX, landY)
-	g.creditAdventureMovement("jump", oldX, oldY, landX, landY)
-	g.notifyPilgrimDisplacement(oldX, oldY)
+	g.displaceParty(landX, landY, "jump")
 	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", name))
 	// Landing on a teleporter or in deep water must resolve like any other arrival.
 	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {

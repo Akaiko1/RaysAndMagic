@@ -106,6 +106,8 @@ monsters:
   solstice_aureth:
     type: "formless"
     abilities:
+      summon: {cooldown_seconds: 12, monsters: ["solstice_ember_elemental"], count: 1, max: 1}
+      push: {cooldown_seconds: 9}
       enrage: {at_hp: 787, cooldown_mult: 0.8}
     name: "Aureth"
     level: 27
@@ -249,6 +251,8 @@ monsters:
         damage_percent: 100
         duration_seconds: 9
         below_hp_percent: 25
+      summon: {cooldown_seconds: 12, monsters: ["solstice_tide_elemental"], count: 1, max: 1}
+      push: {cooldown_seconds: 9}
     name: "Neressa"
     level: 27
     max_hit_points: 3150
@@ -375,6 +379,9 @@ monsters:
 
   solstice_talura:
     type: "formless"
+    abilities:
+      summon: {cooldown_seconds: 12, monsters: ["solstice_jade_elemental"], count: 1, max: 1}
+      push: {cooldown_seconds: 9}
     name: "Talura"
     level: 28
     max_hit_points: 3480
@@ -502,6 +509,9 @@ monsters:
 
   solstice_vaelith:
     type: "formless"
+    abilities:
+      summon: {cooldown_seconds: 12, monsters: ["solstice_gale_elemental"], count: 1, max: 1}
+      push: {cooldown_seconds: 9}
     flying: true
     name: "Vaelith"
     level: 28

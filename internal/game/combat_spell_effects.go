@@ -125,8 +125,7 @@ func (cs *CombatSystem) tryCastPartyNova(def spells.SpellDefinition, caster *cha
 	regionScoped := def.MapWide && cs.game.openWorldActive()
 	ts := float64(cs.game.config.GetTileSize())
 	hurts := func(m *monsterPkg.Monster3D) bool {
-		return !isPurePartySummon(m) && !m.IsDamageInvulnerable() &&
-			(!regionScoped || cs.game.mapKeyAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) == currentMapKey())
+		return partyAreaHurts(m) && (!regionScoped || cs.game.mapKeyAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) == currentMapKey())
 	}
 	// A nova fills the ground around the party: walls do not shield from it.
 	nova := areaReach{x: cx, y: cy, radius: radius, throughWalls: true}
@@ -292,8 +291,8 @@ func (cs *CombatSystem) tryCastAoeStunBy(spellID spells.SpellID, def spells.Spel
 	radius := def.StunRadiusTiles * tileSize
 	frames, rounds := config.EffectClock(def.StunDurationSeconds, cs.game.config.GetTPS())
 	stunned := 0
-	hurts := func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) }
-	cs.forEachAreaVictim(cs.partyNova(radius), hurts, func(m *monsterPkg.Monster3D) {
+	// A sealed or warded boss is immune to control as to damage.
+	cs.forEachAreaVictim(cs.partyNova(radius), partyAreaHurts, func(m *monsterPkg.Monster3D) {
 		if !cs.tryDarkElfBindInstead(caster, m) && cs.applyStunDR(m, rounds, false) { // per-target DR; summary printed below
 			stunned++
 		}

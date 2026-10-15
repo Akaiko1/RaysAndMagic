@@ -31,7 +31,7 @@ func TestRareBalanceFlaskMasteryDamageAndBurn(t *testing.T) {
 			for tier := 0; tier < 4; tier++ {
 				t.Run(fmt.Sprintf("TB=%v/%s/tier=%d", tb, key, tier), func(t *testing.T) {
 					g, c := rareClassGame(t, character.ClassAlchemist, tb)
-					c.Skills[character.SkillBombThrowing].Mastery = character.SkillMastery(tier)
+					c.Skills[character.FlaskMasterySkill(d.Flask)].Mastery = character.SkillMastery(tier)
 					c.Intellect, c.Accuracy = 19, 99
 					g.party.Inventory = nil
 					item := items.CreateItemFromYAML(key)

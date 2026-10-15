@@ -299,23 +299,35 @@ func (cs *CombatSystem) sharePartyLife(bonus int) bool {
 		c.HitPoints = hp
 		pool -= hp
 	}
+	// Redistribution uses all available HP before any healing is wasted. Only
+	// the remaining pool is excess healing, shared among the living recipients.
+	for i, c := range living {
+		excess := max(0, pool) / (len(living) - i)
+		cs.queueOverflow(c, excess)
+		pool -= excess
+	}
 	return true
 }
 
-// One AoE damage event shares one ward decision across all its victims. Nested
-// damage loops inherit that decision; the next event starts a fresh transaction.
+// partyDamageEvent opens one damage event over the whole party (a blast, an
+// arc, a field): its victims share one Magic Ward decision, and per-hit
+// reactions such as Storm Reversal stay out of it (inPartyDamageEvent).
+// Nested damage loops join the open event; the next event starts fresh.
 func (cs *CombatSystem) partyDamageEvent() func() {
-	cs.magicWardDepth++
-	if cs.magicWardDepth == 1 {
+	cs.partyEventDepth++
+	if cs.partyEventDepth == 1 {
 		cs.magicWardDecision = 0
 	}
 	return func() {
-		cs.magicWardDepth--
-		if cs.magicWardDepth == 0 {
+		cs.partyEventDepth--
+		if cs.partyEventDepth == 0 {
 			cs.magicWardDecision = 0
 		}
 	}
 }
+
+// inPartyDamageEvent reports a hit landing as part of a party-wide event.
+func (cs *CombatSystem) inPartyDamageEvent() bool { return cs.partyEventDepth > 0 }
 
 // magicWardBlocks spends Protection from Magic's shared budget. By design,
 // eligible hostile hits include spells (even physical-damage spells) AND
@@ -328,14 +340,14 @@ func (cs *CombatSystem) magicWardBlocks(school string, hostileSpell, monsterOwne
 	if !hostileSpell && !(monsterOwned && normalizeDamageTypeStr(school) != "physical") {
 		return false
 	}
-	if cs.magicWardDepth > 0 && cs.magicWardDecision != 0 {
+	if cs.inPartyDamageEvent() && cs.magicWardDecision != 0 {
 		return cs.magicWardDecision == 1
 	}
 	blocked := cs.game.spendPartyBuffCharge("protection_from_magic")
 	if blocked {
 		cs.game.AddCombatMessage(uitext.Text("advanced.magic_blocked"))
 	}
-	if cs.magicWardDepth > 0 {
+	if cs.inPartyDamageEvent() {
 		cs.magicWardDecision = -1
 		if blocked {
 			cs.magicWardDecision = 1
@@ -376,17 +388,22 @@ func (g *MMGame) spendPartyBuffCharge(id string) bool {
 	return true
 }
 
-func (g *MMGame) absorbCelestialDamage(amount int) int {
-	if amount <= 0 {
-		return amount
+// celestialAbsorb is what Celestial Armor would take from a hit of amount.
+func (g *MMGame) celestialAbsorb(amount int) int {
+	if b := g.advancedBuff("celestial_armor"); amount > 0 && b != nil && b.Absorb > 0 {
+		return min(amount, b.Absorb)
 	}
-	if b := g.advancedBuff("celestial_armor"); b != nil && b.Absorb > 0 {
-		absorbed := min(amount, b.Absorb)
+	return 0
+}
+
+func (g *MMGame) absorbCelestialDamage(amount int) int {
+	absorbed := g.celestialAbsorb(amount)
+	if absorbed > 0 {
+		b := g.advancedBuff("celestial_armor")
 		b.Absorb -= absorbed
-		amount -= absorbed
 		if b.Absorb == 0 {
 			b.Frames = 0
 		}
 	}
-	return amount
+	return amount - absorbed
 }

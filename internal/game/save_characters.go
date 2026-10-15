@@ -18,11 +18,13 @@ func normalizeItemFromConfig(item *items.Item) {
 	// slots), keyed by display name. Type-gated so a non-weapon that happens to
 	// share a name can't be force-converted into a weapon.
 	if item.Type == items.ItemWeapon {
-		if _, key, ok := config.GetWeaponDefinitionByName(item.Name); ok && key != "" {
+		if def, key, ok := config.GetWeaponDefinitionByName(item.Name); ok && key != "" {
 			if template, err := items.TryCreateWeaponFromYAML(key); err == nil {
 				instanceID := item.InstanceID
+				signature := item.Signature
 				*item = template
 				item.InstanceID = instanceID
+				item.Signature = normalizedSignatureState(def, signature)
 			}
 		}
 		return
@@ -200,7 +202,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames = cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames
 	m.ArmorMelt.Restore(cs.ArmorMelt)
 	m.ActionsRemaining = cs.ActionsRemaining
-	m.ReactiveCombat = cs.ReactiveCombat
+	m.ActorID, m.ReactiveCombat = cs.ActorID, cs.ReactiveCombat
 	m.TBRoundActionFloor = cs.TBRoundActionFloor
 	if m.TBRoundActionFloor <= 0 && m.ActionsRemaining > 0 {
 		// Legacy saves predate the credited-floor field. Recover the floor
@@ -216,6 +218,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 // buildCharacterSave serializes one character (active or reserve).
 func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs := CharacterSave{
+		ActorID:          m.ActorID,
 		ReactiveCombat:   m.ReactiveCombat,
 		Name:             m.Name,
 		AdventureXP:      maps.Clone(m.AdventureXP),

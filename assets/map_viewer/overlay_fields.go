@@ -270,7 +270,7 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 			return nil
 		}
 		phase := &a.Boss.Phases[p.selected]
-		fields = append(fields, overlayHeading("Phase condition"), overlayInt("At or below HP (%)", &phase.BelowPercent, "Phases must be ordered from highest to lowest threshold."), overlayInt("Special every N actions", &phase.EveryActions, "0 inherits the boss cadence. 1 attacks every action."))
+		fields = append(fields, overlayHeading("Phase condition"), overlayInt("At or below HP (%)", &phase.BelowPercent, "Phases must be ordered from highest to lowest threshold."), overlayInt("Lane cooldown (seconds)", &phase.CooldownSeconds, "0 inherits the boss cooldown. 3 fires a lane every round."))
 		fields = append(fields, overlayHeading("Attack sequence"))
 		for i := range phase.Patterns {
 			fields = append(fields, overlayList(fmt.Sprintf("Volley %d", i+1), &phase.Patterns[i], "Selected lanes fire together. Volleys alternate in order.", lanes), overlayAction(fmt.Sprintf("Remove volley %d", i+1), "A phase needs at least one volley.", func() { d.checkpoint(); phase.Patterns = slices.Delete(phase.Patterns, i, i+1) }))

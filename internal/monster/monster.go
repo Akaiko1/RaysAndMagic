@@ -274,6 +274,7 @@ func generateUniqueMonsterID() string {
 }
 
 type Monster3D struct {
+	Relics        RelicState
 	Telegraph     TelegraphState
 	Arboreal      *ArborealConfig
 	Arbor         ArborealState
@@ -573,6 +574,12 @@ type Monster3D struct {
 	SummonedBy      string // ID of the boss that summoned this monster ("" = not a summon)
 	SummonerName    string // party member who called this ally ("" = none, or the whole party)
 	PackKey         string // ambient day/night pack tag ("" = not a pack spawn); despawned on phase flips
+
+	// Free-action and timed-summon cooldowns in whole rounds, save-backed:
+	// abilities.summon.cooldown_seconds, abilities.push.cooldown_seconds and
+	// the chamber boss's lane cadence (its adventure config).
+	SummonCD, PushCD, LaneCD status.DualClock
+
 	// Enrage (Abilities.Enrage) is derived LIVE from current HP in
 	// GetAttackDamage/AttackCooldownFrames, so it is save-safe (no mutated stats
 	// stored); Enraged is only the one-shot announce latch.
@@ -866,13 +873,15 @@ func (m *Monster3D) EndTurnDebuffs() {
 func (m *Monster3D) RootHeld() bool { return m.rootHeldThisTurn }
 
 // EffectiveArmorClass is the armor value damage mitigation must use: base AC
-// minus any active shred debuff (Pit Labrys). The ONE read point for AC in
+// minus accumulated relic erosion and any active shred debuff (Pit Labrys).
+// The ONE read point for AC in
 // combat math - reading m.ArmorClass directly bypasses the debuff.
 func (m *Monster3D) EffectiveArmorClass() int {
+	armor := max(0, m.ArmorClass-m.Relics.Erosion(m.ArmorClass))
 	if m.ArmorShredPct > 0 && (m.ArmorShredFramesRemaining > 0 || m.ArmorShredTurnsRemaining > 0) {
-		return m.ArmorClass * (100 - m.ArmorShredPct) / 100
+		return armor * (100 - m.ArmorShredPct) / 100
 	}
-	return m.ArmorClass
+	return armor
 }
 
 // PounceRangePixels is Abilities.Pounce's reach in world pixels; 0 = no pounce.
@@ -942,6 +951,8 @@ func (m *Monster3D) tickBurn(elapsedFrames int) {
 		return
 	}
 	m.tickDoT("burn", &m.BurnFramesRemaining, &m.burnTickTimer, elapsedFrames)
+	// A death on the burn's last tick still counts as burning (Wildfire).
+	m.Relics.BurnKilled = !m.IsAlive()
 }
 
 // TickBurn advances the burn timer by one REAL-TIME frame.
@@ -1235,6 +1246,26 @@ func (m *Monster3D) TickTrapVolleyCooldownTurn() {
 		return
 	}
 	status.TickTurnRated(&m.TrapVolleyTurnCD, &m.TrapVolleyCDFrames, &m.TrapVolleyCDRate)
+}
+
+// TickAbilityClocksFrame spends one RT frame of every ability cooldown.
+func (m *Monster3D) TickAbilityClocksFrame() {
+	if m == nil {
+		return
+	}
+	m.SummonCD.TickFrame()
+	m.PushCD.TickFrame()
+	m.LaneCD.TickFrame()
+}
+
+// TickAbilityClocksTurn spends one TB turn of every ability cooldown.
+func (m *Monster3D) TickAbilityClocksTurn() {
+	if m == nil {
+		return
+	}
+	m.SummonCD.TickTurn()
+	m.PushCD.TickTurn()
+	m.LaneCD.TickTurn()
 }
 
 // GetAttackRangePixels returns the effective attack range in pixels.

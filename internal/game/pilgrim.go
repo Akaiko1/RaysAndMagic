@@ -233,6 +233,7 @@ func (g *MMGame) quickenRecoveryPct(c *character.MMCharacter) int {
 	return b.RecoveryPct
 }
 func (g *MMGame) tickRareClassClocks(frames int) {
+	g.tickRelicMarks(frames)
 	g.spatialReuseFrames = max(0, g.spatialReuseFrames-frames)
 	for _, c := range g.party.Members {
 		if c == nil {
@@ -246,11 +247,18 @@ func (g *MMGame) tickRareClassClocks(frames int) {
 		}
 	}
 }
-func (g *MMGame) notifyPilgrimDisplacement(x, y float64) {
+
+// partyMoved is the one hook for the party moving from (x, y) to the camera,
+// by any means (a step, a jump, a teleport, a push, a current): movement-
+// charged gear (Flowing Staff, Solar Flare weapons) sees the distance.
+func (g *MMGame) partyMoved(x, y float64) {
 	if g.party == nil || g.camera == nil {
 		return
 	}
 	distance := math.Hypot(g.camera.X-x, g.camera.Y-y)
+	for _, c := range g.party.Members {
+		g.chargeSignatureWeapons(c, distance/g.config.GetTileSize(), false)
+	}
 	for _, c := range g.party.Members {
 		if c == nil || !c.CanUseCombatAction() || !c.HasSkill(character.SkillFlowingStaff) {
 			continue
@@ -374,9 +382,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, d *config.Techniqu
 			return false
 		}
 	}
-	g.setPartyPosition(x, y)
-	g.creditAdventureMovement("spatial", oldX, oldY, x, y)
-	g.notifyPilgrimDisplacement(oldX, oldY)
+	g.displaceParty(x, y, "spatial")
 	if d.Kind == config.TechniqueFoldStep {
 		// Keep the FIRST departure point across successive Folds; refreshing
 		// its lifetime must not replace it with the last hop's origin.

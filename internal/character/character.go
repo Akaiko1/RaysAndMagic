@@ -75,6 +75,9 @@ type AdventureExperience struct {
 }
 
 type MMCharacter struct {
+	// ActorID is the hero's stable identity for marks it leaves on monsters
+	// (Catalysis): assigned on first use, saved.
+	ActorID        uint64
 	ReactiveCombat ReactiveCombatState
 	AdventureXP    map[string]AdventureExperience
 	Inventory      []items.Item // Personal bag; travels with this hero through roster changes.
@@ -985,7 +988,7 @@ func (c *MMCharacter) CureRestConditions() {
 // Eradicate ends the hero outright: 0 HP, Eradicated as the only state, and no
 // poison, burn or stun left running to resurface after Resurrect.
 func (c *MMCharacter) Eradicate() {
-	c.ReactiveCombat = ReactiveCombatState{}
+	c.ClearReactiveCombat()
 	c.clearRestState()
 	c.HitPoints = 0
 	c.Conditions = []Condition{ConditionEradicated}
@@ -1429,7 +1432,7 @@ func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 		d := config.Technique(item.Technique)
 		return slot == items.SlotQuickAction && c.Class == ClassWayfarer && d != nil && c.Level >= d.Level
 	case items.ItemThrowable:
-		return slot == items.SlotQuickAction && c.HasSkill(SkillBombThrowing)
+		return slot == items.SlotQuickAction && c.CanThrowFlask(item.Flask)
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		return slot == items.SlotQuickAction
 	case items.ItemArmor:

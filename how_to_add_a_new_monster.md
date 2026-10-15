@@ -169,14 +169,15 @@ ATTACK lines, and can group the catalog by ability.
 - `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` -
   evades (blinks away, never attacks) until the named quest completes
 
-Five ability kinds need `boss: true`:
+Six ability kinds need `boss: true`:
 
 | Kind | Fields | Effect |
 |---|---|---|
 | `trap_volley` | `count`, `radius_tiles`, `interval_seconds`, `interval_turns`, `damage` | Sows fire traps around itself on a cadence; each new volley replaces the old field. |
 | `inferno` | `chance`, `damage`, `range_tiles` | A party-wide fire nova within `range_tiles`. |
 | `teleport` | `at_hp`, `chance` | At or below `at_hp` it may blink to a random tile. |
-| `summon` | `chance`, `monsters`; optional `first_guaranteed`, `count` (default 1), `max` (0 = no cap) | Rallies adds picked from `monsters` (monster keys). |
+| `summon` | `monsters` and either `chance` (optional `first_guaranteed`) or `cooldown_seconds` (whole rounds); optional `count` (default 1), `max` (0 = no cap) | Rallies adds picked from `monsters` (monster keys) in place of its attack: on a roll at its action, or surely each time the timer runs out while below `max` (the first right as the fight starts; kiting cannot stall it). Adds spawn inside the boss's arena, at its auto-level; they give no XP but drop their own gold and loot (intended). |
+| `push` | `cooldown_seconds` (whole rounds) | Once its cooldown is over, the boss's next landed attack (on anyone, dodged or not) also shoves the party 1 tile toward the nearest lane of its current health phase; free, the boss still attacks, then the cooldown restarts. Only for the boss of a chamber with `lanes` (map load fails otherwise). |
 | `enrage` | `at_hp`, `damage_mult` and/or `cooldown_mult` | At or below `at_hp` it hits harder and/or faster. |
 
 `at_hp` values are absolute HP; scale them with `max_hit_points`. An evasive

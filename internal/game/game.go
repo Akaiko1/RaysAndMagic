@@ -124,6 +124,7 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
+	Signature              weaponSignatureShot
 	FireAuraPercent        int
 	FireAuraSchool         monster.DamageType // Snapshotted with damage; later effect expiry cannot change a flying shot.
 	VampiricPct            int
@@ -1100,6 +1101,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	game.validatePartyCardPanelAsset()
 	game.validateInterfaceArt()
 	validateWeaponFxStyles()
+	validateFlaskFxStyles()
 	validateProjectileFxStyles()
 	validateTrapFxStyles()
 
@@ -2763,7 +2765,7 @@ func (g *MMGame) actionCapable(idx int, kind rtActionKind) bool {
 			return false
 		}
 		if spell.Type == items.ItemThrowable {
-			return m.HasSkill(character.SkillBombThrowing) && g.flaskStock(m, spell.Flask) > 0
+			return g.flaskReady(m, spell.Flask)
 		}
 		return m.SpellPoints >= m.MeditatedSPCost(slottedSPCost(spell))
 	case rtActHeal:
@@ -3334,9 +3336,7 @@ func (g *MMGame) snapToTileCenter() {
 	centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
 
 	// Snap to center
-	g.camera.X = centerX
-	g.camera.Y = centerY
-	g.collisionSystem.UpdateEntity("player", centerX, centerY)
+	g.movePartyPosition(centerX, centerY)
 
 	// Snap direction to nearest cardinal direction (N, E, S, W)
 	g.snapToCardinalDirection()

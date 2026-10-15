@@ -485,10 +485,10 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 			return
 		}
 		if key, d := flaskDefinition(g.inventoryDragBag().Items()[g.dragInvIndex]); d != nil {
-			if !tch.HasSkill(character.SkillBombThrowing) {
+			shortcut, _ := config.FlaskItem(key)
+			if !canBindQuickItem(tch, &shortcut) {
 				return
 			}
-			shortcut, _ := config.FlaskItem(key)
 			if previous := tch.QuickSlots[targetSlot]; previous != nil {
 				g.returnQuickItemToInventory(*previous, g.dragInvOwner)
 			}
@@ -885,7 +885,7 @@ func canBindQuickItem(ch *character.MMCharacter, item *items.Item) bool {
 		return ch != nil && ch.Class == character.ClassWayfarer && d != nil && ch.Level >= d.Level
 	}
 	if item.Type == items.ItemThrowable {
-		return ch != nil && ch.HasSkill(character.SkillBombThrowing)
+		return ch != nil && ch.CanThrowFlask(item.Flask)
 	}
 	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
 		return characterKnowsSpellByID(ch, spells.SpellID(item.SpellEffect))

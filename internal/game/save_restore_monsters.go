@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -16,6 +17,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 	var migratedPyramidReliquaries *monster.EncounterRewards
 	if wm != nil {
 		rewardsCache := make(map[int]*monster.EncounterRewards)
+		crumbleCap := config.CrumblingArmorCapPercent() // once per load, not per monster
 		// Self-heal sealed bosses: a dormant boss (passive-until-quest, no evade
 		// radius) never legitimately moves while its quest is unfinished - it holds
 		// its map spawn. Saves written before the dormant-freeze fix captured it
@@ -163,6 +165,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.RootRate = ms.RootRate
 				m.ArmorShredPct = ms.ArmorShredPct
 				m.RestoreElementalMarks(ms.ElementalMarks)
+				m.Relics = ms.Relics.Normalized(crumbleCap)
 				m.ArmorShredFramesRemaining = ms.ArmorShredFrames
 				m.ArmorShredTurnsRemaining = ms.ArmorShredTurns
 				m.ArmorShredRate = ms.ArmorShredRate
@@ -219,6 +222,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.BossHurtPending = ms.BossHurtPending
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone
+				m.SummonCD.Restore(ms.SummonCD)
+				m.PushCD.Restore(ms.PushCD)
+				m.LaneCD.Restore(ms.LaneCD)
 				m.SummonedBy = ms.SummonedBy
 				m.SummonerName = ms.SummonerName
 				m.LootGuarding = ms.LootGuarding

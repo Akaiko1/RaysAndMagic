@@ -190,15 +190,15 @@ func (g *MMGame) updateAdventureArena() {
 		g.syncAdventureArenaBounds()
 		return
 	}
-	// Use the nearest safe tile to the geometric center when the center is
-	// occupied or hazardous. Never pull the party into a monster or live trap.
+	// Use the nearest open tile to the geometric center when the center is
+	// occupied. Never pull the party into a monster.
 	r := a.Boss.Arena
 	cx, cy := float64(r[0]+r[2])/2, float64(r[1]+r[3])/2
 	best, bx, by := math.Inf(1), 0, 0
 	for y := r[1]; y <= r[3]; y++ {
 		for x := r[0]; x <= r[2]; x++ {
 			d := math.Pow(float64(x)-cx, 2) + math.Pow(float64(y)-cy, 2)
-			if d < best && g.safeForcedArrival(x, y, "") {
+			if d < best && g.forcedArrivalOpen(x, y) {
 				best, bx, by = d, x, y
 			}
 		}
@@ -207,13 +207,13 @@ func (g *MMGame) updateAdventureArena() {
 		// Even a legacy lock outside the arena must not strand the party.
 		v.ArenaLocked = false
 		g.syncAdventureArenaBounds()
-		return // Retry at the next AI boundary when a safe tile becomes free.
+		return // Retry at the next AI boundary when a tile becomes free.
 	}
-	x, y := TileCenterFromTile(bx, by, float64(g.config.GetTileSize()))
-	g.setPartyPosition(x, y)
+	g.displacePartyToTile(bx, by)
 	v.ArenaLocked = true
 	g.syncAdventureArenaBounds()
 	g.relocateTravelAllies()
 	boss.BeginPlayerEngagement()
 	g.AddCombatMessage(uitext.Text("adventure.arena_pull"))
+	g.arriveOnTile() // sealed first: a current cannot carry the party out
 }

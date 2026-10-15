@@ -160,11 +160,8 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	// (throughDodge) lands; the avoided projectile cannot trigger riders or AoE,
 	// matching a party projectile that misses its primary target.
 	if cs.monsterPerfectDodges(target) {
-		actual := cs.applyMonsterDamagePacket(
-			target,
-			packet.throughDodge(grazesDodge),
-			cs.monsterWeaponDamageOptions(weaponDef, target, true),
-		).Total()
+		through := packet.throughDodge(grazesDodge)
+		actual := cs.applyMonsterDamagePacket(target, through, cs.monsterWeaponDamageOptions(weaponDef, target, true)).Total()
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
 			target.HitTintFrames = MonsterHitFlashFrames
@@ -172,6 +169,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 				Source: logMonsterAs(srcMonster, sourceName),
 				Target: monsterLogTarget(target),
 				Amount: actual,
+				School: through.loggedSchool(),
 				Kind:   damageLogDodge,
 			})
 			if !target.IsAlive() {

@@ -126,6 +126,15 @@ func (c *DualClock) Refresh(frames, turns int) bool {
 	return RefreshDualRated(&c.Frames, &c.Turns, &c.Rate, frames, turns)
 }
 
+// Arm starts a cooldown of whole rounds on both mode clocks: seconds of RT,
+// the same rounds of TB.
+func (c *DualClock) Arm(seconds, tps int) {
+	if tps <= 0 {
+		tps = config.DefaultTPS
+	}
+	c.Refresh(max(1, seconds*tps), config.CombatRounds(seconds))
+}
+
 // TickFrame spends one RT frame (TickFrameRated).
 func (c *DualClock) TickFrame() (expired bool) { return TickFrameRated(&c.Frames, &c.Turns, &c.Rate) }
 

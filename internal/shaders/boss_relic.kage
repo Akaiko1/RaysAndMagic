@@ -1,0 +1,28 @@
+//kage:unit pixels
+package main
+
+var Time float
+
+// Geometry owns every edge, fitting and hole. Material classes add flowing
+// water and glass reflections without deforming the retort silhouette.
+func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
+ n := normalize(c.xyz)
+ light := max(0.0, dot(n, normalize(vec3(-.4,-.7,-.6))))
+ spec := pow(max(0.0, dot(n, normalize(vec3(-.3,-.45,-1)))), 22.0)
+ material := floor(c.w+.25)
+ tint := color.rgb*(.42+.58*light)
+ alpha := color.a
+ if material == 0.0 {
+  tint += vec3(.28,.25,.18)*spec
+ } else if material == 4.0 {
+  rim := pow(1.0-abs(n.z),2.0)
+  tint = color.rgb*(.65+.35*light)+vec3(.55,.85,.95)*spec
+  alpha *= .16+.58*rim+.25*spec
+ } else if material == 5.0 {
+  flow := .5+.5*sin(p.x*7.0+p.y*5.0-Time*2.7)
+  tint = color.rgb*(.52+.34*light+.14*flow)+vec3(.08,.24,.27)*spec
+  alpha *= .78
+ }
+ // Translucent glass must stay premultiplied even at the brightest glint.
+ return vec4(clamp(tint,vec3(0),vec3(1))*alpha,alpha)
+}

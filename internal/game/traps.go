@@ -344,8 +344,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	boundVictim := false
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
 		if def.AoeRadiusTiles > 0 {
-			hurts := func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) }
-			cs.forEachAreaVictim(cs.pointBlast(t.X, t.Y, def.AoeRadiusTiles), hurts, func(m *monsterPkg.Monster3D) {
+			cs.forEachAreaVictim(cs.pointBlast(t.X, t.Y, def.AoeRadiusTiles), partyAreaHurts, func(m *monsterPkg.Monster3D) {
 				if cs.tryDarkElfBindInstead(t.Owner, m) {
 					boundVictim = boundVictim || m == victim
 					return
@@ -397,20 +396,21 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	packet := cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true)
 	packet = cs.elementalBuffPacket(packet)
 	actual := cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}).Total()
-	cs.reportIndirectHit(m, actual, sourceName)
+	cs.reportIndirectHit(m, actual, sourceName, normalizeDamageTypeStr(element))
 	cs.finishIndirectKill(m)
 }
 
 // reportIndirectHit shows a trap/zone hit exactly like a weapon hit minus the
 // view kick: flash, sparks, and a log line with damage and remaining HP. Kill
 // credit stays with finishIndirectKill, which the caller runs next.
-func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt int, sourceName string) {
+func (cs *CombatSystem) reportIndirectHit(m *monsterPkg.Monster3D, dealt int, sourceName, school string) {
 	cs.markMonsterHit(m)
 	cs.spawnHitSparks(m)
 	cs.game.reportDamage(logToneGood, damageLog{
 		Source: logAbility(sourceName),
 		Target: monsterLogTarget(m),
 		Amount: dealt,
+		School: school,
 		Kind:   damageLogIndirect,
 	})
 }

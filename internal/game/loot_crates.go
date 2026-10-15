@@ -320,7 +320,7 @@ func (g *MMGame) mapLootPool(tiers config.RarityRange) []mapLootEntry {
 				isBoss = def.Boss
 			}
 		}
-		for _, e := range config.GetLootTable(key, isBoss) {
+		for _, e := range nonKillLoot(config.GetLootTable(key, isBoss)) {
 			// Crates draw ordinary items and weapons; set and first_of drops
 			// stay with the kill.
 			if e.Type != "item" && e.Type != "weapon" || e.Type == "item" && config.ValidateOrdinaryItemGrant(e.Key) != nil {
@@ -470,4 +470,23 @@ func (g *MMGame) useSpellLectern(npc *character.NPC) {
 		}
 	}
 	g.AddCombatMessage("The script swims before every eye - no one here can grasp this spell.")
+}
+
+// nonKillLoot is a loot table without its kill_only trophies, also inside
+// first_of groups: what theft and map caches may draw.
+func nonKillLoot(entries []config.LootEntry) []config.LootEntry {
+	var result []config.LootEntry
+	for _, e := range entries {
+		if e.KillOnly {
+			continue
+		}
+		if e.Type == "first_of" {
+			e.Of = nonKillLoot(e.Of)
+			if len(e.Of) == 0 {
+				continue
+			}
+		}
+		result = append(result, e)
+	}
+	return result
 }

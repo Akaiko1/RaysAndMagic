@@ -12,17 +12,7 @@ func elementalAbilityDamage(def *config.WeaponDefinitionConfig, attacker *charac
 	if def == nil || def.ElementalAbility == nil {
 		return 0
 	}
-	a := def.ElementalAbility
-	damage := a.Damage
-	if attacker != nil && a.ScalingStat != "" {
-		_, intellect, _, _, _, speed, _ := attacker.GetEffectiveStats()
-		stat := intellect
-		if a.ScalingStat == "Speed" {
-			stat = speed
-		}
-		damage += max(0, stat) / a.StatDivisor
-	}
-	return damage
+	return statScaledDamage(def.ElementalAbility.StatScaledDamage, attacker)
 }
 
 // Direct, landed party weapon hits alone can charge marks. Projectile scaling

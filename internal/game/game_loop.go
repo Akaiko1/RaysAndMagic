@@ -513,6 +513,9 @@ func (gl *GameLoop) updateMonstersParallel() {
 func (gl *GameLoop) updateProjectilesParallel() {
 	gl.game.projectileMutex.Lock()
 	defer gl.game.projectileMutex.Unlock()
+	for i := range gl.game.arrows {
+		gl.game.combat.aimReturningBlade(&gl.game.arrows[i])
+	}
 
 	// Check for projectile-monster collisions BEFORE movement to prevent tunneling
 	gl.game.combat.CheckProjectilePlayerCollisions()
@@ -527,6 +530,7 @@ func (gl *GameLoop) updateProjectilesParallel() {
 		gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, airspace.CanAttackFrom)
 	}
 
+	gl.game.combat.turnSpentBlades()
 	// Remove inactive projectiles
 	gl.game.RemoveInactiveEntities()
 }

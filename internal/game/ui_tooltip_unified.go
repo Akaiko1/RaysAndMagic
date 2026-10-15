@@ -324,6 +324,9 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 	for _, ln := range def.CoreEffectLines() {
 		effects.Add("%s", ln)
 	}
+	if def.HasSignature(config.SignatureSolarFlare) {
+		effects.Add("%s", uitext.Text("weapon.solar_stored", item.Signature.Charges, def.Signature.ChargeLimit))
+	}
 
 	return renderTooltipRows(item.Name, subtitle, []ttSection{dmg, crit, attack, effects}, full)
 }
@@ -870,13 +873,14 @@ func buildSimpleItemTooltipWithPartyRows(item items.Item, full bool, bearer *cha
 }
 
 // addFlaskSections states a flask the way a throw resolves it: with a bearer
-// the damage breakdown and the real recovery (Speed, staff, Quickening); with
+// the damage breakdown and the real recovery (Speed and Quickening); with
 // none (catalog) the per-tier base plus the Intellect term.
 func addFlaskSections(dmg, effect, use *ttSection, key string, f *config.FlaskDefinition, bearer *character.MMCharacter, cs *CombatSystem) {
-	tier, tierName := masteryTier(bearer, character.SkillBombThrowing)
+	skill := character.FlaskMasterySkill(f)
+	tier, tierName := masteryTier(bearer, skill)
 	perTier := func(values [4]int) string { return tierValueText(bearer != nil, tier, values) }
 	if bearer != nil {
-		dmg.AddDetail("Base (Bomb Throwing - %s): %d", tierName, config.TierValue(f.Damage, tier))
+		dmg.AddDetail("Base (%s - %s): %d", skill.String(), tierName, config.TierValue(f.Damage, tier))
 		intellect := bearer.GetEffectiveIntellect()
 		statContribDetail(dmg, "Intellect", intellect, character.BombThrowingIntellectDivisor)
 		dmg.Add("Total Damage: %d to each victim", flaskDamage(bearer, f))
@@ -891,7 +895,22 @@ func addFlaskSections(dmg, effect, use *ttSection, key string, f *config.FlaskDe
 	if f.BurnSeconds != [4]int{} {
 		effect.Add("Burning: %s seconds", perTier(f.BurnSeconds))
 	}
-	use.Add("Requires Bomb Throwing. Uses own bag, then shared bag.")
+	effect.Add("%s", uitext.Text("item.flask_mastery_scaling", skill))
+	var skills []string
+	for _, need := range character.FlaskSkills(f) {
+		skills = append(skills, need.String())
+	}
+	if !f.Reusable {
+		use.Add("%s", uitext.Text("item.flask_requirements", strings.Join(skills, " and ")))
+	} else {
+		use.Add("%s", uitext.Text("item.flask_reusable", strings.Join(skills, " and ")))
+		if f.CatalysisSeconds > 0 {
+			effect.Add("%s", uitext.Text("item.flask_catalysis", config.DurationText(f.CatalysisSeconds), perTier(f.CatalysisPercent)+"%"))
+		}
+		if def, ok := config.GetItemDefinition(key); ok {
+			use.Add("%s", def.DeviceRechargeLine())
+		}
+	}
 	if cs != nil && bearer != nil {
 		use.Add("%s", cooldownLine(cs, cs.FlaskCooldownFrames(bearer, key)))
 	} else {

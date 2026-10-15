@@ -87,25 +87,26 @@ func personalSpellBadgeRect(px, py, pw, row int) layoutRect {
 
 func (ui *UISystem) drawPersonalSpellEffects(screen *ebiten.Image, c *character.MMCharacter, px, py, pw, mx, my int) {
 	row := 0
-	draw := func(icon, label, detail string, charges int, staff bool, accent color.Color) {
+	// glyph draws a native-size mark; without one the icon sprite is scaled.
+	draw := func(icon string, glyph func(*ebiten.Image, layoutRect), label, detail string, charges int, accent color.Color) {
 		box := personalSpellBadgeRect(px, py, pw, row)
 		if charges <= 0 {
 			box.w = personalSpellBadgeIconSize
 		}
 		row++
+		// No plate: a soft round shadow lifts the icon off the portrait frame
+		// and fades out; the stripe names the school.
 		iconBox := layoutRect{box.x, box.y, personalSpellBadgeIconSize, personalSpellBadgeIconSize}
-		drawFilledRect(screen, box.x, box.y, box.w, box.h, color.RGBA{8, 12, 18, 255})
-		drawRectBorder(screen, box.x, box.y, box.w, box.h, 1, color.RGBA{72, 78, 87, 255})
+		drawSoftGlowAround(screen, iconBox.x+3, iconBox.y+3, iconBox.w-6, iconBox.h-6, 5, color.RGBA{0, 0, 0, 255}, 190, 1)
 		drawFilledRect(screen, box.x, box.y+2, 1, box.h-4, accent)
-		if staff {
-			drawFlowingStaffCharge(screen, iconBox)
+		if glyph != nil {
+			glyph(screen, iconBox)
 		} else if ui.game.sprites.HasSprite(icon) {
 			drawImageScaled(screen, ui.game.sprites.GetSprite(icon), iconBox.x, iconBox.y, iconBox.w, iconBox.h)
 		}
 		if charges > 0 {
 			text := fmt.Sprint(charges)
 			scale := math.Min(float64(personalSpellBadgeCountW)/float64(max(1, uiTextWidth(text))), 8.0/float64(uiTextCharHeight))
-			drawFilledRect(screen, box.right()-personalSpellBadgeCountW, box.bottom()-8, personalSpellBadgeCountW, 8, color.RGBA{8, 12, 18, 240})
 			drawScaledCenteredText(screen, text, box.right()-personalSpellBadgeCountW/2, box.bottom()-4, scale, raritySilver)
 		}
 		if !ui.modalLayerOwnsInput() && isMouseHoveringBox(mx, my, box.x, box.y, box.right(), box.bottom()) {
@@ -117,7 +118,22 @@ func (ui *UISystem) drawPersonalSpellEffects(screen *ebiten.Image, c *character.
 		}
 	}
 	if n := c.FlowingStaffCharges(); n > 0 {
-		draw("", character.SkillFlowingStaff.String(), uitext.Text("advanced.flowing_staff_effect", character.FlowingStaffPct(c.SkillTier(character.SkillFlowingStaff))), n, true, color.RGBA{86, 238, 209, 255})
+		draw("", drawFlowingStaffCharge, character.SkillFlowingStaff.String(), uitext.Text("advanced.flowing_staff_effect", character.FlowingStaffPct(c.SkillTier(character.SkillFlowingStaff))), n, color.RGBA{86, 238, 209, 255})
+	}
+	// One Solar Flare badge counts both hands: with Flowing Staff and the
+	// three personal enchantments that is five rows, the portrait's height.
+	var flare *config.WeaponDefinitionConfig
+	flares := 0
+	for i, def := range equippedWeaponDefinitions(c) {
+		if n := c.Equipment[equippedWeaponSlots[i]].Signature.Charges; n > 0 && def.HasSignature(config.SignatureSolarFlare) {
+			flares += n
+			if flare == nil {
+				flare = def
+			}
+		}
+	}
+	if flare != nil {
+		draw("", drawSolarFlareCharge, flare.Name, flare.Signature.FlareLine(), flares, SchoolColor(flare.Signature.School))
 	}
 	for _, e := range c.SpellState.Effects {
 		d, ok := config.GetSpellDefinition(e.SpellID)
@@ -134,7 +150,7 @@ func (ui *UISystem) drawPersonalSpellEffects(screen *ebiten.Image, c *character.
 		if d.Graphics != nil && d.Graphics.TargetCursor != "" {
 			icon = d.Graphics.TargetCursor
 		}
-		draw(icon, d.Name, detail, e.Charges, false, SchoolColor(d.School))
+		draw(icon, nil, d.Name, detail, e.Charges, SchoolColor(d.School))
 	}
 }
 

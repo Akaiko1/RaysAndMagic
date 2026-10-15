@@ -23,10 +23,11 @@ Supported fields:
 
 | Field | Meaning |
 | --- | --- |
-| `party` | Up to four members, with `name`, class key, optional `skills` and `schools` mastery maps, and `equipment` item or weapon keys. Omit to keep the normal starting party. |
+| `party` | Up to four members, with `name`, class key, optional `race`, `skills` and `schools` mastery maps, `equipment` item or weapon keys, `action` (the readied spell, flask, trap or technique) and `quick` (the quick-slot bar). Omit to keep the normal starting party. |
 | `bench_party` | A complete build from `assets/bench_parties.yaml` at `level` (see below). Excludes `party`, the stat targets and `learn_school_spells`. |
 | `level` | Raise active members through the normal XP progression to this level. Earned level-up choices remain unspent. |
 | `speed_target`, `endurance_target` | Spend earned attribute points toward these targets, then the class's primary attribute. |
+| `auto_stats` | Spend earned attribute points by each class's auto chain (`auto_stats` in `config.yaml`), as benchmark parties do; replaces the targets and clears pending level-up picks. |
 | `learn_school_spells` | Learn spells from each member's existing schools. |
 | `skill_mastery` | Set every existing skill to this mastery and clear pending level-up picks after training. Does not add new class skills. |
 | `map`, `x`, `y`, `angle` | Map-local tile position and heading in radians; works in separate and stitched worlds. |
@@ -40,6 +41,15 @@ Supported fields:
 Unknown fields, classes, skills, mastery names, items, maps and blocked start
 positions fail loudly. The launcher is a development fixture, not a balance
 migration or an automatic quest completion tool.
+
+## New items
+
+`bin/test_new_items.command` starts a level-35 party wearing the Solstice
+chamber rewards: Battle Mage with Stone Script, Wayfarer with Sun Crucible,
+Thief with Returning Gale, and an Alchemist readying the Everflow Retort
+(crafted fire and harm flasks show Catalysis). The four Solstice boss cards
+sit in the bag; the party starts at the desert oasis next to Cartomancer
+Odette, who slots them.
 
 ## Spell sandbox
 

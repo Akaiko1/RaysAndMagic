@@ -316,8 +316,8 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 				if character.WeaponDamageAtNight(d, c, false).FlowingStaff != 0 {
 					t.Fatal("empty charges still boost damage")
 				}
-				g.notifyPilgrimDisplacement(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
-				g.notifyPilgrimDisplacement(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
+				g.partyMoved(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
+				g.partyMoved(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
 				if c.FlowingStaffCharges() != tier+1 {
 					t.Fatal("refill exceeded mastery cap")
 				}

@@ -238,6 +238,7 @@ func TestEditorBossTextMatchesRules(t *testing.T) {
 		want, absent []string
 	}{
 		{"uncapped summons", monster.MonsterDefinition{Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"goblin"}, Chance: .25}}}, []string{"Summons 1x {goblin}: 25% (no live summon cap)"}, []string{"max 0"}},
+		{"cadence summons", monster.MonsterDefinition{Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"goblin"}, CooldownSeconds: 12, Max: 1}}}, []string{"Summons 1x {goblin}: every 12s / 4 TB turns (max 1 alive)"}, []string{"first guaranteed", "{goblin}: 0%"}},
 		{"capped guaranteed summons", monster.MonsterDefinition{Abilities: monster.Abilities{Summon: monster.SummonAbility{Monsters: []string{"goblin"}, Count: 2, Max: 3, FirstGuaranteed: true}}}, []string{"first guaranteed, then 0% (max 3 alive)"}, nil},
 		{"rage damage only", monster.MonsterDefinition{Abilities: monster.Abilities{Enrage: monster.EnrageAbility{AtHP: 50, DamageMult: 1.5}}}, []string{"at/below 50 HP: dmg x1.5, cd x1.0"}, []string{"x0.0"}},
 		{"rage cooldown only", monster.MonsterDefinition{Abilities: monster.Abilities{Enrage: monster.EnrageAbility{AtHP: 50, CooldownMult: .5}}}, []string{"at/below 50 HP: dmg x1.0, cd x0.5"}, []string{"x0.0"}},

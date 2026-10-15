@@ -728,11 +728,8 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 
 	ts := float64(g.config.GetTileSize())
 	px, py := TileCenterFromTile(mc.Duel.PartyTile[0], mc.Duel.PartyTile[1], ts)
-	g.camera.X, g.camera.Y = px, py
+	g.setPartyPosition(px, py)
 	g.snapFacing(mc.Duel.FacingDeg * math.Pi / 180)
-	if g.collisionSystem != nil {
-		g.collisionSystem.UpdateEntity("player", px, py)
-	}
 
 	cx, cy := TileCenterFromTile(mc.Duel.ChampionTile[0], mc.Duel.ChampionTile[1], ts)
 	m := monster.NewMonster3DFromConfig(cx, cy, monsterKey, g.config)

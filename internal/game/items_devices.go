@@ -56,6 +56,12 @@ func (g *MMGame) useDevice(item *items.Item, charIndex int) bool {
 	if item == nil || item.Type != items.ItemDevice || g.party == nil || g.combat == nil {
 		return false
 	}
+	if item.UseAction == "throw_flask" {
+		if key, d := flaskDefinition(*item); d != nil {
+			return g.equipFlask(charIndex, key)
+		}
+		return false
+	}
 	if !g.canSpendCombatAction(charIndex) {
 		g.AddCombatMessage(uitext.Text("item.device_cannot_act"))
 		return false
@@ -69,8 +75,7 @@ func (g *MMGame) useDevice(item *items.Item, charIndex int) bool {
 			g.AddCombatMessage(uitext.Text("item.device_summon_failed"))
 			return false
 		}
-		item.DeviceCooldownFrames = item.Attributes["use_cooldown_seconds"] * g.config.GetTPS()
-		g.combat.deviceClock.remaining = max(g.combat.deviceClock.remaining, item.DeviceCooldownFrames)
+		g.armDeviceRecharge(item)
 		g.AddCombatMessage(uitext.Text("item.device_summon_success"))
 		g.consumeCharacterActionWithRTCooldown(charIndex, g.combat.CalculateActionCooldownFrames(g.party.Members[charIndex]))
 		return true
@@ -83,12 +88,18 @@ func (g *MMGame) useDevice(item *items.Item, charIndex int) bool {
 	hero := g.party.Members[charIndex]
 	cooldown := g.combat.SpellCooldownFrames(hero, jump.ID)
 	return g.combat.tryPartyJump(item.Name, jump.JumpTiles+float64(item.Attributes["use_jump_extra_tiles"]), func() {
-		item.DeviceCooldownFrames = item.Attributes["use_cooldown_seconds"] * g.config.GetTPS()
-		g.combat.deviceClock.remaining = max(g.combat.deviceClock.remaining, item.DeviceCooldownFrames)
+		g.armDeviceRecharge(item)
 		// Jump itself ends the entire TB movement turn. Do not spend a preliminary
 		// attack slot: that would incorrectly grant the monsters an extra action.
 		hero.RTCooldown = max(hero.RTCooldown, cooldown)
 	}) == castCommitted
+}
+
+// armDeviceRecharge starts a used device's recharge (use_cooldown_seconds,
+// never Speed-scaled) on the one device clock.
+func (g *MMGame) armDeviceRecharge(item *items.Item) {
+	item.DeviceCooldownFrames = item.Attributes["use_cooldown_seconds"] * g.config.GetTPS()
+	g.combat.deviceClock.remaining = max(g.combat.deviceClock.remaining, item.DeviceCooldownFrames)
 }
 
 // An idle world needs no inventory walk. A use arms the bounded sweep; carried
@@ -113,32 +124,68 @@ func (g *MMGame) tickDeviceCooldowns(frames int) {
 	}
 	clock.party, clock.revision, clock.rosters, clock.containers = g.party, g.party.ContentRevision(), rosters, len(g.groundContainers)
 	clock.remaining = 0
-	advance := func(it *items.Item) {
-		if it != nil && it.DeviceCooldownFrames > 0 {
+	g.eachCarriedItem(func(it *items.Item) bool {
+		if it.DeviceCooldownFrames > 0 {
 			it.DeviceCooldownFrames = max(0, it.DeviceCooldownFrames-frames)
 			clock.remaining = max(clock.remaining, it.DeviceCooldownFrames)
 		}
+		return false
+	})
+}
+
+// eachLiveItem visits every item the live game holds outside the stash: each
+// roster hero's equipment, then everything carried (eachCarriedItem).
+// Changes through the pointer stick; true stops the walk and is returned.
+func (g *MMGame) eachLiveItem(visit func(*items.Item) bool) bool {
+	if g.party == nil {
+		return false
 	}
-	bag := func(stock []items.Item) {
-		for i := range stock {
-			advance(&stock[i])
+	for hero := range g.party.Heroes() {
+		for slot, it := range hero.Equipment {
+			stop := visit(&it)
+			hero.Equipment[slot] = it
+			if stop {
+				return true
+			}
 		}
 	}
-	bag(g.party.Inventory)
-	for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
-		for _, hero := range roster {
-			if hero == nil {
-				continue
+	return g.eachCarriedItem(visit)
+}
+
+// eachCarriedItem visits every live item not worn: the shared bag, each
+// roster hero's bag and quick slots, and ground containers. Devices live only
+// here - they are never equipped.
+func (g *MMGame) eachCarriedItem(visit func(*items.Item) bool) bool {
+	bag := func(stock []items.Item) bool {
+		for i := range stock {
+			if visit(&stock[i]) {
+				return true
 			}
-			bag(hero.Inventory)
-			for _, it := range hero.QuickSlots {
-				advance(it)
+		}
+		return false
+	}
+	if g.party == nil {
+		return false
+	}
+	if bag(g.party.Inventory) {
+		return true
+	}
+	for hero := range g.party.Heroes() {
+		if bag(hero.Inventory) {
+			return true
+		}
+		for _, it := range hero.QuickSlots {
+			if it != nil && visit(it) {
+				return true
 			}
 		}
 	}
 	for i := range g.groundContainers {
-		bag(g.groundContainers[i].Items)
+		if bag(g.groundContainers[i].Items) {
+			return true
+		}
 	}
+	return false
 }
 
 func deviceCooldownProgress(item items.Item) float64 {

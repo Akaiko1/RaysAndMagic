@@ -962,11 +962,11 @@ func TestRareFlowChargeActualAttack(t *testing.T) {
 	for _, action := range []string{"staff", "other_weapon", "pixie_replacement", "stunned", "projectile_cap"} {
 		t.Run(action, func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, false)
-			g.notifyPilgrimDisplacement(g.camera.X, g.camera.Y)
+			g.partyMoved(g.camera.X, g.camera.Y)
 			if c.FlowingStaffCharges() != 0 {
 				t.Fatal("standing still charged staff")
 			}
-			g.notifyPilgrimDisplacement(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
+			g.partyMoved(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
 			if c.FlowingStaffCharges() != 1 {
 				t.Fatal("one tile did not charge staff")
 			}

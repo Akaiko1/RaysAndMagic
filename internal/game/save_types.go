@@ -143,6 +143,7 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
+	ActorID            uint64                                   `json:"actor_id,omitempty"`
 	ReactiveCombat     character.ReactiveCombatState            `json:"reactive_combat,omitempty"`
 	AdventureXP        map[string]character.AdventureExperience `json:"adventure_xp,omitempty"`
 	Inventory          []items.Item                             `json:"inventory,omitempty"`
@@ -286,6 +287,7 @@ type MonsterAggroSave struct {
 }
 
 type MonsterSave struct {
+	Relics        monster.RelicState     `json:"relics,omitzero"`
 	Telegraph     monster.TelegraphState `json:"telegraph,omitzero"`
 	BandInstance  string                 `json:"band_instance,omitempty"`
 	AmbientThreat monster.AmbientThreat  `json:"ambient_threat,omitzero"`
@@ -386,6 +388,9 @@ type MonsterSave struct {
 	BossHurtPending     bool                                   `json:"boss_hurt_pending,omitempty"`
 	BossLastHP          int                                    `json:"boss_last_hp,omitempty"`
 	SummonFirstDone     bool                                   `json:"summon_first_done,omitempty"`
+	SummonCD            *status.DualClock                      `json:"summon_cd,omitempty"`
+	PushCD              *status.DualClock                      `json:"push_cd,omitempty"`
+	LaneCD              *status.DualClock                      `json:"lane_cd,omitempty"`
 	SummonedBy          string                                 `json:"summoned_by,omitempty"`
 	SummonerName        string                                 `json:"summoner_name,omitempty"`
 	IsEncounterMonster  bool                                   `json:"is_encounter_monster,omitempty"`

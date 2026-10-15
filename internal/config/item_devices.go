@@ -13,6 +13,10 @@ func validateDeviceDefinition(key string, d *ItemDefinitionConfig) error {
 		return fmt.Errorf("item %q: device requires positive use_cooldown_seconds", key)
 	}
 	switch d.UseAction {
+	case "throw_flask":
+		if d.Flask == nil || d.UseSpell != "" || d.UseJumpExtraTiles != 0 || d.SummonDistanceTiles != 0 {
+			return fmt.Errorf("item %q: throw_flask device requires a flask and no jump or summon fields", key)
+		}
 	case "jump":
 		if d.UseSpell == "" || d.UseJumpExtraTiles < 0 || d.SummonDistanceTiles != 0 {
 			return fmt.Errorf("item %q: jump device requires use_spell, nonnegative use_jump_extra_tiles and no summon distance", key)
@@ -53,12 +57,17 @@ func ValidateDeviceSpellReferences(catalog *ItemSystemConfig, spells *SpellSyste
 	return nil
 }
 
+// DeviceRechargeLine is every device's recharge line.
+func (d *ItemDefinitionConfig) DeviceRechargeLine() string {
+	return uitext.Text("item.device_recharge", d.UseCooldownSeconds)
+}
+
 func (d *ItemDefinitionConfig) DeviceEffectLines() []string {
 	if d.Type != "device" {
 		return nil
 	}
 	if d.UseAction == "summon" {
-		return []string{uitext.Text("item.device_summon", d.SummonDistanceTiles), uitext.Text("item.device_recharge", d.UseCooldownSeconds)}
+		return []string{uitext.Text("item.device_summon", d.SummonDistanceTiles), d.DeviceRechargeLine()}
 	}
 	if d.UseAction != "jump" || GlobalSpells == nil {
 		return nil
@@ -70,6 +79,6 @@ func (d *ItemDefinitionConfig) DeviceEffectLines() []string {
 	distance := spell.JumpTiles + float64(d.UseJumpExtraTiles)
 	return []string{
 		uitext.Text("item.device_jump", fmt.Sprintf("%g", distance)),
-		uitext.Text("item.device_recharge", d.UseCooldownSeconds),
+		d.DeviceRechargeLine(),
 	}
 }

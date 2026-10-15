@@ -34,6 +34,9 @@ func expandMonsterLootGroups(c *LootTablesConfig) error {
 				if _, group := c.LootGroups[key]; group {
 					return nil, fmt.Errorf("loot group %q: gold belongs in a monster's own table", key)
 				}
+				if e.KillOnly {
+					return nil, fmt.Errorf("loots %q: gold is rolled at spawn; kill_only does not apply to it", key)
+				}
 				flat = append(flat, e) // splitMonsterGold validates it
 				continue
 			}
@@ -77,6 +80,8 @@ func expandMonsterLootGroups(c *LootTablesConfig) error {
 					continue // a referenced table's gold stays its own
 				}
 				child.Rolls = child.RollCount() * e.RollCount()
+				// A kill_only reference makes every drop it brings a kill trophy.
+				child.KillOnly = child.KillOnly || e.KillOnly
 				flat = append(flat, child)
 			}
 		}

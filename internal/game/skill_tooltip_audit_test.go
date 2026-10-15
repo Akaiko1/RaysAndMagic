@@ -74,6 +74,9 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 	for _, key := range config.FlaskKeys() {
 		d, _ := config.GetItemDefinition(key)
 		f := d.Flask
+		if f.Reusable {
+			continue
+		} // Its Alchemy scaling belongs to the item card.
 		geometries[[2]int{f.RangeTiles, f.RadiusTiles}] = true
 		facts := []string{fmt.Sprintf("%s: %s + INT/%d %s damage", d.Name, ladder(f.Damage), character.BombThrowingIntellectDivisor, f.Element)}
 		if f.PoisonSeconds != [4]int{} {

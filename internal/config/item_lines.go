@@ -366,6 +366,7 @@ func EquipmentSetLines(setKey string) []string {
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string
+	p = append(p, d.CardRuleLines()...)
 	if d.WeaponBaseDamageBonus > 0 {
 		p = append(p, uitext.Text("item.party_weapon_base_bonus", d.WeaponBaseDamageBonus))
 	}

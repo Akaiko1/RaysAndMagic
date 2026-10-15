@@ -112,7 +112,7 @@ func monsterStatusVisuals(m *monster.Monster3D, monsterTurn bool) statusVisuals 
 	if (m.WeakenPct > 0 && (m.WeakenFramesRemaining > 0 || m.WeakenTurnsRemaining > 0)) || (monsterTurn && m.ActiveWeakenPct() > 0) {
 		v |= visualWeaken
 	}
-	if m.ArmorShredPct > 0 && (m.ArmorShredFramesRemaining > 0 || m.ArmorShredTurnsRemaining > 0) {
+	if m.Relics.CrumbleArmor > 0 || m.ArmorShredPct > 0 && (m.ArmorShredFramesRemaining > 0 || m.ArmorShredTurnsRemaining > 0) {
 		v |= visualShred
 	}
 	if m.ArmorMelted() {

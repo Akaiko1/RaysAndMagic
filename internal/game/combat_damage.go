@@ -85,6 +85,17 @@ func (p monsterDamagePacket) throughDodge(grazes bool) monsterDamagePacket {
 	return out
 }
 
+// loggedSchool names the packet in the log: its first school that still
+// carries normal damage, else "" for true damage only.
+func (p monsterDamagePacket) loggedSchool() string {
+	for _, component := range p.Components {
+		if component.Parts.Normal > 0 {
+			return component.School.String()
+		}
+	}
+	return ""
+}
+
 type monsterDamageOptions struct {
 	Projectile     bool // a projectile hit (or its splash): may pierce armor (physicalProjectilePierces)
 	IgnoreArmor    bool

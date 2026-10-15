@@ -62,6 +62,7 @@ func (s EquipSlot) DisplayName() string {
 }
 
 type Item struct {
+	Signature WeaponSignatureState `json:"weapon_signature,omitzero"`
 	// DeviceCooldownFrames is the exact remaining gameplay budget.
 	DeviceCooldownFrames int     `json:"device_cooldown_frames,omitempty"`
 	LegacyDeviceCooldown float64 `json:"device_cooldown,omitempty"`

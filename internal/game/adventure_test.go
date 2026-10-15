@@ -72,6 +72,41 @@ func TestSolsticeVisitLifecycle(t *testing.T) {
 					if arena == nil || g.collisionSystem.CanMoveTo(boss.ID, (float64(arena[0])-.5)*tile, boss.Y) {
 						t.Fatal("boss can leave its authored arena")
 					}
+					// Its add appears in the arena at the visit level and shares the
+					// arena, also after a reload.
+					if !g.combat.summonBossAdds(boss) {
+						t.Fatal("boss could not summon its add")
+					}
+					add := g.world.Monsters[len(g.world.Monsters)-1]
+					addID := add.ID
+					for reload := range 2 {
+						if reload == 1 {
+							snapshot := g.buildSave(wm)
+							if err := g.applySave(wm, &snapshot); err != nil {
+								t.Fatal(err)
+							}
+							boss, add, visit = g.adventureBoss(g.adventureConfig(key)), nil, g.adventure.Visits[key]
+							for _, m := range g.world.Monsters {
+								if m.ID == addID {
+									add = m
+								}
+							}
+						}
+						if add == nil || add.SummonedBy != boss.ID || add.Level != 25 {
+							t.Fatalf("reload=%d: add %+v is not the boss's level-25 add", reload, add)
+						}
+						if x, y := TileIndex(add.X, tile), TileIndex(add.Y, tile); x < arena[0] || y < arena[1] || x > arena[2] || y > arena[3] ||
+							g.collisionSystem.CanMoveTo(add.ID, (float64(arena[0])-.5)*tile, add.Y) {
+							t.Fatalf("reload=%d: add at %d,%d is not held in the arena", reload, x, y)
+						}
+					}
+					for i, m := range g.world.Monsters {
+						if m == add {
+							g.world.Monsters = append(g.world.Monsters[:i], g.world.Monsters[i+1:]...)
+							g.collisionSystem.UnregisterEntity(add.ID)
+							break
+						}
+					}
 
 					g.world.Monsters[0].HitPoints -= 7
 					g.world.Monsters[0].SetElementalMark("pressure", monster.ElementalWeaponMark{Count: 2}, 360, 3)

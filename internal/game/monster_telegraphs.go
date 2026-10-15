@@ -326,15 +326,7 @@ func (g *MMGame) moveTelegraphMonster(m *monster.Monster3D, dir [2]int, distance
 }
 func (g *MMGame) pushTelegraphParty(dir [2]int) {
 	x, y := g.GetPlayerTilePosition()
-	wx, wy := TileCenterFromTile(x+dir[0], y+dir[1], float64(g.config.GetTileSize()))
-	if !g.safeForcedArrival(x+dir[0], y+dir[1], "") {
-		return
-	}
-	oldX, oldY := g.camera.X, g.camera.Y
-	g.setPartyPosition(wx, wy)
-	g.notifyPilgrimDisplacement(oldX, oldY)
-	g.resolveEnvironmentArrival(false)
-	g.autoPickupLootBags()
+	g.forcePartyStep(x+dir[0], y+dir[1])
 }
 func (g *MMGame) monsterFieldExposures(dt float64) []environmentExposure {
 	var out []environmentExposure

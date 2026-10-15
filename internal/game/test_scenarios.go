@@ -39,13 +39,19 @@ type TestScenario struct {
 	EnduranceTarget       int              `yaml:"endurance_target"`
 	LearnSchoolSpells     bool             `yaml:"learn_school_spells"`
 	SkillMastery          string           `yaml:"skill_mastery"`
+	// AutoStats spends level-up points by each class's auto chain (as bench
+	// parties do) instead of the speed/endurance targets.
+	AutoStats bool `yaml:"auto_stats"`
 }
 type ScenarioMember struct {
 	Name      string            `yaml:"name"`
 	Class     string            `yaml:"class"`
+	Race      string            `yaml:"race"`
 	Skills    map[string]string `yaml:"skills"`
 	Schools   map[string]string `yaml:"schools"`
 	Equipment []string          `yaml:"equipment"`
+	Action    string            `yaml:"action"` // readied action: a spell, flask, trap or technique
+	Quick     []string          `yaml:"quick"`
 }
 
 func LoadTestScenarios(path string) (map[string]TestScenario, error) {
@@ -76,6 +82,9 @@ func LoadTestScenarios(path string) (map[string]TestScenario, error) {
 		// A bench party is a complete build: it owns the roster, stats and spells.
 		if s.BenchParty != "" && (len(s.Party) > 0 || s.Level == 0 || s.SpeedTarget > 0 || s.EnduranceTarget > 0 || s.LearnSchoolSpells || s.SkillMastery != "") {
 			return nil, fmt.Errorf("scenario %q: bench_party takes only a level and placement fields", key)
+		}
+		if s.AutoStats && (s.SpeedTarget > 0 || s.EnduranceTarget > 0) {
+			return nil, fmt.Errorf("scenario %q: auto_stats replaces speed_target and endurance_target", key)
 		}
 		if _, ok := character.MasteryFromKey(s.SkillMastery); s.SkillMastery != "" && !ok {
 			return nil, fmt.Errorf("scenario %q: unknown skill_mastery %q", key, s.SkillMastery)
@@ -181,6 +190,12 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			return fmt.Errorf("scenario: unknown class %q", data.Class)
 		}
 		m := character.CreateCharacter(data.Name, class, g.config)
+		if data.Race != "" && data.Race != "human" {
+			if _, ok := g.config.Characters.Races[data.Race]; !ok {
+				return fmt.Errorf("scenario: %s has unknown race %q", data.Name, data.Race)
+			}
+			m.ApplyRace(data.Race, g.config)
+		}
 		for key, tier := range data.Schools {
 			mastery, _ := character.MasteryFromKey(tier)
 			unlockSchool(m, character.MagicSchoolID(key))
@@ -240,10 +255,14 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			m.Experience += xpStepCost(m.Level)
 			g.combat.checkLevelUp(m, false)
 		}
-		pts := m.FreeStatPoints
-		pts -= raiseStat(&m.Speed, s.SpeedTarget, pts)
-		pts -= raiseStat(&m.Endurance, s.EnduranceTarget, pts)
-		addMainDamageStat(m, pts)
+		if s.AutoStats {
+			autoDistributeStatPoints(m, g.config)
+		} else {
+			pts := m.FreeStatPoints
+			pts -= raiseStat(&m.Speed, s.SpeedTarget, pts)
+			pts -= raiseStat(&m.Endurance, s.EnduranceTarget, pts)
+			addMainDamageStat(m, pts)
+		}
 		m.FreeStatPoints = 0
 		if s.LearnSchoolSpells {
 			learnAllSchoolSpells(m)
@@ -260,7 +279,12 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 		m.HitPoints = m.MaxHitPoints
 		m.SpellPoints = m.MaxSpellPoints
 	}
-	if s.SkillMastery != "" {
+	for i, data := range s.Party {
+		if err := readyBuildActions(g.party.Members[i], data.Action, data.Quick); err != nil {
+			return fmt.Errorf("scenario: %w", err)
+		}
+	}
+	if s.SkillMastery != "" || s.AutoStats {
 		g.levelUpChoiceQueue = nil
 		g.closeLevelUpChoice()
 	}

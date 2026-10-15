@@ -79,6 +79,71 @@ item_sets:
     bonus_endurance: 20
 
 items:
+  solstice_aureth_card:
+    name: "Aureth Card"
+    type: card
+    description: "Wildfire"
+    rarity: legendary
+    value: 500
+    no_loot: true
+    card_wildfire_hp_pct: 15
+    card_wildfire_radius_tiles: 2
+    card_wildfire_burn_seconds: 6
+    card_wildfire_school: fire
+
+  solstice_neressa_card:
+    name: "Neressa Card"
+    type: card
+    description: "Overflow"
+    rarity: legendary
+    value: 500
+    no_loot: true
+    card_overflow_pct: 25
+    card_overflow_cap_pct: 50
+
+  solstice_talura_card:
+    name: "Talura Card"
+    type: card
+    description: "Crumbling Throne"
+    rarity: legendary
+    value: 500
+    no_loot: true
+    card_crumble_armor: 3
+    card_crumble_cap_pct: 50
+
+  solstice_vaelith_card:
+    name: "Vaelith Card"
+    type: card
+    description: "Storm Reversal"
+    rarity: legendary
+    value: 500
+    no_loot: true
+    card_storm_reversal_pct: 100
+    card_storm_reversal_school: air
+
+  solstice_everflow_retort:
+    name: "Everflow Retort"
+    type: device
+    description: "A bronze-banded glass retort draws its endless turquoise charge from Neressa's current."
+    brew_color: [65, 155, 170]
+    rarity: legendary
+    value: 7500
+    no_loot: true
+    use_action: throw_flask
+    use_cooldown_seconds: 6
+    flask:
+      reusable: true
+      projectile_fx: solstice_everflow_retort
+      element: water
+      damage: [36, 54, 72, 90]
+      poison_seconds: [0, 0, 0, 0]
+      burn_seconds: [0, 0, 0, 0]
+      range_tiles: 6
+      radius_tiles: 2
+      cooldown_seconds: 3
+      catalysis_percent: [15, 25, 35, 50]
+      catalysis_seconds: 6
+
   scarlet_crane_do:
     name: "Scarlet Crane Do"
     type: "armor"

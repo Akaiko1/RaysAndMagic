@@ -474,14 +474,6 @@ func tierLadder(values [4]int) string {
 	return fmt.Sprintf("%d/%d/%d/%d", values[0], values[1], values[2], values[3])
 }
 
-// tierCountText is a counted ladder: "1 round" when flat, else "1/1/2/2 rounds".
-func tierCountText(values [4]int, singular, plural string) string {
-	if tierFlat(values) {
-		return pluralizeCount(values[0], singular, plural)
-	}
-	return tierLadder(values) + " " + plural
-}
-
 func tierFlat(values [4]int) bool {
 	return values[0] == values[1] && values[1] == values[2] && values[2] == values[3]
 }

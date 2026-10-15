@@ -37,6 +37,9 @@ type SpriteManager struct {
 	// Compact visible-frame geometry used by visual-size normalization. Unlike
 	// alphaMasks, each entry retains only a rectangle and frame dimensions.
 	visibleFrameBounds map[string]spriteVisibleFrameBounds
+	// iconArtBounds caches IconArtBounds per icon; an empty rectangle is a
+	// cached failure. Authored icons never change while the game runs.
+	iconArtBounds map[string]image.Rectangle
 
 	// spritePaths maps a sprite basename (no extension) to its PNG path, built
 	// once by walking the sprite roots recursively (see ensureIndex). Lets

@@ -22,18 +22,18 @@ type AdventureState struct {
 	Occupied string                     `json:"occupied,omitempty"`
 }
 type AdventureVisit struct {
-	VictoryAt   float64                      `json:"victory_at,omitempty"`
-	ArenaLocked bool                         `json:"arena_locked,omitempty"`
-	Loot        map[string]AdventureLoot     `json:"loot,omitempty"`
-	Opening     string                       `json:"opening"`
-	Element     string                       `json:"element"`
-	Level       int                          `json:"level"`
-	Generation  int                          `json:"generation"`
-	Controls    map[string]bool              `json:"controls,omitempty"`
-	Effects     map[string]*EnvironmentState `json:"effects,omitempty"`
-	BossGranted bool                         `json:"boss_granted,omitempty"`
-	BossActions int                          `json:"boss_actions,omitempty"`
-	HealCarry   float64                      `json:"heal_carry,omitempty"`
+	VictoryAt    float64                      `json:"victory_at,omitempty"`
+	ArenaLocked  bool                         `json:"arena_locked,omitempty"`
+	Loot         map[string]AdventureLoot     `json:"loot,omitempty"`
+	Opening      string                       `json:"opening"`
+	Element      string                       `json:"element"`
+	Level        int                          `json:"level"`
+	Generation   int                          `json:"generation"`
+	Controls     map[string]bool              `json:"controls,omitempty"`
+	Effects      map[string]*EnvironmentState `json:"effects,omitempty"`
+	BossGranted  bool                         `json:"boss_granted,omitempty"`
+	LanePatterns int                          `json:"lane_patterns,omitempty"` // patterns the boss has had its turn at, for the rotation
+	HealCarry    float64                      `json:"heal_carry,omitempty"`
 }
 
 // Old saves stored a deadline using the original policy. Convert it once at

@@ -462,8 +462,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 			centerY := float64(currentWorld.Height) * tileSize * 0.5
 			startX, startY = g.FindNearestWalkableTileMustSucceed(centerX, centerY)
 		}
-		g.camera.X = startX
-		g.camera.Y = startY
+		g.setPartyPosition(startX, startY)
 		g.snapFacing(0)
 		g.camera.FOV = squareProjectionFOV(g.worldWidth(), g.worldHeight())
 		g.camera.ViewDist = g.config.GetViewDistance()
@@ -1262,31 +1261,21 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 	if ih.game.partyRooted() {
 		return
 	}
-	cam := ih.game.camera
-	oldX, oldY := cam.X, cam.Y
-	cs := ih.game.collisionSystem
-	moved := false
+	oldX, oldY := ih.game.camera.X, ih.game.camera.Y
+	x, y := oldX, oldY
 	switch {
-	case ih.game.canMovePartyTo(cam.X+dx, cam.Y+dy):
-		cam.X += dx
-		cam.Y += dy
-		moved = true
-	case dx != 0 && ih.game.canMovePartyTo(cam.X+dx, cam.Y):
-		cam.X += dx
-		moved = true
-	case dy != 0 && ih.game.canMovePartyTo(cam.X, cam.Y+dy):
-		cam.Y += dy
-		moved = true
-	}
-	if !moved {
+	case ih.game.canMovePartyTo(oldX+dx, oldY+dy):
+		x, y = oldX+dx, oldY+dy
+	case dx != 0 && ih.game.canMovePartyTo(oldX+dx, oldY):
+		x = oldX + dx
+	case dy != 0 && ih.game.canMovePartyTo(oldX, oldY+dy):
+		y = oldY + dy
+	default:
 		ih.game.announceBlockedPartyMove(oldX+dx, oldY+dy)
 		return
 	}
-	cs.UpdateEntity("player", cam.X, cam.Y)
-	ih.game.notifyPilgrimDisplacement(oldX, oldY)
-	ih.game.recordProfileStep(oldX, oldY)
-	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step
-	ih.applyLandingTileEffects()
+	ih.game.movePartyPosition(x, y)
+	ih.finishStep(oldX, oldY)
 }
 
 // applyLandingTileEffects runs whatever the tile under the party does on arrival:
@@ -1295,10 +1284,19 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 // Jump) must go through it, or the party can stand on a live teleporter doing
 // nothing.
 func (ih *InputHandler) applyLandingTileEffects() {
-	ih.game.autoPickupLootBags()
-	ih.game.applyEnvironmentArrival()
+	ih.game.arriveOnTile()
 	ih.checkTeleporter()
 	ih.checkDeepWater()
+}
+
+// finishStep completes one of the party's own steps, RT or TB: movement
+// effects see the distance, the step is recorded, the Gorilla Titan Card may
+// burst, and the party lands on its tile.
+func (ih *InputHandler) finishStep(oldX, oldY float64) {
+	ih.game.partyMoved(oldX, oldY)
+	ih.game.recordProfileStep(oldX, oldY)
+	ih.game.maybeCardMoveBurst()
+	ih.applyLandingTileEffects()
 }
 
 func (ih *InputHandler) moveForward() {
@@ -2568,10 +2566,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 	// This fixes getting stuck issues by prioritizing tile passability over entity collision
 	oldX, oldY := ih.game.camera.X, ih.game.camera.Y
 	ih.game.movePartyPosition(targetX, targetY)
-	ih.game.notifyPilgrimDisplacement(oldX, oldY)
-	ih.game.recordProfileStep(oldX, oldY)
-	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step (parity with RT)
-	ih.applyLandingTileEffects()
+	ih.finishStep(oldX, oldY)
 	return true
 }
 

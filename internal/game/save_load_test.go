@@ -1000,6 +1000,9 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 		t.Fatal("japanese castle boss/add configs must load")
 	}
 	boss.SummonFirstDone = true
+	// The boss ability cooldowns run on, mid-span (an odd frame remainder).
+	clocks := [3]status.DualClock{{Frames: 361, Turns: 3, Rate: 120}, {Frames: 179, Turns: 2, Rate: 90}, {Frames: 59, Turns: 1, Rate: 60}}
+	boss.SummonCD, boss.PushCD, boss.LaneCD = clocks[0], clocks[1], clocks[2]
 	add.SummonedBy = boss.ID
 	add.CharmedByParty = true
 	add.IsEngagingPlayer = true
@@ -1029,6 +1032,9 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 			foundBoss = true
 			if !m.SummonFirstDone {
 				t.Fatal("boss SummonFirstDone must survive save/load")
+			}
+			if got := [3]status.DualClock{m.SummonCD, m.PushCD, m.LaneCD}; got != clocks {
+				t.Fatalf("boss summon/push/lane cooldowns %+v after load, want %+v", got, clocks)
 			}
 		}
 		if m.Key == "ashigaru_firelock" {

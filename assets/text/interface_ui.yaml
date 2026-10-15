@@ -49,15 +49,21 @@ npc.unlock_party_level: "Permanently available at average party level %d"
 
 adventure.arena_barrier: "The arena is sealed until the boss falls. Only Town Portal can carry you out."
 adventure.arena_pull: "The regulator draws the party into its arena. Defeat it or escape with Town Portal."
+adventure.boss_push: "%s %s toward %s!"
+adventure.boss_push_action: "shoves the party"
 adventure.xp_limit: " XP limit reached in this chamber."
 adventure.xp_limit_some: " XP limit reached in this chamber for some heroes."
 
 item.device_recharging: "%s is recharging."
+item.flask_skill_required: "%s is required."
+item.flask_readied: "%s readies %s (%d in bag)."
+item.flask_no_room: "No room to throw."
+item.flask_none: "No %s in this hero's bag or the shared bag."
 item.device_cooldown: "Ready in %.1f seconds / %d rounds"
 item.traversal_required: "An active hero needs a suitable traversal spell or technique with enough spell points, or a carried device with a matching movement effect."
 
 item.device_jump: "Teleports the entire party %s tiles forward"
-item.device_recharge: "Recharge: %d seconds"
+item.device_recharge: "Recharge: %d seconds, unaffected by Speed"
 item.device_cannot_act: "The selected hero cannot act yet."
 item.device_unavailable: "%s has no available use action."
 

@@ -2,7 +2,30 @@
 package main
 
 // Actual projected faces carry camera-space normals and a surface class. All
-// ornament is rigid geometry; shading never stretches a flat weapon picture.
+// inlay uses local surface coordinates; no item artwork is sampled.
+// Rune coordinates run across the blade (X) and from tip to grip (Y).
+func runeStroke(p, a, b vec2) float {
+ v := b-a
+ d := length(p-a-v*clamp(dot(p-a,v)/dot(v,v),0.0,1.0))
+ return 1.0-smoothstep(.006,.011,d)
+}
+func stoneRune(p vec2) float {
+ q := vec2(p.y,-p.x-1.20)
+ r := runeStroke(q,vec2(0,-.17),vec2(0,.17))
+ r = max(r,runeStroke(q,vec2(0,-.15),vec2(.045,-.06)))
+ r = max(r,runeStroke(q,vec2(.045,-.06),vec2(0,.02)))
+ r = max(r,runeStroke(q,vec2(0,.02),vec2(-.045,-.06)))
+ q.y = -p.x-2.12
+ r = max(r,runeStroke(q,vec2(-.045,-.16),vec2(0,-.07)))
+ r = max(r,runeStroke(q,vec2(0,-.07),vec2(.045,-.16)))
+ r = max(r,runeStroke(q,vec2(0,-.07),vec2(0,.16)))
+ r = max(r,runeStroke(q,vec2(0,.03),vec2(.045,-.04)))
+ q.y = -p.x-3.04
+ r = max(r,runeStroke(q,vec2(-.045,-.16),vec2(-.045,.16)))
+ r = max(r,runeStroke(q,vec2(-.045,-.16),vec2(.045,-.06)))
+ r = max(r,runeStroke(q,vec2(.045,-.06),vec2(-.045,.04)))
+ return max(r,runeStroke(q,vec2(-.045,.04),vec2(.045,.16)))
+}
 func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
  n := normalize(c.xyz)
  light := max(0.0, dot(n, normalize(vec3(-.4,-.7,-.6))))
@@ -15,6 +38,8 @@ func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
   tint += color.rgb*.14 + vec3(.17,.22,.23)*spec
  } else if material == 3.0 {
   tint = color.rgb*(.85+.15*light)
+ } else if material == 6.0 {
+  tint = mix(tint,vec3(.91,.70,.29),stoneRune(p))
  }
  return vec4(tint*color.a,color.a)
 }
