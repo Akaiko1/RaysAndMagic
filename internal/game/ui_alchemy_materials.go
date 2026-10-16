@@ -242,9 +242,7 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 			ui.alchemyRevision++
 		}
 	})
-	clip := image.Rect(a.viewport.x, a.viewport.y, a.viewport.right(), a.viewport.bottom()).Intersect(uiBounds(screen))
-	if !clip.Empty() {
-		dst := uiClip(screen, clip)
+	if dst, clip, ok := uiListClip(screen, a.viewport); ok {
 		for _, h := range a.headings {
 			y := h.rect.y - offset
 			drawUITextColored(dst, h.label, h.rect.x, y+2, color.RGBA{174, 169, 141, 255})

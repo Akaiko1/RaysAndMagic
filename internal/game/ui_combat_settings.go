@@ -421,13 +421,10 @@ func (ui *UISystem) drawBuildSettings(screen *ebiten.Image, px, py int) {
 			}
 		})
 	}
-	// One unit past the area keeps the rows' right and bottom rims.
-	clip := image.Rect(area.x, area.y, area.right()+1, area.bottom()+1).Intersect(uiBounds(screen))
-	if !clip.Empty() {
-		dst := uiClip(screen, clip)
+	if dst, view, ok := uiListClip(screen, area); ok {
 		for i, class := range classes {
 			r := buildsRosterRow(px, py, i, offset)
-			hit := image.Rect(r.x, r.y, r.right(), r.bottom()).Intersect(clip)
+			hit := image.Rect(r.x, r.y, r.right(), r.bottom()).Intersect(view)
 			if hit.Empty() {
 				continue
 			}

@@ -201,11 +201,10 @@ func (ui *UISystem) drawPotionSettings(screen *ebiten.Image, px, py, panelW int)
 				}
 			})
 		}
-		clip := image.Rect(l.types.x, l.types.y, l.types.right(), l.types.bottom()).Intersect(uiBounds(screen))
-		if clip.Empty() {
+		dst, clip, ok := uiListClip(screen, l.types)
+		if !ok {
 			continue
 		}
-		dst := uiClip(screen, clip)
 		for i, choice := range choices {
 			r := l.card(i, offset)
 			hit := image.Rect(r.x, r.y, r.right(), r.bottom()).Intersect(clip)

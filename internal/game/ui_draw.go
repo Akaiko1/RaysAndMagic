@@ -81,6 +81,17 @@ func uiClip(dst *ebiten.Image, r image.Rectangle) *ebiten.Image {
 	return sub
 }
 
+// uiListClip is a scrolled list's surface: view grown by the one-unit rim
+// drawRectBorder puts outside each item, so edge items keep every side. in is
+// the visible part of view itself, for hits; ok is false when none is.
+func uiListClip(dst *ebiten.Image, view layoutRect) (list *ebiten.Image, in image.Rectangle, ok bool) {
+	in = image.Rect(view.x, view.y, view.right(), view.bottom()).Intersect(uiBounds(dst))
+	if in.Empty() {
+		return nil, in, false
+	}
+	return uiClip(dst, in.Inset(-1)), in, true
+}
+
 // uiSurfaceAt is dst addressed at another scale (pixels per unit) for the rest
 // of the frame: a HUD piece that keeps one size at every interface size draws
 // on it.
