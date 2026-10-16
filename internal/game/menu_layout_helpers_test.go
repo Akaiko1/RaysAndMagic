@@ -73,6 +73,9 @@ func settingsLayoutBoxes(screenW, screenH int, ornate bool, tab settingsTabKind)
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("tab-%d", tab), settingsTabRect(px, py, panelW, settingsTabKind(tab))))
 	}
 	if tab == settingsTabCombat {
+		for page := range gameplayPageLabels {
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("page-%d", page), gameplayPageRect(px, py, gameplayPage(page))))
+		}
 		for _, wide := range []bool{false, true} {
 			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("view-%v", wide), viewChoiceRect(px, py, panelW, wide)))
 		}
@@ -91,7 +94,7 @@ func settingsLayoutBoxes(screenW, screenH int, ornate bool, tab settingsTabKind)
 		}
 	}
 	back := audioBackRect(px, py, panelH, layout.contentInset)
-	hint, hintX, hintY := settingsHintPosition(tab, "", px, py, panelW, panelH, layout.contentInset)
+	hint, hintX, hintY := settingsHintPosition(tab, gameplayPageView, "", px, py, panelW, panelH, layout.contentInset)
 	boxes = append(boxes,
 		uiBox{"back", back.x1, back.y1, back.x2 - back.x1, back.y2 - back.y1},
 		textLineBox("hint", hint, hintX, hintY),

@@ -849,7 +849,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int, 
 			currentChar := ui.game.party.Members[ui.game.selectedChar]
 
 			if item.Type == items.ItemQuest {
-				if item.Attributes["opens_map"] > 0 {
+				if itemOpensMap(&item) {
 					ui.game.mapOverlayOpen = true
 					return
 				}

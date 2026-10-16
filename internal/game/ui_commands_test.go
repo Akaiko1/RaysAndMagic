@@ -91,6 +91,9 @@ func TestDisplayedInputRejectsChangedIdentity(t *testing.T) {
 		{"resize", func(g *MMGame, _ *UISystem) { g.config.Display.ScreenWidth++ }},
 		{"world replacement", func(g *MMGame, _ *UISystem) { g.world = newTestWorldSized(g.config, 8, 8) }},
 		{"party replacement", func(g *MMGame, _ *UISystem) { cp := *g.party; g.party = &cp }},
+		{"gameplay settings page", func(g *MMGame, _ *UISystem) { g.gameplaySettingsPage = gameplayPageBuilds }},
+		{"builds class", func(g *MMGame, _ *UISystem) { g.buildsSettingsClass = 1 }},
+		{"builds roster scroll", func(g *MMGame, _ *UISystem) { g.buildsRosterScroll = 1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g, ui, _ := commandTestUI(t)

@@ -127,6 +127,11 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	mix(uint64(boolInt(g.fontListOpen)))
 	mix(uint64(boolInt(g.brewAnimation != nil)))
 	mix(uint64(g.settingsTab))
+	// The Gameplay tab's page, the Builds class and the roster scroll decide
+	// what each settings control is bound to.
+	mix(uint64(g.gameplaySettingsPage))
+	mix(uint64(g.buildsSettingsClass))
+	mix(uint64(g.buildsRosterScroll))
 	mix(uint64(ui.personalInventoryPage))
 	mix(uint64(ui.personalInventoryTab))
 	for _, offset := range g.potionSettingsScroll {

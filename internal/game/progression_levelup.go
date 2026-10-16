@@ -15,6 +15,7 @@ type levelUpChoiceOption struct {
 	masteryPrefix  string
 	masteryCurrent string
 	masteryNext    string
+	masteryRank    int // held rank (character.SkillMastery) while hasMastery
 	hasMastery     bool
 	skillType      character.SkillType
 	school         character.MagicSchoolID
@@ -443,6 +444,10 @@ func setLevelUpOptionDisplay(char *character.MMCharacter, opt *levelUpChoiceOpti
 	case "weapon_mastery", "armor_mastery":
 		label, current, next, ok := masteryOptionLabel(char, opt.skillType)
 		opt.label, opt.masteryCurrent, opt.masteryNext, opt.hasMastery = label, current, next, ok
+		opt.masteryRank = 0
+		if skill, held := char.Skills[opt.skillType]; held {
+			opt.masteryRank = int(skill.Mastery)
+		}
 		if ok {
 			opt.masteryPrefix = fmt.Sprintf("%s Mastery: ", opt.skillType.String())
 		} else {
@@ -451,6 +456,10 @@ func setLevelUpOptionDisplay(char *character.MMCharacter, opt *levelUpChoiceOpti
 	case "magic_mastery":
 		label, current, next, ok := magicMasteryOptionLabel(char, opt.school)
 		opt.label, opt.masteryCurrent, opt.masteryNext, opt.hasMastery = label, current, next, ok
+		opt.masteryRank = 0
+		if skill, held := char.MagicSchools[opt.school]; held {
+			opt.masteryRank = int(skill.Mastery)
+		}
 		if ok {
 			opt.masteryPrefix = fmt.Sprintf("%s Magic Mastery: ", opt.school.DisplayName())
 		} else {
@@ -700,24 +709,64 @@ func upgradeMagicMastery(char *character.MMCharacter, school character.MagicScho
 	return skill.IncreaseMastery()
 }
 
-func levelUpChoiceLayout(req *levelUpChoiceRequest, screenW, screenH int) (popupX, popupY, popupW, popupH, startY, rowH int) {
-	popupW = 480
-	rowH = 26
-	baseH := 140
+// levelUpChoicePanel is the level-up popup's geometry, shared by drawing,
+// hover selection and clicks. Targets are the option rows, then (multi-select)
+// the Confirm button at index len(options).
+type levelUpChoicePanel struct {
+	panel, emblem, confirm layoutRect
+	options                int
+	multi                  bool
+	footerY                int
+}
+
+const (
+	levelUpChoiceW      = 480
+	levelUpChoiceRule   = 54 // hairline under the header
+	levelUpChoiceTop    = 64 // first option row
+	levelUpChoiceRowH   = 30
+	levelUpChoicePitch  = 34
+	levelUpChoiceFooter = 34
+	levelUpConfirmW     = 140
+)
+
+func makeLevelUpChoicePanel(req *levelUpChoiceRequest, screenW, screenH int) levelUpChoicePanel {
+	p := levelUpChoicePanel{}
 	if req != nil {
-		rows := len(req.options)
-		if req.isMultiSelect() {
-			rows++ // Confirm row drawn below the options
+		p.options, p.multi = len(req.options), req.isMultiSelect()
+	}
+	h := levelUpChoiceTop + p.options*levelUpChoicePitch + levelUpChoiceFooter
+	if p.multi {
+		h += levelUpChoicePitch + 6
+	}
+	p.panel = centeredRect(screenW, screenH, levelUpChoiceW, h)
+	p.emblem = layoutRect{p.panel.x + 16, p.panel.y + 16, 24, 24}
+	y := p.panel.y + levelUpChoiceTop + p.options*levelUpChoicePitch
+	if p.multi {
+		p.confirm = layoutRect{p.panel.right() - 16 - levelUpConfirmW, y + 2, levelUpConfirmW, levelUpChoiceRowH}
+		y += levelUpChoicePitch + 6
+	}
+	p.footerY = y + (levelUpChoiceFooter-uiTextCharHeight)/2 - 4
+	return p
+}
+
+// target is option row i, or the Confirm button at index len(options).
+func (p levelUpChoicePanel) target(i int) layoutRect {
+	if p.multi && i == p.options {
+		return p.confirm
+	}
+	return layoutRect{p.panel.x + 16, p.panel.y + levelUpChoiceTop + i*levelUpChoicePitch, p.panel.w - 32, levelUpChoiceRowH}
+}
+
+// targetAt is the row or button under (x, y), -1 for none.
+func (p levelUpChoicePanel) targetAt(x, y int) int {
+	n := p.options
+	if p.multi {
+		n++
+	}
+	for i := 0; i < n; i++ {
+		if r := p.target(i); isMouseHoveringBox(x, y, r.x, r.y, r.right(), r.bottom()) {
+			return i
 		}
-		popupH = baseH + rows*rowH
-	} else {
-		popupH = baseH
 	}
-	if popupH < 180 {
-		popupH = 180
-	}
-	popup := centeredRect(screenW, screenH, popupW, popupH)
-	popupX, popupY = popup.x, popup.y
-	startY = popupY + 70
-	return
+	return -1
 }

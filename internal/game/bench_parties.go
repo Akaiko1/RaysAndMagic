@@ -194,7 +194,7 @@ func (g *MMGame) buildBenchMembers(p BenchParty, level int) ([]*character.MMChar
 			m.Experience += xpStepCost(m.Level)
 			g.combat.checkLevelUp(m, false)
 		}
-		autoDistributeStatPoints(m, g.config)
+		autoDistributeStatPoints(m, autoClassStats(m.Class, g.config), g.config)
 		for key, tier := range build.Skills {
 			skill, ok := character.SkillTypeFromKey(key)
 			mastery, okTier := character.MasteryFromKey(tier)

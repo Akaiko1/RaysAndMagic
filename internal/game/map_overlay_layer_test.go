@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
@@ -13,12 +14,14 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-func firstPartyStatBadgeClick(g *MMGame, at int64) queuedClick {
+// firstPartyStatChipClick aims at the first card's stat chip, laid out as if
+// the hero had points to spend so the target never collapses to nothing.
+func firstPartyStatChipClick(g *MMGame, at int64) queuedClick {
 	pw, ph, left, top := partyPortraitLayout(g)
-	panelX, panelY, _, _ := partyCardPanelRect(left, top, pw, ph)
-	badges := makePartyProgressionBadgeLayout(panelX+panelPortraitX, panelY+panelPortraitY,
-		panelPortraitW, panelPortraitH, true, false)
-	return queuedClick{x: badges.stat.x + badges.stat.w/2, y: badges.stat.y + badges.stat.h/2, at: at}
+	x, y, w, _ := partyCardPanelRect(left, top, pw, ph)
+	points := max(1, g.party.Members[0].FreeStatPoints)
+	chip := makePartyLevelUpLayout(makePartyCardContentLayout(x, y, w), points, true, g.hasLevelUpChoiceForChar(0), false).stat
+	return queuedClick{x: chip.x + chip.w/2, y: chip.y + chip.h/2, at: at}
 }
 
 // The map overlay's own handler claims a press on its close button and leaves
@@ -74,7 +77,7 @@ func TestMapOverlayClaimsClicksAheadOfTheHudPass(t *testing.T) {
 	before := member.FreeStatPoints
 
 	// Aim at the first card's stat badge - a HUD target that sits under the map.
-	badgeClick := firstPartyStatBadgeClick(g, 1000)
+	badgeClick := firstPartyStatChipClick(g, 1000)
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 
@@ -131,7 +134,7 @@ func TestMapOverlayCloseDrainsBufferedClicks(t *testing.T) {
 	// The second press landed on a real HUD target under the overlay. If cleanup
 	// waits until the end of Draw, the freshly uncovered HUD opens this popup
 	// before the deferred queue drain runs.
-	strayClick := firstPartyStatBadgeClick(g, 1001)
+	strayClick := firstPartyStatChipClick(g, 1001)
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	ui.Draw(screen)
 	g.mouseLeftClicks = []queuedClick{closeClick, strayClick}
@@ -213,7 +216,7 @@ func TestModalFrameDropsUnconsumedClicksOnClose(t *testing.T) {
 	member := g.party.Members[0]
 	member.FreeStatPoints = 5
 	before := member.FreeStatPoints
-	badgeClick := firstPartyStatBadgeClick(g, 1000)
+	badgeClick := firstPartyStatChipClick(g, 1000)
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	ui.Draw(screen) // publish the initial layout before input
@@ -441,7 +444,8 @@ func TestClosedRenderedModalBlocksUpdatesUntilReplacementDraw(t *testing.T) {
 	loop := &GameLoop{game: g, inputHandler: NewInputHandler(g), ui: ui}
 	g.gameLoop = loop
 	ui.renderedModalSnapshot = modalLayerSnapshot{layer: modalLayerStat} // the model closed it, but Draw has not replaced it
-	g.mouseLeftClicks = []queuedClick{firstPartyStatBadgeClick(g, 1000)}
+	g.party.Members[0].FreeStatPoints = 5                                // a live HUD target under the stale modal
+	g.mouseLeftClicks = []queuedClick{firstPartyStatChipClick(g, 1000)}
 	uiBefore := g.uiFrameCount
 	g.cardFxTimers[fxBlink][0] = 2
 
@@ -500,8 +504,8 @@ func TestModalClosedDuringInputDoesNotAdvanceWorldBeforeDraw(t *testing.T) {
 }
 
 // The fullscreen character hub leaves the party strip exposed. Its stat/skill
-// badges and auto button remain real controls; only HUD elements covered by the
-// hub use the broader hudClicksBlocked gate.
+// chips remain real controls; HUD elements covered by the hub (the action rail
+// with the party AUTO) use the broader hudClicksBlocked gate.
 func TestCharacterHubKeepsPartyProgressionBadgesInteractive(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 12, 12))
@@ -519,7 +523,7 @@ func TestCharacterHubKeepsPartyProgressionBadgesInteractive(t *testing.T) {
 		t.Fatal("the character hub no longer blocks HUD controls covered by its panel")
 	}
 
-	g.mouseLeftClicks = []queuedClick{firstPartyStatBadgeClick(g, 1000)}
+	g.mouseLeftClicks = []queuedClick{firstPartyStatChipClick(g, 1000)}
 	NewInputHandler(g).handlePartyPortraitMouseInput(false)
 	if len(g.mouseLeftClicks) != 1 {
 		t.Fatal("portrait selection consumed the progression badge click")
@@ -649,5 +653,60 @@ func TestAtlasWheelAndDragStayInsideDisplayedMap(t *testing.T) {
 	ui.dispatchDisplayedInput()
 	if ui.atlas.zoom != 1 || ui.atlas.panX != 0 || ui.atlas.panY != 0 || !g.mapOverlayOpen {
 		t.Fatal("overview did not restore the map fit")
+	}
+}
+
+// N opens the world map while the party carries one, from the bag or a quick
+// slot, and N or Esc closes it. Without a map, or under another modal, N does
+// nothing to the map.
+func TestWorldMapHotkey(t *testing.T) {
+	mapItem := items.Item{Name: "World Map", Type: items.ItemQuest, Attributes: map[string]int{"opens_map": 1}}
+	for _, tc := range []struct {
+		name  string
+		setup func(g *MMGame)
+		opens bool
+	}{
+		{"bag", func(g *MMGame) { g.party.Inventory = append(g.party.Inventory, mapItem) }, true},
+		{"quick_slot", func(g *MMGame) { it := mapItem; g.party.Members[1].QuickSlots[0] = &it }, true},
+		{"no_map", func(*MMGame) {}, false},
+		{"under_dialog", func(g *MMGame) {
+			g.party.Inventory = append(g.party.Inventory, mapItem)
+			g.dialogActive, g.dialogNPC = true, &character.NPC{Name: "Trader"}
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newDisplayedModalHarness(t, 1024, 768)
+			g := h.g
+			tc.setup(g)
+			if g.partyCarriesMap() != (tc.name != "no_map") {
+				t.Fatalf("carries map = %v", g.partyCarriesMap())
+			}
+			press := func(k ebiten.Key) {
+				h.loop.inputHandler.keys = keytracker.NewWithSource(func(p ebiten.Key) bool { return p == k })
+				h.pointerStep()
+				h.loop.inputHandler.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
+				h.pointerStep()
+			}
+			messages := len(g.combatLogHistory)
+			press(ebiten.KeyN)
+			if g.mapOverlayOpen != tc.opens {
+				t.Fatalf("N opened the map = %v, want %v", g.mapOverlayOpen, tc.opens)
+			}
+			if tc.name == "no_map" && len(g.combatLogHistory) == messages {
+				t.Fatal("N without a map gave no answer")
+			}
+			if !tc.opens {
+				return
+			}
+			press(ebiten.KeyN)
+			if g.mapOverlayOpen {
+				t.Fatal("N did not close the map")
+			}
+			press(ebiten.KeyN)
+			press(ebiten.KeyEscape)
+			if g.mapOverlayOpen || g.mainMenuOpen {
+				t.Fatalf("Esc left map=%v, or reached the main menu=%v", g.mapOverlayOpen, g.mainMenuOpen)
+			}
+		})
 	}
 }

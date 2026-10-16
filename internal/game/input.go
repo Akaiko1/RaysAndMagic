@@ -215,7 +215,7 @@ func (ih *InputHandler) handleTopModalInput() bool {
 		}
 		ih.handleDialogInput()
 	case modalLayerMap:
-		if ih.keys.Consume(ebiten.KeyEscape) {
+		if ih.keys.Consume(ebiten.KeyEscape) || ih.keys.Consume(ebiten.KeyN) {
 			g.mapOverlayOpen = false
 		}
 	case modalLayerCombatLog:
@@ -822,18 +822,11 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 		req.selection++
 	}
 
-	// Mouse hover selection (rows + confirm row for multi-select)
+	// Mouse hover selection (rows + the Confirm button for multi-select)
 	mouseX, mouseY := uiCursorPosition()
-	screenW := ih.game.config.GetScreenWidth()
-	screenH := ih.game.config.GetScreenHeight()
-	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, screenW, screenH)
-
-	for i := 0; i <= maxSel; i++ {
-		y := startY + i*rowH
-		if mouseX >= popupX+16 && mouseX < popupX+popupW-16 && mouseY >= y-2 && mouseY < y-2+rowH {
-			req.selection = i
-			break
-		}
+	p := makeLevelUpChoicePanel(req, ih.game.config.GetScreenWidth(), ih.game.config.GetScreenHeight())
+	if i := p.targetAt(mouseX, mouseY); i >= 0 && i <= maxSel {
+		req.selection = i
 	}
 
 	if req.isMultiSelect() {
@@ -1226,6 +1219,7 @@ func (ih *InputHandler) handleUIInput() {
 	}
 	// Tab hotkeys (Spellbook/Inventory/Characters/Quests/Cards): same toggle
 	// body, one per key. Characters is on P ('party'); C casts the best combat heal.
+	// N opens the world map, which closes from its own modal layer.
 	menuCooldown := ih.game.actionInputStagger
 	if ih.game.menuOpen {
 		menuCooldown = ih.game.tabbedMenuInputCooldown
@@ -1244,6 +1238,9 @@ func (ih *InputHandler) handleUIInput() {
 	}
 	if ih.keys.Consume(ebiten.KeyK) && menuCooldown == 0 {
 		ih.toggleTabbedMenu(TabCards)
+	}
+	if ih.keys.Consume(ebiten.KeyN) {
+		ih.game.openWorldMap()
 	}
 
 	// Toggle turn-based mode with Tab key
@@ -1635,41 +1632,11 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 	// Determine which character portrait the mouse is over
 	charIndex := (mouseX - baseLeft) / portraitWidth
 	if charIndex >= 0 && charIndex < len(ih.game.party.Members) {
-		slotX := baseLeft + charIndex*portraitWidth
-		panelX, panelY, _, _ := partyCardPanelRect(slotX, startY, portraitWidth, portraitHeight)
-		member := ih.game.party.Members[charIndex]
-		hasStatBadge := member.FreeStatPoints > 0
-		hasSkillBadge := ih.game.hasLevelUpChoiceForChar(charIndex)
-		badges := makePartyProgressionBadgeLayout(
-			panelX+panelPortraitX,
-			panelY+panelPortraitY,
-			panelPortraitW,
-			panelPortraitH,
-			hasStatBadge,
-			hasSkillBadge,
-		)
-		if hasStatBadge && mouseX >= badges.stat.x && mouseX < badges.stat.right() &&
-			mouseY >= badges.stat.y && mouseY < badges.stat.bottom() {
-			return -1
-		}
-		if hasSkillBadge && mouseX >= badges.skill.x && mouseX < badges.skill.right() &&
-			mouseY >= badges.skill.y && mouseY < badges.skill.bottom() {
-			return -1
-		}
-		if charIndex == 0 {
-			hasFreeStats := false
-			for _, partyMember := range ih.game.party.Members {
-				if partyMember != nil && partyMember.FreeStatPoints > 0 {
-					hasFreeStats = true
-					break
-				}
-			}
-			if hasFreeStats {
-				firstPanelX, firstPanelY, firstPanelW, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
-				auto := makePartyAutoButtonLayout(makePartyCardContentLayout(firstPanelX, firstPanelY, firstPanelW))
-				if mouseX >= auto.x && mouseX < auto.right() && mouseY >= auto.y && mouseY < auto.bottom() {
-					return -1
-				}
+		// A hero's level-up chips are their own controls, not the portrait.
+		levelUp := ih.game.partyLevelUpLayoutFor(charIndex)
+		for _, chip := range []layoutRect{levelUp.stat, levelUp.skill} {
+			if chip.w > 0 && mouseX >= chip.x && mouseX < chip.right() && mouseY >= chip.y && mouseY < chip.bottom() {
+				return -1
 			}
 		}
 		return charIndex

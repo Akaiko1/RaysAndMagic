@@ -9,6 +9,7 @@ import (
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -225,6 +226,49 @@ func (ui *UISystem) atlasBounds() image.Rectangle {
 	}
 	ui.atlas.region = ""
 	return full
+}
+
+// itemOpensMap is the opens_map capability: using the item opens the atlas.
+func itemOpensMap(it *items.Item) bool {
+	return it != nil && it.Attributes["opens_map"] > 0
+}
+
+// partyCarriesMap reports a map in the shared bag or an active hero's bag or
+// quick slots.
+func (g *MMGame) partyCarriesMap() bool {
+	if g.party == nil {
+		return false
+	}
+	for i := range g.party.Inventory {
+		if itemOpensMap(&g.party.Inventory[i]) {
+			return true
+		}
+	}
+	for _, m := range g.party.Members {
+		if m == nil {
+			continue
+		}
+		for i := range m.Inventory {
+			if itemOpensMap(&m.Inventory[i]) {
+				return true
+			}
+		}
+		for _, it := range m.QuickSlots {
+			if itemOpensMap(it) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// openWorldMap is the N key: the atlas opens while the party carries a map.
+func (g *MMGame) openWorldMap() {
+	if !g.partyCarriesMap() {
+		g.AddCombatMessage("The party carries no map.")
+		return
+	}
+	g.mapOverlayOpen = true
 }
 
 func (ui *UISystem) handleMapOverlayInput() {

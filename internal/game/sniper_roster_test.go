@@ -163,8 +163,8 @@ func TestSniperAutoLevelAndMasteryProgression(t *testing.T) {
 	cfg := loadTestConfig(t)
 	// Speed and endurance columns are offsets from the class's authored auto
 	// targets; the primary column is absolute.
-	speedTarget := autoSpeedTarget(character.ClassSniper, cfg)
-	enduranceTarget := autoEnduranceTarget(character.ClassSniper, cfg)
+	speedTarget := autoClassStats(character.ClassSniper, cfg).Speed
+	enduranceTarget := autoClassStats(character.ClassSniper, cfg).Endurance
 	for _, tc := range []struct {
 		name                                                        string
 		points, speed, endurance, primary, wantSpeed, wantEndurance int
@@ -183,7 +183,7 @@ func TestSniperAutoLevelAndMasteryProgression(t *testing.T) {
 			}
 			ch.Speed, ch.Endurance, *primary = speedTarget+tc.speed, enduranceTarget+tc.endurance, tc.primary
 			ch.FreeStatPoints = tc.points
-			autoDistributeStatPoints(ch, cfg)
+			autoDistributeStatPoints(ch, autoClassStats(ch.Class, cfg), cfg)
 			if ch.Speed != speedTarget+tc.wantSpeed || ch.Endurance != enduranceTarget+tc.wantEndurance || *primary != tc.wantPrimary || ch.FreeStatPoints != 0 {
 				t.Fatalf("unexpected auto stats: speed=%d endurance=%d primary=%d", ch.Speed, ch.Endurance, *primary)
 			}

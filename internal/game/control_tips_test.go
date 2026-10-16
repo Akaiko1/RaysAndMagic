@@ -61,7 +61,7 @@ func TestControlTipsCoverTheBindings(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"Point at card + F", "Point at card + C", "F5", "Shift + F4", "V / Shift + V", "Shift + right-click card", "I / P / M / J / K"} {
+	for _, want := range []string{"Point at card + F", "Point at card + C", "F5", "Shift + F4", "V / Shift + V", "Shift + right-click card", "I / P / M / J / K / N"} {
 		found := false
 		for key := range seen {
 			found = found || strings.HasSuffix(key, "/"+want)

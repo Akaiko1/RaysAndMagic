@@ -113,42 +113,62 @@ func TestPartyCardTemplatesUseDistinctResponsiveColumnPlans(t *testing.T) {
 	}
 }
 
-func TestPartyProgressionBadgesStayAttachedToPortrait(t *testing.T) {
-	const px, py = 100, 200
-	one := makePartyProgressionBadgeLayout(px, py, panelPortraitW, panelPortraitH, true, false)
-	if one.stat.x != px+(panelPortraitW-partyProgressBadgeSize)/2 {
-		t.Fatalf("single stat badge x=%d, want centered on portrait", one.stat.x)
-	}
-	if one.stat.y != py+panelPortraitH-partyProgressBadgeLift {
-		t.Fatalf("single stat badge y=%d, want portrait-rim anchor", one.stat.y)
-	}
-
-	two := makePartyProgressionBadgeLayout(px, py, panelPortraitW, panelPortraitH, true, true)
-	if gap := two.skill.x - two.stat.right(); gap != partyProgressBadgeGap {
-		t.Fatalf("two-badge gap=%d, want %d", gap, partyProgressBadgeGap)
-	}
-	portraitCenter := px + panelPortraitW/2
-	badgesCenter := (two.stat.x + two.skill.right()) / 2
-	if abs(portraitCenter-badgesCenter) > 1 {
-		t.Fatalf("two badges center=%d, portrait center=%d", badgesCenter, portraitCenter)
-	}
-	if two.stat.y != two.skill.y {
-		t.Fatalf("badge baselines differ: stat=%d skill=%d", two.stat.y, two.skill.y)
-	}
-}
-
-func TestPartyAutoButtonUsesEquipmentBottomRow(t *testing.T) {
-	for _, panelW := range []int{179, 250, 314, 474, 639} {
-		content := makePartyCardContentLayout(10, 20, panelW)
-		auto := makePartyAutoButtonLayout(content)
-		if auto.x < content.equipment.x || auto.right() > content.equipment.right() {
-			t.Fatalf("panel %d auto x-range [%d,%d) leaves equipment [%d,%d)",
-				panelW, auto.x, auto.right(), content.equipment.x, content.equipment.right())
+// Level-up chips share the equipment column's bottom row at every font and
+// card width: inside the column, apart, centred, and labelled until the column
+// is too narrow - then the skill label goes first; the icons always stay.
+// Compact chips (a long status needs the row) are bare icons at the right edge.
+func TestPartyLevelUpChipsUseEquipmentBottomRow(t *testing.T) {
+	forEachUIFont(t, func(t *testing.T) {
+		for _, panelW := range []int{179, 250, 314, 474, 639} {
+			content := makePartyCardContentLayout(10, 20, panelW)
+			col := content.equipment
+			for _, tc := range []struct{ stat, skill, compact bool }{{true, false, false}, {false, true, false}, {true, true, false}, {true, true, true}} {
+				for _, points := range []int{1, 15, 120} {
+					l := makePartyLevelUpLayout(content, points, tc.stat, tc.skill, tc.compact)
+					name := fmt.Sprintf("panel %d stat=%v skill=%v compact=%v points=%d", panelW, tc.stat, tc.skill, tc.compact, points)
+					if (l.stat.w > 0) != tc.stat || (l.skill.w > 0) != tc.skill {
+						t.Fatalf("%s: chips %+v", name, l)
+					}
+					var chips []layoutRect
+					for _, c := range []struct {
+						on    bool
+						r     layoutRect
+						label string
+					}{{tc.stat, l.stat, l.statLabel}, {tc.skill, l.skill, l.skillLabel}} {
+						if !c.on {
+							continue
+						}
+						chips = append(chips, c.r)
+						if c.r.h != partyLevelUpChipH || c.r.bottom() != content.box.bottom() || c.r.x < col.x || c.r.right() > col.right() {
+							t.Fatalf("%s: chip %+v leaves the equipment bottom row %+v", name, c.r, col)
+						}
+						if want := partyLevelUpChipH + partyLevelUpLabelGap + uiTextWidth(c.label); c.label != "" && c.r.w != want {
+							t.Fatalf("%s: chip %q is %dpx, want %d", name, c.label, c.r.w, want)
+						}
+					}
+					if tc.stat && l.statLabel != "" && l.statLabel != fmt.Sprintf("+%d", points) {
+						t.Fatalf("%s: stat label %q", name, l.statLabel)
+					}
+					if tc.stat && l.statLabel == "" && l.skillLabel != "" {
+						t.Fatalf("%s: the stat label dropped before the skill label", name)
+					}
+					if tc.stat && tc.skill && l.skill.x-l.stat.right() != partyLevelUpChipGap {
+						t.Fatalf("%s: chip gap %d, want %d", name, l.skill.x-l.stat.right(), partyLevelUpChipGap)
+					}
+					left, right := chips[0].x-col.x, col.right()-chips[len(chips)-1].right()
+					if tc.compact && (l.statLabel != "" || l.skillLabel != "" || right != 0) {
+						t.Fatalf("%s: compact chips keep labels or leave the right edge (%d px)", name, right)
+					}
+					if !tc.compact && abs(left-right) > 1 {
+						t.Fatalf("%s: chips off centre (%d left, %d right)", name, left, right)
+					}
+					if !tc.compact && panelW == 639 && points == 15 && (tc.stat && l.statLabel == "" || tc.skill && l.skillLabel == "") {
+						t.Fatalf("%s: the widest card dropped a label (positive control)", name)
+					}
+				}
+			}
 		}
-		if auto.bottom() != content.box.bottom() {
-			t.Fatalf("panel %d auto bottom=%d, want content bottom=%d", panelW, auto.bottom(), content.box.bottom())
-		}
-	}
+	})
 }
 
 func TestPartyCardsFillQuarterSlotsWithoutConsumingFrameGutters(t *testing.T) {
@@ -633,8 +653,8 @@ func TestPartyCooldownCacheForgetsReplacedHeroes(t *testing.T) {
 
 // The card's status line never loses a status: at every interface frame and
 // font it either shows the full list or a shortened one with the full list on
-// hover. It stays inside the card content and only borrows the equipment
-// column's last row when the party auto-assign button is not there. Normal
+// hover. It stays inside the card content and borrows the bottom row up to
+// the level-up chips, which turn compact for a status list that overflows. Normal
 // (1920x1080) keeps one status in the authored line under the meters.
 func TestPartyStatusLineFitsEveryFrameAndFont(t *testing.T) {
 	sets := [][]character.Condition{
@@ -655,14 +675,18 @@ func TestPartyStatusLineFitsEveryFrameAndFont(t *testing.T) {
 			pw, ph, left, top := partyPortraitLayout(g)
 			x, y, w, _ := partyCardPanelRect(left, top, pw, ph)
 			content := makePartyCardContentLayout(x, y, w)
-			auto := makePartyAutoButtonLayout(content)
 			hero := g.party.Members[0]
 			for _, set := range sets {
 				hero.Conditions = append([]character.Condition(nil), set...)
 				full, short := g.partyConditionLabels(hero)
-				for _, rowFree := range []bool{true, false} {
-					line := partyStatusLineLayout(content, y+67, full, short, rowFree)
-					name := fmt.Sprintf("%dx%d %q rowFree=%v", f[0], f[1], full, rowFree)
+				for _, chipsShown := range []bool{false, true} {
+					hero.FreeStatPoints, g.levelUpChoiceQueue = 0, nil
+					if chipsShown {
+						hero.FreeStatPoints, g.levelUpChoiceQueue = 5, []levelUpChoiceRequest{{charIndex: 0}}
+					}
+					chips := g.partyLevelUpLayoutFor(0)
+					line := partyStatusLineLayout(content, y+67, full, short, chips.statusRight(content))
+					name := fmt.Sprintf("%dx%d %q chips=%v", f[0], f[1], full, chipsShown)
 					if uiTextWidth(line.text) > line.box.w-2 {
 						t.Fatalf("%s: %q overflows its %dpx box", name, line.text, line.box.w)
 					}
@@ -672,15 +696,21 @@ func TestPartyStatusLineFitsEveryFrameAndFont(t *testing.T) {
 					if line.text != full && line.full != full {
 						t.Fatalf("%s: shortened to %q without the full list on hover", name, line.text)
 					}
-					if !rowFree && line.box.right() > auto.x {
-						t.Fatalf("%s: status box %+v runs under the auto-assign button %+v", name, line.box, auto)
+					if chipsShown && line.box.right() > chips.stat.x {
+						t.Fatalf("%s: status box %+v runs under the level-up chips %+v", name, line.box, chips)
+					}
+					if chipsShown {
+						overflow := uiTextWidth(full) > content.stats.w-2
+						if want := makePartyLevelUpLayout(content, 5, true, true, overflow); chips != want {
+							t.Fatalf("%s: chips %+v, want compact=%v %+v", name, chips, overflow, want)
+						}
 					}
 				}
 			}
 			if f == [2]int{1920, 1080} {
 				hero.Conditions = []character.Condition{character.ConditionPoisoned}
 				full, short := g.partyConditionLabels(hero)
-				line := partyStatusLineLayout(content, y+67, full, short, true)
+				line := partyStatusLineLayout(content, y+67, full, short, content.box.right())
 				if line.box != (layoutRect{content.stats.x, y + 67, content.stats.w, uiTextCharHeight}) || line.full != "" {
 					t.Fatalf("Normal moved a single status off the authored line: %+v", line)
 				}

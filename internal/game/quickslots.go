@@ -828,7 +828,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	// regardless of cooldown/turn budget, exactly as they do in the inventory.
 	if item.Type == items.ItemQuest {
 		switch {
-		case item.Attributes["opens_map"] > 0:
+		case itemOpensMap(item):
 			g.mapOverlayOpen = true
 		case item.Attributes["promotes_lich"] > 0:
 			// useLichPhylactery consumes by inventory index: route through the bag.

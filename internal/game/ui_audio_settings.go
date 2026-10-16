@@ -139,9 +139,12 @@ func audioHintPosition(px, py, panelW, panelH, contentInset int) (string, int, i
 }
 
 // The live tab and layout checks share the exact footer text and width fitting.
-func settingsHintPosition(tab settingsTabKind, saveError string, px, py, panelW, panelH, inset int) (string, int, int) {
+func settingsHintPosition(tab settingsTabKind, page gameplayPage, saveError string, px, py, panelW, panelH, inset int) (string, int, int) {
 	hint, _, y := audioHintPosition(px, py, panelW, panelH, inset)
-	if tab == settingsTabCombat || tab == settingsTabDisplay {
+	switch {
+	case tab == settingsTabCombat && page == gameplayPageBuilds:
+		hint = "AUTO follows the build you pick | Auto-save"
+	case tab == settingsTabCombat || tab == settingsTabDisplay:
 		hint = "Up/Down: row | Left/Right: choose | Auto-save"
 	}
 	if saveError != "" {
@@ -172,11 +175,24 @@ func audioPercentX(px, panelW, contentInset int, label string) int {
 func (g *MMGame) setSelectedAudioVolume(delta float64) {
 	switch g.settingsTab {
 	case settingsTabCombat:
-		if g.audioSettingsSelection == gameplayRowView {
+		switch {
+		case g.audioSettingsSelection == gameplayRowPage:
+			page := gameplayPageView
+			if delta > 0 {
+				page = gameplayPageBuilds
+			}
+			g.setGameplayPage(page)
+		case g.gameplaySettingsPage == gameplayPageBuilds:
+			dir := -1
+			if delta > 0 {
+				dir = 1
+			}
+			g.stepAutoBuild(dir)
+		case g.audioSettingsSelection == gameplayRowView:
 			g.setWideView(delta > 0)
-		} else if g.audioSettingsSelection == gameplayRowPanini {
+		case g.audioSettingsSelection == gameplayRowPanini:
 			g.setPanini(delta > 0)
-		} else {
+		default:
 			g.setCombatOverlay(delta > 0)
 		}
 		return
@@ -262,7 +278,7 @@ func (g *MMGame) updateAudioSettingsKeys(pressed func(ebiten.Key) bool) {
 		}
 	}
 	selection := g.audioSettingsSelection
-	rows := settingsTabRows(g.settingsTab)
+	rows := g.settingsTabRows(g.settingsTab)
 	if pressed(ebiten.KeyUp) && g.audioSettingsSelection > 0 {
 		g.audioSettingsSelection--
 	}
@@ -270,6 +286,9 @@ func (g *MMGame) updateAudioSettingsKeys(pressed func(ebiten.Key) bool) {
 		g.audioSettingsSelection++
 	}
 	if selection != g.audioSettingsSelection {
+		if g.settingsTab == settingsTabCombat && g.gameplaySettingsPage == gameplayPageBuilds && g.audioSettingsSelection > gameplayRowPage {
+			g.selectBuildsClass(g.audioSettingsSelection - gameplayRowPage - 1)
+		}
 		return
 	}
 	if pressed(ebiten.KeyLeft) {
@@ -331,7 +350,7 @@ func (ui *UISystem) drawSettingsContent(screen *ebiten.Image, px, py, panelW, pa
 			drawUITextColored(screen, label, audioPercentX(px, panelW, contentInset, label), r.y1+4, color.RGBA{235, 221, 180, 255})
 		}
 	}
-	hint, hx, hy := settingsHintPosition(g.settingsTab, g.settingsSaveError, px, py, panelW, panelH, contentInset)
+	hint, hx, hy := settingsHintPosition(g.settingsTab, g.gameplaySettingsPage, g.settingsSaveError, px, py, panelW, panelH, contentInset)
 	drawUITextColored(screen, hint, hx, hy, color.RGBA{169, 165, 149, 255})
 }
 

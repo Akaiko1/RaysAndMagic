@@ -684,6 +684,7 @@ type ClassMagicEntry struct {
 
 type ClassStats struct {
 	AutoStats  AutoStatsConfig   `yaml:"auto_stats,omitempty"`
+	AutoBuilds []AutoBuild       `yaml:"auto_builds,omitempty"`
 	Items      []ClassItemConfig `yaml:"items,omitempty"`
 	CardRarity string            `yaml:"card_rarity,omitempty"` // Presentation override; empty uses the hero race.
 	// Description is the party-creation pitch: what the class does and why
@@ -2392,7 +2393,7 @@ func IsStatName(s string) bool { return stats.IsName(s) }
 var validWeaponBonusStats = func() map[string]bool {
 	m := make(map[string]bool, len(StatNames))
 	for _, n := range StatNames {
-		m[strings.ToUpper(n[:1])+n[1:]] = true
+		m[stats.Title(n)] = true
 	}
 	return m
 }()

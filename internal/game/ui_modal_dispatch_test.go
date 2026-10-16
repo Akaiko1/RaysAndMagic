@@ -692,8 +692,8 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			g.party.Members[0].Skills[skill].Mastery = character.MasteryNovice
 			g.levelUpChoiceQueue = []levelUpChoiceRequest{{charIndex: 0, options: []levelUpChoiceOption{{choice: config.LevelUpChoice{Type: "weapon_mastery"}, skillType: skill}}}}
 			g.levelUpChoiceOpen = true
-			x, _, w, _, y, height := levelUpChoiceLayout(g.currentLevelUpChoice(), g.config.GetScreenWidth(), g.config.GetScreenHeight())
-			h.clicks(false, x+w/2, y+height/2, 2)
+			row := makeLevelUpChoicePanel(g.currentLevelUpChoice(), g.config.GetScreenWidth(), g.config.GetScreenHeight()).target(0)
+			h.clicks(false, row.x+row.w/2, row.y+row.h/2, 2)
 			if g.currentLevelUpChoice() != nil || g.party.Members[0].Skills[skill].Mastery != character.MasteryExpert {
 				h.t.Fatal("level choice was lost or applied twice")
 			}
@@ -709,13 +709,14 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 				{choice: config.LevelUpChoice{Type: "weapon_mastery"}, skillType: second},
 			}}}
 			g.levelUpChoiceOpen = true
-			x, _, w, _, y, height := levelUpChoiceLayout(g.currentLevelUpChoice(), g.config.GetScreenWidth(), g.config.GetScreenHeight())
-			h.clicks(false, x+w/2, y+height/2, 1)
+			p := makeLevelUpChoicePanel(g.currentLevelUpChoice(), g.config.GetScreenWidth(), g.config.GetScreenHeight())
+			click := func(i int) { r := p.target(i); h.clicks(false, r.x+r.w/2, r.y+r.h/2, 1) }
+			click(0)
 			if g.currentLevelUpChoice().selectedCount() != 1 {
 				h.t.Fatal("first choice was not toggled")
 			}
-			h.clicks(false, x+w/2, y+height+height/2, 1)
-			h.clicks(false, x+w/2, y+2*height+height/2, 1)
+			click(1)
+			click(2) // the Confirm button
 			if g.currentLevelUpChoice() != nil || g.party.Members[0].Skills[first].Mastery != character.MasteryExpert || g.party.Members[0].Skills[second].Mastery != character.MasteryExpert {
 				h.t.Fatal("multi choice did not commit selected options")
 			}

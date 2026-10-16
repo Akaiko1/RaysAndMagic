@@ -77,6 +77,7 @@ type UISystem struct {
 	// frames thereafter so points pour out at a controllable rate.
 	statHoldStat          string
 	statHoldFrames        int
+	statPlan              statPlanMemo // AUTO's preview in the stat popup
 	lastClickTime         time.Time
 	lastClickedItem       int
 	lastClickedBagOwner   *character.MMCharacter
@@ -326,9 +327,9 @@ func (ui *UISystem) drawQueuedTooltips(screen *ebiten.Image) {
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
 	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
-	// states (stat popup, revival picker) still suppress. The map clears lower
-	// layers' queued tips before offering its own marker descriptions.
-	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
+	// states (revival picker) still suppress. The map and the stat popup clear
+	// lower layers' queued tips before offering their own.
+	if ui.tooltipLines != nil && !ui.game.campConfirmOpen && ui.game.campRest == nil && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
 		screenW := uiBounds(screen).Dx()
 		screenH := uiBounds(screen).Dy()
 		if ui.tooltipCompareLines == nil {

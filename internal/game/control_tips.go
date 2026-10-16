@@ -57,7 +57,7 @@ var controlTipGroups = []controlTipGroup{
 		{"Camp icon", "Rest for 1 food; not with enemies near"},
 	}},
 	{"Panels", []controlTip{
-		{"I / P / M / J / K", "Inventory, Characters, Spellbook, Quests, Cards; the same key closes"},
+		{"I / P / M / J / K / N", "Inventory, Characters, Spellbook, Quests, Cards, World Map (when carried); the same key closes"},
 		{"Esc", "Close the panel, or open this menu"},
 		{"Double-click item", "Equip or use it on the selected hero; on the paperdoll, unequip"},
 		{"Right-click item", "Discard, split a stack, move between bags"},

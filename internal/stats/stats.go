@@ -45,6 +45,14 @@ var fieldIndexByName = func() map[string]int {
 	return m
 }()
 
+// Title is a canonical stat name as players read it ("might" -> "Might").
+func Title(name string) string {
+	if name == "" {
+		return ""
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
 // IsName reports whether s is a canonical lowercase stat name.
 func IsName(s string) bool {
 	_, ok := fieldIndexByName[s]
@@ -147,7 +155,7 @@ func (b StatBonuses) Summary() string {
 	parts := make([]string, 0, len(Names))
 	for _, n := range Names {
 		if v := b.ValueByName(n); v != 0 {
-			parts = append(parts, signed(v)+" "+strings.ToUpper(n[:1])+n[1:])
+			parts = append(parts, signed(v)+" "+Title(n))
 		}
 	}
 	return strings.Join(parts, ", ")

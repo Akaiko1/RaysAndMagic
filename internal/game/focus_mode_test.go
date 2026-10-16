@@ -50,10 +50,8 @@ func TestFocusModePortraitClickInput(t *testing.T) {
 		return queuedClick{x: left + slot*w + w/2, y: top + h/2}
 	}
 	statButton := func(g *MMGame) queuedClick {
-		w, h, left, top := partyPortraitLayout(g)
-		panelX, panelY, _, _ := partyCardPanelRect(left, top, w, h)
-		badges := makePartyProgressionBadgeLayout(panelX+panelPortraitX, panelY+panelPortraitY, panelPortraitW, panelPortraitH, true, false)
-		return queuedClick{x: badges.stat.x + badges.stat.w/2, y: badges.stat.y + badges.stat.h/2}
+		click := firstPartyStatChipClick(g, 0)
+		return queuedClick{x: click.x, y: click.y}
 	}
 	for _, tc := range []struct {
 		name     string
@@ -120,22 +118,15 @@ func TestPartyProgressionControlsDoNotBecomePortraitSelectionClicks(t *testing.T
 	g.levelUpChoiceQueue = []levelUpChoiceRequest{{charIndex: 0}}
 	ih := NewInputHandler(g)
 
-	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
-	panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft, startY, portraitWidth, portraitHeight)
-	badges := makePartyProgressionBadgeLayout(
-		panelX+panelPortraitX,
-		panelY+panelPortraitY,
-		panelPortraitW,
-		panelPortraitH,
-		true,
-		true,
-	)
-	auto := makePartyAutoButtonLayout(makePartyCardContentLayout(panelX, panelY, panelW))
-
+	chips := g.partyLevelUpLayoutFor(0)
+	rail, _ := inGameActionBarLayout(g)
+	if chips.stat.w == 0 || chips.skill.w == 0 || !rail.hasAuto {
+		t.Fatal("fixture lost a progression control (positive control)")
+	}
 	controls := map[string]layoutRect{
-		"stat":  badges.stat,
-		"skill": badges.skill,
-		"auto":  auto,
+		"stat":  chips.stat,
+		"skill": chips.skill,
+		"auto":  rail.auto,
 	}
 	for name, control := range controls {
 		t.Run(name, func(t *testing.T) {

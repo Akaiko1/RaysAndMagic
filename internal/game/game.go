@@ -611,16 +611,22 @@ type MMGame struct {
 	wallTopBuffer []float64
 
 	// Systems
-	gameLoop             *GameLoop
-	combat               *CombatSystem
-	collisionSystem      *collision.CollisionSystem
-	questManager         *quests.QuestManager
-	soundManager         *sound.Manager
-	potionSettingsDirty  bool
-	combatPreferences    combatPreferences
-	combatSettingsDirty  bool
-	settingsSaveError    string
-	settingsSaveFailures map[string]bool
+	gameLoop            *GameLoop
+	combat              *CombatSystem
+	collisionSystem     *collision.CollisionSystem
+	questManager        *quests.QuestManager
+	soundManager        *sound.Manager
+	potionSettingsDirty bool
+	combatPreferences   combatPreferences
+	combatSettingsDirty bool
+	// Settings > Gameplay: the shown page (View or Builds), the class whose
+	// builds are shown, the class list's scroll, and the build previews.
+	gameplaySettingsPage  gameplayPage
+	buildsSettingsClass   int
+	buildsRosterScroll    int
+	autoBuildPreviewCache map[character.CharacterClass][]autoBuildPreview
+	settingsSaveError     string
+	settingsSaveFailures  map[string]bool
 	// interfaceFrames: every interface size preset resolved for the current
 	// window by the last Layout (Settings > Display reads their status).
 	interfaceFrames []interfaceSizeFrame
@@ -1102,6 +1108,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	game.validatePartyCardPanelAsset()
 	game.validateInterfaceArt()
 	validateWeaponFxStyles()
+	validateAutoBuildGear(game.config)
 	validateFlaskFxStyles()
 	validateProjectileFxStyles()
 	validateTrapFxStyles()

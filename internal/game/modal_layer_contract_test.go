@@ -190,11 +190,11 @@ func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	}}
 	g.levelUpChoiceOpen = true
 	req := g.currentLevelUpChoice()
-	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	row := makeLevelUpChoicePanel(req, cfg.GetScreenWidth(), cfg.GetScreenHeight()).target(0)
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	defer screen.Deallocate()
 	ui.Draw(screen)
-	g.mouseLeftClicks = []queuedClick{{x: popupX + popupW/2, y: startY + rowH/2}}
+	g.mouseLeftClicks = []queuedClick{{x: row.x + row.w/2, y: row.y + row.h/2}}
 
 	ui.dispatchDisplayedInput()
 	if len(g.levelUpChoiceQueue) != 0 {

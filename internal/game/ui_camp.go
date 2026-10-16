@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"image/color"
 	"strconv"
 
@@ -14,13 +15,14 @@ import (
 const campHUDSprite = "icon_camp"
 
 type gameplayActionBarLayout struct {
-	bounds, quick, camp layoutRect
-	hasQuick            bool
+	bounds, quick, camp, auto layoutRect
+	hasQuick, hasAuto         bool
 }
 
-// One layout owns the whole action rail, including the always-available camp
-// button when the selected hero has no quick items. Other HUD blocks reserve
-// bounds, while each control draws and consumes clicks in its own rectangle.
+// One layout owns the whole action rail: the party's AUTO button while any
+// hero has stat points, the always-available camp button, and the selected
+// hero's quick items. Other HUD blocks reserve bounds, while each control
+// draws and consumes clicks in its own rectangle.
 func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 	if g == nil || g.config == nil || g.party == nil || len(g.party.Members) == 0 || g.menuOpen {
 		return gameplayActionBarLayout{}, false
@@ -32,6 +34,9 @@ func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 				l.hasQuick = l.hasQuick || it != nil
 			}
 		}
+	}
+	for _, m := range g.party.Members {
+		l.hasAuto = l.hasAuto || m != nil && m.FreeStatPoints > 0
 	}
 	pw, _, left, partyTop := partyPortraitLayout(g)
 	barW := min(pw*2, 240)
@@ -46,10 +51,67 @@ func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 	}
 	l.camp = layoutRect{right - campSize, bottom - campSize, campSize, campSize}
 	l.bounds = l.camp
-	if l.hasQuick {
-		l.bounds.w = l.quick.right() - l.camp.x
+	if l.hasAuto {
+		l.auto = layoutRect{l.camp.x - gap - campSize, l.camp.y, campSize, campSize}
+		l.bounds.x = l.auto.x
 	}
+	end := l.camp.right()
+	if l.hasQuick {
+		end = l.quick.right()
+	}
+	l.bounds.w = end - l.bounds.x
 	return l, true
+}
+
+// drawHUDIconHoverGlow rims an action-rail icon in white while preserving its
+// alpha silhouette.
+func drawHUDIconHoverGlow(screen, sprite *ebiten.Image, r layoutRect) {
+	op := &ebiten.DrawImageOptions{}
+	op.ColorM.Scale(0, 0, 0, 1)
+	op.ColorM.Translate(1, 1, 1, 0)
+	op.ColorScale.ScaleAlpha(0.16)
+	uiDrawImageScaledEdgeGlow(screen, sprite, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
+}
+
+// drawAutoStatsHUD is the party's AUTO button beside the camp: every hero
+// spends their stat points by the build chosen for their class.
+func (ui *UISystem) drawAutoStatsHUD(screen *ebiten.Image) {
+	g := ui.game
+	layout, visible := inGameActionBarLayout(g)
+	if !visible || !layout.hasAuto {
+		return
+	}
+	r := layout.auto
+	mouseX, mouseY := pointerPosition()
+	hover := !ui.hudClicksBlocked() && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom())
+	// The badge art is already a framed tile: it is the button, drawn at a
+	// whole-pixel scale like the camp beside it.
+	sprite := g.sprites.GetSprite(statBadgeStyle.icon)
+	side := r.w
+	if art := sprite.Bounds().Dx(); art > 0 && side >= art {
+		side = side / art * art
+	}
+	icon := layoutRect{r.x + (r.w-side)/2, r.bottom() - side, side, side}
+	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, statBadgeStyle.tint, g.badgeAuraPulse(ui.cardAnimClock()))
+	if hover {
+		drawHUDIconHoverGlow(screen, sprite, icon)
+	}
+	drawImageScaled(screen, sprite, icon.x, icon.y, icon.w, icon.h)
+	drawCenteredTextWithShadow(screen, "AUTO", icon.x, icon.bottom()-uiTextCharHeight-4, icon.w, uiTextCharHeight+1, statBadgeStyle.tint)
+	if hover {
+		points := 0
+		for _, m := range g.party.Members {
+			if m != nil {
+				points += m.FreeStatPoints
+			}
+		}
+		ui.queueTooltip([]string{"Auto-assign party stats", fmt.Sprintf("Spend %d points by each hero's build", points), "Builds: Settings > Gameplay"}, mouseX+12, mouseY+8)
+	}
+	ui.onDisplayedInput(uiCommandClick, r, func() {
+		if !ui.hudClicksBlocked() && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
+			g.autoDistributePartyStatPoints()
+		}
+	})
 }
 
 func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
@@ -63,12 +125,7 @@ func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
 	hover := !ui.hudClicksBlocked() && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom())
 	sprite := g.sprites.GetSprite(campHUDSprite)
 	if hover {
-		op := &ebiten.DrawImageOptions{}
-		// Replace RGB with white while preserving the tent's alpha silhouette.
-		op.ColorM.Scale(0, 0, 0, 1)
-		op.ColorM.Translate(1, 1, 1, 0)
-		op.ColorScale.ScaleAlpha(0.16)
-		uiDrawImageScaledEdgeGlow(screen, sprite, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
+		drawHUDIconHoverGlow(screen, sprite, r)
 	}
 	drawImageScaled(screen, sprite, r.x, r.y, r.w, r.h)
 	// Keep the number directly on the artwork; only the glyph shadow supplies

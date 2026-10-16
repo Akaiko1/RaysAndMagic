@@ -36,11 +36,9 @@ const (
 	panelPortraitW          = 47
 	panelPortraitH          = 56
 	partyFocusMarkerOffsetY = -11
-	partyProgressBadgeSize  = 24
-	partyProgressBadgeGap   = 4 // the two haloes blend softly; no hard frames to keep apart
-	partyProgressBadgeLift  = 12
-	partyAutoButtonMaxW     = 62
-	partyAutoButtonH        = 16
+	partyLevelUpChipH       = uiTextCharHeight // one card text row
+	partyLevelUpChipGap     = 6
+	partyLevelUpLabelGap    = 3
 	// Preserve the original Normal content origin. Personal badges use only
 	// the existing narrow portrait gutter and never move names or meters.
 	partyPanelContentLeft   = 83
@@ -76,8 +74,13 @@ type partyCardContentLayout struct {
 	box, stats, equipment layoutRect
 }
 
-type partyProgressionBadgeLayout struct {
-	stat, skill layoutRect
+// partyLevelUpLayout is a hero's pending growth in the last row of the card's
+// equipment column: stat points, then a skill choice. Each chip is the
+// authored icon and a label (the points, "Skill"); when the labelled chips do
+// not fit the column, the skill label goes first, then the points.
+type partyLevelUpLayout struct {
+	stat, skill           layoutRect
+	statLabel, skillLabel string
 }
 
 func makePartyCardContentLayout(panelX, panelY, panelW int) partyCardContentLayout {
@@ -99,51 +102,85 @@ func makePartyCardContentLayout(panelX, panelY, panelW int) partyCardContentLayo
 	return partyCardContentLayout{box: box, stats: stats, equipment: equipment}
 }
 
-// makePartyProgressionBadgeLayout attaches pending-progression actions to the
-// portrait that owns them. One badge centers; two straddle the lower rim with
-// equal spacing and only a minimal overhang beyond the irregular aperture.
-func makePartyProgressionBadgeLayout(px, py, pw, ph int, hasStat, hasSkill bool) partyProgressionBadgeLayout {
-	count := 0
+// makePartyLevelUpLayout places the pending-growth chips on the equipment
+// column's bottom row, centred and labelled. Compact chips (a long status
+// list needs the row) drop their labels and keep to the column's right edge.
+func makePartyLevelUpLayout(content partyCardContentLayout, points int, hasStat, hasSkill, compact bool) partyLevelUpLayout {
+	l := partyLevelUpLayout{}
+	if !hasStat && !hasSkill {
+		return l
+	}
+	if hasStat && !compact {
+		l.statLabel = fmt.Sprintf("+%d", points)
+	}
+	if hasSkill && !compact {
+		l.skillLabel = "Skill"
+	}
+	chipW := func(label string) int {
+		if label == "" {
+			return partyLevelUpChipH
+		}
+		return partyLevelUpChipH + partyLevelUpLabelGap + uiTextWidth(label)
+	}
+	total := func() int {
+		w := 0
+		if hasStat {
+			w += chipW(l.statLabel)
+		}
+		if hasSkill {
+			w += chipW(l.skillLabel)
+		}
+		if hasStat && hasSkill {
+			w += partyLevelUpChipGap
+		}
+		return w
+	}
+	if total() > content.equipment.w {
+		l.skillLabel = ""
+	}
+	if total() > content.equipment.w {
+		l.statLabel = ""
+	}
+	x := content.equipment.x + (content.equipment.w-total())/2
+	if compact {
+		x = content.equipment.right() - total()
+	}
+	y := content.box.bottom() - partyLevelUpChipH
 	if hasStat {
-		count++
+		l.stat = layoutRect{x, y, chipW(l.statLabel), partyLevelUpChipH}
+		x = l.stat.right() + partyLevelUpChipGap
 	}
 	if hasSkill {
-		count++
+		l.skill = layoutRect{x, y, chipW(l.skillLabel), partyLevelUpChipH}
 	}
-	if count == 0 {
-		return partyProgressionBadgeLayout{}
-	}
-	totalW := count*partyProgressBadgeSize + (count-1)*partyProgressBadgeGap
-	x := px + (pw-totalW)/2
-	y := py + ph - partyProgressBadgeLift
-	next := func() layoutRect {
-		r := layoutRect{x: x, y: y, w: partyProgressBadgeSize, h: partyProgressBadgeSize}
-		x += partyProgressBadgeSize + partyProgressBadgeGap
-		return r
-	}
-	layout := partyProgressionBadgeLayout{}
-	if hasStat {
-		layout.stat = next()
-	}
-	if hasSkill {
-		layout.skill = next()
-	}
-	return layout
+	return l
 }
 
-func makePartyAutoButtonLayout(content partyCardContentLayout) layoutRect {
-	w := min(partyAutoButtonMaxW, content.equipment.w)
-	return layoutRect{
-		x: content.equipment.x + (content.equipment.w-w)/2,
-		y: content.box.bottom() - partyAutoButtonH,
-		w: w,
-		h: partyAutoButtonH,
+// partyLevelUpLayoutFor is hero i's chips on the displayed party strip; the
+// draw pass and the portrait hit-test share it.
+func (g *MMGame) partyLevelUpLayoutFor(i int) partyLevelUpLayout {
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft+i*portraitWidth, startY, portraitWidth, portraitHeight)
+	member := g.party.Members[i]
+	if member == nil {
+		return partyLevelUpLayout{}
 	}
+	content := makePartyCardContentLayout(panelX, panelY, panelW)
+	full, _ := g.partyConditionLabels(member)
+	compact := uiTextWidth(full) > content.stats.w-2
+	return makePartyLevelUpLayout(content, member.FreeStatPoints, member.FreeStatPoints > 0, g.hasLevelUpChoiceForChar(i), compact)
 }
 
-// partyAutoButtonCard is the card whose equipment column hosts the party-wide
-// auto-assign button, in the row the status line may otherwise borrow.
-const partyAutoButtonCard = 0
+// statusRight is where the bottom row ends for a status line beside the chips.
+func (l partyLevelUpLayout) statusRight(content partyCardContentLayout) int {
+	switch {
+	case l.stat.w > 0:
+		return l.stat.x - partyLevelUpChipGap
+	case l.skill.w > 0:
+		return l.skill.x - partyLevelUpChipGap
+	}
+	return content.box.right()
+}
 
 // partyStatusLine is how a card shows its status list: the box it is centred
 // in, the text drawn, and the full list for hover when the text is shortened.
@@ -154,17 +191,16 @@ type partyStatusLine struct {
 }
 
 // partyStatusLineLayout fits a card's status list, most to least roomy: full
-// names under the meters (the authored line); full names across both columns
-// when the equipment column's last row is free; short names there; short
-// names cut to fit. Anything shortened offers the full list on hover.
-func partyStatusLineLayout(content partyCardContentLayout, y int, full, short string, equipmentRowFree bool) partyStatusLine {
+// names under the meters (the authored line); full names across the bottom
+// row up to rowRight (the card edge, or the compact level-up chips); short
+// names there; short names cut to fit. Anything shortened offers the full
+// list on hover.
+func partyStatusLineLayout(content partyCardContentLayout, y int, full, short string, rowRight int) partyStatusLine {
 	box := layoutRect{content.stats.x, y, content.stats.w, uiTextCharHeight}
 	if uiTextWidth(full) <= box.w-2 {
 		return partyStatusLine{box: box, text: full}
 	}
-	if equipmentRowFree {
-		box.w = content.box.w
-	}
+	box.w = max(box.w, min(rowRight, content.box.right())-box.x)
 	line := partyStatusLine{box: box, text: full}
 	if uiTextWidth(full) > box.w-2 {
 		line.text = clipUIText(short, max(0, box.w-2))
@@ -667,6 +703,7 @@ func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawPartyUI(screen)
 	ui.drawInGameQuickSlots(screen)
 	ui.drawCampHUD(screen)
+	ui.drawAutoStatsHUD(screen)
 	ui.drawSpellStatusBar(screen)
 	ui.drawCompass(screen)
 	ui.drawWizardEyeRadar(screen)
@@ -696,13 +733,6 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 	uiFillRect(screen, 0, float32(startY), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{104, 114, 128, 235}, false)
 	uiFillRect(screen, 0, float32(startY+1), float32(ui.game.config.GetScreenWidth()), 1, color.RGBA{38, 44, 53, 245}, false)
 
-	hasFreeStats := false
-	for _, member := range ui.game.party.Members {
-		if member != nil && member.FreeStatPoints > 0 {
-			hasFreeStats = true
-			break
-		}
-	}
 	for i, member := range ui.game.party.Members {
 		x := baseLeft + i*portraitWidth
 		selected := i == ui.game.selectedChar
@@ -805,8 +835,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		if statusText != "OK" {
 			statusColor = color.RGBA{255, 174, 88, 255}
 		}
-		status := partyStatusLineLayout(content, panelY+67, statusText, statusShort,
-			!(hasFreeStats && i == partyAutoButtonCard))
+		levelUp := ui.game.partyLevelUpLayoutFor(i)
+		status := partyStatusLineLayout(content, panelY+67, statusText, statusShort, levelUp.statusRight(content))
 		if status.full != "" {
 			uiClippedLabels = append(uiClippedLabels, uiClippedLabel{status.box, status.full})
 		}
@@ -831,19 +861,16 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		drawCenteredTextWithShadow(screen, offText, equipX, nameY+16, equipW, uiTextCharHeight, offColor)
 		drawCenteredTextWithShadow(screen, spellText, equipX, nameY+32, equipW, uiTextCharHeight, spellColor)
 
-		hasStatBadge := member.FreeStatPoints > 0
-		hasSkillBadge := ui.game.hasLevelUpChoiceForChar(i)
-		badges := makePartyProgressionBadgeLayout(px, py, pw, ph, hasStatBadge, hasSkillBadge)
 		mouseX, mouseY := uiCursorPosition()
-
-		if hasStatBadge {
-			statHover := isMouseHoveringBox(mouseX, mouseY, badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom())
-			ui.drawPartyProgressionBadge(screen, badges.stat, statBadgeStyle, statHover)
-			if statHover {
+		if levelUp.stat.w > 0 {
+			chip := levelUp.stat
+			hover := isMouseHoveringBox(mouseX, mouseY, chip.x, chip.y, chip.right(), chip.bottom())
+			ui.drawPartyLevelUpChip(screen, chip, statBadgeStyle, levelUp.statLabel, hover)
+			if hover {
 				ui.queueTooltip([]string{fmt.Sprintf("%d stat points ready", member.FreeStatPoints), "Click to assign"}, mouseX+12, mouseY+8)
 			}
-			ui.onDisplayedInput(uiCommandClick, layoutRect{badges.stat.x, badges.stat.y, (badges.stat.right()) - (badges.stat.x), (badges.stat.bottom()) - (badges.stat.y)}, func() {
-				if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(badges.stat.x, badges.stat.y, badges.stat.right(), badges.stat.bottom()) {
+			ui.onDisplayedInput(uiCommandClick, chip, func() {
+				if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(chip.x, chip.y, chip.right(), chip.bottom()) {
 					ui.game.statPopupOpen = true
 					// Open the popup for THIS character. Don't touch selectedChar:
 					// in turn-based mode it tracks whose turn it is, and hijacking it
@@ -853,15 +880,15 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				}
 			})
 		}
-
-		if hasSkillBadge {
-			skillHover := isMouseHoveringBox(mouseX, mouseY, badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom())
-			ui.drawPartyProgressionBadge(screen, badges.skill, skillBadgeStyle, skillHover)
-			if skillHover {
+		if levelUp.skill.w > 0 {
+			chip := levelUp.skill
+			hover := isMouseHoveringBox(mouseX, mouseY, chip.x, chip.y, chip.right(), chip.bottom())
+			ui.drawPartyLevelUpChip(screen, chip, skillBadgeStyle, levelUp.skillLabel, hover)
+			if hover {
 				ui.queueTooltip([]string{"Skill choice ready", "Click to choose"}, mouseX+12, mouseY+8)
 			}
-			ui.onDisplayedInput(uiCommandClick, layoutRect{badges.skill.x, badges.skill.y, (badges.skill.right()) - (badges.skill.x), (badges.skill.bottom()) - (badges.skill.y)}, func() {
-				if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(badges.skill.x, badges.skill.y, badges.skill.right(), badges.skill.bottom()) {
+			ui.onDisplayedInput(uiCommandClick, chip, func() {
+				if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(chip.x, chip.y, chip.right(), chip.bottom()) {
 					ui.game.openLevelUpChoiceForChar(i)
 				}
 			})
@@ -907,21 +934,6 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		}
 	}
 
-	if hasFreeStats {
-		panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft+partyAutoButtonCard*portraitWidth, startY, portraitWidth, portraitHeight)
-		auto := makePartyAutoButtonLayout(makePartyCardContentLayout(panelX, panelY, panelW))
-		mouseX, mouseY := uiCursorPosition()
-		autoHover := isMouseHoveringBox(mouseX, mouseY, auto.x, auto.y, auto.right(), auto.bottom())
-		ui.drawAutoStatButton(screen, auto.x, auto.y, auto.w, auto.h, autoHover)
-		if autoHover {
-			ui.queueTooltip([]string{"Auto-assign party stats", "Click to spend all available points"}, mouseX+12, mouseY+8)
-		}
-		ui.onDisplayedInput(uiCommandClick, layoutRect{auto.x, auto.y, (auto.right()) - (auto.x), (auto.bottom()) - (auto.y)}, func() {
-			if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(auto.x, auto.y, auto.right(), auto.bottom()) {
-				autoDistributePartyStatPoints(ui.game.party.Members, ui.game.config)
-			}
-		})
-	}
 	// The exposed party strip is UI even while the character hub is open.
 	// Register it after its badges so those controls retain first claim, and
 	// resolve selection before the dispatcher retires unmatched UI clicks.
@@ -1224,36 +1236,21 @@ func drawPartyProgressionBadgeAura(screen *ebiten.Image, x, y, w, h int, base co
 	drawSoftGlowAround(screen, x, y, w, h, badgeAuraSpreadPx, base, badgeAuraPeak, pulse)
 }
 
-// drawPartyProgressionBadge draws a portrait-attached progression badge: aura,
-// art, then the hover ring. The available-point count lives in its tooltip so
-// the icon remains one clean silhouette instead of looking like two badges.
-func (ui *UISystem) drawPartyProgressionBadge(screen *ebiten.Image, r layoutRect, style progressionBadgeStyle, isHover bool) {
-	drawPartyProgressionBadgeShadow(screen, r.x, r.y, r.w, r.h)
-	drawPartyProgressionBadgeAura(screen, r.x, r.y, r.w, r.h, style.tint, ui.game.badgeAuraPulse(ui.cardAnimClock()))
-	ui.drawInterfaceIcon(screen, style.icon, r.x, r.y, r.w, r.h)
+// drawPartyLevelUpChip draws one pending-growth chip: the authored icon (it
+// carries its own button and rim, so it gets no second frame) over its pulsing
+// aura, and the label in the chip's tint. Hover rings the whole chip.
+func (ui *UISystem) drawPartyLevelUpChip(screen *ebiten.Image, r layoutRect, style progressionBadgeStyle, label string, isHover bool) {
+	icon := layoutRect{r.x, r.y, partyLevelUpChipH, partyLevelUpChipH}
+	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, style.tint, ui.game.badgeAuraPulse(ui.cardAnimClock()))
+	drawPartyProgressionBadgeShadow(screen, icon.x, icon.y, icon.w, icon.h)
+	ui.drawInterfaceIcon(screen, style.icon, icon.x, icon.y, icon.w, icon.h)
+	if label != "" {
+		x := icon.right() + partyLevelUpLabelGap
+		drawCenteredTextWithShadow(screen, label, x, r.y, r.right()-x, r.h, style.tint)
+	}
 	if isHover {
 		drawPartyProgressionBadgeHover(screen, r.x, r.y, r.w, r.h, style.tint)
 	}
-}
-
-func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isHover bool) {
-	if w <= 0 || h <= 0 {
-		return
-	}
-	base := color.RGBA{18, 47, 78, 255}
-	if isHover {
-		base = color.RGBA{30, 82, 132, 255}
-	}
-	uiFillRect(screen, float32(x+1), float32(y+2), float32(max(0, w-1)), float32(max(0, h-2)), color.RGBA{0, 0, 0, 190}, false)
-	uiFillRect(screen, float32(x), float32(y), float32(w), float32(h), color.RGBA{5, 10, 18, 245}, false)
-	for row := 1; row < h-1; row++ {
-		shade := metalShade(base, float64(row-1)/float64(max(1, h-3)))
-		uiFillRect(screen, float32(x+1), float32(y+row), float32(max(0, w-2)), 1, shade, false)
-	}
-	uiStrokeRect(screen, float32(x), float32(y), float32(w-1), float32(h-1), 1, color.RGBA{26, 35, 48, 255}, false)
-	uiStrokeRect(screen, float32(x+1), float32(y+1), float32(max(0, w-3)), float32(max(0, h-3)), 1, metalShade(raritySilver, 0.6), false)
-	uiFillRect(screen, float32(x+3), float32(y+2), float32(max(0, w-6)), 1, color.RGBA{210, 235, 255, 180}, false)
-	drawCenteredTextWithShadow(screen, "AUTO", x, y, w, h, raritySilver)
 }
 
 // spellStatusRailLayout places the active party effects on the rail above the

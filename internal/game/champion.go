@@ -92,7 +92,7 @@ func buildChampionTemplate(def *config.ChampionDefinition, tierName string, cfg 
 	}
 	if ch.Level > 1 {
 		ch.FreeStatPoints = (ch.Level - 1) * StatPointsPerLevel
-		autoDistributeStatPoints(ch, cfg)
+		autoDistributeStatPoints(ch, autoClassStats(ch.Class, cfg), cfg)
 	}
 	ch.CalculateDerivedStats(cfg)
 	return ch, nil

@@ -122,7 +122,7 @@ func TestDisplayedPartySelectionBlocksEveryRenderedModal(t *testing.T) {
 }
 
 func TestDisplayedPartyControlsRetainTheirOwnActions(t *testing.T) {
-	for _, action := range []string{"stat_badge", "auto_stats", "plain_right", "incapacitated", "exhausted"} {
+	for _, action := range []string{"stat_chip", "plain_right", "incapacitated", "exhausted"} {
 		t.Run(action, func(t *testing.T) {
 			h := newDisplayedModalHarness(t, 1024, 768)
 			g := h.g
@@ -132,16 +132,10 @@ func TestDisplayedPartyControlsRetainTheirOwnActions(t *testing.T) {
 			x, y := partyPointerPosition(g, 0)
 			want := 2
 			switch action {
-			case "stat_badge":
+			case "stat_chip":
 				g.party.Members[0].FreeStatPoints = 5
-				click := firstPartyStatBadgeClick(g, time.Now().UnixMilli())
+				click := firstPartyStatChipClick(g, time.Now().UnixMilli())
 				x, y = click.x, click.y
-			case "auto_stats":
-				g.party.Members[0].FreeStatPoints = 5
-				w, h, left, top := partyPortraitLayout(g)
-				px, py, pw, _ := partyCardPanelRect(left, top, w, h)
-				auto := makePartyAutoButtonLayout(makePartyCardContentLayout(px, py, pw))
-				x, y = auto.x+auto.w/2, auto.y+auto.h/2
 			case "incapacitated":
 				g.party.Members[0].HitPoints = 0
 				want = 0
@@ -153,11 +147,8 @@ func TestDisplayedPartyControlsRetainTheirOwnActions(t *testing.T) {
 			if g.selectedChar != want || g.focusModeActive() {
 				t.Fatal("party control changed the wrong selection/focus state")
 			}
-			if action == "stat_badge" && (!g.statPopupOpen || g.statPopupCharIdx != 0) {
-				t.Fatal("stat badge lost priority over portrait selection")
-			}
-			if action == "auto_stats" && g.party.Members[0].FreeStatPoints != 0 {
-				t.Fatal("auto-assignment lost priority over portrait selection")
+			if action == "stat_chip" && (!g.statPopupOpen || g.statPopupCharIdx != 0) {
+				t.Fatal("stat chip lost priority over portrait selection")
 			}
 		})
 	}

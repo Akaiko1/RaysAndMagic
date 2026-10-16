@@ -10,17 +10,14 @@ import (
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/stats"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
-
-type statMeta struct {
-	Name string
-	Ptr  *int
-}
 
 // statHoldInitialDelay - frames the user has to hold the mouse on a +button
 // before hold-to-repeat starts firing. Configured for the game's 120 TPS so
@@ -33,96 +30,142 @@ const (
 	statHoldRepeatRate   = 8  // ~0.07s at 120 TPS
 )
 
-// drawStatPointRow draws a single stat row with name, value, and + button
-func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, value int, y, plusX, plusY, btnW, btnH int, canAdd, isHover bool) {
-	drawUIText(screen, fmt.Sprintf("%s: %d", name, value), plusX-148, y)
-
-	// Check if stat is already at max (99)
-	atMax := value >= MaxStatValue
-	canActuallyAdd := canAdd && !atMax
-
-	ui.drawButtonFrame(screen, plusX, plusY, btnW, btnH, canActuallyAdd && isHover)
-	if atMax {
-		drawFilledRect(screen, plusX+3, plusY+3, btnW-6, btnH-6, color.RGBA{0, 0, 0, 100})
+// drawStatPlusButton is one stat's "+": the stat-growth badge itself (its
+// art is already a framed tile), rimmed on hover, dimmed at the cap or with
+// no points left.
+func (ui *UISystem) drawStatPlusButton(screen *ebiten.Image, r layoutRect, live, hover bool) {
+	icon := layoutRect{r.x + (r.w-24)/2, r.y + (r.h-24)/2, 24, 24}
+	sprite := ui.game.sprites.GetSprite(statBadgeStyle.icon)
+	if live && hover {
+		drawHUDIconHoverGlow(screen, sprite, icon)
 	}
-	ui.drawInterfaceIcon(screen, "icon_stat_up", plusX+2, plusY+2, btnW-4, btnH-4)
+	drawImageScaled(screen, sprite, icon.x, icon.y, icon.w, icon.h)
+	if !live {
+		drawFilledRect(screen, icon.x, icon.y, icon.w, icon.h, color.RGBA{0, 0, 0, 150})
+	}
 }
 
-// drawStatDistributionPopup draws the stat allocation popup for the selected character
+// drawStatDistributionPopup is where a hero spends stat points: who, how many
+// points are left, and every stat with where AUTO would put the rest.
 func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
-	// Bound to statPopupCharIdx - the character whose "+" button was clicked
-	// (set at the open site in ui_hud.go). NOT selectedChar: in turn-based mode
-	// selectedChar tracks the active turn, so binding to it opened the wrong
-	// character's popup when you clicked "+" on someone who had already acted.
+	// Bound to statPopupCharIdx - the character whose chip was clicked. NOT
+	// selectedChar: in turn-based mode selectedChar tracks the active turn.
 	charIdx := ui.game.statPopupCharIdx
-	if charIdx < 0 || charIdx >= len(ui.game.party.Members) {
+	if charIdx < 0 || charIdx >= len(ui.game.party.Members) || ui.game.party.Members[charIdx] == nil {
 		return
 	}
-	member := ui.game.party.Members[charIdx]
+	g := ui.game
+	member := g.party.Members[charIdx]
 	interactive := ui.topModalLayer() == modalLayerStat
+	// The popup owns this hover layer: discard tips from the HUD beneath it.
+	ui.clearQueuedTooltips()
+	uiClippedLabels = uiClippedLabels[:0]
 
-	// Popup dimensions
-	screenW := ui.game.config.GetScreenWidth()
-	screenH := ui.game.config.GetScreenHeight()
+	screenW, screenH := g.config.GetScreenWidth(), g.config.GetScreenHeight()
 	popup := statPopupRect(screenW, screenH)
-	popupX, popupY, popupW, popupH := popup.x, popup.y, popup.w, popup.h
+	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 120})
+	ui.drawThemeFrame(screen, frameGold, popup.x, popup.y, popup.w, popup.h)
 
-	// Draw background
-	drawPortraitFrame(screen, popupX, popupY, popupW, popupH)
+	// Header: the HUD chip's badge, then who is growing.
+	textX := popup.x + 50
+	ui.drawInterfaceIcon(screen, statBadgeStyle.icon, popup.x+16, popup.y+16, 24, 24)
+	headW := statPopupCloseRect(popup).x - 8 - textX
+	drawUITextColored(screen, clipUIText(member.Name, headW), textX, popup.y+14, gameplayInk.heading)
+	drawUITextColored(screen, clipUIText(fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), headW), textX, popup.y+32, gameplayInk.muted)
+	drawFilledRect(screen, popup.x+16, popup.y+statPopupHeaderRule, popup.w-32, 1, gameplayInk.edge)
 
-	// Title
-	drawUIText(screen, "Distribute Stat Points", popupX+16, popupY+16)
-	drawUIText(screen, "Points left:", popupX+16, popupY+44)
-	drawUIText(screen, fmt.Sprintf("%d", member.FreeStatPoints), popupX+120, popupY+44)
-
-	// Stat list
-	statList := []statMeta{
-		{"Might", &member.Might},
-		{"Intellect", &member.Intellect},
-		{"Personality", &member.Personality},
-		{"Endurance", &member.Endurance},
-		{"Accuracy", &member.Accuracy},
-		{"Speed", &member.Speed},
-		{"Luck", &member.Luck},
+	// Points: the focal number, then the build AUTO follows.
+	points := member.FreeStatPoints
+	pointsInk := statBadgeStyle.tint
+	if points == 0 {
+		pointsInk = gameplayInk.muted
 	}
+	num := strconv.Itoa(points)
+	numW := uiTextWidth(num) * 2
+	drawScaledMetalCenteredText(screen, num, popup.x+16+numW/2, popup.y+statPopupPointsMid, 2, pointsInk)
+	labelX := popup.x + 16 + numW + 10
+	drawUITextColored(screen, "points to spend", labelX, popup.y+statPopupPointsMid-uiTextCharHeight, gameplayInk.text)
+	build := g.autoBuildFor(member.Class)
+	buildName := build.Name
+	if build.Key == config.DefaultAutoBuildKey {
+		buildName = "class default"
+	}
+	drawUITextColored(screen, clipUIText("Build: "+buildName, statPopupAutoRect(popup).x-labelX-8), labelX, popup.y+statPopupPointsMid+2, gameplayInk.muted)
+
 	mouseX, mouseY := uiCursorPosition()
-	for i, stat := range statList {
+	auto := statPopupAutoRect(popup)
+	autoLive := interactive && points > 0
+	autoHover := autoLive && isMouseHoveringBox(mouseX, mouseY, auto.x, auto.y, auto.right(), auto.bottom())
+	ui.drawButtonFrame(screen, auto.x, auto.y, auto.w, auto.h, autoHover)
+	autoInk := gameplayInk.muted
+	if autoLive {
+		autoInk = statBadgeStyle.tint
+	}
+	drawCenteredTextWithShadow(screen, "Auto", auto.x, auto.y, auto.w, auto.h, autoInk)
+	if autoHover {
+		ui.queueTooltip([]string{"Spend every point by this build", "Builds: Settings > Gameplay"}, mouseX+12, mouseY+8)
+	}
+	ui.onDisplayedInput(uiCommandClick, auto, func() {
+		if interactive && g.consumeLeftClickIn(auto.x, auto.y, auto.right(), auto.bottom()) {
+			g.autoDistributeMemberStatPoints(member)
+		}
+	})
+	drawFilledRect(screen, popup.x+16, popup.y+statPopupRowsRule, popup.w-32, 1, gameplayInk.edge)
+
+	// Stats: name, value, AUTO's share of the remaining points, "+".
+	plan := ui.autoStatPlan(member, build.AutoStatsConfig)
+	ghostInk := statBadgeStyle.tint
+	if !autoHover {
+		ghostInk = color.RGBA{lerpByte(ghostInk.R, 0, 0.25), lerpByte(ghostInk.G, 0, 0.25), lerpByte(ghostInk.B, 0, 0.25), 255}
+	}
+	for i, key := range stats.Names {
+		stat := autoStatField(member, key)
+		row := statPopupRowRect(popup, i)
 		plus := statPlusButtonRect(popup, i)
-		plusX, plusY, btnW, btnH := plus.x, plus.y, plus.w, plus.h
-		y := plusY + statPlusButtonLift
-		canAdd := member.FreeStatPoints > 0
-		isHover := mouseX >= plusX && mouseX < plusX+btnW && mouseY >= plusY && mouseY < plusY+btnH
-		ui.drawStatPointRow(screen, stat.Name, *stat.Ptr, y, plusX, plusY, btnW, btnH, canAdd, isHover)
-		ui.onDisplayedInput(uiCommandHold, layoutRect{plusX, plusY, btnW, btnH}, func() {
+		textY := row.y + (row.h-uiTextCharHeight)/2
+		rowHover := interactive && isMouseHoveringBox(mouseX, mouseY, row.x, row.y, row.right(), row.bottom())
+		if rowHover {
+			drawFilledRect(screen, row.x, row.y, row.w, row.h, gameplayInk.selected)
+			ui.queueCardTooltip(statTooltipRows(key), nil, nil, nil, "", mouseX+12, row.bottom()+2)
+		}
+		drawUITextColored(screen, stats.Title(key), row.x+8, textY, gameplayInk.text)
+		drawRightUIText(screen, strconv.Itoa(*stat), row.x+statPopupValueRight, textY, gameplayInk.heading)
+		if gain := plan.ValueByName(key); gain > 0 {
+			drawUITextColored(screen, fmt.Sprintf("+%d", gain), row.x+statPopupValueRight+8, textY, ghostInk)
+		}
+		canAdd := points > 0 && *stat < MaxStatValue
+		plusHover := interactive && isMouseHoveringBox(mouseX, mouseY, plus.x, plus.y, plus.right(), plus.bottom())
+		ui.drawStatPlusButton(screen, plus, canAdd, plusHover)
+		ui.onDisplayedInput(uiCommandHold, plus, func() {
 			mouseX, mouseY := pointerPosition()
-			isHover := isMouseHoveringBox(mouseX, mouseY, plusX, plusY, plusX+btnW, plusY+btnH)
+			isHover := isMouseHoveringBox(mouseX, mouseY, plus.x, plus.y, plus.right(), plus.bottom())
 			mousePressed := pointerLeftPressed()
-			clickIn := interactive && ui.game.consumeLeftClickIn(plusX, plusY, plusX+btnW, plusY+btnH)
+			clickIn := interactive && g.consumeLeftClickIn(plus.x, plus.y, plus.right(), plus.bottom())
 
 			// Hold-to-repeat: once the user keeps the button held over the same
 			// +button past statHoldInitialDelay, fire an extra increment every
 			// statHoldRepeatRate frames. Single clicks still come through clickIn
 			// above unchanged.
 			if !ui.displayedInput.processingClick && interactive && isHover && mousePressed {
-				if ui.statHoldStat == stat.Name {
+				if ui.statHoldStat == key {
 					ui.statHoldFrames++
 					if ui.statHoldFrames > statHoldInitialDelay &&
 						(ui.statHoldFrames-statHoldInitialDelay)%statHoldRepeatRate == 0 {
 						clickIn = true
 					}
 				} else {
-					ui.statHoldStat = stat.Name
+					ui.statHoldStat = key
 					ui.statHoldFrames = 0
 				}
-			} else if !ui.displayedInput.processingClick && ui.statHoldStat == stat.Name {
+			} else if !ui.displayedInput.processingClick && ui.statHoldStat == key {
 				ui.statHoldStat = ""
 				ui.statHoldFrames = 0
 			}
 
-			if clickIn && member.FreeStatPoints > 0 && *stat.Ptr < MaxStatValue {
-				(*stat.Ptr)++
+			if clickIn && member.FreeStatPoints > 0 && *stat < MaxStatValue {
+				(*stat)++
 				member.FreeStatPoints--
-				member.RecalculateMaxStatsGrantingGain(ui.game.config)
+				member.RecalculateMaxStatsGrantingGain(g.config)
 			}
 		})
 	}
@@ -131,7 +174,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	closeRect := statPopupCloseRect(popup)
 	ui.drawPopupCloseButton(screen, closeRect.x, closeRect.y, closeRect.w, interactive, func() {
 		if !ui.justOpenedStatPopup {
-			ui.game.statPopupOpen = false
+			g.statPopupOpen = false
 		}
 	})
 
@@ -141,26 +184,71 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	}
 }
 
-// drawMemberPickerPopup is the shared centered pick-a-party-member overlay
-// behind the revival/heal/promotion pickers: dim, panel, title+prompt, one
-// hoverable row per target index. rowLabel formats a row; onPick fires on a
-// row click. onCancel==nil means not cancellable (no close X, ESC ignored).
-func statPopupRect(screenW, screenH int) layoutRect {
-	return centeredRect(screenW, screenH, 340, 320)
+// autoStatPlan is AUTO's share of a hero's remaining points per stat,
+// memoized until the hero, their stats or the build change.
+func (ui *UISystem) autoStatPlan(member *character.MMCharacter, build config.AutoStatsConfig) stats.StatBonuses {
+	key := statPlanKey{member: member, base: baseStatBonuses(member), free: member.FreeStatPoints,
+		speed: build.Speed, endurance: build.Endurance, primary: build.Primary, secondary: build.Secondary}
+	if ui.statPlan.key != key {
+		c := *member
+		spendAutoStatPoints(&c, build)
+		after, before := baseStatBonuses(&c), key.base
+		ui.statPlan = statPlanMemo{key, stats.StatBonuses{
+			Might: after.Might - before.Might, Intellect: after.Intellect - before.Intellect,
+			Personality: after.Personality - before.Personality, Endurance: after.Endurance - before.Endurance,
+			Accuracy: after.Accuracy - before.Accuracy, Speed: after.Speed - before.Speed, Luck: after.Luck - before.Luck,
+		}}
+	}
+	return ui.statPlan.plan
 }
 
-// Stat popup rows: one "+" button per stat, its label baseline
-// statPlusButtonLift below the button top.
+// baseStatBonuses is a hero's unmodified stats as one comparable value.
+func baseStatBonuses(m *character.MMCharacter) stats.StatBonuses {
+	return stats.StatBonuses{Might: m.Might, Intellect: m.Intellect, Personality: m.Personality,
+		Endurance: m.Endurance, Accuracy: m.Accuracy, Speed: m.Speed, Luck: m.Luck}
+}
+
+type statPlanKey struct {
+	member                 *character.MMCharacter
+	base                   stats.StatBonuses
+	free, speed, endurance int
+	primary, secondary     string
+}
+
+type statPlanMemo struct {
+	key  statPlanKey
+	plan stats.StatBonuses
+}
+
+// Stat popup geometry, shared by drawing, the hold-repeat "+" and tests.
 const (
-	statPlusButtonSize = 28
-	statPlusButtonLift = 4
-	statPopupRowTop    = 80
-	statPopupRowPitch  = 36
+	statPopupW          = 320
+	statPopupHeaderRule = 54
+	statPopupPointsMid  = 80
+	statPopupRowsRule   = 106
+	statPopupRowTop     = 114
+	statPopupRowPitch   = 32
+	statPopupRowH       = 28
+	statPopupValueRight = 176
 )
 
+func statPopupRect(screenW, screenH int) layoutRect {
+	h := statPopupRowTop + len(stats.Names)*statPopupRowPitch - (statPopupRowPitch - statPopupRowH) + 14
+	return centeredRect(screenW, screenH, statPopupW, h)
+}
+
+func statPopupRowRect(popup layoutRect, row int) layoutRect {
+	return layoutRect{popup.x + 12, popup.y + statPopupRowTop + row*statPopupRowPitch, popup.w - 24, statPopupRowH}
+}
+
 func statPlusButtonRect(popup layoutRect, row int) layoutRect {
-	y := popup.y + statPopupRowTop + row*statPopupRowPitch - statPlusButtonLift
-	return layoutRect{popup.x + 180, y, statPlusButtonSize, statPlusButtonSize}
+	r := statPopupRowRect(popup, row)
+	return layoutRect{r.right() - statPopupRowH - 4, r.y, statPopupRowH, statPopupRowH}
+}
+
+// statPopupAutoRect sits beside the points, under the close button's column.
+func statPopupAutoRect(popup layoutRect) layoutRect {
+	return layoutRect{popup.right() - 16 - 80, popup.y + statPopupPointsMid - 14, 80, 28}
 }
 
 func statPopupCloseRect(popup layoutRect) layoutRect {
@@ -175,6 +263,10 @@ func rosterScreenRect(screenW, screenH int) layoutRect {
 	return centeredRect(screenW, screenH, 560, 360)
 }
 
+// drawMemberPickerPopup is the shared centered pick-a-party-member overlay
+// behind the revival/heal/promotion pickers: dim, panel, title+prompt, one
+// hoverable row per target index. rowLabel formats a row; onPick fires on a
+// row click. onCancel==nil means not cancellable (no close X, ESC ignored).
 func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt string, popupW int, targets []int, rowLabel func(idx int) string, onPick func(idx int), onCancel func(), interactive bool) {
 	screenW := ui.game.config.GetScreenWidth()
 	screenH := ui.game.config.GetScreenHeight()
@@ -450,100 +542,163 @@ func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
 		nil, ui.topModalLayer() == modalLayerPromotion)
 }
 
-// drawLevelUpChoicePopup draws the level-up choice selection overlay.
+// drawLevelUpChoicePopup is a hero's skill choice: the HUD chip's crown and
+// gold, one framed row per offer (spell icon, or the mastery rank ladder), and
+// for "pick K of N" pickers a Confirm button that wakes when enough are chosen.
 func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
-	req := ui.game.currentLevelUpChoice()
-	if req == nil || req.charIndex < 0 || req.charIndex >= len(ui.game.party.Members) {
+	g := ui.game
+	req := g.currentLevelUpChoice()
+	if req == nil || req.charIndex < 0 || req.charIndex >= len(g.party.Members) || g.party.Members[req.charIndex] == nil {
 		return
 	}
 	ui.registerDisplayedModalMouse((*InputHandler).handleLevelUpChoiceMouseInput, modalLayerLevelChoice)
 
-	member := ui.game.party.Members[req.charIndex]
-	screenW := ui.game.config.GetScreenWidth()
-	screenH := ui.game.config.GetScreenHeight()
-	popupX, popupY, popupW, popupH, startY, rowH := levelUpChoiceLayout(req, screenW, screenH)
+	member := g.party.Members[req.charIndex]
+	live := ui.topModalLayer() == modalLayerLevelChoice
+	screenW, screenH := g.config.GetScreenWidth(), g.config.GetScreenHeight()
+	p := makeLevelUpChoicePanel(req, screenW, screenH)
 	mouseX, mouseY := uiCursorPosition()
 
-	// Dim background
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
+	ui.drawThemeFrame(screen, frameGold, p.panel.x, p.panel.y, p.panel.w, p.panel.h)
 
-	// Panel
-	drawPortraitFrame(screen, popupX, popupY, popupW, popupH)
-
-	title := req.title
-	if title == "" {
-		title = "Level Up Choice"
-	}
-	drawUIText(screen, title, popupX+16, popupY+16)
+	title, subtitle := fmt.Sprintf("%s reached level %d", member.Name, req.level), "Choose one"
 	if req.isMultiSelect() {
-		drawUIText(screen, fmt.Sprintf("%s: choose %d (%d selected)", member.Name, req.maxSelections, req.selectedCount()), popupX+16, popupY+36)
-	} else {
-		drawUIText(screen, fmt.Sprintf("%s reached level %d", member.Name, req.level), popupX+16, popupY+36)
+		title, subtitle = req.title, fmt.Sprintf("%s: choose %d", member.Name, req.maxSelections)
+	} else if req.title != "" {
+		title = req.title
 	}
+	textX := p.emblem.right() + 10
+	ui.drawInterfaceIcon(screen, skillBadgeStyle.icon, p.emblem.x, p.emblem.y, p.emblem.w, p.emblem.h)
+	headW := statPopupCloseRect(p.panel).x - 8 - textX
+	drawUITextColored(screen, clipUIText(title, headW), textX, p.panel.y+14, gameplayInk.heading)
+	drawUITextColored(screen, clipUIText(subtitle, headW), textX, p.panel.y+32, gameplayInk.muted)
+	drawFilledRect(screen, p.panel.x+16, p.panel.y+levelUpChoiceRule, p.panel.w-32, 1, gameplayInk.edge)
 
+	// One school across the offers (a promotion picker) needs no school tag.
+	schools := map[string]bool{}
+	for _, option := range req.options {
+		if def, err := spells.GetSpellDefinitionByID(option.spellID); option.spellID != "" && err == nil {
+			schools[def.School] = true
+		}
+	}
 	for i, option := range req.options {
-		y := startY + i*rowH
-		if i == req.selection {
-			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+		r := p.target(i)
+		focused := i == req.selection
+		chosen := req.isMultiSelect() && i < len(req.selected) && req.selected[i]
+		if chosen {
+			drawFilledRect(screen, r.x, r.y, r.w, r.h, gameplayInk.selected)
 		}
-		// Multi-select: a check icon marks toggled options; cursor uses the icon too.
-		if req.isMultiSelect() && i < len(req.selected) && req.selected[i] {
-			ui.drawInterfaceIcon(screen, "icon_level_choice", popupX+20, y, 16, 16)
-		} else if !req.isMultiSelect() && i == req.selection {
-			ui.drawInterfaceIcon(screen, "icon_level_choice", popupX+20, y, 16, 16)
+		if focused {
+			ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, true)
 		}
-		if option.hasMastery && option.masteryCurrent != "" && option.masteryNext != "" {
-			segments := []coloredTextSegment{
-				{text: option.masteryPrefix, color: color.White},
-				{text: option.masteryCurrent, color: color.RGBA{240, 220, 80, 255}},
-				{text: " -> ", color: color.White},
-				{text: option.masteryNext, color: color.RGBA{80, 220, 80, 255}},
-			}
-			drawColoredTextSegments(screen, popupX+40, y, segments)
-		} else {
-			drawUIText(screen, option.label, popupX+40, y)
-		}
-
-		if isMouseHoveringBox(mouseX, mouseY, popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			var tooltip character.CardRows
-			switch strings.ToLower(option.choice.Type) {
-			case "spell":
-				tooltip = GetSpellTooltipRows(option.spellID, member, ui.game.combat, tooltipDetailHeld())
-			case "weapon_mastery", "armor_mastery":
-				tooltip = masteryTooltipRowsForSkill(option.skillType)
-			case "magic_mastery":
-				tooltip = magicMasteryTooltipRows(option.school)
-			}
-			if len(tooltip) > 0 {
-				lines := tooltip
-				if strings.ToLower(option.choice.Type) == "spell" {
-					plate := color.Color(nil)
-					if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
-						plate = schoolPlateColor(def.School)
-					}
-					ui.queueCardTooltip(lines, nil, plate, nil, spellTooltipIconName(option.spellID), mouseX+16, mouseY+8)
-				} else {
-					ui.queueCardTooltip(lines, nil, nil, nil, "", mouseX+16, mouseY+8)
-				}
-			}
+		ui.drawLevelUpOption(screen, r, option, focused, chosen, req.isMultiSelect(), len(schools) > 1)
+		if live && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()) {
+			ui.queueLevelUpOptionTooltip(member, option, mouseX+16, r.bottom()+2)
 		}
 	}
 
 	if req.isMultiSelect() {
-		// Confirm row, drawn just below the options.
-		cy := startY + len(req.options)*rowH
 		ready := req.selectedCount() == req.maxSelections
-		confirmCol := color.RGBA{150, 150, 150, 255}
+		c := p.confirm
+		ui.drawButtonFrame(screen, c.x, c.y, c.w, c.h, ready && req.selection == req.confirmRowIndex())
+		ink := gameplayInk.muted
 		if ready {
-			confirmCol = color.RGBA{90, 220, 90, 255}
+			ink = skillBadgeStyle.tint
 		}
-		if req.selection == req.confirmRowIndex() {
-			drawFilledRect(screen, popupX+16, cy-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
-		}
-		drawUITextColored(screen, "Confirm", popupX+40, cy, confirmCol)
-		drawUIText(screen, "Up/Down move - Space toggles - Enter confirms", popupX+16, popupY+popupH-22)
+		drawCenteredTextWithShadow(screen, "Confirm", c.x, c.y, c.w, c.h, ink)
+		count := fmt.Sprintf("%d of %d chosen", req.selectedCount(), req.maxSelections)
+		drawUITextColored(screen, count, p.panel.x+16, c.y+(c.h-uiTextCharHeight)/2, gameplayInk.text)
+		drawUITextColored(screen, "Up/Down, Space toggles, Enter confirms", p.panel.x+16, p.footerY, gameplayInk.muted)
 	} else {
-		drawUIText(screen, "Use Up/Down or click, Enter to choose", popupX+16, popupY+popupH-22)
+		drawUITextColored(screen, "Up/Down and Enter, or click", p.panel.x+16, p.footerY, gameplayInk.muted)
+	}
+
+	close := statPopupCloseRect(p.panel)
+	ui.drawPopupCloseButton(screen, close.x, close.y, close.w, live, g.closeLevelUpChoice)
+}
+
+// drawLevelUpOption fills one offer row: what it teaches on the left, what it
+// changes on the right, and a check box in pickers.
+func (ui *UISystem) drawLevelUpOption(screen *ebiten.Image, r layoutRect, option levelUpChoiceOption, focused, chosen, multi, tagSchool bool) {
+	icon := layoutRect{r.x + 6, r.y + (r.h-24)/2, 24, 24}
+	textY := r.y + (r.h-uiTextCharHeight)/2
+	right := r.right() - 10
+	if multi {
+		box := layoutRect{right - 12, r.y + (r.h-12)/2, 12, 12}
+		drawBuildCheck(screen, box, chosen, gameplayInk.focus)
+		right = box.x - 10
+	}
+	nameInk := gameplayInk.text
+	if focused || chosen {
+		nameInk = gameplayInk.heading
+	}
+
+	name, detail := option.label, []coloredTextSegment(nil)
+	switch {
+	case option.spellID != "":
+		ui.drawInterfaceIcon(screen, spellTooltipIconName(option.spellID), icon.x, icon.y, icon.w, icon.h)
+		if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
+			name = def.Name
+			if tagSchool {
+				detail = []coloredTextSegment{{text: character.MagicSchoolID(def.School).DisplayName(), color: SchoolColor(def.School)}}
+			}
+		}
+	case option.hasMastery:
+		drawMasteryLadder(screen, icon, option.masteryRank)
+		name = strings.TrimSuffix(option.masteryPrefix, ": ")
+		detail = []coloredTextSegment{
+			{text: option.masteryCurrent, color: gameplayInk.muted},
+			{text: " -> ", color: gameplayInk.muted},
+			{text: option.masteryNext, color: skillBadgeStyle.tint},
+		}
+	}
+	detailW := 0
+	for _, seg := range detail {
+		detailW += uiTextWidth(seg.text)
+	}
+	if detailW > 0 {
+		drawColoredTextSegments(screen, right-detailW, textY, detail)
+		right -= detailW + 12
+	}
+	nameX := icon.right() + 10
+	drawUITextColored(screen, clipUIText(name, right-nameX), nameX, textY, nameInk)
+}
+
+// drawMasteryLadder is the four mastery ranks as pips: held ranks lit in ink,
+// the rank this offer grants in gold, the rest dark.
+func drawMasteryLadder(screen *ebiten.Image, r layoutRect, current int) {
+	const pip, gap = 4, 2
+	ranks := int(character.MasteryGrandMaster) + 1
+	x := r.x + (r.w-(ranks*pip+(ranks-1)*gap))/2
+	for i := 0; i < ranks; i++ {
+		h := 6 + 3*i
+		ink := gameplayInk.edge
+		switch {
+		case i <= current:
+			ink = gameplayInk.heading
+		case i == current+1:
+			ink = skillBadgeStyle.tint
+		}
+		drawFilledRect(screen, x+i*(pip+gap), r.bottom()-4-h, pip, h, ink)
+	}
+}
+
+// queueLevelUpOptionTooltip offers the spell card or the mastery reference at
+// (x, y), below the hovered row so the row itself stays readable.
+func (ui *UISystem) queueLevelUpOptionTooltip(member *character.MMCharacter, option levelUpChoiceOption, x, y int) {
+	switch strings.ToLower(option.choice.Type) {
+	case "spell":
+		plate := color.Color(nil)
+		if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
+			plate = schoolPlateColor(def.School)
+		}
+		rows := GetSpellTooltipRows(option.spellID, member, ui.game.combat, tooltipDetailHeld())
+		ui.queueCardTooltip(rows, nil, plate, nil, spellTooltipIconName(option.spellID), x, y)
+	case "weapon_mastery", "armor_mastery":
+		ui.queueCardTooltip(masteryTooltipRowsForSkill(option.skillType), nil, nil, nil, "", x, y)
+	case "magic_mastery":
+		ui.queueCardTooltip(magicMasteryTooltipRows(option.school), nil, nil, nil, "", x, y)
 	}
 }
 

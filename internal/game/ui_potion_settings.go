@@ -29,14 +29,14 @@ var settingsTabLabels = [...]string{
 }
 
 // settingsTabRows is how many keyboard-selectable rows a tab has.
-func settingsTabRows(tab settingsTabKind) int {
+func (g *MMGame) settingsTabRows(tab settingsTabKind) int {
 	switch tab {
 	case settingsTabPotions:
 		return 2 // health and mana
 	case settingsTabDisplay:
 		return displayRows
 	case settingsTabCombat:
-		return gameplayRows
+		return g.gameplayRowCount()
 	default:
 		return len(audioSettingDefinitions)
 	}

@@ -64,10 +64,10 @@ func (ih *InputHandler) handleLevelUpChoiceMouseInput() {
 	if req == nil || len(req.options) == 0 {
 		return
 	}
-	x, _, w, _, startY, rowH := levelUpChoiceLayout(req, g.config.GetScreenWidth(), g.config.GetScreenHeight())
+	p := makeLevelUpChoicePanel(req, g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	for i := range req.options {
-		y := startY + i*rowH
-		if g.consumeLeftClickIn(x+16, y-2, x+w-16, y-2+rowH) {
+		r := p.target(i)
+		if g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
 			req.selection = i
 			if req.isMultiSelect() {
 				g.toggleLevelUpSelection(i)
@@ -78,8 +78,8 @@ func (ih *InputHandler) handleLevelUpChoiceMouseInput() {
 		}
 	}
 	if req.isMultiSelect() {
-		y := startY + len(req.options)*rowH
-		if g.consumeLeftClickIn(x+16, y-2, x+w-16, y-2+rowH) {
+		r := p.confirm
+		if g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
 			req.selection = req.confirmRowIndex()
 			g.confirmLevelUpSelections()
 		}

@@ -256,7 +256,7 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			g.combat.checkLevelUp(m, false)
 		}
 		if s.AutoStats {
-			autoDistributeStatPoints(m, g.config)
+			autoDistributeStatPoints(m, autoClassStats(m.Class, g.config), g.config)
 		} else {
 			pts := m.FreeStatPoints
 			pts -= raiseStat(&m.Speed, s.SpeedTarget, pts)
