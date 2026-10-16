@@ -4,7 +4,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
-	"ugataima/internal/shaders"
 	"ugataima/internal/world"
 )
 
@@ -72,10 +71,8 @@ func (ui *UISystem) modeDomainIcon(name string) *ebiten.Image {
 		return cached.image
 	}
 	if ui.modeDomainIconShader == nil {
-		var err error
-		ui.modeDomainIconShader, err = ebiten.NewShader([]byte(shaders.Source("hud_icon_key.kage")))
-		if err != nil {
-			panic(err)
+		if compileShader(&ui.modeDomainIconShader, "hud_icon_key.kage") != nil {
+			return nil // a broken shader leaves the icon out, like a missing sprite
 		}
 		ui.modeDomainIcons = make(map[string]modeDomainIconCache)
 	}

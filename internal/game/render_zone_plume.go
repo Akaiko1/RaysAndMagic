@@ -12,7 +12,8 @@ func (r *Renderer) drawZonePlume(dst *ebiten.Image, wx, wy, width, height, maxDe
 	r.drawFirePlume(dst, wx, wy, width, height, maxDepth, alpha, rgb, int(wx), int(wy), firePlumeTongues)
 }
 
-// Fire plume looks, selected per draw in zone_plume.kage.
+// Fire plume looks, selected per draw: zone_plume.kage branches on them by
+// name and TestShaderConstantsMatchGo keeps its const block equal.
 const (
 	firePlumeTongues float32 = iota // eroded tongues: burning actors and traps
 	firePlumeBlaze                  // fire zones: a merging blaze shedding sparks

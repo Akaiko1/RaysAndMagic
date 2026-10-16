@@ -1,10 +1,17 @@
 package game
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"image"
 	"image/color"
 	"math"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 	"ugataima/internal/config"
 	"ugataima/internal/shaders"
@@ -20,6 +27,187 @@ func TestKageShadersCompile(t *testing.T) {
 			t.Errorf("%s shader failed to compile: %v", name, err)
 		}
 	}
+}
+
+// A shader branch on a Go-side id compares against a named const, never a
+// bare number. Each branch variable lists the Go const blocks whose ids it
+// reads (by one member's name): the shader declares every member of those
+// blocks with its Go value, the variable is compared only with those names,
+// never with a number or folded into arithmetic with one, and the values it
+// meets are distinct. Every integer const a shader declares at top level
+// repeats a Go constant, and a const block line the test cannot read fails.
+// A value inserted into or appended to a Go iota list then fails here instead
+// of recolouring later ids or drawing nothing.
+func TestShaderConstantsMatchGo(t *testing.T) {
+	goValues, goBlocks := goIntConsts(t)
+	branches := map[string]map[string][]string{
+		"spell_body.kage":        {"kind": {"spellFireball"}},
+		"spell_bolt.kage":        {"kind": {"spellFireball", "boltMaterialGauntlet"}},
+		"weapon_body.kage":       {"material": {"meshMetal"}, "DepthStage": {"depthStageOff"}},
+		"boss_relic.kage":        {"material": {"meshMetal"}},
+		"weapon_ribbon.kage":     {"material": {"weaponMetal"}},
+		"world_material.kage":    {"mat": {"worldIron"}},
+		"world_status.kage":      {"kind": {"statusShapeDisc"}},
+		"impact_material.kage":   {"kind": {"impactCloudHot"}, "marker": {"impactCloudHot"}},
+		"actor_spell.kage":       {"style": {"actorSpellMindWeb"}},
+		"collection_slot.kage":   {"Mode": {"collectionModeNiche"}},
+		"cast_overlay.kage":      {"Style": {"castStyleDarkness"}, "style": {"castStyleDarkness"}, "Pass": {"castPassBack"}},
+		"floor.kage":             {"b": {"floorBlendHard"}, "a": {"floorFrozenWater", "floorBlendBoundary", "floorBlendShore"}},
+		"standee_trilinear.kage": {"surface": {"standeeLayerNearSticker"}},
+		"cast_object.kage":       {"mat": {"castMatPlain"}},
+		"zone_plume.kage":        {"look": {"firePlumeTongues"}},
+	}
+	for _, name := range shaders.Names() {
+		source := shaders.Source(name)
+		declared, unread := kageIntConsts(source)
+		for _, line := range unread {
+			t.Errorf("%s: const line %q is not an integer id the test can read", name, line)
+		}
+		for id, value := range declared {
+			if want, ok := goValues[id]; !ok || want != value {
+				t.Errorf("%s: const %s = %d does not repeat a Go constant (Go: %d, found: %v)", name, id, value, want, ok)
+			}
+		}
+		code := regexp.MustCompile(`//[^\n]*`).ReplaceAllString(source, "")
+		for branch, anchors := range branches[name] {
+			family, seen := map[string]bool{}, map[int]string{}
+			for _, anchor := range anchors {
+				block, ok := goBlocks[anchor]
+				if !ok {
+					t.Fatalf("%s: no Go const %s", name, anchor)
+				}
+				for _, id := range block {
+					family[id] = true
+					if _, ok := declared[id]; !ok {
+						t.Errorf("%s: %s reads %s, which the shader does not declare", name, branch, id)
+					}
+					if other, dup := seen[goValues[id]]; dup {
+						t.Errorf("%s: %s meets %s and %s, both %d", name, branch, other, id, goValues[id])
+					}
+					seen[goValues[id]] = id
+				}
+			}
+			v := regexp.QuoteMeta(branch)
+			compare := `\s*(?:==|!=|<=?|>=?)\s*`
+			for _, pattern := range []string{`\b` + v + compare + `([A-Za-z_]\w*|-?[\d.]+)`, `\b([A-Za-z_]\w*|[\d.]+)` + compare + v + `\b`} {
+				for _, m := range regexp.MustCompile(pattern).FindAllStringSubmatch(code, -1) {
+					if !family[m[1]] {
+						t.Errorf("%s compares %s with %s, outside its ids", name, branch, m[1])
+					}
+				}
+			}
+			if regexp.MustCompile(`\b` + v + `\s*[-+*/]\s*[\d.]|[\d.]\s*[-+*/]\s*` + v + `\b`).MatchString(code) {
+				t.Errorf("%s folds %s into arithmetic with a bare number", name, branch)
+			}
+		}
+	}
+}
+
+// goIntConsts evaluates the integer constants this package declares (integer
+// literals and iota blocks with + - * and implicit repetition) and maps each
+// name to every name of its const declaration.
+func goIntConsts(t *testing.T) (map[string]int, map[string][]string) {
+	t.Helper()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, blocks := map[string]int{}, map[string][]string{}
+	fset := token.NewFileSet()
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range f.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				continue
+			}
+			var last ast.Expr
+			var names []string
+			for i, spec := range gen.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if len(vs.Values) > 0 {
+					last = vs.Values[0]
+				}
+				if v, ok := evalIntConst(last, i); ok && len(vs.Names) == 1 {
+					values[vs.Names[0].Name] = v
+					names = append(names, vs.Names[0].Name)
+				}
+			}
+			for _, name := range names {
+				blocks[name] = names
+			}
+		}
+	}
+	return values, blocks
+}
+func evalIntConst(e ast.Expr, iota int) (int, bool) {
+	switch x := e.(type) {
+	case *ast.BasicLit:
+		if x.Kind != token.INT {
+			return 0, false
+		}
+		v, err := strconv.Atoi(x.Value)
+		return v, err == nil
+	case *ast.Ident:
+		return iota, x.Name == "iota"
+	case *ast.ParenExpr:
+		return evalIntConst(x.X, iota)
+	case *ast.UnaryExpr:
+		v, ok := evalIntConst(x.X, iota)
+		return -v, ok && x.Op == token.SUB
+	case *ast.BinaryExpr:
+		a, okA := evalIntConst(x.X, iota)
+		b, okB := evalIntConst(x.Y, iota)
+		switch {
+		case !okA || !okB:
+		case x.Op == token.ADD:
+			return a + b, true
+		case x.Op == token.SUB:
+			return a - b, true
+		case x.Op == token.MUL:
+			return a * b, true
+		}
+	}
+	return 0, false
+}
+
+// kageIntConsts returns the integer constants a Kage source declares at top
+// level, in const blocks or single const lines; a function's local const (a
+// loop count) is not an id. A const block holds ids only, so any other entry
+// there comes back unread. A single const line may be a tuning value.
+func kageIntConsts(source string) (map[string]int, []string) {
+	assignment := regexp.MustCompile(`^(?:const\s+)?([A-Za-z_]\w*)\s*=\s*(-?\d+)\s*(?://.*)?$`)
+	opener := regexp.MustCompile(`^const\s*\(\s*(?://.*)?$`)
+	out := map[string]int{}
+	var unread []string
+	inBlock := false
+	for _, line := range strings.Split(source, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case opener.MatchString(line):
+			inBlock = true
+			continue
+		case inBlock && line == ")":
+			inBlock = false
+			continue
+		case inBlock && (trimmed == "" || strings.HasPrefix(trimmed, "//")):
+			continue
+		case !inBlock && !strings.HasPrefix(line, "const "):
+			continue
+		}
+		if m := assignment.FindStringSubmatch(trimmed); m != nil {
+			out[m[1]], _ = strconv.Atoi(m[2])
+		} else if inBlock {
+			unread = append(unread, trimmed)
+		}
+	}
+	return out, unread
 }
 
 func TestWrapPanoramaOffsetBoundsLargeAngles(t *testing.T) {
@@ -45,7 +233,7 @@ func TestSkyShaderWrapKeepsEveryColumnCovered(t *testing.T) {
 		t.Fatal(err)
 	}
 	panorama := ebiten.NewImageFromImage(source)
-	shader, err := ebiten.NewShader([]byte(skyShaderSrc))
+	shader, err := ebiten.NewShader([]byte(shaders.Source("sky.kage")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +287,7 @@ func TestStandeeTrilinearShaderFillsOriginalQuad(t *testing.T) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		t.Skip("GPU readback requires the live Ebitengine debug-sim loop")
 	}
-	shader, err := ebiten.NewShader([]byte(standeeTrilinearShaderSrc))
+	shader, err := ebiten.NewShader([]byte(shaders.Source("standee_trilinear.kage")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +392,7 @@ func TestStandeeVolumeShaderPreservesLayersAndWallClip(t *testing.T) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		t.Skip("GPU readback requires the live Ebitengine debug-sim loop")
 	}
-	shader, err := ebiten.NewShader([]byte(standeeVolumeShaderSrc))
+	shader, err := ebiten.NewShader([]byte(shaders.Source("standee_volume.kage")))
 	if err != nil {
 		t.Fatal(err)
 	}

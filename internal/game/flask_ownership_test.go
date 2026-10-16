@@ -90,49 +90,68 @@ func TestFlaskOwnershipThroughCombat(t *testing.T) {
 	}
 }
 
-// Space availability mirrors its dispatch: a ready slotted throw, else
-// SmartAttack's heal. A recharging retort never hides the heal behind it.
-func TestSmartAvailabilityFallsThroughRechargingThrow(t *testing.T) {
+// Space heals a wounded ally first when the hero can cast the heal, then
+// throws a ready slotted flask (an always-ready reusable Retort included),
+// else falls through to SmartAttack. Driven through the real Space entry
+// points in real time and turn-based; a throw that is not ready (its last
+// flask gone) never hides the heal behind it.
+func TestSmartAvailabilityFallsThroughUnreadyThrow(t *testing.T) {
 	for _, tc := range []struct {
-		name               string
-		recharging, wound  bool
-		wantAvail, wantAct bool
+		name                           string
+		flask                          string
+		empty, wound, noSP             bool
+		wantAvail, wantHeal, wantThrow bool
 	}{
-		{"ready", false, false, true, true},
-		{"recharging-ally-wounded", true, true, true, true},
-		{"recharging-nobody-hurt", true, false, false, false},
+		{"ready", "fire_flask", false, false, false, true, false, true},
+		{"ready-ally-wounded-heals", "fire_flask", false, true, false, true, true, false},
+		{"retort-ally-wounded-heals", "solstice_everflow_retort", false, true, false, true, true, false},
+		{"retort-ally-wounded-no-sp-throws", "solstice_everflow_retort", false, true, true, true, false, true},
+		{"retort-nobody-hurt-throws", "solstice_everflow_retort", false, false, false, true, false, true},
+		{"empty-ally-wounded", "fire_flask", true, true, false, true, true, false},
+		{"empty-nobody-hurt", "fire_flask", true, false, false, false, false, false},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			g, ch := rareClassGame(t, character.ClassAlchemist, false)
-			ch.Skills[character.SkillAlchemy].Mastery = character.MasteryNovice
-			ch.Skills[character.SkillBombThrowing].Mastery = character.MasteryNovice
-			delete(ch.Equipment, items.SlotMainHand)
-			delete(ch.Equipment, items.SlotOffHand)
-			ch.LearnSpell("heal_other")
-			g.party.Inventory = nil
-			ch.Inventory = []items.Item{items.CreateItemFromYAML("solstice_everflow_retort")}
-			if !g.equipFlask(0, "solstice_everflow_retort") {
-				t.Fatal("retort not slotted")
-			}
-			if tc.recharging {
-				ch.Inventory[0].DeviceCooldownFrames = 400
-			}
-			ally := g.party.Members[1]
-			if tc.wound {
-				ally.HitPoints = ally.MaxHitPoints / 10
-			}
-			if got := g.combat.smartActionAvailable(ch); got != tc.wantAvail {
-				t.Fatalf("available=%v, want %v", got, tc.wantAvail)
-			}
-			acted := false
-			if _, thrown := g.useSlottedRareAction(0, rtActSmart, false); thrown {
-				acted = true
-			} else {
-				acted = g.combat.SmartAttack().Acted
-			}
-			if acted != tc.wantAct {
-				t.Fatalf("Space acted=%v, want %v", acted, tc.wantAct)
-			}
-		})
+		for _, tb := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/TB=%v", tc.name, tb), func(t *testing.T) {
+				g, ch := rareClassGame(t, character.ClassAlchemist, tb)
+				ch.Skills[character.SkillAlchemy].Mastery = character.MasteryNovice
+				ch.Skills[character.SkillBombThrowing].Mastery = character.MasteryNovice
+				delete(ch.Equipment, items.SlotMainHand)
+				delete(ch.Equipment, items.SlotOffHand)
+				ch.LearnSpell("heal_other")
+				if tc.noSP {
+					ch.SpellPoints = 0
+				}
+				g.party.Inventory = nil
+				ch.Inventory = []items.Item{items.CreateItemFromYAML(tc.flask)}
+				if !g.equipFlask(0, tc.flask) {
+					t.Fatal("flask not slotted")
+				}
+				if tc.empty { // the slotted throw is not ready: its last flask is gone
+					ch.Inventory = nil
+				}
+				ally := g.party.Members[1]
+				if tc.wound {
+					ally.HitPoints = ally.MaxHitPoints / 10
+				}
+				if got := g.combat.smartActionAvailable(ch); got != tc.wantAvail {
+					t.Fatalf("available=%v, want %v", got, tc.wantAvail)
+				}
+				hp, actions := ally.HitPoints, ch.ActionsRemaining
+				ih := NewInputHandler(g)
+				if tb {
+					ih.performTurnBasedSmartAttack()
+				} else {
+					ih.performRTCombatAction(rtActSmart, true)
+				}
+				healed, thrown := ally.HitPoints > hp, len(g.flasks) > 0
+				spent := ch.RTCooldown > 0
+				if tb {
+					spent = ch.ActionsRemaining < actions
+				}
+				if healed != tc.wantHeal || thrown != tc.wantThrow || spent != (tc.wantHeal || tc.wantThrow) {
+					t.Fatalf("Space healed=%v thrown=%v spent=%v, want healed=%v thrown=%v", healed, thrown, spent, tc.wantHeal, tc.wantThrow)
+				}
+			})
+		}
 	}
 }

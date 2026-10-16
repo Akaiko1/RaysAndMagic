@@ -130,7 +130,6 @@ items:
     value: 7500
     no_loot: true
     use_action: throw_flask
-    use_cooldown_seconds: 6
     flask:
       reusable: true
       projectile_fx: solstice_everflow_retort
@@ -232,7 +231,7 @@ items:
     flavor: "One turn of the ring. One visitor from another hour."
     use_action: "summon"
     summon_distance_tiles: 2
-    use_cooldown_seconds: 300
+    use_cooldown_seconds: 10
     rarity: "legendary"
     value: 2500
     no_loot: true

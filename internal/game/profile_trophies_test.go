@@ -48,9 +48,13 @@ func TestProfileTrophyLootBoundaries(t *testing.T) {
 				g := h.g
 				attachTestProfile(t, g)
 				g.turnBasedMode = tb
+				// Two catalog legendary finds at this test's values: one unit, a stack of 3.
+				finds := catalogLegendaryFinds(t, 2)
+				finds[0].Attributes, finds[0].Quantity = map[string]int{"value": 1000}, 0
+				finds[1].Attributes, finds[1].Quantity = map[string]int{"value": 500}, 3
 				tc.act(g, []items.Item{
-					{Name: "Legendary Armor", Attributes: map[string]int{"value": 1000}, Type: items.ItemArmor, Rarity: "Legendary"},
-					{Name: "Legendary Trophy", Attributes: map[string]int{"value": 500}, Type: items.ItemTrinket, Rarity: "legendary", Quantity: 3},
+					finds[0],
+					finds[1],
 					{Name: "Legendary Card", Attributes: map[string]int{"value": 2000}, Type: items.ItemCard, Rarity: "legendary", Quantity: 4},
 					{Name: "Common Card", Attributes: map[string]int{"value": 50}, Type: items.ItemCard, Rarity: "common", Quantity: 2},
 					{Name: "Rare Weapon", Attributes: map[string]int{"value": 700}, Type: items.ItemWeapon, Rarity: "rare"},

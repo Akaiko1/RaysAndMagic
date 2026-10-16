@@ -3,10 +3,13 @@ package game
 import (
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -259,6 +262,128 @@ func TestStashDoubleClickMovesItemsAcross(t *testing.T) {
 				}
 				if units != tc.wantBag || !reflect.DeepEqual(got, tc.wantChest) {
 					t.Fatalf("bag holds %d units, chest %v; want %d and %v", units, got, tc.wantBag, tc.wantChest)
+				}
+			})
+		}
+	}
+}
+
+// The placement rule in the stash, through real gestures in both hosts: a
+// drop onto a matching stack merges, an empty cell keeps a stack of its own,
+// a whole stack trades cells with another item (a displaced item takes the
+// source cell), and part of a stack (a right-click split, or one unit with
+// Shift) never displaces anything. Each row starts from bag [P6 S] and chest
+// {3: P2, 5: D}: P potions, S a sword, D a dagger.
+func TestStashDragsKeepFreeStacks(t *testing.T) {
+	potion := func(n int) items.Item {
+		it := items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: n}
+		items.EnsureInstanceID(&it)
+		return it
+	}
+	gear := func(name string) items.Item {
+		it := items.Item{Name: name, Type: items.ItemWeapon}
+		items.EnsureInstanceID(&it)
+		return it
+	}
+	label := func(it items.Item) string {
+		if it.Stackable() {
+			return fmt.Sprintf("P%d", it.Count())
+		}
+		return strings.Fields(it.Name)[1][:1] // Iron Sword: S
+	}
+	type cell struct {
+		chest bool
+		idx   int
+	}
+	unchangedBag, unchangedChest := []string{"P6", "S"}, map[int]string{3: "P2", 5: "D"}
+	for _, tc := range []struct {
+		name      string
+		drag      [2]cell // from, to; split rows right-click the source instead
+		split     bool
+		shift     bool // Shift held: the drag carries one unit
+		wantBag   []string
+		wantChest map[int]string
+	}{
+		{"bag stack to an empty chest cell stays apart", [2]cell{{false, 0}, {true, 10}}, false, false, []string{"S"}, map[int]string{3: "P2", 5: "D", 10: "P6"}},
+		{"bag stack onto its chest stack merges", [2]cell{{false, 0}, {true, 3}}, false, false, []string{"S"}, map[int]string{3: "P8", 5: "D"}},
+		{"chest stack to an empty bag cell stays apart", [2]cell{{true, 3}, {false, 2}}, false, false, []string{"P6", "S", "P2"}, map[int]string{5: "D"}},
+		{"chest stack onto its bag stack merges", [2]cell{{true, 3}, {false, 0}}, false, false, []string{"P8", "S"}, map[int]string{5: "D"}},
+		{"bag split to an empty bag cell", [2]cell{{false, 0}, {false, 2}}, true, false, []string{"P3", "S", "P3"}, unchangedChest},
+		{"bag split onto the chest stack", [2]cell{{false, 0}, {true, 3}}, true, false, []string{"P3", "S"}, map[int]string{3: "P5", 5: "D"}},
+		{"shift-drag to an empty bag cell", [2]cell{{false, 0}, {false, 2}}, false, true, []string{"P5", "S", "P1"}, unchangedChest},
+		{"shift-drag onto the chest stack", [2]cell{{false, 0}, {true, 3}}, false, true, []string{"P5", "S"}, map[int]string{3: "P3", 5: "D"}},
+		{"shift-drag to an empty chest cell", [2]cell{{true, 3}, {true, 10}}, false, true, unchangedBag, map[int]string{3: "P1", 5: "D", 10: "P1"}},
+		{"bag stack onto another chest item swaps", [2]cell{{false, 0}, {true, 5}}, false, false, []string{"D", "S"}, map[int]string{3: "P2", 5: "P6"}},
+		{"chest stack onto another bag item swaps", [2]cell{{true, 3}, {false, 1}}, false, false, []string{"P6", "P2"}, map[int]string{3: "S", 5: "D"}},
+		{"chest stack onto another chest item swaps", [2]cell{{true, 3}, {true, 5}}, false, false, unchangedBag, map[int]string{3: "D", 5: "P2"}},
+		{"bag stack onto another bag item swaps", [2]cell{{false, 0}, {false, 1}}, false, false, []string{"S", "P6"}, unchangedChest},
+		{"split onto another chest item moves nothing", [2]cell{{false, 0}, {true, 5}}, true, false, unchangedBag, unchangedChest},
+		{"shift-drag onto another bag item moves nothing", [2]cell{{false, 0}, {false, 1}}, false, true, unchangedBag, unchangedChest},
+		{"shift-drag from the chest onto a bag item moves nothing", [2]cell{{true, 3}, {false, 1}}, false, true, unchangedBag, unchangedChest},
+	} {
+		for _, tavern := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/tavern=%v", tc.name, tavern), func(t *testing.T) {
+				h := newDisplayedModalHarness(t, 1024, 768)
+				g := h.g
+				fp := installFakePointer(t)
+				g.party.Inventory = []items.Item{potion(6), gear("Iron Sword")}
+				g.stash = &stash.Stash{}
+				g.stash.Slots[3], g.stash.Slots[5] = potion(2), gear("Iron Dagger")
+				layout := openStashHost(g, tavern)
+				at := func(c cell) (int, int) {
+					r := stashGridCell(layout.bag, layout.bagCols, c.idx)
+					if c.chest {
+						r = stashGridCell(layout.chest, stashChestCols, c.idx)
+					}
+					return r.Min.X + r.Dx()/2, r.Min.Y + r.Dy()/2
+				}
+				x0, y0 := at(tc.drag[0])
+				x1, y1 := at(tc.drag[1])
+				if tc.split {
+					fp.moveTo(x0, y0)
+					fp.rightPress()
+					h.pointerStep()
+					fp.idle()
+					if !h.ui.stackSplitPicker.open {
+						t.Fatal("right-click opened no split picker")
+					}
+					h.ui.stackSplitConfirm() // the default half: 3 of 6
+					fp.moveTo(x1, y1)
+					fp.press()
+					h.pointerStep()
+					fp.release()
+					h.pointerStep()
+				} else {
+					fp.moveTo(x0, y0)
+					fp.shift = tc.shift
+					fp.press()
+					h.pointerStep()
+					fp.hold()
+					fp.moveTo((x0+x1)/2, (y0+y1)/2)
+					h.pointerStep()
+					fp.moveTo(x1, y1)
+					h.pointerStep()
+					fp.release()
+					h.pointerStep()
+				}
+				fp.idle()
+				h.pointerStep()
+				var bag []string
+				for _, it := range g.party.Inventory {
+					bag = append(bag, label(it))
+				}
+				chest := map[int]string{}
+				for i, it := range g.stash.Slots {
+					if !stash.IsEmpty(it) {
+						chest[i] = label(it)
+					}
+				}
+				if !reflect.DeepEqual(bag, tc.wantBag) || !reflect.DeepEqual(chest, tc.wantChest) {
+					t.Fatalf("bag %v chest %v; want %v and %v", bag, chest, tc.wantBag, tc.wantChest)
+				}
+				refused := slices.Contains(g.GetCombatMessages(), uitext.Text("stack.part_needs_room"))
+				if refused != strings.HasSuffix(tc.name, "moves nothing") {
+					t.Fatalf("refusal message shown=%v", refused)
 				}
 			})
 		}

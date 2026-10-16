@@ -17,7 +17,7 @@ func lifeCast(p vec2,t,fade,style float) vec4 {
 	if abs(p.x)>.68 || abs(p.y)>.51 {return vec4(0)}
 	ink:=vec3(.16,.9,.47)
 	light,body:=float(0),float(0)
-	if style==22 {
+	if style==castStyleVampiricWeapon {
 		// Blood climbs the blade against gravity. Drops spiral inward from
 		// the sides, strike the edge, then become branching scarlet veins.
 		if abs(p.x)>.25 {return vec4(0)}
@@ -34,11 +34,11 @@ func lifeCast(p vec2,t,fade,style float) vec4 {
 			drop:=1-smoothstep(.6,1.2,d)
 			trail:=exp(-abs(q.x-side*q.y*.6)*370)*exp(-abs(q.y)*65)
 			front:=step(.5,mod(k,2))
-			if Pass<0 {front=1-front}
+			if Pass==castPassBack {front=1-front}
 			rgb+=(vec3(.85,.015,.07)*drop+vec3(.59,.008,.045)*trail*.45)*front
 			a+=(drop*.9+trail*.4)*front
 		}
-		if Pass>0 {
+		if Pass==castPassFront {
 			warp:=veilNoise(vec2(p.x*4,p.y-t*.27)).r
 			d:=abs(p.x-axis+sin(p.y*38+warp*3)*.008)
 			vein:=exp(-d*450)*smoothstep(-.34,-.24,p.y)*(1-smoothstep(.20,.27,p.y))
@@ -47,7 +47,7 @@ func lifeCast(p vec2,t,fade,style float) vec4 {
 		}
 		a=clamp(a,0,.95)*fade
 		return vec4(min(rgb*fade,vec3(a)),a)
-	} else if style==15 {
+	} else if style==castStyleRegeneration {
 		opening:=smoothstep(.02,.70,t)
 		stem:=float(10)
 		for i:=0;i<28;i++ {
@@ -114,7 +114,7 @@ func lifeCast(p vec2,t,fade,style float) vec4 {
 
 func cleansingCast(p vec2,t,fade,style float) vec4 {
 	if abs(p.x)>.70 || abs(p.y)>.5 {return vec4(0)}
-	if style==18 {
+	if style==castStyleDispelMagic {
 		// One warped enchanted curtain is stripped away by a clearing front.
 		// Material tears into scraps and ash; it is not a bundle of fine lines.
 		if abs(p.y)>.36 {return vec4(0)}

@@ -7,20 +7,9 @@ var Viewport vec2
 var Origin vec2
 var Pass float
 
-// Shared cached noise with wrapped bilinear taps at texel centers.
-// R is broad structure; G already contains three scales of detail.
-func veilNoise(p vec2) vec2 {
-	size := imageSrc0Size()
-	q := fract(p)*size - .5
-	i, f := floor(q), fract(q)
-	o := imageSrc0Origin() + vec2(.5)
-	a := imageSrc0UnsafeAt(o + mod(i, size)).rg
-	b := imageSrc0UnsafeAt(o + mod(i+vec2(1, 0), size)).rg
-	c := imageSrc0UnsafeAt(o + mod(i+vec2(0, 1), size)).rg
-	d := imageSrc0UnsafeAt(o + mod(i+vec2(1, 1), size)).rg
-	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y)
-}
-
+//include veil_noise.kageinc
+//include cast_styles.kageinc
+//include preservation_flame.kageinc
 //include advanced_life.kageinc
 //include advanced_kinetic.kageinc
 //include advanced_wards.kageinc
@@ -33,8 +22,8 @@ func Fragment(dst vec4, src vec2, color vec4) vec4 {
 	if fade <= 0 {
 		return vec4(0)
 	}
-	if Style >= 2 { return advancedCast(p, t, fade, Style) }
-	if Style < .5 {
+	if Style != castStyleDarkness && Style != castStyleTownPortal { return advancedCast(p, t, fade, Style) }
+	if Style == castStyleDarkness {
 		// Advected folds gather from the edges; independent finer currents tear
 		// the folds into smoke. The central sightline stays partly transparent.
 		flow := p*vec2(.43, .26) + vec2(t*.065, -t*.16)

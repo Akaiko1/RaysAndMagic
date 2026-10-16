@@ -515,9 +515,9 @@ type smartAction struct {
 func (a smartAction) Swing() bool { return a.Acted && a.Spell == "" && a.Trap == "" }
 
 // smartActionAvailable reports whether Space has any branch for this member,
-// without acting, in the dispatch order: a ready slotted throw, else
-// SmartAttack's heal, spell and trap. Target, range and trap room are left to
-// the action.
+// without acting. Dispatch order: a heal for a wounded ally, a ready slotted
+// throw, then SmartAttack's spell, trap and weapon. Target, range and trap
+// room are left to the action.
 func (cs *CombatSystem) smartActionAvailable(caster *character.MMCharacter) bool {
 	if caster == nil || !caster.CanUseCombatAction() {
 		return false
@@ -878,6 +878,7 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 	angle = launch.angle
 	dirX, dirY := math.Cos(angle), math.Sin(angle)
 	spacing := volleySpacingFrac * float64(tileSize)
+	heldCharged := false
 	for i := 0; i < volley; i++ {
 		back := spacing * float64(i) // trail later darts behind the first
 		isCrit, critChance := false, 0
@@ -917,9 +918,15 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 				cs.snapshotWeaponSignature(&arrow, attacker, slot, equippedDef)
 			}
 		}
+		if i == 0 {
+			heldCharged = arrow.Signature.Flare
+		}
 		cs.game.arrows = append(cs.game.arrows, arrow)
 		arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 		cs.game.collisionSystem.RegisterEntity(arrowEntity)
+	}
+	if !bonusBolt {
+		cs.presentRangedShot(attacker, equippedDef, weapon.Name, slot, launch, heldCharged)
 	}
 	cs.game.playRangedWeaponAttackSound(rangedProjectileSoundDefinition(bonusBolt, equippedDef, weaponDef))
 	return true
@@ -947,6 +954,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 		return
 	}
 	cs.game.playSound(soundMeleeSwing)
+	cs.game.endRangedHeld(cs.activeAttacker())
 
 	meleeConfig := weaponDef.Melee
 	graphicsConfig := weaponDef.Graphics

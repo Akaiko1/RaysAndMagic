@@ -9,7 +9,6 @@ import (
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
-	"ugataima/internal/shaders"
 	"ugataima/internal/stash"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -448,7 +447,8 @@ type collectionBagEntry struct {
 	key string
 }
 
-// Collection shader surfaces (collection_slot.kage Mode).
+// Collection shader surfaces: collection_slot.kage branches on Mode by these
+// names, and TestShaderConstantsMatchGo keeps its const block equal.
 const (
 	collectionModeNiche = iota
 	collectionModePocket
@@ -524,11 +524,9 @@ func (ui *UISystem) drawCollectionPlace(dst *ebiten.Image, r layoutRect, art ite
 func (ui *UISystem) drawCollectionSurface(dst *ebiten.Image, r layoutRect, s collectionSurface) {
 	d := &ui.collectionDraw
 	if ui.collectionShader == nil {
-		shader, err := ebiten.NewShader([]byte(shaders.Source("collection_slot.kage")))
-		if err != nil {
-			panic(err)
+		if compileShader(&ui.collectionShader, "collection_slot.kage") != nil {
+			return // a broken shader skips the surface, like every other material
 		}
-		ui.collectionShader = shader
 		d.uniforms = map[string]any{}
 	}
 	if s.icon == nil {

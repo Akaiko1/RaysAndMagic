@@ -751,7 +751,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		}
 		if effects := ui.partyCardEffects(i, panelW, panelH, fx.any()); effects != nil {
 			if fx.castOverlay && ui.game.gameLoop != nil && ui.game.gameLoop.renderer != nil {
-				ui.game.gameLoop.renderer.drawCastOverlayRegion(effects, overlay, 0, 0, 0, float64(portraitColWidth), float64(panelH))
+				ui.game.gameLoop.renderer.drawCastOverlayRegion(effects, overlay, castPassSingle, 0, 0, float64(portraitColWidth), float64(panelH))
 			}
 			if fx.poison {
 				ui.drawCardPoisonBubbles(effects, 0, 0, panelW, panelH)

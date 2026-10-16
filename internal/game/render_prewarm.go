@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
+	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 
@@ -2610,9 +2612,56 @@ func (r *Renderer) drawMapRenderShaderWarm(screen *ebiten.Image) {
 		}
 		r.drawAuraCurtainShaderWarm(screen)
 		r.drawWeaponMaterialWarm(screen)
+		r.game.warmPartyWeaponModels()
 		r.drawWorldMaterialWarm(screen)
 		r.drawMapRenderStandeeShaderWarm(screen, task)
 		return
+	}
+}
+
+// warmPartyWeaponModels compiles every weapon body the active party holds or
+// has quick-slotted, so its first attack builds no geometry. It runs when a
+// party is installed (a load or a new game) and at map prewarm.
+func (g *MMGame) warmPartyWeaponModels() {
+	if g == nil || g.party == nil {
+		return
+	}
+	for _, hero := range g.party.Members {
+		g.warmHeroWeaponModels(hero)
+	}
+}
+
+// warmHeroWeaponModels compiles the melee body and held ranged model of every
+// weapon in a hero's hands or quick slots. It runs with the party prewarm,
+// after an equipment change and when a quick slot is filled; a run without a
+// renderer skips it.
+func (g *MMGame) warmHeroWeaponModels(hero *character.MMCharacter) {
+	if hero == nil || g.gameLoop == nil || g.gameLoop.renderer == nil {
+		return
+	}
+	warm := func(weapon items.Item) {
+		def, key, found := config.GetWeaponDefinitionByName(weapon.Name) // a shield is no weapon
+		if !found {
+			return
+		}
+		if body, ok := weaponBodyModels[key]; ok {
+			meleeWeaponMeshes.get(body, buildMeleeWeaponMesh)
+		}
+		if def.Graphics != nil {
+			if a, ok := rangedHeldAssets[def.Graphics.HeldModel]; ok {
+				rangedHeldRest(def.Graphics.HeldModel, a)
+			}
+		}
+	}
+	for _, slot := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
+		if weapon, ok := hero.Equipment[slot]; ok {
+			warm(weapon)
+		}
+	}
+	for _, it := range hero.QuickSlots {
+		if it != nil && it.Type == items.ItemWeapon {
+			warm(*it)
+		}
 	}
 }
 

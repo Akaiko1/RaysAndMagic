@@ -12,31 +12,33 @@ func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind, style string, x
 	if !ok {
 		switch kind {
 		case "stab":
-			model = 9
+			model = bodyParryDagger
 		case "lunge":
-			model = 20
+			model = bodyIronSpear
 		case "smash":
-			model = 41
+			model = bodySteelMace
 		case "chop":
-			model = 60
+			model = bodySteelAxe
+		default:
+			model = bodyIronSword
 		}
 		switch style {
 		case "katana":
-			model = 4
+			model = bodyKatana
 		case "muramasa":
-			model = 6
+			model = bodyMuramasa
 		case "war_fan":
-			model = 54
+			model = bodyGaleWarFan
 		case "clock_minute":
-			model = 74
+			model = bodyMinuteHand
 		case "clock_chime":
-			model = 71
+			model = bodyChimeMaul
 		case "clock_escapement":
-			model = 72
+			model = bodyEscapementMace
 		case "clock_cogfang":
-			model = 70
+			model = bodyCogfangBlade
 		case "clock_mainspring":
-			model = 73
+			model = bodyMainspringPike
 		}
 	}
 	if kind == "smash" {

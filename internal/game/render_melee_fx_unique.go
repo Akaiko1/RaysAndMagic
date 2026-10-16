@@ -47,7 +47,7 @@ var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, fl
 	"arena_trident":         (*Renderer).drawMeleeFxArenaTrident,
 	"arena_parry":           (*Renderer).drawMeleeFxArenaParry,
 	"arena_lion":            (*Renderer).drawMeleeFxArenaLion,
-	"arena_cesti":           (*Renderer).drawMeleeFxArenaCesti,
+	gauntletStrikeStyle:     (*Renderer).drawMeleeFxArenaCesti,
 	"clock_cogfang":         (*Renderer).drawMeleeFxClockCogfang,
 	"clock_chime":           (*Renderer).drawMeleeFxClockChime,
 	"clock_minute":          (*Renderer).drawMeleeFxClockMinute,
@@ -64,12 +64,31 @@ var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, fl
 }
 
 // validateWeaponFxStyles fails fast when a weapon effect names a style with no
-// renderer - a YAML typo would otherwise silently fall back to the stock FX.
+// renderer - a YAML typo would otherwise silently fall back to the stock FX -
+// and when a weapon has no body to draw: a melee weapon without its procedural
+// model, a ranged weapon of a held category without a held model.
 func validateWeaponFxStyles() {
 	if config.GlobalWeapons == nil {
 		return
 	}
 	for key, def := range config.GlobalWeapons.Weapons {
+		model := ""
+		if def.Graphics != nil {
+			model = def.Graphics.HeldModel
+		}
+		if model != "" {
+			asset, ok := rangedHeldAssets[model]
+			if !ok || !def.IsRanged() || asset.kind.category() != def.Category {
+				panic(fmt.Sprintf("weapon %q: invalid held_model %q for category %q", key, model, def.Category))
+			}
+		} else if def.IsRanged() && rangedHeldCategories[def.Category] {
+			panic(fmt.Sprintf("weapon %q: a ranged %s needs a held_model", key, def.Category))
+		}
+		if body, ok := weaponBodyModels[key]; def.Melee != nil && !ok {
+			panic(fmt.Sprintf("weapon %q: a melee weapon needs a procedural body in meleeBodies", key))
+		} else if ok && (body.family() == familyGauntlet) != drawsGauntletStrike(def) {
+			panic(fmt.Sprintf("weapon %q: gauntlet bodies are drawn only by a punch (martial_arts) or the %s style", key, gauntletStrikeStyle))
+		}
 		if def.Graphics == nil {
 			continue
 		}

@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -11,6 +12,22 @@ import (
 	"ugataima/internal/playerprofile"
 	"ugataima/internal/quests"
 )
+
+// catalogLegendaryFinds returns n catalog items the legendary statistic
+// counts (the Legendary Showcase's list), in key order.
+func catalogLegendaryFinds(t *testing.T, n int) []items.Item {
+	t.Helper()
+	var out []items.Item
+	for _, key := range sortedMapKeys(config.GlobalItems.Items) {
+		if it, err := items.TryCreateItemFromYAML(key); err == nil && legendaryStampKey(it) != "" {
+			if out = append(out, it); len(out) == n {
+				return out
+			}
+		}
+	}
+	t.Fatalf("the catalog has fewer than %d legendary finds", n)
+	return nil
+}
 
 func TestProfileCollectingChestSources(t *testing.T) {
 	crateTestGame(t) // loads the crate catalog for the source list
@@ -32,7 +49,9 @@ func TestProfileCollectingChestSources(t *testing.T) {
 				g := crateTestGame(t)
 				profilePath := attachStatisticsProfile(t, g)
 				g.turnBasedMode = tb
-				loot := []items.Item{{Name: "Test Relic", Type: items.ItemTrinket, Rarity: "legendary", Quantity: 3}, {Name: "Test Card", Type: items.ItemCard, Rarity: "legendary", Quantity: 2}}
+				relic := catalogLegendaryFinds(t, 1)[0]
+				relic.Quantity = 3
+				loot := []items.Item{relic, {Name: "Test Card", Type: items.ItemCard, Rarity: "legendary", Quantity: 2}}
 				want := int64(5)
 				switch source {
 				case "encounter", "sealed", "gold only":
@@ -183,33 +202,53 @@ func TestProfileSectionsStayWithinThree(t *testing.T) {
 	}
 }
 
-// Legendary loot follows the current catalog: an item demoted since it was
-// found leaves the statistic with its units when the profile opens, a
-// still-legendary find stays, and the repair persists.
+// The collecting statistics follow the current catalog: when the profile
+// opens they are rebuilt from the complete loot ranking, so an item demoted
+// since it was found and a quest item an older rule counted (a dragon
+// statuette) leave Legendary loot with their units, an item that is a
+// legendary find now joins it, total loot stays, the repair persists, and a
+// newly found statuette never counts.
 func TestProfileLegendaryLootFollowsCatalogRarity(t *testing.T) {
 	g := crateTestGame(t)
 	demoted, err := items.TryCreateItemFromYAML("diamond")
 	if err != nil || demoted.Rarity == "legendary" {
 		t.Fatalf("fixture: diamond must exist below legendary (%v, %q)", err, demoted.Rarity)
 	}
-	var still items.Item
-	for _, key := range sortedMapKeys(config.GlobalItems.Items) {
-		if it, err := items.TryCreateItemFromYAML(key); err == nil && it.Type != items.ItemCard && it.Rarity == "legendary" {
-			still = it
-			break
-		}
+	statuette, err := items.TryCreateItemFromYAML("black_dragon_statuette")
+	if err != nil || statuette.Type != items.ItemQuest || statuette.Rarity != "legendary" {
+		t.Fatalf("fixture: the black dragon statuette must be a legendary quest item (%v)", err)
 	}
-	if still.Name == "" {
-		t.Fatal("fixture: no legendary item in the catalog")
-	}
+	finds := catalogLegendaryFinds(t, 2)
+	still, promoted := finds[0], finds[1]
+	card := items.Item{Name: "Test Card", Type: items.ItemCard}
 	path := filepath.Join(t.TempDir(), "profile.json")
 	legacy, err := playerprofile.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	g.playerProfile = legacy
-	demoted.Rarity, demoted.Quantity, still.Quantity = "legendary", 2, 1 // as found before the rebalance
-	g.recordProfileLoot([]items.Item{demoted, still})
+	still.Quantity = 1
+	g.recordProfileLoot([]items.Item{still})
+	// As older rules recorded them, each with its loot ranking entry: the
+	// diamond before its rebalance and the statuette as legendary loot, the
+	// promoted find as ordinary loot.
+	for _, old := range []struct {
+		it        items.Item
+		n         int64
+		legendary bool
+	}{{demoted, 2, true}, {statuette, 1, true}, {promoted, 3, false}, {card, 2, false}} {
+		key, icon := profileItemKey(old.it), itemTooltipIconName(old.it)
+		legacy.Data.Add("loot", old.n)
+		legacy.Data.Rank("loot", key, old.it.Name, icon, old.n)
+		if old.legendary {
+			legacy.Data.Add("legendary_loot", old.n)
+			legacy.Data.Rank("legendary_loot", key, old.it.Name, icon, old.n)
+		}
+		if old.it.Type == items.ItemCard {
+			legacy.Data.Add("cards_found", old.n)
+			legacy.Data.Rank("cards_found", key, old.it.Name, icon, old.n)
+		}
+	}
 	if err := legacy.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -217,11 +256,26 @@ func TestProfileLegendaryLootFollowsCatalogRarity(t *testing.T) {
 	g.openPlayerProfile(path)
 	t.Cleanup(func() { g.playerProfile.Close() })
 	d := &g.playerProfile.Data
-	if d.Counters["legendary_loot"] != 1 || len(d.Rankings["legendary_loot"]) != 1 || d.Rankings["legendary_loot"][profileItemKey(still)].Count != 1 {
-		t.Fatalf("legendary loot after the rebalance: %d units, ranking %v", d.Counters["legendary_loot"], d.Rankings["legendary_loot"])
+	ranked := d.Rankings["legendary_loot"]
+	if d.Counters["legendary_loot"] != 4 || len(ranked) != 2 || ranked[profileItemKey(still)].Count != 1 || ranked[profileItemKey(promoted)].Count != 3 {
+		t.Fatalf("legendary loot after the catalog change: %d units, ranking %v", d.Counters["legendary_loot"], ranked)
 	}
-	if d.Counters["loot"] != 3 {
+	if d.Counters["loot"] != 9 {
 		t.Fatalf("the repair must leave total loot alone, got %d", d.Counters["loot"])
 	}
+	if d.Counters["cards_found"] != 2 || d.Rankings["cards_found"][profileItemKey(card)].Count != 2 {
+		t.Fatalf("the rebuild lost the cards found: %d units, ranking %v", d.Counters["cards_found"], d.Rankings["cards_found"])
+	}
+	repaired := playerprofile.Data{Counters: maps.Clone(d.Counters), Rankings: maps.Clone(d.Rankings)}
 	assertProfileMetricsPersist(t, g.playerProfile, path)
+	g.playerProfile = nil
+	g.openPlayerProfile(path) // a second open finds nothing to repair
+	d = &g.playerProfile.Data
+	if !reflect.DeepEqual(d.Counters, repaired.Counters) || !reflect.DeepEqual(d.Rankings, repaired.Rankings) {
+		t.Fatal("a second profile open changed the repaired statistics")
+	}
+	g.recordProfileLoot([]items.Item{statuette})
+	if d.Counters["legendary_loot"] != 4 || d.Counters["loot"] != 10 {
+		t.Fatalf("a found statuette: legendary loot %d, loot %d; want 4 and 10", d.Counters["legendary_loot"], d.Counters["loot"])
+	}
 }

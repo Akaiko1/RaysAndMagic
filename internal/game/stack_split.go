@@ -32,12 +32,6 @@ func stackSplitIsMerchantTrade(source stackSplitPickerSource) bool {
 	return source == stackSplitPickerMerchantSell || source == stackSplitPickerMerchantBuy
 }
 
-// shiftModifierHeld is the shared Shift state for UI modifiers: stack splitting
-// in inventory surfaces and party-focus toggling in the unobstructed game HUD.
-func shiftModifierHeld() bool {
-	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
-}
-
 // stackSplitPickerState holds only UI-transient selection state. The actual
 // item mutation remains in Party.TakeStackUnits / Item.SplitOff at drop time.
 type stackSplitPickerState struct {
@@ -239,8 +233,9 @@ func (ui *UISystem) stackSplitConfirm() {
 
 // beginMerchantSellPicker opens the drag-to-sell dialog for bag entry idx.
 // EVERY sale confirms here - a single sword is one misdrop from gone
-// otherwise. Stacks default to the FULL stack, singles read as Sell/Cancel.
-func (ui *UISystem) beginMerchantSellPicker(idx int) {
+// otherwise. A stack defaults to what the drag carried (the full stack, or one
+// unit with Shift); singles read as Sell/Cancel.
+func (ui *UISystem) beginMerchantSellPicker(idx, carried int) {
 	g := ui.game
 	if idx < 0 || idx >= len(g.party.Inventory) {
 		return
@@ -251,7 +246,7 @@ func (ui *UISystem) beginMerchantSellPicker(idx int) {
 		return
 	}
 	ui.openStackSplitPicker(stackSplitPickerMerchantSell, idx, item)
-	ui.stackSplitPicker.quantity = item.Count() // sale default: the whole stack
+	ui.stackSplitPicker.quantity = carriedUnits(item, carried)
 }
 
 // beginMerchantBuyPicker opens the drag-to-buy dialog for visible stock entry

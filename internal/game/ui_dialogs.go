@@ -1419,7 +1419,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			src, ok := decodeStashFrom(ui.game.stashDragFrom)
 			switch {
 			case ok && src.kind == stashKindBag && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, stockGrid):
-				ui.beginMerchantSellPicker(src.idx)
+				ui.beginMerchantSellPicker(src.idx, ui.game.stashDragSplitQuantity)
 			case ok && src.kind == stashKindShop && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, bagGrid):
 				ui.beginMerchantBuyPicker(src.idx)
 			}

@@ -281,11 +281,11 @@ func (g *MMGame) resolveStashDrop(dst stashAddr) {
 }
 
 // quickMoveStashItem is the double-click transfer: a chest item goes to the
-// bag; a bag item goes whole onto its matching chest stack, else into the
-// first free cell.
+// bag, stacking automatically; a bag item goes whole onto its matching chest
+// stack, else into the first free cell.
 func (g *MMGame) quickMoveStashItem(src stashAddr) {
 	if src.kind == stashKindChest {
-		g.moveStashItem(src, stashAddr{stashKindBag, 0}, 0)
+		g.moveStashItem(src, stashAddr{stashKindBag, stashBagAutomatic}, 0)
 		return
 	}
 	if src.kind != stashKindBag || src.idx < 0 || src.idx >= len(g.party.Inventory) {
@@ -295,7 +295,7 @@ func (g *MMGame) quickMoveStashItem(src stashAddr) {
 	free := -1
 	for i, cell := range g.stash.Slots {
 		if items.SameStack(cell, it) {
-			g.moveStashItem(src, stashAddr{stashKindChest, i}, it.Count())
+			g.moveStashItem(src, stashAddr{stashKindChest, i}, 0)
 			return
 		}
 		if free < 0 && stash.IsEmpty(cell) {
@@ -309,15 +309,35 @@ func (g *MMGame) quickMoveStashItem(src stashAddr) {
 	g.moveStashItem(src, stashAddr{stashKindChest, free}, 0)
 }
 
-// moveStashItem moves src to dst as one journalled transfer: quantity units of
-// a stack, or the whole item when quantity is 0. Cell<->cell is a swap;
-// bag<->cell moves with any displaced occupant returning to the bag.
+// A bag destination that stacks automatically (Bag.Place with a negative cell).
+const stashBagAutomatic = -1
+
+// moveStashItem moves quantity units of src to dst, or the whole item when
+// quantity is 0, under the inventory's placement rule (items.DropOnto): onto a
+// matching stack it merges, an empty cell keeps its own stack, a whole item
+// trades cells with any other item, and part of a stack onto another item
+// moves nothing. The automatic bag destination stacks like loot. A chest
+// change is one journalled transfer; a bag-only move is ordinary inventory
+// work.
 func (g *MMGame) moveStashItem(src, dst stashAddr, quantity int) {
-	if src == dst {
+	moving := g.stashItem(src)
+	if src == dst || stash.IsEmpty(moving) {
 		return
 	}
-	if quantity > 0 {
-		g.resolvePartialStashDrop(src, dst, quantity)
+	n := carriedUnits(moving, quantity)
+	if dst.kind != stashKindBag && g.stashCellPtr(dst) == nil { // a shop shelf or no cell
+		return
+	}
+	if automatic := dst == (stashAddr{stashKindBag, stashBagAutomatic}); !automatic && g.refusedDrop(moving, g.stashItem(dst), n == moving.Count()) {
+		return
+	}
+	bag := g.party.Bag()
+	if src.kind == stashKindBag && dst.kind == stashKindBag {
+		bag.MoveWithin(src.idx, dst.idx, n)
+		return
+	}
+	if n < moving.Count() {
+		g.resolvePartialStashDrop(src, dst, n)
 		return
 	}
 	if !g.finishPendingStashTransfer() {
@@ -325,69 +345,68 @@ func (g *MMGame) moveStashItem(src, dst stashAddr, quantity int) {
 	}
 	rollback := g.stashSnapshot()
 	switch {
-	case src.kind != stashKindBag && dst.kind != stashKindBag: // cell <-> cell (swap)
+	case src.kind != stashKindBag && dst.kind != stashKindBag: // cell <-> cell
 		sp, dp := g.stashCellPtr(src), g.stashCellPtr(dst)
-		if sp == nil || dp == nil {
-			return
+		if items.DropOnto(*sp, *dp, true) == items.DropMerge {
+			dp.MergeStack(*sp)
+			*sp = items.Item{}
+		} else {
+			*sp, *dp = *dp, *sp
 		}
-		*sp, *dp = *dp, *sp
 	case src.kind == stashKindBag: // bag -> cell
-		idx := src.idx
-		if idx < 0 || idx >= len(g.party.Inventory) {
-			return
-		}
-		item := g.party.Inventory[idx]
 		dp := g.stashCellPtr(dst)
-		if dp == nil {
-			return
+		bag.Remove(src.idx)
+		if items.DropOnto(moving, *dp, true) == items.DropMerge {
+			dp.MergeStack(moving)
+			break
 		}
 		occ := *dp
-		g.party.RemoveItem(idx)
-		*dp = item
+		*dp = moving
 		if !stash.IsEmpty(occ) {
-			g.party.AddItem(occ) // displaced item returns to the bag
+			g.releaseFromChest(&occ)
+			bag.Insert(src.idx, occ) // the displaced item takes the bag cell
 		}
-	case dst.kind == stashKindBag: // cell -> bag
+	default: // cell -> bag
 		sp := g.stashCellPtr(src)
-		if sp == nil || stash.IsEmpty(*sp) {
-			return
-		}
-		g.party.AddItem(*sp)
 		*sp = items.Item{}
-	default:
-		return // bag -> bag: no-op
+		g.releaseFromChest(&moving)
+		*sp = bag.Place(moving, dst.idx) // a displaced bag item takes the chest cell
 	}
 	g.commitStashTransfer(rollback)
 }
 
-// resolvePartialStashDrop transfers a fragment without ever creating two
-// arbitrary copies in the bag. Stack provenance lives on items.Item, so a
-// partial deposit may safely merge into an occupied matching chest cell.
-func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
-	if quantity < 1 || src == dst || (src.kind == stashKindBag && dst.kind == stashKindBag) {
-		return
+// stashItem is what a stash address holds; an empty chest cell, the bag's
+// free tail and an address out of range read as an empty cell.
+func (g *MMGame) stashItem(a stashAddr) items.Item {
+	if a.kind == stashKindBag {
+		return g.party.Bag().Cell(a.idx)
 	}
-	var moving items.Item
-	if src.kind == stashKindBag && src.idx >= 0 && src.idx < len(g.party.Inventory) {
-		moving = g.party.Inventory[src.idx]
-	} else if cell := g.stashCellPtr(src); cell != nil {
-		moving = *cell
+	if cell := g.stashCellPtr(a); cell != nil {
+		return *cell
 	}
-	if stash.IsEmpty(moving) {
-		return
-	}
-	var dstCell *items.Item
-	if dst.kind != stashKindBag {
-		dstCell = g.stashCellPtr(dst)
-		if dstCell == nil {
-			return
-		}
-		if !stash.IsEmpty(*dstCell) && !items.SameStack(*dstCell, moving) {
-			g.AddCombatMessage("Partial stack transfer needs a matching stash stack.")
-			return
-		}
-	}
+	return items.Item{}
+}
 
+// releaseFromChest readies units leaving the chest for the party: components
+// the chest still holds elsewhere (a layout split inside the chest shares its
+// IDs) get fresh IDs, so a later load never strips them as stash-owned. Call
+// it once the units are out of their cell.
+func (g *MMGame) releaseFromChest(it *items.Item) {
+	claimed := map[uint64]bool{}
+	g.stash.Each(func(other *items.Item) {
+		for _, part := range other.StackLineageParts() {
+			claimed[part.ID] = true
+		}
+	})
+	it.RekeyClaimedLineages(func(id uint64) bool { return claimed[id] })
+}
+
+// resolvePartialStashDrop transfers part of a stack across the chest boundary
+// or within the chest, once moveStashItem has applied the placement rule: the
+// fragment merges onto a matching stack or fills an empty cell. Stack
+// provenance lives on items.Item, so any matching chest stack accepts it.
+func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
+	dstCell := g.stashCellPtr(dst)
 	if !g.finishPendingStashTransfer() {
 		return
 	}
@@ -411,11 +430,13 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 		return
 	}
 
-	if dst.kind == stashKindBag {
-		g.party.AddItem(fragment)
-	} else if stash.IsEmpty(*dstCell) {
+	switch {
+	case dst.kind == stashKindBag:
+		g.releaseFromChest(&fragment)
+		g.party.Bag().Place(fragment, dst.idx)
+	case stash.IsEmpty(*dstCell):
 		*dstCell = fragment
-	} else {
+	default:
 		dstCell.MergeStack(fragment)
 	}
 	g.commitStashTransfer(rollback)

@@ -8,17 +8,14 @@ import (
 )
 
 func (r *Renderer) ensureAuraCurtainShader() (*ebiten.Shader, error) {
-	if r.auraCurtainShader != nil {
-		return r.auraCurtainShader, nil
+	if r.auraCurtainShader == nil {
+		if err := compileShader(&r.auraCurtainShader, "aura_curtain.kage"); err != nil {
+			return nil, err
+		}
+		r.auraCurtainOpts.Blend = additiveGlowBlend
+		r.auraCurtainOpts.Uniforms = map[string]any{"Phase": r.auraCurtainPhase[:]}
 	}
-	shader, err := ebiten.NewShader([]byte(auraCurtainShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	r.auraCurtainShader = shader
-	r.auraCurtainOpts.Blend = additiveGlowBlend
-	r.auraCurtainOpts.Uniforms = map[string]any{"Phase": r.auraCurtainPhase[:]}
-	return shader, nil
+	return r.auraCurtainShader, nil
 }
 
 // auraCurtainEdge stores perspective-correct coordinates across one projected

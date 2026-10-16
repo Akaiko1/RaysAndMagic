@@ -59,6 +59,23 @@ func TestTerrainProfilesCoverShippedGroups(t *testing.T) {
 	}
 }
 
+// floor.kage reads a cell's profile as B modulo floorProfileModulus and its
+// flags above it: every profile fits under the modulus and every flag is a
+// multiple of it, or a profile would read as a flag.
+func TestFloorProfilesFitUnderTheFlags(t *testing.T) {
+	values, blocks := goIntConsts(t)
+	for _, profile := range blocks["floorBlendHard"] {
+		if values[profile] < 0 || values[profile] >= int(floorProfileModulus) {
+			t.Errorf("profile %s = %d does not fit under %d", profile, values[profile], floorProfileModulus)
+		}
+	}
+	for _, flag := range []byte{floorFrozenWater, floorBlendBoundary, floorBlendShore} {
+		if flag%floorProfileModulus != 0 {
+			t.Errorf("flag %d is not a multiple of %d", flag, floorProfileModulus)
+		}
+	}
+}
+
 // checkTerrainInput resolves one tile on a ground patch two tiles from water
 // and asserts its encoded profile and beach overlay; actors never alter it.
 func checkTerrainInput(t *testing.T, biome, tileKey, groundKey string, profile byte, wantShore bool) {
@@ -74,7 +91,7 @@ func checkTerrainInput(t *testing.T, biome, tileKey, groundKey string, profile b
 	r.game.world.Tiles[10][12] = terrainTile(t, "water")
 	_, indices, shore := r.prepareFloorMaps(r.game.world.Width, r.game.world.Height)
 	encoded := indices.RGBAAt(10, 10)
-	if encoded.B%8 != profile || (encoded.G != 0) != wantShore || encoded.R == 0 {
+	if encoded.B%floorProfileModulus != profile || (encoded.G != 0) != wantShore || encoded.R == 0 {
 		t.Fatalf("material=%v, want profile=%d shore=%v", encoded, profile, wantShore)
 	}
 	if wantShore && int(encoded.R) == r.floorTexGroups["beach"].start+1 {
@@ -194,7 +211,7 @@ func TestTerrainMonsterMarkerResolvesBeforeTransitions(t *testing.T) {
 	r.game.world.Width = md.Width
 	r.game.world.Height = md.Height
 	_, indices, _ := r.prepareFloorMaps(md.Width, md.Height)
-	if len(md.MonsterSpawns) != 1 || indices.RGBAAt(2, 2).B%8 != floorBlendNatural || indices.RGBAAt(2, 2).R != indices.RGBAAt(1, 2).R {
+	if len(md.MonsterSpawns) != 1 || indices.RGBAAt(2, 2).B%floorProfileModulus != floorBlendNatural || indices.RGBAAt(2, 2).R != indices.RGBAAt(1, 2).R {
 		t.Fatal("monster marker became a different floor material")
 	}
 }
@@ -240,7 +257,7 @@ func TestTerrainOpenWorldRestoreAndQuestRebuild(t *testing.T) {
 			continue
 		}
 		x, y := wm.ProjectTile("forest", npc.X, npc.Y)
-		if got := before.RGBAAt(x, y); got.B%8 != floorBlendWater || got.G != 0 {
+		if got := before.RGBAAt(x, y); got.B%floorProfileModulus != floorBlendWater || got.G != 0 {
 			t.Fatalf("NPC ground override lost in transition map: %v", got)
 		}
 		overrides++

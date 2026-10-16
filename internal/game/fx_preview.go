@@ -337,6 +337,7 @@ func (p *FxPreview) clearTransient() {
 	g.world.SetWaterBreathingActive(false)
 	g.clearProjectiles()
 	g.slashEffects = g.slashEffects[:0]
+	g.rangedHeld = nil
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.impactLights = g.impactLights[:0]
 	g.persistentDamageZones = g.persistentDamageZones[:0]

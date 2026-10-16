@@ -28,6 +28,7 @@ func (gl *GameLoop) updateWorldPresentation() {
 	if gl.renderer != nil {
 		gl.renderer.updateNightMotes()
 	}
+	gl.game.updateRangedHeld()
 
 	// Screen shake decays exponentially toward rest.
 	if gl.game.screenShake > 0 {

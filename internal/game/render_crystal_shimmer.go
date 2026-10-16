@@ -36,12 +36,8 @@ func (r *Renderer) crystalShimmerOptions(npc *character.NPC, sprite *ebiten.Imag
 	if strength <= 0 {
 		return nil, nil
 	}
-	if r.crystalShimmerShader == nil {
-		shader, err := ebiten.NewShader([]byte(crystalShimmerShaderSource))
-		if err != nil {
-			return nil, nil
-		}
-		r.crystalShimmerShader = shader
+	if compileShader(&r.crystalShimmerShader, "crystal_shimmer.kage") != nil {
+		return nil, nil
 	}
 	c := npc.CrystalShimmer.Crystals[index]
 	opts := &ebiten.DrawTrianglesShaderOptions{Blend: additiveGlowBlend}

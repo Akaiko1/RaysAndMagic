@@ -3,35 +3,63 @@ package game
 import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"math"
-	"ugataima/internal/shaders"
+)
+
+// Cast overlay styles: cast_overlay.kage and its advanced_*.kageinc branch on
+// Style by these names (cast_styles.kageinc), and TestShaderConstantsMatchGo
+// keeps the values equal.
+const (
+	castStyleDarkness = iota
+	castStyleTownPortal
+	castStyleFireAura
+	castStyleHaste
+	castStyleShield
+	castStyleFate
+	castStyleSharedLife
+	castStylePreservation
+	castStyleRegeneration
+	castStylePurify
+	castStyleProtectionFromMagic
+	castStyleDispelMagic
+	castStyleCelestialArmor
+	castStyleVampiricWeapon
+	castStylePainReflection
+)
+
+// Cast overlay passes: around a weapon model the back half draws before it and
+// the front half after it; every other overlay is one unsplit pass.
+const (
+	castPassBack   float32 = -1
+	castPassSingle float32 = 0
+	castPassFront  float32 = 1
 )
 
 // Shared dispatch for validation and rendering. Presentation only: no spell
 // IDs or gameplay behavior.
 type castOverlayStyle struct {
-	material   float32 // branch in cast_overlay.kage
-	object     int     // camera-local mesh drawn with the pass, castNoObject for none
-	passInside bool    // the pass is painted inside the object's depth, between its back and front
-	weapon     bool    // back and front flame passes wrap the cast_overlay_weapon model
-	partyCards bool    // drawn on each living hero's card instead of the view
+	material   int  // Style branch in cast_overlay.kage, a castStyle* id
+	object     int  // camera-local mesh drawn with the pass, castNoObject for none
+	passInside bool // the pass is painted inside the object's depth, between its back and front
+	weapon     bool // back and front flame passes wrap the cast_overlay_weapon model
+	partyCards bool // drawn on each living hero's card instead of the view
 }
 
 var castOverlayStyles = map[string]castOverlayStyle{
-	"darkness":              {material: 0},
-	"town_portal":           {material: 1},
-	"fire_aura":             {material: 2, weapon: true},
-	"haste":                 {material: 3, object: castHourglass},
-	"shield":                {material: 4},
-	"fate":                  {material: 7},
-	"shared_life":           {material: 8},
-	"preservation":          {material: 9, object: castWing, passInside: true},
-	"regeneration":          {material: 15, partyCards: true},
-	"purify":                {material: 16},
-	"protection_from_magic": {material: 17},
-	"dispel_magic":          {material: 18},
-	"celestial_armor":       {material: 21, object: castCuirass},
-	"vampiric_weapon":       {material: 22, weapon: true},
-	"pain_reflection":       {material: 23},
+	"darkness":              {material: castStyleDarkness},
+	"town_portal":           {material: castStyleTownPortal},
+	"fire_aura":             {material: castStyleFireAura, weapon: true},
+	"haste":                 {material: castStyleHaste, object: castHourglass},
+	"shield":                {material: castStyleShield},
+	"fate":                  {material: castStyleFate},
+	"shared_life":           {material: castStyleSharedLife},
+	"preservation":          {material: castStylePreservation, object: castWing, passInside: true},
+	"regeneration":          {material: castStyleRegeneration, partyCards: true},
+	"purify":                {material: castStylePurify},
+	"protection_from_magic": {material: castStyleProtectionFromMagic},
+	"dispel_magic":          {material: castStyleDispelMagic},
+	"celestial_armor":       {material: castStyleCelestialArmor, object: castCuirass},
+	"vampiric_weapon":       {material: castStyleVampiricWeapon, weapon: true},
+	"pain_reflection":       {material: castStylePainReflection},
 }
 
 type castOverlayRenderer struct {
@@ -55,12 +83,12 @@ func (a buffFxAnim) objectPhase() (phase, alpha float64) {
 func (r *Renderer) drawCastOverlay(dst *ebiten.Image, a buffFxAnim) {
 	style := castOverlayStyles[a.overlay]
 	if style.weapon {
-		r.drawCastOverlayPass(dst, a, -1)
+		r.drawCastOverlayPass(dst, a, castPassBack)
 		r.drawEnchantedSword(dst, a)
-		r.drawCastOverlayPass(dst, a, 1)
+		r.drawCastOverlayPass(dst, a, castPassFront)
 		return
 	}
-	pass := func() { r.drawCastOverlayPass(dst, a, 0) }
+	pass := func() { r.drawCastOverlayPass(dst, a, castPassSingle) }
 	if style.object == castNoObject {
 		pass()
 		return
@@ -101,10 +129,8 @@ func (r *Renderer) drawCastOverlayPass(dst *ebiten.Image, a buffFxAnim, pass flo
 func (r *Renderer) drawCastOverlayRegion(dst *ebiten.Image, a buffFxAnim, pass float32, x, y, width, height float64) {
 	s := &r.castOverlay
 	if s.shader == nil {
-		var err error
-		s.shader, err = ebiten.NewShader([]byte(shaders.Source("cast_overlay.kage")))
-		if err != nil {
-			panic(err)
+		if compileShader(&s.shader, "cast_overlay.kage") != nil {
+			return // a broken shader skips the overlay, like every other material
 		}
 		s.opts.Uniforms = map[string]any{"Phase": s.phase[:], "Style": s.style[:], "Viewport": s.viewport[:], "Origin": s.origin[:], "Pass": s.pass[:]}
 	}
@@ -112,7 +138,7 @@ func (r *Renderer) drawCastOverlayRegion(dst *ebiten.Image, a buffFxAnim, pass f
 	s.phase[0] = float32(a.age) / float32(a.totalFrames())
 	s.pass[0] = pass
 	style := castOverlayStyles[a.overlay]
-	s.style[0] = style.material
+	s.style[0] = float32(style.material)
 	s.viewport = [2]float32{float32(w), float32(h)}
 	s.origin = [2]float32{float32(x), float32(y)}
 	s.opts.Images[0] = r.ensureFireNoise()

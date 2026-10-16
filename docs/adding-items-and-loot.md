@@ -161,8 +161,12 @@ and editor/map availability; placement is a separate authoring decision.
   duplicate copies do not multiply the percentage.
 - Devices need explicit `use_action`. `jump` uses validated jump fields;
   `summon` uses `summon_distance_tiles` and the shared random-summon path.
-  `use_cooldown_seconds` is the device's saved integer cooldown, displayed on
-  every inventory icon. Do not infer an action from `type: device` alone.
+  Both need a positive `use_cooldown_seconds`: the device's saved integer
+  recharge, displayed on every inventory icon. `throw_flask` carries a `flask:`
+  block with `reusable: true` and a `projectile_fx` (never `crafted_only`), so
+  the device is never consumed, and must not author `use_cooldown_seconds`: a
+  thrown flask is paced by the hero's action cooldown like any attack. Do not
+  infer an action from `type: device` alone.
 
 For spell-bearing items, see [spell authoring](../how_to_add_a_new_spell.md).
 `autocast_interval_rounds` and `control_saves` belong to their shared gameplay

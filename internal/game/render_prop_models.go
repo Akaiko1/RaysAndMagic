@@ -7,13 +7,6 @@ import (
 	"ugataima/internal/character"
 )
 
-const (
-	worldEmber = 6
-	worldWood  = 8
-	worldStone = 9
-	worldFlame = 10
-)
-
 type propPart struct {
 	faces           []worldModelTriangle
 	pivot           worldModelPoint
@@ -79,7 +72,7 @@ func buildPropModel(spec character.NPCPropModel) *propModel {
 			lid := &worldModelBuilder{}
 			lid.propBox(x, y, z+size-.035, size*.5, size*.43, .035, 0, spec.Body, worldWood)
 			for _, side := range []float64{-1, 1} {
-				lid.propBox(x+side*size*.40, y, z+size, size*.04, size*.43, .026, 0, spec.Trim, 0)
+				lid.propBox(x+side*size*.40, y, z+size, size*.04, size*.43, .026, 0, spec.Trim, worldIron)
 			}
 			if index == 2 {
 				faces := append(body.triangles, lid.triangles...)
@@ -134,7 +127,7 @@ func (b *worldModelBuilder) crateShell(x, y, z, size float64, wood, trim [3]int)
 			b.propBox(x, y+side*size*.443, zz, size*.52, size*.024, size*.10, 0, wood, worldWood)
 		}
 		for _, xx := range []float64{x - size*.42, x + size*.42} {
-			b.propBox(xx, y+side*size*.456, z, size*.054, size*.016, size, 0, trim, 0)
+			b.propBox(xx, y+side*size*.456, z, size*.054, size*.016, size, 0, trim, worldIron)
 		}
 		b.cylinder(worldModelPoint{x - size*.36, y + side*size*.457, z + .07}, worldModelPoint{x + size*.36, y + side*size*.457, z + size - .08}, size*.041, wood, worldWood, 4)
 	}

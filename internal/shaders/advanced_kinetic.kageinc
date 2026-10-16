@@ -6,7 +6,7 @@ func castSegment(p,a,b vec2) float {
 func kineticCast(p vec2,t,fade,style float) vec4 {
 	light,body:=float(0),float(0)
 	ink:=vec3(.85,.57,.19)
-	if style==3 {
+	if style==castStyleHaste {
 		// Haste bends time into broad swept ribbons with sharp leading glints.
 		for i:=0;i<6;i++ {
 			k:=float(i)
@@ -21,7 +21,7 @@ func kineticCast(p vec2,t,fade,style float) vec4 {
 			body+=exp(-d*85)*tail*.12
 			light+=exp(-length(vec2((q.x-curve)*.7,q.y-head))*230)
 		}
-	} else if style==7 {
+	} else if style==castStyleFate {
 		// Fate is an asymmetric constellation, with a cloudy golden wake.
 		// Adjacent stars awaken in sequence rather than drawing a geometric seal.
 		for i:=0;i<5;i++ {

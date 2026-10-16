@@ -723,7 +723,9 @@ func TestPersonalInventoryDragAcrossDifferentFilters(t *testing.T) {
 			}
 			sx, sy := personalBagCell(src, 1)
 			dx, dy := personalBagCell(dst, 0)
-			expected := g.party.Bag(source).Items()[17]
+			// The catch-all filter shows the destination's furs alone: the dragged
+			// blade trades cells with that stack (absolute entry 19).
+			expected, occupant := g.party.Bag(source).Items()[17], g.party.Bag(destination).Items()[19]
 			fp := installFakePointer(t)
 			fp.moveTo(sx, sy)
 			fp.press()
@@ -734,7 +736,7 @@ func TestPersonalInventoryDragAcrossDifferentFilters(t *testing.T) {
 			fp.release()
 			h.pointerStep()
 			srcItems, dstItems := g.party.Bag(source).Items(), g.party.Bag(destination).Items()
-			if len(srcItems) != 19 || len(dstItems) != 21 || dstItems[20].Name != expected.Name || dstItems[20].InstanceID != expected.InstanceID {
+			if len(srcItems) != 20 || len(dstItems) != 20 || !reflect.DeepEqual(dstItems[19], expected) || !reflect.DeepEqual(srcItems[17], occupant) {
 				t.Fatal("filtered drag moved the wrong absolute entry")
 			}
 			dstFilter, _ := h.ui.inventoryFilterState(destination)

@@ -3,31 +3,38 @@ package main
 
 var Time float
 
+//include spell_kinds.kageinc
+//include volume_vertex.kageinc
+
+// boltMaterialGauntlet (render_spell_bolt.go) shades opaque metal and leather;
+// TestShaderConstantsMatchGo keeps the value equal.
+const boltMaterialGauntlet = 50
+
 // Projected crystal faces carry camera-space normals. Lighting and scrolling
 // interior seams are procedural; there is no sprite or broadside billboard.
 func Fragment(dst vec4, p vec2, color vec4, c vec4) vec4 {
 	n := normalize(c.xyz)
-	kind := floor(c.w)
+	kind := volumeMaterial(c.w)
 	light := max(0.0, dot(n, normalize(vec3(-.4, -.7, -.6))))
 	fresnel := pow(1.0-abs(n.z), 3.0)
 	vein := pow(.5+.5*sin(p.x*13+p.y*5-Time*3), 10)
 	tint := color.rgb*(.28+.65*light) + vec3(.40, .65, .8)*fresnel*.3
-	if kind == 50.0 || kind == 52.0 || kind == 22.0 {
+	if kind == boltMaterialGauntlet {
 		// Opaque metal and leather: stable face lighting, no magical veins.
 		spec := pow(max(0.0, dot(n, normalize(vec3(-.3,-.45,-1)))), 18.0)
 		tint = color.rgb*(.38+.62*light) + vec3(.25,.23,.19)*spec
-	} else if kind == 21.0 {
+	} else if kind == spellFlyingFist {
 		// Emerald spiritual knuckles with pale gold-green edge light.
 		tint = color.rgb*(.40+.65*light) + vec3(.77,1.0,.45)*fresnel*.35
-	} else if kind == 2.0 {
+	} else if kind == spellHarm {
 		tint = color.rgb*(.30+.70*light) + vec3(.68, 1.0, .48)*fresnel*.22
 		tint += color.rgb * vein * .055
-	} else if kind == 10.0 {
+	} else if kind == spellIce {
 		tint = mix(tint, vec3(.85, .98, 1), light*light*.5)
 		tint += vec3(.23, .42, .48) * vein * .3
-	} else if kind == 14.0 {
+	} else if kind == spellVoidNeedle {
 		tint = mix(vec3(.035, .016, .075), color.rgb, light*.6) + vec3(.35, .20, .7)*vein*.65
-	} else if kind == 13.0 {
+	} else if kind == spellShadow {
 		tint = mix(vec3(.023, .005, .04), color.rgb, light*.4) + vec3(.39, .08, .63)*(vein*.55+fresnel*.35)
 	} else {
 		heat := .45 + .35*light + .20*sin(p.x*5+p.y*4-Time*13)

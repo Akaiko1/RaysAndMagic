@@ -120,12 +120,8 @@ func (ui *UISystem) drawCampRest(screen *ebiten.Image) {
 		s.revealRadius = s.revealPattern.coverageRadius(w, h)
 		s.hideRadius = s.hidePattern.coverageRadius(w, h)
 	}
-	if s.dissolve == nil {
-		var err error
-		s.dissolve, err = ebiten.NewShader([]byte(campDissolveShaderSrc))
-		if err != nil {
-			panic(err)
-		}
+	if compileShader(&s.dissolve, "camp_dissolve.kage") != nil {
+		return // a broken shader skips the scene art; the rest still completes
 	}
 	// Cover-fit through the shared scaler. The render target clips the overflow,
 	// preserving one uniform scale and leaving the party HUD untouched.

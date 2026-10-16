@@ -7,7 +7,6 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
-	"ugataima/internal/shaders"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -30,12 +29,20 @@ const spellWorldVisualSeconds = 2.8
 
 // worldSolarFlare is the Solar Flare's world flourish kind.
 const worldSolarFlare = "solar_flare"
-const worldGlacier = 13
-const worldFrost = 14
-const worldSunPyre = 15
 
-// The registry owns both validation and actor-relative placement. World meshes
-// have no actor material; their geometry joins the ordinary scene painter.
+// Actor-relative spell materials: actor_spell.kage branches on them by name and
+// TestShaderConstantsMatchGo keeps its const block equal. actorSpellNone marks
+// a world mesh, whose geometry joins the ordinary scene painter instead.
+const (
+	actorSpellNone = iota - 1
+	actorSpellMindWeb
+	actorSpellEarthDrag
+	actorSpellBloodFrenzy
+	actorSpellHolyDread
+	actorSpellDreadShroud
+)
+
+// The registry owns both validation and actor-relative placement.
 var spellWorldStyles = map[string]struct {
 	mechanic       string
 	material       int
@@ -44,14 +51,14 @@ var spellWorldStyles = map[string]struct {
 	outlivesTarget bool    // stays at the cast contact after a lethal hit
 	seconds        float64 // lifetime; 0 is spellWorldVisualSeconds
 }{
-	"glacier":       {mechanic: "frozen_ground", material: -1},
-	"sun_pyre":      {mechanic: "destroy_undead", material: -1, outlivesTarget: true},
-	worldSolarFlare: {mechanic: string(config.SignatureSolarFlare), material: -1, outlivesTarget: true, seconds: .85},
-	"mind_web":      {mechanic: "feeblemind", material: 0, y: .13, rx: .28, ry: .23},
-	"earth_drag":    {mechanic: "slow", material: 1, y: .85, rx: .55, ry: .24},
-	"blood_frenzy":  {mechanic: "berserk", material: 2, y: .15, rx: .34, ry: .34},
-	"holy_dread":    {mechanic: "turn_undead", material: 3, y: .43, rx: .58, ry: .65},
-	"dread_shroud":  {mechanic: "mass_fear", material: 4, y: .40, rx: .55, ry: .63, headroom: .3},
+	"glacier":       {mechanic: "frozen_ground", material: actorSpellNone},
+	"sun_pyre":      {mechanic: "destroy_undead", material: actorSpellNone, outlivesTarget: true},
+	worldSolarFlare: {mechanic: string(config.SignatureSolarFlare), material: actorSpellNone, outlivesTarget: true, seconds: .85},
+	"mind_web":      {mechanic: "feeblemind", material: actorSpellMindWeb, y: .13, rx: .28, ry: .23},
+	"earth_drag":    {mechanic: "slow", material: actorSpellEarthDrag, y: .85, rx: .55, ry: .24},
+	"blood_frenzy":  {mechanic: "berserk", material: actorSpellBloodFrenzy, y: .15, rx: .34, ry: .34},
+	"holy_dread":    {mechanic: "turn_undead", material: actorSpellHolyDread, y: .43, rx: .58, ry: .65},
+	"dread_shroud":  {mechanic: "mass_fear", material: actorSpellDreadShroud, y: .40, rx: .55, ry: .63, headroom: .3},
 }
 
 // spellWorldSeconds is how long a flourish of this kind lasts.
@@ -206,7 +213,7 @@ type actorSpellRenderer struct {
 func (r *Renderer) drawMonsterSpellVisuals(dst *ebiten.Image, s UnifiedSpriteRenderData, screenY int) {
 	for _, v := range r.game.spellWorldVisuals {
 		style, ok := spellWorldStyles[v.kind]
-		if !ok || style.material < 0 || v.world != r.game.world || v.target != s.monster {
+		if !ok || style.material == actorSpellNone || v.world != r.game.world || v.target != s.monster {
 			continue
 		}
 		age := float64(r.game.frameCount-v.born) / float64(r.game.config.GetTPS())
@@ -214,12 +221,8 @@ func (r *Renderer) drawMonsterSpellVisuals(dst *ebiten.Image, s UnifiedSpriteRen
 			continue
 		}
 		m := &r.actorSpell
-		if m.shader == nil {
-			var err error
-			m.shader, err = ebiten.NewShader([]byte(shaders.Source("actor_spell.kage")))
-			if err != nil {
-				panic(err)
-			}
+		if compileShader(&m.shader, "actor_spell.kage") != nil {
+			return // a broken shader skips these flourishes, like every other material
 		}
 		// Follow the same resolved head used by all actor status indicators,
 		// including the pulled-forward TB pose and flying creature height.

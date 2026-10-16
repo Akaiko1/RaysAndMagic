@@ -1,0 +1,29 @@
+// Spell kinds by name: the spell* constants in render_spell_material.go;
+// TestShaderConstantsMatchGo keeps the values equal.
+const (
+	spellFireball = 0
+	spellLightning = 1
+	spellHarm = 2
+	spellPsyshock = 3
+	spellStarburst = 4
+	spellDisintegrate = 5
+	spellLight = 6
+	spellRock = 7
+	spellStoneBud = 8
+	spellSwarm = 9
+	spellIce = 10
+	spellFireDart = 11
+	spellSparks = 12
+	spellShadow = 13
+	spellVoidNeedle = 14
+	spellShackle = 15
+	spellCharm = 16
+	spellPsiLance = 17
+	spellLash = 18
+	spellEye = 19
+	spellAcid = 20
+	spellFlyingFist = 21
+	spellShrapmetal = 22
+	spellSoulWisp = 23
+	spellPrismaticRay = 24
+)

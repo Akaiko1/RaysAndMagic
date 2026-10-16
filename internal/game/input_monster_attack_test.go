@@ -43,6 +43,7 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 	ih.heldKeys = heldOnly()
 	ui := &UISystem{game: g}
 	r := &Renderer{game: g}
+	g.renderHelper = NewRenderingHelper(g) // the game builds both together
 	g.gameLoop = &GameLoop{game: g, inputHandler: ih, ui: ui, renderer: r}
 	r.beginMonsterPickFrame()
 	r.monsterPick.hits = []monsterPickHit{{monster: m, left: 250, top: 150, size: 140, depth: ts}}

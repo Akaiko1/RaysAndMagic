@@ -130,7 +130,7 @@ func TestSpecialOfferSale(t *testing.T) {
 			}
 			// The drag-to-sell picker opens on the same price the sale pays.
 			ui := &UISystem{game: g}
-			if ui.beginMerchantSellPicker(0); !ui.stackSplitPicker.open {
+			if ui.beginMerchantSellPicker(0, 0); !ui.stackSplitPicker.open {
 				t.Fatal("the drag-to-sell picker refused a good the merchant pays for")
 			}
 			gold := g.party.Gold

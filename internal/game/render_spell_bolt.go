@@ -10,9 +10,22 @@ func isFacetedBolt(kind int) bool {
 	return kind == spellIce || kind == spellVoidNeedle || kind == spellShadow || kind == spellFireDart
 }
 
+// spell_bolt.kage shades this material as opaque metal and leather; a const
+// line there repeats the value, apart from every spell kind
+// (TestShaderConstantsMatchGo).
+const boltMaterialGauntlet = 50
+
+// A spell's directional solid, tinted and shaded by its kind.
+func (r *Renderer) drawLitVolume(dst *ebiten.Image, x, y, size float64, axis [3]float64, rgb [3]int, alpha float64, kind int) {
+	mesh := directionalVolumeMeshes.get(directionalVolumeModel(kind), buildDirectionalVolumeMesh)
+	r.drawBoltVolume(dst, x, y, size, axis, alpha, 1, mesh, rgb, kind, false)
+}
+
 // All directional volumes share this projection: their visible faces turn with
 // the flight axis and hand convergence. Each triangle receives shader lighting.
-func (r *Renderer) drawLitVolume(dst *ebiten.Image, x, y, size float64, axis [3]float64, rgb [3]int, alpha float64, kind int, handedness float64) {
+// Equipment (a gauntlet) is an opaque solid; spell volumes retain their
+// authored per-face energy transparency rather than a metal body's fade.
+func (r *Renderer) drawBoltVolume(dst *ebiten.Image, x, y, size float64, axis [3]float64, alpha, handedness float64, mesh *volumeMesh, rgb [3]int, material int, equipment bool) {
 	if size <= 0 || alpha <= 0 || r.ensureWeaponMaterialShaders() != nil {
 		return
 	}
@@ -39,21 +52,11 @@ func (r *Renderer) drawLitVolume(dst *ebiten.Image, x, y, size float64, axis [3]
 		r.spellBoltOpts.Uniforms = map[string]any{"Time": r.spellBoltTime[:]}
 	}
 	r.spellBoltTime[0] = float32(r.weaponMaterialClock())
-	var mesh *volumeMesh
-	isGauntlet := isGauntletModel(kind)
-	if isGauntlet {
-		rgb = [3]int{255, 255, 255}
-		mesh = gauntletModels.get(kind, buildGauntlet)
-	} else {
-		mesh = directionalVolumeMeshes.get(directionalVolumeModel(kind), buildDirectionalVolumeMesh)
-	}
-	// Equipment is an opaque solid; spell volumes retain their authored
-	// per-face energy transparency rather than adopting a metal body's fade.
-	r.drawCameraVolume(dst, x, y, size, alpha, transform, r.spellBoltShader, &r.spellBoltOpts, mesh, rgb, kind, isGauntlet)
+	r.drawCameraVolume(dst, x, y, size, alpha, transform, r.spellBoltShader, &r.spellBoltOpts, mesh, rgb, material, equipment)
 }
 
 // Existing spell solids are immutable. Only their orientation and tint change.
-var directionalVolumeMeshes volumeMeshCache
+var directionalVolumeMeshes volumeMeshCache[int]
 
 // Unknown bolt kinds keep the original generic bipyramid instead of vanishing.
 func directionalVolumeModel(kind int) int {

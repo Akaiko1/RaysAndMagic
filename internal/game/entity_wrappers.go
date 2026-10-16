@@ -157,7 +157,7 @@ func (g *MMGame) projectileCount() int {
 	return len(g.magicProjectiles) + len(g.arrows) + len(g.flasks)
 }
 
-// clearProjectiles drops every shot in flight with its collision entity.
+// clearProjectiles drops every shot and its collision entity.
 // switchToMap keeps the collision system, so stale entities must go.
 func (g *MMGame) clearProjectiles() {
 	g.magicProjectiles = dropShots(g.collisionSystem, g.magicProjectiles)

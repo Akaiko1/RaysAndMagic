@@ -49,6 +49,7 @@ type GameSave struct {
 	CalendarWeek          int                        `json:"calendar_week,omitempty"`
 	CalendarMonth         int                        `json:"calendar_month,omitempty"`
 	RespawnDayVersion     int                        `json:"respawn_day_version,omitempty"`
+	StackLayoutVersion    int                        `json:"stack_layout_version,omitempty"`
 	ArenaTierFoughtDay    map[string]int             `json:"arena_tier_fought_day,omitempty"`
 	MapRespawnDay         map[string]int             `json:"map_respawn_day,omitempty"` // One-based calendar day; zero means unstamped.
 	ArenaRunID            string                     `json:"arena_run_id,omitempty"`

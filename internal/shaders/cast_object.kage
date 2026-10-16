@@ -3,35 +3,38 @@ package main
 
 var Phase float
 
-// Material ids match the castMat* constants in render_cast_objects.go.
+//include volume_vertex.kageinc
+
+// Materials by name: the castMat* constants in render_cast_objects.go;
+// TestShaderConstantsMatchGo keeps the values equal.
 const (
-	matPlain    = 0
-	matForged   = 1
-	matGlass    = 2
-	matSand     = 3
-	matStream   = 4
-	matFeather  = 5
-	matJewel    = 6
-	matPolished = 7
-	matCloth    = 8
-	matPlume    = 9
-	matGilt     = 10
+	castMatPlain    = 0
+	castMatForged   = 1
+	castMatGlass    = 2
+	castMatSand     = 3
+	castMatStream   = 4
+	castMatFeather  = 5
+	castMatJewel    = 6
+	castMatPolished = 7
+	castMatCloth    = 8
+	castMatPlume    = 9
+	castMatGilt     = 10
 )
 
 func Fragment(dst vec4,src vec2,color vec4,c vec4) vec4 {
 	p:=src-imageSrc0Origin()
 	n:=normalize(c.xyz)
-	mat:=floor(c.w)
+	mat:=volumeMaterial(c.w)
 	light:=max(0,dot(n,normalize(vec3(-.4,-.7,-.6))))
 	spec:=pow(max(0,dot(n,normalize(vec3(-.3,-.45,-1)))),24)
 	a:=color.a
 	// The cuirass forges upward: gold runs just ahead of the plates and the
 	// jewels appear as the front reaches them. Plume UVs run root (0) to tip
 	// (1), so the wings grow outward once the front has passed the shoulders.
-	if (mat==matGilt || mat==matJewel) && p.y<1.1-Phase*8-.12 {discard()}
-	if mat==matPlume && p.y>(Phase-.16)*8 {discard()}
+	if (mat==castMatGilt || mat==castMatJewel) && p.y<1.1-Phase*8-.12 {discard()}
+	if mat==castMatPlume && p.y>(Phase-.16)*8 {discard()}
 	rgb:=color.rgb*(.32+.68*light)+vec3(.42,.36,.22)*spec
-	if mat==matForged || mat==matPolished || mat==matGilt {
+	if mat==castMatForged || mat==castMatPolished || mat==castMatGilt {
 		// Broad reflected light panels reveal curvature. The smooth normal is
 		// supplied by the mesh; seams and rolled edges remain geometric.
 		r:=reflect(vec3(0,0,1),n)
@@ -40,19 +43,19 @@ func Fragment(dst vec4,src vec2,color vec4,c vec4) vec4 {
 		horizon:=exp(-pow((r.y-.15)*4,2))
 		fresnel:=.55+.45*pow(1-abs(n.z),5)
 		env:=vec3(.49,.56,.65)+vec3(.65,.67,.69)*panel+vec3(.60,.67,.81)*strip+vec3(.15,.12,.07)*horizon
-		if mat==matForged {
+		if mat==castMatForged {
 			// Pearl enamel: bright warm body light, a faint cool sky rim and
 			// only a gentle edge darkening, so the plates read ivory, not steel.
 			env=vec3(.84,.82,.78)+vec3(.30,.29,.26)*panel+vec3(.20,.25,.34)*strip+vec3(.10,.08,.05)*horizon
 			fresnel=.82+.18*pow(1-abs(n.z),5)
-		} else if mat==matGilt {
+		} else if mat==castMatGilt {
 			// Warm gilding: the cool studio reflections of polished steel
 			// would turn this gold olive.
 			env=vec3(.78,.70,.55)+vec3(.62,.56,.42)*panel+vec3(.38,.36,.34)*strip+vec3(.20,.14,.06)*horizon
 		}
 		rgb=color.rgb*env*fresnel+vec3(.19,.22,.25)*spec
 	}
-	if mat==matForged {
+	if mat==castMatForged {
 		// Light forges metal upward, leaving a solid engraved silver surface.
 		front:=1.1-Phase*8
 		if p.y<front {discard()}
@@ -61,20 +64,20 @@ func Fragment(dst vec4,src vec2,color vec4,c vec4) vec4 {
 		fluting:=pow(max(0,cos(p.x*58+sin(p.y*5)*4)),20)*.012
 		chased:=pow(max(0,cos(p.x*105+sin(p.y*35)*2)),26)*.006
 		rgb+=vec3(.18,.27,.33)*(fluting+chased)+vec3(.51,.84,1)*edge
-	} else if mat==matGlass {
+	} else if mat==castMatGlass {
 		// Glass keeps empty space visible through the hourglass.
 		rim:=pow(1-abs(n.z),3)
 		rib:=pow(max(0,cos(p.x*8+p.y)),18)
 		a*=.10+rim*.55+spec*.35
 		rgb=color.rgb*(.55+spec)+vec3(.32,.43,.47)*rib
-	} else if mat==matSand {
+	} else if mat==castMatSand {
 		if p.y<0 && p.y < -.62+Phase*.55 {discard()}
 		if p.y>0 && p.y < .66-Phase*.48 {discard()}
 		grain:=fract(sin(dot(floor(p*220),vec2(127.1,311.7)))*43758.5453)
 		rgb=color.rgb*(.65+grain*.35+light*.2)
-	} else if mat==matStream {
+	} else if mat==castMatStream {
 		rgb=color.rgb*(.8+.2*sin(p.y*160-Phase*130))
-	} else if mat==matFeather || mat==matPlume {
+	} else if mat==castMatFeather || mat==castMatPlume {
 		// Local feather UVs: shaft along Y, barbs branch from that shaft.
 		barbs:=pow(max(0,cos(p.y*180-abs(p.x)*22)),8)
 		shaft:=exp(-abs(p.x)*45)*(1-smoothstep(.78,1,p.y))
@@ -82,7 +85,7 @@ func Fragment(dst vec4,src vec2,color vec4,c vec4) vec4 {
 		sheen:=pow(max(0,dot(n,normalize(vec3(-.6,-.25,-1)))),5)
 		rgb=color.rgb*(.56+.30*light+.22*sheen)-vec3(.09,.070,.035)*barbs*.6
 		tipCol:=vec3(.77,.46,.13)
-		if mat==matPlume {
+		if mat==castMatPlume {
 			// Celestial plumes stay white, cooling to pale blue at the tips.
 			tipCol=vec3(.55,.71,.96)
 			edge=max(edge,smoothstep(.55,1,p.y)*.8)
@@ -91,12 +94,12 @@ func Fragment(dst vec4,src vec2,color vec4,c vec4) vec4 {
 		// The next feather overlaps this one's base: a soft contact shadow
 		// gives the ranks depth. Preservation's flight feathers gild toward the tip.
 		rgb*=.64+.36*smoothstep(0,.45,p.y)
-		if mat==matFeather {
+		if mat==castMatFeather {
 			rgb=mix(rgb,rgb*vec3(1,.80,.46),smoothstep(.55,1,p.y)*.32)
 		}
-	} else if mat==matJewel {
+	} else if mat==castMatJewel {
 		rgb=color.rgb*(.60+.40*light)+vec3(.5,.7,.9)*spec
-	} else if mat==matCloth {
+	} else if mat==castMatCloth {
 		// The lining is revealed by the same forge front as its plates.
 		if p.y<1.1-Phase*8 {discard()}
 		rgb=color.rgb*(.45+.55*light)

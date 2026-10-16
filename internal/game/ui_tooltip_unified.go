@@ -907,9 +907,6 @@ func addFlaskSections(dmg, effect, use *ttSection, key string, f *config.FlaskDe
 		if f.CatalysisSeconds > 0 {
 			effect.Add("%s", uitext.Text("item.flask_catalysis", config.DurationText(f.CatalysisSeconds), perTier(f.CatalysisPercent)+"%"))
 		}
-		if def, ok := config.GetItemDefinition(key); ok {
-			use.Add("%s", def.DeviceRechargeLine())
-		}
 	}
 	if cs != nil && bearer != nil {
 		use.Add("%s", cooldownLine(cs, cs.FlaskCooldownFrames(bearer, key)))

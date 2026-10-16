@@ -3,6 +3,27 @@ package main
 
 //include weapon_noise.kageinc
 
+// Materials by name: the world* constants in render_world_mesh.go;
+// TestShaderConstantsMatchGo keeps the values equal.
+const (
+	worldIron = 0
+	worldBrass = 1
+	worldSteel = 2
+	worldGlass = 3
+	worldSand = 4
+	worldGlow = 5
+	worldEmber = 6
+	worldPlume = 7
+	worldWood = 8
+	worldStone = 9
+	worldFlame = 10
+	worldPlaster = 11
+	worldWindow = 12
+	worldGlacier = 13
+	worldFrost = 14
+	worldSunPyre = 15
+)
+
 var Time float
 var Viewport vec3
 var CameraForward vec3
@@ -79,7 +100,7 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
 		discard()
 	}
 	mat := floor(custom.w)
-    if mat == 15.0 {
+    if mat == worldSunPyre {
         // Destroy Undead: descending solar lightning, then heated gold ash
         // travelling upward from the cast contact. Coordinates remain local
         // to the world plane and ordinary wall-depth clipping still applies.
@@ -101,7 +122,7 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
         rgb:=mix(vec3(1,.37,.015),vec3(1,.97,.78),clamp(core+ash,0,1))
         return vec4(rgb*a,a)
     }
-    if mat == 10.0 {
+    if mat == worldFlame {
         scale := color.a
         entry := vec3(p,custom.x/q)/scale
         return campFlame(entry,color.rgb/scale,custom.y,Time+fract(custom.w)*13.0,
@@ -111,25 +132,25 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
 	shade, spec := custom.x, custom.y
 	rgb := color.rgb * (shade + grain)
 	a := color.a
-	if mat < 3.0 {
+	if mat == worldIron || mat == worldBrass || mat == worldSteel {
 		scratches := pow(max(0.0, sin(p.x*170.0+p.y*8.0)), 18.0) * .08
 		rgb += vec3(spec*.8 + scratches)
-	} else if mat == 3.0 {
+	} else if mat == worldGlass {
 		// Cyan glass: transparent faces with restrained reflected highlights.
 		rib := pow(max(0.0, sin(p.x*25.0+p.y*4.0)), 20.0)
 		rgb = color.rgb * (.55 + spec*2.0 + rib*.2)
 		a *= .24 + spec*.55 + rib*.14
-	} else if mat == 4.0 {
+	} else if mat == worldSand {
 		// The hourglass sand and the lit seams stay coherent on their surfaces.
 		flow := .7 + .3*sin(p.y*115.0-Time*6.0)
 		rgb = color.rgb * (.8 + flow*.5)
-	} else if mat == 5.0 {
+	} else if mat == worldGlow {
 		rgb = color.rgb * (.8 + .2*sin(p.x*15.0+p.y*9.0-Time*1.5))
-	} else if mat == 6.0 {
+	} else if mat == worldEmber {
 		coal := fxNoise(p * 38.0)
 		heat := smoothstep(.48, .76, coal+.06*sin(Time*2.0+p.x*13.0))
 		rgb = mix(vec3(.045, .023, .018), color.rgb*1.3, heat)
-	} else if mat == 7.0 {
+	} else if mat == worldPlume {
 		// A world-oriented plume surface with advecting tongues and transparent gaps.
 		f := vec2(p.x*11.0, p.y*7.0-Time*2.0)
 		n := fxNoise(f + vec2(fxNoise(f*.5)*1.7, 0))
@@ -138,23 +159,23 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
 		a *= edge * smoothstep(.01, .24, density) * (1.0 - smoothstep(.65, 1.0, p.y))
 		rgb = mix(vec3(.8, .055, .008), vec3(1.0, .85, .28), clamp(density*1.9, 0.0, 1.0))
 	}
-    if mat == 8.0 {
+    if mat == worldWood {
         // Long grain, knots and narrow plank joints belong to the wood surface.
         grain = fxNoise(vec2(p.x*19.0,p.y*2.2))
         rings := sin(p.x*185.0 + sin(p.y*7.0)*1.8 + grain*5.0)
         seams := smoothstep(.94,1.0,abs(sin(p.x*31.4)))
         rgb = color.rgb*(shade*(.79+grain*.26+rings*.045))*(1.0-seams*.35)
-    } else if mat == 9.0 {
+    } else if mat == worldStone {
         grain = fxNoise(p*85.0)
         rgb = color.rgb*shade*(.73+grain*.44)
-    } else if mat == 11.0 {
+    } else if mat == worldPlaster {
         // Dry plaster: broad restrained mottling, no metallic scratches or
         // high-contrast stone grain on the guild's timber infill panels.
         rgb = color.rgb*shade*(.94+fxNoise(p*17.0)*.09)
-    } else if mat == 12.0 {
+    } else if mat == worldWindow {
         // Warm interior light behind the opaque window leadwork.
         rgb = color.rgb*(.77+fxNoise(p*28.0)*.18)
-    } else if mat == 13.0 {
+    } else if mat == worldGlacier {
         // Dense blue ice, pale facet edges and trapped vertical fractures.
         // Texture coordinates belong to the face and never swim with the camera.
         n:=fxNoise(p*7.0)
@@ -162,7 +183,7 @@ func Fragment(rawDst vec4, src vec2, color vec4, custom vec4) vec4 {
         strata:=pow(max(0,sin(p.y*60.0+n*4.0)),22.0)
         rgb=color.rgb*(.42+shade*.64)+vec3(.28,.37,.43)*(spec*1.4+seam*.34+strata*.11)
         a*=.83+seam*.17
-    } else if mat == 14.0 {
+    } else if mat == worldFrost {
         // Frost crystallizes across a square tile; fine branches break the
         // surface without inventing a circular footprint over adjacent tiles.
         q:=p+vec2(fxNoise(p*5.0),fxNoise(p*5.0+7.0))*.045

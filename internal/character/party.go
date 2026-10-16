@@ -260,8 +260,9 @@ func (p *Party) UpdateWithMode(clock PartyClock, absorbDoT ...func(int) int) Reg
 	return paid
 }
 
-// AddItem adds an item to the party inventory. Stackable items (consumables,
-// trinkets) merge into an existing same-name stack; everything else appends.
+// AddItem adds an item to the party inventory automatically: stackable items
+// (consumables, trinkets) merge into the first matching stack; everything else
+// appends.
 func (p *Party) AddItem(item items.Item)          { p.Bag().Add(item) }
 func (p *Party) RemoveItem(index int)             { p.Bag().Remove(index) }
 func (p *Party) ConsumeUnitsAt(index, n int) bool { return p.Bag().Consume(index, n) }

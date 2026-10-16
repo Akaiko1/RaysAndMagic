@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -38,36 +39,65 @@ func (g *MMGame) openPlayerProfile(path string) {
 }
 
 // profileLootGroup is the collecting statistic an item unit counts toward:
-// cards, legendary loot (by its current rarity), or neither.
+// cards, legendary loot, or neither. Legendary loot is a legendary find of
+// the current catalog - what the Legendary Showcase collects: no quest items
+// (the dragon statuettes), no class starting kit.
 func profileLootGroup(it items.Item) string {
-	switch {
-	case it.Type == items.ItemCard:
-		return "cards_found"
-	case strings.EqualFold(it.Rarity, "legendary"):
-		return "legendary_loot"
+	for _, group := range profileLootGroups {
+		if group.holds(it) {
+			return group.name
+		}
 	}
 	return ""
 }
 
 func profileItemKey(it items.Item) string { return fmt.Sprintf("%d:%s", it.Type, it.Name) }
 
-// reconcileProfileLootGroups keeps Legendary loot to items that are legendary
-// in the current catalog: a rarity rebalance (or a removed item) drops the old
-// entry and its units from the statistic.
+// profileLootGroups are the collecting statistics, first match wins: the
+// recording path and the rebuild on profile open both read this one list.
+var profileLootGroups = []struct {
+	name  string
+	holds func(items.Item) bool
+}{
+	{"cards_found", func(it items.Item) bool { return it.Type == items.ItemCard }},
+	{"legendary_loot", func(it items.Item) bool { return legendaryStampKey(it) != "" }},
+}
+
+// reconcileProfileLootGroups rebuilds the collecting statistics from the
+// complete loot ranking (one entry per item, recorded with them since the
+// start) by the current catalog. A rarity change, a quest item an older rule
+// counted, a new legendary or a removed legendary moves its units out of or
+// into a group; cards count by type, so a removed card stays found. The total
+// loot is untouched.
 func (g *MMGame) reconcileProfileLootGroups() {
 	d := &g.playerProfile.Data
-	changed := false
-	for key, e := range d.Rankings["legendary_loot"] {
+	rebuilt := map[string]map[string]playerprofile.Entry{}
+	totals := map[string]int64{}
+	for key, e := range d.Rankings["loot"] {
 		typ, name, _ := strings.Cut(key, ":")
-		if n, err := strconv.Atoi(typ); err == nil {
-			it := items.Item{Type: items.ItemType(n), Name: name}
-			normalizeItemFromConfig(&it)
-			if profileLootGroup(it) == "legendary_loot" {
-				continue
-			}
+		n, err := strconv.Atoi(typ)
+		if err != nil {
+			continue
 		}
-		delete(d.Rankings["legendary_loot"], key)
-		d.Counters["legendary_loot"] = max(0, d.Counters["legendary_loot"]-e.Count)
+		it := items.Item{Type: items.ItemType(n), Name: name}
+		normalizeItemFromConfig(&it)
+		group := profileLootGroup(it)
+		if group == "" {
+			continue
+		}
+		if rebuilt[group] == nil {
+			rebuilt[group] = map[string]playerprofile.Entry{}
+		}
+		rebuilt[group][key] = playerprofile.Entry{Name: e.Name, Icon: e.Icon, Count: e.Count}
+		totals[group] += e.Count
+	}
+	changed := false
+	for _, group := range profileLootGroups {
+		name := group.name
+		if maps.Equal(d.Rankings[name], rebuilt[name]) && d.Counters[name] == totals[name] {
+			continue
+		}
+		d.Rankings[name], d.Counters[name] = rebuilt[name], totals[name]
 		changed = true
 	}
 	if changed {

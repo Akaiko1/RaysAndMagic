@@ -1,19 +1,18 @@
 //kage:unit pixels
 package main
 
-// Smooth periodic sampling of the shared, procedurally generated noise field.
+//include veil_noise.kageinc
+
+// Plume looks: the firePlume* constants in render_zone_plume.go;
+// TestShaderConstantsMatchGo keeps the values equal.
+const (
+	firePlumeTongues = 0
+	firePlumeBlaze = 1
+)
+
+// The plume's noise repeats every 8 units on the shared noise texels.
 func fireNoise(p vec2) vec2 {
-	size := imageSrc0Size()
-	q := fract(p/8.0) * size
-	a := floor(q)
-	f := fract(q)
-	// Address texel centers; interpolate explicitly and wrap all four taps.
-	origin := imageSrc0Origin() + vec2(0.5)
-	v00 := imageSrc0At(origin + mod(a, size)).rg
-	v10 := imageSrc0At(origin + mod(a+vec2(1, 0), size)).rg
-	v01 := imageSrc0At(origin + mod(a+vec2(0, 1), size)).rg
-	v11 := imageSrc0At(origin + mod(a+vec2(1, 1), size)).rg
-	return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y)
+	return veilNoise(p/8.0 + vec2(.5)/imageSrc0Size())
 }
 
 // blaze is Firewall's fire, in the material of Preservation's light: a
@@ -51,8 +50,8 @@ func blaze(p vec2, t, seed, alphaIn float) vec4 {
 func Fragment(dst vec4, p vec2, color vec4, custom vec4) vec4 {
 	// Ebitengine offsets source coordinates into image 0's atlas region.
 	p -= imageSrc0Origin()
-	t, seed := custom.x, custom.y
-	if custom.z > 0.5 {
+	t, seed, look := custom.x, custom.y, floor(custom.z+.5)
+	if look == firePlumeBlaze {
 		return blaze(p, t, seed, color.a)
 	}
 	flow := fireNoise(vec2(p.x*1.6+seed, p.y*2.5-t*0.85)).x

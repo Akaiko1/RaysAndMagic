@@ -12,12 +12,21 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Reveal the square icon clockwise from twelve o'clock. The remaining sector
-// darkens the existing art; drawing never changes the item's gameplay clock.
+// The cooldown dial has two entry points, one per clock that an icon shows:
+// drawDeviceCooldown (a device's recharge, use_cooldown_seconds on the item)
+// and drawSpellReuse (a spell's personal lockout, reuse_seconds). Both draw
+// through drawIconCooldown. A hero's action cooldown is no dial: it is the
+// band around the party card.
+
+// drawDeviceCooldown is the recharge dial on a device's icon, wherever the
+// item is drawn: bag, quick slots, stash.
 func drawDeviceCooldown(screen *ebiten.Image, item items.Item, x, y, size int) {
 	drawIconCooldown(screen, deviceCooldownProgress(item), x, y, size)
 }
 
+// drawIconCooldown reveals the square icon clockwise from twelve o'clock as
+// progress (0..1) grows; the remaining sector darkens the art. Drawing never
+// changes a gameplay clock.
 func drawIconCooldown(screen *ebiten.Image, progress float64, x, y, size int) {
 	if progress >= 1 || size <= 0 {
 		return
@@ -47,7 +56,8 @@ func drawIconCooldown(screen *ebiten.Image, progress float64, x, y, size int) {
 	uiFillPath(screen, &path, nil, &vector.DrawPathOptions{ColorScale: statusColorScale(shade), AntiAlias: true})
 }
 
-// Spellbook and equipped spell slots read the same saved personal clock.
+// drawSpellReuse is the lockout dial on a spell's icon: the spellbook and
+// spell items in bags and slots read the same saved personal clock.
 func (ui *UISystem) drawSpellReuse(screen *ebiten.Image, c *character.MMCharacter, id spells.SpellID, x, y, size int) {
 	if c == nil {
 		return

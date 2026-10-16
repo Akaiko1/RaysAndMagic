@@ -1,0 +1,15 @@
+// The shared cached fire noise, sampled with wrapped bilinear taps at texel
+// centers (image 0). R is broad structure; G already contains three scales of
+// detail. Every shader that reads the noise from image 0 samples it here;
+// world_material reads it from image 1 with taps of its own.
+func veilNoise(p vec2) vec2 {
+	size := imageSrc0Size()
+	q := fract(p)*size - .5
+	i, f := floor(q), fract(q)
+	o := imageSrc0Origin() + vec2(.5)
+	a := imageSrc0UnsafeAt(o + mod(i, size)).rg
+	b := imageSrc0UnsafeAt(o + mod(i+vec2(1, 0), size)).rg
+	c := imageSrc0UnsafeAt(o + mod(i+vec2(0, 1), size)).rg
+	d := imageSrc0UnsafeAt(o + mod(i+vec2(1, 1), size)).rg
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y)
+}

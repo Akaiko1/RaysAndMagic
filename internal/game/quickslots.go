@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"time"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -424,52 +425,106 @@ func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 	g.clearDrag()
 }
 
-// inventoryCellDropZone swaps two bag items when one is dragged onto another
-// (reorder within the inventory).
+// inventoryCellDropZone places a dragged bag or quick-slot item on a filled
+// cell (see dropInventoryDragAt and dropQuickSlotItemAt).
 func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int, owner ...*character.MMCharacter) {
 	if ui.displayedInput.building {
 		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.inventoryCellDropZone(dstIndex, x, y, w, h, owner...) })
 		return
 	}
 
-	g := ui.game
-	if !ui.inventoryDragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
-		return
+	if ui.inventoryDragOver(x, y, w, h) {
+		ui.game.dropDragAtBagCell(ui.game.party.Bag(owner...).Owner, dstIndex)
 	}
-	if g.dragInvOwner != g.party.Bag(owner...).Owner {
-		ui.transferInventoryDrag(g.party.Bag(owner...).Owner)
-		return
-	}
-	if g.dragSplitQuantity > 0 {
-		return
-	}
-	g.inventoryDragBag().Reorder(g.dragInvIndex, dstIndex)
-	g.clearDrag()
 }
 
-// inventoryEmptyDropZone moves a dragged bag item to the end of the inventory when
-// dropped onto an empty grid cell (the bag is a packed slice, so empty cells are
-// the tail - "put it in a free slot" = append at the end).
+// inventoryEmptyDropZone places a dragged bag or quick-slot item on an empty
+// grid cell: the bag is a packed slice, so empty cells are its free tail,
+// where the item (a split fragment too) keeps a stack of its own.
 func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int, owner ...*character.MMCharacter) {
 	if ui.displayedInput.building {
 		ui.onDisplayedInput(uiCommandDrag, layoutRect{x, y, w, h}, func() { ui.inventoryEmptyDropZone(x, y, w, h, owner...) })
 		return
 	}
 
-	g := ui.game
-	if !ui.inventoryDragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
+	if ui.inventoryDragOver(x, y, w, h) {
+		bag := ui.game.party.Bag(owner...)
+		ui.game.dropDragAtBagCell(bag.Owner, len(bag.Items()))
+	}
+}
+
+// dropDragAtBagCell resolves a drop on cell at of owner's bag (at == len is
+// the free tail). Other carried things fall through to the grid frame.
+func (g *MMGame) dropDragAtBagCell(owner *character.MMCharacter, at int) {
+	switch g.dragSrc {
+	case dragFromInventory:
+		g.dropInventoryDragAt(owner, at)
+	case dragFromQuickSlot:
+		g.dropQuickSlotItemAt(owner, at)
+	}
+}
+
+// dropInventoryDragAt places the carried bag item (a whole stack or a split
+// fragment) at a cell of owner's bag under items.DropOnto: within its own bag
+// through Bag.MoveWithin, into another bag through Bag.Place, where a swapped
+// item returns to the source cell. The model changes only here, at the drop.
+func (g *MMGame) dropInventoryDragAt(owner *character.MMCharacter, at int) {
+	defer g.clearDrag()
+	src, dst := g.inventoryDragBag(), g.party.Bag(owner)
+	moving := src.Cell(g.dragInvIndex)
+	n := carriedUnits(moving, g.dragSplitQuantity)
+	if moving.Name == "" || g.refusedDrop(moving, dst.Cell(at), n == moving.Count()) {
 		return
 	}
-	if g.dragInvOwner != g.party.Bag(owner...).Owner {
-		ui.transferInventoryDrag(g.party.Bag(owner...).Owner)
+	if g.dragInvOwner == owner {
+		src.MoveWithin(g.dragInvIndex, at, n)
 		return
 	}
-	if g.dragSplitQuantity > 0 {
+	if it, ok := g.takeInventoryDragItem(); ok {
+		if displaced := dst.Place(it, at); displaced.Name != "" {
+			src.Insert(g.dragInvIndex, displaced)
+		}
+	}
+}
+
+// dropQuickSlotItemAt returns the carried quick-slot item to a cell of owner's
+// bag. A slot is a binding, not a cell, so no bag item swaps into it: onto a
+// matching stack the item merges there, anywhere else it keeps a stack of its
+// own at the free tail.
+func (g *MMGame) dropQuickSlotItemAt(owner *character.MMCharacter, at int) {
+	defer g.clearDrag()
+	ch := g.party.Members[g.dragQuickChar]
+	it := ch.QuickSlots[g.dragQuickSlot]
+	if it == nil {
 		return
 	}
-	bag := g.inventoryDragBag()
-	bag.Reorder(g.dragInvIndex, len(bag.Items()))
-	g.clearDrag()
+	bag := g.party.Bag(owner)
+	if items.DropOnto(*it, bag.Cell(at), true) != items.DropMerge {
+		at = len(bag.Items())
+	}
+	if quickItemReturnsToBag(*it) {
+		bag.Place(*it, at)
+	}
+	ch.QuickSlots[g.dragQuickSlot] = nil
+}
+
+// refusedDrop applies the placement rule's one refusal, part of a stack onto
+// another item, and says why.
+func (g *MMGame) refusedDrop(moving, occupant items.Item, whole bool) bool {
+	if items.DropOnto(moving, occupant, whole) != items.DropRefused {
+		return false
+	}
+	g.AddCombatMessage(uitext.Text("stack.part_needs_room"))
+	return true
+}
+
+// carriedUnits is how many units of stack a carry moves: n, or the whole
+// stack when n is zero.
+func carriedUnits(stack items.Item, n int) int {
+	if n <= 0 {
+		return stack.Count()
+	}
+	return n
 }
 
 // resolveQuickSlotDrop moves the carried thing into (targetChar, targetSlot).
@@ -479,6 +534,7 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 	}
 	defer g.clearDrag()
 	tch := g.party.Members[targetChar]
+	defer g.warmHeroWeaponModels(tch)
 	switch g.dragSrc {
 	case dragFromInventory:
 		if g.dragInvIndex < 0 || g.dragInvIndex >= len(g.inventoryDragBag().Items()) || !canBindQuickItem(tch, &g.inventoryDragBag().Items()[g.dragInvIndex]) {
@@ -563,11 +619,7 @@ func (g *MMGame) takeInventoryDragItem() (items.Item, bool) {
 	if g.dragInvIndex < 0 || g.dragInvIndex >= len(bag.Items()) {
 		return items.Item{}, false
 	}
-	n := g.dragSplitQuantity
-	if n <= 0 {
-		n = bag.Items()[g.dragInvIndex].Count()
-	}
-	return bag.Take(g.dragInvIndex, n)
+	return bag.Take(g.dragInvIndex, carriedUnits(bag.Items()[g.dragInvIndex], g.dragSplitQuantity))
 }
 
 // decrementQuickSlot takes one unit off a quick-slot stack, emptying the slot
@@ -587,12 +639,20 @@ func (g *MMGame) decrementQuickSlot(ch *character.MMCharacter, slotIdx int) {
 // returnQuickItemToInventory puts a displaced quick-slot item back into the bag,
 // except spells, which are spellbook-owned and simply vanish from the slot.
 func (g *MMGame) returnQuickItemToInventory(item items.Item, owner ...*character.MMCharacter) {
-	// Spells and trap recipes are book-owned - they never belong in the bag.
+	if quickItemReturnsToBag(item) {
+		g.party.Bag(owner...).Add(item)
+	}
+}
+
+// quickItemReturnsToBag reports a quick-slot entry that is a physical item.
+// Spells, trap recipes, techniques and flask shortcuts are book-owned and
+// simply leave the slot.
+func quickItemReturnsToBag(item items.Item) bool {
 	switch item.Type {
 	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTrap, items.ItemTechnique, items.ItemThrowable:
-		return
+		return false
 	}
-	g.party.Bag(owner...).Add(item)
+	return true
 }
 
 // clearDrag resets all drag state.

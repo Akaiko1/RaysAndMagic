@@ -544,6 +544,13 @@ graphics:
     # Classic HUD clearance fades out before a creature crosses the camera.
     lift_fade_tiles: 0.5
     lift_full_tiles: 1.0
+  ranged_held:
+    # Camera-local bodies, compared with the melee weapon catalog. Projectiles
+    # retain their independently authored sizes and flight paths.
+    model_scale: 0.45
+    # Recovery follows the real attack cooldown, capped for slow weapons.
+    max_duration_seconds: 0.65
+    cooldown_fraction: 0.8
   elemental_attack:
     duration_seconds: 0.48
     radius_tiles: 0.35

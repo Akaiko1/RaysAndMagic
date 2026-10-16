@@ -13,7 +13,7 @@ func castFlame(p vec2, t, fade float) vec4 {
 		depth:=cos(angle)
 		front:=smoothstep(-.16,.16,depth)
 		weight:=front
-		if Pass<0 {weight=1-front}
+		if Pass==castPassBack {weight=1-front}
 		if weight<=0 {continue}
 		center:=axis+sin(angle)*radius
 		flow:=vec2(p.x*2.9+seed*.2,height*1.8-t*.93)
@@ -39,10 +39,10 @@ func castFlame(p vec2, t, fade float) vec4 {
 }
 
 func advancedCast(p vec2, t, fade, style float) vec4 {
-	if style < 2.5 { return castFlame(p,t,fade) }
-	if style==3 || style==7 {return kineticCast(p,t,fade,style)}
-	if style==8 || style==15 || style==22 {return lifeCast(p,t,fade,style)}
-	if style==16 || style==18 {return cleansingCast(p,t,fade,style)}
-	if style==4 || style==9 || style==17 || style==21 || style==23 {return advancedWard(p,t,fade,style)}
+	if style==castStyleFireAura { return castFlame(p,t,fade) }
+	if style==castStyleHaste || style==castStyleFate {return kineticCast(p,t,fade,style)}
+	if style==castStyleSharedLife || style==castStyleRegeneration || style==castStyleVampiricWeapon {return lifeCast(p,t,fade,style)}
+	if style==castStylePurify || style==castStyleDispelMagic {return cleansingCast(p,t,fade,style)}
+	if style==castStyleShield || style==castStylePreservation || style==castStyleProtectionFromMagic || style==castStyleCelestialArmor || style==castStylePainReflection {return advancedWard(p,t,fade,style)}
 	return vec4(0)
 }

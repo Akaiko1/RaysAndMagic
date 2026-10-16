@@ -63,7 +63,7 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 		}
 	}
 	// Stamp legacy party identities once. Ownership reconciliation runs after
-	// ground containers are restored, before stack merging and stat derivation.
+	// ground containers are restored, before a legacy stack fold and stat derivation.
 	if g.stampPartyInstanceIDs() {
 		g.loadNeedsResave = true
 	}

@@ -1,6 +1,8 @@
 //kage:unit pixels
 package main
 
+//include veil_noise.kageinc
+
 // A growing silk net closes around a creature's head. Radial spokes and bowed
 // capture threads share junctions; energy travels along them, not across a badge.
 func mindWeb(p vec2, t, seed float) vec4 {
@@ -34,31 +36,32 @@ func mindWeb(p vec2, t, seed float) vec4 {
 	return vec4(min(rgb,vec3(1))*alpha,alpha)
 }
 
-func actorNoise(p vec2) vec2 {
-	size:=imageSrc0Size()
-	q:=fract(p)*size-.5
-	i,f:=floor(q),fract(q)
-	o:=imageSrc0Origin()+.5
-	a:=imageSrc0UnsafeAt(o+mod(i,size)).rg
-	b:=imageSrc0UnsafeAt(o+mod(i+vec2(1,0),size)).rg
-	c:=imageSrc0UnsafeAt(o+mod(i+vec2(0,1),size)).rg
-	d:=imageSrc0UnsafeAt(o+mod(i+vec2(1,1),size)).rg
-	return mix(mix(a,b,f.x),mix(c,d,f.x),f.y)
-}
+// Materials by name: the actorSpell* constants in render_spell_world.go;
+// TestShaderConstantsMatchGo keeps the values equal. actorSpellNone (a world
+// mesh) never reaches this shader.
+const (
+	actorSpellNone = -1
+	actorSpellMindWeb = 0
+	actorSpellEarthDrag = 1
+	actorSpellBloodFrenzy = 2
+	actorSpellHolyDread = 3
+	actorSpellDreadShroud = 4
+)
 
 func Fragment(dst vec4,src vec2,color vec4,custom vec4) vec4 {
 	p:=src-imageSrc0Origin()
-	t,seed,style,headroom:=custom.x,custom.y,custom.z,custom.w
-	if style<.5 {return mindWeb(p,t,seed)}
+	t,seed,headroom:=custom.x,custom.y,custom.w
+	style:=floor(custom.z+.5) // an exact id, safe from interpolation error
+	if style==actorSpellMindWeb {return mindWeb(p,t,seed)}
 	// The frame is the unit square; a style with headroom rises above its top.
 	if abs(p.x)>1 || p.y>1 || p.y < -1-headroom {return vec4(0)}
 	fade:=smoothstep(0,.09,t)*(1-smoothstep(.62,1,t))
 	rgb:=vec3(0)
 	a:=float(0)
-	if style<1.5 {
+	if style==actorSpellEarthDrag {
 		// Heavy mud grips the feet. Squashed ripples have a stationary outer
 		// bank, while sticky strands sag downward around the legs.
-		n:=actorNoise(p*vec2(.41,.24)+vec2(seed*.03,-t*.06))
+		n:=veilNoise(p*vec2(.41,.24)+vec2(seed*.03,-t*.06))
 		r:=length(p*vec2(1,1.8))
 		bank:=smoothstep(.20,.35,r)*(1-smoothstep(.70,.96,r+n.x*.11))
 		fold:=pow(max(0,sin(r*24+n.x*5-t*4)),4)
@@ -68,7 +71,7 @@ func Fragment(dst vec4,src vec2,color vec4,custom vec4) vec4 {
 		strands:=rib*smoothstep(-.25,.05,p.y)*(1-smoothstep(sag,sag+.18,p.y))*(1-smoothstep(.62,.88,abs(p.x)))
 		rgb=mix(vec3(.12,.057,.019),vec3(.72,.43,.14),fold*.65+n.y*.25)
 		a=bank*(.36+fold*.38)+strands*.65
-	} else if style<2.5 {
+	} else if style==actorSpellBloodFrenzy {
 		// Three curved blood-red claw wounds tear down over the brow, opening
 		// in sequence and burning back from their tails. No camera overlay.
 		for i:=0;i<3;i++ {
@@ -83,10 +86,10 @@ func Fragment(dst vec4,src vec2,color vec4,custom vec4) vec4 {
 			rgb+=vec3(.95,.014,.035)*cut+vec3(1,.58,.24)*core*.9
 			a+=cut*.8+core*.5
 		}
-	} else if style<3.5 {
+	} else if style==actorSpellHolyDread {
 		// Sacred light strips a torn, rising shroud off the undead. The long
 		// gold fibres point away from its body, expressing forced flight.
-		n:=actorNoise(p*vec2(.32,.19)+vec2(seed*.04,t*.30))
+		n:=veilNoise(p*vec2(.32,.19)+vec2(seed*.04,t*.30))
 		curve:=.46+.11*sin(p.y*5+t*3)+n.x*.18
 		d:=abs(abs(p.x)-curve)
 		fold:=pow(max(0,sin(p.x*31+n.x*8-p.y*5)),6)
@@ -98,7 +101,7 @@ func Fragment(dst vec4,src vec2,color vec4,custom vec4) vec4 {
 	} else {
 		// A hollow shadow closes around the victim: a broad hood, torn lower
 		// hem and two small hostile eyes. Its centre leaves the actor readable.
-		n:=actorNoise(p*vec2(.35,.29)+vec2(seed*.02,t*.18))
+		n:=veilNoise(p*vec2(.35,.29)+vec2(seed*.02,t*.18))
 		q:=p-vec2(0,-.24)
 		r:=length(q*vec2(1.3,1.1))
 		hood:=smoothstep(.44,.62,r)*(1-smoothstep(.85,1.05,r+n.x*.13))
@@ -110,7 +113,7 @@ func Fragment(dst vec4,src vec2,color vec4,custom vec4) vec4 {
 		a=hood*.80+eye*.9
 	}
 	a=clamp(a,0,.92)*fade
-	if style<1.5 {return vec4(rgb*a,a)}
+	if style==actorSpellEarthDrag {return vec4(rgb*a,a)}
 	return vec4(min(rgb*fade,vec3(a)),a)
 }
 

@@ -531,6 +531,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		CalendarWeek:                g.calendarWeek,
 		CalendarMonth:               g.calendarMonth,
 		RespawnDayVersion:           respawnDaySaveVersion,
+		StackLayoutVersion:          stackLayoutSaveVersion,
 		ArenaTierFoughtDay:          g.arenaTierFoughtDay,
 		ArenaRunID:                  g.playthroughID,
 		TotalGoldEarned:             g.totalGoldEarned,

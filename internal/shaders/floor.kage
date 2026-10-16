@@ -24,6 +24,23 @@ package main
 //	Images[2] = floorTextureIndexMap (R = base index + 1, G = shore index + 1, B = profile/flags)
 //	Images[3] = floorShoreMap (vertex distance to water, R = distance / 2)
 
+// Index-map B by name: the floorBlend* profiles, the profile modulus and the
+// flag bits in render_floor_transitions.go; TestShaderConstantsMatchGo keeps
+// the values equal.
+const (
+	floorBlendHard = 0
+	floorBlendNatural = 1
+	floorBlendWater = 2
+	floorBlendCliffEast = 3
+	floorBlendCliffWest = 4
+	floorBlendVoid = 5
+	floorBlendChasm = 6
+	floorProfileModulus = 8
+	floorFrozenWater = 32
+	floorBlendBoundary = 64
+	floorBlendShore = 128
+)
+
 var CamPos vec2
 var DirCos float
 var DirSin float
@@ -111,22 +128,22 @@ func floorNoise(p vec2) float {
 func floorMaterialAt(tile vec2) vec4 {
 	if tile.x<0 || tile.y<0 || tile.x>=WorldSize.x || tile.y>=WorldSize.y { return vec4(0) }
 	raw := floor(imageSrc2UnsafeAt(imageSrc0Origin()+tile+vec2(0.5)).rgb*255.0+0.5)
-	return vec4(raw.rg,mod(raw.b,8.0),raw.b)
+	return vec4(raw.rg,mod(raw.b,floorProfileModulus),raw.b)
 }
 
 // Profile IDs match floorProfileByte. A directed cliff accepts only its
 // solid, world-aligned side. Void never mixes with land, water, or bridges.
 func floorCanBlend(a,b vec4, delta vec2) bool {
-	if a.b==0 || b.b==0 { return false }
-	if a.b==6 || b.b==6 { return false }
-	if a.b==5 || b.b==5 { return a.b==5 && b.b==5 }
-	if a.b==3 || a.b==4 {
+	if a.b==floorBlendHard || b.b==floorBlendHard { return false }
+	if a.b==floorBlendChasm || b.b==floorBlendChasm { return false }
+	if a.b==floorBlendVoid || b.b==floorBlendVoid { return a.b==floorBlendVoid && b.b==floorBlendVoid }
+	if a.b==floorBlendCliffEast || a.b==floorBlendCliffWest {
 		d := delta
-		return b.b==1 && d.y==0 && ((a.b==3 && d.x == -1) || (a.b==4 && d.x == 1))
+		return b.b==floorBlendNatural && d.y==0 && ((a.b==floorBlendCliffEast && d.x == -1) || (a.b==floorBlendCliffWest && d.x == 1))
 	}
-	if b.b==3 || b.b==4 {
+	if b.b==floorBlendCliffEast || b.b==floorBlendCliffWest {
 		d := -delta
-		return a.b==1 && d.y==0 && ((b.b==3 && d.x == -1) || (b.b==4 && d.x == 1))
+		return a.b==floorBlendNatural && d.y==0 && ((b.b==floorBlendCliffEast && d.x == -1) || (b.b==floorBlendCliffWest && d.x == 1))
 	}
 	return true
 }
@@ -159,10 +176,10 @@ func floorCellColor(q,tile vec2, material vec4, mip,texelsPerPixel,waterDistance
 			base = mix(base,shore,weight*0.95)
 		}
 	}
-	if material.b==1 {
+	if material.b==floorBlendNatural {
 		base *= 1.0-0.18*(1.0-smoothstep(0.0,0.25,waterDistance))
 	}
-	if mod(floor(material.a/32.0),2.0)>0.0 {
+	if mod(floor(material.a/floorFrozenWater),2.0)>0.0 {
 		// World-fixed frost and branching seams: no screen-space sliding or
 		// extra layer above actors. The normal floor depth/lighting still applies.
 		p := q*3.1
@@ -194,7 +211,7 @@ func floorChasmSurface(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint fl
 		if i==3 { delta=vec2(0,1); distance=1.0-local.y }
 		neighbor := owner+delta
 		if neighbor.x<0 || neighbor.y<0 || neighbor.x>=WorldSize.x || neighbor.y>=WorldSize.y { continue }
-		if floorMaterialAt(neighbor).b!=6 && distance<edge { edge=distance; bank=neighbor }
+		if floorMaterialAt(neighbor).b!=floorBlendChasm && distance<edge { edge=distance; bank=neighbor }
 	}
 	depth := floorCellColor(q,owner,own,mip,texelsPerPixel,2.0,0)
 	if edge==1.0 { return depth }
@@ -214,11 +231,11 @@ func floorSurface(q vec2,mip,texelsPerPixel,maskFootprint float,noise vec2) vec3
 	owner := floor(q)
 	if owner.x<0 || owner.y<0 || owner.x>=WorldSize.x || owner.y>=WorldSize.y { return vec3(30.0/255.0) }
 	own := floorMaterialAt(owner)
-	if own.b==6 { return floorChasmSurface(q,owner,own,mip,texelsPerPixel,maskFootprint) }
-	if own.b==0 { return floorCellColor(q,owner,own,mip,texelsPerPixel,2.0,0) }
+	if own.b==floorBlendChasm { return floorChasmSurface(q,owner,own,mip,texelsPerPixel,maskFootprint) }
+	if own.b==floorBlendHard { return floorCellColor(q,owner,own,mip,texelsPerPixel,2.0,0) }
 	waterDistance := 2.0
-	if own.a>=128 { waterDistance = floorWaterDistance(q) }
-	if mod(floor(own.a/64.0),2.0)<0.5 { return floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x) }
+	if own.a>=floorBlendShore { waterDistance = floorWaterDistance(q) }
+	if mod(floor(own.a/floorBlendBoundary),2.0)<0.5 { return floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x) }
 	edgeDistance := min(fract(q),vec2(1)-fract(q))
 	if min(edgeDistance.x,edgeDistance.y)>min(0.5,0.31+maskFootprint*0.5) {
 		return floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x)
@@ -232,7 +249,7 @@ func floorSurface(q vec2,mip,texelsPerPixel,maskFootprint float,noise vec2) vec3
 	cells[3]=floorMaterialAt(base+vec2(1,1))
 	width := 0.24
 	for i:=0;i<4;i++ {
-		if cells[i].b>=2 { width=0.09 }
+		if cells[i].b!=floorBlendHard && cells[i].b!=floorBlendNatural { width=0.09 }
 	}
 	// Filter the mask as well as the textures at distance. Near-field noise
 	// perturbs only the narrow transition; interiors keep their original art.
@@ -249,7 +266,7 @@ func floorSurface(q vec2,mip,texelsPerPixel,maskFootprint float,noise vec2) vec3
 		if tile!=owner {
 			// The neighbor must opt in too: the outer edge of a cached boundary
 			// band must not half-blend into a tile using the single-material path.
-			if mod(floor(cells[i].a/64.0),2.0)<0.5 || !floorCanBlend(own,cells[i],tile-owner) { continue }
+			if mod(floor(cells[i].a/floorBlendBoundary),2.0)<0.5 || !floorCanBlend(own,cells[i],tile-owner) { continue }
 		}
 		rgb += floorCellColor(q,tile,cells[i],mip,texelsPerPixel,waterDistance,noise.x*detail)*weight
 		total += weight
@@ -298,7 +315,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
 	maskFootprint := foot/max(TexTileSize.x,1.0)
 	q := vec2(floorX,floorY)/TileSize
 	var noise vec2
-	if floorMaterialAt(floor(q)).a>=64.0 {
+	if floorMaterialAt(floor(q)).a>=floorBlendBoundary { // boundary or shore bit
 		noise = vec2(floorNoise(q*1.5),floorNoise(q*1.5+vec2(17,41)))*2.0-1.0
 	}
 	var rgb vec3

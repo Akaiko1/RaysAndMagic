@@ -5,7 +5,6 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"ugataima/internal/shaders"
 )
 
 // World status motifs use native-pixel shader coverage, not UI coordinates or
@@ -20,12 +19,7 @@ type worldStatusBatch struct {
 func (b *worldStatusBatch) reset() { b.vertices, b.indices = b.vertices[:0], b.indices[:0] }
 
 func (b *worldStatusBatch) ensureShader() error {
-	if b.shader != nil {
-		return nil
-	}
-	var err error
-	b.shader, err = ebiten.NewShader([]byte(shaders.Source("world_status.kage")))
-	return err
+	return compileShader(&b.shader, "world_status.kage")
 }
 
 func (b *worldStatusBatch) flush(dst *ebiten.Image) {
@@ -35,7 +29,16 @@ func (b *worldStatusBatch) flush(dst *ebiten.Image) {
 	worldDrawTrianglesShader32(dst, b.vertices, b.indices, b.shader, &b.opts)
 }
 
-func (b *worldStatusBatch) vertex(x, y, u, v, a, c, kind float64, col color.RGBA) {
+// Status glyph shapes: world_status.kage branches on them by name and
+// TestShaderConstantsMatchGo keeps its const block equal.
+const (
+	statusShapeDisc = iota
+	statusShapeBox
+	statusShapeDiamond
+	statusShapeTriangle
+)
+
+func (b *worldStatusBatch) vertex(x, y, u, v, a, c float64, kind int, col color.RGBA) {
 	scale := statusColorScale(col)
 	b.vertices = append(b.vertices, ebiten.Vertex{
 		DstX: float32(x), DstY: float32(y), SrcX: float32(u), SrcY: float32(v),
@@ -44,7 +47,7 @@ func (b *worldStatusBatch) vertex(x, y, u, v, a, c, kind float64, col color.RGBA
 	})
 }
 
-func (b *worldStatusBatch) quad(x, y, rx, ry, co, si, kind float64, col color.RGBA) {
+func (b *worldStatusBatch) quad(x, y, rx, ry, co, si float64, kind int, col color.RGBA) {
 	base := uint32(len(b.vertices))
 	// Two extra source pixels cover the final one-pixel antialias fringe in
 	// either projection. Panini's viewport-normalized magnification is >= 1.
@@ -59,7 +62,7 @@ func (b *worldStatusBatch) quad(x, y, rx, ry, co, si, kind float64, col color.RG
 
 func (b *worldStatusBatch) circle(x, y, radius float64, col color.RGBA) {
 	if radius > 0 {
-		b.quad(x, y, radius, radius, 1, 0, 0, col)
+		b.quad(x, y, radius, radius, 1, 0, statusShapeDisc, col)
 	}
 }
 
@@ -67,13 +70,13 @@ func (b *worldStatusBatch) line(x0, y0, x1, y1, width float64, col color.RGBA) {
 	dx, dy := x1-x0, y1-y0
 	length := math.Hypot(dx, dy)
 	if length > 0 && width > 0 {
-		b.quad((x0+x1)/2, (y0+y1)/2, length/2, width/2, dx/length, dy/length, 1, col)
+		b.quad((x0+x1)/2, (y0+y1)/2, length/2, width/2, dx/length, dy/length, statusShapeBox, col)
 	}
 }
 
 func (b *worldStatusBatch) diamond(x, y, rx, ry float64, col color.RGBA) {
 	if rx > 0 && ry > 0 {
-		b.quad(x, y, rx, ry, 1, 0, 2, col)
+		b.quad(x, y, rx, ry, 1, 0, statusShapeDiamond, col)
 	}
 }
 
@@ -91,7 +94,7 @@ func (b *worldStatusBatch) triangle(p [3][2]float64, col color.RGBA) {
 	base := uint32(len(b.vertices))
 	for _, q := range [4][2]float64{{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}} {
 		x, y := q[0]-p[0][0], q[1]-p[0][1]
-		b.vertex(q[0], q[1], (x*cy-y*cx)/det, (ax*y-ay*x)/det, 0, 0, 3, col)
+		b.vertex(q[0], q[1], (x*cy-y*cx)/det, (ax*y-ay*x)/det, 0, 0, statusShapeTriangle, col)
 	}
 	for _, i := range weaponQuadIndices {
 		b.indices = append(b.indices, base+uint32(i))

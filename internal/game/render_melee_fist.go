@@ -3,19 +3,19 @@ package game
 import (
 	"math"
 
+	"ugataima/internal/config"
+
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Build each rigid model once. Animation transforms whole solids; fingers and
 // fittings never change shape between poses. Local +X is the striking axis.
-var gauntletModels volumeMeshCache
-
-func isGauntletModel(model int) bool { return model == 50 || model == 52 }
-
-func buildGauntlet(model int) []modelFace {
+// buildGauntlet is the gauntlet family's builder, cached with every other
+// melee body in meleeWeaponMeshes.
+func buildGauntlet(body meleeBody) []modelFace {
 	var mesh []modelFace
 	metal, gold, leather, seam := [3]int{120, 133, 144}, [3]int{196, 141, 57}, [3]int{116, 28, 23}, [3]int{49, 43, 36}
-	if model == 50 {
+	if body == bodyBronzeCesti {
 		metal = [3]int{180, 112, 42}
 	}
 	box := func(c, h [3]float64, bevel, roll float64, rgb [3]int) {
@@ -50,7 +50,7 @@ func buildGauntlet(model int) []modelFace {
 		tube([]section{{x - .30, .11, .13}, {x - .21, .142, .195}, {x + .08, .145, .20}, {x + .23, .10, .145}, {x + .27, 0, 0}}, y, -.06, metal)
 		// Dark joint seam and a short overlapping fingertip curled into the palm.
 		tube([]section{{x - .27, .125, .10}, {x - .16, .125, .12}, {x - .03, .08, .09}, {x + .01, 0, 0}}, y, .20, metal)
-		if model == 52 {
+		if body == bodyMonkFists {
 			tube([]section{{x + .02, .147, .202}, {x + .055, .148, .205}}, y, -.06, gold)
 		}
 	}
@@ -81,7 +81,7 @@ func buildGauntlet(model int) []modelFace {
 	for _, y := range []float64{-.30, .30} {
 		box([3]float64{-1.14, y, -.16}, [3]float64{.052, .044, .052}, .029, 0, gold)
 	}
-	if model == 52 {
+	if body == bodyMonkFists {
 		tube([]section{{-1.62, .432, .322}, {-1.45, .397, .294}}, 0, .02, metal)
 		box([3]float64{-.60, 0, -.335}, [3]float64{.145, .16, .035}, .028, 0, gold)
 		box([3]float64{-.60, 0, -.375}, [3]float64{.075, .085, .025}, .02, 0, metal)
@@ -90,12 +90,26 @@ func buildGauntlet(model int) []modelFace {
 	return mesh
 }
 
+// The styled swing that strikes with gauntlets (Bronze Cesti).
+const gauntletStrikeStyle = "arena_cesti"
+
+// drawsGauntletStrike reports whether a weapon's swing is drawn as gauntlet
+// strikes: its own gauntlet style, or an unstyled punch.
+func drawsGauntletStrike(def *config.WeaponDefinitionConfig) bool {
+	style := ""
+	if def.Graphics != nil {
+		style = def.Graphics.SlashFx
+	}
+	return style == gauntletStrikeStyle || (style == "" && meleeFxKind(def) == "punch")
+}
+
 func (r *Renderer) drawGauntletStrike(dst *ebiten.Image, s SlashEffect, cx, cy, height float64) {
 	r.weaponMaterialState.bodyHandled = true
-	model, ok := weaponBodyModels[s.WeaponKey]
-	if !ok || !isGauntletModel(model) {
+	body, ok := weaponBodyModels[s.WeaponKey]
+	if !ok || body.family() != familyGauntlet {
 		return
 	}
+	mesh := meleeWeaponMeshes.get(body, buildMeleeWeaponMesh)
 	p, _, _, _ := meleeFxTiming(s)
 	scale := height * meleeSizeScale
 	if s.Crit {
@@ -120,6 +134,6 @@ func (r *Renderer) drawGauntletStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 		size := scale * (.115 - .028*extension)
 		alpha := math.Min(1, t/.07) * math.Min(1, (1-t)/.18)
 		axis := [3]float64{-side * (.40 - .21*extension), -.36 + .18*extension, .86}
-		r.drawLitVolume(dst, x, y, size, axis, [3]int{}, alpha, model, side)
+		r.drawBoltVolume(dst, x, y, size, axis, alpha, side, mesh, [3]int{255, 255, 255}, boltMaterialGauntlet, true)
 	}
 }

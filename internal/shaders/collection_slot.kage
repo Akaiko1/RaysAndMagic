@@ -1,22 +1,22 @@
 //kage:unit pixels
 package main
 
-// The Storage Clerk's collections, one quad per surface (Mode):
-// 0 showcase niche over an item icon: a rounded well pressed into the case's
-//   velvet, the piece on its floor under the lamp with one soft legendary glow
-//   and a passing glint; an empty well shows the piece's shape
-//   pressed into the velvet;
-// 1 binder pocket over a card icon: the card and the copies behind it on the
-//   black backing, under a frosted sleeve; the card's holo foil follows Tilt;
-// 2 binder sheet: the backing and plastic between the pockets, weld seams,
-//   punched holes on the ring side;
-// 3 binder rings and their plate across the gutter of a spread;
-// 4 brass plaque under a niche;
-// 5 binder cover: black leatherette with a stitched edge;
-// 6 showcase bed: the velvet between the wells, shaded by the case walls;
-// 7 showcase cabinet: polished dark wood around the case.
-// Modes 0 and 1 read the icon (src in texels; the quad runs Margin texels past
-// the icon or the card). The others have no image and get src as 0..1.
+// The Storage Clerk's collections, one quad per surface (Mode, the
+// collectionMode* names below):
+// Niche over an item icon: a rounded well pressed into the case's velvet, the
+//   piece on its floor under the lamp with one soft legendary glow and a
+//   passing glint; an empty well shows the piece's shape pressed into the velvet;
+// Pocket over a card icon: the card and the copies behind it on the black
+//   backing, under a frosted sleeve; the card's holo foil follows Tilt;
+// Sheet: the backing and plastic between the pockets, weld seams, punched
+//   holes on the ring side;
+// Rings: the binder rings and their plate across the gutter of a spread;
+// Plaque: the brass plaque under a niche;
+// Cover: black leatherette with a stitched edge;
+// Bed: the velvet between the wells, shaded by the case walls;
+// Cabinet: polished dark wood around the case.
+// Niche and Pocket read the icon (src in texels; the quad runs Margin texels
+// past the icon or the card). The others have no image and get src as 0..1.
 // Page is the surface the sheen and glass share, in dst pixels (x, y, w, h),
 // so one reflection runs across neighbouring quads. Scale is pixels per UI
 // unit. DstMin is the destination's bounds origin: positions are measured
@@ -137,28 +137,41 @@ func bed(p vec2) vec3 {
 	return col
 }
 
+// Surfaces by name: the collectionMode* constants in collection_screen.go;
+// TestShaderConstantsMatchGo keeps the values equal.
+const (
+	collectionModeNiche = 0
+	collectionModePocket = 1
+	collectionModeSheet = 2
+	collectionModeRings = 3
+	collectionModePlaque = 4
+	collectionModeCover = 5
+	collectionModeBed = 6
+	collectionModeCabinet = 7
+)
+
 func Fragment(dst vec4, src vec2, color vec4) vec4 {
 	a := color.a
 	p := dst.xy - imageDstOrigin() + DstMin
-	if Mode < .5 {
+	if Mode == collectionModeNiche {
 		return vec4(niche(p, src)*a, a)
 	}
-	if Mode < 1.5 {
+	if Mode == collectionModePocket {
 		return vec4(pocket(p, src)*a, a)
 	}
-	if Mode < 2.5 {
+	if Mode == collectionModeSheet {
 		return vec4(sheet(p)*a, a)
 	}
-	if Mode < 3.5 {
+	if Mode == collectionModeRings {
 		return rings(p) * a
 	}
-	if Mode < 4.5 {
+	if Mode == collectionModePlaque {
 		return vec4(plaque(src)*a, a)
 	}
-	if Mode < 5.5 {
+	if Mode == collectionModeCover {
 		return vec4(cover(p)*a, a)
 	}
-	if Mode < 6.5 {
+	if Mode == collectionModeBed {
 		return vec4((bed(p)+caseGlass(pagePos(p)))*a, a)
 	}
 	return vec4(cabinet(p)*a, a)

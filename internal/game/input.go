@@ -323,6 +323,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	// closes the UI-owned quantity picker through its existing SSoT.
 	g.cancelStackSplitInteraction()
 	g.party = party
+	g.warmPartyWeaponModels()
 	g.selectedChar = 0
 	g.parkSelection = false
 	g.clearFocusMode()

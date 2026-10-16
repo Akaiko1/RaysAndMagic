@@ -2,11 +2,6 @@ package game
 
 import "math"
 
-const (
-	meleeBodyRainfang     = 18
-	meleeBodyShellknocker = 65
-)
-
 // The cyan cutting surface curves continuously into a gold serpent guard.
 // These are rigid facets and fittings, not a warped icon or a tinted dagger.
 func (m *weaponMeshBuilder) rainfang() {

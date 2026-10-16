@@ -65,6 +65,12 @@ type Renderer struct {
 	worldBadgeImages map[worldBadgeKey]*ebiten.Image
 	floorPreparation *floorPreparation
 
+	rangedPoser              rangedPoser
+	rangedSunFlame           rangedSunFlameRenderer
+	rangedMaterialOpts       ebiten.DrawTrianglesShaderOptions
+	rangedMaterialTime       [1]float32
+	rangedDepthStage         [1]float32
+	rangedDepthLayers        [2]*ebiten.Image
 	game                     *MMGame
 	floorColorCache          map[[2]int]color.RGBA // Now world-level, static after init
 	whiteImg                 *ebiten.Image         // 1x1 white image for untextured polygons
@@ -296,6 +302,7 @@ type Renderer struct {
 	relicMaterialOpts    ebiten.DrawTrianglesShaderOptions
 	relicMaterialTime    [1]float32
 	bubbleShader         *ebiten.Shader
+	rangedFlameShader    *ebiten.Shader
 	fireflyShader        *ebiten.Shader
 	weaponMaterialWarmed bool
 	weaponMaterialState  weaponMaterialState
@@ -1461,6 +1468,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 		// Draw slash effects
 		r.drawSlashEffects(screen)
+		r.drawRangedHeld(screen)
 
 		// Draw hit effects (spell particles, arrow bursts)
 		r.drawHitEffects(screen)
@@ -1947,7 +1955,7 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 	}
 }
 
-// maxFloorShaderLights must match the Lights array length in floorShaderSrc.
+// maxFloorShaderLights must match the Lights array length in floor.kage.
 // 16 starved torch-lined maps (distant pools popped in only at point-blank);
 // the shader's squared-distance early-out makes 32 affordable.
 const maxFloorShaderLights = 32
@@ -1964,7 +1972,7 @@ const (
 )
 
 // drawSimpleFloorCeiling renders the perspective floor entirely on the GPU
-// via a Kage shader (see floorShaderSrc). Per-fragment work: reverse-project
+// via a Kage shader (see floor.kage). Per-fragment work: reverse-project
 // screen -> world -> tile, look up base color, optionally blend a hash-selected
 // floor texture, then apply distance shading plus up to maxFloorShaderLights
 // point lights.
@@ -2108,15 +2116,8 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 }
 
 func (r *Renderer) ensureFloorShader() (*ebiten.Shader, error) {
-	if r.floorShader != nil {
-		return r.floorShader, nil
-	}
-	s, err := ebiten.NewShader([]byte(floorShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	r.floorShader = s
-	return s, nil
+	err := compileShader(&r.floorShader, "floor.kage")
+	return r.floorShader, err
 }
 
 const flatTreeFallbackWidthTiles = 1.0
@@ -5017,8 +5018,8 @@ func (r *Renderer) drawArrow(screen *ebiten.Image, idx int) {
 		convergence := 0.0
 		if !view.incoming() && arrow.Owner == ProjectileOwnerPlayer && arrow.Attacker != nil && !arrow.Signature.ReturnLeg {
 			convergence = bowHandConvergence(arrow.DistanceTraveled, r.game.config.GetTileSize()) * view.faceWeight()
-			centerX += float64(r.game.worldWidth()) * .055 * convergence
-			centerY += float64(r.game.worldHeight()) * .025 * convergence
+			hx, hy := bowLaunchHandOffset(float64(r.game.worldWidth()), float64(r.game.worldHeight()), convergence)
+			centerX, centerY = centerX+hx, centerY+hy
 		}
 		draw(r, screen, centerX, centerY, float64(arrowSize), view, critBoost, convergence, seedFromID(arrow.ID))
 		return
@@ -5072,8 +5073,7 @@ func (r *Renderer) drawArrow(screen *ebiten.Image, idx int) {
 	if !incoming && arrow.Owner == ProjectileOwnerPlayer && arrow.Attacker != nil && arrow.SkipMonster == nil {
 		convergence = bowHandConvergence(arrow.DistanceTraveled, r.game.config.GetTileSize()) * faceWeight
 	}
-	handX := float64(r.game.worldWidth()) * .055 * convergence
-	handY := float64(r.game.worldHeight()) * .025 * convergence
+	handX, handY := bowLaunchHandOffset(float64(r.game.worldWidth()), float64(r.game.worldHeight()), convergence)
 	centerX, centerY = centerX+handX, centerY+handY
 	if faceWeight > 0 {
 		// Along the sightline, an outgoing arrow shows its nock and

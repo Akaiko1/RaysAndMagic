@@ -1,74 +1,10 @@
-// flameWisp is a torn-off flame tongue: a small teardrop, round at its base
-// and drawn to a point at the top, that sways, shrinks and fades as it rises.
-// q is the offset from the wisp's base in equally scaled units with y UP;
-// size is its height and life runs 0..1. Returns its opacity.
-func flameWisp(q vec2, size, life float) float {
-	h := size * (1.0 - 0.55*life)
-	w := h * 0.30
-	u := q.y / h
-	x := q.x - sin(u*4.0+life*9.0)*w*0.7*max(u, 0.0)
-	r := w * pow(max(0.0, 1.0-u), 1.3)
-	if u < 0.0 {
-		r = w * sqrt(max(0.0, 1.0-(u/0.30)*(u/0.30)))
-	}
-	body := 1.0 - smoothstep(r*0.35, r+0.0001, abs(x))
-	return body * step(u, 1.0) * pow(1.0-life, 1.2) * smoothstep(0.0, 0.12, life)
-}
-
-// preservationFlame is the ghost light the wings embrace, in the place and at
-// the size of the old candle (screen .51-.75 of the viewport height): a heavy
-// round body, a thin tip that burns actively, and sparks that tear off it.
-func preservationFlame(p vec2,t,fade float) vec4 {
-	if abs(p.x)>.13 || p.y < -.16 || p.y > .32 {return vec4(0)}
-	grow:=.45+.55*smoothstep(.02,.28,t)
-	R:=.066*grow
-	baseY:=.218
-	H:=(.20+.022*sin(t*23)+.014*sin(t*41+1.3))*grow
-	dy:=p.y-baseY
-	h:=-dy/H
-	n:=veilNoise(vec2(p.x*4.5,p.y*2.4-t*2.6))
-	// The tip sways and licks; the heavy base barely moves.
-	hh:=max(h,0)
-	x:=p.x-(n.r-.5)*.08*hh*hh-.014*sin(t*16+hh*6)*hh
-	r:=float(0)
-	if dy>0 {
-		r=sqrt(max(0,R*R-dy*dy))
-	} else {
-		r=R*pow(max(0,1-h),1.3)*(1+.30*(n.g-.5)*h)
-	}
-	d:=abs(x)/max(r,.0004)
-	body:=(1-smoothstep(.62,1.04,d))*step(h,1.05)
-	// Tongues of light flow up through the translucent body.
-	tongue:=veilNoise(vec2(x*6.5,p.y*3.6-t*4.2)).g
-	core:=exp(-length(vec2(x/(R*.55),(dy+R*.25)/(R*.9)))*1.6)*(1-smoothstep(.55,1,h))
-	halo:=exp(-max(0,abs(x)-r)*38)*smoothstep(1.25,.2,h)*(1-smoothstep(0,.06,dy-R))
-	col:=mix(vec3(1,.52,.12),vec3(1,.82,.36),smoothstep(.25,.75,tongue))
-	col=mix(col,vec3(1,.97,.84),core)
-	a:=body*(.58+.26*tongue+.40*core)+halo*.38
-	rgb:=col*a
-	// Torn-off tongues leave the tip, rise, drift and burn out (y flips to up).
-	for i:=0;i<6;i++ {
-		k:=float(i)
-		life:=fract(t*2.4+k*.381)
-		seed:=fract(sin(k*91.7)*437.5)
-		tip:=vec2(0,baseY-H*.80)
-		pos:=tip+vec2((seed-.5)*.028+sin(life*7+k)*.012*life,-life*(.10+.05*seed))
-		q:=p-pos
-		wisp:=flameWisp(vec2(q.x,-q.y),.032,life)*.85
-		rgb+=vec3(1,.74,.30)*wisp*(1-a)
-		a=max(a,wisp)
-	}
-	a=clamp(a*fade,0,.95)
-	return vec4(min(rgb*fade,vec3(a)),a)
-}
-
 func advancedWard(p vec2,t,fade,style float) vec4 {
-	if style==9 {return preservationFlame(p,t,fade)}
-	if style==21 {return celestialSparks(p,t,fade)}
+	if style==castStylePreservation {return preservationFlame(p,t,fade)}
+	if style==castStyleCelestialArmor {return celestialSparks(p,t,fade)}
 	if abs(p.x)>.62 || abs(p.y)>.48 {return vec4(0)}
 	rgb:=vec3(0)
 	alpha:=float(0)
-	if style==4 || style==17 {
+	if style==castStyleShield || style==castStyleProtectionFromMagic {
 		// A slanted curved barrier grows from the contact region. Broad
 		// interference patches carry its volume; there is no closed neon rim.
 		// Shield and Protection from Magic share geometry and motion.
@@ -78,7 +14,7 @@ func advancedWard(p vec2,t,fade,style float) vec4 {
 		lipColor:=vec3(.42,1,.32)
 		poolColor:=vec3(.56,1,.25)
 		waveColor:=vec3(.78,1,.58)
-		if style==4 {
+		if style==castStyleShield {
 			base=vec3(.025,.10,.25)
 			patchColor=vec3(.12,.30,.53)
 			reflectionColor=vec3(.36,.57,.77)

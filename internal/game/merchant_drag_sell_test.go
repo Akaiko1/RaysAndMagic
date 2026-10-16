@@ -424,7 +424,7 @@ func TestQuantityButtonsThroughDisplayedPicker(t *testing.T) {
 				ui.beginMerchantBuyPicker(0)
 				maximum = 7
 			case "sell":
-				ui.beginMerchantSellPicker(0)
+				ui.beginMerchantSellPicker(0, 0)
 				maximum = 20
 			default:
 				ui.openStackSplitPicker(stackSplitPickerInventory, 0, g.party.Inventory[0])

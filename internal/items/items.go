@@ -2,6 +2,7 @@ package items
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	damagecalc "ugataima/internal/damage"
@@ -187,6 +188,25 @@ func (it *Item) ConsumeStackUnits(quantity int) bool {
 	return true
 }
 
+// RekeyClaimedLineages gives each stack component whose ID claimed reports a
+// fresh ID, keeping its units. A whole chest withdrawal uses it for components
+// the chest still holds in another cell (a layout split there shares IDs), so
+// a later load never strips the withdrawn units as stash-owned.
+func (it *Item) RekeyClaimedLineages(claimed func(id uint64) bool) bool {
+	parts := slices.Clone(it.StackLineageParts())
+	changed := false
+	for i := range parts {
+		if claimed(parts[i].ID) {
+			parts[i].ID = NewInstanceID()
+			changed = true
+		}
+	}
+	if changed {
+		it.setStackLineageParts(parts)
+	}
+	return changed
+}
+
 // SplitOff removes quantity units from a stack and returns them as a separate
 // item. The moved fragment keeps its source lineage and only the residual units
 // from a split component are rekeyed. This is the direction used when a party
@@ -366,6 +386,31 @@ func SameStack(a, b Item) bool {
 	return a.Stackable() && b.Stackable() && a.Name == b.Name && a.Type == b.Type
 }
 
+// Drop is what a manual drop does at the cell it lands on.
+type Drop int
+
+const (
+	DropRefused Drop = iota // part of a stack onto another item: nothing moves
+	DropMerge               // onto a matching stack
+	DropPlace               // onto an empty cell: a stack of its own
+	DropSwap                // a whole stack onto another item: the two trade cells
+)
+
+// DropOnto is the placement rule of every container cell, bag or chest: moving
+// (a whole stack, or part of one) dropped on a cell holding occupant. A zero
+// occupant (no name, like an empty chest cell) is an empty cell.
+func DropOnto(moving, occupant Item, whole bool) Drop {
+	switch {
+	case occupant.Name == "":
+		return DropPlace
+	case SameStack(occupant, moving):
+		return DropMerge
+	case whole:
+		return DropSwap
+	}
+	return DropRefused
+}
+
 // PreferredSlot resolves where this item equips from its equip_slot attribute,
 // falling back to the given slot when unset. Single source for the
 // equip_slot->slot mapping (used by EquipItem and the class-kit loader).
@@ -394,7 +439,7 @@ const (
 	ItemCard      // Collectible monster cards (party-wide collection via the card collector)
 	ItemThrowable // Non-owning bag-backed flask shortcut.
 	ItemTechnique // Pilgrim technique shortcut.
-	ItemDevice    // Reusable physical utility item with its own cooldown.
+	ItemDevice    // Reusable physical utility item: jump, summon (own recharge) or a thrown flask.
 )
 
 // String returns the display name of the item type (Stringer interface).

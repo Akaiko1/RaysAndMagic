@@ -5,7 +5,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"math"
 	"ugataima/internal/config"
-	"ugataima/internal/shaders"
 )
 
 var flaskProjectileFxStyles = map[string]func(*Renderer, *ebiten.Image, flaskRenderPose){
@@ -25,11 +24,9 @@ func validateFlaskFxStyles() {
 
 func (r *Renderer) prepareRelicMaterial() bool {
 	if r.relicMaterialShader == nil {
-		shader, err := ebiten.NewShader([]byte(shaders.Source("boss_relic.kage")))
-		if err != nil {
+		if compileShader(&r.relicMaterialShader, "boss_relic.kage") != nil {
 			return false
 		}
-		r.relicMaterialShader = shader
 		r.relicMaterialOpts.Uniforms = map[string]interface{}{"Time": r.relicMaterialTime[:]}
 	}
 	r.relicMaterialTime[0] = float32(r.weaponMaterialClock())

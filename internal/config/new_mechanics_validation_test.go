@@ -89,6 +89,22 @@ func TestWeaponStatusTooltipUsesSharedDuration(t *testing.T) {
 }
 
 func TestValidateItemConfigRejectsIncompleteNewMechanics(t *testing.T) {
+	// A complete reusable flask device: valid only with no recharge of its own.
+	flaskDevice := func(recharge int) *ItemDefinitionConfig {
+		return &ItemDefinitionConfig{Type: "device", UseAction: "throw_flask", UseCooldownSeconds: recharge, BrewColor: [3]int{1, 2, 3},
+			Flask: &FlaskDefinition{Reusable: true, ProjectileFx: "fx", Element: "water", Damage: [4]int{1, 2, 3, 4}, RangeTiles: 6, RadiusTiles: 2, CooldownSeconds: 3}}
+	}
+	// Controls: each device action validates when complete, so the rows below
+	// fail on the field they break.
+	for name, control := range map[string]*ItemDefinitionConfig{
+		"flask device without a recharge": flaskDevice(0),
+		"jump device with a recharge":     {Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1, UseCooldownSeconds: 10},
+		"summon device with a recharge":   {Type: "device", UseAction: "summon", SummonDistanceTiles: 3, UseCooldownSeconds: 10},
+	} {
+		if err := validateItemConfig(&ItemSystemConfig{Items: map[string]*ItemDefinitionConfig{"test": control}}); err != nil {
+			t.Fatalf("control: a complete %s must validate: %v", name, err)
+		}
+	}
 	tests := []struct {
 		name string
 		item *ItemDefinitionConfig
@@ -97,6 +113,11 @@ func TestValidateItemConfigRejectsIncompleteNewMechanics(t *testing.T) {
 		{"device without reference", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseCooldownSeconds: 10}},
 		{"device unsupported action", &ItemDefinitionConfig{Type: "device", UseAction: "missing", UseSpell: "jump", UseCooldownSeconds: 10}},
 		{"device without recharge", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1}},
+		{"summon device without recharge", &ItemDefinitionConfig{Type: "device", UseAction: "summon", SummonDistanceTiles: 3}},
+		{"thrown flask with a recharge", flaskDevice(6)},
+		{"thrown flask with a negative recharge", flaskDevice(-1)},
+		{"jump device with a negative recharge", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1, UseCooldownSeconds: -1}},
+		{"summon device with a negative recharge", &ItemDefinitionConfig{Type: "device", UseAction: "summon", SummonDistanceTiles: 3, UseCooldownSeconds: -1}},
 		{"device with negative range", &ItemDefinitionConfig{Type: "device", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: -1, UseCooldownSeconds: 10}},
 		{"device behavior on potion", &ItemDefinitionConfig{Type: "consumable", UseAction: "jump", UseSpell: "jump", UseJumpExtraTiles: 1, UseCooldownSeconds: 10}},
 		{"base damage without equipment or collection", &ItemDefinitionConfig{Type: "trinket", WeaponBaseDamageBonus: 15}},

@@ -3,6 +3,18 @@ package main
 
 //include weapon_noise.kageinc
 
+// Ribbon materials by name: the weapon* constants in render_weapon_material.go;
+// TestShaderConstantsMatchGo keeps the values equal.
+const (
+	weaponMetal = 0
+	weaponHeat = 1
+	weaponLiquid = 2
+	weaponEnergy = 3
+	weaponVeil = 4
+	weaponStone = 5
+	weaponWind = 6
+)
+
 // UV is distance along the stroke / 36px and signed cross-stroke position.
 // Custom: dissolve age (negative for a continuous filament), path fraction,
 // stable seed, material + 0.25. Output is premultiplied for both blend modes.
@@ -16,7 +28,7 @@ func Fragment(dst vec4, uv vec2, color vec4, custom vec4) vec4 {
 	flow := fxNoise(vec2(uv.x*1.8-phase, uv.y*2.5+custom.z))
 	fine := fxNoise(vec2(uv.x*5.0+phase*0.6, uv.y*8.0+custom.z))
 	bend := 0.025
-	if material == 1.0 || material == 2.0 || material == 4.0 || material == 6.0 {
+	if material == weaponHeat || material == weaponLiquid || material == weaponVeil || material == weaponWind {
 		bend = 0.22
 	}
 	cross := abs(uv.y + (flow-0.5)*bend)
@@ -25,12 +37,12 @@ func Fragment(dst vec4, uv vec2, color vec4, custom vec4) vec4 {
 	core := exp(-cross * cross * 95.0)
 	rib := pow(0.5+0.5*sin(uv.y*18.0+flow*4.0-phase), 6.0) * body
 	shade := 0.52 + 0.48*flow
-	if material == 0.0 || material == 5.0 {
+	if material == weaponMetal || material == weaponStone {
 		// Metal/stone keep a straight bevel and a travelling specular edge.
 		shade = 0.42 + 0.4*(1.0-cross) + 0.18*fine
 		rib *= 0.25
 	}
-	if material == 3.0 {
+	if material == weaponEnergy {
 		// Machinery has coherent luminous rails, without organic waviness.
 		rib = pow(0.5+0.5*sin(uv.y*25.0), 10.0) * body * (0.6 + 0.4*flow)
 	}
@@ -41,13 +53,13 @@ func Fragment(dst vec4, uv vec2, color vec4, custom vec4) vec4 {
 	tint := color.rgb*shade + mix(color.rgb, vec3(1), 0.72)*(core*0.68+rib*0.3+burn*0.5)
  // Matter has a broad face with an offset bevel. A white axial filament
  // would turn a heavy hammer wake into a hair, regardless of mesh width.
- if material == 0.0 || material == 5.0 {
+ if material == weaponMetal || material == weaponStone {
   a = min(1.0,color.a)*edge*(0.83+0.17*flow)*dissolve
   bevel := exp(-(uv.y+0.45)*(uv.y+0.45)*22.0)
   tint = color.rgb*(0.48+0.5*flow+0.3*(1.0-cross))
   tint += mix(color.rgb,vec3(1),0.5)*bevel*0.28
  }
- if material == 6.0 {
+ if material == weaponWind {
   a=min(1.0,color.a)*edge*(0.48+0.52*flow)*dissolve
   tint=color.rgb*(0.58+0.55*flow)+vec3(0.12)*fine
  }

@@ -60,6 +60,14 @@ type standeeCoreKey struct {
 	img    *ebiten.Image // only set when the caller's frame images are stable
 }
 
+// Standee surfaces: standee_trilinear.kage branches on them by name and
+// TestShaderConstantsMatchGo keeps its const block equal.
+const (
+	standeeLayerNearSticker = iota
+	standeeLayerCore
+	standeeLayerFarSticker
+)
+
 func makeStandeeCoreKey(name string, img *ebiten.Image, stableImage bool) standeeCoreKey {
 	if img == nil {
 		return standeeCoreKey{name: name}
@@ -562,27 +570,13 @@ func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *mip
 }
 
 func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
-	if r.standeeTrilinearShader != nil {
-		return r.standeeTrilinearShader, nil
-	}
-	shader, err := ebiten.NewShader([]byte(standeeTrilinearShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	r.standeeTrilinearShader = shader
-	return shader, nil
+	err := compileShader(&r.standeeTrilinearShader, "standee_trilinear.kage")
+	return r.standeeTrilinearShader, err
 }
 
 func (r *Renderer) ensureStandeeVolumeShader() (*ebiten.Shader, error) {
-	if r.standeeVolumeShader != nil {
-		return r.standeeVolumeShader, nil
-	}
-	shader, err := ebiten.NewShader([]byte(standeeVolumeShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	r.standeeVolumeShader = shader
-	return shader, nil
+	err := compileShader(&r.standeeVolumeShader, "standee_volume.kage")
+	return r.standeeVolumeShader, err
 }
 
 // clampYawFromEdgeOn keeps a token's long axis at least minRad away from the
@@ -1324,11 +1318,11 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		cr := slab.rr * sf.shade * opacity
 		cg := slab.gg * sf.shade * opacity
 		cb := slab.bb * sf.shade * opacity
-		layerMode := float32(0)
+		layerMode := float32(standeeLayerNearSticker)
 		if sf.mipKey.layer == standeeMipCore {
-			layerMode = 1
+			layerMode = standeeLayerCore
 		} else if surfaceIndex != len(slab.surfaces)-1 {
-			layerMode = 2
+			layerMode = standeeLayerFarSticker
 		}
 		material := ebiten.Vertex{ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity,
 			Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint}

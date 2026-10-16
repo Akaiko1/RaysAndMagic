@@ -1,4 +1,13 @@
 //include standee_sampling.kageinc
+
+// Surfaces by name: the standeeLayer* constants in render_standee.go;
+// TestShaderConstantsMatchGo keeps the values equal.
+const (
+	standeeLayerNearSticker = 0
+	standeeLayerCore = 1
+	standeeLayerFarSticker = 2
+)
+
 func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	dstPos := vec4(paniniSourcePoint(rawDstPos.xy-imageDstOrigin())+imageDstOrigin(),rawDstPos.zw)
 	p := srcPos
@@ -17,12 +26,13 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		blend := clamp((filterData-2.0*filtered-0.25)*2.0, 0.0, 1.0)
 		data = vec4(blend, layer, filtered, data.w)
 	}
-	// data.y selects near sticker, core, or far sticker. data.w carries
-	// the major-axis footprint (negative for vertical minification).
-	if data.y > 1.5 {
+	// data.y selects the surface. data.w carries the major-axis footprint
+	// (negative for vertical minification).
+	surface := floor(data.y + .5) // an exact id, safe from interpolation error
+	if surface == standeeLayerFarSticker {
 		return stickerAt(p, data.x) * color
 	}
-	if data.y > 0.5 {
+	if surface == standeeLayerCore {
 		return sampleLinear3(p) * color
 	}
 	footprint := vec2(max(data.w, 0.0), max(-data.w, 0.0))

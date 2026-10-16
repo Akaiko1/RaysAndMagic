@@ -21,10 +21,9 @@ func flaskDefinition(item items.Item) (string, *config.ItemDefinitionConfig) {
 }
 
 type flaskSupply struct {
-	count  int
-	bag    character.InventoryBag
-	index  int
-	device *items.Item
+	count int
+	bag   character.InventoryBag
+	index int
 }
 
 // Count, availability and payment use the same acting hero's stock: personal
@@ -40,11 +39,8 @@ func (g *MMGame) availableFlasks(actor *character.MMCharacter, key string) flask
 			return
 		}
 		supply.count += it.Count()
-		if supply.index < 0 && supply.device == nil || d.Flask.Reusable && supply.device.DeviceCooldownFrames > 0 && it.DeviceCooldownFrames <= 0 {
+		if supply.index < 0 {
 			supply.bag, supply.index = bag, index
-			if d.Flask.Reusable {
-				supply.device = it
-			}
 		}
 	}
 	visitBag := func(bag character.InventoryBag) {
@@ -71,7 +67,7 @@ func (g *MMGame) flaskReady(actor *character.MMCharacter, key string) bool {
 		return false
 	}
 	supply := g.availableFlasks(actor, key)
-	return supply.index >= 0 && !d.Flask.Reusable || supply.device != nil && supply.device.DeviceCooldownFrames <= 0
+	return supply.index >= 0
 }
 func (g *MMGame) equipFlask(idx int, key string) bool {
 	if idx < 0 || idx >= len(g.party.Members) {
@@ -120,11 +116,8 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 		return refuse(uitext.Text("item.flask_no_room"))
 	}
 	supply := g.availableFlasks(c, key)
-	if supply.index < 0 && supply.device == nil {
+	if supply.index < 0 {
 		return refuse(uitext.Text("item.flask_none", d.Name))
-	}
-	if d.Flask.Reusable && supply.device.DeviceCooldownFrames > 0 {
-		return refuse(uitext.Text("item.device_recharging", d.Name))
 	}
 	f := d.Flask
 	tier := c.SkillTier(character.FlaskMasterySkill(f))
@@ -155,12 +148,8 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 		LifeTime:         10 * tps,
 		Active:           true,
 	}
-	if f.Reusable {
-		g.armDeviceRecharge(supply.device)
-	} else {
-		if !supply.bag.Consume(supply.index, 1) {
-			return false
-		}
+	if !f.Reusable && !supply.bag.Consume(supply.index, 1) {
+		return false
 	}
 	g.flasks = append(g.flasks, p)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(p.ID, p.X, p.Y, 10, 10, collision.CollisionTypeProjectile, false))
@@ -231,6 +220,13 @@ func (g *MMGame) useSlottedRareAction(idx int, kind rtActionKind, announce bool)
 		}
 		return true, g.useTechnique(idx, it.Technique, false, announce)
 	case items.ItemThrowable:
+		// Space heals a wounded ally before it throws: the slotted flask yields
+		// to SmartAttack, whose first branch is that heal.
+		if kind == rtActSmart {
+			if _, _, _, heal := g.combat.smartHealPlan(g.party.Members[idx]); heal {
+				return false, false
+			}
+		}
 		return true, g.throwFlask(idx, it.Flask, announce)
 	}
 	return false, false

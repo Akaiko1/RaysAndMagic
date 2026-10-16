@@ -4,7 +4,6 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"ugataima/internal/shaders"
 )
 
 // Camera-local spell objects reuse the weapon mesh renderer: real curved faces,
@@ -34,7 +33,7 @@ const (
 	castMatGilt     // warm gold trim of the celestial cuirass
 )
 
-var castObjectMeshes volumeMeshCache
+var castObjectMeshes volumeMeshCache[int]
 
 type castObjectRenderer struct {
 	shader  *ebiten.Shader
@@ -47,10 +46,8 @@ type castObjectRenderer struct {
 func (r *Renderer) drawCastObject(dst *ebiten.Image, a buffFxAnim, model int, inside func()) {
 	o := &r.castOverlay.object
 	if o.shader == nil {
-		var err error
-		o.shader, err = ebiten.NewShader([]byte(shaders.Source("cast_object.kage")))
-		if err != nil {
-			panic(err)
+		if compileShader(&o.shader, "cast_object.kage") != nil {
+			return // a broken shader skips the object and its inside pass, like every other material
 		}
 		o.options.Uniforms = map[string]any{"Phase": o.phase[:]}
 	}

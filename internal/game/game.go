@@ -384,6 +384,7 @@ type MMGame struct {
 	// Utility spell status icons (data-driven)
 	buffStatuses           map[string]*BuffStatus
 	slashEffects           []SlashEffect
+	rangedHeld             []rangedHeldAnimation // held ranged models, one per hero and hand
 	spellHitEffects        []SpellHitEffect
 	elementalAttackEffects []elementalAttackEffect
 	buffFxAnims            []buffFxAnim // buff-cast overlay animations (render_buff_fx.go)
@@ -732,7 +733,7 @@ type MMGame struct {
 	pendingStashTransferID string
 	stashDragArmed         bool
 	stashDragActive        bool
-	stashDragFrom          int        // -1 none; 0..7 stash cell; >=stashDragInvBase inventory
+	stashDragFrom          int        // -1 none; a chest cell; >=stashDragInvBase inventory
 	stashDragItem          items.Item // carried copy, for rendering
 	stashDragSplitQuantity int        // zero = whole move; positive = partial stack transfer
 	stashDragPickedUp      bool       // exact-quantity picker is awaiting one destination click
@@ -1781,15 +1782,8 @@ func loadPNGAsEbiten(path string) (*ebiten.Image, error) {
 }
 
 func (g *MMGame) ensureSkyShader() (*ebiten.Shader, error) {
-	if g.skyShader != nil {
-		return g.skyShader, nil
-	}
-	s, err := ebiten.NewShader([]byte(skyShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	g.skyShader = s
-	return s, nil
+	err := compileShader(&g.skyShader, "sky.kage")
+	return g.skyShader, err
 }
 
 func (g *MMGame) Update() error {
@@ -1838,15 +1832,8 @@ func (g *MMGame) turnBlurPixels(screenWidth int) float64 {
 
 // ensureBlurShader lazily compiles the horizontal motion-blur shader.
 func (g *MMGame) ensureBlurShader() (*ebiten.Shader, error) {
-	if g.blurShader != nil {
-		return g.blurShader, nil
-	}
-	s, err := ebiten.NewShader([]byte(turnBlurShaderSrc))
-	if err != nil {
-		return nil, err
-	}
-	g.blurShader = s
-	return s, nil
+	err := compileShader(&g.blurShader, "turn_blur.kage")
+	return g.blurShader, err
 }
 
 func (g *MMGame) ensureSceneBuffer(size image.Point) *ebiten.Image {
@@ -2072,9 +2059,8 @@ func (g *MMGame) uiPixelScale() float64 {
 // the threading components' own idempotency - call once on game exit.
 func (g *MMGame) Shutdown() {
 	g.cancelCampPresentation()
-	if g.gameLoop != nil && g.gameLoop.renderer != nil && g.gameLoop.renderer.litVolumeLayer != nil {
-		g.gameLoop.renderer.litVolumeLayer.Deallocate()
-		g.gameLoop.renderer.litVolumeLayer = nil
+	if g.gameLoop != nil && g.gameLoop.renderer != nil {
+		g.gameLoop.renderer.releaseEquipmentLayers()
 	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil && g.gameLoop.ui.profileViewport != nil {
 		uiReleaseLayer(g.gameLoop.ui.profileViewport)
@@ -3047,6 +3033,7 @@ func (g *MMGame) applyEquipmentMutation(characterIndex int, mutate func() bool) 
 		return false
 	}
 	g.reconcileTBRoundActionFloorAfterEquipmentChange(characterIndex)
+	g.warmHeroWeaponModels(g.party.Members[characterIndex])
 	return true
 }
 

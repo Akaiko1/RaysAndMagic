@@ -641,7 +641,9 @@ func TestChamberReturningGaleLegsShareHitRules(t *testing.T) {
 	}
 }
 
-func TestChamberRetortRechargeCatalysisAndOwnership(t *testing.T) {
+// The Retort is paced by the hero's action cooldown alone (no recharge of its
+// own), marks with Catalysis for its owner, and never runs out.
+func TestChamberRetortPaceCatalysisAndOwnership(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		for _, stock := range []string{"own", "shared"} { // a quick slot only holds its shortcut
 			t.Run(fmt.Sprintf("TB=%v/%s", tb, stock), func(t *testing.T) {
@@ -658,12 +660,31 @@ func TestChamberRetortRechargeCatalysisAndOwnership(t *testing.T) {
 				case "shared":
 					g.party.Inventory = []items.Item{item}
 				}
-				if !g.equipFlask(0, "solstice_everflow_retort") || !g.throwFlask(0, "solstice_everflow_retort", false) {
+				if !g.equipFlask(0, "solstice_everflow_retort") {
+					t.Fatal("retort failed to equip")
+				}
+				actions := ch.ActionsRemaining
+				if !g.throwFlask(0, "solstice_everflow_retort", false) {
 					t.Fatal("retort failed to launch")
 				}
 				shot := g.flasks[0]
-				if shot.Damage != 110 || shot.CatalysisPercent != 50 || g.flaskStock(ch, shot.Key) != 1 || g.flaskReady(ch, shot.Key) {
-					t.Fatal("wrong mastery, consumption or recharge")
+				if shot.Damage != 110 || shot.CatalysisPercent != 50 || g.flaskStock(ch, shot.Key) != 1 || !g.flaskReady(ch, shot.Key) {
+					t.Fatal("wrong mastery, consumption, or a recharge on the retort")
+				}
+				if spent := (tb && ch.ActionsRemaining == actions-1) || (!tb && ch.RTCooldown > 0); !spent {
+					t.Fatalf("the throw did not spend the hero's action (TB actions %d -> %d, RT cooldown %d)", actions, ch.ActionsRemaining, ch.RTCooldown)
+				}
+				// While the hero's cooldown runs (RT recovery, or no TB action
+				// left) the Retort waits with the hero.
+				if tb {
+					ch.ActionsRemaining = 0
+				}
+				if g.throwFlask(0, "solstice_everflow_retort", false) || len(g.flasks) != 1 {
+					t.Fatal("the retort flew while the hero's action cooldown ran")
+				}
+				ch.RTCooldown, ch.ActionsRemaining = 0, 1 // the hero's cooldown is over
+				if !g.throwFlask(0, "solstice_everflow_retort", false) || len(g.flasks) != 2 {
+					t.Fatal("the retort waited beyond the hero's action cooldown")
 				}
 				m := zoneVictim(t, g)
 				m.ArmorClass = 0
@@ -698,18 +719,10 @@ func TestChamberRetortRechargeCatalysisAndOwnership(t *testing.T) {
 				if relicActorID(ch) != shot.ActorID {
 					t.Fatal("eradication replaced the Catalysis owner identity")
 				}
-				g.tickDeviceCooldowns(6*g.config.GetTPS() - 1)
-				if g.flaskReady(ch, shot.Key) {
-					t.Fatal("early recharge")
-				}
-				g.tickDeviceCooldowns(1)
-				if !g.flaskReady(ch, shot.Key) {
-					t.Fatal("physical item never recharged")
-				}
 				text := GetItemTooltipRows(item, ch, g.combat, true).String()
 				d, _ := config.GetItemDefinition(shot.Key)
-				if !strings.Contains(text, "Alchemy") || !strings.Contains(text, "Catalysis") || !strings.Contains(text, config.DurationText(d.Flask.CatalysisSeconds)) || !strings.Contains(text, d.DeviceRechargeLine()) {
-					t.Fatalf("incomplete flask tooltip: %s", text)
+				if !strings.Contains(text, "Alchemy") || !strings.Contains(text, "Catalysis") || !strings.Contains(text, config.DurationText(d.Flask.CatalysisSeconds)) || strings.Contains(text, "Recharge") {
+					t.Fatalf("flask tooltip wrong (needs skills and Catalysis, no recharge): %s", text)
 				}
 			})
 		}
@@ -835,10 +848,14 @@ func TestChamberRewardStateSaveRestores(t *testing.T) {
 	w.Monsters = []*monster.Monster3D{m}
 	staff := items.CreateWeaponFromYAML("solstice_sun_crucible")
 	staff.Signature = items.WeaponSignatureState{Charges: 1, MoveDistance: 1.25}
+	// A device's recharge survives the save; the Retort has none, so an old
+	// save's clock on it is dropped.
+	device := items.CreateItemFromYAML("translocator")
+	device.DeviceCooldownFrames = 400
 	retort := items.CreateItemFromYAML("solstice_everflow_retort")
 	retort.DeviceCooldownFrames = 400
 	g.party.Members[0].Equipment[items.SlotMainHand] = staff
-	g.party.Members[0].Inventory = []items.Item{retort}
+	g.party.Members[0].Inventory = []items.Item{device, retort}
 	wm := world.NewWorldManager(cfg)
 	wm.CurrentMapKey = "forest"
 	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
@@ -857,6 +874,9 @@ func TestChamberRewardStateSaveRestores(t *testing.T) {
 	ch := restoreCharacterSave(saved.Party.Members[0])
 	if ch.ActorID != actor || ch.Inventory[0].DeviceCooldownFrames != 400 || ch.Equipment[items.SlotMainHand].Signature != staff.Signature {
 		t.Fatal("hero, item or charge identity lost on load")
+	}
+	if ch.Inventory[1].DeviceCooldownFrames != 0 {
+		t.Fatalf("the Retort kept a recharge (%d frames) it no longer has", ch.Inventory[1].DeviceCooldownFrames)
 	}
 	if len(loaded.world.Monsters) != 1 || !reflect.DeepEqual(loaded.world.Monsters[0].Relics, m.Relics) {
 		t.Fatalf("monster relic state lost: %+v want %+v", loaded.world.Monsters[0].Relics, m.Relics)

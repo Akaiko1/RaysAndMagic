@@ -4,7 +4,9 @@ import "math"
 
 // Geometry and palette are part of the procedural asset, like pixels in an icon.
 // Combat values and effect selection remain in weapons.yaml.
-// Mesh materials, as numbered in weapon_body.kage and boss_relic.kage.
+// Mesh materials; weapon_body.kage and boss_relic.kage branch on them by name
+// through mesh_materials.kageinc, which TestShaderConstantsMatchGo keeps
+// equal to these.
 const (
 	meshMetal = iota
 	meshGrip
@@ -13,6 +15,11 @@ const (
 	meshRelicGlass
 	meshRelicWater
 	meshRuneInlay
+	meshBookPage
+	meshHeldWater
+	meshHeldEmerald
+	meshHeldLava
+	meshHellfireMetal
 )
 
 var (
@@ -80,10 +87,37 @@ func (m *weaponMeshBuilder) curve(a, b, c [3]float64, r float64, col [3]int, mat
 		prev = q
 	}
 }
+
+// A continuous metal torus in the local XY plane, with no capped internal
+// rods. Face origins sit on the faceted centerline (the chord, not the arc),
+// so both rims keep outward normals however thin the wire.
 func (m *weaponMeshBuilder) ring(c [3]float64, radius, wire float64, col [3]int) {
-	for i := 0; i < 16; i++ {
-		a, b := float64(i)*math.Pi/8, float64(i+1)*math.Pi/8
-		m.rod([3]float64{c[0] + radius*math.Cos(a), c[1] + radius*math.Sin(a), c[2]}, [3]float64{c[0] + radius*math.Cos(b), c[1] + radius*math.Sin(b), c[2]}, wire, wire, col, meshMetal)
+	const segments, sides = 16, 8
+	point := func(i, j int) [3]float64 {
+		a, b := float64(i)*2*math.Pi/segments, float64(j)*2*math.Pi/sides
+		r := radius + wire*math.Cos(b)
+		return [3]float64{c[0] + r*math.Cos(a), c[1] + r*math.Sin(a), c[2] + wire*math.Sin(b)}
+	}
+	for i := 0; i < segments; i++ {
+		a, chord := (float64(i)+.5)*2*math.Pi/segments, radius*math.Cos(math.Pi/segments)
+		o := [3]float64{c[0] + chord*math.Cos(a), c[1] + chord*math.Sin(a), c[2]}
+		for j := 0; j < sides; j++ {
+			p, q, r, s := point(i, j), point(i+1, j), point(i, j+1), point(i+1, j+1)
+			m.triangle(p, q, r, o, col, meshMetal)
+			m.triangle(r, q, s, o, col, meshMetal)
+		}
+	}
+}
+
+// appendMapped adds faces moved by an affine placement (axis swap, scale,
+// rotation). Authored smooth normals would not follow it, so none may be set.
+func (m *weaponMeshBuilder) appendMapped(faces []modelFace, place func([3]float64) [3]float64) {
+	for _, f := range faces {
+		if f.surface != nil {
+			panic("appendMapped: a smooth surface cannot be re-placed")
+		}
+		f.a, f.b, f.c, f.origin = place(f.a), place(f.b), place(f.c), place(f.origin)
+		m.faces = append(m.faces, f)
 	}
 }
 
@@ -142,63 +176,68 @@ func (m *weaponMeshBuilder) gem(c, h [3]float64, col [3]int) {
 	m.box(c, h, math.Min(h[0], math.Min(h[1], h[2]))*.75, col, meshStone)
 }
 
-var meleeWeaponMeshes volumeMeshCache
+var meleeWeaponMeshes volumeMeshCache[meleeBody]
 
-func buildMeleeWeaponMesh(id int) []modelFace {
+func buildMeleeWeaponMesh(body meleeBody) []modelFace {
 	var m weaponMeshBuilder
-	switch {
-	case id == meleeBodyStoneScript:
+	switch body {
+	case bodyStoneScript:
 		m.stoneScript()
-	case id == meleeBodyRainfang:
+	case bodyRainfang:
 		m.rainfang()
-	case id == meleeBodyShellknocker:
+	case bodyShellknocker:
 		m.shellknocker()
-	case id < 20:
-		m.sword(id)
-	case id < 40:
-		m.pole(id)
-	case id < 50:
-		m.heavy(id)
-	case id == 53:
+	case bodyAgilityKatar:
 		m.claws()
-	case id == 54:
+	case bodyGaleWarFan:
 		m.fan()
-	case id < 70:
-		m.axe(id)
 	default:
-		m.clock(id)
+		switch body.family() {
+		case familySword:
+			m.sword(body)
+		case familyPole:
+			m.pole(body)
+		case familyHeavy:
+			m.heavy(body)
+		case familyGauntlet:
+			return buildGauntlet(body)
+		case familyAxe:
+			m.axe(body)
+		case familyClock:
+			m.clock(body)
+		}
 	}
 	// Register the actual leading edge at zero, not the head's socket.
 	// The same point is used by the slash ribbon and contact debris.
 	contact := [3]float64{}
 	switch {
-	case id == meleeBodyShellknocker:
+	case body == bodyShellknocker:
 		contact = [3]float64{-.55, 1.16, 0}
-	case id >= 40 && id <= 49:
+	case body.family() == familyHeavy:
 		contact = [3]float64{-.45, .70, 0}
-		if id == 43 {
+		if body == bodyKanabo {
 			contact = [3]float64{-.18, .27, 0}
 		}
-		if id == 45 {
+		if body == bodyEmberEggMace {
 			contact[1] = .80
 		}
-		if id >= 46 {
+		if body.blockHammer() {
 			contact[1] = .92
 		}
-		if id == 47 {
+		if body == bodyIdolMaul {
 			contact[1] = .88
 		}
-		if id == 49 {
+		if body == bodyScalebreakerMaul {
 			contact[1] = 1.08
 		}
-	case id >= 60 && id <= 64:
+	case body.family() == familyAxe:
 		contact = [3]float64{-.60, .98, 0}
-		if id == 60 {
+		if body == bodySteelAxe {
 			contact[1] *= .87
 		}
-	case id == 71:
+	case body == bodyChimeMaul:
 		contact = [3]float64{-.5, .98, 0}
-	case id == 72:
+	case body == bodyEscapementMace:
 		contact = [3]float64{-.55, .64, 0}
 	}
 	for i := range m.faces {
@@ -209,7 +248,7 @@ func buildMeleeWeaponMesh(id int) []modelFace {
 			}
 			// Drakefang curves the other way in its source construction.
 			// Register their convex cutting side at +Y like the other blades.
-			if id == 15 {
+			if body == bodyDrakefangBlade {
 				p[1] = -p[1]
 			}
 		}
@@ -217,86 +256,86 @@ func buildMeleeWeaponMesh(id int) []modelFace {
 	return m.faces
 }
 
-func (m *weaponMeshBuilder) sword(id int) {
-	if id == 13 {
+func (m *weaponMeshBuilder) sword(body meleeBody) {
+	if body == bodyWidowHairpin {
 		m.hairpin()
 		return
 	}
 	length, width, curve := 3.4, .15, 0.0
 	steel, guard, grip := meshSteel, meshSteel, meshWood
-	switch id {
-	case 1:
+	switch body {
+	case bodySilverSword:
 		length = 3.6
 		steel = meshSilver
 		grip = [3]int{32, 55, 101}
-	case 2:
+	case bodyGoldSword:
 		steel = meshGold
 		guard = meshGold
 		grip = meshRed
-	case 3:
+	case bodyGladius:
 		length = 2.65
 		width = .22
 		guard = meshGold
 		grip = meshRed
-	case 4, 5, 6:
+	case bodyKatana, bodyWakizashi, bodyMuramasa:
 		length = 3.9
 		width = .095
 		curve = -.38
 		guard = meshGold
 		grip = meshDark
-		if id == 5 {
+		if body == bodyWakizashi {
 			length = 2.75
 			curve = -.23
 		}
-		if id == 6 {
+		if body == bodyMuramasa {
 			steel = [3]int{137, 25, 30}
 			guard = [3]int{128, 59, 31}
 		}
-	case 7:
+	case bodyJungleMachete:
 		length = 2.65
 		width = .27
 		curve = .11
 		steel = [3]int{103, 98, 82}
 		guard = meshGold
 		grip = [3]int{71, 83, 34}
-	case 8, 9:
+	case bodyMagicDagger, bodyParryDagger:
 		length = 1.7
 		width = .17
-		if id == 8 {
+		if body == bodyMagicDagger {
 			grip = meshDark
 		} else {
 			grip = meshRed
 			guard = meshGold
 		}
-	case 11:
+	case bodyKageKunai:
 		length = 1.35
 		width = .24
 		grip = meshDark
 		steel = [3]int{88, 88, 93}
-	case 12:
+	case bodySerpentFang:
 		length = 2.15
 		width = .27
 		curve = .62
 		steel = meshBone
 		guard = meshGold
 		grip = [3]int{25, 64, 44}
-	case 14, 15:
+	case bodyHatchlingFang, bodyDrakefangBlade:
 		length = 1.9
 		width = .29
 		curve = .35
 		steel = meshBone
 		guard = meshGold
 		grip = meshRed
-		if id == 15 {
+		if body == bodyDrakefangBlade {
 			length = 3.4
 		}
-	case 16:
+	case bodyVibroBlade:
 		length = 2.6
 		width = .20
 		steel = [3]int{30, 70, 84}
 		guard = [3]int{119, 112, 71}
 		grip = meshDark
-	case 17:
+	case bodyTransferBlade:
 		length = 3.2
 		width = .15
 		curve = -.40
@@ -308,15 +347,15 @@ func (m *weaponMeshBuilder) sword(id int) {
 	for i := 0; i <= 12; i++ {
 		t := float64(i) / 12
 		w := width
-		if id == 11 {
+		if body == bodyKageKunai {
 			w *= math.Sin(math.Pi * t)
 		} else {
 			w *= math.Min(1, (1-t)*5)
 		}
-		if id == 7 {
+		if body == bodyJungleMachete {
 			w *= .5 + .75*math.Sin(math.Pi*t*.8)
 		}
-		if id == 14 || id == 15 {
+		if body == bodyHatchlingFang || body == bodyDrakefangBlade {
 			w *= .78 + .2*math.Sin(t*math.Pi)
 			if i%2 == 0 && i < 11 {
 				w += .07
@@ -326,15 +365,15 @@ func (m *weaponMeshBuilder) sword(id int) {
 	}
 	m.blade(sections, steel, meshMetal)
 	rootY := -curve
-	if id == 8 || id == 12 || id == 14 || id == 15 || id == 16 || id == 17 {
+	if body == bodyMagicDagger || body == bodySerpentFang || body == bodyHatchlingFang || body == bodyDrakefangBlade || body == bodyVibroBlade || body == bodyTransferBlade {
 		inlay := [3]int{64, 164, 64}
-		if id == 15 {
+		if body == bodyDrakefangBlade {
 			inlay = meshRed
 		}
-		if id == 16 {
+		if body == bodyVibroBlade {
 			inlay = [3]int{30, 237, 244}
 		}
-		if id == 17 {
+		if body == bodyTransferBlade {
 			inlay = [3]int{109, 224, 250}
 		}
 		for _, side := range []float64{-1, 1} {
@@ -345,11 +384,11 @@ func (m *weaponMeshBuilder) sword(id int) {
 		}
 	}
 	m.grip(-length-.78, -length-.1, rootY, .09, grip, guard)
-	if id == 11 {
+	if body == bodyKageKunai {
 		m.ring([3]float64{-length - 1.0, rootY, 0}, .15, .032, steel)
 		return
 	}
-	if id == 4 || id == 5 || id == 6 {
+	if body == bodyKatana || body == bodyWakizashi || body == bodyMuramasa {
 		m.rod([3]float64{-length - .055, rootY, 0}, [3]float64{-length + .015, rootY, 0}, .22, .22, guard, meshMetal)
 	} else {
 		for _, side := range []float64{-1, 1} {
@@ -357,19 +396,19 @@ func (m *weaponMeshBuilder) sword(id int) {
 		}
 	}
 	m.gem([3]float64{-length - .9, rootY, 0}, [3]float64{.12, .12, .12}, guard)
-	if id == 12 || id == 14 || id == 15 {
+	if body == bodySerpentFang || body == bodyHatchlingFang || body == bodyDrakefangBlade {
 		m.curve([3]float64{-length - .86, rootY, 0}, [3]float64{-length - 1.10, rootY - .5, 0}, [3]float64{-length - .51, rootY - .32, 0}, .057, guard, meshMetal)
 		m.rod([3]float64{-length - .6, rootY - .33, 0}, [3]float64{-length - .39, rootY - .13, 0}, .11, 0, meshBone, meshMetal)
 	}
-	if id == 12 {
+	if body == bodySerpentFang {
 		m.curve([3]float64{-length - .88, rootY + .03, 0}, [3]float64{-length - .51, rootY + .55, 0}, [3]float64{-length - .08, rootY + .15, 0}, .044, meshGold, meshMetal)
 		m.rod([3]float64{-length - .92, rootY + .1, 0}, [3]float64{-length - .9, rootY + .61, 0}, .018, .018, meshGold, meshMetal)
 		m.gem([3]float64{-length - .9, rootY + .68, 0}, [3]float64{.055, .13, .065}, meshJade)
 	}
-	if id == 2 || id == 8 || id == 17 {
+	if body == bodyGoldSword || body == bodyMagicDagger || body == bodyTransferBlade {
 		m.gem([3]float64{-length - .055, rootY, -.09}, [3]float64{.095, .10, .04}, meshJade)
 	}
-	if id == 16 {
+	if body == bodyVibroBlade {
 		m.box([3]float64{-length - .08, rootY, 0}, [3]float64{.16, .26, .15}, .06, guard, meshMetal)
 		m.ring([3]float64{-length - .08, rootY, -.16}, .13, .028, [3]int{39, 225, 248})
 	}
@@ -393,40 +432,40 @@ func (m *weaponMeshBuilder) hairpin() {
 	m.gem([3]float64{-2.35, .70, 0}, [3]float64{.10, .14, .065}, meshJade)
 }
 
-func (m *weaponMeshBuilder) pole(id int) {
+func (m *weaponMeshBuilder) pole(body meleeBody) {
 	shaft, steel := meshWood, meshSteel
 	length, width := 1.25, .18
-	switch id {
-	case 21:
+	switch body {
+	case bodyCulvertPike:
 		steel = [3]int{106, 101, 86}
-	case 22:
+	case bodyHasta:
 		shaft = meshRed
-	case 23:
+	case bodyYari:
 		length = 1.5
 		width = .085
-	case 24:
+	case bodyTonbogiri:
 		length = 1.5
 		width = .10
 		shaft = [3]int{177, 139, 65}
-	case 25:
+	case bodyChitinSpear:
 		length = 1.85
 		width = .26
 		steel = [3]int{126, 157, 56}
-	case 26:
+	case bodyObsidianSpear:
 		length = 1.35
 		steel = meshDark
-	case 27:
+	case bodyBroodspike:
 		length = 1.95
 		width = .29
 		steel = meshGold
 		shaft = meshRed
-	case 28, 29:
+	case bodyTrident, bodyTarnTrident:
 		shaft = meshRed
-	case 30:
+	case bodyNaginata:
 		length = 1.9
 		width = .13
 		shaft = meshDark
-	case 31:
+	case bodyThermalLance:
 		length = 1.5
 		width = .20
 		steel = meshDark
@@ -436,9 +475,9 @@ func (m *weaponMeshBuilder) pole(id int) {
 	for _, x := range []float64{-4.95, -length, -length - .16} {
 		m.rod([3]float64{x - .04, 0, 0}, [3]float64{x + .04, 0, 0}, .086, .086, meshGold, meshMetal)
 	}
-	if id == 28 || id == 29 {
+	if body == bodyTrident || body == bodyTarnTrident {
 		col := meshSilver
-		if id == 29 {
+		if body == bodyTarnTrident {
 			col = meshGold
 		}
 		m.blade([]bladeSection{{-1.5, 0, .08, .04}, {-.55, 0, .15, .05}, {0, 0, 0, 0}}, col, meshMetal)
@@ -446,7 +485,7 @@ func (m *weaponMeshBuilder) pole(id int) {
 			m.curve([3]float64{-1.45, 0, 0}, [3]float64{-1.55, sg * .50, 0}, [3]float64{-.6, sg * .5, 0}, .053, col, meshMetal)
 			m.blade([]bladeSection{{-.75, sg * .5, .055, .035}, {-.39, sg * .5, .105, .04}, {-.1, sg * .5, 0, 0}}, col, meshMetal)
 		}
-		if id == 29 {
+		if body == bodyTarnTrident {
 			m.gem([3]float64{-1.05, 0, 0}, [3]float64{.22, .12, .08}, meshJade)
 		}
 	} else {
@@ -455,22 +494,22 @@ func (m *weaponMeshBuilder) pole(id int) {
 			t := float64(i) / 10
 			w := width * math.Sin(math.Pi*t)
 			y := 0.0
-			if id == 30 {
+			if body == bodyNaginata {
 				y = .35 * (1 - t*t)
 				w = width * math.Min(1, (1-t)*4)
 			}
-			if (id == 25 || id == 27) && i > 1 && i < 9 && i%2 == 0 {
+			if (body == bodyChitinSpear || body == bodyBroodspike) && i > 1 && i < 9 && i%2 == 0 {
 				w += .08
 			}
 			sections = append(sections, bladeSection{-length + length*t, y, w, .055 * math.Sin(math.Pi*t)})
 		}
 		m.blade(sections, steel, meshMetal)
-		if id == 30 {
+		if body == bodyNaginata {
 			m.rod([3]float64{-length - .16, 0, 0}, [3]float64{-length, .35, 0}, .065, .07, meshGold, meshMetal)
 		}
-		if id == 27 || id == 31 {
+		if body == bodyBroodspike || body == bodyThermalLance {
 			col := meshRed
-			if id == 31 {
+			if body == bodyThermalLance {
 				col = [3]int{255, 120, 20}
 			}
 			for _, sg := range []float64{-1, 1} {
@@ -478,15 +517,15 @@ func (m *weaponMeshBuilder) pole(id int) {
 			}
 		}
 	}
-	if id == 24 || id == 26 || id == 28 || id == 30 {
+	if body == bodyTonbogiri || body == bodyObsidianSpear || body == bodyTrident || body == bodyNaginata {
 		col := meshJade
-		if id == 26 {
+		if body == bodyObsidianSpear {
 			col = meshBone
 		}
-		if id == 28 {
+		if body == bodyTrident {
 			col = meshRed
 		}
-		if id == 30 {
+		if body == bodyNaginata {
 			col = [3]int{92, 37, 129}
 		}
 		for k := 0; k < 3; k++ {
@@ -494,7 +533,7 @@ func (m *weaponMeshBuilder) pole(id int) {
 			m.curve([3]float64{-length - .15, y, 0}, [3]float64{-length - .3, y + .19, .05}, [3]float64{-length - .57, y + .23, .06}, .02, col, meshGrip)
 		}
 	}
-	if id == 31 {
+	if body == bodyThermalLance {
 		for i := 0; i < 5; i++ {
 			x := -2.0 - float64(i)*.47
 			m.rod([3]float64{x - .035, 0, 0}, [3]float64{x + .035, 0, 0}, .084, .084, meshGold, meshMetal)
@@ -502,49 +541,49 @@ func (m *weaponMeshBuilder) pole(id int) {
 	}
 }
 
-func (m *weaponMeshBuilder) heavy(id int) {
+func (m *weaponMeshBuilder) heavy(body meleeBody) {
 	head, grip := meshSteel, meshWood
-	switch id {
-	case 40:
+	switch body {
+	case bodyHolyMace:
 		head = meshGold
 		grip = [3]int{27, 59, 150}
-	case 42:
+	case bodyBoneWarclub:
 		head = meshBone
-	case 43:
+	case bodyKanabo:
 		head = [3]int{82, 62, 40}
-	case 44:
+	case bodyMorningstar:
 		head = meshDark
 		grip = meshRed
-	case 45:
+	case bodyEmberEggMace:
 		head = [3]int{55, 44, 38}
 		grip = meshRed
-	case 46:
+	case bodyAnchorHammer:
 		head = meshJade
-	case 47:
+	case bodyIdolMaul:
 		head = meshGold
-	case 48:
+	case bodyLionWarhammer:
 		head = meshSteel
 		grip = meshRed
-	case 49:
+	case bodyScalebreakerMaul:
 		head = meshDark
 		grip = meshRed
 	}
 	m.grip(-3.05, -1.10, 0, .10, grip, meshGold)
 	m.rod([3]float64{-1.1, 0, 0}, [3]float64{-.3, 0, 0}, .115, .14, meshSteel, meshMetal)
 	center := [3]float64{-.45, 0, 0}
-	if id >= 46 {
+	if body.blockHammer() {
 		half := [3]float64{.42, .92, .34}
-		if id == 47 {
+		if body == bodyIdolMaul {
 			half = [3]float64{.53, .88, .39}
 		}
-		if id == 49 {
+		if body == bodyScalebreakerMaul {
 			half = [3]float64{.43, 1.08, .37}
 		}
 		material := meshMetal
-		if id == 46 {
+		if body == bodyAnchorHammer {
 			material = meshStone
 		}
-		if id == 49 {
+		if body == bodyScalebreakerMaul {
 			m.box(center, [3]float64{.29, .79, .27}, .10, head, material)
 			for i := 0; i < 5; i++ {
 				y := float64(i-2) * .37
@@ -559,16 +598,16 @@ func (m *weaponMeshBuilder) heavy(id int) {
 		}
 		for _, sg := range []float64{-1, 1} {
 			z := sg * (half[2] + .03)
-			if id == 46 {
+			if body == bodyAnchorHammer {
 				m.box([3]float64{-.45, 0, z}, [3]float64{.35, .35, .045}, .025, meshGold, meshMetal)
 				m.gem([3]float64{-.45, 0, z + sg*.065}, [3]float64{.19, .2, .08}, [3]int{43, 92, 70})
-			} else if id == 47 { // Stepped mask and cheek plates of the idol hammer.
+			} else if body == bodyIdolMaul { // Stepped mask and cheek plates of the idol hammer.
 				m.box([3]float64{-.43, 0, z}, [3]float64{.38, .41, .07}, .03, meshGold, meshMetal)
 				for _, y := range []float64{-.22, .22} {
 					m.box([3]float64{-.32, y, z + sg*.08}, [3]float64{.09, .075, .018}, .006, meshDark, meshGrip)
 				}
 				m.box([3]float64{-.55, 0, z + sg*.085}, [3]float64{.07, .24, .018}, .006, meshDark, meshGrip)
-			} else if id == 48 { // Lion medallion: faceted mane, brow and projecting muzzle.
+			} else if body == bodyLionWarhammer { // Lion medallion: faceted mane, brow and projecting muzzle.
 				m.gem([3]float64{-.45, 0, z}, [3]float64{.27, .33, .10}, meshGold)
 				m.gem([3]float64{-.49, 0, z + sg*.13}, [3]float64{.13, .14, .10}, meshGold)
 				for _, y := range []float64{-.13, .13} {
@@ -582,7 +621,7 @@ func (m *weaponMeshBuilder) heavy(id int) {
 				}
 			}
 		}
-		if id == 49 {
+		if body == bodyScalebreakerMaul {
 			for _, sg := range []float64{-1, 1} {
 				for i := 0; i < 3; i++ {
 					y := sg * (.45 + float64(i)*.2)
@@ -592,7 +631,7 @@ func (m *weaponMeshBuilder) heavy(id int) {
 		}
 		return
 	}
-	if id == 43 {
+	if body == bodyKanabo {
 		m.rod([3]float64{-2.1, 0, 0}, [3]float64{-.12, 0, 0}, .13, .26, head, meshGrip)
 		for i := 0; i < 6; i++ {
 			x := -.25 - float64(i)*.28
@@ -605,7 +644,7 @@ func (m *weaponMeshBuilder) heavy(id int) {
 		return
 	}
 	radius := .48
-	if id == 45 {
+	if body == bodyEmberEggMace {
 		radius = .57
 	}
 	// Rings of facets form the ball/egg; spikes are independent solid cones.
@@ -623,15 +662,15 @@ func (m *weaponMeshBuilder) heavy(id int) {
 	for k := 0; k < 10; k++ {
 		a := float64(k) * math.Pi / 5
 		col := meshGold
-		if id == 41 {
+		if body == bodySteelMace {
 			col = meshSilver
 		}
-		if id == 42 {
+		if body == bodyBoneWarclub {
 			col = meshBone
 		}
 		m.rod([3]float64{center[0], radius * .87 * math.Cos(a), radius * .87 * math.Sin(a)}, [3]float64{center[0] + .05, (radius + .26) * math.Cos(a), (radius + .26) * math.Sin(a)}, .13, 0, col, meshMetal)
 	}
-	if id == 40 {
+	if body == bodyHolyMace {
 		for _, sg := range []float64{-1, 1} {
 			z := sg * .49
 			m.gem([3]float64{-.45, 0, z}, [3]float64{.32, .32, .035}, [3]int{79, 149, 231})
@@ -639,7 +678,7 @@ func (m *weaponMeshBuilder) heavy(id int) {
 			m.rod([3]float64{-.7, .22, z + sg*.035}, [3]float64{-.2, -.22, z + sg*.035}, .035, .035, meshGold, meshMetal)
 		}
 	}
-	if id == 42 {
+	if body == bodyBoneWarclub {
 		for _, sg := range []float64{-1, 1} {
 			for _, y := range []float64{-.18, .18} {
 				m.gem([3]float64{-.32, y, sg * .44}, [3]float64{.105, .085, .027}, meshDark)
@@ -650,7 +689,7 @@ func (m *weaponMeshBuilder) heavy(id int) {
 			}
 		}
 	}
-	if id == 45 {
+	if body == bodyEmberEggMace {
 		for _, sg := range []float64{-1, 1} {
 			for i := 0; i < 5; i++ {
 				a := float64(i) * 1.25
@@ -660,22 +699,23 @@ func (m *weaponMeshBuilder) heavy(id int) {
 	}
 }
 
-func (m *weaponMeshBuilder) axe(id int) {
+func (m *weaponMeshBuilder) axe(body meleeBody) {
 	m.grip(-3.5, -1.45, 0, .093, meshRed, meshGold)
 	m.rod([3]float64{-1.45, 0, 0}, [3]float64{.0, 0, 0}, .115, .13, meshWood, meshGrip)
 	m.box([3]float64{-.62, 0, 0}, [3]float64{.43, .17, .18}, .04, meshGold, meshMetal)
+	great := body == bodyGorehornGreataxe || body == bodyWyrmcleaver
 	sides := []float64{1}
-	if id != 60 {
+	if body != bodySteelAxe {
 		sides = []float64{-1, 1}
 	}
 	for _, sg := range sides {
 		// Each section runs from the socket into the flared crescent; blade width
 		// varies along the haft and the sharpened outer bevel has real thickness.
 		col := meshSteel
-		if id == 61 {
+		if body == bodyBronzeLabrys {
 			col = meshGold
 		}
-		if id >= 63 {
+		if great {
 			col = [3]int{86, 35, 30}
 		}
 		for i := 0; i < 10; i++ {
@@ -683,7 +723,7 @@ func (m *weaponMeshBuilder) axe(id int) {
 			point := func(t, edge, z float64) [3]float64 {
 				x := -1.35 + 1.5*t
 				y := .18 + (.55+.40*math.Sin(math.Pi*t))*edge
-				if id == 60 {
+				if body == bodySteelAxe {
 					y *= .87
 				}
 				return [3]float64{x, sg * y, z}
@@ -696,20 +736,20 @@ func (m *weaponMeshBuilder) axe(id int) {
 				m.triangle(v0, v1, v2, mid, col, meshMetal)
 				m.triangle(v2, v1, v3, mid, col, meshMetal)
 				edge := meshSilver
-				if id == 61 {
+				if body == bodyBronzeLabrys {
 					edge = [3]int{240, 192, 99}
 				}
-				if id >= 63 {
+				if great {
 					edge = meshBone
 				}
 				m.triangle(v2, v3, v4, mid, edge, meshMetal)
 				m.triangle(v4, v3, v5, mid, edge, meshMetal)
-				if id >= 63 {
+				if great {
 					m.triangle(point(a, .12, face*.135), point(b, .12, face*.135), point((a+b)/2, .71, face*.115), mid, meshRed, meshMetal)
 				}
 			}
 		}
-		if id >= 63 {
+		if great {
 			for _, z := range []float64{-.17, .17} {
 				for i := 0; i < 5; i++ {
 					for j := 0; j < 2; j++ {
@@ -722,13 +762,13 @@ func (m *weaponMeshBuilder) axe(id int) {
 				m.curve([3]float64{x, sg * .35, 0}, [3]float64{x + .2, sg * 1.0, 0}, [3]float64{x + .55, sg * .94, 0}, .065, meshGold, meshMetal)
 			}
 		}
-		if id == 61 {
+		if body == bodyBronzeLabrys {
 			for _, z := range []float64{-.135, .135} {
 				m.curve([3]float64{-.95, sg * .3, z}, [3]float64{-.48, sg * .95, z}, [3]float64{-.04, sg * .35, z}, .022, meshBone, meshMetal)
 			}
 		}
 	}
-	if id == 63 {
+	if body == bodyGorehornGreataxe {
 		m.rod([3]float64{-.4, -.2, 0}, [3]float64{.45, -.67, 0}, .16, 0, meshBone, meshMetal)
 	}
 }
@@ -806,18 +846,18 @@ func (m *weaponMeshBuilder) gear(c [3]float64, radius, thickness float64) {
 	}
 	m.rod([3]float64{c[0], c[1], c[2] - thickness}, [3]float64{c[0], c[1], c[2] + thickness}, radius*.22, radius*.22, meshGold, meshMetal)
 }
-func (m *weaponMeshBuilder) clock(id int) {
+func (m *weaponMeshBuilder) clock(body meleeBody) {
 	blue := [3]int{75, 152, 211}
-	if id == 70 || id == 74 {
+	if body == bodyCogfangBlade || body == bodyMinuteHand {
 		length, width := 3.4, .14
-		if id == 74 {
+		if body == bodyMinuteHand {
 			length = 3.7
 			width = .046
 			blue = meshSilver
 		}
 		m.blade([]bladeSection{{-length, 0, width, .055}, {-.45, 0, width * .65, .038}, {0, 0, 0, 0}}, blue, meshMetal)
 		m.grip(-length-.85, -length-.1, 0, .08, meshWood, meshGold)
-		if id == 70 {
+		if body == bodyCogfangBlade {
 			m.gear([3]float64{-length + .03, 0, 0}, .34, .075)
 		} else {
 			for _, sg := range []float64{-1, 1} {
@@ -825,7 +865,7 @@ func (m *weaponMeshBuilder) clock(id int) {
 				m.curve([3]float64{-length, 0, 0}, [3]float64{-length + .35, sg * .40, 0}, [3]float64{-length - .22, sg * .31, 0}, .025, meshGold, meshMetal)
 			}
 		}
-	} else if id == 73 {
+	} else if body == bodyMainspringPike {
 		m.rod([3]float64{-4.9, 0, 0}, [3]float64{-1.1, 0, 0}, .065, .065, meshDark, meshMetal)
 		for i := 0; i < 10; i++ {
 			x := -1.4 - float64(i)*.36
@@ -837,7 +877,7 @@ func (m *weaponMeshBuilder) clock(id int) {
 		}
 	} else {
 		m.grip(-3.0, -.8, 0, .09, meshWood, meshGold)
-		if id == 72 {
+		if body == bodyEscapementMace {
 			m.gear([3]float64{-.55, 0, 0}, .56, .12)
 		} else {
 			m.box([3]float64{-.5, 0, 0}, [3]float64{.33, .67, .28}, .09, meshGold, meshMetal)

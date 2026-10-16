@@ -35,7 +35,7 @@ weapons:
       burn_seconds: 6
     physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
     # Three times the shipped tiny_prop campfire's 0.30 scale.
-    graphics: {impact_flame_scale: 0.9, projectile_fx: solstice_sun_crucible, max_size: 32, min_size: 4, base_size: 16, color: [255, 143, 41]}
+    graphics: {held_model: solstice_sun_crucible, impact_flame_scale: 0.9, projectile_fx: solstice_sun_crucible, max_size: 32, min_size: 4, base_size: 16, color: [255, 143, 41]}
 
   solstice_stone_script:
     name: "Stone Script"
@@ -84,7 +84,7 @@ weapons:
     value: 320
     night_base_damage_multiplier: 2
     physics: {speed_tiles: 10, range_tiles: 7, hitbox: standard}
-    graphics: {projectile_fx: duskneedle, max_size: 22, min_size: 3, base_size: 12, color: [165, 140, 195]}
+    graphics: {held_model: duskneedle, projectile_fx: duskneedle, max_size: 22, min_size: 3, base_size: 12, color: [165, 140, 195]}
 
   shellknocker:
     name: "Shellknocker"
@@ -155,6 +155,7 @@ weapons:
       range_tiles: 7
       hitbox: standard
     graphics:
+      held_model: solstice_flowstaff
       projectile_fx: "solstice_flow"
       max_size: 30
       min_size: 4
@@ -343,6 +344,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: hunting_bow
       max_size: 36
       min_size: 2
       base_size: 12
@@ -365,6 +367,7 @@ weapons:
       range_tiles: 9.0
       hitbox: standard
     graphics:
+      held_model: surveyors_rifle
       max_size: 26
       min_size: 2
       base_size: 10
@@ -390,6 +393,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: alien_blaster
       max_size: 40
       min_size: 2
       base_size: 12
@@ -414,6 +418,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: oak_staff
       max_size: 28
       min_size: 4
       base_size: 14
@@ -572,6 +577,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: elven_bow
       max_size: 36
       min_size: 2
       base_size: 12
@@ -596,6 +602,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: battle_staff
       max_size: 30
       min_size: 4
       base_size: 15
@@ -624,6 +631,7 @@ weapons:
       hitbox: wide  # large slow projectile
 
     graphics:
+      held_model: bow_of_hellfire
       max_size: 24
       min_size: 4
       base_size: 16
@@ -667,6 +675,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: long_bow
       max_size: 40
       min_size: 2
       base_size: 14
@@ -693,6 +702,7 @@ weapons:
       hitbox: wide
 
     graphics:
+      held_model: archmage_staff
       max_size: 34
       min_size: 4
       base_size: 18
@@ -718,6 +728,7 @@ weapons:
       hitbox: standard
 
     graphics:
+      held_model: book_of_darkness
       max_size: 30
       min_size: 4
       base_size: 16
@@ -857,6 +868,7 @@ weapons:
       range_tiles: 7.0
       hitbox: wide
     graphics:
+      held_model: inazuma_matchlock
       max_size: 26
       min_size: 4
       base_size: 14
@@ -959,6 +971,7 @@ weapons:
       range_tiles: 8.0  # bullet must reach the Ronin Marksman's 7-tile firing range
       hitbox: standard
     graphics:
+      held_model: tanegashima
       max_size: 22
       min_size: 3
       base_size: 12
@@ -1110,6 +1123,7 @@ weapons:
       range_tiles: 7.0
       hitbox: standard
     graphics:
+      held_model: blowgun
       max_size: 24
       min_size: 2
       base_size: 8
@@ -1333,6 +1347,7 @@ weapons:
       range_tiles: 7.0
       hitbox: standard
     graphics:
+      held_model: arena_shortbow
       max_size: 34
       min_size: 2
       base_size: 12
@@ -1357,6 +1372,7 @@ weapons:
       range_tiles: 9.0
       hitbox: standard
     graphics:
+      held_model: arbalest
       max_size: 26
       min_size: 2
       base_size: 10
@@ -1383,6 +1399,7 @@ weapons:
       range_tiles: 6.0
       hitbox: standard
     graphics:
+      held_model: lanista_scepter
       max_size: 32
       min_size: 4
       base_size: 15
@@ -1573,6 +1590,7 @@ weapons:
       range_tiles: 6.0
       hitbox: standard
     graphics:
+      held_model: clockwork_pistol
       max_size: 34
       min_size: 2
       base_size: 10
@@ -1775,6 +1793,7 @@ weapons:
       range_tiles: 8.0
       hitbox: standard
     graphics:
+      held_model: wyrmspine_bow
       max_size: 24
       min_size: 2
       base_size: 9
@@ -1801,6 +1820,7 @@ weapons:
       range_tiles: 9.0
       hitbox: standard
     graphics:
+      held_model: nest_arbalest
       max_size: 26
       min_size: 2
       base_size: 10
@@ -1829,6 +1849,7 @@ weapons:
       range_tiles: 7.0
       hitbox: wide
     graphics:
+      held_model: verdant_eye_scepter
       max_size: 34
       min_size: 4
       base_size: 18
@@ -1856,6 +1877,7 @@ weapons:
       range_tiles: 5.0
       hitbox: standard
     graphics:
+      held_model: suppressor_gun
       max_size: 22
       min_size: 2
       base_size: 8
@@ -1881,6 +1903,7 @@ weapons:
       range_tiles: 20.0
       hitbox: standard
     graphics:
+      held_model: longlance_rifle
       max_size: 24
       min_size: 2
       base_size: 8
@@ -1926,6 +1949,7 @@ weapons:
       range_tiles: 11.0
       hitbox: standard
     graphics:
+      held_model: compound_bow
       max_size: 24
       min_size: 2
       base_size: 9

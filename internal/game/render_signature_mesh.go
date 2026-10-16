@@ -2,17 +2,19 @@ package game
 
 import "math"
 
+// relicBody names a relic drawn outside a hand.
+type relicBody int
+
 const (
-	meleeBodyStoneScript = 90
-	relicReturningGale   = 91
-	relicEverflowRetort  = 92
+	relicReturningGale relicBody = iota
+	relicEverflowRetort
 )
 
-var relicMeshes volumeMeshCache
+var relicMeshes volumeMeshCache[relicBody]
 
 // buildRelicMesh builds the relic bodies drawn outside a hand: the thrown
 // Returning Gale and the Everflow Retort. Stone Script is a melee body.
-func buildRelicMesh(id int) []modelFace {
+func buildRelicMesh(id relicBody) []modelFace {
 	var m weaponMeshBuilder
 	switch id {
 	case relicReturningGale:

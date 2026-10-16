@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
+
+	"ugataima/internal/shaders"
 )
 
 // Exercise the shipped floor shader on high-frequency ground while moving.
@@ -21,7 +23,7 @@ func TestDebugSim_FloorMinificationStable(t *testing.T) {
 	}
 	for _, angle := range []float64{0, math.Pi / 4, math.Pi / 2} {
 		t.Run(fmt.Sprint(angle), func(t *testing.T) {
-			shader, err := ebiten.NewShader([]byte(floorShaderSrc))
+			shader, err := ebiten.NewShader([]byte(shaders.Source("floor.kage")))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"github.com/hajimehoshi/ebiten/v2"
 	"image/color"
 	"math"
@@ -25,30 +26,63 @@ func TestShippedFxStylesResolve(t *testing.T) {
 	validateFlaskFxStyles()
 	validateProjectileFxStyles() // must not panic on shipped content
 
-	// The procedural catalog must stay attached to real items, and every
-	// shipped melee weapon must retain its own authored body selection.
+	// The validator above requires a body on every melee weapon. Every body
+	// in the table belongs to one real melee weapon and has geometry within
+	// one draw's 16-bit vertex indices.
 	t.Run("weapon bodies", func(t *testing.T) {
-		for key, model := range weaponBodyModels {
-			var mesh *volumeMesh
-			if isGauntletModel(model) {
-				mesh = gauntletModels.get(model, buildGauntlet)
-			} else {
-				mesh = meleeWeaponMeshes.get(model, buildMeleeWeaponMesh)
+		if len(weaponBodyModels) != len(meleeBodies) {
+			t.Errorf("%d weapons for %d bodies: a key repeats or a row is empty", len(weaponBodyModels), len(meleeBodies))
+		}
+		for body, row := range meleeBodies {
+			if def, ok := config.GlobalWeapons.Weapons[row.key]; !ok || def == nil || def.Graphics == nil || def.Melee == nil {
+				t.Errorf("melee body %d (%q) has no drawable weapon definition", body, row.key)
 			}
-			if len(mesh.faces) == 0 {
-				t.Errorf("melee weapon %q has no 3D geometry", key)
-			}
-			if def, ok := config.GlobalWeapons.Weapons[key]; !ok || def == nil || def.Graphics == nil || def.Melee == nil {
-				t.Errorf("procedural body %q has no drawable weapon definition", key)
+			if faces := len(meleeWeaponMeshes.get(meleeBody(body), buildMeleeWeaponMesh).faces); faces == 0 || faces > maxVolumeMeshFaces {
+				t.Errorf("melee body %q has %d faces, want 1..%d", row.key, faces, maxVolumeMeshFaces)
 			}
 		}
-		for key, def := range config.GlobalWeapons.Weapons {
-			if def.Melee != nil {
-				if _, ok := weaponBodyModels[key]; !ok {
-					t.Errorf("melee weapon %q has no procedural body", key)
-				}
+	})
+
+	// The validator above requires a held model on every held-category ranged
+	// weapon. Each model is authored, has geometry, and fits one draw's
+	// 16-bit vertex indices; posing moves points but never adds faces.
+	t.Run("held ranged bodies", func(t *testing.T) {
+		used := map[string]bool{}
+		for _, def := range config.GlobalWeapons.Weapons {
+			if def.Graphics != nil {
+				used[def.Graphics.HeldModel] = true
 			}
 		}
+		for key, asset := range rangedHeldAssets {
+			if !used[key] {
+				t.Errorf("unused held model %s", key)
+			}
+			if faces := len(rangedHeldRest(key, asset).mesh.faces); faces == 0 || faces > maxVolumeMeshFaces {
+				t.Errorf("held model %s has %d faces, want 1..%d", key, faces, maxVolumeMeshFaces)
+			}
+		}
+	})
+
+	// The other camera volumes - relics, cast objects and lit spell volumes -
+	// fit one draw's 16-bit vertex indices too.
+	t.Run("relic, cast object and spell volumes", func(t *testing.T) {
+		check := func(name string, m *volumeMesh) {
+			if faces := len(m.faces); faces == 0 || faces > maxVolumeMeshFaces {
+				t.Errorf("%s has %d faces, want 1..%d", name, faces, maxVolumeMeshFaces)
+			}
+		}
+		for _, relic := range []relicBody{relicReturningGale, relicEverflowRetort} {
+			check(fmt.Sprintf("relic %d", relic), relicMeshes.get(relic, buildRelicMesh))
+		}
+		for model := castCuirass; model <= castWingTipsBack; model++ {
+			check(fmt.Sprintf("cast object %d", model), castObjectMeshes.get(model, buildCastObject))
+		}
+		for kind := spellFireball; kind <= spellPrismaticRay; kind++ {
+			if isFacetedBolt(kind) || kind == spellHarm || kind == spellFlyingFist {
+				check(fmt.Sprintf("spell volume %d", kind), directionalVolumeMeshes.get(directionalVolumeModel(kind), buildDirectionalVolumeMesh))
+			}
+		}
+		check("shrapmetal", directionalVolumeMeshes.get(spellShrapmetal, buildDirectionalVolumeMesh))
 	})
 
 	// misfit names why the entry cannot show its style; empty = fine.
@@ -307,6 +341,55 @@ func TestValidateWeaponFxStylesRejectsUnknown(t *testing.T) {
 	validateWeaponFxStyles()
 }
 
+func TestValidateWeaponFxStylesRequiresMeleeBody(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	body := weaponBodyModels["katana"]
+	delete(weaponBodyModels, "katana")
+	defer func() {
+		weaponBodyModels["katana"] = body
+		if recover() == nil {
+			t.Fatal("expected panic on a melee weapon without a body")
+		}
+	}()
+	validateWeaponFxStyles()
+}
+
+// A gauntlet body is drawn only by a gauntlet strike: Bronze Cesti without
+// its style would swing an invisible weapon, so the load refuses it.
+func TestValidateWeaponFxStylesRequiresGauntletRoute(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	def := config.GlobalWeapons.Weapons["bronze_cesti"]
+	orig := def.Graphics.SlashFx
+	def.Graphics.SlashFx = ""
+	defer func() {
+		def.Graphics.SlashFx = orig
+		if recover() == nil {
+			t.Fatal("expected panic on a gauntlet body without a gauntlet strike")
+		}
+	}()
+	validateWeaponFxStyles()
+}
+
+func TestValidateWeaponFxStylesRequiresHeldModel(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	def := config.GlobalWeapons.Weapons["long_bow"]
+	orig := def.Graphics.HeldModel
+	def.Graphics.HeldModel = ""
+	defer func() {
+		def.Graphics.HeldModel = orig
+		if recover() == nil {
+			t.Fatal("expected panic on a bow without held_model")
+		}
+	}()
+	validateWeaponFxStyles()
+}
+
 func TestValidateWeaponFxStylesRejectsUnknownProjectile(t *testing.T) {
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
 		t.Fatalf("load weapons: %v", err)
@@ -464,6 +547,54 @@ func TestProjectilePresentationAnchors(t *testing.T) {
 					if pixels[(y*dst.Bounds().Dx()+x)*4+3] > 0 {
 						t.Fatalf("wide=%v: ghost detached to the horizon", wide)
 					}
+				}
+			}
+		}
+	}
+}
+
+// Detailed equipment has intersecting and closely layered surfaces. The depth
+// resolve must select the nearest pixel independently of triangle submission
+// order, then fade the solid once instead of exposing its internal surfaces.
+func TestRangedEquipmentDepthResolve(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("GPU readback requires the live Ebitengine debug-sim loop")
+	}
+	quad := func(left, right float64, rgb [3]int) []modelFace {
+		m := weaponMeshBuilder{}
+		a, b, c, d := [3]float64{-.7, -.7, left}, [3]float64{.7, -.7, right}, [3]float64{-.7, .7, left}, [3]float64{.7, .7, right}
+		o := [3]float64{0, 0, 2}
+		m.triangle(a, b, c, o, rgb, meshGlow)
+		m.triangle(c, b, d, o, rgb, meshGlow)
+		return m.faces
+	}
+	r := &Renderer{}
+	t.Cleanup(func() { runOnDrawFrame(func(_ *ebiten.Image) { r.releaseEquipmentLayers() }) })
+	if err := r.ensureWeaponMaterialShaders(); err != nil {
+		t.Fatal(err)
+	}
+	for _, width := range []int{256, 384, 128} {
+		for _, reverse := range []bool{false, true} {
+			for _, fade := range []float64{1, .5} {
+				raw := append(quad(0, 0, [3]int{255, 0, 0}), quad(-.3, .3, [3]int{0, 255, 0})...)
+				if reverse {
+					for i, j := 0, len(raw)-1; i < j; i, j = i+1, j-1 {
+						raw[i], raw[j] = raw[j], raw[i]
+					}
+				}
+				var left, right color.RGBA
+				runOnDrawFrame(func(_ *ebiten.Image) {
+					dst := ebiten.NewImage(width, width)
+					defer dst.Deallocate()
+					tr := volumeTransform{rotation: [3][3]float64{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}, uvY: 1}
+					r.drawRangedHeldMesh(dst, dst.Bounds().Size(), float64(width)/2, float64(width)/2, float64(width)*.4, fade, tr, compileVolumeMesh(raw))
+
+					left = color.RGBAModel.Convert(dst.At(width*3/8, width/2)).(color.RGBA)
+					right = color.RGBAModel.Convert(dst.At(width*5/8, width/2)).(color.RGBA)
+				})
+				wantAlpha := int(math.Round(255 * fade))
+				if left.G < uint8(float64(wantAlpha)*.7) || left.R > 2 || right.R < uint8(float64(wantAlpha)*.7) || right.G > 2 || math.Abs(float64(int(left.A)-wantAlpha)) > 1 || math.Abs(float64(int(right.A)-wantAlpha)) > 1 {
+					t.Fatalf("width=%d reverse=%v fade=%g left=%v right=%v: nearest surfaces or solid fade lost", width, reverse, fade, left, right)
 				}
 			}
 		}

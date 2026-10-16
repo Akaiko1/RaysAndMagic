@@ -155,6 +155,89 @@ func TestAuditInternalStashSplit(t *testing.T) {
 	}
 }
 
+// A layout split inside the chest shares lineage IDs between its cells.
+// Units leaving one piece - withdrawn whole or in part, or displaced by a bag
+// item dropped on their cell - must not look stash-owned: the live party keeps
+// every withdrawn unit on reload, and an older save holding the original units
+// is still stripped of exactly what the chest holds.
+func TestStashWithdrawalAfterInternalSplitKeepsUnits(t *testing.T) {
+	for _, exit := range []string{"whole", "part", "displaced"} {
+		t.Run(exit, func(t *testing.T) {
+			g := stashTestGame(t)
+			original := items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 10, InstanceID: 771}
+			g.stash.Slots[0] = original
+			g.moveStashItem(stashAddr{stashKindChest, 0}, stashAddr{stashKindChest, 1}, 4)
+			switch exit {
+			case "whole":
+				g.moveStashItem(stashAddr{stashKindChest, 1}, stashAddr{stashKindBag, stashBagAutomatic}, 0)
+			case "part":
+				g.moveStashItem(stashAddr{stashKindChest, 1}, stashAddr{stashKindBag, stashBagAutomatic}, 3)
+			default:
+				g.party.Inventory = []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon, InstanceID: 772}}
+				g.moveStashItem(stashAddr{stashKindBag, 0}, stashAddr{stashKindChest, 1}, 0)
+			}
+			potions := func(stacks []items.Item) int {
+				n := 0
+				for _, it := range stacks {
+					n += it.Count() * boolInt(it.Stackable())
+				}
+				return n
+			}
+			units := func() int { return potions(g.party.Inventory) }
+			withdrawn, chest := units(), potions(g.stash.Slots[:])
+			if withdrawn+chest != 10 || withdrawn == 0 {
+				t.Fatalf("withdrew %d with %d left in the chest", withdrawn, chest)
+			}
+			g.reconcilePartyAgainstStash() // the live save reloads
+			if got := units(); got != withdrawn {
+				t.Fatalf("reload stripped withdrawn units: party %d, want %d", got, withdrawn)
+			}
+			g.party.Inventory = []items.Item{original} // a save from before the deposit
+			g.reconcilePartyAgainstStash()
+			if got := units(); got != 10-chest {
+				t.Fatalf("old save keeps %d units, want %d (the chest holds %d)", got, 10-chest, chest)
+			}
+		})
+	}
+}
+
+// Separate stacks of one item are the player's layout and survive save and
+// load; a save written before free stacks is folded once on load.
+func TestSaveKeepsSeparateStacks(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%v", legacy), func(t *testing.T) {
+			g, wm, _ := travelFixture(t)
+			var bag []items.Item
+			for _, n := range []int{3, 2} {
+				it := items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: n}
+				items.EnsureInstanceID(&it)
+				bag = append(bag, it)
+			}
+			g.party.Inventory = bag
+			saved := auditSaveJSON(t, g.buildSave(wm))
+			if legacy {
+				saved.StackLayoutVersion = 0
+			}
+			if err := g.applySave(wm, &saved); err != nil {
+				t.Fatal(err)
+			}
+			var got []int
+			for _, it := range g.party.Inventory {
+				if it.Name == "Health Potion" {
+					got = append(got, it.Count())
+				}
+			}
+			want := []int{3, 2}
+			if legacy {
+				want = []int{5}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("potion stacks after load %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 func TestAuditPromotionSave(t *testing.T) {
 	for _, light := range []bool{false, true} {
 		for _, legacy := range []bool{false, true} {

@@ -27,11 +27,18 @@ type modelSurface struct {
 }
 
 // Compiled geometry keeps only unique vertices and outward unit normals.
-// Construction and degenerate-face rejection happen once, on first use.
+// Construction and degenerate-face rejection happen once, on first use. A
+// posed mesh keeps its rest coordinates in uv, so inlay never slides as its
+// points move; nil uses each point's own x,y.
 type volumeMesh struct {
 	points [][3]float64
+	uv     [][2]float64
 	faces  []volumeMeshFace
 }
+
+// One draw indexes its vertices with uint16, three per visible face.
+const maxVolumeMeshFaces = (math.MaxUint16 + 1) / 3
+
 type volumeMeshFace struct {
 	vertices [3]int
 	normal   [3]float64
@@ -39,12 +46,12 @@ type volumeMeshFace struct {
 	material int
 	surface  *modelSurface
 }
-type volumeMeshCache struct {
+type volumeMeshCache[K comparable] struct {
 	mu     sync.Mutex
-	meshes map[int]*volumeMesh
+	meshes map[K]*volumeMesh
 }
 
-func (c *volumeMeshCache) get(key int, build func(int) []modelFace) *volumeMesh {
+func (c *volumeMeshCache[K]) get(key K, build func(K) []modelFace) *volumeMesh {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if m := c.meshes[key]; m != nil {
@@ -52,29 +59,47 @@ func (c *volumeMeshCache) get(key int, build func(int) []modelFace) *volumeMesh 
 	}
 	m := compileVolumeMesh(build(key))
 	if c.meshes == nil {
-		c.meshes = make(map[int]*volumeMesh)
+		c.meshes = make(map[K]*volumeMesh)
 	}
 	c.meshes[key] = m
 	return m
 }
+
+// triangleNormal is the unnormalized right-hand normal of a, b, c.
+func triangleNormal(a, b, c [3]float64) [3]float64 {
+	ux, uy, uz := b[0]-a[0], b[1]-a[1], b[2]-a[2]
+	vx, vy, vz := c[0]-a[0], c[1]-a[1], c[2]-a[2]
+	return [3]float64{uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx}
+}
+
+// outwardNormal is a face's unit normal pointing away from its origin; false
+// for a degenerate face.
+func outwardNormal(f modelFace) ([3]float64, bool) {
+	n := triangleNormal(f.a, f.b, f.c)
+	length := math.Sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2])
+	if length < 1e-8 {
+		return n, false
+	}
+	outward := 0.0
+	for k := range n {
+		outward += n[k] * ((f.a[k]+f.b[k]+f.c[k])/3 - f.origin[k])
+	}
+	if outward < 0 {
+		length = -length
+	}
+	return [3]float64{n[0] / length, n[1] / length, n[2] / length}, true
+}
+
 func compileVolumeMesh(raw []modelFace) *volumeMesh {
 	m := &volumeMesh{}
 	points := make(map[[3]float64]int)
 	for _, f := range raw {
-		a, b, c := f.a, f.b, f.c
-		ux, uy, uz := b[0]-a[0], b[1]-a[1], b[2]-a[2]
-		vx, vy, vz := c[0]-a[0], c[1]-a[1], c[2]-a[2]
-		nx, ny, nz := uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
-		length := math.Sqrt(nx*nx + ny*ny + nz*nz)
-		if length < 1e-8 {
+		normal, ok := outwardNormal(f)
+		if !ok {
 			continue
 		}
-		mx, my, mz := (a[0]+b[0]+c[0])/3, (a[1]+b[1]+c[1])/3, (a[2]+b[2]+c[2])/3
-		if nx*(mx-f.origin[0])+ny*(my-f.origin[1])+nz*(mz-f.origin[2]) < 0 {
-			nx, ny, nz = -nx, -ny, -nz
-		}
-		face := volumeMeshFace{normal: [3]float64{nx / length, ny / length, nz / length}, rgb: f.rgb, material: f.material, surface: f.surface}
-		for i, p := range [3][3]float64{a, b, c} {
+		face := volumeMeshFace{normal: normal, rgb: f.rgb, material: f.material, surface: f.surface}
+		for i, p := range [3][3]float64{f.a, f.b, f.c} {
 			index, ok := points[p]
 			if !ok {
 				index = len(m.points)
@@ -100,6 +125,7 @@ type projectedVolumePoint struct {
 type volumeTransform struct {
 	rotation [3][3]float64
 	uvY      float64
+	depth    bool // Detailed equipment resolves true per-pixel depth.
 }
 type volumeFaceOrder struct {
 	depth float64
@@ -117,31 +143,20 @@ type litVolumeFace struct {
 // The projected local origin stays fixed at (x,y), so its authored tip path is
 // also the exact ribbon/contact path. No combat position is changed here.
 func (r *Renderer) prepareCameraVolume(view image.Rectangle, x, y, size, alpha float64, transform volumeTransform, mesh *volumeMesh, tint [3]int, materialBase int, equipment bool) ([]ebiten.Vertex, []uint16, image.Rectangle) {
-	halfW, halfH := float64(view.Dx())*.5, float64(view.Dy())*.5
-	focal := halfW
-	if r.game != nil && r.game.camera != nil {
-		focal = r.game.viewFocal()
-		halfH = r.game.viewHorizon()
-		if equipment && r.game.combatPreferences.WideView {
-			// Equipment lives in a stable camera-local frame. The world's HUD
-			// clearance changes with UI scale; it must not rescale held weapons.
-			v := r.game.config.Graphics.View
-			viewport := float64(view.Dy()) * v.WideWeaponViewportRatio
-			focal, halfH = viewport*v.WideFocalRatio, viewport*v.WideHorizonRatio
-		}
-	}
-
-	halfW += float64(view.Min.X)
-	halfH += float64(view.Min.Y)
+	halfW, halfH, focal := r.cameraVolumeProjection(view, equipment)
 
 	rotation := transform.rotation
 	points := r.litVolumePoints[:0]
-	for _, p := range mesh.points {
+	for i, p := range mesh.points {
+		u, w := p[0], p[1]
+		if mesh.uv != nil {
+			u, w = mesh.uv[i][0], mesh.uv[i][1]
+		}
 		v := litVolumePoint{
 			rotation[0][0]*p[0] + rotation[0][1]*p[1] + rotation[0][2]*p[2],
 			rotation[1][0]*p[0] + rotation[1][1]*p[1] + rotation[1][2]*p[2],
 			rotation[2][0]*p[0] + rotation[2][1]*p[1] + rotation[2][2]*p[2],
-			p[0], p[1] * transform.uvY,
+			u, w * transform.uvY,
 		}
 		perspective := 1 / (1 + v.z*size/focal)
 		points = append(points, projectedVolumePoint{v, halfW + (x-halfW+v.x*size)*perspective, halfH + (y-halfH+v.y*size)*perspective, false})
@@ -167,22 +182,24 @@ func (r *Renderer) prepareCameraVolume(view image.Rectangle, x, y, size, alpha f
 		for _, vertex := range f.vertices {
 			points[vertex].visible = true
 		}
-		order = append(order, volumeFaceOrder{mz, len(faces)})
+		order = append(order, volumeFaceOrder{depth: mz, index: len(faces)})
 		faces = append(faces, litVolumeFace{f.vertices, [3]float64{nx, ny, nz}, [3]int{f.rgb[0] * tint[0] / 255, f.rgb[1] * tint[1] / 255, f.rgb[2] * tint[2] / 255}, materialBase + f.material, f.surface})
 	}
 
-	// Ebitengine's 2D target has no depth buffer. Sorting the visible triangles
-	// keeps the thumb and finger joints in front of the palm at every angle.
-	// Sort lightweight references instead of repeatedly copying face records.
-	slices.SortFunc(order, func(a, b volumeFaceOrder) int {
-		if a.depth > b.depth {
-			return -1
-		}
-		if a.depth < b.depth {
-			return 1
-		}
-		return 0
-	})
+	// Per-pixel depth needs no CPU face sort. Simple melee solids keep their
+	// existing centroid order.
+	if !transform.depth {
+		slices.SortFunc(order, func(a, b volumeFaceOrder) int {
+			if a.depth > b.depth {
+				return -1
+			}
+			if a.depth < b.depth {
+				return 1
+			}
+			return 0
+		})
+	}
+
 	verts, indices := r.standeeVerts[:0], r.standeeIdx[:0]
 	faceAlpha := alpha
 	if equipment {
@@ -207,12 +224,27 @@ func (r *Renderer) prepareCameraVolume(view image.Rectangle, x, y, size, alpha f
 			maxY = p.screenY
 		}
 	}
+	near, far := math.Inf(-1), math.Inf(1)
+	if transform.depth {
+		for _, p := range points {
+			if p.visible {
+				q := 1 / (1 + p.z*size/focal)
+				near = max(near, q)
+				far = min(far, q)
+			}
+		}
+	}
+	// Content tests keep every shipped model inside the index range. An
+	// oversized mesh drops faces (the farthest when sorted) rather than
+	// wrapping indices.
+	order = order[max(0, len(order)-maxVolumeMeshFaces):]
 	for _, entry := range order {
 		f := &faces[entry.index]
 		base := uint16(len(verts))
 		for corner, vertex := range f.vertices {
 			p := points[vertex]
 			px, py := p.screenX, p.screenY
+			// custom.w carries the material id; volume_vertex.kageinc reads it.
 			v := weaponMaterialVertex(px, py, p.u, p.v, f.rgb, faceAlpha)
 			v.Custom0, v.Custom1, v.Custom2, v.Custom3 = float32(f.normal[0]), float32(f.normal[1]), float32(f.normal[2]), float32(f.material)+.25
 			if s := f.surface; s != nil {
@@ -221,6 +253,12 @@ func (r *Renderer) prepareCameraVolume(view image.Rectangle, x, y, size, alpha f
 				v.Custom1 = float32(rotation[1][0]*n[0] + rotation[1][1]*n[1] + rotation[1][2]*n[2])
 				v.Custom2 = float32(rotation[2][0]*n[0] + rotation[2][1]*n[1] + rotation[2][2]*n[2])
 				v.SrcX, v.SrcY = float32(s.uv[corner][0]), float32(s.uv[corner][1]*transform.uvY)
+			}
+			if transform.depth {
+				// Reciprocal depth is affine after perspective projection. Keep
+				// it inside the material interval, away from floor boundaries.
+				depth := (near - 1/(1+p.z*size/focal)) / max(near-far, 1e-8)
+				v.Custom3 = float32(f.material) + .125 + .75*float32(depth)
 			}
 			verts = append(verts, v)
 		}
@@ -233,6 +271,25 @@ func (r *Renderer) prepareCameraVolume(view image.Rectangle, x, y, size, alpha f
 	}
 	bounds := image.Rect(int(math.Floor(minX)), int(math.Floor(minY)), int(math.Ceil(maxX)), int(math.Ceil(maxY))).Inset(-1).Intersect(view)
 	return verts, indices, bounds
+}
+
+// cameraVolumeProjection is the perspective a camera-local solid uses in a
+// view: its projection centre and focal length.
+func (r *Renderer) cameraVolumeProjection(view image.Rectangle, equipment bool) (cx, cy, focal float64) {
+	cx, cy = float64(view.Dx())*.5, float64(view.Dy())*.5
+	focal = cx
+	if r.game != nil && r.game.camera != nil {
+		focal = r.game.viewFocal()
+		cy = r.game.viewHorizon()
+		if equipment && r.game.combatPreferences.WideView {
+			// Equipment lives in a stable camera-local frame. The world's HUD
+			// clearance changes with UI scale; it must not rescale held weapons.
+			v := r.game.config.Graphics.View
+			viewport := float64(view.Dy()) * v.WideWeaponViewportRatio
+			focal, cy = viewport*v.WideFocalRatio, viewport*v.WideHorizonRatio
+		}
+	}
+	return cx + float64(view.Min.X), cy + float64(view.Min.Y), focal
 }
 
 // Supersample opaque equipment and fade the resolved solid once. The same
@@ -249,27 +306,41 @@ func (r *Renderer) drawCameraVolume(dst *ebiten.Image, x, y, size, alpha float64
 		worldDrawTrianglesShader(dst, verts, indices, shader, opts)
 		return
 	}
-	drawResolvedEquipment(r, dst, verts, indices, bounds, alpha, shader, opts)
+	layer := r.beginEquipmentLayer(dst.Bounds().Size(), bounds, verts)
+	o := worldShaderOptions(nil, opts)
+	layer.DrawTrianglesShader(verts, indices, shader, &o)
+	r.compositeEquipment(dst, layer, bounds, alpha)
 }
 
-// Resolve camera-local equipment once, preserving supersampled edges and
-// applying its fade after opaque faces. World Panini does not change this frame.
-func drawResolvedEquipment(r *Renderer, dst *ebiten.Image, verts []ebiten.Vertex, indices []uint16, bounds image.Rectangle, alpha float64, shader *ebiten.Shader, opts *ebiten.DrawTrianglesShaderOptions) {
-	r.resizeVolumeLayer(dst.Bounds().Size())
+// Camera-local equipment resolves once into a supersampled layer, preserving
+// edges and applying its fade after opaque faces; World Panini does not change
+// it. beginEquipmentLayer readies that layer for a body projected into bounds
+// of a view of the given size and moves the vertices into layer space.
+func (r *Renderer) beginEquipmentLayer(view image.Point, bounds image.Rectangle, verts []ebiten.Vertex) *ebiten.Image {
+	r.resizeVolumeLayer(view)
 	layer := r.ensureVolumeLayer(bounds.Size())
-	w, h := float64(bounds.Dx()*volumeSampleScale), float64(bounds.Dy()*volumeSampleScale)
-	// Reuse one allocation, clear only the rectangle we will sample, and never
-	// create per-frame SubImages. Padding keeps the linear resolve off stale pixels.
-	r.volumeClearOpts.GeoM.Reset()
-	r.volumeClearOpts.GeoM.Scale(w, h)
-	r.volumeClearOpts.Blend = ebiten.BlendClear
-	layer.DrawImage(r.whiteImg, &r.volumeClearOpts)
+	r.fillEquipmentRect(layer, bounds, ebiten.BlendClear)
 	for i := range verts {
 		verts[i].DstX = (verts[i].DstX - float32(bounds.Min.X)) * volumeSampleScale
 		verts[i].DstY = (verts[i].DstY - float32(bounds.Min.Y)) * volumeSampleScale
 	}
-	o := worldShaderOptions(nil, opts)
-	layer.DrawTrianglesShader(verts, indices, shader, &o)
+	return layer
+}
+
+// fillEquipmentRect fills only the sampled rectangle of a layer: one reused
+// allocation, no per-frame SubImages. Padding keeps the linear resolve off
+// stale pixels.
+func (r *Renderer) fillEquipmentRect(layer *ebiten.Image, bounds image.Rectangle, blend ebiten.Blend) {
+	r.volumeClearOpts.GeoM.Reset()
+	r.volumeClearOpts.GeoM.Scale(float64(bounds.Dx()*volumeSampleScale), float64(bounds.Dy()*volumeSampleScale))
+	r.volumeClearOpts.Blend = blend
+	layer.DrawImage(r.whiteImg, &r.volumeClearOpts)
+}
+
+// compositeEquipment draws the resolved layer back over bounds, fading the
+// solid once.
+func (r *Renderer) compositeEquipment(dst, layer *ebiten.Image, bounds image.Rectangle, alpha float64) {
+	w, h := float64(bounds.Dx()*volumeSampleScale), float64(bounds.Dy()*volumeSampleScale)
 	for i, p := range [4][2]float64{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
 		r.volumeQuad[i] = ebiten.Vertex{DstX: float32(float64(bounds.Min.X) + p[0]*float64(bounds.Dx())), DstY: float32(float64(bounds.Min.Y) + p[1]*float64(bounds.Dy())), SrcX: float32(p[0] * w), SrcY: float32(p[1] * h), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: float32(alpha)}
 	}
@@ -316,6 +387,21 @@ func (r *Renderer) ensureVolumeLayer(size image.Point) *ebiten.Image {
 	}
 	r.allocateVolumeLayer(capacity)
 	return r.litVolumeLayer
+}
+
+// releaseEquipmentLayers frees the equipment resolve targets: the shared
+// supersampled layer and the two ranged depth reductions.
+func (r *Renderer) releaseEquipmentLayers() {
+	if r.litVolumeLayer != nil {
+		r.litVolumeLayer.Deallocate()
+		r.litVolumeLayer = nil
+	}
+	for i, layer := range r.rangedDepthLayers {
+		if layer != nil {
+			layer.Deallocate()
+			r.rangedDepthLayers[i] = nil
+		}
+	}
 }
 
 func (r *Renderer) allocateVolumeLayer(size image.Point) {

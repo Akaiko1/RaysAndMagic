@@ -9,8 +9,20 @@ func validateDeviceDefinition(key string, d *ItemDefinitionConfig) error {
 	if d.Type != "device" && d.UseAction == "" && d.UseSpell == "" && d.UseCooldownSeconds == 0 && d.UseJumpExtraTiles == 0 {
 		return nil
 	}
-	if d.Type != "device" || d.UseCooldownSeconds <= 0 {
-		return fmt.Errorf("item %q: device requires positive use_cooldown_seconds", key)
+	if d.Type != "device" {
+		return fmt.Errorf("item %q: use fields need type: device", key)
+	}
+	// A thrown flask is paced by the hero's action cooldown like any attack;
+	// jump and summon devices recharge on their own clock.
+	switch d.UseAction {
+	case "throw_flask":
+		if d.UseCooldownSeconds != 0 {
+			return fmt.Errorf("item %q: use_cooldown_seconds is not allowed on a throw_flask device", key)
+		}
+	case "jump", "summon":
+		if d.UseCooldownSeconds <= 0 {
+			return fmt.Errorf("item %q: jump and summon devices need a positive use_cooldown_seconds", key)
+		}
 	}
 	switch d.UseAction {
 	case "throw_flask":

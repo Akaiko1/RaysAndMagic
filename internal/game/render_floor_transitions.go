@@ -13,7 +13,8 @@ import (
 
 // Index-map B packs profile (bits 0-2), frozen water (5), boundary (6), and shoreline
 // proximity (7); alpha stays opaque. Textures keep world-aligned UVs.
-// Byte contract shared with the Kage floor shader. Zero is deliberately hard:
+// Byte contract shared with the Kage floor shader, which names every value
+// below (TestShaderConstantsMatchGo). Zero is deliberately hard:
 // old/untextured maps and unclassified groups retain their authored geometry.
 const (
 	floorBlendHard byte = iota
@@ -24,6 +25,10 @@ const (
 	floorBlendVoid
 	floorBlendChasm
 )
+
+// The profile is B modulo this; the flags sit above it
+// (TestFloorProfilesFitUnderTheFlags).
+const floorProfileModulus byte = 8
 
 const floorShoreReach = 2.0
 const floorBlendBoundary byte = 64

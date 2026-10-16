@@ -5,7 +5,8 @@ import (
 	"math"
 )
 
-// These IDs match the silhouette branches in spell_body.kage.
+// spell_body.kage and spell_bolt.kage branch on these kinds by name through
+// spell_kinds.kageinc, which TestShaderConstantsMatchGo keeps equal to these.
 const (
 	spellFireball = iota
 	spellLightning
@@ -52,7 +53,7 @@ func (r *Renderer) drawSpellMaterialProjected(dst *ebiten.Image, x, y, size floa
 		return
 	}
 	if isFacetedBolt(kind) || kind == spellHarm || kind == spellFlyingFist {
-		r.drawLitVolume(dst, x, y, size*math.Sqrt(crit), projection.axis, rgb, alpha, kind, 1)
+		r.drawLitVolume(dst, x, y, size*math.Sqrt(crit), projection.axis, rgb, alpha, kind)
 		return
 	}
 	dx, dy, head := projection.dx, projection.dy, projection.head
@@ -80,6 +81,15 @@ func (r *Renderer) drawSpellMaterialProjected(dst *ebiten.Image, x, y, size floa
 	worldDrawTrianglesShader(dst, r.weaponMaterialQuad[:], weaponQuadIndices, r.spellBodyShader, &r.weaponMaterialOpts)
 }
 
+// Impact cloud encoding, named in impact_material.kage and kept equal by
+// TestShaderConstantsMatchGo: Custom3 = impactCloudMarker selects the cloud
+// (shards carry a positive reflectivity there) and Custom2 is its kind.
+const (
+	impactCloudMarker = -1
+	impactCloudHot    = 0
+	impactCloudDust   = 1
+)
+
 // The broad impact face expands quickly, then rolls apart into smoke and grit.
 // Width and height are already projected; this helper never invents a depth.
 func (r *Renderer) drawImpactCloud(dst *ebiten.Image, x, y, rx, ry, age float64, rgb [3]int, alpha float64, seed int, dust bool) {
@@ -88,9 +98,9 @@ func (r *Renderer) drawImpactCloud(dst *ebiten.Image, x, y, rx, ry, age float64,
 	}
 	for i, p := range [4][2]float64{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {
 		v := weaponMaterialVertex(x+p[0]*rx, y+p[1]*ry, p[0], p[1], rgb, alpha)
-		v.Custom0, v.Custom1, v.Custom3 = float32(age), float32(uint(seed)%997)*.041, -1
+		v.Custom0, v.Custom1, v.Custom2, v.Custom3 = float32(age), float32(uint(seed)%997)*.041, impactCloudHot, impactCloudMarker
 		if dust {
-			v.Custom2 = 1
+			v.Custom2 = impactCloudDust
 		}
 		r.weaponMaterialQuad[i] = v
 	}

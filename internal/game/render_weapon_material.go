@@ -10,8 +10,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Material numbers match weapon_ribbon.kage. Authored geometry, colours and
-// choreography still belong to each weapon's existing signature renderer.
+// Ribbon materials: weapon_ribbon.kage branches on them by name and
+// TestShaderConstantsMatchGo keeps its const block equal. Authored geometry,
+// colours and choreography still belong to each weapon's signature renderer.
 const (
 	weaponMetal = iota
 	weaponHeat
@@ -44,7 +45,7 @@ func weaponMaterial(style string) int {
 		return weaponStone
 	case "kage_kunai", "dragon_hatchling", "dark":
 		return weaponVeil
-	case "duskneedle", "solstice_transfer", "solstice_returning_gale":
+	case "duskneedle", "solstice_transfer":
 		return weaponWind
 	case "tonbogiri", "agility_katar", "air", "arcane":
 		return weaponEnergy
@@ -67,21 +68,16 @@ func (r *Renderer) weaponMaterialClock() float64 {
 }
 
 func (r *Renderer) ensureWeaponMaterialShaders() error {
-	if r.fireflyShader != nil && r.spellBoltShader != nil && r.weaponRibbonShader != nil && r.impactMaterialShader != nil && r.weaponOrbShader != nil && r.spellBodyShader != nil && r.zonePlumeShader != nil && r.weaponBodyShader != nil && r.bubbleShader != nil {
+	if r.fireflyShader != nil && r.spellBoltShader != nil && r.weaponRibbonShader != nil && r.impactMaterialShader != nil && r.weaponOrbShader != nil && r.spellBodyShader != nil && r.zonePlumeShader != nil && r.weaponBodyShader != nil && r.bubbleShader != nil && r.rangedFlameShader != nil {
 		return nil
 	}
 	for _, entry := range []struct {
-		dst **ebiten.Shader
-		src string
-	}{{&r.fireflyShader, fireflyShaderSrc}, {&r.spellBoltShader, spellBoltShaderSrc}, {&r.weaponRibbonShader, weaponRibbonShaderSrc}, {&r.impactMaterialShader, impactMaterialShaderSrc}, {&r.weaponOrbShader, weaponOrbShaderSrc}, {&r.spellBodyShader, spellBodyShaderSrc}, {&r.zonePlumeShader, zonePlumeShaderSrc}, {&r.weaponBodyShader, weaponBodyShaderSrc}, {&r.bubbleShader, bubbleShaderSrc}} {
-		if *entry.dst != nil {
-			continue
-		}
-		shader, err := ebiten.NewShader([]byte(entry.src))
-		if err != nil {
+		dst  **ebiten.Shader
+		name string
+	}{{&r.fireflyShader, "firefly.kage"}, {&r.spellBoltShader, "spell_bolt.kage"}, {&r.weaponRibbonShader, "weapon_ribbon.kage"}, {&r.impactMaterialShader, "impact_material.kage"}, {&r.weaponOrbShader, "weapon_orb.kage"}, {&r.spellBodyShader, "spell_body.kage"}, {&r.zonePlumeShader, "zone_plume.kage"}, {&r.weaponBodyShader, "weapon_body.kage"}, {&r.bubbleShader, "bubble.kage"}, {&r.rangedFlameShader, "ranged_flame.kage"}} {
+		if err := compileShader(entry.dst, entry.name); err != nil {
 			return err
 		}
-		*entry.dst = shader
 	}
 	return nil
 }
@@ -279,6 +275,10 @@ func (r *Renderer) drawWeaponMaterialWarm(dst *ebiten.Image) {
 		}
 		r.weaponMaterialOpts.Images[0] = nil
 	}
+	// The charged Sun Crucible flame and every ranged depth-resolve stage
+	// (both depth targets, min/copy/clear blends) exist before the first shot.
+	r.drawRangedSunFlame(dst, 0, 0, 1, 0)
+	r.drawRangedHeldMesh(dst, size, 8, 8, 8, 0, volumeTransform{rotation: [3][3]float64{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}, uvY: 1}, rangedDepthWarmMesh)
 	r.weaponMaterialWarmed = true
 }
 

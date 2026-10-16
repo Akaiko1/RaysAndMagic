@@ -584,6 +584,7 @@ type MeleeAttackConfig struct {
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
+	HeldModel        string  `yaml:"held_model,omitempty"`         // Procedural equipment asset; independent of the flying projectile.
 	ImpactFlameScale float64 `yaml:"impact_flame_scale,omitempty"` // Scale of the shared one-tile campfire volume.
 
 	SlashLiftRatio float64 `yaml:"slash_lift_ratio,omitempty"` // Lift the complete swing by a fraction of view height.
@@ -964,6 +965,7 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
+	RangedHeld         RangedHeldConfig        `yaml:"ranged_held"`
 	Props3D            bool                    `yaml:"props_3d"`
 	View               ViewRenderConfig        `yaml:"view"`
 	ElementalAttack    ElementalAttackFXConfig `yaml:"elemental_attack"`
@@ -1000,6 +1002,13 @@ type GraphicsConfig struct {
 
 	// NightMotes controls the moving motes emitted by authored tree tiles at night.
 	NightMotes NightMoteRenderConfig `yaml:"night_motes"`
+}
+
+// RangedHeldConfig frames cosmetic equipment and limits recovery without delaying attacks.
+type RangedHeldConfig struct {
+	ModelScale         float64 `yaml:"model_scale"`
+	MaxDurationSeconds float64 `yaml:"max_duration_seconds"`
+	CooldownFraction   float64 `yaml:"cooldown_fraction"`
 }
 
 type ViewRenderConfig struct {
@@ -1920,6 +1929,16 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if config.Graphics.RemovedTreeStandeeLOD != nil {
 		return nil, fmt.Errorf("graphics.tree_standee_lod_tiles is removed - natural crosses retain both planes; use graphics.standee.crossed_standee_layers for interior budgets")
+	}
+	held := config.Graphics.RangedHeld
+	if !(held.ModelScale > 0 && held.ModelScale <= 1) {
+		return nil, fmt.Errorf("graphics.ranged_held.model_scale must be in (0, 1]")
+	}
+	if math.IsNaN(held.MaxDurationSeconds) || math.IsInf(held.MaxDurationSeconds, 0) || held.MaxDurationSeconds <= 0 {
+		return nil, fmt.Errorf("graphics.ranged_held.max_duration_seconds must be finite and positive")
+	}
+	if !(held.CooldownFraction > 0 && held.CooldownFraction <= 1) {
+		return nil, fmt.Errorf("graphics.ranged_held.cooldown_fraction must be in (0, 1]")
 	}
 	v := config.Graphics.View
 	if !(v.WidePaniniDistance >= 0 && v.WidePaniniDistance <= 1) {

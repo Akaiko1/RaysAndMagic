@@ -1,0 +1,11 @@
+// Camera-volume vertices (prepareCameraVolume in render_mesh.go) carry a
+// face's material id in custom.w: the id plus .25, or plus .125 to .875 when
+// the layer packs depth. volumeMaterial reads the id from either encoding.
+func volumeMaterial(w float) float {
+	return floor(w)
+}
+
+// volumeDepth is the packed depth of a depth-carrying vertex, 0 to 65535.
+func volumeDepth(w float) float {
+	return floor(clamp((fract(w)-.125)/.75, 0.0, 1.0)*65535.0)
+}

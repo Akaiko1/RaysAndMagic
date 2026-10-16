@@ -2,12 +2,16 @@ package character
 
 import (
 	"iter"
+	"slices"
 
 	"ugataima/internal/items"
 )
 
 // InventoryBag addresses one physical container. A nil owner is the shared bag.
-// All bags use the same stacking and provenance rules and party content revision.
+// All bags use the same stacking and provenance rules and party content
+// revision. A bag may hold several stacks of one item: automatic adds (loot,
+// purchases, withdrawals) merge into the first matching stack, while a manual
+// placement keeps the cell it was dropped on.
 type InventoryBag struct {
 	party *Party
 	Owner *MMCharacter
@@ -89,6 +93,81 @@ func (b InventoryBag) MoveTo(dst InventoryBag, index, n int) bool {
 	}
 	return ok
 }
+
+// Cell is the item at cell at; the free tail past the last entry reads as an
+// empty cell.
+func (b InventoryBag) Cell(at int) items.Item {
+	if inv := b.Items(); at >= 0 && at < len(inv) {
+		return inv[at]
+	}
+	return items.Item{}
+}
+
+// Place lands an item from elsewhere on cell at under items.DropOnto: onto a
+// matching stack it merges, at the free tail it keeps a stack of its own, onto
+// any other item it takes that cell and returns the item it displaced. A
+// negative at stacks automatically like Add. Callers refuse part of a stack
+// onto another item (DropOnto) before taking anything.
+func (b InventoryBag) Place(item items.Item, at int) (displaced items.Item) {
+	if at < 0 {
+		b.Add(item)
+		return items.Item{}
+	}
+	inv := b.Items()
+	switch items.DropOnto(item, b.Cell(at), true) {
+	case items.DropMerge:
+		inv[at].MergeStack(item)
+	case items.DropPlace:
+		*b.entries() = append(*b.entries(), item)
+	default:
+		displaced, inv[at] = inv[at], item
+	}
+	b.party.contentRev++
+	return displaced
+}
+
+// Insert puts an item at index at, shifting the later entries: a displaced
+// item returns to the cell its swap partner left.
+func (b InventoryBag) Insert(at int, item items.Item) {
+	inv := b.entries()
+	*inv = slices.Insert(*inv, max(0, min(at, len(*inv))), item)
+	b.party.contentRev++
+}
+
+// MoveWithin moves n units of the stack at src to cell at of the same bag
+// under items.DropOnto: a merge onto a matching stack, a stack of its own at
+// the free tail, a swap of a whole stack with another item. Part of a stack
+// onto another item moves nothing.
+func (b InventoryBag) MoveWithin(src, at, n int) bool {
+	inv := b.Items()
+	if src < 0 || src >= len(inv) || at < 0 || at == src || n < 1 || n > inv[src].Count() {
+		return false
+	}
+	at = min(at, len(inv))
+	whole := n == inv[src].Count()
+	switch items.DropOnto(inv[src], b.Cell(at), whole) {
+	case items.DropRefused:
+		return false
+	case items.DropMerge:
+		if whole {
+			b.party.contentRev++
+			inv[at].MergeStack(inv[src])
+			b.Remove(src)
+			return true
+		}
+	default:
+		if whole { // swap, or the last cell at the free tail
+			b.Reorder(src, at)
+			return true
+		}
+	}
+	part, ok := b.Take(src, n)
+	if ok {
+		b.Place(part, at) // part of a stack leaves src in place: at is unchanged
+	}
+	return ok
+}
+
 func (b InventoryBag) Reorder(src, dst int) {
 	inv := b.Items()
 	if src < 0 || src >= len(inv) || dst < 0 || dst > len(inv) {
@@ -103,6 +182,9 @@ func (b InventoryBag) Reorder(src, dst int) {
 	}
 	b.party.contentRev++
 }
+
+// MergeStacks folds every stack into the first of its kind. It runs once on a
+// save written before free stacks (see stackLayoutSaveVersion).
 func (b InventoryBag) MergeStacks() {
 	type key struct {
 		name string

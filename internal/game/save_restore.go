@@ -6,6 +6,11 @@ import (
 	"ugataima/internal/world"
 )
 
+// Saves from stackLayoutSaveVersion on keep the player's separate stacks of
+// one item; an older save (canonical bags, or loose pre-stacking units) is
+// folded once by MergeStacks on load, after the stash strip.
+const stackLayoutSaveVersion = 1
+
 // applySave keeps the restore phases in dependency order. Travel deliberately
 // uses a different lifecycle: loading replaces the timeline and never autosaves
 // an intermediate state or consumes travel-only quest spawns.
@@ -36,7 +41,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.restoreSavedEffects(save)
 	g.restoreSavedContainers(wm, save)
 	g.reconcilePartyAgainstStash()
-	g.party.MergeStacks()
+	if save.StackLayoutVersion < stackLayoutSaveVersion {
+		g.party.MergeStacks()
+	}
+	g.warmPartyWeaponModels()
 	// The aggregate is DERIVED from the restored registry (never trusted from
 	// the save) - a drifted legacy save can't turn a buff expiry into a
 	// permanent debuff. Also re-derives members' MaxHP/MaxSP under the buffs.
