@@ -81,22 +81,20 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		back := controlTipsBackRect(panel)
 		ui.drawBackButton(screen, back.x, back.y, func() { ui.game.mainMenuMode = MenuMain })
 
-	case MenuSaveSelect:
-		for _, line := range saveMenuHeaderLines(MenuSaveSelect, px, py) {
-			drawUIText(screen, line.text, line.x, line.y)
+	case MenuSaveSelect, MenuLoadSelect:
+		saving := ui.game.mainMenuMode == MenuSaveSelect
+		l := escSaveListLayout(w, h)
+		heading, hint := "Load Game", loadMenuHint
+		if saving {
+			heading, hint = "Save Game", saveMenuHint
 		}
-		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{80, 180, 80, 200})
+		ui.drawSaveList(screen, l, heading, ui.game.slotSelection, saving, !ui.game.saveRenameOpen)
+		drawUITextColored(screen, clipUIText(hint, l.title.w), l.title.x, l.hintY, gameplayInk.muted)
 		if ui.game.saveRenameOpen {
 			ui.drawSaveRenameDialog(screen)
 		} else {
-			ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
+			ui.drawSaveRowHoverTooltip(screen, l)
 		}
-	case MenuLoadSelect:
-		for _, line := range saveMenuHeaderLines(MenuLoadSelect, px, py) {
-			drawUIText(screen, line.text, line.x, line.y)
-		}
-		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{180, 120, 60, 200})
-		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 	case MenuSettings:
 		settingsLayout := audioSettingsPanelLayoutAt(px, py, panelW, panelH, false)
 		ui.drawSettingsContent(screen, settingsLayout.px, settingsLayout.py, settingsLayout.panelW, settingsLayout.panelH, settingsLayout.contentInset)
@@ -114,135 +112,8 @@ func mainMenuTitleRect(panel layoutRect) layoutRect {
 	return layoutRect{panel.x + 32, panel.y + 16, panel.w - 64, 20}
 }
 
-// menuTextLine is one left-aligned label and its drawUIText origin.
-type menuTextLine struct {
-	text string
-	x, y int
-}
-
-// saveMenuHeaderLines are the save/load menus' title and key-help lines.
-func saveMenuHeaderLines(mode MainMenuMode, px, py int) [2]menuTextLine {
-	title, help := "Save Game - Select Slot", "Enter: Save  R: Rename  Left/Right: Page"
-	if mode == MenuLoadSelect {
-		title, help = "Load Game - Select Slot", "Enter: Load  Left/Right: Page"
-	}
-	return [2]menuTextLine{{title, px + 16, py + 14}, {help, px + 16, py + 32}}
-}
-
-// pagerRect is a button hitbox shared between the save-menu draw and input code.
+// pagerRect is a button hitbox shared between draw and input code.
 type pagerRect struct{ x1, y1, x2, y2 int }
-
-// savePagerButtonRects returns the Prev and Next button boxes for the save/load
-// menus: a strip just below the panel, buttons pinned to the left and right
-// edges. Shared by drawSaveRowList (render) and navigateSavePage (clicks).
-func savePagerButtonRects(px, py, panelW, panelH int) (prev, next pagerRect) {
-	const bw, bh = 84, 26
-	y := py + panelH + 6
-	prev = pagerRect{px, y, px + bw, y + bh}
-	next = pagerRect{px + panelW - bw, y, px + panelW, y + bh}
-	return
-}
-
-// drawSaveRowList renders the saveRowsPerPage rows of the current page (row 0 of
-// page 0 are the load-only Autosave and Quicksave) plus a Prev/Next pager strip below the panel.
-// highlight tints the selected row.
-func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH int, highlight color.RGBA) {
-	g := ui.game
-	for i := 0; i < saveRowsPerPage; i++ {
-		row := g.savePage*saveRowsPerPage + i
-		box, tx, ty := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
-		sum := GetSaveRowSummary(row)
-		label := saveRowLabel(row)
-		if sum.Name != "" && !saveRowIsLoadOnly(row) {
-			label = fmt.Sprintf("%s: %s", label, truncateSaveName(sum.Name, 18))
-		}
-		if sum.Exists {
-			mode := "RT"
-			if sum.TurnBased {
-				mode = "TB"
-			}
-			t := sum.SavedAt
-			if len(t) > 19 {
-				t = t[:19]
-			}
-			label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
-		} else if saveRowIsLoadOnly(row) {
-			label = fmt.Sprintf("%s  (empty)", label)
-		}
-		if i == g.slotSelection {
-			drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, highlight)
-		}
-		// Saves from THIS playthrough glow so your own run stands out. Matched
-		// by run id: member names collide across runs (the default roster is
-		// identical every new game) and shift within one (tavern swaps).
-		if sum.Exists && sum.RunID != "" && sum.RunID == g.playthroughID {
-			drawFilledRect(screen, box.x1, box.y1, 4, box.y2-box.y1, color.RGBA{110, 200, 110, 255})
-			drawRectBorder(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, 1, color.RGBA{110, 200, 110, 160})
-		}
-		drawUIText(screen, label, tx, ty)
-	}
-	ui.drawSavePagerStrip(screen, px, py, panelW, panelH)
-	// Note: the hover tooltip is drawn by the menu case AFTER this, so it sits on
-	// top of the pager strip instead of being covered by it.
-}
-
-// drawSaveRowHoverTooltip shows play time + the saved party (name, level, class)
-// for the row under the cursor, so you can tell saves apart before loading.
-func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW int) {
-	mx, my := uiCursorPosition()
-	for i := 0; i < saveRowsPerPage; i++ {
-		box, _, _ := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
-		if mx < box.x1 || mx >= box.x2 || my < box.y1 || my >= box.y2 {
-			continue
-		}
-		sum := GetSaveRowSummary(ui.game.savePage*saveRowsPerPage + i)
-		if !sum.Exists {
-			return
-		}
-		var lines []string
-		if sum.PlayTime != "" {
-			lines = append(lines, "Play time: "+sum.PlayTime)
-		}
-		for _, m := range sum.Party {
-			lines = append(lines, fmt.Sprintf("%s  Lv.%d %s", m.Name, m.Level, character.CharacterClass(m.Class).String()))
-		}
-		if len(lines) > 0 {
-			ui.drawTooltipLines(screen, mx+16, my+16, lines)
-		}
-		return
-	}
-}
-
-// drawTooltipLines renders a small bordered tooltip box of text lines, clamped to
-// the screen so it never spills off the edge.
-func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []string) {
-	sw, sh := uiBounds(screen).Dx(), uiBounds(screen).Dy()
-	r := singleTooltipLayout(lines, nil, false, x, y, sw, sh)
-	drawTooltip(screen, lines, nil, nil, nil, "", r.x, r.y, r.right(), ui.game.sprites)
-}
-
-// drawSavePagerStrip draws the Prev/Next buttons and the page indicator on a
-// short strip below the menu panel. Inactive buttons (at the first/last page) are
-// dimmed. Mirrors the hitboxes from savePagerButtonRects.
-func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, panelH int) {
-	g := ui.game
-	prev, next := savePagerButtonRects(px, py, panelW, panelH)
-	stripY := prev.y1
-	stripH := prev.y2 - prev.y1
-	ui.drawThemeFrame(screen, frameSilver, px, stripY, panelW, stripH)
-
-	drawPagerBtn := func(r pagerRect, label string, enabled bool) {
-		ui.drawButtonFrame(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, false)
-		drawCenteredUIText(screen, label, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1)
-	}
-	drawPagerBtn(prev, "< Prev", true) // pages wrap - both directions always live
-	drawPagerBtn(next, "Next >", true)
-	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), px, stripY+(stripH-12)/2, panelW, 12)
-}
-
-func truncateSaveName(name string, max int) string {
-	return clipUITextSuffix(name, max*uiTextCharWidth, "...")
-}
 
 func saveRenameDialogRect(screenW, screenH int) layoutRect {
 	return centeredRect(screenW, screenH, 420, 140)

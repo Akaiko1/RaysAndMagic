@@ -75,7 +75,7 @@ func (ui *UISystem) drawBeaconPicker(screen *ebiten.Image) {
 			b := g.townPortalCaster.SpellState.Beacons[i]
 			if b.MapKey != "" {
 				ts := float64(g.config.GetTileSize())
-				label = uitext.Text("advanced.beacon_here", guildMapName(b.MapKey), TileIndex(b.X, ts), TileIndex(b.Y, ts))
+				label = uitext.Text("advanced.beacon_here", mapDisplayName(b.MapKey), TileIndex(b.X, ts), TileIndex(b.Y, ts))
 				_, err := g.beaconRequest(b)
 				canReturn = err == nil
 			}

@@ -580,8 +580,8 @@ func TestDisplayedSaveEventsRespectLeftRightOrder(t *testing.T) {
 				t.Fatal(err)
 			}
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
-			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
-			box, _, _ := menuRowRect((1024-w)/2, (768-height)/2, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
+			r := escSaveListLayout(1024, 768).rows[firstManualRow]
+			box := pagerRect{r.x, r.y, r.right(), r.bottom()}
 			h.ui.Draw(h.screen)
 			now := time.Now().UnixMilli()
 			leftAt, rightAt := now, now+1
@@ -643,9 +643,8 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 			g := h.g
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
 			g.party.Gold = 321
-			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
-			x, y := (g.config.GetScreenWidth()-w)/2, (g.config.GetScreenHeight()-height)/2
-			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
+			r := escSaveListLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight()).rows[firstManualRow]
+			box := pagerRect{r.x, r.y, r.right(), r.bottom()}
 			h.clicks(false, box.x1+4, box.y1+4, 1)
 			if !GetSaveRowSummary(firstManualRow).Exists || g.mainMenuMode != MenuMain {
 				h.t.Fatal("Save row did not write the chosen slot")
@@ -663,18 +662,17 @@ func TestDisplayedModalUpdateAdapters(t *testing.T) {
 				h.t.Fatal(err)
 			}
 			g.mainMenuOpen, g.mainMenuMode = true, MenuSaveSelect
-			w, height := menuPanelSize(g.mainMenuMode, 1024, 768)
-			x, y := (g.config.GetScreenWidth()-w)/2, (g.config.GetScreenHeight()-height)/2
-			prev, next := savePagerButtonRects(x, y, w, height)
-			h.clicks(false, next.x1+2, next.y1+2, 1)
+			l := escSaveListLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight())
+			h.clicks(false, l.next.x+2, l.next.y+2, 1)
 			if g.savePage != 1 {
 				h.t.Fatal("Next page click was lost")
 			}
-			h.clicks(false, prev.x1+2, prev.y1+2, 1)
+			h.clicks(false, l.prev.x+2, l.prev.y+2, 1)
 			if g.savePage != 0 {
 				h.t.Fatal("Prev page click was lost")
 			}
-			box, _, _ := menuRowRect(x, y, w, saveMenuListTopY, saveMenuRowPitch, firstManualRow)
+			r := l.rows[firstManualRow]
+			box := pagerRect{r.x, r.y, r.right(), r.bottom()}
 			g.mainMenuMode = MenuLoadSelect
 			h.clicks(true, box.x1+4, box.y1+4, 1)
 			if g.saveRenameOpen {

@@ -4,7 +4,10 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/hajimehoshi/ebiten/v2"
+	"slices"
 	"ugataima/internal/character"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 )
 
@@ -132,7 +135,7 @@ func TestPartyProgressionControlsDoNotBecomePortraitSelectionClicks(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			x := control.x + control.w/2
 			y := control.y + control.h/2
-			if got := ih.getPartyMemberUnderMouse(x, y); got != -1 {
+			if got := ih.partyPortraitClickTarget(x, y); got != -1 {
 				t.Fatalf("control click routed to party member %d", got)
 			}
 
@@ -244,5 +247,123 @@ func TestFocusModeClearsWhenLeavingGameplay(t *testing.T) {
 
 	if g.focusModeActive() {
 		t.Fatalf("main-menu transition retained focus mask %04b", g.focusedPartyMask)
+	}
+}
+
+// Pointing at a hero's card means that hero everywhere a card is a target -
+// C/F heals, Heal Other, the ally-spell target - even over its level-up
+// chip; only a selection click yields the chip to its own control. Off the
+// cards the targets fall back to the selected hero or the caster.
+func TestPointingAtACardMeansItsWholeCard(t *testing.T) {
+	g := focusModeTestGame(t)
+	g.showPartyStats = true
+	g.selectedChar = 0
+	g.party.Members[1].FreeStatPoints = 5
+	g.combat = NewCombatSystem(g)
+	ih := NewInputHandler(g)
+	g.gameLoop = &GameLoop{game: g, inputHandler: ih}
+	prev := rawCursorPosition
+	t.Cleanup(func() { rawCursorPosition = prev })
+
+	chip := g.partyLevelUpLayoutFor(1).stat
+	if chip.w == 0 {
+		t.Fatal("hero 1 shows no stat chip (positive control)")
+	}
+	pw, ph, left, top := partyPortraitLayout(g)
+	healOther := items.Item{Name: "Heal Other scroll", SpellEffect: items.SpellEffectHealOther}
+	caster := g.party.Members[0]
+	for _, tc := range []struct {
+		name         string
+		x, y         int
+		target, pick int // pick: the selection click's hero, -1 for none
+	}{
+		{"chip", chip.x + chip.w/2, chip.y + chip.h/2, 1, -1},
+		{"card body", left + pw + pw/4, top + ph/3, 1, 1},
+		{"off the cards", left + pw, top - 40, -1, -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rawCursorPosition = func() (int, int) { return tc.x, tc.y }
+			wantHeal, wantSpell := tc.target, caster
+			if tc.target < 0 {
+				wantHeal = g.selectedChar
+			} else {
+				wantSpell = g.party.Members[tc.target]
+			}
+			if got := ih.healRecipient(); got != wantHeal {
+				t.Errorf("C/F heal lands on %d, want %d", got, wantHeal)
+			}
+			if got := ih.resolveHealTarget(healOther, tc.x, tc.y); got != wantHeal {
+				t.Errorf("Heal Other lands on %d, want %d", got, wantHeal)
+			}
+			if got := g.combat.personalSpellTarget(caster); got != wantSpell {
+				t.Errorf("an ally spell lands on %s, want %s", got.Name, wantSpell.Name)
+			}
+			if got := ih.partyPortraitClickTarget(tc.x, tc.y); got != tc.pick {
+				t.Errorf("a selection click picks %d, want %d", got, tc.pick)
+			}
+		})
+	}
+}
+
+// A level-up chip rings and explains itself, and a shortened status list names
+// the whole list, only while the card's clicks are live: in play and under the
+// character hub, not under a dialog, the skill choice or High Scores.
+func TestLevelUpChipHoverFollowsItsClick(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(g *MMGame)
+		live  bool
+	}{
+		{"in play", func(*MMGame) {}, true},
+		{"character hub", func(g *MMGame) { g.menuOpen = true }, true},
+		{"npc dialog", func(g *MMGame) { g.dialogActive, g.dialogNPC = true, &character.NPC{Name: "Trader"} }, false},
+		{"skill choice", func(g *MMGame) {
+			g.levelUpChoiceQueue = []levelUpChoiceRequest{{charIndex: 2, options: []levelUpChoiceOption{{}}}}
+			g.levelUpChoiceOpen = true
+		}, false},
+		{"high scores", func(g *MMGame) { g.showHighScores = true }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := focusModeTestGame(t)
+			g.showPartyStats = true
+			g.sprites = graphics.NewSpriteManager()
+			g.party.Members[0].FreeStatPoints = 5
+			ui := NewUISystem(g)
+			tc.setup(g)
+			if ui.partyCardClicksBlocked() == tc.live {
+				t.Fatalf("party-card clicks blocked = %v (fixture)", !tc.live)
+			}
+			chip := g.partyLevelUpLayoutFor(0).stat
+			prev := rawCursorPosition
+			t.Cleanup(func() { rawCursorPosition = prev })
+			rawCursorPosition = func() (int, int) { return chip.x + chip.w/2, chip.y + chip.h/2 }
+			ui.clearQueuedTooltips()
+			ui.drawPartyUI(ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight()))
+			shown := slices.Contains(ui.tooltipLines, "Click to assign")
+			if shown != tc.live {
+				t.Fatalf("chip tooltip shown = %v, want %v", shown, tc.live)
+			}
+
+			// A shortened status list names the whole list on hover, under the same gate.
+			hero := g.party.Members[0]
+			hero.Conditions = []character.Condition{character.ConditionPoisoned, character.ConditionBurning, character.ConditionStunned,
+				character.ConditionCursed, character.ConditionDiseased, character.ConditionParalyzed}
+			pw, ph, left, top := partyPortraitLayout(g)
+			x, y, w, _ := partyCardPanelRect(left, top, pw, ph)
+			content := makePartyCardContentLayout(x, y, w)
+			full, short := g.partyConditionLabels(hero)
+			line := partyStatusLineLayout(content, y+67, full, short, g.partyLevelUpLayoutFor(0).statusRight(content))
+			if line.full == "" {
+				t.Fatalf("status %q is not shortened (fixture)", full)
+			}
+			rawCursorPosition = func() (int, int) { return line.box.x + 2, line.box.y + line.box.h/2 }
+			beginUIFrame(ebiten.NewImage(1, 1), 1)
+			ui.clearQueuedTooltips()
+			ui.drawPartyUI(ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight()))
+			ui.offerClippedLabelTooltip()
+			if named := slices.Contains(ui.tooltipLines, full); named != tc.live {
+				t.Fatalf("the whole status list on hover = %v, want %v", named, tc.live)
+			}
+		})
 	}
 }

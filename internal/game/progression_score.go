@@ -5,6 +5,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/highscore"
+	"ugataima/internal/items"
 )
 
 // GetScoreData collects score-input data from the current game state.
@@ -22,6 +23,25 @@ func (g *MMGame) GetScoreData() highscore.ScoreData {
 		AverageLevel:    avgLevel,
 		PlayTime:        playTime,
 	}
+}
+
+// highScoreParty is the party as the run ended, for its high score record:
+// each hero and every piece they wear.
+func (g *MMGame) highScoreParty() []highscore.Hero {
+	var heroes []highscore.Hero
+	for _, m := range g.party.Members {
+		if m == nil {
+			continue
+		}
+		hero := highscore.Hero{Name: m.Name, Class: m.Class.Key(), Level: m.Level, Portrait: g.portraitSpriteName(m)}
+		for _, slot := range items.DisplayEquipSlots {
+			if it, ok := m.Equipment[slot]; ok {
+				hero.Gear = append(hero.Gear, it)
+			}
+		}
+		heroes = append(heroes, hero)
+	}
+	return heroes
 }
 
 func (g *MMGame) awardGold(amount int) {

@@ -226,6 +226,7 @@ func (ih *InputHandler) handleTopModalInput() bool {
 		if ih.keys.Consume(ebiten.KeyEscape) {
 			g.showHighScores = false
 		}
+		g.stepHighScoreSelection(ih.keys.Consume)
 	case modalLayerStat:
 		if ih.keys.Consume(ebiten.KeyEscape) {
 			g.statPopupOpen = false
@@ -548,13 +549,15 @@ func (ih *InputHandler) saveVictoryScore() {
 	playTimeStr := highscore.FormatPlayTime(scoreData.PlayTime)
 
 	entry := highscore.Entry{
-		PlayerName: name,
-		Score:      finalScore,
-		Gold:       scoreData.Gold,
-		Experience: scoreData.TotalExperience,
-		AvgLevel:   scoreData.AverageLevel,
-		PlayTime:   playTimeStr,
-		Date:       ih.game.victoryTime,
+		PlayerName:  name,
+		Score:       finalScore,
+		Gold:        scoreData.Gold,
+		Experience:  scoreData.TotalExperience,
+		AvgLevel:    scoreData.AverageLevel,
+		PlayTime:    playTimeStr,
+		PlaySeconds: int(scoreData.PlayTime.Seconds()),
+		Date:        ih.game.victoryTime,
+		Party:       ih.game.highScoreParty(),
 	}
 
 	scores, err := highscore.Load()
@@ -562,10 +565,13 @@ func (ih *InputHandler) saveVictoryScore() {
 		ih.game.AddCombatMessage("Could not read high scores: " + err.Error())
 		return
 	}
-	highscore.Add(scores, entry)
+	rank := highscore.Add(scores, entry)
 	if err := highscore.Save(scores); err != nil {
 		ih.game.AddCombatMessage("Could not save high scores: " + err.Error())
 		return
+	}
+	if rank >= 0 { // the High Scores screen opens on the run just recorded
+		ih.game.highScoreSelection = rank
 	}
 
 	ih.game.victoryScoreSaved = true
@@ -628,9 +634,9 @@ func (ih *InputHandler) handleMainMenuInput() {
 			ih.activateMainMenuSelection()
 		}
 	case MenuSaveSelect:
-		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, true, ih.doSaveToSelectedRow)
+		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, true, ih.doSaveToSelectedRow)
 	case MenuLoadSelect:
-		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, false, ih.doLoadFromSelectedRow)
+		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, false, ih.doLoadFromSelectedRow)
 	case MenuSettings:
 		ih.game.updateAudioSettingsKeys(ih.keys.Consume)
 	}
@@ -640,14 +646,16 @@ func (ih *InputHandler) handleMainMenuInput() {
 // dialog, page navigation, row hover selection, and
 // Enter activation. Mouse commands are registered by the displayed menu.
 // allowRename adds the R rename key (Save menu only).
-func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH int, allowRename bool, activate func()) {
+func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h int, allowRename bool, activate func()) {
 	if ih.game.saveRenameOpen {
 		ih.handleSaveRenameInput()
 		return
 	}
 	ih.navigateSavePage()
 	// Mouse hover selection (row within page).
-	ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY, saveMenuRowPitch)
+	if i := escSaveListLayout(w, h).rowAt(mouseX, mouseY); i >= 0 {
+		ih.game.slotSelection = i
+	}
 	if ih.keys.Consume(ebiten.KeyEnter) {
 		activate()
 	}
@@ -688,10 +696,9 @@ func (ih *InputHandler) openSaveRename(row int) {
 
 // handleSaveRowRename opens rename on a right-clicked row in the Save menu.
 // Returns true if a row was clicked (caller should stop further input this frame).
-func (ih *InputHandler) handleSaveRowRename(px, py, panelW int) bool {
-	for i := 0; i < saveRowsPerPage; i++ {
-		box, _, _ := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
-		if !ih.game.consumeRightClickIn(box.x1, box.y1, box.x2, box.y2) {
+func (ih *InputHandler) handleSaveRowRename(l saveListLayout) bool {
+	for i, r := range l.rows {
+		if !ih.game.consumeRightClickIn(r.x, r.y, r.right(), r.bottom()) {
 			continue
 		}
 		ih.game.slotSelection = i
@@ -773,8 +780,8 @@ func (ih *InputHandler) handleSaveRenameInput() {
 	// before backing out of the submenu), so it never reaches here.
 }
 
-// mainMenuHoverSelect updates selection based on mouse hover over a vertical
-// menu list. panelW/H and (startY, pitch) must match the drawn list; row boxes
+// mainMenuHoverSelect moves the Main-menu selection to the option under the
+// pointer. panelW/H and (startY, pitch) must match the drawn list; row boxes
 // come from menuRowRect, the same geometry the draw code uses, so hover and
 // render can't drift.
 func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panelH, startY, pitch int) {
@@ -783,11 +790,7 @@ func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panel
 	for i := 0; i < count; i++ {
 		box, _, _ := menuRowRect(px, py, panelW, startY, pitch, i)
 		if mouseX >= box.x1 && mouseX < box.x2 && mouseY >= box.y1 && mouseY < box.y2 {
-			if ih.game.mainMenuMode == MenuMain {
-				ih.game.mainMenuSelection = i
-			} else {
-				ih.game.slotSelection = i
-			}
+			ih.game.mainMenuSelection = i
 		}
 	}
 }
@@ -1575,7 +1578,7 @@ func (ih *InputHandler) handlePartyPortraitMouseInput(shift bool) {
 	// Left-click only selects. Focus is deliberately on Shift+right-click so a
 	// player can inspect another portrait without changing the RT actor filter.
 	if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
-		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
+		targetCharIndex := ih.partyPortraitClickTarget(clickX, clickY)
 		if targetCharIndex >= 0 {
 			if ih.game.consumeLeftClick() {
 				ih.game.handlePartyPortraitClick(targetCharIndex, false)
@@ -1587,7 +1590,7 @@ func (ih *InputHandler) handlePartyPortraitMouseInput(shift bool) {
 	if shift && ih.game.worldClickAllowed() && ih.game.showPartyStats {
 		targetCharIndex := -1
 		if ih.game.consumeRightClickMatching(func(click queuedClick) bool {
-			targetCharIndex = ih.getPartyMemberUnderMouse(click.x, click.y)
+			targetCharIndex = ih.partyPortraitClickTarget(click.x, click.y)
 			return targetCharIndex >= 0
 		}) {
 			ih.game.handlePartyPortraitClick(targetCharIndex, true)
@@ -1632,17 +1635,27 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 	// Determine which character portrait the mouse is over
 	charIndex := (mouseX - baseLeft) / portraitWidth
 	if charIndex >= 0 && charIndex < len(ih.game.party.Members) {
-		// A hero's level-up chips are their own controls, not the portrait.
-		levelUp := ih.game.partyLevelUpLayoutFor(charIndex)
-		for _, chip := range []layoutRect{levelUp.stat, levelUp.skill} {
-			if chip.w > 0 && mouseX >= chip.x && mouseX < chip.right() && mouseY >= chip.y && mouseY < chip.bottom() {
-				return -1
-			}
-		}
 		return charIndex
 	}
 
 	return -1
+}
+
+// partyPortraitClickTarget is the hero a selection or focus click lands on.
+// A hero's level-up chips are their own controls and keep those clicks;
+// pointing at a card for a heal or an ally spell still means the whole card.
+func (ih *InputHandler) partyPortraitClickTarget(mouseX, mouseY int) int {
+	charIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+	if charIndex < 0 {
+		return -1
+	}
+	levelUp := ih.game.partyLevelUpLayoutFor(charIndex)
+	for _, chip := range []layoutRect{levelUp.stat, levelUp.skill} {
+		if chip.w > 0 && mouseX >= chip.x && mouseX < chip.right() && mouseY >= chip.y && mouseY < chip.bottom() {
+			return -1
+		}
+	}
+	return charIndex
 }
 
 // toggleTabbedMenu switches the tabbed menu to `tab`: opens it if closed, hops

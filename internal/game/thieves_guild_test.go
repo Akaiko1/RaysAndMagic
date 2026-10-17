@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -322,7 +321,7 @@ func TestGuildMembershipAndPortalLifecycle(t *testing.T) {
 		t.Fatalf("guild replaced ordinary destination: %v", dests)
 	}
 	guild := dests[1-ordinary]
-	if !strings.Contains(guild.label, n.Name) {
+	if guild.anchor != n.Name {
 		t.Fatal("guild is not named in portal picker")
 	}
 	save := g.buildSave(wm)

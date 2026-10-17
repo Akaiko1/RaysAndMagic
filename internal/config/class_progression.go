@@ -30,7 +30,12 @@ const MaxAutoBuildGear = 6
 
 // AutoBuildOptions lists the class default first, then its authored builds.
 func (c ClassStats) AutoBuildOptions() []AutoBuild {
-	return append([]AutoBuild{{Key: DefaultAutoBuildKey, Name: "Auto", AutoStatsConfig: c.AutoStats}}, c.AutoBuilds...)
+	return append([]AutoBuild{c.DefaultAutoBuild()}, c.AutoBuilds...)
+}
+
+// DefaultAutoBuild is the class's own auto_stats as the build keyed "auto".
+func (c ClassStats) DefaultAutoBuild() AutoBuild {
+	return AutoBuild{Key: DefaultAutoBuildKey, Name: "Auto", AutoStatsConfig: c.AutoStats}
 }
 
 func validAutoStats(a AutoStatsConfig) bool {

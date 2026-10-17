@@ -17,40 +17,40 @@ func (ih *InputHandler) handleMainMenuMouseInput() {
 			ih.activateMainMenuSelection()
 		}
 	case MenuSaveSelect:
-		ih.handleSaveLoadMouseInput(px, py, panelW, panelH, true, ih.doSaveToSelectedRow)
+		ih.handleSaveLoadMouseInput(escSaveListLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight()), true, ih.doSaveToSelectedRow)
 	case MenuLoadSelect:
-		ih.handleSaveLoadMouseInput(px, py, panelW, panelH, false, ih.doLoadFromSelectedRow)
+		ih.handleSaveLoadMouseInput(escSaveListLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight()), false, ih.doLoadFromSelectedRow)
 	}
 }
 
-func (ih *InputHandler) handleSaveLoadMouseInput(px, py, panelW, panelH int, allowRename bool, activate func()) bool {
+func (ih *InputHandler) handleSaveLoadMouseInput(l saveListLayout, allowRename bool, activate func()) bool {
 	g := ih.game
 	if g.saveRenameOpen {
 		return false
 	}
-	if ih.navigateSavePageMouse(px, py, panelW, panelH) {
+	if ih.navigateSavePageMouse(l) {
 		return true
 	}
 	// Rename exists only on the Save surface, never on Load or Autosave.
-	if allowRename && ih.handleSaveRowRename(px, py, panelW) {
+	if allowRename && ih.handleSaveRowRename(l) {
 		return true
 	}
-	x, y, ok := g.leftClickPosition()
-	if ok && g.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
-		ih.mainMenuHoverSelect(x, y, saveRowsPerPage, panelW, panelH, saveMenuListTopY, saveMenuRowPitch)
-		activate()
-		return true
+	for i, r := range l.rows {
+		if g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
+			g.slotSelection = i
+			activate()
+			return true
+		}
 	}
 	return false
 }
 
-func (ih *InputHandler) navigateSavePageMouse(px, py, panelW, panelH int) bool {
+func (ih *InputHandler) navigateSavePageMouse(l saveListLayout) bool {
 	g := ih.game
-	pl, pr := savePagerButtonRects(px, py, panelW, panelH)
 	switch {
-	case g.consumeLeftClickIn(pl.x1, pl.y1, pl.x2, pl.y2):
+	case g.consumeLeftClickIn(l.prev.x, l.prev.y, l.prev.right(), l.prev.bottom()):
 		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
-	case g.consumeLeftClickIn(pr.x1, pr.y1, pr.x2, pr.y2):
+	case g.consumeLeftClickIn(l.next.x, l.next.y, l.next.right(), l.next.bottom()):
 		g.savePage = (g.savePage + 1) % savePageCount
 	default:
 		return false

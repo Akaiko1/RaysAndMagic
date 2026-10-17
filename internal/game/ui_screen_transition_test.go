@@ -94,10 +94,10 @@ func TestTitleBackDoesNotArmRootButtons(t *testing.T) {
 				var x, y int
 				switch mode {
 				case EntryMenuLoad:
-					back := makeEntryLoadListLayout(entryLoadPanelRect(1024, 768)).back
+					back := entrySaveListLayout(1024, 768).back
 					x, y = back.x, back.y
 				case EntryMenuScores:
-					back := backHintRect(768)
+					back := makeHighScoresLayout(1024, 768, true).back
 					x, y = back.x, back.y
 				case EntryMenuAchievements:
 					l := makeProfileAchievementsLayout(1024, 768, len(config.GetAchievements()))
@@ -246,7 +246,7 @@ func TestTopLevelActionsWaitForDestinationPresentation(t *testing.T) {
 				}
 				g.party.Gold = 999
 				g.appScreen, g.entryMenuMode = AppScreenMainMenu, EntryMenuLoad
-				row := makeEntryLoadListLayout(entryLoadPanelRect(1024, 768)).rows[firstManualRow]
+				row := entrySaveListLayout(1024, 768).rows[firstManualRow]
 				x, y = row.x+3, row.y+3
 			} else {
 				g.enterPartyCreate()

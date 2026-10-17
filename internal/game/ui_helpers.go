@@ -399,6 +399,8 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 		s.state[0] = boolInt(g.victoryScoreSaved)
 	case modalLayerStat:
 		s.state[0] = g.statPopupCharIdx
+	case modalLayerTownPortal:
+		s.state[0] = g.townPortalScroll // scrolling moves which row is under a click
 	case modalLayerRevival:
 		s.state[0] = g.revivalPickerItemIdx
 	case modalLayerHeal:

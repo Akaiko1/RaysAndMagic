@@ -5,6 +5,7 @@ import (
 	"image"
 	"testing"
 
+	"ugataima/internal/items"
 	"ugataima/internal/stats"
 )
 
@@ -133,6 +134,90 @@ func TestStatAndLevelUpPopupsFitEveryFont(t *testing.T) {
 		}
 		if p.footerY+uiTextCharHeight > p.panel.bottom()-6 || p.confirm.bottom() > p.footerY {
 			t.Error("the footer hint collides with Confirm or the rim")
+		}
+	})
+}
+
+// The save list and the Town Portal chooser hold their text in every font:
+// two lines per row, the doubled heading, an empty load-only slot with its
+// tag, the portal's hint; and a portal list too long for the screen scrolls
+// inside it, its last row reachable and its scrollbar inside the panel.
+func TestSaveListAndTownPortalFitEveryFont(t *testing.T) {
+	forEachUIFont(t, func(t *testing.T) {
+		if two := 2*uiTextCharHeight + 2; two > saveListRowH || two > townPortalRowH {
+			t.Errorf("two lines need %dpx; save rows are %d, portal rows %d", two, saveListRowH, townPortalRowH)
+		}
+		if 2*uiTextCharHeight > saveListTitleH {
+			t.Errorf("the doubled heading is %dpx in a %dpx band", 2*uiTextCharHeight, saveListTitleH)
+		}
+		for _, l := range []saveListLayout{escSaveListLayout(1280, 720), entrySaveListLayout(1280, 720)} {
+			row := l.rows[0]
+			used := 10 + uiTextWidth(saveRowLabel(quicksaveRow)) + 14 + uiTextWidth("Not written yet") + 12 + uiTextWidth("Load only") + 10
+			if used > row.w {
+				t.Errorf("an empty load-only row needs %dpx of %d", used, row.w)
+			}
+		}
+		short := makeTownPortalLayout(5, 1280, 720)
+		if short.scrolls() || short.row(4, 0).bottom() > short.list.bottom() {
+			t.Error("five destinations scroll on Large")
+		}
+		for _, hint := range []string{townPortalHint, townPortalScrollHint} {
+			if uiTextWidth(hint) > short.panel.w-32 {
+				t.Errorf("the portal hint %q leaves the panel", hint)
+			}
+		}
+		for _, n := range []int{12, 40} {
+			long := makeTownPortalLayout(n, 800, 600)
+			end := long.scroll(1 << 20)
+			last := long.row(n-1, end)
+			if !long.scrolls() || long.panel.y < 0 || long.panel.bottom() > 600 || last.bottom() != long.list.bottom() || long.track().right()+scrollbarGrabRight > long.panel.right() {
+				t.Errorf("%d destinations at 800x600: panel %+v, list %+v, last row at the end %+v", n, long.panel, long.list, last)
+			}
+		}
+	})
+}
+
+// The High Scores screen holds a full board in every font, on Large and on
+// the smallest frame, in game and on the title (Back in its footer): ten
+// two-line runs, and a run's detail with its score parts and four heroes
+// whose names keep room beside their gear.
+func TestHighScoresFitEveryFont(t *testing.T) {
+	forEachUIFont(t, func(t *testing.T) {
+		for _, tc := range []struct {
+			size     [2]int
+			withBack bool
+		}{{[2]int{1280, 720}, false}, {[2]int{800, 600}, false}, {[2]int{1280, 720}, true}, {[2]int{800, 600}, true}} {
+			size := tc.size
+			l := makeHighScoresLayout(size[0], size[1], tc.withBack)
+			if last := l.row(9); last.bottom() > l.list.bottom() {
+				t.Errorf("%v: the tenth run ends at %d, the list at %d", size, last.bottom(), l.list.bottom())
+			}
+			if 2*uiTextCharHeight+2 > highScoresRowH {
+				t.Errorf("two lines need %dpx of a %dpx row", 2*uiTextCharHeight+2, highScoresRowH)
+			}
+			detail := 2*uiTextCharHeight + 16 + 8 + 8 + 8 + 4*(uiTextCharHeight+4) + 6 + 8 + 4*highScoresHeroH
+			if detail > l.detail.h {
+				t.Errorf("%v: the detail needs %dpx of %d", size, detail, l.detail.h)
+			}
+			if rows := 2; highScoreGearCols*rows < len(items.DisplayEquipSlots) || rows*(highScoresGearSz+2) > highScoresHeroH {
+				t.Errorf("%d gear cells in two rows cannot hold %d worn slots in a %dpx hero row", highScoreGearCols*rows, len(items.DisplayEquipSlots), highScoresHeroH)
+			}
+			nameRoom := l.detail.w - highScoreGearCols*(highScoresGearSz+2) - 8 - 50
+			if nameRoom < uiTextWidth("Battle Mage 45") {
+				t.Errorf("%v: a hero's class line gets %dpx", size, nameRoom)
+			}
+			if !tc.withBack {
+				if uiTextWidth(highScoresHint+highScoresEscTip) > l.title.w {
+					t.Errorf("%v: the hint leaves the panel", size)
+				}
+				continue
+			}
+			if l.back.x < l.panel.x || l.back.bottom() > l.panel.bottom() || l.back.y < l.list.bottom() || l.back.y < l.detail.bottom() {
+				t.Errorf("%v: Back %+v leaves the footer of panel %+v (list ends %d)", size, l.back, l.panel, l.list.bottom())
+			}
+			if uiTextWidth(highScoresHint) > l.title.right()-l.back.right()-16 {
+				t.Errorf("%v: the hint runs into Back", size)
+			}
 		}
 	})
 }

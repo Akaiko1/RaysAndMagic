@@ -306,6 +306,13 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.drawIdentifyCursor(screen)
 }
 
+// discardLowerHoverText is for an overlay that covers every layer below it:
+// their queued tooltips and cut labels no longer answer the pointer.
+func (ui *UISystem) discardLowerHoverText() {
+	ui.clearQueuedTooltips()
+	uiClippedLabels = uiClippedLabels[:0]
+}
+
 // clearQueuedTooltips starts a frame with no tooltip queued.
 func (ui *UISystem) clearQueuedTooltips() {
 	ui.tooltipLines = nil

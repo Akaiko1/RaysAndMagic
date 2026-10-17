@@ -237,11 +237,7 @@ func profileValue(n int64, duration bool) string {
 		}
 		return fmt.Sprintf("%dh %02dm", int64(d/time.Hour), int64(d/time.Minute)%60)
 	}
-	s := fmt.Sprintf("%d", n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
+	return groupedInt(n)
 }
 
 const profileRankingRowH = 64

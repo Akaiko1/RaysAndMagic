@@ -3,7 +3,6 @@ package game
 import (
 	"strings"
 	"testing"
-	"unicode/utf8"
 )
 
 // Every line fits its width in every shipped font, including tokens wider
@@ -60,12 +59,6 @@ func TestRuneSafeTextEditingAndTruncation(t *testing.T) {
 	}
 	if got := removeLastRune("\u041C\u0438\u044F\u0431\u0438"); got != "\u041C\u0438\u044F\u0431" {
 		t.Fatalf("removeLastRune = %q, want %q", got, "\u041C\u0438\u044F\u0431")
-	}
-	if got := truncateName("\u0410\u043B\u0435\u043A\u0441\u0430\u043D\u0434\u0440\u0430", 6); got != "\u0410\u043B\u0435\u043A.." {
-		t.Fatalf("truncateName = %q, want %q", got, "\u0410\u043B\u0435\u043A..")
-	}
-	if !utf8.ValidString(truncateSaveName("\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435", 7)) {
-		t.Fatal("truncateSaveName produced invalid UTF-8")
 	}
 	if got := clipUIText("\u0434\u043B\u0438\u043D\u043D\u043E\u0435", 6*uiTextCharWidth); got != "\u0434\u043B\u0438\u043D.." {
 		t.Fatalf("clipUIText = %q, want %q", got, "\u0434\u043B\u0438\u043D..")

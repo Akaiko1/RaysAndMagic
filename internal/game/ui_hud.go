@@ -159,15 +159,25 @@ func makePartyLevelUpLayout(content partyCardContentLayout, points int, hasStat,
 // partyLevelUpLayoutFor is hero i's chips on the displayed party strip; the
 // draw pass and the portrait hit-test share it.
 func (g *MMGame) partyLevelUpLayoutFor(i int) partyLevelUpLayout {
-	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
-	panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft+i*portraitWidth, startY, portraitWidth, portraitHeight)
 	member := g.party.Members[i]
 	if member == nil {
 		return partyLevelUpLayout{}
 	}
-	content := makePartyCardContentLayout(panelX, panelY, panelW)
 	full, _ := g.partyConditionLabels(member)
-	compact := uiTextWidth(full) > content.stats.w-2
+	return g.partyLevelUpLayoutWith(i, full)
+}
+
+// partyLevelUpLayoutWith lays out hero i's chips beside the status list the
+// card already worded, so drawing does not word it twice a frame.
+func (g *MMGame) partyLevelUpLayoutWith(i int, status string) partyLevelUpLayout {
+	member := g.party.Members[i]
+	if member == nil {
+		return partyLevelUpLayout{}
+	}
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
+	panelX, panelY, panelW, _ := partyCardPanelRect(baseLeft+i*portraitWidth, startY, portraitWidth, portraitHeight)
+	content := makePartyCardContentLayout(panelX, panelY, panelW)
+	compact := uiTextWidth(status) > content.stats.w-2
 	return makePartyLevelUpLayout(content, member.FreeStatPoints, member.FreeStatPoints > 0, g.hasLevelUpChoiceForChar(i), compact)
 }
 
@@ -835,9 +845,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		if statusText != "OK" {
 			statusColor = color.RGBA{255, 174, 88, 255}
 		}
-		levelUp := ui.game.partyLevelUpLayoutFor(i)
+		levelUp := ui.game.partyLevelUpLayoutWith(i, statusText)
 		status := partyStatusLineLayout(content, panelY+67, statusText, statusShort, levelUp.statusRight(content))
-		if status.full != "" {
+		if status.full != "" && !ui.partyCardClicksBlocked() { // hover text follows the card's clicks
 			uiClippedLabels = append(uiClippedLabels, uiClippedLabel{status.box, status.full})
 		}
 		drawCenteredTextWithShadow(screen, status.text, status.box.x, status.box.y, status.box.w, status.box.h, statusColor)
@@ -862,9 +872,11 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		drawCenteredTextWithShadow(screen, spellText, equipX, nameY+32, equipW, uiTextCharHeight, spellColor)
 
 		mouseX, mouseY := uiCursorPosition()
+		// A chip rings and explains itself only while its click is live.
+		chipsLive := !ui.partyCardClicksBlocked()
 		if levelUp.stat.w > 0 {
 			chip := levelUp.stat
-			hover := isMouseHoveringBox(mouseX, mouseY, chip.x, chip.y, chip.right(), chip.bottom())
+			hover := chipsLive && isMouseHoveringBox(mouseX, mouseY, chip.x, chip.y, chip.right(), chip.bottom())
 			ui.drawPartyLevelUpChip(screen, chip, statBadgeStyle, levelUp.statLabel, hover)
 			if hover {
 				ui.queueTooltip([]string{fmt.Sprintf("%d stat points ready", member.FreeStatPoints), "Click to assign"}, mouseX+12, mouseY+8)
@@ -882,7 +894,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		}
 		if levelUp.skill.w > 0 {
 			chip := levelUp.skill
-			hover := isMouseHoveringBox(mouseX, mouseY, chip.x, chip.y, chip.right(), chip.bottom())
+			hover := chipsLive && isMouseHoveringBox(mouseX, mouseY, chip.x, chip.y, chip.right(), chip.bottom())
 			ui.drawPartyLevelUpChip(screen, chip, skillBadgeStyle, levelUp.skillLabel, hover)
 			if hover {
 				ui.queueTooltip([]string{"Skill choice ready", "Click to choose"}, mouseX+12, mouseY+8)

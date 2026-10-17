@@ -58,8 +58,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	member := g.party.Members[charIdx]
 	interactive := ui.topModalLayer() == modalLayerStat
 	// The popup owns this hover layer: discard tips from the HUD beneath it.
-	ui.clearQueuedTooltips()
-	uiClippedLabels = uiClippedLabels[:0]
+	ui.discardLowerHoverText()
 
 	screenW, screenH := g.config.GetScreenWidth(), g.config.GetScreenHeight()
 	popup := statPopupRect(screenW, screenH)
@@ -576,10 +575,13 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 	drawFilledRect(screen, p.panel.x+16, p.panel.y+levelUpChoiceRule, p.panel.w-32, 1, gameplayInk.edge)
 
 	// One school across the offers (a promotion picker) needs no school tag.
-	schools := map[string]bool{}
+	firstSchool, mixedSchools := "", false
 	for _, option := range req.options {
 		if def, err := spells.GetSpellDefinitionByID(option.spellID); option.spellID != "" && err == nil {
-			schools[def.School] = true
+			if firstSchool == "" {
+				firstSchool = def.School
+			}
+			mixedSchools = mixedSchools || def.School != firstSchool
 		}
 	}
 	for i, option := range req.options {
@@ -592,7 +594,7 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 		if focused {
 			ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, true)
 		}
-		ui.drawLevelUpOption(screen, r, option, focused, chosen, req.isMultiSelect(), len(schools) > 1)
+		ui.drawLevelUpOption(screen, r, option, focused, chosen, req.isMultiSelect(), mixedSchools)
 		if live && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()) {
 			ui.queueLevelUpOptionTooltip(member, option, mouseX+16, r.bottom()+2)
 		}
@@ -1904,44 +1906,6 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 	}
 }
 
-// drawHighScoresOverlay draws the high scores table
-func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
-	w := ui.game.config.GetScreenWidth()
-	h := ui.game.config.GetScreenHeight()
-
-	// Darken background
-	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 30, 220})
-
-	scores, err := highscore.Load()
-	if err != nil {
-		drawUIText(screen, "Error loading high scores", w/2-90, h/2)
-		return
-	}
-
-	centerX := w / 2
-	startY := 60
-
-	// Header
-	drawUIText(screen, "HIGH SCORES", centerX-75, startY)
-
-	// Column headers
-	drawUIText(screen, "Rank  Name           Score    Time", centerX-140, startY+40)
-	drawFilledRect(screen, centerX-140, startY+56, 290, 1, color.RGBA{120, 120, 150, 255})
-
-	// Entries
-	if len(scores.Entries) == 0 {
-		drawUIText(screen, "No scores yet!", centerX-50, startY+80)
-	} else {
-		for i, entry := range scores.Entries {
-			line := fmt.Sprintf("%2d.   %-14s %6d   %s", i+1, truncateName(entry.PlayerName, 14), entry.Score, entry.PlayTime)
-			drawUIText(screen, line, centerX-140, startY+80+i*20)
-		}
-	}
-
-	// Instructions
-	drawUIText(screen, "Press ESC to close", centerX-70, h-50)
-}
-
 // drawQuestsContent draws the quests tab content
 func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) {
 	layout := computeQuestContentLayout(content, nil, 0)
@@ -2120,9 +2084,4 @@ func rollQuestPoolItem(pool []string) (items.Item, bool, error) {
 		return items.Item{}, false, err
 	}
 	return it, true, nil
-}
-
-// truncateName truncates a name to maxLen displayed characters.
-func truncateName(name string, maxLen int) string {
-	return clipUIText(name, maxLen*uiTextCharWidth)
 }

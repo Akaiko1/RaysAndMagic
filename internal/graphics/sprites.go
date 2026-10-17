@@ -871,8 +871,9 @@ func (sm *SpriteManager) GetSprite(name string) *ebiten.Image {
 	return sprite
 }
 
+// HasSprite reports whether name resolves to art; a nil manager has none.
 func (sm *SpriteManager) HasSprite(name string) bool {
-	if name == "" {
+	if sm == nil || name == "" {
 		return false
 	}
 	if _, exists := sm.sprites[name]; exists {

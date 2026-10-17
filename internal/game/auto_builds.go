@@ -1,6 +1,7 @@
 package game
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -31,14 +32,14 @@ func classAutoBuilds(class character.CharacterClass, cfg *config.Config) []confi
 // the one chosen in Settings, or the class default when none is chosen or the
 // chosen build is no longer authored.
 func (g *MMGame) autoBuildFor(class character.CharacterClass) config.AutoBuild {
-	builds := classAutoBuilds(class, g.config)
+	c := g.config.Characters.Classes[class.Key()]
 	key := g.combatPreferences.AutoBuilds[class.Key()]
-	for _, b := range builds {
+	for _, b := range c.AutoBuilds {
 		if b.Key == key {
 			return b
 		}
 	}
-	return builds[0]
+	return c.DefaultAutoBuild()
 }
 
 // autoBuildHero is a fresh hero of class leveled to level with every point
@@ -137,8 +138,8 @@ func validateAutoBuildGear(cfg *config.Config) {
 					if !hero.CanEquipWeaponByName(it.Name) {
 						fail("cannot be wielded by the class")
 					}
-					if stat := strings.ToLower(weapon.BonusStat); stat != b.Primary && stat != b.Secondary {
-						fail("scales with " + weapon.BonusStat + ", not the build's stats")
+					if stat := strings.ToLower(weapon.BonusStat); stat == "" || stat != b.Primary && stat != b.Secondary {
+						fail("scales with " + cmp.Or(weapon.BonusStat, "no stat") + ", not the build's stats")
 					}
 				default:
 					slot := it.PreferredSlot(items.SlotArmor)

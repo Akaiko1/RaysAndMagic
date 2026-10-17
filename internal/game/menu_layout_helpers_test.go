@@ -317,50 +317,40 @@ func stashManagerBoxes(L stashLayout) []uiBox {
 	}
 }
 
-// saveMenuLayoutBoxes returns the in-game save/load menu's region (panel + the
-// pager strip below it) and its section boxes for the given page.
-func saveMenuLayoutBoxes(screenW, screenH, page int, modeLoad bool) (uiBox, []uiBox) {
-	px := (screenW - saveMenuPanelW) / 2
-	py := (screenH - saveMenuPanelH) / 2
-	prev, next := savePagerButtonRects(px, py, saveMenuPanelW, saveMenuPanelH)
-	region := uiBox{"save-menu", px, py, saveMenuPanelW, next.y2 - py + 4}
-
-	mode := MenuSaveSelect
-	if modeLoad {
-		mode = MenuLoadSelect
-	}
-	header := saveMenuHeaderLines(mode, px, py)
-	boxes := []uiBox{
-		textLineBox("title", header[0].text, header[0].x, header[0].y),
-		textLineBox("help", header[1].text, header[1].x, header[1].y),
-	}
-	for i := 0; i < saveRowsPerPage; i++ {
-		row := page*saveRowsPerPage + i
-		_, tx, ty := menuRowRect(px, py, saveMenuPanelW, saveMenuListTopY, saveMenuRowPitch, i)
-		boxes = append(boxes, textLineBox(fmt.Sprintf("row-%d", row), saveRowLabel(row), tx, ty))
-	}
-	boxes = append(boxes,
-		uiBox{"pager-prev", prev.x1, prev.y1, prev.x2 - prev.x1, prev.y2 - prev.y1},
-		uiBox{"pager-next", next.x1, next.y1, next.x2 - next.x1, next.y2 - next.y1},
-	)
-	return region, boxes
-}
-
-// entryLoadLayoutBoxes returns the title-screen Load list's panel and section
-// boxes (rows, Prev/Next buttons, Back) for the given page.
-func entryLoadLayoutBoxes(screenW, screenH, page int) (uiBox, []uiBox) {
-	panel := entryLoadPanelRect(screenW, screenH)
-	l := makeEntryLoadListLayout(panel)
-	boxes := []uiBox{textLineBox("title", entryLoadTitle, l.title.x, l.title.y)}
+// saveListBoxes are the shared save list's sections: the 2x heading, the
+// rows, the pager, and the widest hint line at its origin.
+func saveListBoxes(l saveListLayout, heading, hint string, hintX int, page int) []uiBox {
+	hw, hh := 2*uiTextWidth(heading)+4, 2*uiTextCharHeight
+	boxes := []uiBox{{"title", l.title.x + (l.title.w-hw)/2, l.title.y + (l.title.h-hh)/2, hw, hh}}
 	for i, r := range l.rows {
 		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("row-%d", page*saveRowsPerPage+i), r))
 	}
-	boxes = append(boxes,
+	pageLabel := fmt.Sprintf("Page %d of %d", savePageCount, savePageCount)
+	return append(boxes,
 		namedLayoutBox("pager-prev", l.prev),
 		namedLayoutBox("pager-next", l.next),
-		namedLayoutBox("back", l.back),
+		centeredTextBox("page", pageLabel, l.page.x, l.page.y, l.page.w, l.page.h),
+		textLineBox("hint", hint, hintX, l.hintY),
 	)
-	return namedLayoutBox("entry-load-panel", panel), boxes
+}
+
+// saveMenuLayoutBoxes returns the in-game save/load menu's panel and sections
+// for the given page.
+func saveMenuLayoutBoxes(screenW, screenH, page int, modeLoad bool) (uiBox, []uiBox) {
+	l := escSaveListLayout(screenW, screenH)
+	heading, hint := "Save Game", saveMenuHint
+	if modeLoad {
+		heading, hint = "Load Game", loadMenuHint
+	}
+	return namedLayoutBox("save-menu", l.panel), saveListBoxes(l, heading, hint, l.title.x, page)
+}
+
+// entryLoadLayoutBoxes returns the title-screen Load page's panel and sections
+// (heading, rows, pager, hint, Back) for the given page.
+func entryLoadLayoutBoxes(screenW, screenH, page int) (uiBox, []uiBox) {
+	l := entrySaveListLayout(screenW, screenH)
+	boxes := saveListBoxes(l, "Load Game", entryLoadHint, l.title.right()-uiTextWidth(entryLoadHint), page)
+	return namedLayoutBox("entry-load-panel", l.panel), append(boxes, namedLayoutBox("back", l.back))
 }
 
 // skillTrainerPopupLayoutBoxes returns the mastery-trainer popup's region and

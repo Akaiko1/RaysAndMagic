@@ -24,20 +24,22 @@ const (
 	autosaveFile    = "autosave.json"
 	quicksaveFile   = "quicksave.json"
 
-	// Shared geometry for the save/load menus, used by both the draw code and
-	// the layout-collision test so the two never drift. Panels are sized to fit
-	// saveRowsPerPage rows (the pager sits on a strip just below the in-game panel).
-	saveMenuPanelW = 340
-	saveMenuPanelH = 320
-	// saveMenuListTopY centers the saveRowsPerPage-row block vertically between
-	// the header text (ends ~py+48) and the panel bottom (py+saveMenuPanelH):
-	// the highlight block is (rows-1)*pitch + 28 tall, so equal top/bottom gaps
-	// put the first row at py+78. Recompute if panelH / row count / pitch change.
-	saveMenuListTopY = 78
-	saveMenuRowPitch = 32 // vertical pitch between rows
-	entryLoadPanelW  = 460
-	entryLoadPanelH  = 480
-	entryLoadRowH    = 44
+	// The save/load slot list (saveListLayout): a heading, two-line rows, the
+	// pager and a hint. The ESC panel and the title Load panel wrap the same
+	// body in their own frames.
+	saveListTitleH   = 34
+	saveListRowH     = 38
+	saveListPitch    = 42
+	saveListPagerW   = 96
+	saveListPagerH   = 26
+	saveListGap      = 10
+	saveListContentW = 500
+	saveListBodyH    = saveListTitleH + saveListGap + saveRowsPerPage*saveListPitch - (saveListPitch - saveListRowH) + saveListGap + saveListPagerH
+	saveMenuInset    = 20
+	saveMenuPanelW   = saveListContentW + 2*saveMenuInset
+	saveMenuPanelH   = saveListBodyH + saveListGap + uiTextCharHeight + 2*saveMenuInset
+	entryLoadPanelW  = saveListContentW + 2*menuFrameInset
+	entryLoadPanelH  = saveListBodyH + saveListGap + menuBackButtonH + 2*menuFrameInset
 
 	// Main-menu panel + option-list layout (its own size, distinct from the
 	// save/load panel). Shared by the draw code and the input hit-testing.
@@ -70,10 +72,9 @@ func menuPanelSize(mode MainMenuMode, screenW, screenH int) (w, h int) {
 }
 
 // menuRowRect returns the highlight/click box and the text baseline for row i of
-// a vertical menu list (Main-menu options, save/load slots). ONE geometry so the
-// draw highlight, hover-select and click hit-tests never drift (cf.
-// savePagerButtonRects). startY is the first row's baseline offset from py; pitch
-// is the row spacing.
+// the Main-menu option list. ONE geometry so the draw highlight, hover-select
+// and click hit-tests never drift. startY is the first row's baseline offset
+// from py; pitch is the row spacing.
 func menuRowRect(px, py, panelW, startY, pitch, i int) (box pagerRect, textX, textY int) {
 	y := py + startY + i*pitch
 	return pagerRect{px + 16, y - 4, px + panelW - 16, y - 4 + menuRowHeight}, px + 28, y

@@ -93,9 +93,10 @@ func (g *MMGame) guildJoinRefusal(n *character.NPC) string {
 	return ""
 }
 
-func guildMapName(key string) string {
+// mapDisplayName is a map's authored name, or its key made readable.
+func mapDisplayName(key string) string {
 	if wm := world.GlobalWorldManager; wm != nil {
-		if c := wm.MapConfigs[key]; c != nil {
+		if c := wm.MapConfigs[key]; c != nil && c.Name != "" {
 			return c.Name
 		}
 	}
@@ -182,14 +183,14 @@ func (g *MMGame) refreshGuildLedger() {
 			}
 			if a.Schedule != nil {
 				o := g.adventureNextOpening(key)
-				entry := guildLedgerEntry{title: mc.Name, art: guildReportDungeon, status: uitext.Text("guild.no_opening"), details: []string{uitext.Text("guild.current_chamber", guildMapName(o.current))}}
+				entry := guildLedgerEntry{title: mc.Name, art: guildReportDungeon, status: uitext.Text("guild.no_opening"), details: []string{uitext.Text("guild.current_chamber", mapDisplayName(o.current))}}
 				if o.open {
 					entry.status, entry.ready = uitext.Text("guild.ready"), true
 				} else if o.next != "" {
 					entry.status = guildTimeRemaining(o.nextAt, now)
 				}
 				if o.next != "" {
-					entry.details = append(entry.details, uitext.Text("guild.next_chamber", guildMapName(o.next)))
+					entry.details = append(entry.details, uitext.Text("guild.next_chamber", mapDisplayName(o.next)))
 				}
 				g.guildLedger[1] = append(g.guildLedger[1], entry)
 			}
@@ -213,7 +214,7 @@ func (g *MMGame) refreshGuildLedger() {
 				if r := m.Replacement; r != nil {
 					details = append(details, uitext.Text("guild.replacement", int(math.Round(r.Chance*100)), guildMonsterName(r.Monster), r.MinPartyLevel))
 				}
-				g.guildLedger[2] = append(g.guildLedger[2], guildLedgerEntry{title: uitext.Text("guild.pack", guildMonsterName(m.Monster), m.Count), location: guildMapName(pack.Map), status: guildTimeRemaining(at, now), art: guildReportCreature, details: details})
+				g.guildLedger[2] = append(g.guildLedger[2], guildLedgerEntry{title: uitext.Text("guild.pack", guildMonsterName(m.Monster), m.Count), location: mapDisplayName(pack.Map), status: guildTimeRemaining(at, now), art: guildReportCreature, details: details})
 			}
 		}
 	}
@@ -227,7 +228,7 @@ func (g *MMGame) refreshGuildLedger() {
 			if p.Phase == "night" {
 				phase = uitext.Text("guild.night")
 			}
-			g.guildLedger[2] = append(g.guildLedger[2], guildLedgerEntry{title: strings.Join(names, ", "), location: guildMapName(p.Map), status: guildTimeRemaining(g.guildNextPhase(p.Phase == "night"), now), art: guildReportWildlife, details: []string{uitext.Text("guild.wildlife", p.Count, phase)}})
+			g.guildLedger[2] = append(g.guildLedger[2], guildLedgerEntry{title: strings.Join(names, ", "), location: mapDisplayName(p.Map), status: guildTimeRemaining(g.guildNextPhase(p.Phase == "night"), now), art: guildReportWildlife, details: []string{uitext.Text("guild.wildlife", p.Count, phase)}})
 		}
 		if c.Caravan.Monster != "" {
 			status := uitext.Text("guild.travelling")
@@ -242,7 +243,7 @@ func (g *MMGame) refreshGuildLedger() {
 			seen := map[string]bool{}
 			for _, r := range c.Caravan.Routes {
 				for _, p := range r.Points {
-					seen[guildMapName(p.Map)] = true
+					seen[mapDisplayName(p.Map)] = true
 				}
 			}
 			details = append(details, uitext.Text("guild.caravan_route", strings.Join(slices.Sorted(maps.Keys(seen)), ", ")))

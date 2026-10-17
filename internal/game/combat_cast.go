@@ -26,7 +26,7 @@ func (o spellCastOutcome) handled() bool { return o == castNoEffect || o == cast
 // identify, beacon, Town Portal destination); nothing is paid until it confirms.
 func (g *MMGame) openCastPicker(caster *character.MMCharacter, id spells.SpellID) {
 	g.cancelTownPortalPicker()
-	g.townPortalPickerOpen, g.townPortalCaster, g.townPortalSpell = true, caster, id
+	g.townPortalPickerOpen, g.townPortalCaster, g.townPortalSpell, g.townPortalScroll = true, caster, id, 0
 }
 
 type spellCastRequest struct {

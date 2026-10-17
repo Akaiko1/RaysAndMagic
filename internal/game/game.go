@@ -440,6 +440,7 @@ type MMGame struct {
 	townPortalPickerOpen bool
 	townPortalCaster     *character.MMCharacter // who opened the picker; pays on confirm
 	townPortalSpell      spells.SpellID
+	townPortalScroll     int                    // the destination list's scroll offset
 	townPortalConfirming *character.MMCharacter // set while the confirmed cast runs
 	beaconPicker         bool
 	beaconSelection      int
@@ -784,8 +785,10 @@ type MMGame struct {
 	totalExperienceEarned int
 
 	// High scores state
-	showHighScores   bool
-	arenaBoardScroll int // champions' board scroll offset (lines)
+	showHighScores bool
+	// highScoreSelection is the run the High Scores screen shows in detail.
+	highScoreSelection int
+	arenaBoardScroll   int // champions' board scroll offset (lines)
 	// Board tab render cache: the leaderboard file is read and flattened to
 	// display lines only when stale (victory recorded / dialog opened) or when
 	// the Shift-detail mode flips - never per frame.

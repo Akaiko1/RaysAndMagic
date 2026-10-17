@@ -218,8 +218,6 @@ func (ui *UISystem) drawCombatSettings(screen *ebiten.Image, px, py, panelW int)
 	}
 }
 
-// drawGameplayPageSwitch draws View | Builds; the Builds page adds what its
-// choice does.
 // drawGameplayPageSwitch draws the pages as text tabs: the active one in
 // heading ink over a gold stroke, the rest muted until hovered. The hairline
 // under them takes the focus ink while the keyboard is on this row, as the

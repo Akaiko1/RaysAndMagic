@@ -36,19 +36,27 @@ func TestAutoBuildGearValidation(t *testing.T) {
 		t.Fatalf("shipped builds rejected: %s", msg)
 	}
 	for _, tc := range []struct {
-		name  string
-		class character.CharacterClass
-		gear  string
-		want  string
+		name    string
+		class   character.CharacterClass
+		gear    string
+		want    string
+		noBonus bool // the weapon scales with no stat (the knight build has no secondary)
 	}{
-		{"unknown key", character.ClassKnight, "no_such_thing", "is not a weapon"},
-		{"consumable", character.ClassKnight, "health_potion", "is not a weapon"},
-		{"weapon the class cannot wield", character.ClassKnight, "oak_staff", "cannot be wielded"},
-		{"weapon of another stat", character.ClassKnight, "vibro_blade", "scales with Speed"},
-		{"armor the class cannot wear", character.ClassSorcerer, "onryo_lamellar", "cannot be worn"},
-		{"wear raising none of the stats", character.ClassKnight, "foxfire_ofuda", "raises none"},
+		{"unknown key", character.ClassKnight, "no_such_thing", "is not a weapon", false},
+		{"consumable", character.ClassKnight, "health_potion", "is not a weapon", false},
+		{"weapon the class cannot wield", character.ClassKnight, "oak_staff", "cannot be wielded", false},
+		{"weapon of another stat", character.ClassKnight, "vibro_blade", "scales with Speed", false},
+		{"weapon scaling with no stat", character.ClassKnight, "tarn_trident", "scales with no stat", true},
+		{"armor the class cannot wear", character.ClassSorcerer, "onryo_lamellar", "cannot be worn", false},
+		{"wear raising none of the stats", character.ClassKnight, "foxfire_ofuda", "raises none", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.noBonus {
+				def := config.GlobalWeapons.Weapons[tc.gear]
+				saved := def.BonusStat
+				def.BonusStat = ""
+				t.Cleanup(func() { def.BonusStat = saved })
+			}
 			local := *cfg
 			local.Characters.Classes = map[string]config.ClassStats{}
 			for k, v := range cfg.Characters.Classes {
@@ -279,7 +287,6 @@ func TestBuildSettingsLayout(t *testing.T) {
 					boxes = append(boxes, namedLayoutBox(fmt.Sprintf("page-%d", page), gameplayPageRect(px, py, gameplayPage(page))))
 				}
 				boxes = append(boxes,
-					textLineBox("caption", "AUTO spends new level-up points by the build you pick.", px+242, py+103),
 					textLineBox("classes heading", "Party classes", px+buildsRosterX, y0),
 					namedLayoutBox("class list", buildsRosterArea(px, py)),
 					textLineBox("builds heading", "Builds", px+buildsListX, y0),

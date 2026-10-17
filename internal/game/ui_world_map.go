@@ -291,8 +291,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	l := ui.mapOverlayLayout()
 	// The atlas owns this modal's hover layer. Discard tooltips from the hub
 	// beneath it before its own named markers queue one.
-	ui.clearQueuedTooltips()
-	uiClippedLabels = uiClippedLabels[:0]
+	ui.discardLowerHoverText()
 	drawFilledRect(screen, 0, 0, g.config.GetScreenWidth(), gameplayViewportBottom(g), interfacePanelFill)
 	ui.drawThemeFrame(screen, frameGold, l.panel.x, l.panel.y, l.panel.w, l.panel.h)
 	title := uitext.Text("atlas.title")

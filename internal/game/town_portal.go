@@ -2,6 +2,8 @@ package game
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 	"sort"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -54,8 +56,9 @@ func (g *MMGame) registerVisitedTownPortalDestination() {
 	g.visitedTavernMaps[mapKey] = true
 }
 
-// townPortalRow is one picker row: its stable ID and its label.
-type townPortalRow struct{ id, label string }
+// townPortalRow is one picker row: its stable ID, the map it lands on, the
+// place's name and the anchor that speaks for it ("" when none does).
+type townPortalRow struct{ id, mapKey, place, anchor string }
 
 // townPortalRows lists the Town Portal destinations in stable order. A row ID
 // is a saved map unlock or a guild entrance from guildPortalDestinations.
@@ -68,9 +71,10 @@ func (g *MMGame) townPortalRows() []townPortalRow {
 	sort.Strings(ids)
 	rows := make([]townPortalRow, len(ids))
 	for i, id := range ids {
-		rows[i].id, rows[i].label = id, g.townPortalMapLabel(id)
+		rows[i].id, rows[i].mapKey = id, id
+		rows[i].place, rows[i].anchor = g.townPortalPlace(id)
 		if dest, ok := guilds[id]; ok {
-			rows[i].label = fmt.Sprintf("%s - %s", guildMapName(dest.mapKey), dest.npc.Name)
+			rows[i].mapKey, rows[i].place, rows[i].anchor = dest.mapKey, mapDisplayName(dest.mapKey), dest.npc.Name
 		}
 	}
 	return rows
@@ -194,9 +198,57 @@ func nearestWalkableNeighbor(w *world.World3D, tileSize, px, py float64) (float6
 	return 0, 0, false
 }
 
-// drawTownPortalPickerPopup is the Town Portal destination chooser: one row
-// per visited destination. Reuses the shared member-picker overlay with indices
-// into the destination list.
+// townPortalLayout is the Town Portal chooser, shared by drawing and clicks.
+// Rows name the place over its anchor; a list taller than the screen allows
+// scrolls, by wheel or by dragging its scrollbar.
+type townPortalLayout struct {
+	panel, icon, list layoutRect
+	contentH          int
+}
+
+const (
+	townPortalW      = 440
+	townPortalTop    = 64
+	townPortalRowH   = 38
+	townPortalPitch  = 42
+	townPortalFooter = 40
+	townPortalBarGap = 6 // between the rows and the scrollbar track
+	townPortalTrackW = 3
+
+	townPortalHint       = "Click a destination | Esc: cancel"
+	townPortalScrollHint = "Click a destination | Wheel: scroll | Esc: cancel"
+)
+
+func makeTownPortalLayout(rows, screenW, screenH int) townPortalLayout {
+	l := townPortalLayout{contentH: rows*townPortalPitch - (townPortalPitch - townPortalRowH)}
+	listH := min(l.contentH, screenH-32-townPortalTop-townPortalFooter)
+	l.panel = centeredRect(screenW, screenH, townPortalW, townPortalTop+listH+townPortalFooter)
+	l.icon = layoutRect{l.panel.x + 16, l.panel.y + 14, 28, 28}
+	l.list = layoutRect{l.panel.x + 16, l.panel.y + townPortalTop, l.panel.w - 32, listH}
+	if l.scrolls() {
+		l.list.w -= townPortalBarGap + townPortalTrackW + scrollbarGrabRight
+	}
+	return l
+}
+
+func (l townPortalLayout) scrolls() bool { return l.contentH > l.list.h }
+
+// track is the scrollbar beside the rows.
+func (l townPortalLayout) track() layoutRect {
+	return layoutRect{l.list.right() + townPortalBarGap, l.list.y, townPortalTrackW, l.list.h}
+}
+
+// scroll clamps an offset to the list.
+func (l townPortalLayout) scroll(offset int) int {
+	return max(0, min(offset, l.contentH-l.list.h))
+}
+
+func (l townPortalLayout) row(i, offset int) layoutRect {
+	return layoutRect{l.list.x, l.list.y + i*townPortalPitch - offset, l.list.w, townPortalRowH}
+}
+
+// drawTownPortalPickerPopup is the Town Portal destination chooser: the
+// spell, who pays for it, and one row per known destination.
 func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 	g := ui.game
 	if g.allySpellSelecting {
@@ -220,33 +272,97 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 		g.cancelTownPortalPicker()
 		return
 	}
-	rows := make([]int, len(dests))
-	for i := range dests {
-		rows[i] = i
-	}
-	ui.drawMemberPickerPopup(screen, "Town Portal", "Choose a destination.", 360, rows,
-		func(idx int) string {
-			return fmt.Sprintf("%d) %s", idx+1, dests[idx].label)
-		},
-		func(idx int) {
-			g.confirmTownPortal(dests[idx].id)
-		},
-		g.cancelTownPortalPicker, ui.topModalLayer() == modalLayerTownPortal)
-}
+	live := ui.topModalLayer() == modalLayerTownPortal
+	sw, sh := g.config.GetScreenWidth(), g.config.GetScreenHeight()
+	l := makeTownPortalLayout(len(dests), sw, sh)
+	p := l.panel
+	drawFilledRect(screen, 0, 0, sw, sh, color.RGBA{0, 0, 0, 140})
+	ui.drawThemeFrame(screen, frameGold, p.x, p.y, p.w, p.h)
 
-// townPortalMapLabel renders a map key as a picker row label: the map's own
-// name, and the ANCHOR's name when one speaks for it ("Elvish Forest - The
-// Wandering Wyvern"). The flag is generic, so the label must not assume the
-// anchor is an inn.
-func (g *MMGame) townPortalMapLabel(mapKey string) string {
-	name := humanizeKey(mapKey)
+	ui.drawInterfaceIcon(screen, spellTooltipIconName(g.townPortalSpell), l.icon.x, l.icon.y, l.icon.w, l.icon.h)
+	textX := l.icon.right() + 10
+	close := statPopupCloseRect(p)
+	drawUITextColored(screen, "Town Portal", textX, p.y+12, gameplayInk.heading)
+	if c := g.townPortalCaster; c != nil {
+		paid := c.Name
+		if def, err := spells.GetSpellDefinitionByID(g.townPortalSpell); err == nil {
+			paid = fmt.Sprintf("%s pays %d SP", c.Name, c.MeditatedSPCost(def.SpellPointsCost))
+		}
+		drawUITextColored(screen, clipUIText(paid, close.x-8-textX), textX, p.y+30, gameplayInk.muted)
+	}
+	drawFilledRect(screen, p.x+16, p.y+townPortalTop-10, p.w-32, 1, gameplayInk.edge)
+
+	here := ""
 	if world.GlobalWorldManager != nil {
-		if mc := world.GlobalWorldManager.MapConfigs[mapKey]; mc != nil && mc.Name != "" {
-			name = mc.Name
+		here = world.GlobalWorldManager.CurrentMapKey
+	}
+	offset := l.scroll(g.townPortalScroll)
+	if l.scrolls() {
+		ui.onWheelOver(l.list, live, func(dir int) {
+			g.townPortalScroll = l.scroll(offset + dir*townPortalPitch)
+		})
+		ui.drawScrollbar(screen, "town_portal", l.track(), offset, l.contentH, live, func(v int) {
+			g.townPortalScroll = v
+		})
+	}
+	mx, my := uiCursorPosition()
+	if dst, view, ok := uiListClip(screen, l.list); ok {
+		for i, d := range dests {
+			r := l.row(i, offset)
+			hit := image.Rect(r.x, r.y, r.right(), r.bottom()).Intersect(view)
+			if hit.Empty() {
+				continue
+			}
+			hover := live && image.Pt(mx, my).In(hit)
+			ui.drawTownPortalRow(dst, r, d, d.mapKey == here, hover)
+			id := d.id
+			ui.onDisplayedInput(uiCommandClick, layoutRect{hit.Min.X, hit.Min.Y, hit.Dx(), hit.Dy()}, func() {
+				if live && g.consumeLeftClickIn(hit.Min.X, hit.Min.Y, hit.Max.X, hit.Max.Y) {
+					g.confirmTownPortal(id)
+				}
+			})
 		}
 	}
-	if anchor := g.townPortalAnchor(mapKey); anchor != nil && anchor.Name != "" {
-		return fmt.Sprintf("%s - %s", name, anchor.Name)
+	hint := townPortalHint
+	if l.scrolls() {
+		hint = townPortalScrollHint
 	}
-	return name
+	drawUITextColored(screen, clipUIText(hint, p.w-32), p.x+16, p.bottom()-townPortalFooter+14, gameplayInk.muted)
+	ui.drawPopupCloseButton(screen, close.x, close.y, close.w, live, g.cancelTownPortalPicker)
+}
+
+// drawTownPortalRow is one destination: the place over its anchor, and where
+// the party stands now.
+func (ui *UISystem) drawTownPortalRow(dst *ebiten.Image, r layoutRect, d townPortalRow, here, hover bool) {
+	if hover {
+		ui.drawButtonFrame(dst, r.x, r.y, r.w, r.h, true)
+	}
+	right := r.right() - 10
+	if here {
+		const tag = "You are here"
+		drawRightUIText(dst, tag, right, r.y+(r.h-uiTextCharHeight)/2, gameplayInk.muted)
+		right -= uiTextWidth(tag) + 12
+	}
+	ink := gameplayInk.text
+	if hover {
+		ink = gameplayInk.heading
+	}
+	x := r.x + 10
+	if d.anchor == "" {
+		drawUITextColored(dst, clipUIText(d.place, right-x), x, r.y+(r.h-uiTextCharHeight)/2, ink)
+		return
+	}
+	y := r.y + (r.h-2*uiTextCharHeight-2)/2
+	drawUITextColored(dst, clipUIText(d.place, right-x), x, y, ink)
+	drawUITextColored(dst, clipUIText(d.anchor, right-x), x, y+uiTextCharHeight+2, gameplayInk.muted)
+}
+
+// townPortalPlace names a destination map and the ANCHOR that speaks for it
+// ("Elvish Forest", "The Wandering Wyvern"). The flag is generic, so the
+// anchor may be an inn, a shrine or a gate house; "" when the map has none.
+func (g *MMGame) townPortalPlace(mapKey string) (place, anchor string) {
+	if npc := g.townPortalAnchor(mapKey); npc != nil {
+		anchor = npc.Name
+	}
+	return mapDisplayName(mapKey), anchor
 }
