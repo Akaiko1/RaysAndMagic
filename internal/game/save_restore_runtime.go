@@ -6,6 +6,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -13,10 +14,12 @@ func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 	// Restore mode
 	g.partyRoot = save.PartyRoot
 	g.partyHinder = save.PartyHinder
+	g.partyHinder.migrateLegacy(g.config.GetTPS())
 	g.alchemy = save.Alchemy.Clone()
 	g.harvestRuntime = harvestRuntime{}
-	g.spatialReuseFrames = save.SpatialReuseFrames
-	g.spatialStepThisTurn = save.SpatialStepThisTurn
+	g.spatialReuse = restoreClock(save.SpatialReuse, save.SpatialReuseFrames)
+	g.openerCooldown.Restore(save.OpenerCooldown)
+	g.partyMoveClock.Restore(save.PartyMoveClock)
 	g.rareBookMessage = ""
 	g.brewAnimation = nil
 	g.turnBasedMode = save.TurnBased
@@ -28,11 +31,6 @@ func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 	g.turnBasedMoveCooldown = save.TurnBasedMoveCooldown
 	g.turnBasedRotCooldown = save.TurnBasedRotCooldown
 	g.monsterTurnResolved = save.MonsterTurnResolved
-	g.turnBasedSpRegenCount = save.TurnBasedSpRegenCount
-	g.turnBasedHPRegenCount = save.TurnBasedSpRegenCount
-	if save.TurnBasedHPRegenCount != nil {
-		g.turnBasedHPRegenCount = *save.TurnBasedHPRegenCount
-	}
 	g.turnBasedExtraMonsterAction = save.ExtraMonsterAction
 	g.turnBasedMonsterPassesLeft = save.TurnBasedMonsterPassesLeft
 	g.turnBasedMonsterPassDelay = save.TurnBasedMonsterPassDelay
@@ -56,9 +54,9 @@ func (g *MMGame) restoreSavedTurnState(save *GameSave) {
 
 func (g *MMGame) restoreSavedEffects(save *GameSave) {
 	// Restore utility/buff state
-	g.restoreCardSummonState(save.CardSummonCooldowns, save.CardSummonCDFrames)
+	g.restoreCardSummonState(save.CardSummonClocks, save.CardSummonCooldowns, save.CardSummonCDFrames)
 	g.torchLightActive = save.TorchLightActive
-	g.torchLightDuration = save.TorchLightDuration
+	g.torchLightClock = status.FromFrames(save.TorchLightDuration, g.config.GetTPS())
 	// Radius always follows the CURRENT spells.yaml (light_radius_tiles) -
 	// old saves froze whatever value was live when they were written.
 	g.torchLightRadius = save.TorchLightRadius
@@ -68,7 +66,7 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 		}
 	}
 	g.wizardEyeActive = save.WizardEyeActive
-	g.wizardEyeDuration = save.WizardEyeDuration
+	g.wizardEyeClock = status.FromFrames(save.WizardEyeDuration, g.config.GetTPS())
 	// Same anti-freeze rule as the torch: an active eye adopts the CURRENT
 	// spells.yaml radius instead of a stale or missing saved value.
 	if g.wizardEyeActive {
@@ -77,9 +75,9 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 		}
 	}
 	g.walkOnWaterActive = save.WalkOnWaterActive
-	g.walkOnWaterDuration = save.WalkOnWaterDuration
+	g.walkOnWaterClock = status.FromFrames(save.WalkOnWaterDuration, g.config.GetTPS())
 	g.flyActive = save.FlyActive
-	g.flyDuration = save.FlyDuration
+	g.flyClock = status.FromFrames(save.FlyDuration, g.config.GetTPS())
 	g.visitedTavernMaps = map[string]bool{}
 	for _, k := range save.VisitedTavernMaps {
 		g.visitedTavernMaps[k] = true
@@ -93,7 +91,7 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 		// Pre-registry save: bless lived in dedicated fields.
 		g.statBuffs = []TimedStatBuff{{
 			SpellID: "bless",
-			Frames:  save.BlessDuration,
+			Clock:   status.FromFrames(save.BlessDuration, g.config.GetTPS()),
 			Bonuses: statBonusesFromSave(save.BlessBonusesPerStat, save.BlessStatBonus),
 		}}
 	}
@@ -101,11 +99,15 @@ func (g *MMGame) restoreSavedEffects(save *GameSave) {
 	g.celestialBuffSpellID = save.CelestialBuffSpellID
 	g.restoreCelestialProvidenceOwnership(save.TimedBuffSourceVersion)
 	g.persistentDamageZones = restorePersistentDamageZones(save.PersistentDamageZones, save.MapKey)
-	g.replaceFrozenWater(append([]FrozenWaterTile(nil), save.FrozenWater...))
+	ice := append([]FrozenWaterTile(nil), save.FrozenWater...)
+	for i := range ice {
+		status.MigrateFrames(&ice[i].Clock, &ice[i].LegacyFrames, g.config.GetTPS())
+	}
+	g.replaceFrozenWater(ice)
 	g.reseedPersistentDamageZoneFieldIDs()
 	g.traps = restoreTraps(save.Traps, g.party)
 	g.waterBreathingActive = save.WaterBreathingActive
-	g.waterBreathingDuration = save.WaterBreathingDuration
+	g.waterBreathingClock = status.FromFrames(save.WaterBreathingDuration, g.config.GetTPS())
 	g.underwaterReturnX = save.UnderwaterReturnX
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
@@ -168,12 +170,12 @@ func (g *MMGame) restoreSavedEffectPresentation(wm *world.WorldManager, save *Ga
 	// per-frame update uses), so a restored buff shows its timer immediately.
 	g.buffStatuses = make(map[string]*BuffStatus)
 	for _, b := range g.timedBuffs() {
-		g.updateBuffStatus(string(b.id), *b.duration, *b.active)
+		g.updateBuffStatus(string(b.id), b.clock.Frames, *b.active)
 	}
 	// Registry buffs (stat + combat) show their timers immediately too, not
 	// only after the first tick refreshes them.
 	for _, b := range g.statBuffs {
-		g.updateBuffStatus(b.SpellID, b.Frames, true)
+		g.updateBuffStatus(b.SpellID, b.Clock.Frames, true)
 	}
 	for _, b := range g.combatBuffs {
 		// statusDuration keeps a charge-only buff (Preservation) as "until spent".

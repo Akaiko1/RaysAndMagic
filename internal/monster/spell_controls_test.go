@@ -16,12 +16,16 @@ func TestSpellFearOwnsRetreatUntilItsClockExpires(t *testing.T) {
 		if m.State != StateFleeing || m.CurrentAIBehavior().Caps().MayAttack {
 			t.Fatalf("modeTB=%v interrupted forced retreat", turnBased)
 		}
-		m.AdvanceSpellControls(11)
-		if m.FearFramesRemaining != 1 {
-			t.Fatal("lost fear remainder")
+		if !turnBased {
+			for range 11 {
+				m.AdvanceSpellControls(false)
+			}
+			if m.Fear.Frames != 1 {
+				t.Fatal("lost fear remainder")
+			}
 		}
-		m.AdvanceSpellControls(1)
-		if m.State == StateFleeing || m.FearFramesRemaining != 0 {
+		m.AdvanceSpellControls(turnBased) // a fraction of a round still costs the whole turn
+		if m.State == StateFleeing || m.Fear.Active() {
 			t.Fatal("fear never expired")
 		}
 	}

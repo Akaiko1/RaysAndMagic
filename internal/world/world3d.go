@@ -2,20 +2,46 @@ package world
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 	"strings"
-	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 )
 
 // TeleporterRegistry manages all teleporters globally, across all worlds
 type TeleporterRegistry struct {
-	Teleporters     []TeleporterLocation // All teleporters, regardless of type or world
-	LastUsedByGroup map[string]time.Time
+	Teleporters []TeleporterLocation // All teleporters, regardless of type or world
+	// GroupCooldowns holds each group's re-trigger guard after a jump.
+	GroupCooldowns map[string]status.DualClock
+}
+
+// GroupReady reports a group whose re-trigger guard has run out.
+func (reg *TeleporterRegistry) GroupReady(group string) bool {
+	return !reg.GroupCooldowns[group].Active()
+}
+
+// ArmGroup starts a group's re-trigger guard of seconds.
+func (reg *TeleporterRegistry) ArmGroup(group string, seconds float64, tps int) {
+	frames := int(math.Ceil(seconds * float64(tps)))
+	if frames <= 0 {
+		return
+	}
+	if reg.GroupCooldowns == nil {
+		reg.GroupCooldowns = make(map[string]status.DualClock)
+	}
+	var clock status.DualClock
+	clock.ArmFrames(frames, tps)
+	reg.GroupCooldowns[group] = clock
+}
+
+// TickGroups spends one tick of the running mode on every group's guard.
+func (reg *TeleporterRegistry) TickGroups(turn bool) {
+	status.TickMap(reg.GroupCooldowns, turn, status.Self)
 }
 
 func (reg *TeleporterRegistry) FindTeleporter(mapKey string, x, y int) (TeleporterLocation, bool) {

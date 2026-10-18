@@ -67,7 +67,7 @@ func TestRareInputCastCycles(t *testing.T) {
 						g.parkSelection = true
 					case "unavailable":
 						if kind == "veil" {
-							g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("phase_veil"), Frames: 100})
+							g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("phase_veil"), Clock: framesClock(100)})
 						} else {
 							g.party.Inventory = nil
 						}
@@ -146,7 +146,7 @@ func TestRareSpatialCommandsAreManualAndFaceForward(t *testing.T) {
 					if tb && (math.Mod(g.camera.X, ts) != ts/2 || math.Mod(g.camera.Y, ts) != ts/2) {
 						t.Fatal("step left TB grid")
 					}
-				} else if g.camera.X != x || g.camera.Y != y || c.SpellPoints != 100 || g.spatialReuseFrames != 0 {
+				} else if g.camera.X != x || g.camera.Y != y || c.SpellPoints != 100 || g.spatialReuse.Frames != 0 {
 					t.Fatal("attack or held command automatically moved the party")
 				}
 				if g.camera.Angle != angle {
@@ -260,15 +260,15 @@ func TestRareBuffRecoveryAndUnconsciousAnchor(t *testing.T) {
 	for _, life := range []character.Condition{character.ConditionUnconscious, character.ConditionDead, character.ConditionEradicated} {
 		t.Run(life.String(), func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, false)
-			c.RareClass.Anchor = character.SpatialAnchor{MapKey: "forest", Frames: 100}
+			c.RareClass.Anchor = character.SpatialAnchor{MapKey: "forest", Clock: framesClock(100)}
 			c.HitPoints = 0
 			c.AddCondition(life)
-			g.tickRareClassClocks(1)
+			passFrames(g, 1)
 			if life == character.ConditionUnconscious {
-				if c.RareClass.Anchor.Frames != 99 {
+				if c.RareClass.Anchor.Clock.Frames != 99 {
 					t.Fatal("unconscious hero lost anchor")
 				}
-			} else if c.RareClass.Anchor.Frames != 0 {
+			} else if c.RareClass.Anchor.Clock.Frames != 0 {
 				t.Fatal("dead hero retained anchor")
 			}
 		})

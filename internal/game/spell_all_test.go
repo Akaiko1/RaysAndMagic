@@ -179,23 +179,23 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 						t.Fatal("identify did not open the target report")
 					}
 				case "berserk":
-					if mon.BerserkFramesRemaining <= 0 {
+					if mon.Berserk.Frames <= 0 {
 						t.Fatal("berserk did not affect the living target")
 					}
 				case "frozen_ground":
-					if mon.RootFramesRemaining <= 0 {
+					if mon.Root.Frames <= 0 {
 						t.Fatal("frozen ground did not root the forward target")
 					}
 				case "slow":
-					if mon.SlowFramesRemaining <= 0 {
+					if mon.Slow.Frames <= 0 {
 						t.Fatal("slow did not affect the target")
 					}
 				case "turn_undead", "mass_fear":
-					if mon.FearFramesRemaining <= 0 {
+					if mon.Fear.Frames <= 0 {
 						t.Fatal("fear did not affect the eligible target")
 					}
 				case "feeblemind":
-					if mon.SilenceFramesRemaining <= 0 {
+					if mon.Silence.Frames <= 0 {
 						t.Fatal("feeblemind did not silence the target")
 					}
 				case "destroy_undead", "prismatic_light", "souldrinker":
@@ -224,7 +224,7 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 					t.Errorf("caster not healed (%d)", caster.HitPoints)
 				}
 			case def.StunRadiusTiles > 0:
-				if mon.StunFramesRemaining <= 0 && mon.StunTurnsRemaining <= 0 {
+				if !mon.Stun.Active() {
 					t.Errorf("monster not stunned")
 				}
 			case def.ZoneRadiusTiles > 0:

@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
@@ -131,15 +132,15 @@ func TestEditorBossMechanicsRuntimeAndSave(t *testing.T) {
 						// Two rounds heal 5% each, then the 60% ceiling stops it.
 						// Time advances the way each mode feeds it: a round per
 						// monster pass in TB, one second at a time in RT.
-						visit.HealCarry = 0
+						visit.HealClock = status.DualClock{}
 						rounds := func(n int) {
 							for range n {
 								if tb {
-									g.tickEnvironment(config.CombatRoundSeconds, true)
+									tickEnvironmentFor(g, config.CombatRoundSeconds, true)
 									continue
 								}
 								for range config.CombatRoundSeconds {
-									g.tickEnvironment(1, false)
+									tickEnvironmentFor(g, 1, false)
 								}
 							}
 						}

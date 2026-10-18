@@ -49,14 +49,14 @@ func TestEvasiveBossTB_BlinksWhenHurtMidPartyRound(t *testing.T) {
 
 	g.combat = NewCombatSystem(g)
 	g.combat.tickEvasiveBossesTB() // initialise the HP latch
-	if boss.BossCD != 0 {
+	if boss.BossCD.Active() {
 		t.Fatalf("boss far from party must not blink unprovoked")
 	}
 
 	boss.HitPoints -= 50 // a party member's hit lands mid-round
 	g.combat.tickEvasiveBossesTB()
 
-	if boss.BossCD == 0 {
+	if !boss.BossCD.Active() {
 		t.Fatalf("hurt evasive boss must blink on the very next frame (BossCD untouched)")
 	}
 	if boss.BossHurtPending {
@@ -72,8 +72,8 @@ func TestEvasiveBossTB_CrowdControlSuppressesBlink(t *testing.T) {
 		name string
 		cc   func(m *monsterPkg.Monster3D)
 	}{
-		{"stun_turns", func(m *monsterPkg.Monster3D) { m.StunTurnsRemaining = 1 }},
-		{"stun_frames", func(m *monsterPkg.Monster3D) { m.StunFramesRemaining = 10 }},
+		{"stun_turns", func(m *monsterPkg.Monster3D) { m.Stun.Turns = 1 }},
+		{"stun_frames", func(m *monsterPkg.Monster3D) { m.Stun.Frames = 10 }},
 		{"charm", func(m *monsterPkg.Monster3D) { m.Pacified = true }},
 		{"bind", func(m *monsterPkg.Monster3D) { m.Bound = true }},
 	}
@@ -85,9 +85,47 @@ func TestEvasiveBossTB_CrowdControlSuppressesBlink(t *testing.T) {
 			tc.cc(boss)
 			boss.HitPoints -= 50
 			g.combat.tickEvasiveBossesTB()
-			if boss.BossCD != 0 {
+			if boss.BossCD.Active() {
 				t.Fatalf("%s boss must not blink while controlled", tc.name)
 			}
 		})
+	}
+}
+
+// The hurt-blink cooldown's TB round starts with the party turn: a blink in
+// one round, even on the monster turn, leaves the boss ready to dodge the
+// next party round's first hit, and not before that round.
+func TestEvasiveBossTB_BlinkReadyEachPartyRound(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g, boss := newBossTestGame(t, cfg)
+	g.combat = NewCombatSystem(g)
+	g.combat.tickEvasiveBossesTB() // latch the HP
+	// A blink consumes the hurt latch; a refused one leaves it pending.
+	blink := func() bool {
+		boss.HitPoints -= 10
+		g.combat.tickEvasiveBossesTB()
+		return !boss.BossHurtPending
+	}
+	if !blink() {
+		t.Fatal("fixture: the first hit did not blink")
+	}
+	// The monster turn spends the ability clocks, not the blink's.
+	g.tickMonsterTurnStatuses(boss, true)
+	if blink() {
+		t.Fatal("blinked twice in one round")
+	}
+	g.startPartyTurn()
+	if !blink() {
+		t.Fatalf("not ready to dodge in the next party round: %+v", boss.BossCD)
+	}
+	// A round with no hit, then a blink on the monster turn.
+	g.startPartyTurn()
+	g.tickMonsterTurnStatuses(boss, true)
+	if !blink() {
+		t.Fatal("fixture: no blink on the monster turn")
+	}
+	g.startPartyTurn()
+	if !blink() {
+		t.Fatal("a monster-turn blink kept the boss from dodging the next party round")
 	}
 }

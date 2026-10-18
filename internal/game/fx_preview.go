@@ -358,7 +358,7 @@ func (p *FxPreview) clearStage() {
 		g.collisionSystem.UnregisterEntity(m.ID)
 	}
 	g.world.Monsters = g.world.Monsters[:0]
-	g.partyRoot = PartyRootState{}
+	g.partyRoot = status.DualClock{}
 	g.partyHinder = PartyHinderState{}
 	if len(g.party.Members) > fxHeroIdx {
 		h := g.party.Members[fxHeroIdx]
@@ -444,7 +444,7 @@ func (p *FxPreview) spawn() {
 				Key: p.sel.Key, MapKey: fxStageMapKey,
 				TileX: tx, TileY: ty,
 				X: (float64(tx) + 0.5) * ts, Y: (float64(ty) + 0.5) * ts,
-				Owner: m, FramesLeft: 3 * g.config.GetTPS(),
+				Owner: m, Life: status.FromFrames(3*g.config.GetTPS(), g.config.GetTPS()),
 			})
 		}
 	case FxTile:

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 )
 
 func TestStatusVisualActiveStateAndHeldTurns(t *testing.T) {
@@ -33,18 +34,16 @@ func TestStatusVisualActiveStateAndHeldTurns(t *testing.T) {
 			}
 		})
 	}
-	m := &monster.Monster3D{HitPoints: 100, RootFramesRemaining: 1, RootTurnsRemaining: 1, RootRate: 1}
+	m := &monster.Monster3D{HitPoints: 100, Root: status.DualClock{Frames: 1, Turns: 1, Rate: 1}}
 	m.ApplySlow(30, 1, 1)
 	m.ApplyWeaken(40, 1, 1)
 	m.TickRootTurn()
-	m.TickSlowTurn()
-	m.TickWeakenTurn()
+	m.TickDebuffs(true)
 	if got := monsterStatusVisuals(m, true); got != visualRoot|visualSlow|visualWeaken {
 		t.Fatal("final held turn lost its visual")
 	}
 	m.TickRootTurn()
-	m.TickSlowTurn()
-	m.TickWeakenTurn()
+	m.TickDebuffs(true)
 	if got := monsterStatusVisuals(m, true); got != 0 {
 		t.Fatal("expired turn latch retained visual")
 	}
@@ -55,7 +54,7 @@ func TestStatusVisualPartyConditionCoverage(t *testing.T) {
 	for cond := character.ConditionNormal; cond <= character.ConditionStunned; cond++ {
 		c := &character.MMCharacter{HitPoints: 100, Conditions: []character.Condition{cond}}
 		if cond == character.ConditionStunned {
-			c.StunFramesRemaining = 1
+			c.Stun.Frames = 1
 		}
 		v := g.partyStatusVisuals(c)
 		switch cond {
@@ -75,18 +74,18 @@ func TestStatusVisualPartyConditionCoverage(t *testing.T) {
 		}
 	}
 	for _, cond := range []character.Condition{character.ConditionDead, character.ConditionEradicated} {
-		g.partyRoot = PartyRootState{Frames: 300}
+		g.partyRoot = status.DualClock{Frames: 300}
 		down := &character.MMCharacter{Conditions: []character.Condition{cond}}
 		if g.partyStatusVisuals(down) != 0 {
 			t.Fatalf("%s card animates the shared root", cond)
 		}
-		g.partyRoot = PartyRootState{}
+		g.partyRoot = status.DualClock{}
 	}
 	if partyCardDown(&character.MMCharacter{HitPoints: 100, Conditions: []character.Condition{character.ConditionPoisoned}}) {
 		t.Fatal("a living poisoned hero darkened")
 	}
 	c := &character.MMCharacter{HitPoints: 100}
-	g.partyRoot = PartyRootState{Frames: 300}
+	g.partyRoot = status.DualClock{Frames: 300}
 	if label, _ := g.partyConditionLabels(c); g.partyStatusVisuals(c)&visualRoot == 0 || !strings.Contains(label, "Rooted") {
 		t.Fatal("party root has no visual or label")
 	}
@@ -94,7 +93,7 @@ func TestStatusVisualPartyConditionCoverage(t *testing.T) {
 	if g.partyStatusVisuals(c) != visualRoot {
 		t.Fatal("shared root disappeared from unconscious card")
 	}
-	g.partyRoot = PartyRootState{}
+	g.partyRoot = status.DualClock{}
 	if g.partyStatusVisuals(c) != 0 {
 		t.Fatal("cleansed root retained its visual")
 	}

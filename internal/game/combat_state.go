@@ -25,6 +25,7 @@ func (g *MMGame) clearTransientCombatState() {
 	// aimed on - a map switch/load must not detonate them at the same
 	// coordinates of the destination map.
 	g.pendingMortars = g.pendingMortars[:0]
+	g.pendingTolls = g.pendingTolls[:0]
 	g.slashEffects = g.slashEffects[:0]
 	g.rangedHeld = nil
 	g.trapBursts = g.trapBursts[:0]

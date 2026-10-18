@@ -12,7 +12,9 @@ import (
 )
 
 // Every party buff family crosses RT, TB idle/initial/resolved turns, mode
-// switching and a serialized remainder. Legacy CombatClock=false is deliberate.
+// switching and a serialized remainder on the one RT/TB clock: a resolved turn
+// spends a round of a whole-round duration. Legacy CombatClock=false is
+// deliberate.
 func TestPartyBuffModeClockAndSave(t *testing.T) {
 	for _, kind := range []string{"crate:highlands_mist_collector", "crate:desert_solar_condenser", "heroism", "flame_ward_draught", "solstice_fire_advanced_ward", "bless", "torch_light", "wizard_eye", "walk_on_water", "fly", "water_breathing"} {
 		t.Run(kind, func(t *testing.T) {
@@ -22,7 +24,8 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			g.combat = NewCombatSystem(g)
 			gl := &GameLoop{game: g}
 			g.gameLoop = gl
-			duration := config.CombatRoundSeconds*cfg.GetTPS() + 17
+			round := config.RoundFrames(1, cfg.GetTPS())
+			duration := 2 * round
 			expired := 0
 			switch kind {
 			case "crate:highlands_mist_collector", "crate:desert_solar_condenser":
@@ -30,9 +33,9 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 					t.Fatal(err)
 				}
 				d := config.CrateBuff(kind)
-				g.addCombatBuff(TimedCombatBuff{ID: kind, Frames: duration, HPRegenPct: d.HPRegenPct, ManaRegenPct: d.ManaRegenPct})
+				g.addCombatBuff(TimedCombatBuff{ID: kind, Clock: framesClock(duration), HPRegenPct: d.HPRegenPct, ManaRegenPct: d.ManaRegenPct})
 			case "heroism":
-				g.addCombatBuff(TimedCombatBuff{ID: kind, Frames: duration, OutBonus: 10})
+				g.addCombatBuff(TimedCombatBuff{ID: kind, Clock: framesClock(duration), OutBonus: 10})
 			case "flame_ward_draught", "solstice_fire_advanced_ward":
 				def, _ := config.GetItemDefinition(kind)
 				b, ok := timedCombatBuffFromItem(kind, def, duration)
@@ -41,7 +44,7 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 				}
 				g.addCombatBuff(b)
 			case "bless":
-				g.addStatBuff(TimedStatBuff{SpellID: kind, Frames: duration, Bonuses: character.UniformStatBonuses(3)})
+				g.addStatBuff(TimedStatBuff{SpellID: kind, Clock: framesClock(duration), Bonuses: character.UniformStatBonuses(3)})
 			default:
 				gl.timedBuffRegistry = g.buildTimedBuffs()
 				for i := range gl.timedBuffRegistry {
@@ -62,14 +65,14 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			}
 			left := func() int {
 				if b, ok := g.combatBuffByID(kind); ok {
-					return b.Frames
+					return b.Clock.Frames
 				}
 				if b, ok := g.statBuffByID(kind); ok {
-					return b.Frames
+					return b.Clock.Frames
 				}
 				for _, b := range g.timedBuffs() {
 					if string(b.id) == kind && *b.active {
-						return *b.duration
+						return b.clock.Frames
 					}
 				}
 				return 0
@@ -95,7 +98,7 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 			}
 			check(duration - 1)
 			g.startPartyTurn()
-			check(16)
+			check(round - 1)
 			wm := world.NewWorldManager(cfg)
 			wm.CurrentMapKey = "clock_fixture"
 			wm.LoadedMaps = map[string]*world.World3D{"clock_fixture": g.world}
@@ -112,10 +115,10 @@ func TestPartyBuffModeClockAndSave(t *testing.T) {
 				t.Fatal(err)
 			}
 			g.restoreSavedEffects(&decoded)
-			check(16)
+			check(round - 1)
 			g.ToggleTurnBasedMode()
-			check(16)
-			for range 16 {
+			check(round - 1)
+			for range round - 1 {
 				gl.updateSpecialEffects()
 			}
 			check(0)
@@ -140,15 +143,15 @@ func TestPartyBuffExpiresOnResolvedRound(t *testing.T) {
 		t.Run(fmt.Sprint(left), func(t *testing.T) {
 			g, gl, _ := tbBehaviorGame(t, 12, 12)
 			g.gameLoop = gl
-			g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: left, OutBonus: 4})
-			g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: left, Bonuses: character.UniformStatBonuses(4)})
-			g.torchLightActive, g.torchLightDuration = true, left
+			g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(left), OutBonus: 4})
+			g.addStatBuff(TimedStatBuff{SpellID: "bless", Clock: framesClock(left), Bonuses: character.UniformStatBonuses(4)})
+			g.torchLightActive, g.torchLightClock = true, framesClock(left)
 			gl.updateSpecialEffects()
-			if len(g.combatBuffs) != 1 || g.torchLightDuration != left {
+			if len(g.combatBuffs) != 1 || g.torchLightClock.Frames != left {
 				t.Fatal("thinking drained a buff")
 			}
 			g.startPartyTurn()
-			if len(g.combatBuffs) != 0 || len(g.statBuffs) != 0 || g.torchLightActive || g.torchLightDuration != 0 {
+			if len(g.combatBuffs) != 0 || len(g.statBuffs) != 0 || g.torchLightActive || g.torchLightClock.Frames != 0 {
 				t.Fatal("round failed to expire all buff families")
 			}
 		})

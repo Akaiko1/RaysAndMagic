@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"ugataima/internal/status"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
@@ -215,7 +216,7 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 						if tb {
 							g.startPartyTurn()
 						} else {
-							g.tickRareClassClocks(fold.ReuseSeconds * g.config.GetTPS())
+							passFrames(g, fold.ReuseSeconds*g.config.GetTPS())
 						}
 						g.actionInputStagger = 0
 					}
@@ -231,7 +232,7 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 						if math.Abs(g.camera.X-x-float64((hop+1)*tiles)*ts) > .01 || c.ActionsRemaining != 0 || c.RTCooldown != 123 {
 							t.Fatal("equipped F step did not use mastery range for free")
 						}
-						if c.RareClass.Anchor.X != x || c.RareClass.Anchor.Y != y || c.RareClass.Anchor.Frames != config.TierValue(fold.Duration, tier)*g.config.GetTPS() {
+						if c.RareClass.Anchor.X != x || c.RareClass.Anchor.Y != y || c.RareClass.Anchor.Clock.Frames != config.TierValue(fold.Duration, tier)*g.config.GetTPS() {
 							t.Fatal("later Fold replaced first anchor or failed to refresh it")
 						}
 					}
@@ -256,7 +257,7 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 					case "landing_wall":
 						g.world.Tiles[10][8] = world.TileWall
 					case "expired":
-						c.RareClass.Anchor.Frames = 0
+						c.RareClass.Anchor.Clock = status.DualClock{}
 					case "different_map":
 						c.RareClass.Anchor.MapKey = "another_map"
 					}
@@ -266,10 +267,10 @@ func TestRareReturnAcrossFoldChain(t *testing.T) {
 					if got != want {
 						t.Fatalf("Return=%v want=%v", got, want)
 					}
-					if got && (math.Abs(g.camera.X-x) > .01 || g.camera.Y != y || c.RareClass.Anchor.Frames != 0) {
+					if got && (math.Abs(g.camera.X-x) > .01 || g.camera.Y != y || c.RareClass.Anchor.Clock.Frames != 0) {
 						t.Fatal("Return missed first anchor")
 					}
-					if !got && (g.camera.X != beforeX || c.SpellPoints != sp || c.RareClass.Anchor != anchor || g.spatialReuseFrames != 0) {
+					if !got && (g.camera.X != beforeX || c.SpellPoints != sp || c.RareClass.Anchor != anchor || g.spatialReuse.Frames != 0) {
 						t.Fatal("failed Return spent state")
 					}
 				})
@@ -293,7 +294,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 				if c.FlowingStaffCharges() != tier+1 {
 					t.Fatal("movement did not grant mastery capacity")
 				}
-				g.tickRareClassClocks(1000000)
+				passFrames(g, 1000000)
 				g.clearTransientCombatState()
 				c = restoreCharacterSave(buildCharacterSave(c))
 				g.party.Members[0] = c
@@ -329,7 +330,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 	c.RareClass.FlowCharges = 0
 	c = restoreCharacterSave(buildCharacterSave(c))
 	g.party.Members[0] = c
-	g.tickRareClassClocks(100000)
+	passFrames(g, 100000)
 	if c.FlowingStaffCharges() != 1 || c.RareClass.FlowFrames != 0 {
 		t.Fatal("legacy timer did not migrate to one permanent charge")
 	}

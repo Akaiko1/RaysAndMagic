@@ -201,7 +201,7 @@ func TestEvasiveBossRTControlSuppressesBlink(t *testing.T) {
 		name  string
 		apply func(*monster.Monster3D)
 	}{
-		{"stun", func(m *monster.Monster3D) { m.StunFramesRemaining = 1 }},
+		{"stun", func(m *monster.Monster3D) { m.Stun.Frames = 1 }},
 		{"charm", func(m *monster.Monster3D) { m.Pacified = true }},
 		{"bind", func(m *monster.Monster3D) { m.Bound = true }},
 	}
@@ -224,8 +224,8 @@ func TestEvasiveBossRTControlSuppressesBlink(t *testing.T) {
 			startX, startY := boss.X, boss.Y
 
 			game.combat.HandleMonsterInteractions()
-			if boss.BossCD != 0 || boss.X != startX || boss.Y != startY {
-				t.Fatalf("%s evasive boss blinked under control: cd=%d pos=(%.0f,%.0f)", tc.name, boss.BossCD, boss.X, boss.Y)
+			if boss.BossCD.Active() || boss.X != startX || boss.Y != startY {
+				t.Fatalf("%s evasive boss blinked under control: cd=%+v pos=(%.0f,%.0f)", tc.name, boss.BossCD, boss.X, boss.Y)
 			}
 		})
 	}

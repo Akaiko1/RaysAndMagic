@@ -87,7 +87,7 @@ func TestRareFoldNearestLegalLanding(t *testing.T) {
 					t.Fatal("wrong landing or action cost")
 				}
 				if tc.want == 0 {
-					if c.SpellPoints != sp || g.spatialReuseFrames != 0 || c.RareClass.Anchor.Frames != 0 || c.FlowingStaffCharges() != 0 {
+					if c.SpellPoints != sp || g.spatialReuse.Frames != 0 || c.RareClass.Anchor.Clock.Frames != 0 || c.FlowingStaffCharges() != 0 {
 						t.Fatal("rejection changed state")
 					}
 				} else if c.SpellPoints != sp-cost || c.FlowingStaffCharges() == 0 || c.RareClass.Anchor.X != x {
@@ -114,7 +114,7 @@ func TestRareSpatialReuseAndAnchorByTier(t *testing.T) {
 				}
 				tps := g.config.GetTPS()
 				reuse := fold.ReuseSeconds * tps
-				if g.spatialReuseFrames != reuse || c.RareClass.Anchor.Frames != seconds*tps {
+				if g.spatialReuse.Frames != reuse || c.RareClass.Anchor.Clock.Frames != seconds*tps {
 					t.Fatal("wrong authored duration or reuse")
 				}
 				// Save through the production snapshot and restore adapter while locked.
@@ -133,7 +133,7 @@ func TestRareSpatialReuseAndAnchorByTier(t *testing.T) {
 				g.restoreSavedTurnState(&loaded)
 				g.ToggleTurnBasedMode()
 				g.ToggleTurnBasedMode()
-				if g.spatialReuseFrames != reuse || c.RareClass.Anchor.Frames != seconds*tps {
+				if g.spatialReuse.Frames != reuse || c.RareClass.Anchor.Clock.Frames != seconds*tps {
 					t.Fatal("mode switch refreshed or consumed spatial clocks")
 				}
 				if g.useTechnique(1, "fold_step", false, false) || g.useTechnique(0, "return_step", false, false) {
@@ -141,27 +141,26 @@ func TestRareSpatialReuseAndAnchorByTier(t *testing.T) {
 				}
 				elapsed := reuse
 				if tb {
-					// A clock change alone must not permit a second step in the same TB turn.
-					g.spatialReuseFrames = 0
+					// The shared lock is whole rounds: no second step in the same TB turn.
 					if g.useTechnique(0, "return_step", false, false) {
 						t.Fatal("same-turn step bypassed")
 					}
 					g.startPartyTurn()
 					elapsed = g.combatRoundFrames()
 				} else {
-					g.tickRareClassClocks(reuse - 1)
+					passFrames(g, reuse-1)
 					if g.useTechnique(0, "return_step", false, false) {
 						t.Fatal("reuse ended early")
 					}
-					g.tickRareClassClocks(1)
+					passFrames(g, 1)
 				}
-				if c.RareClass.Anchor.Frames != seconds*tps-elapsed {
+				if c.RareClass.Anchor.Clock.Frames != seconds*tps-elapsed {
 					t.Fatal("anchor clock diverged")
 				}
-				if !g.useTechnique(0, "return_step", false, false) || math.Hypot(g.camera.X-x, g.camera.Y-y) > .01 || c.RareClass.Anchor.Frames != 0 {
+				if !g.useTechnique(0, "return_step", false, false) || math.Hypot(g.camera.X-x, g.camera.Y-y) > .01 || c.RareClass.Anchor.Clock.Frames != 0 {
 					t.Fatal("Return unavailable when lock ends")
 				}
-				if g.spatialReuseFrames != back.ReuseSeconds*tps {
+				if g.spatialReuse.Frames != back.ReuseSeconds*tps {
 					t.Fatal("Return did not share reuse")
 				}
 			})
@@ -177,7 +176,7 @@ func TestRareSpatialMonsterPasses(t *testing.T) {
 					g, c := rareClassGame(t, character.ClassWayfarer, true)
 					if key == "return_step" {
 						region, x, y := g.canonicalPosition(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
-						c.RareClass.Anchor = character.SpatialAnchor{MapKey: region, X: x, Y: y, Frames: 1000}
+						c.RareClass.Anchor = character.SpatialAnchor{MapKey: region, X: x, Y: y, Clock: framesClock(1000)}
 					}
 					paid := func() {
 						if paidKind == "weapon" {
@@ -254,7 +253,7 @@ func TestRareSpatialPreservesExistingMonsterPass(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, true)
 			if key == "return_step" {
 				region, x, y := g.canonicalPosition(g.camera.X-float64(g.config.GetTileSize()), g.camera.Y)
-				c.RareClass.Anchor = character.SpatialAnchor{MapKey: region, X: x, Y: y, Frames: 1000}
+				c.RareClass.Anchor = character.SpatialAnchor{MapKey: region, X: x, Y: y, Clock: framesClock(1000)}
 			}
 			g.turnBasedExtraMonsterAction = true
 			if !g.useTechnique(0, key, false, false) || !g.turnBasedExtraMonsterAction {

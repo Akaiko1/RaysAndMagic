@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -209,9 +210,10 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.frameCount++
 	gl.game.updateMonsterDeaths()
 	gl.game.updateTacticalClocks()
+	gl.game.updateFightOpeners()
 	gl.game.updateAutomaticConsumables()
 	if !gl.game.turnBasedMode {
-		gl.game.tickRareClassClocks(1)
+		gl.game.tickPartyClocks(false)
 	}
 	gl.updateAutomaticTechniques()
 	gl.inputHandler.performPendingRepeat()
@@ -235,10 +237,6 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.updateDayNight()
 	gl.game.updateEcology()
 	gl.game.updateAlchemyHarvest()
-
-	// Each summon card's proc cooldown ticks independently in real time in both
-	// modes; these timers silence only their own proc.
-	gl.game.tickCardSummonCooldowns()
 
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
@@ -717,7 +715,9 @@ func (gl *GameLoop) updatePerformanceMetrics() {
 
 // updateSpecialEffects updates all special effects and input cooldowns
 func (gl *GameLoop) updateSpecialEffects() {
-	gl.game.tickDeviceCooldowns(gl.game.combatFrameElapsed())
+	if !gl.game.turnBasedMode {
+		gl.game.tickDeviceCooldowns(false)
+	}
 	gl.updateWorldPresentation()
 
 	// Gameplay input stagger advances with the simulation. The character hub
@@ -776,7 +776,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 type timedBuff struct {
 	id         spells.SpellID
 	active     *bool
-	duration   *int
+	clock      *status.DualClock
 	onActivate func()
 	onExpire   func()
 }
@@ -817,19 +817,19 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 		{
 			id:         "torch_light",
 			active:     &g.torchLightActive,
-			duration:   &g.torchLightDuration,
+			clock:      &g.torchLightClock,
 			onActivate: activateVisionRadius("torch_light", &g.torchLightRadius, func(d spells.SpellDefinition) float64 { return d.LightRadiusTiles }),
 		},
 		{
 			id:         "wizard_eye",
 			active:     &g.wizardEyeActive,
-			duration:   &g.wizardEyeDuration,
+			clock:      &g.wizardEyeClock,
 			onActivate: activateVisionRadius("wizard_eye", &g.wizardEyeRadiusTiles, func(d spells.SpellDefinition) float64 { return d.RadarRadiusTiles }),
 		},
 		{
-			id:       "walk_on_water",
-			active:   &g.walkOnWaterActive,
-			duration: &g.walkOnWaterDuration,
+			id:     "walk_on_water",
+			active: &g.walkOnWaterActive,
+			clock:  &g.walkOnWaterClock,
 			onExpire: func() {
 				// Lapsing mid-lake strands the party on a blocking water tile;
 				// wade ashore unless another effect still handles the water.
@@ -837,16 +837,16 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 			},
 		},
 		{
-			id:       "fly",
-			active:   &g.flyActive,
-			duration: &g.flyDuration,
+			id:     "fly",
+			active: &g.flyActive,
+			clock:  &g.flyClock,
 		},
 		{
 			// The dive itself records where to surface (mapArrivalUnderwater), so a
 			// recast in the depths keeps that point.
-			id:       "water_breathing",
-			active:   &g.waterBreathingActive,
-			duration: &g.waterBreathingDuration,
+			id:     "water_breathing",
+			active: &g.waterBreathingActive,
+			clock:  &g.waterBreathingClock,
 			onExpire: func() {
 				// If still underwater when it lapses, surface the party.
 				if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == underwaterMapKey {
@@ -896,14 +896,15 @@ func (g *MMGame) activateTimedBuffFrames(id spells.SpellID, frames int, preserve
 		return timedBuffNotHandled
 	}
 	*buff.active = true
-	*buff.duration = frames
+	*buff.clock = status.DualClock{}
+	buff.clock.ArmFrames(frames, g.config.GetTPS())
 	if buff.onActivate != nil {
 		buff.onActivate()
 	}
 	if preserveLonger {
-		g.updateBuffStatus(string(buff.id), *buff.duration, true)
+		g.updateBuffStatus(string(buff.id), buff.clock.Frames, true)
 	} else {
-		g.setBuffStatus(string(buff.id), *buff.duration)
+		g.setBuffStatus(string(buff.id), buff.clock.Frames)
 	}
 	return timedBuffApplied
 }
@@ -927,17 +928,17 @@ func (g *MMGame) isTimedBuffID(id string) bool {
 	return ok
 }
 
-// tickBuff decrements the duration of an active timed buff and runs onExpire
-// when it hits zero. Shared by all utility spells with active/duration pairs.
+// tickBuff spends one tick of an active timed buff's clock and runs onExpire
+// when it runs out. Shared by all utility spells with active/clock pairs.
 // Returns true if the buff was active this tick (regardless of expiration).
-func tickBuff(active *bool, duration *int, frames int, onExpire func()) bool {
+func tickBuff(active *bool, clock *status.DualClock, turn bool, onExpire func()) bool {
 	if !*active {
 		return false
 	}
-	*duration -= frames
-	if *duration <= 0 {
+	clock.Tick(turn)
+	if !clock.Active() {
 		*active = false
-		*duration = 0
+		*clock = status.DualClock{}
 		if onExpire != nil {
 			onExpire()
 		}
@@ -945,32 +946,34 @@ func tickBuff(active *bool, duration *int, frames int, onExpire func()) bool {
 	return true
 }
 
-// updateControlledMonsters shares the buff clock: idle TB frames spend nothing.
+// updateControlledMonsters spends a real-time frame of the control clocks;
+// idle TB frames spend nothing.
 func (gl *GameLoop) updateControlledMonsters() {
-	gl.game.advanceControlledMonsters(gl.game.combatFrameElapsed())
+	if !gl.game.turnBasedMode {
+		gl.game.advanceControlledMonsters(false)
+	}
 }
 
-// advanceControlledMonsters is also called once after a resolved TB round.
-// Zero-duration controls are permanent, including card summons.
-func (g *MMGame) advanceControlledMonsters(elapsed int) {
-	g.advanceFrozenWater(elapsed)
-	if g.world == nil || elapsed <= 0 {
+// advanceControlledMonsters spends one tick of every control clock and the
+// ice: a frame in real time, a turn at a turn-based party turn. An idle bind
+// or charm clock is permanent, including card summons.
+func (g *MMGame) advanceControlledMonsters(turn bool) {
+	g.advanceFrozenWater(turn)
+	if g.world == nil {
 		return
 	}
 	for _, m := range g.world.Monsters {
-		m.AdvanceSpellControls(elapsed)
-		if m.Bound && m.BoundFramesRemaining > 0 {
-			m.BoundFramesRemaining = max(0, m.BoundFramesRemaining-elapsed)
-			if m.BoundFramesRemaining == 0 {
+		m.AdvanceSpellControls(turn)
+		if m.Bound && m.BoundClock.Active() {
+			if m.BoundClock.Tick(turn) {
 				m.Bound = false
 				m.WasAttacked = true // Freed undead remember provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
 				g.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
 			}
 		}
-		if m.Pacified && m.PacifiedFramesRemaining > 0 {
-			m.PacifiedFramesRemaining = max(0, m.PacifiedFramesRemaining-elapsed)
-			if m.PacifiedFramesRemaining == 0 {
+		if m.Pacified && m.PacifiedClock.Active() {
+			if m.PacifiedClock.Tick(turn) {
 				m.Pacified = false
 				m.WasAttacked = true // Charm expiry restores provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()

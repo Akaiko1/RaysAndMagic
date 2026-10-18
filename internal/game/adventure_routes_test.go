@@ -27,18 +27,18 @@ func TestEnvironmentContinuousOverlap(t *testing.T) {
 				hero.HitPoints = 10000
 				if overlap {
 					a.Effects = append(a.Effects, config.EnvironmentEffect{ID: "lane", Kind: "lane", Name: "Flame Lane", School: "fire", Damage: 45, SustainDamage: 12, Rect: field.Rect, DurationSeconds: 6})
-					g.adventureVisit("forest").effectState("lane").Remaining = 1
+					g.adventureVisit("forest").effectState("lane").Remaining = roundClock()
 				}
 				if tb {
-					g.tickEnvironment(3, true)
+					tickEnvironmentFor(g, 3, true)
 				} else {
-					g.tickEnvironment(.25, false)
+					tickEnvironmentFor(g, .25, false)
 					if hero.HitPoints != 10000 {
 						t.Fatal("partial second charged early")
 					}
 					g.adventure = cloneAdventureState(g.adventure)
 					for range 11 {
-						g.tickEnvironment(.25, false)
+						tickEnvironmentFor(g, .25, false)
 					}
 				}
 				if got := 10000 - hero.HitPoints; got != 3*one {
@@ -102,7 +102,7 @@ func TestSolsticeAuthoredRoutesAndRewards(t *testing.T) {
 	if !g.effectEnabled(a, v, *a.Effect("transfer_jet")) {
 		t.Fatal("gallery vane does nothing")
 	}
-	v.effectState("regulator_lane_0").Warning = 1
+	v.effectState("regulator_lane_0").Warning = roundClock()
 	if g.effectEnabled(a, v, *a.Effect("arena_jet_0")) {
 		t.Fatal("escape vane opened before hub control")
 	}
@@ -115,20 +115,20 @@ func TestSolsticeAuthoredRoutesAndRewards(t *testing.T) {
 func TestAdventureBossPatternIsAtomic(t *testing.T) {
 	g, wm, _ := travelFixture(t)
 	g.combat = NewCombatSystem(g)
-	a := &config.AdventureConfig{Effects: []config.EnvironmentEffect{{ID: "a", Kind: "lane"}, {ID: "b", Kind: "lane"}}, Boss: &config.AdventureBoss{Monster: "boss", CooldownSeconds: 6, Phases: []config.AdventureBossPhase{{BelowPercent: 25, Patterns: [][]string{{"a", "b"}}}}}}
+	a := &config.AdventureConfig{Effects: []config.EnvironmentEffect{{ID: "a", Kind: "lane", WarningSeconds: 1, WarningRounds: 1}, {ID: "b", Kind: "lane", WarningSeconds: 1, WarningRounds: 1}}, Boss: &config.AdventureBoss{Monster: "boss", CooldownSeconds: 6, Phases: []config.AdventureBossPhase{{BelowPercent: 25, Patterns: [][]string{{"a", "b"}}}}}}
 	wm.MapConfigs["forest"] = &config.MapConfig{Adventure: a}
 	m := &monster.Monster3D{Key: "boss", HomeMap: "forest", HitPoints: 25, MaxHitPoints: 100}
 	v := g.adventureVisit("forest")
-	v.effectState("b").Remaining = 1
-	if g.combat.runChamberBossFreeActions(m); v.effectState("a").Warning > 0 {
+	v.effectState("b").Remaining = roundClock()
+	if g.combat.runChamberBossFreeActions(m); v.effectState("a").Warning.Active() {
 		t.Fatal("half a pattern armed")
 	}
 	if !m.LaneCD.Active() {
 		t.Fatal("a pattern that could not fire kept the lane cooldown ready")
 	}
-	v.effectState("b").Remaining = 0
+	v.effectState("b").Remaining = status.DualClock{}
 	m.LaneCD = status.DualClock{}
-	if g.combat.runChamberBossFreeActions(m); v.effectState("a").Warning != 1 || v.effectState("b").Warning != 1 {
+	if g.combat.runChamberBossFreeActions(m); !v.effectState("a").Warning.Active() || !v.effectState("b").Warning.Active() {
 		t.Fatal("pair did not arm together")
 	}
 }
@@ -163,25 +163,25 @@ func TestAnnouncedTransferReleasesStandingParty(t *testing.T) {
 				{ID: "jet", Kind: "transfer", Name: "Jet", Rect: [4]int{6, 7, 6, 7}, Destination: [2]int{8, 7}, TriggerLane: "lane"},
 			}}
 			wm.MapConfigs["forest"] = &config.MapConfig{Adventure: a}
-			g.adventureVisit("forest").effectState("lane").Warning = 1
+			g.adventureVisit("forest").effectState("lane").Warning = status.PairClock(1.2, 1, g.config.GetTPS(), 1)
 			g.applyEnvironmentArrival()
 			if x, _ := g.GetPlayerTilePosition(); x != 6 {
 				t.Fatal("jet fired before warning")
 			}
 			if tb {
-				g.tickEnvironment(3, true)
+				tickEnvironmentFor(g, 3, true)
 			} else {
-				g.tickEnvironment(.6, false)
+				tickEnvironmentFor(g, .6, false)
 				if x, _ := g.GetPlayerTilePosition(); x != 6 {
 					t.Fatal("partial warning teleported")
 				}
 				g.adventure = cloneAdventureState(g.adventure)
-				g.tickEnvironment(.6, false)
+				tickEnvironmentFor(g, .6, false)
 			}
 			if x, y := g.GetPlayerTilePosition(); x != 8 || y != 7 || g.camera.Angle != .42 {
 				t.Fatalf("receiving pose %d,%d angle %v", x, y, g.camera.Angle)
 			}
-			g.tickEnvironment(1, false)
+			tickEnvironmentFor(g, 1, false)
 			if x, _ := g.GetPlayerTilePosition(); x != 8 {
 				t.Fatal("transfer repeated")
 			}

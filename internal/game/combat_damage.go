@@ -180,6 +180,9 @@ type partyMonsterAttack struct {
 	GrazesDodge          bool
 	IgnoreArmor          bool
 	ArmorIgnoreChancePct int
+	// PrimaryHit marks the landed primary hit, the one whose weapon riders
+	// run: only it strikes the hour (Minute Hand); splash and grazes do not.
+	PrimaryHit bool
 }
 
 // Weapon crits precede flat buffs and physical conversion. Prepare both source
@@ -190,15 +193,15 @@ func (cs *CombatSystem) newPartyWeaponAttack(
 	isRanged, critical bool, baseCritChance int,
 ) partyMonsterAttack {
 	buff := cs.game.combatBuffOutBonusForDamageType(school)
-	attack := cs.newPartyMonsterAttack(weaponDamageWithBuff(normal, buff), trueDamage, school, 0, def, name, isRanged, false, !isRanged)
+	parts := weaponTrueShare(def, damagecalc.Parts{Normal: weaponDamageWithBuff(normal, buff), True: trueDamage})
+	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, 0, def, name, isRanged, false, !isRanged)
 	attack.Critical = critical
 	attack.BaseCritChance = baseCritChance
 	if def != nil && !critical {
 		attack.DesignationBonuses = cs.game.designationBonuses()
 		if len(attack.DesignationBonuses) > 0 {
-			attack.CriticalPacket = cs.newPartyMonsterDamagePacket(
-				weaponDamageWithBuff(weaponCriticalDamage(normal, true), buff), trueDamage, school, 0, true,
-			)
+			critical := weaponTrueShare(def, damagecalc.Parts{Normal: weaponDamageWithBuff(weaponCriticalDamage(normal, true), buff), True: trueDamage})
+			attack.CriticalPacket = cs.newPartyMonsterDamagePacket(critical.Normal, critical.True, school, 0, true)
 			attack.CriticalPacket = cs.elementalBuffPacket(attack.CriticalPacket)
 		}
 	}
@@ -278,7 +281,7 @@ func (cs *CombatSystem) partyMonsterDamageOptions(attack partyMonsterAttack, tar
 		PostArmorNormal: func(damage int) int {
 			if !attack.IsSpell {
 				damage = applyRoundedMultiplier(damage, cs.weaponBonusMultiplier(attack.WeaponDef, target), true)
-				damage = applyRoundedMultiplier(damage, weaponStunnedBonusMultiplier(attack.WeaponDef, target), false)
+				damage = applyRoundedMultiplier(damage, weaponVictimMultiplier(attack.WeaponDef, target, attack.PrimaryHit), false)
 			}
 			damage = applyRoundedMultiplier(damage, cs.game.cardBonusVsMultiplier(target), true)
 			if attack.IsMelee {
@@ -306,7 +309,7 @@ func (cs *CombatSystem) monsterWeaponDamageOptions(
 		ArmorPiercePct: weaponArmorPiercePct(def),
 		PostArmorNormal: func(damage int) int {
 			damage = applyRoundedMultiplier(damage, cs.weaponBonusMultiplier(def, target), true)
-			return applyRoundedMultiplier(damage, weaponStunnedBonusMultiplier(def, target), false)
+			return applyRoundedMultiplier(damage, weaponVictimMultiplier(def, target, false), false)
 		},
 	}
 }
@@ -375,11 +378,7 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		_, _, normal = cs.CalculateWeaponDamage(item, char)
 	}
 
-	preview := weaponDamagePreview{
-		FormulaNormal: normal,
-		True:          def.TrueDamage,
-		AuthoredTrue:  def.TrueDamage,
-	}
+	preview := weaponDamagePreview{FormulaNormal: normal}
 	if char != nil && cs != nil && cs.game != nil {
 		preview.True, _ = cs.weaponMasteryStrike(char, def)
 		preview.OutgoingBuff = cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
@@ -399,24 +398,27 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 	if party {
 		preview.True = cs.game.elementalDamageBuff(damagecalc.Parts{True: preview.True}, weaponDamageTypeStr(def)).True
 	}
-	resolve := func(critical bool) int {
+	// resolve returns the hit's normal damage and the weapon's true share of it.
+	resolve := func(critical bool) (int, int) {
 		damage := character.WeaponStrikeDamage(def, normal)
 		if isRanged {
 			damage = cs.weaponRangedDamageAtLaunch(damage, party)
 		}
 		damage = weaponCriticalDamage(damage, critical)
-		damage = weaponDamageWithBuff(damage, preview.OutgoingBuff)
+		parts := weaponTrueShare(def, damagecalc.Parts{Normal: weaponDamageWithBuff(damage, preview.OutgoingBuff)})
 		if party {
-			damage = cs.game.elementalDamageBuff(damagecalc.Parts{Normal: damage}, weaponDamageTypeStr(def)).Normal
+			parts = cs.game.elementalDamageBuff(parts, weaponDamageTypeStr(def))
 		}
-		damage += personalSpellDamageBonus(damage+preview.True, personalSpellPower(char, "fire_aura"))
+		damage = parts.Normal + personalSpellDamageBonus(parts.Normal+parts.True+preview.True, personalSpellPower(char, "fire_aura"))
 		if !isRanged {
 			damage = cs.weaponMeleeDamageAfterArmor(damage, party)
 		}
-		return damage
+		return damage, parts.True
 	}
-	preview.Normal = resolve(false)
-	preview.CriticalTotal = resolve(true) + preview.True
+	preview.Normal, preview.AuthoredTrue = resolve(false)
+	criticalNormal, criticalShare := resolve(true)
+	preview.CriticalTotal = criticalNormal + criticalShare + preview.True
+	preview.True += preview.AuthoredTrue
 	preview.Total = preview.Normal + preview.True
 	return preview
 }
@@ -435,6 +437,18 @@ func (cs *CombatSystem) weaponMeleeDamageAfterArmor(normal int, party bool) int 
 		return normal * (100 + cs.game.cardMeleeDmgPct()) / 100
 	}
 	return normal
+}
+
+// weaponTrueShare moves the weapon's true_damage_pct of a hit's normal damage
+// into its true part (Broodspike), after crit and flat buffs, for every wielder.
+func weaponTrueShare(def *config.WeaponDefinitionConfig, parts damagecalc.Parts) damagecalc.Parts {
+	if def == nil || def.TrueDamagePct <= 0 {
+		return parts
+	}
+	share := parts.Normal * def.TrueDamagePct / 100
+	parts.Normal -= share
+	parts.True += share
+	return parts
 }
 
 func weaponCriticalDamage(normal int, critical bool) int {

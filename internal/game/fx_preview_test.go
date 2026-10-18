@@ -167,7 +167,7 @@ func TestFxPreview_AuraExhibitUsesEligibleAuthoredTile(t *testing.T) {
 				}
 				found = true
 				p.g.flyActive, p.g.walkOnWaterActive, p.g.waterBreathingActive = true, true, true
-				p.g.flyDuration, p.g.walkOnWaterDuration, p.g.waterBreathingDuration = 1000, 1000, 1000
+				p.g.flyClock, p.g.walkOnWaterClock, p.g.waterBreathingClock = framesClock(1000), framesClock(1000), framesClock(1000)
 				p.Step()
 				p.Select(it)
 				if p.g.flyActive || p.g.walkOnWaterActive || p.g.waterBreathingActive || !p.arena.IsTileBlocking(1, 4) {

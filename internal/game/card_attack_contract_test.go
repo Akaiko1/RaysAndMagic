@@ -210,7 +210,7 @@ func TestCardReflectionRestoredCollection(t *testing.T) {
 				ch.Luck = 0
 				ch.BuffBonuses = character.StatBonuses{}
 				ch.HitPoints, ch.MaxHitPoints = 1000, 1000
-				g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves([]TimedCombatBuff{{ID: "fire_shield", Frames: 600, ResistSchool: "fire", ResistSchoolPct: 50}}))
+				g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves([]TimedCombatBuff{{ID: "fire_shield", Clock: framesClock(600), ResistSchool: "fire", ResistSchoolPct: 50}}))
 				m := mkTestMonster("Restored target", 1000)
 				m.Abilities.Inferno.Damage = 100
 				cs.applyMonsterInferno(m)

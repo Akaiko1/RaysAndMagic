@@ -516,7 +516,7 @@ func TestStrongMagicOutgoingBuffOrderTable(t *testing.T) {
 			caster.Luck = 0
 			caster.Skills[character.SkillStrongMagic] = &character.Skill{Mastery: character.MasteryGrandMaster}
 			cs.game.combatBuffs = []TimedCombatBuff{{
-				ID: "test-outgoing-buff", Frames: 600,
+				ID: "test-outgoing-buff", Clock: framesClock(600),
 				OutBonus: flatBonus, OutDamageType: "all",
 			}}
 			mob := mkTestMonster("Target", 10000)
@@ -647,7 +647,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		caster := gmCaster(cs)
 		cs.game.combatBuffs = []TimedCombatBuff{{
-			ID: "test-outgoing-buff", Frames: 600,
+			ID: "test-outgoing-buff", Clock: framesClock(600),
 			OutBonus: 7, OutDamageType: "all",
 		}}
 		for _, tc := range []struct {
@@ -690,7 +690,7 @@ func TestStrongMagicContractTable(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		caster := gmCaster(cs)
 		cs.game.combatBuffs = []TimedCombatBuff{{
-			ID: "test-outgoing-buff", Frames: 600,
+			ID: "test-outgoing-buff", Clock: framesClock(600),
 			OutBonus: 7, OutDamageType: "all",
 		}}
 		lines := buildSpellComparisonRowsByID("rock_blast", "firebolt", caster, cs).Lines()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"testing"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/spells"
@@ -64,8 +65,7 @@ func TestChamberTraversalCapabilities(t *testing.T) {
 						routeStart := start
 						place := func(p [2]int) {
 							g.setPartyPosition((float64(p[0])+.5)*ts, (float64(p[1])+.5)*ts)
-							g.currentTurn, g.spatialReuseFrames = 0, 0
-							g.spatialStepThisTurn = false
+							g.currentTurn, g.spatialReuse = 0, status.DualClock{}
 							c.HitPoints, c.SpellPoints = c.MaxHitPoints, c.MaxSpellPoints
 							c.RTCooldown = 0
 							for _, s := range g.adventureVisit(key).Effects {

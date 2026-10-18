@@ -71,7 +71,7 @@ func TestMonsterDamagePacketMitigationOrder(t *testing.T) {
 	target.ArmorClass = 100
 	target.Resistances[monsterPkg.DamagePhysical] = 50
 	target.SoakDamage = 5
-	target.SoakFrames = 1
+	target.Soak.Frames = 1
 
 	packet := singleMonsterDamagePacket(
 		damagecalc.Parts{Normal: 100, True: 20},
@@ -107,10 +107,10 @@ func TestPartyConversionKeepsModifiersAndOneSoakInAoe(t *testing.T) {
 	ts := float64(g.config.GetTileSize())
 	center := mkTestMonster("Center", 1000)
 	center.X, center.Y = 10*ts, 10*ts
-	center.SoakDamage, center.SoakFrames = 10, 1
+	center.SoakDamage, center.Soak.Frames = 10, 1
 	near := mkTestMonster("Near", 1000)
 	near.X, near.Y = center.X+ts, center.Y
-	near.SoakDamage, near.SoakFrames = 10, 1
+	near.SoakDamage, near.Soak.Frames = 10, 1
 	g.world.Monsters = []*monsterPkg.Monster3D{center, near}
 
 	cs.ApplyDamageToMonster(center, 100, "Idol-Breaker, the Warlord's Maul", false)
@@ -234,7 +234,7 @@ func TestDamageTooltipsUseLiveSourceFormula(t *testing.T) {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "samurai_card"
 	g.cardSlots[1].key = "masked_serpent_dancer_card"
-	g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 5, OutDamageType: "all"})
+	g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 5, OutDamageType: "all"})
 
 	weapon, err := items.TryCreateWeaponFromYAML("idol_breakers_maul")
 	if err != nil {

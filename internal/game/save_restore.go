@@ -32,6 +32,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.discardFish()
 	wm.RandomizeEnvironmentSprites()
 	g.adventure = cloneAdventureState(save.Adventure)
+	for key, v := range g.adventure.Visits {
+		v.migrateLegacy(g.adventureConfig(key), g.config.GetTPS())
+	}
 	g.restoreSavedTimeline(wm, save, targetWorld)
 	g.restoreSavedParty(save)
 	g.updatePartyLevelUnlocks()
@@ -66,6 +69,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.arenaBarrierMessageAfter = 0
 	g.syncAdventureArenaBounds()
 	g.ecology = cloneEcologyState(save.Ecology)
+	g.ecology.migrateLegacy(g.config.GetTPS())
 	g.ecologyViews = nil
 	g.caravanAttackAlertUntil = time.Time{}
 	g.syncCaravanStock()
@@ -74,6 +78,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	// pointers survive). One reset, after the journal has settled.
 	g.resetScreenBanners()
 	g.reconcileRestoredPursuit(wm)
+	// Gear the party restore moved is reported in the loaded game's own log.
+	for _, notice := range g.loadNotices {
+		g.AddCombatMessage(notice)
+	}
+	g.loadNotices = nil
+	// A fight resumed from a save is not a fresh fight: no new opener. The
+	// flag reads the restored monsters.
+	g.partyWasInFight = g.partyInCombat()
 
 	// Restore played time by adjusting session start
 	if save.PlayedTimeNs > 0 {

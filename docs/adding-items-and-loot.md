@@ -42,7 +42,12 @@ See matching shipped draughts before adding one.
 
 Sets live in the same file under `item_sets`; pieces use `set: <key>`.
 `pieces_required` counts equipped pieces on one wearer. For a mixed item/weapon
-set use `required_pieces` with exact keys. Cards use `type: card` and supported
+set use `required_pieces` with exact keys. Besides stat and armor bonuses a set
+may carry one mechanic: `stun_duration_pct`, `bonus_crit_chance`,
+`fiery_riposte_pct`, `fight_opener_actions` (act first when a fight starts),
+`heal_follow_up_spell` (a heal swings back as a free offensive spell) or
+`stationary_damage_reduction_pct` (less damage while the party holds ground).
+A worn item may carry `rewind_cooldown_seconds` (the Chrono Cape's rewind). Cards use `type: card` and supported
 `card_*` attributes; their bonuses apply through the collection system. A
 monster's card drops at `card_drop_chance` from `assets/loots.yaml` (bosses at
 `boss`, every other monster at `monster`, one roll); the boot rejects a card

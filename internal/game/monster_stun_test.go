@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/status"
 )
 
 // TestStunnedMonster_DoesNotAttackRealTime: a stunned monster must take no action
@@ -21,9 +22,9 @@ func TestStunnedMonster_DoesNotAttackRealTime(t *testing.T) {
 		return &monsterPkg.Monster3D{
 			ID: "m1", Name: "Test", X: 64, Y: 0,
 			State: monsterPkg.StateAttacking, StateTimer: 1,
-			StunFramesRemaining: stun,
-			AttackRadius:        64,
-			DamageMin:           20, DamageMax: 20,
+			Stun:         status.DualClock{Frames: stun},
+			AttackRadius: 64,
+			DamageMin:    20, DamageMax: 20,
 			HitPoints: 30, MaxHitPoints: 30,
 		}
 	}

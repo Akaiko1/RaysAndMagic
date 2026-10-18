@@ -134,7 +134,7 @@ func TestCharmAggressionAndReward(t *testing.T) {
 	m2 := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", cfg)
 	game.world.Monsters = []*monsterPkg.Monster3D{m2}
 	game.combat.applyPacify(m2, 120, "Charm")
-	m2.PacifiedFramesRemaining = 1
+	m2.PacifiedClock = framesClock(1)
 	gl.updateControlledMonsters()
 	if !m2.Pacified {
 		t.Fatal("TB thinking must not expire Charm")

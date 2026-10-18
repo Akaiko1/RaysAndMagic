@@ -13,6 +13,7 @@ import (
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -153,7 +154,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 	emberEgg := func(t *testing.T) *config.WeaponDefinitionConfig {
 		t.Helper()
 		def, ok := config.GetWeaponDefinition("ember_egg_mace")
-		if !ok || def == nil || def.DeathBurstDamage <= 0 {
+		if !ok || def == nil || def.DeathBurstMaxHPPct <= 0 {
 			t.Fatal("Ember Egg config missing or authors no death burst")
 		}
 		return def
@@ -167,6 +168,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 		attacker.Skills[character.SkillMace] = &character.Skill{Mastery: character.MasteryExpert}
 
 		primary := mkTestMonster("Dodger", MasteryWeaponTrueDamagePerTier)
+		primary.MaxHitPoints = 300 // the burst is a share of the corpse's max HP
 		primary.X, primary.Y = 10*ts, 10*ts
 		primary.PerfectDodge = 100
 		bystander := mkTestMonster("Bystander", 100)
@@ -178,7 +180,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 		if primary.IsAlive() {
 			t.Fatal("mastery true damage did not kill the dodging target")
 		}
-		if got, want := bystander.HitPoints, 100-weaponDef.DeathBurstDamage; got != want {
+		if got, want := bystander.HitPoints, 100-300*weaponDef.DeathBurstMaxHPPct/100; got != want {
 			t.Fatalf("Clutchburst left bystander at %d HP, want %d", got, want)
 		}
 	})
@@ -191,6 +193,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 		center := mkTestMonster("Center", 1000)
 		center.X, center.Y = 10*ts, 10*ts
 		secondary := mkTestMonster("Secondary", 10)
+		secondary.MaxHitPoints = 120
 		secondary.X, secondary.Y = 11*ts, 10*ts
 		witness := mkTestMonster("Witness", 100)
 		witness.X, witness.Y = 12.75*ts, 10*ts
@@ -205,7 +208,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 		if secondary.IsAlive() {
 			t.Fatal("weapon splash did not kill secondary target")
 		}
-		if got, want := witness.HitPoints, 100-weaponDef.DeathBurstDamage; got != want {
+		if got, want := witness.HitPoints, 100-120*weaponDef.DeathBurstMaxHPPct/100; got != want {
 			t.Fatalf("secondary Clutchburst left witness at %d HP, want %d", got, want)
 		}
 	})
@@ -299,7 +302,7 @@ func TestWeakenScalesWholeOutgoingPacketOnce(t *testing.T) {
 				t.Fatalf("weakened packet = %+v, want %+v (once, normal and true)", got, want)
 			}
 			if tc.snapshot {
-				m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining = 0, 0, 0
+				m.WeakenPct, m.Weaken.Frames, m.Weaken.Turns = 0, 0, 0
 				if after := read(); after != got {
 					t.Fatalf("in-flight packet changed after Weaken expired: %+v -> %+v", got, after)
 				}
@@ -368,17 +371,19 @@ func TestWeaponDamagePreviewIncludesAuthoredTrueDamageWithoutBearer(t *testing.T
 		t.Fatal("Broodspike definition missing")
 	}
 
+	// Without a bearer the hit is the authored base; its true share is cut
+	// from it, so the total stays the base.
+	share := def.Damage * def.TrueDamagePct / 100
 	preview := cs.calculateWeaponDamagePreview(weapon, nil)
-	if preview.AuthoredTrue != def.TrueDamage || preview.True != def.TrueDamage {
-		t.Fatalf("authored true preview = %d/%d, want %d",
-			preview.AuthoredTrue, preview.True, def.TrueDamage)
+	if share <= 0 || preview.AuthoredTrue != share || preview.True != share {
+		t.Fatalf("true share preview = %d/%d, want %d of %d",
+			preview.AuthoredTrue, preview.True, share, def.Damage)
 	}
-	if preview.Total != preview.Normal+def.TrueDamage {
-		t.Fatalf("shop total = %d, want normal %d + true %d",
-			preview.Total, preview.Normal, def.TrueDamage)
+	if preview.Normal != def.Damage-share || preview.Total != def.Damage {
+		t.Fatalf("shop normal/total = %d/%d, want %d/%d", preview.Normal, preview.Total, def.Damage-share, def.Damage)
 	}
 
-	wantLine := fmt.Sprintf("Weapon: +%d True", def.TrueDamage)
+	wantLine := fmt.Sprintf("Weapon: +%d True (%d%% of the hit)", share, def.TrueDamagePct)
 	tooltip := GetItemTooltipRows(weapon, nil, cs, true).String()
 	if !strings.Contains(tooltip, wantLine) {
 		t.Fatalf("shop tooltip omits authored true damage:\n%s", tooltip)
@@ -557,8 +562,7 @@ func TestSlowAndWeakenHoldThroughFinalTBTurn(t *testing.T) {
 	m.ApplySlow(30, 0, 1)   // exactly one TB turn left
 	m.ApplyWeaken(25, 0, 1) // exactly one TB turn left
 
-	m.TickSlowTurn() // the tick that consumes the last turn...
-	m.TickWeakenTurn()
+	m.TickDebuffs(true) // the tick that consumes the last turn...
 	if got := m.ActiveSlowPct(); got != 30 {
 		t.Fatalf("final-turn slow pct = %d, want 30 (latched)", got)
 	}
@@ -566,8 +570,7 @@ func TestSlowAndWeakenHoldThroughFinalTBTurn(t *testing.T) {
 		t.Fatalf("final-turn weakened damage = %d, want 75 (latched)", got)
 	}
 
-	m.TickSlowTurn() // next turn: expired for real
-	m.TickWeakenTurn()
+	m.TickDebuffs(true) // next turn: expired for real
 	if got := m.ActiveSlowPct(); got != 0 {
 		t.Fatalf("expired slow pct = %d, want 0", got)
 	}
@@ -587,15 +590,15 @@ func TestStunDurationGearRoundsToNearest(t *testing.T) {
 	landed := make([]string, 0, 4)
 	for rounds, want := range map[int]int{1: 1, 2: 1, 3: 2, 4: 2} {
 		member := cs.game.party.Members[0]
-		member.StunDRStacks, member.StunDRMemoryTurns, member.StunDRMemoryFrames = 0, 0, 0 // a fresh chain lands 100%
-		member.StunFramesRemaining, member.StunTurnsRemaining = 0, 0
+		member.StunDRStacks, member.StunDRMemory = 0, status.DualClock{} // a fresh chain lands 100%
+		member.Stun.Frames, member.Stun.Turns = 0, 0
 		member.Equipment = map[items.EquipSlot]items.Item{
 			items.SlotHelmet: items.CreateItemFromYAML("padded_cap"), items.SlotArmor: items.CreateItemFromYAML("padded_vest"),
 			items.SlotOffHand: items.CreateItemFromYAML("padded_greaves"), items.SlotGauntlets: items.CreateItemFromYAML("padded_gloves"),
 		}
 		cs.applyScaledCharStun(member, rounds)
-		if member.StunTurnsRemaining != want || member.StunFramesRemaining != config.RoundFrames(want, cs.game.config.GetTPS()) {
-			t.Fatalf("%d-round stun under the quilt = %d turns / %d frames, want %d rounds", rounds, member.StunTurnsRemaining, member.StunFramesRemaining, want)
+		if member.Stun.Turns != want || member.Stun.Frames != config.RoundFrames(want, cs.game.config.GetTPS()) {
+			t.Fatalf("%d-round stun under the quilt = %d turns / %d frames, want %d rounds", rounds, member.Stun.Turns, member.Stun.Frames, want)
 		}
 	}
 	for _, want := range []int{1, 1, 2, 2} {
@@ -636,9 +639,9 @@ func TestHostileStatusDurationFloorAppliesAfterCombiningSources(t *testing.T) {
 	}
 	cs.applyScaledCharStun(member, 100)
 	want := 100 + config.MinHostileStatusDurationPct
-	if frames := config.RoundFrames(want, cs.game.config.GetTPS()); member.StunFramesRemaining != frames || member.StunTurnsRemaining != want {
+	if frames := config.RoundFrames(want, cs.game.config.GetTPS()); member.Stun.Frames != frames || member.Stun.Turns != want {
 		t.Fatalf("combined -100%% duration = %d frames/%d turns, want the %d%% floor %d/%d",
-			member.StunFramesRemaining, member.StunTurnsRemaining, config.MinHostileStatusDurationPct, frames, want)
+			member.Stun.Frames, member.Stun.Turns, config.MinHostileStatusDurationPct, frames, want)
 	}
 }
 
@@ -850,8 +853,7 @@ func TestSaveLoadPreservesFinalTurnSlowAndWeakenLatches(t *testing.T) {
 	m.ID = "latched_debuff_monster"
 	m.ApplySlow(30, 0, 1)
 	m.ApplyWeaken(25, 0, 1)
-	m.TickSlowTurn()
-	m.TickWeakenTurn()
+	m.TickDebuffs(true)
 	saveWorld.Monsters = []*monsterPkg.Monster3D{m}
 
 	saveGame := newTestGame(cfg, saveWorld)
@@ -921,32 +923,35 @@ func TestBossTrapCooldownCarriesAcrossCombatModes(t *testing.T) {
 	boss.IsEngagingPlayer = true
 	g.world.Monsters = []*monsterPkg.Monster3D{boss}
 
-	g.combat.tryBossTrapVolley(boss, false)
+	g.combat.tryBossTrapVolley(boss)
 	if len(g.bossFireTraps) == 0 {
 		t.Fatal("first trap volley did not sow a field")
 	}
-	if boss.TrapVolleyCDFrames <= 0 || boss.TrapVolleyTurnCD != boss.Abilities.TrapVolley.IntervalTurns ||
-		boss.TrapVolleyCDRate <= 0 {
+	if boss.TrapVolleyCD.Frames <= 0 || boss.TrapVolleyCD.Turns != boss.Abilities.TrapVolley.IntervalTurns ||
+		boss.TrapVolleyCD.Rate <= 0 {
 		t.Fatalf("initial cooldown = %d frames/%d turns at rate %d",
-			boss.TrapVolleyCDFrames, boss.TrapVolleyTurnCD, boss.TrapVolleyCDRate)
+			boss.TrapVolleyCD.Frames, boss.TrapVolleyCD.Turns, boss.TrapVolleyCD.Rate)
 	}
 
-	for i := 0; i < boss.TrapVolleyCDRate; i++ {
-		g.combat.tryBossTrapVolley(boss, false)
+	for i := 0; i < boss.TrapVolleyCD.Rate; i++ {
+		boss.TickAbilityClocks(false)
+		g.combat.tryBossTrapVolley(boss)
 	}
-	if boss.TrapVolleyTurnCD != boss.Abilities.TrapVolley.IntervalTurns-1 {
+	if boss.TrapVolleyCD.Turns != boss.Abilities.TrapVolley.IntervalTurns-1 {
 		t.Fatalf("RT elapsed time left %d TB turns, want %d",
-			boss.TrapVolleyTurnCD, boss.Abilities.TrapVolley.IntervalTurns-1)
+			boss.TrapVolleyCD.Turns, boss.Abilities.TrapVolley.IntervalTurns-1)
 	}
 
-	g.combat.tryBossTrapVolley(boss, true)
-	if boss.TrapVolleyTurnCD != 1 {
-		t.Fatalf("first TB pass after switch left %d turns, want 1", boss.TrapVolleyTurnCD)
+	boss.TickAbilityClocks(true)
+	g.combat.tryBossTrapVolley(boss)
+	if boss.TrapVolleyCD.Turns != 1 {
+		t.Fatalf("first TB pass after switch left %d turns, want 1", boss.TrapVolleyCD.Turns)
 	}
-	g.combat.tryBossTrapVolley(boss, true)
-	if boss.TrapVolleyTurnCD != boss.Abilities.TrapVolley.IntervalTurns {
+	boss.TickAbilityClocks(true)
+	g.combat.tryBossTrapVolley(boss)
+	if boss.TrapVolleyCD.Turns != boss.Abilities.TrapVolley.IntervalTurns {
 		t.Fatalf("due TB pass did not re-arm cooldown: got %d, want %d",
-			boss.TrapVolleyTurnCD, boss.Abilities.TrapVolley.IntervalTurns)
+			boss.TrapVolleyCD.Turns, boss.Abilities.TrapVolley.IntervalTurns)
 	}
 }
 
@@ -976,8 +981,8 @@ func TestSaveLoadRestoresBossTrapStateWithoutQuestManager(t *testing.T) {
 	if restored == nil {
 		t.Fatal("saved Brood Mother was not restored")
 	}
-	if restored.TrapVolleyCDRate != boss.TrapVolleyCDRate {
+	if restored.TrapVolleyCD.Rate != boss.TrapVolleyCD.Rate {
 		t.Fatalf("restored trap cooldown rate = %d, want %d",
-			restored.TrapVolleyCDRate, boss.TrapVolleyCDRate)
+			restored.TrapVolleyCD.Rate, boss.TrapVolleyCD.Rate)
 	}
 }

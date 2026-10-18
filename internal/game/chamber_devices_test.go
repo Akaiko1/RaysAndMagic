@@ -37,11 +37,11 @@ func TestChamberDevicesPlayable(t *testing.T) {
 					tick := func(seconds int) {
 						if tb {
 							for i := 0; i < seconds; i += 3 {
-								g.tickEnvironment(3, true)
+								tickEnvironmentFor(g, 3, true)
 							}
 						} else {
 							for range seconds {
-								g.tickEnvironment(1, false)
+								tickEnvironmentFor(g, 1, false)
 							}
 						}
 					}
@@ -196,7 +196,7 @@ func TestChamberDevicesPlayable(t *testing.T) {
 					// Old saves can contain removed effect/control keys. They must remain
 					// harmless while current controls and safe return routes survive reload.
 					v.Controls["legacy_removed_control"] = true
-					v.effectState("legacy_removed_effect").Warning = 1
+					v.effectState("legacy_removed_effect").Warning = roundClock()
 					snapshot := g.buildSave(wm)
 					if err := g.applySave(wm, &snapshot); err != nil {
 						t.Fatal(err)

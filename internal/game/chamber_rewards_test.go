@@ -133,7 +133,7 @@ func TestChamberCrumblingDirectHitContract(t *testing.T) {
 			}
 			m.ArmorClass = 101
 			m.ArmorShredPct = 25
-			m.ArmorShredFramesRemaining = 600
+			m.ArmorShred.Frames = 600
 			if m.EffectiveArmorClass() >= 51 {
 				t.Fatal("erosion excluded ordinary armor debuffs")
 			}
@@ -347,7 +347,7 @@ func TestChamberAreaRidersHurtLikeASplash(t *testing.T) {
 				m.ID, m.X, m.Y = kind, primary.X+float64(i+1)*tile/2, primary.Y
 				switch kind {
 				case "bound ally":
-					m.Bound, m.BoundFramesRemaining = true, 1000
+					m.Bound, m.BoundClock = true, framesClock(1000)
 				case "pure summon":
 					m.SummonedBy = spellSummonOwnerPrefix + "summon_wolf"
 				case "warded":
@@ -622,7 +622,7 @@ func TestChamberReturningGaleLegsShareHitRules(t *testing.T) {
 				case "binding":
 					ch.Skills[character.SkillDarkElfBinding] = &character.Skill{Mastery: character.MasteryNovice}
 				default:
-					m.Pacified, m.PacifiedFramesRemaining, m.PerfectDodge = true, 1000, 100
+					m.Pacified, m.PacifiedClock, m.PerfectDodge = true, framesClock(1000), 100
 				}
 				before := m.HitPoints
 				resolveArrowHit(g, index, m)
@@ -690,7 +690,7 @@ func TestChamberRetortPaceCatalysisAndOwnership(t *testing.T) {
 				m.ArmorClass = 0
 				g.combat.detonateFlask(&shot, m.X, m.Y)
 				mark := m.Relics.Catalysis[shot.ActorID]
-				if mark.Percent != 50 || mark.Frames != 6*g.config.GetTPS() {
+				if mark.Percent != 50 || mark.Clock.Frames != 6*g.config.GetTPS() {
 					t.Fatal("missing owner mark")
 				}
 				packet := g.combat.newPartyMonsterDamagePacket(100, 0, "fire", 0, false)
@@ -844,16 +844,16 @@ func TestChamberRewardStateSaveRestores(t *testing.T) {
 	m := monster.NewMonster3DFromConfig(192, 192, "solstice_talura", cfg)
 	baseArmor := m.ArmorClass
 	actor := relicActorID(g.party.Members[0])
-	m.Relics = monster.RelicState{CrumbleCapPct: 50, CrumbleArmor: 30, Catalysis: map[uint64]monster.CatalysisMark{actor: {Percent: 50, Frames: 500}}}
+	m.Relics = monster.RelicState{CrumbleCapPct: 50, CrumbleArmor: 30, Catalysis: map[uint64]monster.CatalysisMark{actor: {Percent: 50, Clock: framesClock(500)}}}
 	w.Monsters = []*monster.Monster3D{m}
 	staff := items.CreateWeaponFromYAML("solstice_sun_crucible")
 	staff.Signature = items.WeaponSignatureState{Charges: 1, MoveDistance: 1.25}
 	// A device's recharge survives the save; the Retort has none, so an old
 	// save's clock on it is dropped.
 	device := items.CreateItemFromYAML("translocator")
-	device.DeviceCooldownFrames = 400
+	device.DeviceCooldown = items.RoundClock(framesClock(400))
 	retort := items.CreateItemFromYAML("solstice_everflow_retort")
-	retort.DeviceCooldownFrames = 400
+	retort.DeviceCooldown = items.RoundClock(framesClock(400))
 	g.party.Members[0].Equipment[items.SlotMainHand] = staff
 	g.party.Members[0].Inventory = []items.Item{device, retort}
 	wm := world.NewWorldManager(cfg)
@@ -872,11 +872,11 @@ func TestChamberRewardStateSaveRestores(t *testing.T) {
 	wm.LoadedMaps["forest"] = loaded.world
 	loaded.restoreSavedMonsters(wm, &saved)
 	ch := restoreCharacterSave(saved.Party.Members[0])
-	if ch.ActorID != actor || ch.Inventory[0].DeviceCooldownFrames != 400 || ch.Equipment[items.SlotMainHand].Signature != staff.Signature {
+	if ch.ActorID != actor || ch.Inventory[0].DeviceCooldown.Frames != 400 || ch.Equipment[items.SlotMainHand].Signature != staff.Signature {
 		t.Fatal("hero, item or charge identity lost on load")
 	}
-	if ch.Inventory[1].DeviceCooldownFrames != 0 {
-		t.Fatalf("the Retort kept a recharge (%d frames) it no longer has", ch.Inventory[1].DeviceCooldownFrames)
+	if ch.Inventory[1].DeviceCooldown.Frames != 0 {
+		t.Fatalf("the Retort kept a recharge (%d frames) it no longer has", ch.Inventory[1].DeviceCooldown.Frames)
 	}
 	if len(loaded.world.Monsters) != 1 || !reflect.DeepEqual(loaded.world.Monsters[0].Relics, m.Relics) {
 		t.Fatalf("monster relic state lost: %+v want %+v", loaded.world.Monsters[0].Relics, m.Relics)
@@ -884,8 +884,10 @@ func TestChamberRewardStateSaveRestores(t *testing.T) {
 	if loaded.world.Monsters[0].EffectiveArmorClass() != baseArmor-30 {
 		t.Fatal("restored armor ignored erosion")
 	}
-	loaded.world.Monsters[0].Relics.Tick(500)
-	if len(loaded.world.Monsters[0].Relics.Catalysis) != 0 || m.Relics.Catalysis[actor].Frames != 500 {
+	for range 500 {
+		loaded.world.Monsters[0].Relics.Tick(false)
+	}
+	if len(loaded.world.Monsters[0].Relics.Catalysis) != 0 || m.Relics.Catalysis[actor].Clock.Frames != 500 {
 		t.Fatal("snapshot aliases live mark state")
 	}
 	bad := staff

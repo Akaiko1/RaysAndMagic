@@ -332,13 +332,13 @@ func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 			game.currentTurn = 0
 			switch state {
 			case "last-cooldown":
-				puma.PounceCDTurns = 1
+				puma.PounceCD.Turns = 1
 			case "cooldown":
-				puma.PounceCDTurns = 2
+				puma.PounceCD.Turns = 2
 			case "root":
-				puma.RootTurnsRemaining = 2
+				puma.Root.Turns = 2
 			case "stun":
-				puma.StunTurnsRemaining = 2
+				puma.Stun.Turns = 2
 			case "wall":
 				game.world.Tiles[10][12] = world.TileWall
 			case "no-landing":
@@ -362,7 +362,7 @@ func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 				if dx > 1 || dy > 1 || dx+dy == 0 {
 					t.Fatalf("invalid pounce landing %d,%d", tx, ty)
 				}
-				if puma.PounceCDTurns != TurnBasedPounceCooldownTurns {
+				if puma.PounceCD.Turns != TurnBasedPounceCooldownTurns {
 					t.Fatal("pounce did not spend cooldown")
 				}
 			}
@@ -434,14 +434,14 @@ func TestDarkness_StunsMonstersInRadiusOnly(t *testing.T) {
 		t.Fatalf("darkness cast failed")
 	}
 
-	if near.StunFramesRemaining <= 0 || near.StunTurnsRemaining <= 0 {
-		t.Errorf("monster inside the radius should be stunned (RT %d, TB %d)", near.StunFramesRemaining, near.StunTurnsRemaining)
+	if near.Stun.Frames <= 0 || near.Stun.Turns <= 0 {
+		t.Errorf("monster inside the radius should be stunned (RT %d, TB %d)", near.Stun.Frames, near.Stun.Turns)
 	}
-	if edge.StunFramesRemaining <= 0 {
-		t.Errorf("monster at exactly the radius (%.1f tiles) should be stunned, got %d", r, edge.StunFramesRemaining)
+	if edge.Stun.Frames <= 0 {
+		t.Errorf("monster at exactly the radius (%.1f tiles) should be stunned, got %d", r, edge.Stun.Frames)
 	}
-	if far.StunFramesRemaining != 0 || far.StunTurnsRemaining != 0 {
-		t.Errorf("monster outside the radius must NOT be stunned, got RT %d TB %d", far.StunFramesRemaining, far.StunTurnsRemaining)
+	if far.Stun.Frames != 0 || far.Stun.Turns != 0 {
+		t.Errorf("monster outside the radius must NOT be stunned, got RT %d TB %d", far.Stun.Frames, far.Stun.Turns)
 	}
 	if partyHPSum(game) != hp0 {
 		t.Errorf("darkness should deal no damage to the party")
@@ -548,8 +548,8 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 		t.Errorf("100 incoming with %d%% resist should be %d, got %d", cast.resistPct, want, got)
 	}
 	buff, ok := game.combatBuffByID("day_of_the_gods")
-	if want := cast.def.DurationByMastery[0] * game.config.GetTPS(); !ok || buff.Frames != want {
-		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Frames, ok, want, cast.def.DurationByMastery[0])
+	if want := cast.def.DurationByMastery[0] * game.config.GetTPS(); !ok || buff.Clock.Frames != want {
+		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Clock.Frames, ok, want, cast.def.DurationByMastery[0])
 	}
 }
 
@@ -604,8 +604,8 @@ func TestBindUndead_BindsUndeadOnly(t *testing.T) {
 	if !skel.Bound {
 		t.Errorf("undead skeleton should be bound")
 	}
-	if skel.BoundFramesRemaining != 300*cfg.GetTPS() {
-		t.Errorf("bind frames: got %d, want %d", skel.BoundFramesRemaining, 300*cfg.GetTPS())
+	if skel.BoundClock.Frames != 300*cfg.GetTPS() {
+		t.Errorf("bind frames: got %d, want %d", skel.BoundClock.Frames, 300*cfg.GetTPS())
 	}
 	if gob.Bound {
 		t.Errorf("living goblin must NOT be bindable by bind_undead")

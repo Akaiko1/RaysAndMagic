@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -338,12 +339,12 @@ func TestCaravanTripRewardsAndCapacity(t *testing.T) {
 	if m == nil {
 		t.Fatal("no caravan")
 	}
-	g.ecology.StopFrames = 0
+	g.ecology.Stop = status.DualClock{}
 	for i := 0; i < 4; i++ {
 		r := g.caravanRoute()
 		p := r.Points[g.ecology.Checkpoint]
 		m.X, m.Y = (float64(p.X)+.5)*tile, (float64(p.Y)+.5)*tile
-		g.ecology.StopFrames = 0
+		g.ecology.Stop = status.DualClock{}
 		g.updateEcology()
 	}
 	total := 0
@@ -780,5 +781,17 @@ func TestCaravanOffscreenProjectilesAdvanceBetweenTurns(t *testing.T) {
 	}
 	if v.gameLoop.hasActiveProjectiles() {
 		t.Fatal("off-screen TB arrow never resolved")
+	}
+}
+
+// An old save's caravan stop frames come back as the stop clock.
+func TestCaravanStopLegacySave(t *testing.T) {
+	var s EcologyState
+	if err := json.Unmarshal([]byte(`{"stop_frames":900}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	s.migrateLegacy(config.DefaultTPS)
+	if s.Stop != status.FromFrames(900, config.DefaultTPS) || s.LegacyStopFrames != 0 {
+		t.Fatalf("legacy stop: %+v", s)
 	}
 }

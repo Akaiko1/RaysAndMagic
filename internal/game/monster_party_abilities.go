@@ -8,33 +8,20 @@ import (
 	"ugataima/internal/config"
 
 	"ugataima/internal/monster"
-	"ugataima/internal/status"
 )
 
-// PartyRootState shares the rated status clock with monster roots and stuns.
-// Root restricts voluntary translation only; turning and combat remain legal.
-type PartyRootState struct {
-	Frames int `json:"frames,omitempty"`
-	Turns  int `json:"turns,omitempty"`
-	Rate   int `json:"rate,omitempty"`
-}
-
-func (g *MMGame) partyRooted() bool { return g.partyRoot.Frames > 0 || g.partyRoot.Turns > 0 }
+// A party root restricts voluntary translation only; turning and combat
+// remain legal.
+func (g *MMGame) partyRooted() bool { return g.partyRoot.Active() }
 
 // rootParty roots the whole party for whole rounds (never shortening a longer
 // root already running).
 func (g *MMGame) rootParty(rounds int) {
-	r := &g.partyRoot
-	status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, config.RoundFrames(rounds, g.config.GetTPS()), rounds)
+	g.partyRoot.Arm(rounds*config.CombatRoundSeconds, g.config.GetTPS())
 }
 func (g *MMGame) tickPartyRoot(turn bool) {
 	g.tickPartyHinder(turn)
-	r := &g.partyRoot
-	if turn {
-		status.TickTurnRated(&r.Turns, &r.Frames, &r.Rate)
-	} else {
-		status.TickFrameRated(&r.Frames, &r.Turns, &r.Rate)
-	}
+	g.partyRoot.Tick(turn)
 }
 
 // indexAuthoredBands visits the roster once per simulation pass. Peers are

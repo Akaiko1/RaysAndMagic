@@ -297,7 +297,7 @@ func TestImpenetrableDefenseAndSacrificeUsePostMitigationDamage(t *testing.T) {
 	if got.Normal != 17 || got.True != 20 {
 		t.Fatalf("Impenetrable Defense result = %+v, want normal 17 true 20", got)
 	}
-	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Frames: 1, ResistPct: 50, InReduce: 5}}
+	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Clock: framesClock(1), ResistPct: 50, InReduce: 5}}
 	got = cs.mitigateCharacterDamageParts(damagecalc.Parts{Normal: 100, True: 20}, "physical", knight, false)
 	if got.Normal != 42 || got.True != 10 {
 		t.Fatalf("mitigation order result = %+v, want resist -> personal -3 -> buff -5 and resisted true 10", got)

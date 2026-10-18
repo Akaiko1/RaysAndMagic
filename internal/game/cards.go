@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/stash"
+	"ugataima/internal/status"
 )
 
 // splitPhysToFire divides physical damage into a remaining-physical part and a
@@ -528,50 +530,50 @@ func (g *MMGame) cardSummonOwnedSources() []cardSummonSource {
 	return sources
 }
 
-func (g *MMGame) cardSummonCooldown(owner string) int {
-	if owner == "" || g.cardSummonCooldowns == nil {
-		return 0
+// cardSummonCooldown is the clock silencing owner's card: its own, or a
+// longer migrated shared one.
+func (g *MMGame) cardSummonCooldown(owner string) status.DualClock {
+	if owner == "" {
+		return status.DualClock{}
 	}
-	frames := g.cardSummonCooldowns[owner]
+	clock := g.cardSummonCooldowns[owner]
 	// A migrated shared cooldown must keep blocking cards that were inactive at
 	// load time. It expires normally and never appears in newly-created state.
-	if legacy := g.cardSummonCooldowns[cardSummonOwner]; legacy > frames {
-		frames = legacy
+	if legacy := g.cardSummonCooldowns[cardSummonOwner]; legacy.Frames > clock.Frames {
+		clock = legacy
 	}
-	return frames
+	return clock
 }
 
-func (g *MMGame) armCardSummonCooldown(owner string, frames int) {
-	if owner == "" || frames <= 0 {
+func (g *MMGame) armCardSummonCooldown(owner string, seconds int) {
+	if owner == "" || seconds <= 0 {
+		return
+	}
+	var clock status.DualClock
+	clock.Arm(seconds, g.config.GetTPS())
+	g.setCardSummonCooldown(owner, clock)
+}
+
+func (g *MMGame) setCardSummonCooldown(owner string, clock status.DualClock) {
+	if !clock.Active() {
+		delete(g.cardSummonCooldowns, owner)
 		return
 	}
 	if g.cardSummonCooldowns == nil {
-		g.cardSummonCooldowns = make(map[string]int)
+		g.cardSummonCooldowns = make(map[string]status.DualClock)
 	}
-	g.cardSummonCooldowns[owner] = frames
+	g.cardSummonCooldowns[owner] = clock
 }
 
-func (g *MMGame) tickCardSummonCooldowns() {
-	for owner, frames := range g.cardSummonCooldowns {
-		if frames <= 1 {
-			delete(g.cardSummonCooldowns, owner)
-			continue
-		}
-		g.cardSummonCooldowns[owner] = frames - 1
-	}
+func (g *MMGame) tickCardSummonCooldowns(turn bool) {
+	status.TickMap(g.cardSummonCooldowns, turn, status.Self)
 }
 
-func (g *MMGame) snapshotCardSummonCooldowns() map[string]int {
+func (g *MMGame) snapshotCardSummonCooldowns() map[string]status.DualClock {
 	if len(g.cardSummonCooldowns) == 0 {
 		return nil
 	}
-	out := make(map[string]int, len(g.cardSummonCooldowns))
-	for owner, frames := range g.cardSummonCooldowns {
-		if frames > 0 {
-			out[owner] = frames
-		}
-	}
-	return out
+	return maps.Clone(g.cardSummonCooldowns)
 }
 
 // restoreCardSummonState restores per-card cooldowns and migrates the old
@@ -579,19 +581,27 @@ func (g *MMGame) snapshotCardSummonCooldowns() map[string]int {
 // physical card that summons its monster type, including inactive bag/stash
 // cards. The legacy shared cooldown remains shared until it expires, so cards
 // removed during loading cannot receive a free immediate proc when re-slotted.
-func (g *MMGame) restoreCardSummonState(saved map[string]int, legacyCooldown int) {
-	g.cardSummonCooldowns = make(map[string]int)
+func (g *MMGame) restoreCardSummonState(saved map[string]status.DualClock, legacyFrames map[string]int, legacyCooldown int) {
+	g.cardSummonCooldowns = nil
 	sources := g.cardSummonOwnedSources()
-	for owner, frames := range saved {
+	tps := g.config.GetTPS()
+	saved = maps.Clone(saved)
+	for owner, frames := range legacyFrames {
+		if saved == nil {
+			saved = make(map[string]status.DualClock)
+		}
+		saved[owner] = status.FromFrames(frames, tps)
+	}
+	for owner, clock := range saved {
 		// Cooldowns follow the physical card through inventory/removal, so keep
 		// valid inactive-card entries too. A migrated shared entry is also valid
 		// until it expires, even if no summon card was active during the load.
-		if (owner == cardSummonOwner || strings.HasPrefix(owner, cardSummonOwnerPrefix)) && frames > 0 {
-			g.cardSummonCooldowns[owner] = frames
+		if owner == cardSummonOwner || strings.HasPrefix(owner, cardSummonOwnerPrefix) {
+			g.setCardSummonCooldown(owner, clock)
 		}
 	}
 	if len(saved) == 0 && legacyCooldown > 0 {
-		g.cardSummonCooldowns[cardSummonOwner] = legacyCooldown
+		g.setCardSummonCooldown(cardSummonOwner, status.FromFrames(legacyCooldown, tps))
 		g.loadNeedsResave = true
 	}
 

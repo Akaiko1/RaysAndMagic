@@ -74,7 +74,7 @@ func TestNonHostileBehaviorClearsStaleCombatInBothModes(t *testing.T) {
 			name: "pacified",
 			apply: func(m *monsterPkg.Monster3D, tps int) {
 				m.Pacified = true
-				m.PacifiedFramesRemaining = turnBasedPeriodicEffectFrames(tps) + 1
+				m.PacifiedClock = framesClock(turnBasedPeriodicEffectFrames(tps) + 1)
 			},
 		},
 		{
@@ -211,9 +211,9 @@ func TestPounceRequiresActivePartyTargetAndLineOfSight(t *testing.T) {
 			if got := partyHPSum(game); got != hpBefore {
 				t.Fatalf("%s pouncer leapt through a wall: HP %d -> %d", mode, hpBefore, got)
 			}
-			if puma.PounceCDFrames != 0 || puma.PounceCDTurns != 0 {
+			if puma.PounceCD.Frames != 0 || puma.PounceCD.Turns != 0 {
 				t.Fatalf("%s blocked pounce armed cooldowns: frames=%d turns=%d",
-					mode, puma.PounceCDFrames, puma.PounceCDTurns)
+					mode, puma.PounceCD.Frames, puma.PounceCD.Turns)
 			}
 		})
 	}

@@ -13,8 +13,8 @@ import (
 )
 
 func TestControlledMonsterStatusExpiry(t *testing.T) {
-	bound := &monsterPkg.Monster3D{Name: "Skeleton", HitPoints: 10, Bound: true, BoundFramesRemaining: 2}
-	charmed := &monsterPkg.Monster3D{Name: "Wolf", HitPoints: 10, Pacified: true, PacifiedFramesRemaining: 2}
+	bound := &monsterPkg.Monster3D{Name: "Skeleton", HitPoints: 10, Bound: true, BoundClock: framesClock(2)}
+	charmed := &monsterPkg.Monster3D{Name: "Wolf", HitPoints: 10, Pacified: true, PacifiedClock: framesClock(2)}
 	gl := &GameLoop{game: &MMGame{world: &world.World3D{Monsters: []*monsterPkg.Monster3D{bound, charmed}}}}
 
 	gl.updateControlledMonsters()
@@ -23,9 +23,9 @@ func TestControlledMonsterStatusExpiry(t *testing.T) {
 	}
 
 	gl.updateControlledMonsters()
-	if bound.Bound || bound.BoundFramesRemaining != 0 || !bound.WasAttacked || !bound.IsEngagingPlayer {
+	if bound.Bound || bound.BoundClock.Frames != 0 || !bound.WasAttacked || !bound.IsEngagingPlayer {
 		t.Fatalf("bind expiry must restore immediate hostile behavior: bound=%v left=%d hit=%v engaging=%v",
-			bound.Bound, bound.BoundFramesRemaining, bound.WasAttacked, bound.IsEngagingPlayer)
+			bound.Bound, bound.BoundClock.Frames, bound.WasAttacked, bound.IsEngagingPlayer)
 	}
 	if charmed.Pacified {
 		t.Fatal("charm must wear off on expiry")
@@ -38,7 +38,7 @@ func TestControlledMonsterStatusExpiry(t *testing.T) {
 	}
 
 	// A zero-frame control is permanent (used by card summons) in both modes.
-	forever := &monsterPkg.Monster3D{Name: "Lich", HitPoints: 10, Bound: true, BoundFramesRemaining: 0}
+	forever := &monsterPkg.Monster3D{Name: "Lich", HitPoints: 10, Bound: true, BoundClock: framesClock(0)}
 	gl.game.world.Monsters = []*monsterPkg.Monster3D{forever}
 	gl.updateControlledMonsters()
 	if !forever.Bound {
@@ -52,18 +52,18 @@ func TestControlEffectsRemainMutuallyExclusive(t *testing.T) {
 	cardAlly := monsterPkg.NewMonster3DFromConfig(0, 0, "masked_huntress", game.config)
 	markCardAlly(cardAlly)
 	game.combat.applyPacify(cardAlly, 60, "Charm")
-	if !cardAlly.Bound || cardAlly.Pacified || cardAlly.PacifiedFramesRemaining != 0 {
+	if !cardAlly.Bound || cardAlly.Pacified || cardAlly.PacifiedClock.Frames != 0 {
 		t.Fatalf("Charm must not replace card-ally Bind: bound=%v pacified=%v frames=%d",
-			cardAlly.Bound, cardAlly.Pacified, cardAlly.PacifiedFramesRemaining)
+			cardAlly.Bound, cardAlly.Pacified, cardAlly.PacifiedClock.Frames)
 	}
 
 	undead := monsterPkg.NewMonster3DFromConfig(0, 0, "skeleton", game.config)
 	undead.Pacified = true // malformed old/runtime state: Bind is authoritative
-	undead.PacifiedFramesRemaining = 42
+	undead.PacifiedClock = framesClock(42)
 	game.combat.applyBindUndead(undead, 60, "Bind Undead")
-	if !undead.Bound || undead.Pacified || undead.PacifiedFramesRemaining != 0 {
+	if !undead.Bound || undead.Pacified || undead.PacifiedClock.Frames != 0 {
 		t.Fatalf("Bind must normalize conflicting Charm: bound=%v pacified=%v frames=%d",
-			undead.Bound, undead.Pacified, undead.PacifiedFramesRemaining)
+			undead.Bound, undead.Pacified, undead.PacifiedClock.Frames)
 	}
 
 	// The behavior policy is defensive too: a malformed old/runtime state must
@@ -73,7 +73,7 @@ func TestControlEffectsRemainMutuallyExclusive(t *testing.T) {
 	enemy := monsterPkg.NewMonster3DFromConfig(4*tile, 0, "goblin", game.config)
 	undead.X, undead.Y = 0, 0
 	undead.Pacified = true
-	undead.PacifiedFramesRemaining = 42
+	undead.PacifiedClock = framesClock(42)
 	game.world.Monsters = []*monsterPkg.Monster3D{undead, enemy}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	game.refreshMonsterAIState()

@@ -29,7 +29,7 @@ const (
 	disintegrateNone disintegrateOutcome = iota
 	disintegrateKill
 	// disintegrateSear: a boss is never erased; the proc adds
-	// config.DisintegrateBossTrueDamage true damage to the hit.
+	// disintegrateSearDamage true damage to the hit.
 	disintegrateSear
 )
 
@@ -43,12 +43,19 @@ func rollMonsterDisintegrate(target *monsterPkg.Monster3D, chance float64) disin
 	return disintegrateKill
 }
 
+// disintegrateSearDamage is the true damage a boss takes in place of the
+// disintegrate kill: config.DisintegrateBossMaxHPPct of its max HP.
+func disintegrateSearDamage(boss *monsterPkg.Monster3D) int {
+	return max(1, boss.MaxHitPoints*config.DisintegrateBossMaxHPPct/100)
+}
+
 // withDisintegrateSear adds the boss proc's true damage to both packets of
 // one victim's attack, in the attack's own school. Packets are cloned: the
 // source attack is shared with every AoE victim.
-func withDisintegrateSear(attack partyMonsterAttack) partyMonsterAttack {
-	attack.Packet = attack.Packet.withTrue(config.DisintegrateBossTrueDamage)
-	attack.CriticalPacket = attack.CriticalPacket.withTrue(config.DisintegrateBossTrueDamage)
+func withDisintegrateSear(attack partyMonsterAttack, boss *monsterPkg.Monster3D) partyMonsterAttack {
+	sear := disintegrateSearDamage(boss)
+	attack.Packet = attack.Packet.withTrue(sear)
+	attack.CriticalPacket = attack.CriticalPacket.withTrue(sear)
 	return attack
 }
 

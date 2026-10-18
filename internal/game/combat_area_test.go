@@ -24,7 +24,7 @@ func TestPartyStunNovaSparesSealedBosses(t *testing.T) {
 	}
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{enemy, dormant, warded}
 	cs.tryCastAoeStunBy("stun", def, cs.game.party.Members[0])
-	stunned := func(m *monsterPkg.Monster3D) bool { return m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0 }
+	stunned := func(m *monsterPkg.Monster3D) bool { return m.Stun.Active() }
 	if !stunned(enemy) || stunned(dormant) || stunned(warded) {
 		t.Fatalf("stunned: enemy=%v dormant=%v warded=%v; want only the enemy", stunned(enemy), stunned(dormant), stunned(warded))
 	}

@@ -147,7 +147,7 @@ func TestDragonCliffsChasmLecternWithFly(t *testing.T) {
 				}
 			}
 			g.flyActive = true
-			g.flyDuration = 600
+			g.flyClock = framesClock(600)
 			g.world.SetTerrainPassageActive(true)
 			if !g.world.IsTileBlockingTerrainAt(x, y) || g.world.IsTileBlocking(x, y) {
 				t.Fatal("chasm must block ordinary walking but allow Fly")

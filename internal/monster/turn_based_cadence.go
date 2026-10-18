@@ -1,9 +1,8 @@
 package monster
 
 import (
-	"math"
-
 	"ugataima/internal/config"
+	"ugataima/internal/status"
 )
 
 // Turn-based cadence: swings per attack action and steps per movement action.
@@ -64,6 +63,20 @@ func (m *Monster3D) TurnBasedAttackRate() float64 {
 // action delivers and banks the remainder for the next one.
 func (m *Monster3D) TakeTurnBasedSwings() int {
 	return nextTurnBasedCount(&m.TurnBasedSwingCarry, m.TurnBasedAttackRate())
+}
+
+// PeekTurnBasedSwings previews the next attack action's swings without
+// spending them.
+func (m *Monster3D) PeekTurnBasedSwings() int {
+	carry := m.TurnBasedSwingCarry
+	return nextTurnBasedCount(&carry, m.TurnBasedAttackRate())
+}
+
+// LoseTurnBasedAttackTime takes seconds of attacking out of the swing bank,
+// at the same rate real time loses them (a delayed attack cooldown): seconds
+// of a round's swings. A full round's loss leaves an action with no swing.
+func (m *Monster3D) LoseTurnBasedAttackTime(seconds int) {
+	m.TurnBasedSwingCarry -= m.TurnBasedAttackRate() * float64(seconds) / float64(config.CombatRoundSeconds)
 }
 
 // TurnBasedStepRate is the average steps per turn-based movement action for a
@@ -148,12 +161,8 @@ func TurnBasedSequence(rate float64, n int) []int {
 	return counts
 }
 
-// nextTurnBasedCount is the one accumulator step for swings and steps. The
-// carry stays within [-0.5, 0.5): a positive carry is a fraction already
-// earned, a negative one a fraction already paid in advance.
+// nextTurnBasedCount is the accumulator step for swings and steps: the shared
+// accumulator rounded to the nearest whole count.
 func nextTurnBasedCount(carry *float64, rate float64) int {
-	total := *carry + rate
-	count := int(math.Floor(total + 0.5))
-	*carry = total - float64(count)
-	return count
+	return status.AccrueNearest(carry, rate)
 }

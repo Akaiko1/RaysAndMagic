@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -263,7 +264,7 @@ func TestAdvancedMagicWardSharesCastBudget(t *testing.T) {
 func TestAdvancedPreservationSharedPoolNeverHeals(t *testing.T) {
 	for tier := 0; tier < 4; tier++ {
 		t.Run(fmt.Sprint(tier), func(t *testing.T) {
-			g := advancedSupportGame(t, false)
+			g := advancedSupportGame(t, tier%2 == 1) // RT and TB alike
 			for _, c := range g.party.Members {
 				c.HitPoints = 13
 			}
@@ -286,6 +287,10 @@ func TestAdvancedPreservationSharedPoolNeverHeals(t *testing.T) {
 
 				if c.HitPoints != 1 || c.HasCondition(character.ConditionUnconscious) {
 					t.Fatalf("shared save %d left HP=%d, conditions=%v", i, c.HitPoints, c.Conditions)
+				}
+				// The last charge ends the buff at once, off the status rail too.
+				if spent := i == d.Mechanic.Charges(tier)-1; spent && (len(g.combatBuffs) != 0 || g.buffStatuses["preservation"] != nil) {
+					t.Fatalf("spent Preservation stayed: %+v", g.combatBuffs)
 				}
 				g.combatBuffs = restoreCombatBuffs(buildCombatBuffSaves(g.combatBuffs))
 			}
@@ -376,7 +381,7 @@ func TestAdvancedCleanseAutocastTransaction(t *testing.T) {
 					switch blocked {
 					case "stunned":
 						c.AddCondition(character.ConditionStunned)
-						c.StunFramesRemaining = 100
+						c.Stun.Frames = 100
 					case "monster_phase":
 						if !tb {
 							t.Skip("RT has no monster phase")
@@ -396,7 +401,7 @@ func TestAdvancedCleanseAutocastTransaction(t *testing.T) {
 					case "overlay":
 						g.menuOpen = true
 					case "guard":
-						c.AutocastFrames = 100
+						c.AutocastCD = framesClock(100)
 					}
 					ap, sp, otherAP, recovery := c.ActionsRemaining, c.SpellPoints, patient.ActionsRemaining, c.RTCooldown
 					(&GameLoop{game: g}).updateAutomaticTechniques()
@@ -406,7 +411,7 @@ func TestAdvancedCleanseAutocastTransaction(t *testing.T) {
 						}
 						return
 					}
-					if patient.Purifiable() || c.SpellPoints != sp-d.SpellPointsCost || c.AutocastFrames != g.config.GetTPS()*9 {
+					if patient.Purifiable() || c.SpellPoints != sp-d.SpellPointsCost || c.AutocastCD.Frames != g.config.GetTPS()*9 {
 						t.Fatal("automatic spell cleanse did not commit exactly once")
 					}
 					if c.ActionsRemaining != ap || c.RTCooldown != recovery || g.selectedChar != 1 || patient.ActionsRemaining != otherAP {
@@ -495,8 +500,8 @@ func TestAdvancedPersonalTimersSurviveModeSwitchAndSave(t *testing.T) {
 		for _, e := range c.SpellState.Effects {
 			if e.SpellID == string(d.ID) {
 				found = true
-				if e.Frames != want {
-					t.Fatalf("remaining=%d, want %d", e.Frames, want)
+				if e.Clock.Frames != want {
+					t.Fatalf("remaining=%d, want %d", e.Clock.Frames, want)
 				}
 			}
 		}
@@ -504,7 +509,7 @@ func TestAdvancedPersonalTimersSurviveModeSwitchAndSave(t *testing.T) {
 			t.Fatalf("timed effect presence=%v for budget %d", found, want)
 		}
 	}
-	g.tickRareClassClocks(1)
+	passFrames(g, 1)
 	remaining--
 	assertRemaining(remaining)
 	g.turnBasedMode = true
@@ -517,9 +522,9 @@ func TestAdvancedPersonalTimersSurviveModeSwitchAndSave(t *testing.T) {
 	g.party.Members[1], c = restored, restored
 	assertRemaining(remaining)
 	g.turnBasedMode = false
-	g.tickRareClassClocks(remaining - 1)
+	passFrames(g, remaining-1)
 	assertRemaining(1)
-	g.tickRareClassClocks(1)
+	passFrames(g, 1)
 	assertRemaining(0)
 	if len(c.SpellState.Effects) != 1 || c.SpellState.Effects[0].SpellID != "fire_aura" {
 		t.Fatal("elapsed time also expired an attack-charge effect")
@@ -549,11 +554,11 @@ func TestAutocastDuplicateCasters(t *testing.T) {
 				sp1, sp2 := first.SpellPoints, second.SpellPoints
 				gl.updateAutomaticTechniques()
 				paid := first.SpellPoints
-				if paid >= sp1 || first.AutocastFrames != g.config.AutocastIntervalRounds*g.combatRoundFrames() {
+				if paid >= sp1 || first.AutocastCD.Frames != g.config.AutocastIntervalRounds*g.combatRoundFrames() {
 					t.Fatal("first eligible caster did not commit with the authored autocast interval")
 				}
 				gl.updateAutomaticTechniques()
-				if first.SpellPoints != paid || second.SpellPoints != sp2 || second.AutocastFrames != 0 {
+				if first.SpellPoints != paid || second.SpellPoints != sp2 || second.AutocastCD.Frames != 0 {
 					t.Fatal("duplicate autocast spent mana or locked the standby caster")
 				}
 				if first.ActionsRemaining != 2 || second.ActionsRemaining != 2 || first.RTCooldown != 0 || second.RTCooldown != 0 {
@@ -577,7 +582,7 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 			patient.AddCondition(character.ConditionPoisoned)
 			gl := &GameLoop{game: g}
 			gl.updateAutomaticTechniques()
-			if c.AutocastFrames != budget {
+			if c.AutocastCD.Frames != budget {
 				t.Fatal("commit did not start the two-round budget")
 			}
 			// A different automatic ability uses the same personal lock. Manual
@@ -597,19 +602,19 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 			g.actionInputStagger = 0
 			sp := c.SpellPoints
 			gl.updateAutomaticTechniques()
-			if c.SpellPoints != sp || c.AutocastFrames != budget {
+			if c.SpellPoints != sp || c.AutocastCD.Frames != budget {
 				t.Fatal("manual use changed the automatic budget or a sibling bypassed it")
 			}
 			switch clock {
 			case "TB":
 				g.startPartyTurn() // Round 2: still blocked.
 			case "RT":
-				g.tickRareClassClocks(g.combatRoundFrames())
+				passFrames(g, g.combatRoundFrames())
 			case "mixed":
-				g.tickRareClassClocks(g.config.GetTPS())
+				passFrames(g, g.config.GetTPS())
 				g.turnBasedMode = true
 				g.startPartyTurn(true) // Entering TB grants no elapsed time.
-				if c.AutocastFrames != budget-g.config.GetTPS() {
+				if c.AutocastCD.Frames != budget-g.config.GetTPS() {
 					t.Fatal("mode entry shortened the automatic budget")
 				}
 				g.startPartyTurn()
@@ -618,22 +623,22 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 			if c.SpellPoints != sp {
 				t.Fatal("autocast retriggered before round 3 / the full budget")
 			}
-			remaining := c.AutocastFrames
+			remaining := c.AutocastCD.Frames
 			c = restoreCharacterSave(buildCharacterSave(c))
 			g.party.Members[0] = c
-			if c.AutocastFrames != remaining {
+			if c.AutocastCD.Frames != remaining {
 				t.Fatal("save/load changed the remaining automatic budget")
 			}
 			if clock == "TB" {
 				g.startPartyTurn() // Round 3: ready.
 			} else {
 				g.turnBasedMode = false
-				g.tickRareClassClocks(remaining - 1)
+				passFrames(g, remaining-1)
 				gl.updateAutomaticTechniques()
 				if c.SpellPoints != sp {
 					t.Fatal("autocast became ready a frame early")
 				}
-				g.tickRareClassClocks(1)
+				passFrames(g, 1)
 			}
 			gl.updateAutomaticTechniques()
 			armor, err := spells.GetSpellDefinitionByID("celestial_armor")
@@ -758,9 +763,9 @@ func TestHealTriageChain(t *testing.T) {
 			for _, key := range tc.known {
 				caster.LearnSpell(spells.SpellID(key))
 			}
-			caster.SpellState.ReuseFrames = map[string]int{}
+			caster.SpellState.Reuse = map[string]status.DualClock{}
 			for _, key := range tc.reusing {
-				caster.SpellState.ReuseFrames[key] = 1
+				caster.SpellState.Reuse[key] = framesClock(1)
 			}
 			if tc.short {
 				first, err := spells.GetSpellDefinitionByID(spells.SpellID(tc.known[0]))
@@ -809,7 +814,7 @@ func TestMassHealReuseHandsTriageOver(t *testing.T) {
 			t.Fatalf("triage cast=%v %q, want %q", cast, id, want)
 		}
 	}
-	if got := caster.SpellState.ReuseFrames["mass_heal"]; got != 9*g.config.GetTPS() {
+	if got := caster.SpellState.Reuse["mass_heal"].Frames; got != 9*g.config.GetTPS() {
 		t.Fatalf("Mass Heal reuse = %d frames, want 9s", got)
 	}
 }
@@ -922,7 +927,7 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 				m.BeginPlayerEngagement()
 				gl := &GameLoop{game: g}
 				gl.updateAutomaticTechniques()
-				if c.SpellPoints != 1000-cost || c.AutocastFrames <= 0 || c.ActionsRemaining != 3 || c.RTCooldown != 0 {
+				if c.SpellPoints != 1000-cost || c.AutocastCD.Frames <= 0 || c.ActionsRemaining != 3 || c.RTCooldown != 0 {
 					t.Fatal("autocast did not pay only mana and start its automatic budget")
 				}
 				raw, err := json.Marshal(buildCharacterSave(c))
@@ -941,7 +946,7 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 					state[field.timer] = json.RawMessage("9999")
 					// Older saves kept the budget in the rare-class (technique) or spell state.
 					if (field.state == "rare_class") == (technique != nil) {
-						state["auto_frames"] = json.RawMessage(fmt.Sprint(c.AutocastFrames))
+						state["auto_frames"] = json.RawMessage(fmt.Sprint(c.AutocastCD.Frames))
 					}
 					legacy[field.state], err = json.Marshal(state)
 					if err != nil {
@@ -957,7 +962,7 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 				if err = json.Unmarshal(raw, &saved); err != nil {
 					t.Fatal(err)
 				}
-				budget := c.AutocastFrames
+				budget := c.AutocastCD.Frames
 				c = restoreCharacterSave(saved)
 				g.party.Members[0] = c
 				c.ActionsRemaining, c.RTCooldown = 3, 0
@@ -996,8 +1001,8 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 					if tb {
 						wantAP--
 					}
-					if c.SpellPoints != sp-cost || c.ActionsRemaining != wantAP || c.RTCooldown != cooldown || c.AutocastFrames != budget {
-						t.Fatalf("manual use: SP=%d/%d AP=%d/%d recovery=%d/%d automatic=%d/%d", c.SpellPoints, sp-cost, c.ActionsRemaining, wantAP, c.RTCooldown, cooldown, c.AutocastFrames, budget)
+					if c.SpellPoints != sp-cost || c.ActionsRemaining != wantAP || c.RTCooldown != cooldown || c.AutocastCD.Frames != budget {
+						t.Fatalf("manual use: SP=%d/%d AP=%d/%d recovery=%d/%d automatic=%d/%d", c.SpellPoints, sp-cost, c.ActionsRemaining, wantAP, c.RTCooldown, cooldown, c.AutocastCD.Frames, budget)
 					}
 					if count == 2 && patient.Purifiable() {
 						t.Fatal("manual cleanse left the affliction")
@@ -1028,7 +1033,7 @@ func TestPersonalSpellReuseAcrossModesAndSave(t *testing.T) {
 				t.Fatal("initial cast rejected")
 			}
 			total := d.ReuseSeconds * g.config.GetTPS()
-			if total <= 0 || c.SpellState.ReuseFrames[string(d.ID)] != total {
+			if total <= 0 || c.SpellState.Reuse[string(d.ID)].Frames != total {
 				t.Fatal("cast did not start authored reuse")
 			}
 			sp := c.SpellPoints
@@ -1045,27 +1050,27 @@ func TestPersonalSpellReuseAcrossModesAndSave(t *testing.T) {
 			if tb {
 				step = g.combatRoundFrames()
 			}
-			g.tickRareClassClocks(step)
+			passFrames(g, step)
 			saved := buildCharacterSave(c)
 			c = restoreCharacterSave(saved)
 			g.party.Members[0] = c
-			if c.SpellState.ReuseFrames[string(d.ID)] != total-step {
+			if c.SpellState.Reuse[string(d.ID)].Frames != total-step {
 				t.Fatal("save/load changed the remaining budget")
 			}
 			g.turnBasedMode = !tb
-			g.tickRareClassClocks(total - step - 1)
+			passFrames(g, total-step-1)
 			if cast() {
 				t.Fatal("mode switch or partial tick cleared reuse early")
 			}
-			g.tickRareClassClocks(1)
+			passFrames(g, 1)
 			if !cast() {
 				t.Fatal("spell not ready at exact expiry")
 			}
-			saved.SpellState.ReuseFrames[string(d.ID)] = total * 2
-			saved.SpellState.ReuseFrames["removed_spell"] = 10
-			saved.SpellState.ReuseFrames["firebolt"] = 10
+			saved.SpellState.Reuse[string(d.ID)] = framesClock(total * 2)
+			saved.SpellState.Reuse["removed_spell"] = framesClock(10)
+			saved.SpellState.Reuse["firebolt"] = framesClock(10)
 			restored := restoreCharacterSave(saved)
-			if restored.SpellState.ReuseFrames[string(d.ID)] != total || len(restored.SpellState.ReuseFrames) != 1 {
+			if restored.SpellState.Reuse[string(d.ID)].Frames != total || len(restored.SpellState.Reuse) != 1 {
 				t.Fatal("load did not normalize reuse against current catalog")
 			}
 			rounds := (total + g.combatRoundFrames() - 1) / g.combatRoundFrames()
@@ -1073,5 +1078,24 @@ func TestPersonalSpellReuseAcrossModesAndSave(t *testing.T) {
 				t.Fatal("tooltip omitted authored personal reuse")
 			}
 		})
+	}
+}
+
+// Celestial Armor ends the moment its absorption is used up, in either mode.
+func TestCelestialArmorEndsWhenSpent(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		g := advancedSupportGame(t, tb)
+		castAdvancedSupport(t, g, "celestial_armor", 3, nil)
+		b := g.advancedBuff("celestial_armor")
+		if b == nil || b.Absorb <= 0 {
+			t.Fatal("fixture: no absorption")
+		}
+		absorb := b.Absorb
+		if left := g.absorbCelestialDamage(absorb + 7); left != 7 {
+			t.Fatalf("absorbed %d of %d", absorb+7-left, absorb)
+		}
+		if len(g.combatBuffs) != 0 || g.buffStatuses["celestial_armor"] != nil {
+			t.Fatalf("tb=%v: spent Celestial Armor stayed: %+v", tb, g.combatBuffs)
+		}
 	}
 }

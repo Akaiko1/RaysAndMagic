@@ -297,7 +297,7 @@ parties:
             equipment: [idol_breakers_maul, katana, jaguar_pelt_jerkin, padded_cap, padded_boots, vinewoven_cloak, padded_gloves, belt_of_strength, puma_claw, warlords_signet]
           30:
             skills: {mace: grandmaster, dual_wielding: grandmaster, arms_master: grandmaster, leather: grandmaster, bodybuilding: master}
-            equipment: [scalebreaker_maul, escapement_mace, padded_vest, padded_cap, padded_boots, chrono_cape, padded_gloves, belt_of_strength, puma_claw, warlords_signet, warlords_signet]
+            equipment: [scalebreaker_maul, chime_maul, padded_vest, padded_cap, padded_boots, chrono_cape, padded_gloves, belt_of_strength, puma_claw, warlords_signet, warlords_signet]
       - name: Sora
         class: monk
         levels:

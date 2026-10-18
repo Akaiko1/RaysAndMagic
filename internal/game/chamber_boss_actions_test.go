@@ -129,9 +129,9 @@ func TestChamberBossLaneAndPushAreFree(t *testing.T) {
 				v := g.adventureVisit("forest")
 				switch c.laneState {
 				case "warning":
-					v.effectState("lane").Warning = 1
+					v.effectState("lane").Warning = roundClock()
 				case "live":
-					v.effectState("lane").Remaining = 1
+					v.effectState("lane").Remaining = roundClock()
 				}
 				hp := partyHPSum(g)
 				attacked, _ := runChamberBossAction(t, g, gl, boss, tb)
@@ -141,7 +141,7 @@ func TestChamberBossLaneAndPushAreFree(t *testing.T) {
 				if !attacked {
 					t.Fatal("a free boss action took the boss's attack")
 				}
-				if announced := c.laneState == "" && v.effectState("lane").Warning > 0; announced != c.wantLane {
+				if announced := c.laneState == "" && v.effectState("lane").Warning.Active(); announced != c.wantLane {
 					t.Fatalf("lane announced=%v, want %v", announced, c.wantLane)
 				}
 				if x, y := g.GetPlayerTilePosition(); [2]int{x, y} != c.wantParty {
@@ -369,7 +369,7 @@ func TestChamberBossFreeActionsNeedALandedAttack(t *testing.T) {
 		}},
 		{name: "shot-at-an-ally", landed: true, prepare: func(g *MMGame, _ *GameLoop, boss *monsterPkg.Monster3D) {
 			ally := spawnSpecialsMonster(g, "goblin", 6, 5)
-			ally.Bound, ally.BoundFramesRemaining = true, 100000
+			ally.Bound, ally.BoundClock = true, framesClock(100000)
 			g.combat.performMonsterAttackAgainstMonster(boss, ally, ProjectileOwnerMonsterAtActor)
 		}},
 	} {
@@ -383,7 +383,7 @@ func TestChamberBossFreeActionsNeedALandedAttack(t *testing.T) {
 			g.turnBasedMode = tc.tb
 			tc.prepare(g, gl, boss)
 			flyShots(t, g, gl)
-			lane := g.adventureVisit("forest").effectState("lane").Warning > 0
+			lane := g.adventureVisit("forest").effectState("lane").Warning.Active()
 			if lane != tc.landed || boss.LaneCD.Active() != tc.landed || boss.PushCD.Active() != tc.landed {
 				t.Fatalf("lane=%v lane cooldown=%v push cooldown=%v, want all %v", lane, boss.LaneCD.Active(), boss.PushCD.Active(), tc.landed)
 			}

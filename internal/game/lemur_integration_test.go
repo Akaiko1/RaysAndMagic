@@ -85,12 +85,12 @@ func TestLemurMovementHoldsAndPersistence(t *testing.T) {
 				t.Fatal("phase not reached")
 			}
 			before, x, y := m.Arbor, m.X, m.Y
-			m.RootFramesRemaining = 30
+			m.Root.Frames = 30
 			stepLemur(g, m, false)
 			if m.Arbor != before || m.X != x || m.Y != y {
 				t.Fatal("root advanced tree motion")
 			}
-			m.RootFramesRemaining = 0
+			m.Root.Frames = 0
 			wm := world.GlobalWorldManager
 			save := g.buildSave(wm)
 			data, err := json.Marshal(save)
@@ -198,7 +198,7 @@ func TestLemurTerrainAndStatusRestrictions(t *testing.T) {
 			case "removed_tree":
 				g.world.Tiles[10][12] = g.world.Tiles[9][12]
 			case "root_RT", "root_TB":
-				m.RootFramesRemaining, m.RootTurnsRemaining = 60, 2
+				m.Root.Frames, m.Root.Turns = 60, 2
 			case "slow_RT", "slow_TB":
 				m.ApplySlow(100, 60, 2)
 			}

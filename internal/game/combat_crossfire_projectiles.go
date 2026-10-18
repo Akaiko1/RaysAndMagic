@@ -193,7 +193,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		return
 	case disintegrateSear:
 		cs.game.addActorCombatMessage(srcMonster, target, "%s withstands disintegration!", logMonsterName(target))
-		primary, seared = packet.withTrue(config.DisintegrateBossTrueDamage), true
+		primary, seared = packet.withTrue(disintegrateSearDamage(target)), true
 	}
 
 	if parts.Total() > 0 || seared {

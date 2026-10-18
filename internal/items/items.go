@@ -64,15 +64,17 @@ func (s EquipSlot) DisplayName() string {
 
 type Item struct {
 	Signature WeaponSignatureState `json:"weapon_signature,omitzero"`
-	// DeviceCooldownFrames is the exact remaining gameplay budget.
-	DeviceCooldownFrames int     `json:"device_cooldown_frames,omitempty"`
-	LegacyDeviceCooldown float64 `json:"device_cooldown,omitempty"`
-	UseAction            string  `json:"use_action,omitempty"`
-	Name                 string
-	Type                 ItemType
-	Attributes           map[string]int
-	Description          string
-	Rarity               string
+	// DeviceCooldown is the device's recharge on the one RT/TB clock.
+	DeviceCooldown RoundClock `json:"device_recharge,omitzero"`
+	// Older saves' recharges, moved into DeviceCooldown on load.
+	LegacyDeviceCooldownFrames int     `json:"device_cooldown_frames,omitempty"`
+	LegacyDeviceCooldown       float64 `json:"device_cooldown,omitempty"`
+	UseAction                  string  `json:"use_action,omitempty"`
+	Name                       string
+	Type                       ItemType
+	Attributes                 map[string]int
+	Description                string
+	Rarity                     string
 	// InstanceID identifies this item across save/load and the cross-save stash.
 	// Stackable items retain it as the primary lineage ID for compatibility with
 	// older saves; Lineages carries the complete provenance after stacks merge.

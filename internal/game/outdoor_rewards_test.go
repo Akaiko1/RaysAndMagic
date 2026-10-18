@@ -29,7 +29,7 @@ func TestOutdoorRewardLifecycle(t *testing.T) {
 			crate := config.GetCrateConfig(key)
 			if crate.Buff != nil {
 				b, ok := g.combatBuffByID("crate:" + key)
-				if !ok || b.Frames != crate.Buff.DurationSeconds*g.config.GetTPS() {
+				if !ok || b.Clock.Frames != crate.Buff.DurationSeconds*g.config.GetTPS() {
 					t.Fatal("buff duration missing")
 				}
 				for _, c := range g.party.Members {
@@ -86,7 +86,7 @@ func TestAncientCalendarUse(t *testing.T) {
 			}
 			n := len(g.world.Monsters)
 			g.useQuickSlot(0, 0)
-			if len(g.world.Monsters) != n+1 || hero.QuickSlots[0] != it || it.Count() != 1 || it.DeviceCooldownFrames != recharge {
+			if len(g.world.Monsters) != n+1 || hero.QuickSlots[0] != it || it.Count() != 1 || it.DeviceCooldown.Frames != recharge {
 				t.Fatal("calendar did not summon once and recharge intact")
 			}
 			if hero.RTCooldown <= 0 || tb && hero.ActionsRemaining != 0 {
@@ -104,17 +104,17 @@ func TestAncientCalendarUse(t *testing.T) {
 			if len(g.world.Monsters) != n+1 {
 				t.Fatal("cooldown bypassed")
 			}
-			g.tickDeviceCooldowns(recharge - 1)
-			if it.DeviceCooldownFrames != 1 {
+			spendFrames(recharge-1, g.tickDeviceCooldowns)
+			if it.DeviceCooldown.Frames != 1 {
 				t.Fatal("calendar recharge did not count down frame by frame")
 			}
-			g.tickDeviceCooldowns(1)
-			if it.DeviceCooldownFrames != 0 {
+			g.tickDeviceCooldowns(false)
+			if it.DeviceCooldown.Frames != 0 {
 				t.Fatal("calendar failed to recharge")
 			}
 			// Same failure path as Dead Branch: no world context must not spend the item or action.
 			setTestWorldManager(t, nil)
-			if g.useDevice(it, 0) || it.DeviceCooldownFrames != 0 || hero.RTCooldown != 0 || hero.ActionsRemaining != 1 {
+			if g.useDevice(it, 0) || it.DeviceCooldown.Frames != 0 || hero.RTCooldown != 0 || hero.ActionsRemaining != 1 {
 				t.Fatal("failed summon spent a cost")
 			}
 		})
@@ -149,11 +149,9 @@ func TestOutdoorPassiveOwnership(t *testing.T) {
 			a.Inventory = nil
 			b.Inventory = nil
 			pulse := func() {
-				g.turnBasedSpRegenCount = TurnBasedRegenEveryNRounds - 1
-				g.turnBasedHPRegenCount = TurnBasedRegenEveryNRounds - 1
 				for _, c := range g.party.Members {
 					c.MaxHitPoints, c.HitPoints = 1000, 500
-					c.RestoreRealtimeRegenProgress(config.RegenerationIntervalFrames()-1, config.RegenerationIntervalFrames()-1)
+					c.SPRegen, c.HPRegen = lastTickClock(), lastTickClock()
 				}
 				if tb {
 					g.endPartyTurn()
@@ -181,7 +179,7 @@ func TestOutdoorPassiveOwnership(t *testing.T) {
 				c.RecalculateMaxStatsKeepingCurrent(g.config)
 			}
 			calendar := items.CreateItemFromYAML("ancient_calendar")
-			calendar.DeviceCooldownFrames = 123
+			calendar.DeviceCooldown = items.RoundClock(framesClock(123))
 			g.party.Inventory = append(g.party.Inventory, calendar)
 			saved := auditSaveJSON(t, g.buildSave(wm))
 			if err := g.applySave(wm, &saved); err != nil {
@@ -191,11 +189,11 @@ func TestOutdoorPassiveOwnership(t *testing.T) {
 				t.Fatal("save lost personal ownership")
 			}
 			restored := &g.party.Inventory[len(g.party.Inventory)-1]
-			if restored.UseAction != "summon" || restored.DeviceCooldownFrames != 123 || restored.Attributes["summon_distance_tiles"] != calendar.Attributes["summon_distance_tiles"] {
+			if restored.UseAction != "summon" || restored.DeviceCooldown.Frames != 123 || restored.Attributes["summon_distance_tiles"] != calendar.Attributes["summon_distance_tiles"] {
 				t.Fatal("save lost calendar state")
 			}
-			g.tickDeviceCooldowns(123)
-			if restored.DeviceCooldownFrames != 0 {
+			spendFrames(123, g.tickDeviceCooldowns)
+			if restored.DeviceCooldown.Frames != 0 {
 				t.Fatal("restored calendar clock did not wake")
 			}
 

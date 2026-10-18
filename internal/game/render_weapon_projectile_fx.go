@@ -44,6 +44,10 @@ var weaponProjectileFxStyles = map[string]weaponProjectileFxStyle{
 		side:   (*Renderer).drawWeaponProjectileFxClockPistol,
 		headOn: (*Renderer).drawWeaponProjectileFxClockPistolHeadOn,
 	},
+	"clock_escapement": {
+		side:   (*Renderer).drawWeaponProjectileFxClockEscapement,
+		headOn: (*Renderer).drawWeaponProjectileFxClockEscapementHeadOn,
+	},
 	"dragon_wing": {
 		side:     (*Renderer).drawWeaponProjectileFxDragonWing,
 		headOn:   (*Renderer).drawWeaponProjectileFxDragonWingHeadOn,

@@ -6,7 +6,6 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
-	"ugataima/internal/status"
 )
 
 // separateStackedMonstersTB repairs accidental non-combat overlaps by moving
@@ -140,8 +139,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				gl.game.turnBasedMonsterStunned[m] = true
 			}
 		}
-		gl.game.tickMonsterTelegraphs(3, true)
-		gl.game.tickEnvironment(config.CombatRoundSeconds, true)
+		gl.game.tickMonsterTelegraphs(true)
+		gl.game.tickEnvironment(true)
 	}
 	gl.game.updateAuthoredBandAggro()
 
@@ -326,7 +325,7 @@ func (gl *GameLoop) monsterCombatStepTB(m *monster.Monster3D) {
 	// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
 	// tile and strike. Brief turn cooldown.
 	if m.CanPounce() {
-		if gl.game.combat.monsterPouncePointInReachTB(m, playerX, playerY, m.PounceCDTurns) {
+		if gl.game.combat.monsterPouncePointInReachTB(m, playerX, playerY, m.PounceCD.Turns) {
 			if gl.game.combat.executePounce(m, playerX, playerY) {
 				gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
 				gl.monsterAttackTurnBased(m)
@@ -785,18 +784,10 @@ func (g *MMGame) attackTargetTile(m *monster.Monster3D) *monster.TileCoord {
 // It returns whether stun or the slow cadence consumed this actor's turn.
 func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses bool) bool {
 	if tickTurnStatuses {
-		m.TickRetaliation(true)
-		m.TickPounceCooldownTurn()
-		m.TickPhaseShiftCooldownTurn()
-		m.TickAbilityClocksTurn()
+		m.TickAbilityClocks(true)
 		m.TickPoisonTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS())) // Venom-proc cards; ticks regardless of stun
 		m.TickBurnTurn(turnBasedPeriodicEffectFrames(g.config.GetTPS()))   // Drakefang ignite; stacks with poison
-		m.TickArmorShredTurn()                                             // Pit Labrys shred decays regardless of stun
-		m.ArmorMelt.TickTurn()                                             // a melting monster's hit decays regardless of stun
-		m.TickSlowTurn()                                                   // Tarn Trident silt decays regardless of stun
-		m.TickElementalMarks(true)
-		m.TickWeakenTurn() // Scalebreaker roar decays regardless of stun
-		m.TickSoakTurn()   // Champion Stone Skin rated dual clock
+		m.TickDebuffs(true)
 		if !m.IsAlive() {
 			// Matches RT: HandleMonsterInteractions skips a monster the parallel
 			// Update's TickPoison just killed. finalizeIndirectKills (end of
@@ -806,12 +797,12 @@ func (g *MMGame) tickMonsterTurnStatuses(m *monster.Monster3D, tickTurnStatuses 
 	}
 	if tickTurnStatuses && !m.ControlDRActive() {
 		// Recovery starts only while free of every control in the shared chain.
-		m.StunDR().ForgetTurn()
+		m.StunDR().Forget(true)
 	}
-	if tickTurnStatuses && m.StunTurnsRemaining > 0 {
+	if tickTurnStatuses && m.Stun.Turns > 0 {
 		// Expiry clears the RT clock too, or the stun-star overlay and
 		// bossDisabled keep reading the monster as stunned.
-		status.TickTurnRated(&m.StunTurnsRemaining, &m.StunFramesRemaining, &m.StunRate)
+		m.Stun.TickTurn()
 		return true
 	}
 	// Root (bear trap) burns one turn per monster TURN - whether it moves

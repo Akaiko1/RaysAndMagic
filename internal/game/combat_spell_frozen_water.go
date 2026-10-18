@@ -6,16 +6,19 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
 // FrozenWaterTile stores local authored map coordinates, never stitched offsets.
 // The shared combat clock expires ice on visited and unvisited maps alike.
 type FrozenWaterTile struct {
-	MapKey          string `json:"map_key"`
-	X               int    `json:"x"`
-	Y               int    `json:"y"`
-	FramesRemaining int    `json:"frames_remaining"`
+	MapKey string           `json:"map_key"`
+	X      int              `json:"x"`
+	Y      int              `json:"y"`
+	Clock  status.DualClock `json:"clock,omitzero"`
+	// LegacyFrames is an older save's time left, moved into Clock on load.
+	LegacyFrames int `json:"frames_remaining,omitempty"`
 }
 
 // frozenWaterLocal resolves a tile of world w to the key and local tile ice is stored under.
@@ -33,7 +36,7 @@ func (g *MMGame) isFrozenWaterTile(w *world.World3D, tileX, tileY int) bool {
 	}
 	key, x, y := g.frozenWaterLocal(w, tileX, tileY)
 	for _, ice := range g.frozenWater {
-		if ice.MapKey == key && ice.X == x && ice.Y == y && ice.FramesRemaining > 0 {
+		if ice.MapKey == key && ice.X == x && ice.Y == y && ice.Clock.Active() {
 			return true
 		}
 	}
@@ -79,13 +82,15 @@ func (cs *CombatSystem) freezeWaterCone(def spells.SpellDefinition) bool {
 		for i := range g.frozenWater {
 			ice := &g.frozenWater[i]
 			if ice.MapKey == key && ice.X == lx && ice.Y == ly {
-				ice.FramesRemaining = max(ice.FramesRemaining, def.Mechanic.WaterFreezeSeconds*g.config.GetTPS())
+				ice.Clock.Arm(def.Mechanic.WaterFreezeSeconds, g.config.GetTPS())
 				found = true
 				break
 			}
 		}
 		if !found {
-			g.frozenWater = append(g.frozenWater, FrozenWaterTile{key, lx, ly, def.Mechanic.WaterFreezeSeconds * g.config.GetTPS()})
+			ice := FrozenWaterTile{MapKey: key, X: lx, Y: ly}
+			ice.Clock.Arm(def.Mechanic.WaterFreezeSeconds, g.config.GetTPS())
+			g.frozenWater = append(g.frozenWater, ice)
 		}
 		changed = true
 	})
@@ -195,17 +200,18 @@ func (g *MMGame) invalidateFrozenWaterNavigation() {
 	}
 }
 
-func (g *MMGame) advanceFrozenWater(elapsed int) {
+// advanceFrozenWater spends one tick of every frozen tile: a frame or a turn.
+func (g *MMGame) advanceFrozenWater(turn bool) {
 	g.syncFrozenWaterCollision()
-	if elapsed <= 0 || len(g.frozenWater) == 0 {
+	if len(g.frozenWater) == 0 {
 		return
 	}
 	wasOnIce := g.isFrozenWaterAt(g.camera.X, g.camera.Y)
 	kept := g.frozenWater[:0]
 	oldCount := len(g.frozenWater)
 	for _, ice := range g.frozenWater {
-		ice.FramesRemaining -= elapsed
-		if ice.FramesRemaining > 0 {
+		ice.Clock.Tick(turn)
+		if ice.Clock.Active() {
 			kept = append(kept, ice)
 		}
 	}

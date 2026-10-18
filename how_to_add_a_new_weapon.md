@@ -103,8 +103,18 @@ Add a row there, not a special case in code, when a class gets a new floor.
 Ranged magic weapons with `projectile_school` must use the matching `damage_type`.
 
 Additional supported mechanics include `volley`, `pierce_count`,
-`ricochet_targets` with `ricochet_range_tiles`, `double_strike`, `true_damage`,
-and paired status fields. Copy the complete mechanic from an existing weapon;
+`ricochet_targets` with `ricochet_range_tiles`, `double_strike`,
+`true_damage_pct` (that share of each hit becomes true damage),
+`death_burst_max_hp_pct` with `death_burst_radius_tiles`, the Clock Tower
+riders (`hour_strike_marks` with `hour_strike_multiplier`, `toll_echo_pct`,
+`fresh_target_min_hp_pct` with `fresh_target_multiplier`, `jam_seconds`,
+`buff_duration_pct`), a `signature` (`solar_flare`, `rune_discharge`,
+`returning`, `skirmish`, `wind_up`; `skirmish` stores `charge_limit` charges,
+one per `charge_move_tiles` the party moves, and a charged shot always crits;
+`wind_up` winds a spring per unfired round and fires them as extra bullets),
+and paired status fields. A renamed weapon lists its former display names in
+`legacy_names` so saved copies refresh to it; a copy that no longer fits its
+slot after a change loads in its owner's bag. Copy the complete mechanic from an existing weapon;
 load-time validation checks its required pairs. `no_loot: true` excludes a weapon
 from generated rarity pools, but does not forbid explicit authored drops or stock.
 

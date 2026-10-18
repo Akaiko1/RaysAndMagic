@@ -136,7 +136,7 @@ func TestSharedSpellFormulaThroughCastAndTooltip(t *testing.T) {
 							caster.Luck = 100 * LuckToCritDivisor
 							caster.Skills[character.SkillStrongMagic] = &character.Skill{Mastery: tier}
 							caster.Skills[character.SkillNaturalHealer] = &character.Skill{Mastery: tier}
-							g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+							g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 						}
 						def, err := spells.GetSpellDefinitionByID(id)
 						if err != nil {
@@ -278,7 +278,7 @@ func TestWeaponTooltipMatchesRealAttackStages(t *testing.T) {
 						g.cardSlots[0].key = "masked_serpent_dancer_card"
 						g.cardSlots[1].key = "masked_huntress_card"
 						g.cardSlots[2].key = "samurai_card"
-						g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+						g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 					}
 					target := mkTestMonster("Target", 10000)
 					target.ID, target.X, target.Y = "weapon-target", g.camera.X+32, g.camera.Y

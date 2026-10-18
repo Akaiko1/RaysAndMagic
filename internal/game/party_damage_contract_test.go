@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"testing"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -51,7 +52,7 @@ func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 							ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
 							g.combat.designationRoll = func(int) int { return 0 }
 							g.cardSlots = [MaxCardSlots]cardSlot{}
-							g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+							g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 							def, _ := config.GetWeaponDefinition(key)
 							primary, secondary := partyDamageTargets(g, tile)
 							if marks == "primary" || marks == "both" {
@@ -99,7 +100,7 @@ func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 								}
 								want := wantNormal + 7 + trueDamage
 								if i == 1 && lethal && def.DeathBurstRadiusTiles >= 0.5 {
-									want += def.DeathBurstDamage
+									want += primary.MaxHitPoints * def.DeathBurstMaxHPPct / 100
 								}
 								if got := 10000 - victim.HitPoints; got != want {
 									t.Fatalf("%s took %d, want %d (crit affects only its pre-buff normal damage)", victim.Name, got, want)
@@ -123,11 +124,11 @@ func TestDesignationConversionAndRestoredMark(t *testing.T) {
 				g.combat.designationRoll = func(int) int { return 0 }
 				g.cardSlots = [MaxCardSlots]cardSlot{}
 				g.cardSlots[0].key = "masked_hexer_girl_card"
-				g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+				g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 				primary, secondary := partyDamageTargets(g, tile)
 				for _, m := range g.world.Monsters {
 					m.Resistances = map[monsterPkg.DamageType]int{monsterPkg.DamageDark: 50}
-					m.SoakDamage, m.SoakFrames = 5, 60
+					m.SoakDamage, m.Soak.Frames = 5, 60
 				}
 				g.designateTarget(ch, secondary)
 				if restored {
@@ -139,18 +140,16 @@ func TestDesignationConversionAndRestoredMark(t *testing.T) {
 				// this is the same source packet as the authored melee maul.
 				if ranged {
 					shot := &Arrow{ID: "conversion", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch,
-						BowKey: "idol_breakers_maul", Damage: 101, TrueDamage: 13, DamageType: "physical"}
+						BowKey: "idol_breakers_maul", Damage: 101, TrueDamage: 12, DamageType: "physical"}
 					g.combat.applyProjectileDamage(shot, primary, shot.ID)
 				} else {
 					ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("idol_breakers_maul")
-					old := def.TrueDamage
-					def.TrueDamage = 13
-					t.Cleanup(func() { def.TrueDamage = old })
+					g.cardSlots[1].key = "orc_card" // 12 flat melee true
 					g.combat.ApplyDamageToMonster(primary, 101, def.Name, false)
 				}
-				// Ordinary: 108 -> 87 physical + 21 dark -> 97, minus 5 soak, plus 13 true.
-				// Marked: 209 -> 168 physical + 41 dark -> 188, minus 5 soak, plus 13 true.
-				for i, want := range []int{105, 196} {
+				// Ordinary: 108 -> 87 physical + 21 dark -> 97, minus 5 soak, plus 12 true.
+				// Marked: 209 -> 168 physical + 41 dark -> 188, minus 5 soak, plus 12 true.
+				for i, want := range []int{104, 195} {
 					if got := 10000 - g.world.Monsters[i].HitPoints; got != want {
 						t.Fatalf("victim %d took %d, want %d", i, got, want)
 					}
@@ -186,7 +185,7 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 				g.combat.designationRoll = func(int) int { return 0 }
 				g.cardSlots = [MaxCardSlots]cardSlot{}
 				g.cardSlots[0].key = "elf_archer_card"
-				g.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"})
+				g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
 				primary, secondary := partyDamageTargets(g, tile)
 				secondary.MonsterType = "dragon"
 				g.designateTarget(ch, secondary)
@@ -288,9 +287,9 @@ func TestDesignationImpactEligibility(t *testing.T) {
 			case "active":
 				want = 200
 			case "expired":
-				ch.DesignationFrames = 0
+				ch.Designation = status.DualClock{}
 			case "stunned":
-				ch.StunFramesRemaining = 60
+				ch.Stun.Frames = 60
 			case "dead":
 				ch.HitPoints = 0
 			case "reserve":
@@ -362,6 +361,10 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 			ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
 			g.combat.designationRoll = func(int) int { return 0 }
 			primary, secondary := partyDamageTargets(g, tile)
+			// A wounded target keeps victim-state multipliers (the Mainspring
+			// Pike's fresh strike) out of this packet check; they have their own.
+			primary.HitPoints = primary.MaxHitPoints * 8 / 10
+			before := primary.HitPoints
 			g.designateTarget(ch, primary)
 			def, _ := config.GetWeaponDefinition(key)
 			// Instakill chance/immunity has its own production contract table. Force
@@ -391,7 +394,7 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 			} else {
 				g.combat.ApplyDamageToMonster(primary, 100, def.Name, false)
 			}
-			if got := 10000 - primary.HitPoints; got != 200+trueDamage+firstHitBonus {
+			if got := before - primary.HitPoints; got != 200+trueDamage+firstHitBonus {
 				t.Fatalf("marked primary took %d, want %d", got, 200+trueDamage+firstHitBonus)
 			}
 			if secondary.HitPoints != 10000 {

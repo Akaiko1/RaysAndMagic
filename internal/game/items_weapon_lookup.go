@@ -45,3 +45,18 @@ func equippedWeaponDefinitions(member *character.MMCharacter) [2]*config.WeaponD
 	}
 	return defs
 }
+
+// strongestWeaponPerk is the wielded weapon with the best value of one caster
+// perk (strength > 0). Either hand counts; two weapons never stack a perk.
+func strongestWeaponPerk(member *character.MMCharacter, strength func(*config.WeaponDefinitionConfig) float64) *config.WeaponDefinitionConfig {
+	var best *config.WeaponDefinitionConfig
+	top := 0.0
+	for _, def := range equippedWeaponDefinitions(member) {
+		if def != nil {
+			if s := strength(def); s > top {
+				best, top = def, s
+			}
+		}
+	}
+	return best
+}

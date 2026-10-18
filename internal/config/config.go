@@ -35,9 +35,9 @@ func cooldownMultLine(label string, mult float64) string {
 // RT and seconds/CombatRoundSeconds turns in TB (CombatRounds, RoundFrames).
 const CombatRoundSeconds = 3
 
-// DisintegrateBossTrueDamage replaces the disintegrate kill on a boss: the
-// proc adds this much true damage to the hit instead.
-const DisintegrateBossTrueDamage = 100
+// DisintegrateBossMaxHPPct replaces the disintegrate kill on a boss: the proc
+// adds this share of the boss's max HP to the hit as true damage instead.
+const DisintegrateBossMaxHPPct = 20
 
 // Armor mitigation - a PERCENTAGE model with diminishing returns, for party and
 // monster armor alike:
@@ -161,7 +161,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text("weapon.stun_chance", w.StunChance*100, DurationText(w.StunSeconds)))
 	}
 	if w.DisintegrateChance > 0 {
-		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100, DisintegrateBossTrueDamage))
+		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100, DisintegrateBossMaxHPPct))
 	}
 	if includeStructured && w.AoeRadiusTiles > 0 {
 		lines = append(lines, uitext.Text("weapon.aoe_radius_tiles_splashes_all_nearby_monsters", w.AoeRadiusTiles))
@@ -172,7 +172,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	// The structured attack section renders cooldown from the combat calculation.
 	// The spell-cooldown perk is computable at this layer.
 	if line := cooldownMultLine(uitext.Text("weapon.spell_cooldown"), w.SpellCooldownMultiplier); line != "" {
-		lines = append(lines, line+uitext.Text("weapon.main_hand_only"))
+		lines = append(lines, line)
 	}
 	if len(w.BonusVs) > 0 {
 		keys := make([]string, 0, len(w.BonusVs))
@@ -215,7 +215,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text("weapon.pierces_through_target_s_and_flies_on", w.PierceCount))
 	}
 	if includeStructured && w.DoubleStrike {
-		lines = append(lines, uitext.Text("weapon.pair_every_swing_strikes_twice_at_half"))
+		lines = append(lines, uitext.Text("weapon.pair_strikes_twice"))
 	}
 	if w.EquipPersonalityMin > 0 {
 		lines = append(lines, uitext.Text("weapon.wieldable_by_anyone_with_personality_no_skill", w.EquipPersonalityMin))
@@ -230,11 +230,26 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 	if w.ExecuteBelowPct > 0 {
 		lines = append(lines, uitext.Text("weapon.the_maw_targets_left_under_hp_are", w.ExecuteBelowPct))
 	}
-	if w.DeathBurstDamage > 0 && w.DeathBurstRadiusTiles > 0 {
-		lines = append(lines, uitext.Text("weapon.clutchburst_kills_explode_for_fire_within_tiles", w.DeathBurstDamage, w.DeathBurstRadiusTiles))
+	if w.DeathBurstMaxHPPct > 0 && w.DeathBurstRadiusTiles > 0 {
+		lines = append(lines, uitext.Text("weapon.clutchburst_max_hp_fire_within_tiles", w.DeathBurstMaxHPPct, w.DeathBurstRadiusTiles))
 	}
-	if includeStructured && w.TrueDamage > 0 {
-		lines = append(lines, uitext.Text("weapon.true_damage_ignores_armor_and_dodge", w.TrueDamage))
+	if includeStructured && w.TrueDamagePct > 0 {
+		lines = append(lines, uitext.Text("weapon.true_damage_share", w.TrueDamagePct))
+	}
+	if w.HourStrikeMarks > 0 {
+		lines = append(lines, uitext.Text("weapon.hour_strike", w.HourStrikeMarks, NumberText(w.HourStrikeMultiplier)))
+	}
+	if w.TollEchoPct > 0 {
+		lines = append(lines, uitext.Text("weapon.toll_echo", w.TollEchoPct))
+	}
+	if w.FreshTargetMinHPPct > 0 {
+		lines = append(lines, uitext.Text("weapon.fresh_target", NumberText(w.FreshTargetMultiplier), w.FreshTargetMinHPPct))
+	}
+	if w.JamSeconds > 0 {
+		lines = append(lines, uitext.Text("weapon.jam", w.JamSeconds, CombatRoundSeconds/w.JamSeconds))
+	}
+	if w.BuffDurationPct > 0 {
+		lines = append(lines, uitext.Text("weapon.buff_duration", w.BuffDurationPct))
 	}
 	if w.SlowPct > 0 && w.SlowSeconds > 0 {
 		lines = append(lines, uitext.Text(
@@ -1594,10 +1609,10 @@ type WeaponDefinitionConfig struct {
 	// Used for legendaries with a bespoke cadence (e.g. Bow of Hellfire = 1.7, slow).
 	// 0 = use the category default.
 	CooldownMultiplier float64 `yaml:"cooldown_multiplier,omitempty"`
-	// SpellCooldownMultiplier, when > 0, scales the cooldown of every spell the
-	// wielder casts while this weapon is in their main hand (e.g. Archmage
-	// Staff = 0.8 -> -20% spell cooldown). Techniques, flasks and traps ignore
-	// it. 0 = no effect.
+	// SpellCooldownMultiplier, in (0,1), scales the cooldown of every spell the
+	// wielder casts (e.g. Archmage Staff = 0.8 -> -20% spell cooldown); with a
+	// staff in each hand the stronger one counts. Techniques, flasks and traps
+	// ignore it. 0 = no effect.
 	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
 	// ProjectileSchool, when set ("air"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
@@ -1641,13 +1656,35 @@ type WeaponDefinitionConfig struct {
 	// ExecuteBelowPct: a surviving target left at or under this % of max HP dies
 	// outright - the jaws close (Wyrmcleaver).
 	ExecuteBelowPct int `yaml:"execute_below_pct,omitempty"`
-	// DeathBurst: a target KILLED by this weapon bursts, dealing fire damage to
-	// monsters within the radius (Ember Egg).
-	DeathBurstDamage      int     `yaml:"death_burst_damage,omitempty"`
+	// DeathBurst: a target KILLED by this weapon bursts, dealing this share of
+	// its own max HP as fire damage to monsters within the radius (Ember Egg).
+	DeathBurstMaxHPPct    int     `yaml:"death_burst_max_hp_pct,omitempty"`
 	DeathBurstRadiusTiles float64 `yaml:"death_burst_radius_tiles,omitempty"`
-	// TrueDamage adds a flat component that bypasses armor and dodge, resisted
-	// only by the school (Broodspike).
-	TrueDamage int `yaml:"true_damage,omitempty"`
+	// TrueDamagePct turns this share of every hit's damage into true damage:
+	// it bypasses armor and dodge, resisted only by the school (Broodspike).
+	TrueDamagePct int `yaml:"true_damage_pct,omitempty"`
+
+	// --- Clock Tower riders ---
+	// HourStrike: each hit marks the target; the hit that lands the last of
+	// HourStrikeMarks deals HourStrikeMultiplier and clears them (Minute Hand).
+	HourStrikeMarks      int     `yaml:"hour_strike_marks,omitempty"`
+	HourStrikeMultiplier float64 `yaml:"hour_strike_multiplier,omitempty"`
+	// TollEchoPct: a hit rings again on the same target one round later for
+	// this share of its damage (Chime Maul).
+	TollEchoPct int `yaml:"toll_echo_pct,omitempty"`
+	// FreshTarget: hits on a target at or above FreshTargetMinHPPct of its max
+	// HP deal FreshTargetMultiplier (Mainspring Pike).
+	FreshTargetMinHPPct   int     `yaml:"fresh_target_min_hp_pct,omitempty"`
+	FreshTargetMultiplier float64 `yaml:"fresh_target_multiplier,omitempty"`
+	// JamSeconds: a hit delays the target's next attack by this long, once per
+	// attack it makes (Cogfang Blade); turn-based banks it as a share of a turn.
+	JamSeconds int `yaml:"jam_seconds,omitempty"`
+	// BuffDurationPct: buffs the wielder casts last this much longer
+	// (Escapement Staff).
+	BuffDurationPct int `yaml:"buff_duration_pct,omitempty"`
+	// LegacyNames are former display names, so saved copies refresh to this
+	// weapon instead of turning unknown.
+	LegacyNames []string `yaml:"legacy_names,omitempty"`
 	// Slow drags the target's movement and attack cadence by SlowPct for
 	// SlowSeconds; in turn-based play it skips one turn in the slow status's
 	// skip_every_turns (assets/statuses.yaml).
@@ -1735,16 +1772,6 @@ const (
 	CombatSPRegenSeconds = 9
 	CombatSPRegenRounds  = 4
 )
-
-// RegenerationIntervalFrames is RegenerationSeconds at the configured TPS.
-func RegenerationIntervalFrames() int {
-	return RegenerationSeconds * GetTargetTPS()
-}
-
-// CombatSPRegenIntervalFrames is CombatSPRegenSeconds at the configured TPS.
-func CombatSPRegenIntervalFrames() int {
-	return CombatSPRegenSeconds * GetTargetTPS()
-}
 
 // RegenerationIntervalSeconds is RegenerationSeconds for the tooltips' float
 // formats.
@@ -2364,6 +2391,19 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 		weaponDefsByName[def.Name] = def
 		weaponKeysByName[def.Name] = key
 	}
+	// Former names resolve to the same weapon so saved copies refresh to it.
+	for key, def := range weaponConfig.Weapons {
+		for _, name := range def.LegacyNames {
+			if name == "" || strings.TrimSpace(name) != name {
+				return nil, fmt.Errorf("weapon %q: legacy_names contains an empty or untrimmed name %q", key, name)
+			}
+			if prev, dup := weaponKeysByName[name]; dup {
+				return nil, fmt.Errorf("weapon %q: legacy name %q conflicts with weapon %q", key, name, prev)
+			}
+			weaponDefsByName[name] = def
+			weaponKeysByName[name] = key
+		}
+	}
 
 	// Publish the catalog and its indexes together only after all validation
 	// succeeds. Name lookup is load-bearing for saved weapon instances.
@@ -2469,16 +2509,37 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if def.ExecuteBelowPct < 0 || def.ExecuteBelowPct > 100 {
 			return fmt.Errorf("weapon '%s': execute_below_pct must be in [0,100]", key)
 		}
-		if def.DeathBurstDamage < 0 || def.DeathBurstRadiusTiles < 0 ||
-			(def.DeathBurstDamage == 0) != (def.DeathBurstRadiusTiles == 0) {
-			return fmt.Errorf("weapon '%s': death_burst_damage and death_burst_radius_tiles must both be positive or both be zero", key)
+		if def.DeathBurstMaxHPPct < 0 || def.DeathBurstMaxHPPct > 100 || def.DeathBurstRadiusTiles < 0 ||
+			(def.DeathBurstMaxHPPct == 0) != (def.DeathBurstRadiusTiles == 0) {
+			return fmt.Errorf("weapon '%s': death_burst_max_hp_pct (1..100) and death_burst_radius_tiles must both be positive or both be zero", key)
 		}
-		if def.TrueDamage < 0 {
-			return fmt.Errorf("weapon '%s': true_damage must not be negative", key)
+		if def.TrueDamagePct < 0 || def.TrueDamagePct > 100 {
+			return fmt.Errorf("weapon '%s': true_damage_pct must be in [0,100]", key)
+		}
+		if def.TrueDamagePct > 0 && def.HasSignature(SignatureReturning) {
+			return fmt.Errorf("weapon '%s': true_damage_pct cannot ride a returning weapon - the return leg carries no weapon effects", key)
+		}
+		if def.HourStrikeMarks < 0 || def.HourStrikeMarks == 1 || (def.HourStrikeMarks > 0) != (def.HourStrikeMultiplier != 0) || def.HourStrikeMultiplier != 0 && def.HourStrikeMultiplier <= 1 {
+			return fmt.Errorf("weapon '%s': hour_strike_marks (2+) and hour_strike_multiplier (>1) must be authored together", key)
+		}
+		if def.TollEchoPct < 0 || def.TollEchoPct > 100 {
+			return fmt.Errorf("weapon '%s': toll_echo_pct must be in [0,100]", key)
+		}
+		if def.FreshTargetMinHPPct < 0 || def.FreshTargetMinHPPct > 100 || (def.FreshTargetMinHPPct > 0) != (def.FreshTargetMultiplier != 0) || def.FreshTargetMultiplier != 0 && def.FreshTargetMultiplier <= 1 {
+			return fmt.Errorf("weapon '%s': fresh_target_min_hp_pct (1..100) and fresh_target_multiplier (>1) must be authored together", key)
+		}
+		if def.JamSeconds < 0 || def.JamSeconds > 0 && (def.JamSeconds >= CombatRoundSeconds || CombatRoundSeconds%def.JamSeconds != 0) {
+			return fmt.Errorf("weapon '%s': jam_seconds must divide the %d s round and be shorter than it", key, CombatRoundSeconds)
+		}
+		if def.BuffDurationPct < 0 {
+			return fmt.Errorf("weapon '%s': buff_duration_pct must not be negative", key)
 		}
 		if def.RicochetTargets < 0 || def.RicochetRangeTiles < 0 ||
 			(def.RicochetTargets == 0) != (def.RicochetRangeTiles == 0) {
 			return fmt.Errorf("weapon '%s': ricochet_targets and ricochet_range_tiles must both be positive or both be zero", key)
+		}
+		if def.SpellCooldownMultiplier < 0 || def.SpellCooldownMultiplier >= 1 {
+			return fmt.Errorf("weapon '%s': spell_cooldown_multiplier must be in (0,1); 0 = none", key)
 		}
 		if def.SpellEchoPct < 0 || def.SpellEchoPct > 100 {
 			return fmt.Errorf("weapon '%s': spell_echo_pct must be in [0,100]", key)
@@ -2705,7 +2766,21 @@ type ItemSetConfig struct {
 	// FieryRipostePct: melee attackers take this share of the damage they deal
 	// the wearer back as FIRE (the Drakeforged pair answering in kind).
 	FieryRipostePct int `yaml:"fiery_riposte_pct,omitempty"`
+	// FightOpenerActions: when a fight starts the wearer acts first - in
+	// real time the first attack has no recovery, in turn-based this many
+	// extra actions (Cogleather).
+	FightOpenerActions int `yaml:"fight_opener_actions,omitempty"`
+	// HealFollowUpSpell: in a fight, one round after the wearer heals, a
+	// random offensive spell the wearer knows is cast for free (Chainwork).
+	HealFollowUpSpell bool `yaml:"heal_follow_up_spell,omitempty"`
+	// StationaryDamageReductionPct: while the party has not moved this round
+	// the wearer takes this much less damage from enemy hits (Clockplate).
+	StationaryDamageReductionPct int `yaml:"stationary_damage_reduction_pct,omitempty"`
 }
+
+// MaxStationaryDamageReductionPct caps hold-your-ground reductions, one set
+// or several together, below a full block.
+const MaxStationaryDamageReductionPct = 90
 
 // RequiredPieceCount is the player-facing size of a set. Exact-piece sets
 // derive it from their explicit list so their authored contract stays truthful.
@@ -2772,6 +2847,10 @@ type ItemDefinitionConfig struct {
 	BonusAccuracy             int `yaml:"bonus_accuracy,omitempty"`
 	BonusSpeed                int `yaml:"bonus_speed,omitempty"`
 	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
+	// RewindCooldownSeconds: in a fight the wearer's HP returns to what it was
+	// a round ago when that was higher, at most once per this many seconds
+	// (whole rounds; Chrono Cape).
+	RewindCooldownSeconds int `yaml:"rewind_cooldown_seconds,omitempty"`
 	// Per-school % damage resistance the wearer gains (e.g. {fire: 100}); physical stacks after armor.
 	Resistances map[string]int `yaml:"resistances,omitempty"`
 	// Monster-card collection effects (type: "card"). The same fields drive both
@@ -2998,6 +3077,14 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		if def.WeaponBaseDamageBonus < 0 || def.PersonalInventoryRegenPct < 0 || def.PersonalInventoryRegenPct > 100 {
 			return fmt.Errorf("item %q: weapon_base_damage_bonus must be nonnegative and personal_inventory_regen_pct must be 0..100", key)
 		}
+		if def.RewindCooldownSeconds != 0 {
+			if def.EquipSlot == "" {
+				return fmt.Errorf("item %q: rewind_cooldown_seconds needs a worn item", key)
+			}
+			if err := ValidateEffectSeconds(fmt.Sprintf("item %q: rewind_cooldown_seconds", key), def.RewindCooldownSeconds); err != nil {
+				return err
+			}
+		}
 		if def.WeaponBaseDamageBonus > 0 && def.EquipSlot == "" && def.Type != "card" {
 			return fmt.Errorf("item %q: weapon base damage bonus requires an equipment slot or card type", key)
 		}
@@ -3144,6 +3231,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 		}
 		if set.FieryRipostePct < 0 || set.FieryRipostePct > 100 {
 			return fmt.Errorf("item set '%s': fiery_riposte_pct must be in [0,100]", name)
+		}
+		if set.FightOpenerActions < 0 || set.StationaryDamageReductionPct < 0 || set.StationaryDamageReductionPct > MaxStationaryDamageReductionPct {
+			return fmt.Errorf("item set '%s': fight_opener_actions must not be negative and stationary_damage_reduction_pct must be in [0,%d]", name, MaxStationaryDamageReductionPct)
 		}
 	}
 	return nil

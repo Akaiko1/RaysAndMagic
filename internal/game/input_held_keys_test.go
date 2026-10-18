@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"ugataima/internal/status"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
@@ -44,7 +45,7 @@ func TestSpatialStepInputReadsHeldKeysThroughSeam(t *testing.T) {
 				t.Fatal("setup Fold rejected")
 			}
 			foldX, foldY := g.camera.X, g.camera.Y
-			g.spatialReuseFrames = 0
+			g.spatialReuse = status.DualClock{}
 			c.RTCooldown = 0
 			c.ActionsRemaining = 2
 			sp := c.SpellPoints

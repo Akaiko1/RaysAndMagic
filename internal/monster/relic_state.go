@@ -1,10 +1,17 @@
 package monster
 
-import "maps"
+import (
+	"maps"
+
+	"ugataima/internal/config"
+	"ugataima/internal/status"
+)
 
 type CatalysisMark struct {
-	Percent int `json:"percent"`
-	Frames  int `json:"frames"`
+	Percent int              `json:"percent"`
+	Clock   status.DualClock `json:"clock,omitzero"`
+	// LegacyFrames is an older save's lifetime, moved into Clock on load.
+	LegacyFrames int `json:"frames,omitempty"`
 }
 
 // RelicState belongs to this monster, including across map re-entry and saves.
@@ -21,18 +28,9 @@ func (s RelicState) Clone() RelicState {
 	return s
 }
 
-func (s *RelicState) Tick(frames int) {
-	if frames <= 0 {
-		return
-	}
-	for id, mark := range s.Catalysis {
-		mark.Frames -= frames
-		if mark.Frames <= 0 {
-			delete(s.Catalysis, id)
-		} else {
-			s.Catalysis[id] = mark
-		}
-	}
+// Tick spends one tick of every catalysis mark: a frame or a turn.
+func (s *RelicState) Tick(turn bool) {
+	status.TickMap(s.Catalysis, turn, func(m *CatalysisMark) *status.DualClock { return &m.Clock })
 }
 
 // Erosion is the armor Crumbling removes from a monster whose armor is now
@@ -54,7 +52,9 @@ func (s RelicState) Normalized(capPercent int) RelicState {
 		s.CrumbleCapPct = min(s.CrumbleCapPct, capPercent)
 	}
 	for id, mark := range s.Catalysis {
-		if id == 0 || mark.Frames <= 0 || mark.Percent <= 0 || mark.Percent > 100 {
+		status.MigrateFrames(&mark.Clock, &mark.LegacyFrames, config.GlobalConfig.GetTPS())
+		s.Catalysis[id] = mark
+		if id == 0 || !mark.Clock.Active() || mark.Percent <= 0 || mark.Percent > 100 {
 			delete(s.Catalysis, id)
 		}
 	}

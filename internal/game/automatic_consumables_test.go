@@ -6,6 +6,7 @@ import (
 	"testing"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
+	"ugataima/internal/status"
 )
 
 func TestAutomaticConsumableSourcesAndThresholds(t *testing.T) {
@@ -50,7 +51,7 @@ func TestAutomaticConsumableSourcesAndThresholds(t *testing.T) {
 						if left != want {
 							t.Fatalf("units=%d want %d", left, want)
 						}
-						if below && ch.AutoDrinkCooldown <= 0 {
+						if below && ch.AutoDrinkCD.Frames <= 0 {
 							t.Fatal("no automatic-use interval")
 						}
 						if below {
@@ -89,7 +90,7 @@ func TestAutomaticConsumableEligibility(t *testing.T) {
 			case "eradicated":
 				ch.Conditions = []character.Condition{character.ConditionEradicated}
 			case "stunned":
-				ch.StunFramesRemaining = 120
+				ch.Stun.Frames = 120
 			case "menu":
 				g.menuOpen = true
 			case "picker":
@@ -115,7 +116,7 @@ func TestAutomaticConsumableEligibility(t *testing.T) {
 			before := g.party.GetTotalItems()
 			hp := ch.HitPoints
 			g.updateAutomaticConsumables()
-			if g.party.GetTotalItems() != before || ch.HitPoints != hp || ch.AutoDrinkCooldown != 0 {
+			if g.party.GetTotalItems() != before || ch.HitPoints != hp || ch.AutoDrinkCD.Frames != 0 {
 				t.Fatal("ineligible automatic use")
 			}
 		})
@@ -162,7 +163,7 @@ func TestAutomaticConsumablePriorityAndSharedManualEffects(t *testing.T) {
 	}
 	ch.QuickSlots[0] = nil
 	g.party.Inventory = g.party.Inventory[1:]
-	ch.AutoDrinkCooldown = 0
+	ch.AutoDrinkCD = status.DualClock{}
 	g.updateAutomaticConsumables()
 	if ch.SpellPoints <= 1 || len(g.party.Inventory) != 0 {
 		t.Fatal("no HP supplies blocked available mana potion")
@@ -189,10 +190,10 @@ func TestAutomaticConsumableTurnClockAndModeSwitch(t *testing.T) {
 	if ch.HitPoints <= first || g.party.Inventory[0].Count() != 3 {
 		t.Fatal("next round did not permit drinking")
 	}
-	remaining := ch.AutoDrinkCooldown
+	remaining := ch.AutoDrinkCD.Frames
 	g.ToggleTurnBasedMode()
 	g.ToggleTurnBasedMode()
-	if ch.AutoDrinkCooldown != remaining {
+	if ch.AutoDrinkCD.Frames != remaining {
 		t.Fatal("mode switch reset drinking interval")
 	}
 }
@@ -235,15 +236,21 @@ func TestAutomaticConsumableRealTimeInterval(t *testing.T) {
 	p := items.CreateItemFromYAML("health_potion")
 	p.Quantity = 4
 	g.party.Inventory = []items.Item{p}
-	g.updateAutomaticConsumables()
-	interval := ch.AutoDrinkCooldown
-	for range interval - 1 {
+	// A world frame checks the drink, then spends a frame of the party clocks.
+	frame := func() {
 		g.updateAutomaticConsumables()
+		g.tickPartyClocks(false)
+	}
+	g.updateAutomaticConsumables()
+	interval := ch.AutoDrinkCD.Frames
+	g.tickPartyClocks(false)
+	for range interval - 1 {
+		frame()
 	}
 	if g.party.Inventory[0].Count() != 3 {
 		t.Fatal("automatic drinking bypassed interval")
 	}
-	g.updateAutomaticConsumables()
+	frame()
 	if g.party.Inventory[0].Count() != 2 {
 		t.Fatal("automatic drinking did not resume after interval")
 	}
@@ -296,7 +303,7 @@ func TestAutomaticDrinkingAvailableToEveryClass(t *testing.T) {
 					if mana {
 						got = ch.SpellPoints
 					}
-					if got != want || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 1 || ch.AutoDrinkCooldown <= 0 {
+					if got != want || len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 1 || ch.AutoDrinkCD.Frames <= 0 {
 						t.Fatalf("automatic drinking: got=%d want=%d, inventory=%v", got, want, g.party.Inventory)
 					}
 				})

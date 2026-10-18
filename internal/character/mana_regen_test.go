@@ -92,33 +92,29 @@ func TestRegenerateSpellPointsSkipsDeadHP(t *testing.T) {
 }
 
 // TestRealtimeRegenTimerCadence checks the real-time path the game drives
-// (UpdateWithMode(PartyClock{})): SP regenerates once every config.RegenerationIntervalFrames()
-// frames, the frame that pays reports it, and the timer restarts afterwards.
+// (UpdateWithMode(PartyClock{})): SP regenerates once every regeneration
+// period of frames, and the period restarts afterwards.
 func TestRealtimeRegenTimerCadence(t *testing.T) {
 	c := newRegenTestCharacter(10) // regen = 2
 	c.MaxSpellPoints = 100
 	c.SpellPoints = 0
 
 	// One frame short of the interval - no regen yet.
-	for i := 0; i < config.RegenerationIntervalFrames()-1; i++ {
-		if c.UpdateWithMode(PartyClock{}).Any() {
-			t.Fatalf("frame %d reported a completed cadence", i+1)
-		}
+	for i := 0; i < (config.RegenerationSeconds*config.GetTargetTPS())-1; i++ {
+		c.UpdateWithMode(PartyClock{})
 	}
 	if c.SpellPoints != 0 {
 		t.Fatalf("regen fired before timer reached threshold; SP=%d", c.SpellPoints)
 	}
 
 	// One more frame crosses the threshold.
-	if !c.UpdateWithMode(PartyClock{}).Any() {
-		t.Error("the paying frame did not report a completed cadence")
-	}
+	c.UpdateWithMode(PartyClock{})
 	if c.SpellPoints != 2 {
-		t.Errorf("after %d frames: SP=%d, want 2", config.RegenerationIntervalFrames(), c.SpellPoints)
+		t.Errorf("after %d frames: SP=%d, want 2", (config.RegenerationSeconds * config.GetTargetTPS()), c.SpellPoints)
 	}
 
 	// Another full interval -> another +2.
-	for i := 0; i < config.RegenerationIntervalFrames(); i++ {
+	for i := 0; i < (config.RegenerationSeconds * config.GetTargetTPS()); i++ {
 		c.UpdateWithMode(PartyClock{})
 	}
 	if c.SpellPoints != 4 {
@@ -131,16 +127,14 @@ func TestRealtimeRegenTimerCadence(t *testing.T) {
 func TestTurnBasedFramesDoNotRegen(t *testing.T) {
 	c := newRegenTestCharacter(10)
 	c.SpellPoints = 30
-	for i := 0; i < config.RegenerationIntervalFrames()*3; i++ {
-		if c.UpdateWithMode(PartyClock{TurnBased: true}).Any() {
-			t.Fatal("a TB frame reported a completed cadence")
-		}
+	for i := 0; i < (config.RegenerationSeconds*config.GetTargetTPS())*3; i++ {
+		c.UpdateWithMode(PartyClock{TurnBased: true})
 	}
 	if c.SpellPoints != 30 {
 		t.Errorf("TB frames regenerated SP: %d, want 30", c.SpellPoints)
 	}
-	if spell, hp := c.RealtimeRegenProgress(); spell != 0 || hp != 0 {
-		t.Errorf("TB frames advanced the RT cadence to %d/%d", spell, hp)
+	if c.SPRegen.Active() || c.HPRegen.Active() {
+		t.Errorf("TB frames advanced the regeneration periods to %+v/%+v", c.SPRegen, c.HPRegen)
 	}
 }
 
@@ -152,7 +146,7 @@ func TestRealtimeRegenSkipsUnconscious(t *testing.T) {
 	c.SpellPoints = 30
 	c.AddCondition(ConditionUnconscious)
 
-	for i := 0; i < config.RegenerationIntervalFrames()*3; i++ {
+	for i := 0; i < (config.RegenerationSeconds*config.GetTargetTPS())*3; i++ {
 		c.UpdateWithMode(PartyClock{})
 	}
 	if c.SpellPoints != 30 {

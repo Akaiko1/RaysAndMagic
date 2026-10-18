@@ -21,10 +21,7 @@ func (g *MMGame) updateAutomaticConsumables() {
 		if ch == nil {
 			continue
 		}
-		if !g.turnBasedMode && ch.AutoDrinkCooldown > 0 {
-			ch.AutoDrinkCooldown--
-		}
-		if ch.AutoDrinkCooldown > 0 || !ch.CanUseCombatAction() {
+		if ch.AutoDrinkCD.Active() || !ch.CanUseCombatAction() {
 			continue
 		}
 		resources := []string{}
@@ -60,11 +57,8 @@ func (g *MMGame) updateAutomaticConsumables() {
 		}
 
 		if used {
-			seconds := rules.IntervalSeconds
-			if g.turnBasedMode {
-				seconds = max(seconds, float64(config.CombatRoundSeconds))
-			}
-			ch.AutoDrinkCooldown = max(1, int(math.Ceil(seconds*float64(g.config.GetTPS()))))
+			tps := g.config.GetTPS()
+			ch.AutoDrinkCD.ArmFrames(max(1, int(math.Ceil(rules.IntervalSeconds*float64(tps)))), tps)
 		}
 	}
 }

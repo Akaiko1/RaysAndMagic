@@ -303,7 +303,7 @@ func TestEquipmentComparisonMechanicsAndContext(t *testing.T) {
 	cs.game.party.Members = cs.game.party.Members[:1]
 	delete(ch.Skills, character.SkillDualWielding)
 	cs.game.dayNightIsNight = true
-	hinder := PartyHinderState{Slow: 1, Window: 2}
+	hinder := PartyHinderState{Slow: framesClock(config.RoundFrames(2, cs.game.config.GetTPS()))}
 	cs.game.partyHinder = hinder
 	dusk, bow := items.CreateWeaponFromYAML("duskneedle"), items.CreateWeaponFromYAML("long_bow")
 	ch.Equipment = map[items.EquipSlot]items.Item{items.SlotMainHand: dusk, items.SlotAmulet: items.CreateItemFromYAML("amber_talisman")}

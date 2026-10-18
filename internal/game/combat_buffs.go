@@ -5,6 +5,7 @@ import (
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 // TimedCombatBuff is one active, timed party combat buff. Multiple buffs STACK
@@ -19,14 +20,14 @@ type TimedCombatBuff struct {
 	ExtraActions       int
 	DeferFirstTurnTick bool
 
-	ID            string // source id: spell, config.TechniqueID, config.CrateID or draught item (HUD status + replace-on-recast key)
-	SourceID      string // optional owner for system-granted cleanup
-	Frames        int    // frames remaining
-	OutBonus      int    // flat add to party outgoing damage
-	OutPercent    int    // strongest active draught per school; static item data
-	OutDamageType string // empty/"all" applies to all damage; "physical" applies only to physical attacks
-	InReduce      int    // flat reduction of incoming damage (after ResistPct)
-	ResistPct     int    // % reduction of incoming damage (applied before InReduce)
+	ID            string           // source id: spell, config.TechniqueID, config.CrateID or draught item (HUD status + replace-on-recast key)
+	SourceID      string           // optional owner for system-granted cleanup
+	Clock         status.DualClock // time remaining; idle for a charge- or absorb-limited buff
+	OutBonus      int              // flat add to party outgoing damage
+	OutPercent    int              // strongest active draught per school; static item data
+	OutDamageType string           // empty/"all" applies to all damage; "physical" applies only to physical attacks
+	InReduce      int              // flat reduction of incoming damage (after ResistPct)
+	ResistPct     int              // % reduction of incoming damage (applied before InReduce)
 	// Per-school resistance (Fire Shield: fire +50): joins the party's gear and
 	// card resists in that school's mitigation slot, not the all-damage slot.
 	ResistSchool    string
@@ -45,14 +46,14 @@ type TimedCombatBuff struct {
 func (b TimedCombatBuff) buffKey() string      { return b.ID }
 func (b TimedCombatBuff) buffSourceID() string { return b.SourceID }
 
-func (b TimedCombatBuff) active() bool { return b.Frames > 0 || b.Charges > 0 || b.Absorb > 0 }
+func (b TimedCombatBuff) active() bool { return b.Clock.Active() || b.Charges > 0 || b.Absorb > 0 }
 
 // Negative HUD duration means budget-limited rather than time-limited.
 func (b TimedCombatBuff) statusDuration() int {
-	if b.Frames == 0 && (b.Charges > 0 || b.Absorb > 0) {
+	if !b.Clock.Active() && (b.Charges > 0 || b.Absorb > 0) {
 		return -1
 	}
-	return b.Frames
+	return b.Clock.Frames
 }
 
 // timedCombatBuffFromItem is the one item-definition -> runtime mapping for
@@ -66,7 +67,7 @@ func timedCombatBuffFromItem(itemKey string, def *config.ItemDefinitionConfig, f
 	}
 	return TimedCombatBuff{
 		ID:              itemKey,
-		Frames:          frames,
+		Clock:           status.FromFrames(frames, config.GetTargetTPS()),
 		ResistSchool:    def.ResistBuffSchool,
 		ResistSchoolPct: def.ResistBuffSchoolPct,
 		ArmorBonus:      def.BuffArmorClass,
@@ -86,7 +87,7 @@ func timedCombatBuffFromSpell(spellID spells.SpellID, def spells.SpellDefinition
 	return TimedCombatBuff{
 		ID:              string(spellID),
 		SourceID:        sourceID,
-		Frames:          frames,
+		Clock:           status.FromFrames(frames, config.GetTargetTPS()),
 		OutBonus:        scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
 		OutDamageType:   def.OutgoingDamageType,
 		InReduce:        scaledIncomingDamageReduction(def, caster),
@@ -99,10 +100,11 @@ func timedCombatBuffFromSpell(spellID spells.SpellID, def spells.SpellDefinition
 // addCombatBuff activates a buff (same-spell recast refreshes).
 func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
 	g.combatBuffs = upsertBuff(g.combatBuffs, b)
+	g.setBuffStatus(b.ID, b.statusDuration())
 	g.applyPartyRegenBuffs()
 }
 
-// refreshCombatBuffStatus shows a granted buff's HUD timer before its first tick.
+// refreshCombatBuffStatus shows a restored buff's HUD timer before its first tick.
 func (g *MMGame) refreshCombatBuffStatus(b TimedCombatBuff) {
 	g.updateBuffStatus(b.ID, b.statusDuration(), true)
 }
@@ -126,7 +128,7 @@ func (g *MMGame) applyPartyRegenBuffs() {
 	}
 	hp, mana := 0, 0
 	for _, b := range g.combatBuffs {
-		if b.Frames > 0 {
+		if b.Clock.Active() {
 			hp, mana = max(hp, b.HPRegenPct), max(mana, b.ManaRegenPct)
 		}
 	}
@@ -236,7 +238,7 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 			ID:          b.ID,
 			CombatClock: b.CombatClock, MasteryTier: b.MasteryTier, DeferFirstTurnTick: b.DeferFirstTurnTick,
 			SourceID:        b.SourceID,
-			Frames:          b.Frames,
+			Frames:          b.Clock.Frames,
 			OutBonus:        b.OutBonus,
 			InReduce:        b.InReduce,
 			ResistPct:       b.ResistPct,
@@ -298,7 +300,7 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 			ID:          s.ID,
 			CombatClock: s.CombatClock, MasteryTier: s.MasteryTier, DeferFirstTurnTick: s.DeferFirstTurnTick,
 			SourceID:        s.SourceID,
-			Frames:          s.Frames,
+			Clock:           status.FromFrames(s.Frames, config.GetTargetTPS()),
 			OutBonus:        s.OutBonus,
 			InReduce:        s.InReduce,
 			ResistPct:       s.ResistPct,
@@ -347,15 +349,17 @@ func (g *MMGame) combatBuffArmorBonus() int {
 	return total
 }
 
-// tickCombatBuffs decrements every active buff, refreshes its HUD status, and
-// drops the expired ones. Called once per frame from updateSpecialEffects.
+// tickCombatBuffs spends a real-time frame of every active buff; a turn-based
+// round is spent at the party turn. Called once per frame from
+// updateSpecialEffects.
 func (g *MMGame) tickCombatBuffs() {
-	if !g.turnBasedMode {
-		for i := range g.combatBuffs {
-			g.combatBuffs[i].DeferFirstTurnTick = false
-		}
+	if g.turnBasedMode {
+		return
 	}
-	g.advanceCombatBuffs(g.combatFrameElapsed(), false)
+	for i := range g.combatBuffs {
+		g.combatBuffs[i].DeferFirstTurnTick = false
+	}
+	g.advanceCombatBuffs(false)
 }
 
 func (g *MMGame) combatBuffDodgePct() int {
@@ -366,22 +370,20 @@ func (g *MMGame) combatBuffDodgePct() int {
 	return total
 }
 
-func (g *MMGame) tickCombatBuffsTurn(frames int) {
-	g.advanceCombatBuffs(frames, true)
-}
-
-func (g *MMGame) advanceCombatBuffs(elapsed int, round bool) {
+// advanceCombatBuffs spends one tick of every combat buff, refreshes its HUD
+// status, and drops the expired ones.
+func (g *MMGame) advanceCombatBuffs(turn bool) {
 	var expired bool
-	g.combatBuffs, expired = tickBuffList(g, g.combatBuffs, elapsed, func(b *TimedCombatBuff, frames int) int {
-		if b.Frames == 0 {
+	g.combatBuffs, expired = tickBuffList(g, g.combatBuffs, turn, func(b *TimedCombatBuff, turn bool) int {
+		if !b.Clock.Active() {
 			return b.statusDuration()
 		}
-		if round && b.DeferFirstTurnTick {
+		if turn && b.DeferFirstTurnTick {
 			b.DeferFirstTurnTick = false
 		} else {
-			b.Frames = g.remainingBuffFrames(b.SourceID, b.Frames, frames)
+			g.tickBuffClock(b.SourceID, &b.Clock, turn)
 		}
-		if b.Frames == 0 {
+		if !b.Clock.Active() {
 			b.Charges, b.Absorb = 0, 0
 		}
 		return b.statusDuration()
@@ -400,6 +402,8 @@ func applyTechniqueBuff(b *TimedCombatBuff, d *config.TechniqueDefinition, tier 
 	}
 }
 func applyCrateBuff(b *TimedCombatBuff, d *config.CrateBuffConfig) {
-	b.Frames = max(0, min(b.Frames, d.DurationSeconds*config.GetTargetTPS()))
+	if limit := d.DurationSeconds * config.GetTargetTPS(); b.Clock.Frames > limit {
+		b.Clock = status.FromFrames(limit, config.GetTargetTPS())
+	}
 	b.HPRegenPct, b.ManaRegenPct = d.HPRegenPct, d.ManaRegenPct
 }

@@ -1632,7 +1632,7 @@ loot_tables:
       - {type: weapon, key: chime_maul, weight: 1}
       - {type: weapon, key: minute_hand, weight: 1}
       - {type: weapon, key: mainspring_pike, weight: 1}
-      - {type: weapon, key: escapement_mace, weight: 1}
+      - {type: weapon, key: escapement_staff, weight: 1}
       - {type: weapon, key: clockwork_pistol, weight: 1}
 
 # Material groups keep ordinary and five-roll elite drops on the same chance.

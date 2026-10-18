@@ -25,7 +25,7 @@ func TestSolsticeSlowActionFloorAndRecovery(t *testing.T) {
 	for _, member := range g.party.Members {
 		member.Speed = -1000
 	}
-	g.partyHinder.Slow = 1
+	g.partyHinder.Slow.Arm(config.CombatRoundSeconds, g.config.GetTPS())
 	g.startPartyTurn()
 	if hero.ActionsRemaining < 1 || hero.TBRoundActionFloor > hero.ActionsRemaining {
 		t.Fatal("slow left an uncredited equipment floor")
@@ -53,7 +53,7 @@ func TestSolsticeTelegraphCrossfire(t *testing.T) {
 					placePlayerAtTile(g, 2, 2, 64)
 					m := spawnSpecialsMonster(g, "solstice_"+key, 8, 6)
 					foe := spawnSpecialsMonster(g, "goblin", 6, 6)
-					foe.Bound, foe.BoundFramesRemaining = true, 100000
+					foe.Bound, foe.BoundClock = true, framesClock(100000)
 					foe.HitPoints, foe.MaxHitPoints, foe.Speed = 10000, 10000, 0
 					foe.AttackCDFrames = 100000
 					m.State, m.StateTimer = monster.StateAttacking, 1
@@ -65,20 +65,19 @@ func TestSolsticeTelegraphCrossfire(t *testing.T) {
 					} else {
 						g.combat.HandleMonsterInteractions()
 					}
-					if m.Telegraph.TargetID != foe.ID || m.Telegraph.Warning == 0 {
+					if m.Telegraph.TargetID != foe.ID || !m.Telegraph.Warning.Active() {
 						t.Fatal("crossfire warning did not lock its actor")
 					}
 					switch outcome {
 					case "escaped":
 						foe.X, foe.Y = 6.5*64, 9.5*64
 					case "allegiance-changed":
-						foe.Bound, foe.BoundFramesRemaining = false, 0
+						foe.Bound, foe.BoundClock = false, framesClock(0)
 					case "caster-bound":
-						m.Bound, m.BoundFramesRemaining = true, 100000
+						m.Bound, m.BoundClock = true, framesClock(100000)
 					}
 					g.refreshMonsterAIState()
-					a := telegraphDefinition(m)
-					g.tickMonsterTelegraphs(a.WarningSeconds, tb)
+					expireTelegraphWarning(g, m, tb)
 					if (foe.HitPoints < 10000) != (outcome == "hit") {
 						t.Fatalf("foe HP=%d", foe.HitPoints)
 					}
@@ -116,9 +115,9 @@ func TestSolsticeForcedArrival(t *testing.T) {
 					g.refreshMonsterAIState()
 					m.Telegraph.Tiles = [][2]int{{5, 6}}
 					if hazard == "monster-warning" {
-						m.Telegraph.Warning = 1
+						m.Telegraph.Warning = roundClock()
 					} else {
-						m.Telegraph.Remaining = 1
+						m.Telegraph.Remaining = roundClock()
 					}
 				} else if hazard != "clear" {
 					kind := hazard
@@ -133,10 +132,10 @@ func TestSolsticeForcedArrival(t *testing.T) {
 						v.effectState("hazard").Disarmed = true
 					}
 					if hazard == "lane-warning" {
-						v.effectState("hazard").Warning = 1
+						v.effectState("hazard").Warning = roundClock()
 					}
 					if hazard == "lane-live" {
-						v.effectState("hazard").Remaining = 1
+						v.effectState("hazard").Remaining = roundClock()
 					}
 				}
 				hp := partyHPSum(g)
@@ -200,7 +199,7 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 					} else {
 						g.combat.HandleMonsterInteractions()
 					}
-					if m.Telegraph.Warning != 1 || len(m.Telegraph.Tiles) == 0 {
+					if m.Telegraph.Warning != telegraphDefinition(m).WarningClock(g.config.GetTPS()) || len(m.Telegraph.Tiles) == 0 {
 						t.Fatalf("scheduler did not announce: %+v", m.Telegraph)
 					}
 					if partyHPSum(g) != before {
@@ -215,13 +214,13 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 						}
 					}
 					if outcome == "interrupted" {
-						m.StunFramesRemaining, m.StunTurnsRemaining = 999, 9
+						m.Stun.Frames, m.Stun.Turns = 999, 9
 					}
 					if tb {
 						runTBMonsterTurns(g, gl, 1)
 					} else {
 						for range int(math.Ceil(a.WarningSeconds*float64(g.config.GetTPS()))) + 1 {
-							g.tickMonsterTelegraphs(1/float64(g.config.GetTPS()), false)
+							g.tickMonsterTelegraphs(false)
 							// One resolution frame is enough: the following frame belongs to normal AI.
 							if m.Telegraph.Released || outcome == "interrupted" {
 								g.combat.HandleMonsterInteractions()
@@ -229,7 +228,7 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 							}
 						}
 					}
-					if m.Telegraph.Warning > 0 {
+					if m.Telegraph.Warning.Active() {
 						t.Fatal("warning did not expire")
 					}
 					if outcome == "interrupted" {
@@ -260,7 +259,7 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 									t.Fatal("root absent")
 								}
 							case "slow":
-								if g.partyHinder.Slow <= 0 {
+								if !g.partyHinder.Slow.Active() {
 									t.Fatal("slow absent")
 								}
 							case "push":
@@ -304,7 +303,7 @@ func TestSolsticeTelegraphWallAndFactionGates(t *testing.T) {
 				case "dead":
 					m.HitPoints = 0
 				case "cooldown":
-					m.Telegraph.Cooldown = 1
+					m.Telegraph.Cooldown = telegraphDefinition(m).CooldownClock(g.config.GetTPS())
 				}
 				g.refreshMonsterAIState()
 				if tb {
@@ -312,7 +311,7 @@ func TestSolsticeTelegraphWallAndFactionGates(t *testing.T) {
 				} else {
 					g.combat.HandleMonsterInteractions()
 				}
-				if m.Telegraph.Warning > 0 {
+				if m.Telegraph.Warning.Active() {
 					t.Fatal("gate allowed a special")
 				}
 			})
@@ -327,7 +326,7 @@ func TestSolsticeHinderRecoveryWindow(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			g, _ := newSpecialsTestGame(t)
 			a := monster.MonsterConfig.Monsters[key].Abilities.Telegraph
-			hindered := func() bool { return g.partyRooted() || g.partyHinder.Slow > 0 }
+			hindered := func() bool { return g.partyRooted() || g.partyHinder.Slow.Active() }
 			tps, rounds := g.config.GetTPS(), config.CombatRounds(a.DurationSeconds)
 			g.applyTelegraphHinder(a)
 			for range tps {
@@ -340,9 +339,8 @@ func TestSolsticeHinderRecoveryWindow(t *testing.T) {
 			}
 			// One second of RT, then one TB round: both spend the same window.
 			g.tickPartyRoot(true)
-			window := float64(rounds)
-			if want := 2 - 1/(window*config.CombatRoundSeconds) - 1/window; math.Abs(g.partyHinder.Recovery-want) > .00001 {
-				t.Fatalf("mode switch reset duration: %+v, want recovery %g", g.partyHinder, want)
+			if want := 2*a.DurationSeconds*tps - tps - config.RoundFrames(1, tps); g.partyHinder.Recovery.Frames != want || g.partyHinder.Recovery.Turns != 2*rounds-1 {
+				t.Fatalf("mode switch reset duration: %+v, want recovery %d frames", g.partyHinder, want)
 			}
 			left := a.DurationSeconds - 1 - config.CombatRoundSeconds
 			for range left*tps - 1 {
@@ -351,9 +349,6 @@ func TestSolsticeHinderRecoveryWindow(t *testing.T) {
 			if !hindered() {
 				t.Fatalf("%s ended before its %ds", a.Kind, a.DurationSeconds)
 			}
-			// The slow budget is a float fraction of the window: allow it one
-			// frame of rounding at the end.
-			g.tickPartyRoot(false)
 			g.tickPartyRoot(false)
 			if hindered() {
 				t.Fatal("hinder outlived duration")
@@ -376,9 +371,9 @@ func TestSolsticeTelegraphSaveRestore(t *testing.T) {
 	}
 	m := g.world.Monsters[0]
 	id := m.ID
-	m.Telegraph = monster.TelegraphState{Warning: .75, Cooldown: .875, Remaining: .5, Tiles: [][2]int{{3, 4}, {3, 5}}, Origin: [2]int{3, 3}, Direction: [2]int{0, 1}, TargetID: "original-target", Carry: .4}
+	m.Telegraph = monster.TelegraphState{Warning: framesClock(56), Cooldown: framesClock(140), Remaining: framesClock(90), Tiles: [][2]int{{3, 4}, {3, 5}}, Origin: [2]int{3, 3}, Direction: [2]int{0, 1}, TargetID: "original-target", Carry: .4}
 	want := m.Telegraph.Clone()
-	g.partyHinder = PartyHinderState{Slow: .625, Recovery: 1.625}
+	g.partyHinder = PartyHinderState{Slow: framesClock(225), Recovery: framesClock(585)}
 	hinder := g.partyHinder
 	raw, err := json.Marshal(g.buildSave(wm))
 	if err != nil {
@@ -423,7 +418,7 @@ func TestFlowShieldRequiresCombat(t *testing.T) {
 					m.BeginPlayerEngagement()
 				case "foe":
 					foe := spawnSpecialsMonster(g, "goblin", 8, 9)
-					foe.Bound, foe.BoundFramesRemaining, foe.Speed = true, 100000, 0
+					foe.Bound, foe.BoundClock, foe.Speed = true, framesClock(100000), 0
 					foe.AttackCDFrames = 100000
 					m.AIFoe = foe
 				}
@@ -434,19 +429,58 @@ func TestFlowShieldRequiresCombat(t *testing.T) {
 					g.combat.HandleMonsterInteractions()
 				}
 				if engagement == "idle" {
-					if m.Telegraph.Warning != 0 || ally.SoakDamage != 0 || countCombatLog(g, "prepares") != before {
+					if m.Telegraph.Warning.Active() || ally.SoakDamage != 0 || countCombatLog(g, "prepares") != before {
 						t.Fatal("idle shield started combat or logged a cast")
 					}
 				} else {
-					if m.Telegraph.Warning == 0 || m.Telegraph.TargetID != ally.ID {
+					if !m.Telegraph.Warning.Active() || m.Telegraph.TargetID != ally.ID {
 						t.Fatal("engaged shield failed to target its ally")
 					}
-					g.tickMonsterTelegraphs(telegraphDefinition(m).WarningSeconds, tb)
+					expireTelegraphWarning(g, m, tb)
 					if ally.SoakDamage == 0 {
 						t.Fatal("engaged shield did not resolve")
 					}
 				}
 			})
 		}
+	}
+}
+
+// An old save's hinder fractions of a window come back as clocks.
+func TestPartyHinderLegacySave(t *testing.T) {
+	var h PartyHinderState
+	if err := json.Unmarshal([]byte(`{"slow":0.5,"recovery":1.5,"window":2}`), &h); err != nil {
+		t.Fatal(err)
+	}
+	tps := config.DefaultTPS
+	h.migrateLegacy(tps)
+	round := config.RoundFrames(1, tps)
+	if h.Slow.Frames != round || h.Slow.Turns != 1 || h.Recovery.Frames != 3*round || h.Recovery.Turns != 3 || h.LegacySlow != 0 || h.LegacyRecovery != 0 {
+		t.Fatalf("legacy hinder: %+v", h)
+	}
+}
+
+// expireTelegraphWarning runs the telegraph clock until m's warning releases.
+func expireTelegraphWarning(g *MMGame, m *monster.Monster3D, turn bool) {
+	for range 100000 {
+		if !m.Telegraph.Warning.Active() {
+			return
+		}
+		g.tickMonsterTelegraphs(turn)
+	}
+}
+
+// An old save's parts of each telegraph span come back as clocks at the
+// authored seconds/rounds of each.
+func TestTelegraphLegacySave(t *testing.T) {
+	var s monster.TelegraphState
+	if err := json.Unmarshal([]byte(`{"warning":0.5,"cooldown":0.5,"remaining":0.5}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	a := &monster.TelegraphedAttack{WarningSeconds: 1.25, WarningRounds: 1, CooldownSeconds: 4.5, CooldownRounds: 2, DurationSeconds: 6}
+	s.MigrateLegacy(a, 60)
+	if s.Warning.Frames != 38 || s.Warning.Turns != 1 || s.Cooldown.Frames != 135 || s.Cooldown.Turns != 1 ||
+		s.Remaining.Frames != 180 || s.Remaining.Turns != 1 || s.LegacyWarning != 0 || s.LegacyCooldown != 0 || s.LegacyRemaining != 0 {
+		t.Fatalf("legacy telegraph: %+v", s)
 	}
 }

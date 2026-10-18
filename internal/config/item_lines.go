@@ -91,6 +91,9 @@ func (d *ItemDefinitionConfig) ItemMechanicLines() []string {
 	if d.StatusDurationPct != 0 {
 		lines = append(lines, uitext.Text("item.hostile_statuses_on_the_wearer_last_as", 100+d.StatusDurationPct, ScaledRoundsText(d.StatusDurationPct)))
 	}
+	if d.RewindCooldownSeconds > 0 {
+		lines = append(lines, uitext.Text("item.rewind", DurationText(d.RewindCooldownSeconds)))
+	}
 	if d.ScaleStackAC > 0 {
 		lines = append(lines, uitext.Text("item.growing_scales_ac_per_hit_taken_max", d.ScaleStackAC, d.ScaleStackAC*d.ScaleStackMax))
 	}
@@ -354,6 +357,15 @@ func EquipmentSetLines(setKey string) []string {
 	if set.FieryRipostePct != 0 {
 		parts = append(parts, uitext.Text("item.melee_attackers_take_back_as_fire", set.FieryRipostePct))
 	}
+	if set.FightOpenerActions > 0 {
+		parts = append(parts, uitext.Text("item.set_quick_draw", set.FightOpenerActions))
+	}
+	if set.HealFollowUpSpell {
+		parts = append(parts, uitext.Text("item.set_pendulum"))
+	}
+	if set.StationaryDamageReductionPct > 0 {
+		parts = append(parts, uitext.Text("item.set_locked_gears", set.StationaryDamageReductionPct))
+	}
 	if len(parts) > 0 {
 		lines = append(lines, uitext.Text("item.set_bonus")+strings.Join(parts, ", "))
 	}
@@ -422,7 +434,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, line)
 	}
 	if d.CardDisintegratePct != 0 {
-		p = append(p, uitext.Text("item.on_direct_hit_disintegrate_undead_and_dragons", d.CardDisintegratePct, DisintegrateBossTrueDamage))
+		p = append(p, uitext.Text("item.on_direct_hit_disintegrate_undead_and_dragons", d.CardDisintegratePct, DisintegrateBossMaxHPPct))
 	}
 	if d.CardRegenPct != 0 {
 		p = append(p, uitext.Text("item.regenerate_max_hp_per_regeneration_tick", d.CardRegenPct, RegenerationIntervalSeconds(), RegenerationRounds))

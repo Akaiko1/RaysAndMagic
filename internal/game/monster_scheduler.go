@@ -18,9 +18,8 @@ func (gl *GameLoop) runMonsterFrame() {
 		}
 		// Workers finish status damage before any pending special can release.
 		// Charges publish their own movement; finish observing the AI walk first.
-		dt := 1 / float64(max(1, gl.game.config.GetTPS()))
-		gl.game.tickMonsterTelegraphs(dt, false)
-		gl.game.tickEnvironment(dt, false)
+		gl.game.tickMonsterTelegraphs(false)
+		gl.game.tickEnvironment(false)
 	}
 	// Parallel RT updates can nominate the same logical post from one frozen
 	// snapshot. Serial arbitration runs before combat so only one can strike.

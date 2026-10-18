@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 	"sort"
+	"ugataima/internal/status"
 
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
@@ -57,7 +58,7 @@ func personalSpellMechanic(c *character.MMCharacter, kind string) (*config.Spell
 		return nil, 0
 	}
 	for _, e := range c.SpellState.Effects {
-		if d, ok := config.GetSpellDefinition(e.SpellID); ok && d.Mechanic != nil && d.Mechanic.Kind == kind && (e.Charges > 0 || e.Frames > 0) {
+		if d, ok := config.GetSpellDefinition(e.SpellID); ok && d.Mechanic != nil && d.Mechanic.Kind == kind && (e.Charges > 0 || e.Clock.Active()) {
 			return d.Mechanic, e.Tier
 		}
 	}
@@ -111,7 +112,7 @@ func (g *MMGame) advancedBuff(kind string) *TimedCombatBuff {
 func (g *MMGame) partyTempoBuff() (TimedCombatBuff, bool) {
 	var best TimedCombatBuff
 	for _, b := range g.combatBuffs {
-		if b.Frames > 0 && (b.RecoveryPct > best.RecoveryPct || b.ExtraActions > best.ExtraActions) {
+		if b.Clock.Active() && (b.RecoveryPct > best.RecoveryPct || b.ExtraActions > best.ExtraActions) {
 			best = b
 		}
 	}
@@ -147,26 +148,28 @@ func (cs *CombatSystem) tryCastAdvancedSupport(id spells.SpellID, d spells.Spell
 		return castNotHandled
 	}
 	g, tier := cs.game, character.SpellMasteryTier(caster, d)
-	frames := d.DurationSeconds(tier) * g.config.GetTPS()
+	frames := cs.CalculateSpellDurationFrames(id, caster)
 	switch {
 	case m.TargetsAlly():
 		target := cs.personalSpellTarget(caster)
 		if !target.IsLiving() {
 			return castRejected
 		}
-		target.SpellState.Set(character.PersonalSpellEffect{SpellID: string(id), Tier: tier, Charges: m.Charges(tier), Frames: frames})
+		effect := character.PersonalSpellEffect{SpellID: string(id), Tier: tier, Charges: m.Charges(tier)}
+		effect.Clock.ArmFrames(frames, g.config.GetTPS())
+		target.SpellState.Set(effect)
 	case m.IsPartyBuff():
 		if m.Kind == "haste" && !g.partyNeedsHaste() {
 			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
 			return castRejected
 		}
-		b := TimedCombatBuff{ID: string(id), Frames: frames, MasteryTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == "haste"}
+		b := TimedCombatBuff{ID: string(id), MasteryTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == "haste"}
+		b.Clock.ArmFrames(frames, g.config.GetTPS())
 		if m.Kind == "celestial_armor" {
 			b.Absorb = m.Power(tier)
 		}
 		restoreAdvancedBuff(&b, d)
 		g.addCombatBuff(b)
-		g.refreshCombatBuffStatus(b)
 	case m.Kind == "purify" || m.Kind == "dispel_magic":
 		if !g.partyNeedsPurify() && (m.Kind != "dispel_magic" || !g.hostileMagicNearby(m.RadiusTiles)) {
 			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
@@ -209,8 +212,8 @@ func (g *MMGame) purifyParty() {
 			c.Purify()
 		}
 	}
-	g.partyRoot = PartyRootState{}
-	g.partyHinder.Slow = 0
+	g.partyRoot = status.DualClock{}
+	g.partyHinder.Slow = status.DualClock{}
 }
 
 func (g *MMGame) hostileMagicNearby(radius float64) bool {
@@ -381,9 +384,9 @@ func (g *MMGame) spendPartyBuffCharge(id string) bool {
 	if b == nil || b.Charges <= 0 {
 		return false
 	}
-	b.Charges--
-	if b.Charges == 0 {
-		b.Frames = 0
+	// The last charge ends the buff at once, in any mode.
+	if b.Charges--; b.Charges == 0 {
+		g.removeCombatBuff(buffRegistryID(*b))
 	}
 	return true
 }
@@ -400,9 +403,8 @@ func (g *MMGame) absorbCelestialDamage(amount int) int {
 	absorbed := g.celestialAbsorb(amount)
 	if absorbed > 0 {
 		b := g.advancedBuff("celestial_armor")
-		b.Absorb -= absorbed
-		if b.Absorb == 0 {
-			b.Frames = 0
+		if b.Absorb -= absorbed; b.Absorb == 0 {
+			g.removeCombatBuff(buffRegistryID(*b))
 		}
 	}
 	return amount - absorbed

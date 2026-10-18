@@ -19,7 +19,7 @@ func TestTB_RootPinsRangedAndMeleeMonsters(t *testing.T) {
 			// Off the party's row/column: a ranged attacker has no firing lane
 			// here and must WANT to reposition; melee wants to close in.
 			m := spawnSpecialsMonster(g, tc.key, 6, 5)
-			m.RootTurnsRemaining = 2
+			m.Root.Turns = 2
 			x, y := m.X, m.Y
 
 			for turn := 1; turn <= 2; turn++ {

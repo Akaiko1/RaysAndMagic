@@ -91,19 +91,12 @@ func (cs *CombatSystem) castPlayerSpell(spellID spells.SpellID, def spells.Spell
 		PlayerInitiated: true, ActionProcs: true}).handled()
 }
 
-// weaponSpellEchoPct is the strongest spell_echo_pct across the caster's
-// equipped weapons (Verdant Eye scepter - either hand counts).
+// weaponSpellEchoPct is the caster's spell_echo_pct (Verdant Eye scepter).
 func weaponSpellEchoPct(caster *character.MMCharacter) int {
-	if caster == nil {
-		return 0
+	if def := strongestWeaponPerk(caster, func(d *config.WeaponDefinitionConfig) float64 { return float64(d.SpellEchoPct) }); def != nil {
+		return def.SpellEchoPct
 	}
-	best := 0
-	for _, def := range equippedWeaponDefinitions(caster) {
-		if def != nil && def.SpellEchoPct > best {
-			best = def.SpellEchoPct
-		}
-	}
-	return best
+	return 0
 }
 
 func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, announce bool) spellCastOutcome {
@@ -254,9 +247,7 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 		// resolved for the announcement above (this cast only, not the aggregate).
 		if isStatBuff {
 			cs.applyStatBuffSpell(spellID, duration, statBuff)
-		}
-
-		if !timedBuffActivated {
+		} else if !timedBuffActivated {
 			cs.game.setBuffStatus(string(spellID), duration)
 		}
 		cs.playSpellBuffFx(spellID)

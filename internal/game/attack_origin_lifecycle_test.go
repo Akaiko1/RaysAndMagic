@@ -24,8 +24,7 @@ func TestBossOriginKeepsLifecycle(t *testing.T) {
 					}
 					g.world.Tiles[2][5] = tile
 					m.Flying = true
-					m.BossCD, m.InfernoCDFrames = 2, 2
-					m.TrapVolleyCDFrames, m.TrapVolleyTurnCD = 2, 2
+					m.TrapVolleyCD.Frames, m.TrapVolleyCD.Turns = 2, 2
 					blocked := origin == "moss_rock"
 					switch kind {
 					case "dormant", "evasive":
@@ -46,12 +45,6 @@ func TestBossOriginKeepsLifecycle(t *testing.T) {
 					}
 					hp := partyHPSum(g)
 					handled := g.combat.runBossSpecials(m, true, tb)
-					if m.BossCD != 1 {
-						t.Fatal("terrain stopped boss clock")
-					}
-					if !tb && m.InfernoCDFrames == 2 {
-						t.Fatal("terrain stopped inferno clock")
-					}
 					if (kind == "dormant" || kind == "evasive") && !handled {
 						t.Fatal("quest gate fell through to regular attacks")
 					}
@@ -59,9 +52,11 @@ func TestBossOriginKeepsLifecycle(t *testing.T) {
 						t.Fatal("terrain suppressed passive enrage")
 					}
 					if kind == "volley" {
-						if (tb && m.TrapVolleyTurnCD != 1) || (!tb && m.TrapVolleyCDFrames != 1) {
-							t.Fatal("terrain stopped volley clock")
+						if len(g.bossFireTraps) > 0 {
+							t.Fatal("volley fired on cooldown")
 						}
+						m.TickAbilityClocks(tb)
+						m.TickAbilityClocks(tb)
 						g.combat.runBossSpecials(m, true, tb)
 						if (len(g.bossFireTraps) > 0) == blocked {
 							t.Fatal("volley did not obey attack origin")
@@ -102,7 +97,7 @@ func TestPounceOriginThroughCombatLoops(t *testing.T) {
 				} else {
 					g.combat.HandleMonsterInteractions()
 				}
-				pounced := m.PounceCDFrames > 0 || m.PounceCDTurns > 0
+				pounced := m.PounceCD.Active()
 				if pounced != (origin != "moss_rock") {
 					t.Fatalf("pounced=%v", pounced)
 				}

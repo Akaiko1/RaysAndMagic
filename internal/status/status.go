@@ -16,7 +16,11 @@ package status
 
 // Refresh extends a single status clock to at least `add`, never shortening a
 // running status. Reports whether the status is active afterwards.
-import "ugataima/internal/config"
+import (
+	"math"
+
+	"ugataima/internal/config"
+)
 
 func Refresh(remaining *int, add int) bool {
 	if add > *remaining {
@@ -128,11 +132,46 @@ func (c *DualClock) Refresh(frames, turns int) bool {
 
 // Arm starts a cooldown of whole rounds on both mode clocks: seconds of RT,
 // the same rounds of TB.
+// No time arms nothing.
 func (c *DualClock) Arm(seconds, tps int) {
-	if tps <= 0 {
-		tps = config.DefaultTPS
+	if seconds <= 0 {
+		return
 	}
-	c.Refresh(max(1, seconds*tps), config.CombatRounds(seconds))
+	c.armRounds(seconds*normalTPS(tps), config.CombatRounds(seconds), tps)
+}
+
+// ArmFrames arms a span authored in RT frames (fractional seconds): TB rounds
+// it up to whole turns, as Arm does.
+func (c *DualClock) ArmFrames(frames, tps int) {
+	if frames <= 0 {
+		return
+	}
+	round := config.RoundFrames(1, normalTPS(tps))
+	c.armRounds(frames, (frames+round-1)/round, tps)
+}
+
+// armRounds refreshes the clock at the one RT/TB conversion: a turn spends a
+// round's frames whatever span was armed, so a span that is not whole rounds
+// keeps the same exchange rate as every other clock, also after a save.
+func (c *DualClock) armRounds(frames, turns, tps int) {
+	if c.Refresh(frames, turns) {
+		c.Rate = config.RoundFrames(1, normalTPS(tps))
+	}
+}
+
+func normalTPS(tps int) int {
+	if tps <= 0 {
+		return config.DefaultTPS
+	}
+	return tps
+}
+
+// FromFrames is the clock with frames of RT left, at a round's frames per TB
+// turn: how a save that kept only the frames restores it.
+func FromFrames(frames, tps int) DualClock {
+	var c DualClock
+	c.ArmFrames(frames, tps)
+	return c
 }
 
 // TickFrame spends one RT frame (TickFrameRated).
@@ -140,6 +179,34 @@ func (c *DualClock) TickFrame() (expired bool) { return TickFrameRated(&c.Frames
 
 // TickTurn spends one TB turn (TickTurnRated).
 func (c *DualClock) TickTurn() (expired bool) { return TickTurnRated(&c.Turns, &c.Frames, &c.Rate) }
+
+// Tick spends one tick of the running mode's clock: a turn when turn is set,
+// else a frame.
+func (c *DualClock) Tick(turn bool) (expired bool) {
+	if turn {
+		return c.TickTurn()
+	}
+	return c.TickFrame()
+}
+
+// Every runs a repeating period of whole rounds: an idle clock arms on this
+// tick, and each lapse is reported once. A turn-based tick spends a whole
+// period, so a one-round period lapses every turn.
+func (c *DualClock) Every(seconds, tps int, turn bool) (lapsed bool) {
+	return c.EveryClock(func() (period DualClock) {
+		period.Arm(seconds, tps)
+		return period
+	}, turn)
+}
+
+// EveryClock runs a repeating period: an idle clock takes period()'s span on
+// this tick, and each lapse is reported once.
+func (c *DualClock) EveryClock(period func() DualClock, turn bool) (lapsed bool) {
+	if !c.Active() {
+		*c = period()
+	}
+	return c.Tick(turn)
+}
 
 // Active reports a running status.
 func (c DualClock) Active() bool { return c.Frames > 0 || c.Turns > 0 }
@@ -216,3 +283,40 @@ func Clear(remaining, tickTimer *int) {
 	*remaining = 0
 	*tickTimer = 0
 }
+
+// PairClock is an authored timer pair, RT seconds beside TB rounds, with part
+// of it left (1 = all): a turn spends the pair's frames per round.
+func PairClock(seconds float64, rounds, tps int, part float64) DualClock {
+	full := int(math.Ceil(seconds*float64(normalTPS(tps)) - 1e-9))
+	c := DualClock{Frames: int(math.Ceil(part*float64(full) - 1e-9)), Turns: int(math.Ceil(part*float64(rounds) - 1e-9))}
+	if !c.Active() {
+		return DualClock{}
+	}
+	c.Rate = DualRate(full, rounds)
+	return c
+}
+
+// MigrateFrames moves an older save's frame count onto clock, unless the save
+// already held the clock, and clears the count.
+func MigrateFrames(clock *DualClock, legacyFrames *int, tps int) {
+	if *legacyFrames > 0 && !clock.Active() {
+		*clock = FromFrames(*legacyFrames, tps)
+	}
+	*legacyFrames = 0
+}
+
+// TickMap spends one tick of the running mode on the clock of every entry of
+// m and drops the entries whose clock ran out.
+func TickMap[K comparable, V any](m map[K]V, turn bool, clock func(*V) *DualClock) {
+	for k, v := range m {
+		c := clock(&v)
+		if c.Tick(turn); !c.Active() {
+			delete(m, k)
+			continue
+		}
+		m[k] = v
+	}
+}
+
+// Self is the clock of a map that holds bare clocks (TickMap).
+func Self(c *DualClock) *DualClock { return c }

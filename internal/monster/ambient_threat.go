@@ -1,19 +1,48 @@
 package monster
 
-import "ugataima/internal/config"
+import (
+	"math"
+
+	"ugataima/internal/status"
+)
+
+// ambientThreatSeconds is how long wildlife remembers a threat it lost sight of.
+const ambientThreatSeconds = 3
 
 // AmbientThreat preserves a short memory across occlusion and save/load.
 // Its position uses the same map coordinate space as the animal.
 type AmbientThreat struct {
-	X, Y    float64
-	Seconds float64 `json:"seconds"`
+	X, Y  float64
+	Clock status.DualClock `json:"clock,omitzero"`
+	// LegacySeconds is an old save's memory left, read into Clock.
+	LegacySeconds float64 `json:"seconds,omitempty"`
 	// A selected detour keeps its original clearance until the escape ends or
 	// danger moves. Recomputing this from each step would allow inward drift.
 	DetourClearance float64 `json:"detour_clearance,omitempty"`
 }
 
+// threatClock is part of the memory as a clock. A TB turn is walking time,
+// the time a turn_step_speed walker needs for one tile (the movement rule),
+// so the memory spans the same escape in both modes.
+func (m *Monster3D) threatClock(part float64) status.DualClock {
+	turnSeconds := m.tileSize() / (60 * m.turnStepSpeed())
+	turns := int(math.Ceil(ambientThreatSeconds/turnSeconds - 1e-9))
+	return status.PairClock(ambientThreatSeconds, turns, m.tps(), part)
+}
+
+// RestoreAmbientThreat resumes a saved memory; an old save's seconds left
+// become the clock.
+func (m *Monster3D) RestoreAmbientThreat(saved AmbientThreat) {
+	if saved.LegacySeconds > 0 {
+		saved.Clock = m.threatClock(saved.LegacySeconds / ambientThreatSeconds)
+	}
+	saved.LegacySeconds = 0
+	m.Threat = saved
+	m.AmbientFlee = m.Threat.Clock.Active()
+}
+
 func (s AmbientThreat) MapPosition(f func(float64, float64) (float64, float64)) AmbientThreat {
-	if s.Seconds > 0 {
+	if s.Clock.Active() || s.LegacySeconds > 0 {
 		s.X, s.Y = f(s.X, s.Y)
 	}
 	return s
@@ -48,24 +77,15 @@ func (m *Monster3D) RememberAmbientThreat(x, y float64) {
 		m.Threat.DetourClearance = 0
 		m.ResetPathfinding()
 	}
-	m.Threat.X, m.Threat.Y, m.Threat.Seconds = x, y, 3
+	m.Threat.X, m.Threat.Y = x, y
+	m.Threat.Clock = m.threatClock(1)
 }
 
 func (m *Monster3D) advanceAmbientThreat(turn bool) bool {
-	if m.Threat.Seconds <= 0 {
+	if !m.Threat.Clock.Active() {
 		return false
 	}
-	tps := config.GetTargetTPS()
-	if m.config != nil {
-		tps = m.config.GetTPS()
-	}
-	dt := 1 / float64(max(1, tps))
-	if turn {
-		// One turn is the time a turn_step_speed walker needs for one tile.
-		dt = m.tileSize() / (60 * m.turnStepSpeed())
-	}
-	m.Threat.Seconds -= dt
-	if m.Threat.Seconds > 0 {
+	if m.Threat.Clock.Tick(turn); m.Threat.Clock.Active() {
 		return false
 	}
 	m.Threat = AmbientThreat{}

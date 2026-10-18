@@ -415,9 +415,9 @@ func TestEveryAllySummonPathUsesTheSharedSpawner(t *testing.T) {
 		if m == nil {
 			t.Fatal("no ally spawned")
 		}
-		if !m.Bound || m.BoundFramesRemaining != 0 || !m.QuestProgressIgnored || m.SummonedBy != wantOwner {
+		if !m.Bound || m.BoundClock.Frames != 0 || !m.QuestProgressIgnored || m.SummonedBy != wantOwner {
 			t.Errorf("ally marking = Bound:%v frames:%d questIgnored:%v by:%q, want true/0/true/%q",
-				m.Bound, m.BoundFramesRemaining, m.QuestProgressIgnored, m.SummonedBy, wantOwner)
+				m.Bound, m.BoundClock.Frames, m.QuestProgressIgnored, m.SummonedBy, wantOwner)
 		}
 		if !isPurePartySummon(m) {
 			t.Error("ally is not a pure party summon")

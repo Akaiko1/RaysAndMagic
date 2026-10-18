@@ -547,10 +547,10 @@ func TestAdvancedControlsAndIceSurviveSaveRestore(t *testing.T) {
 	m.ID = "advanced-control-save"
 	m.StunDR().Step(5, cfg.GetTPS())
 	m.ApplyFear(181)
-	m.SilenceFramesRemaining, m.BerserkFramesRemaining = 241, 301
-	m.SilenceImmunityFramesRemaining = 720
+	m.Silence, m.Berserk = framesClock(241), framesClock(301)
+	m.SilenceImmunity = framesClock(720)
 	w.Monsters = []*monster.Monster3D{m}
-	g.frozenWater = []FrozenWaterTile{{MapKey: "forest", X: 3, Y: 3, FramesRemaining: 1440}, {MapKey: "desert", X: 4, Y: 5, FramesRemaining: 1800}}
+	g.frozenWater = []FrozenWaterTile{{MapKey: "forest", X: 3, Y: 3, Clock: framesClock(1440)}, {MapKey: "desert", X: 4, Y: 5, LegacyFrames: 1800}}
 	snapshot := g.buildSave(wm)
 	raw, err := json.Marshal(snapshot)
 	if err != nil {
@@ -570,17 +570,17 @@ func TestAdvancedControlsAndIceSurviveSaveRestore(t *testing.T) {
 		t.Fatal("saved monster missing")
 	}
 	restored := loadedWorld.Monsters[0]
-	if restored.StunDRStacks != m.StunDRStacks || restored.StunDRMemoryFrames != m.StunDRMemoryFrames || restored.StunDRMemoryTurns != m.StunDRMemoryTurns {
+	if restored.StunDRStacks != m.StunDRStacks || restored.StunDRMemory.Frames != m.StunDRMemory.Frames || restored.StunDRMemory.Turns != m.StunDRMemory.Turns {
 		t.Fatal("saving and loading reset the shared control protection")
 	}
-	if restored.FearFramesRemaining != 181 || restored.SilenceFramesRemaining != 241 || restored.SilenceImmunityFramesRemaining != 720 || restored.BerserkFramesRemaining != 301 {
+	if restored.Fear.Frames != 181 || restored.Silence.Frames != 241 || restored.SilenceImmunity.Frames != 720 || restored.Berserk.Frames != 301 {
 		t.Fatal("monster spell controls were not restored")
 	}
-	if len(loaded.frozenWater) != 2 || loaded.frozenWater[0].FramesRemaining != 1440 || loaded.frozenWater[1].MapKey != "desert" {
+	if len(loaded.frozenWater) != 2 || loaded.frozenWater[0].Clock.Frames != 1440 || loaded.frozenWater[1].MapKey != "desert" || loaded.frozenWater[1].Clock.Frames != 1800 {
 		t.Fatal("map-scoped ice was not restored")
 	}
-	loaded.advanceControlledMonsters(60)
-	if restored.FearFramesRemaining != 121 || restored.SilenceFramesRemaining != 181 {
+	spendFrames(60, loaded.advanceControlledMonsters)
+	if restored.Fear.Frames != 121 || restored.Silence.Frames != 181 {
 		t.Fatal("restored controls do not use shared elapsed clock")
 	}
 }
@@ -614,23 +614,23 @@ func TestAdvancedControlSpellsThroughCast(t *testing.T) {
 					t.Fatal("mass slow target set incorrect")
 				}
 			case "frozen_ground":
-				if living.RootFramesRemaining == 0 || dead.RootFramesRemaining == 0 || far.RootFramesRemaining != 0 {
+				if living.Root.Frames == 0 || dead.Root.Frames == 0 || far.Root.Frames != 0 {
 					t.Fatal("root target set incorrect")
 				}
 			case "turn_undead":
-				if dead.FearFramesRemaining == 0 || living.FearFramesRemaining != 0 {
+				if dead.Fear.Frames == 0 || living.Fear.Frames != 0 {
 					t.Fatal("undead fear eligibility incorrect")
 				}
 			case "mass_fear":
-				if living.FearFramesRemaining == 0 || dead.FearFramesRemaining != 0 {
+				if living.Fear.Frames == 0 || dead.Fear.Frames != 0 {
 					t.Fatal("living fear eligibility incorrect")
 				}
 			case "feeblemind":
-				if living.SilenceFramesRemaining == 0 || dead.SilenceFramesRemaining == 0 || far.SilenceFramesRemaining != 0 {
+				if living.Silence.Frames == 0 || dead.Silence.Frames == 0 || far.Silence.Frames != 0 {
 					t.Fatal("silence target set incorrect")
 				}
 			case "berserk":
-				if living.BerserkFramesRemaining == 0 || dead.BerserkFramesRemaining != 0 {
+				if living.Berserk.Frames == 0 || dead.Berserk.Frames != 0 {
 					t.Fatal("berserk target selection incorrect")
 				}
 			}
@@ -649,20 +649,22 @@ func TestAdvancedFearAndSilenceLifecycle(t *testing.T) {
 	if m.CurrentAIBehavior() != monster.AIBehaviorFleeing || m.CurrentAIBehavior().Caps().MayAttack {
 		t.Fatal("damage cancelled fear")
 	}
-	m.SilenceFramesRemaining = 200
+	m.Silence = framesClock(200)
 	if m.HasRangedAttack() || cs.spawnMonsterRangedAttackAt(m, 0, 0, ProjectileOwnerMonster) {
 		t.Fatal("silenced monster fired")
 	}
-	g.advanceControlledMonsters(0)
-	if m.FearFramesRemaining != 200 {
+	g.turnBasedMode = true
+	(&GameLoop{game: g}).updateControlledMonsters() // a TB thinking frame
+	g.turnBasedMode = false
+	if m.Fear.Frames != 200 {
 		t.Fatal("idle clock spent fear")
 	}
-	g.advanceControlledMonsters(199)
-	if m.FearFramesRemaining != 1 || m.SilenceFramesRemaining != 1 {
+	spendFrames(199, g.advanceControlledMonsters)
+	if m.Fear.Frames != 1 || m.Silence.Frames != 1 {
 		t.Fatal("shared clock did not preserve remainder")
 	}
-	g.advanceControlledMonsters(1)
-	if m.FearFramesRemaining != 0 || !m.HasRangedAttack() {
+	g.advanceControlledMonsters(false)
+	if m.Fear.Frames != 0 || !m.HasRangedAttack() {
 		t.Fatal("control did not expire")
 	}
 }
@@ -731,7 +733,7 @@ func TestFrozenWaterUsesConeAndExpires(t *testing.T) {
 	if err := g.arrivalTileError("lake", [2]int{4, 4}); err != nil {
 		t.Fatalf("live ice on the left world refused: %v", err)
 	}
-	g.advanceFrozenWater(def.Mechanic.WaterFreezeSeconds * g.config.GetTPS())
+	spendFrames(def.Mechanic.WaterFreezeSeconds*g.config.GetTPS(), g.advanceFrozenWater)
 	if !lake.IsTileBlockingForMonster(4, 4, nil, false) {
 		t.Fatal("monsters still walk on expired ice in another world")
 	}
@@ -765,7 +767,7 @@ func TestThawSettlesStrandedActors(t *testing.T) {
 			g.skyImg, g.groundImg = ebiten.NewImage(1, 1), ebiten.NewImage(1, 1) // a map switch repaints both
 			t.Cleanup(g.skyImg.Deallocate)
 			t.Cleanup(g.groundImg.Deallocate)
-			g.frozenWater = []FrozenWaterTile{{MapKey: "lake", X: 4, Y: 4, FramesRemaining: 1}}
+			g.frozenWater = []FrozenWaterTile{{MapKey: "lake", X: 4, Y: 4, Clock: framesClock(1)}}
 			g.syncFrozenWaterCollision()
 			wader, dry := mkTestMonster("wader", 100), mkTestMonster("dry", 100)
 			wader.ID, dry.ID = "wader", "dry"
@@ -785,12 +787,12 @@ func TestThawSettlesStrandedActors(t *testing.T) {
 				if err := g.switchToMap("elsewhere"); err != nil {
 					t.Fatal(err)
 				}
-				g.advanceFrozenWater(1)
+				g.advanceFrozenWater(false)
 				if err := g.switchToMap("lake"); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				g.advanceFrozenWater(1)
+				g.advanceFrozenWater(false)
 			}
 			iceX, iceY := TileCenterFromTile(4, 4, ts)
 			if Distance(wader.X, wader.Y, iceX, iceY) != ts || !g.collisionSystem.CanMoveToWithTileOverrides(wader.ID, wader.X, wader.Y, nil, false) {
@@ -849,7 +851,7 @@ func TestBerserkSelectsNearestActorIncludingParty(t *testing.T) {
 	g := cs.game
 	ts := g.config.GetTileSize()
 	m, other := mkTestMonster("berserk", 100), mkTestMonster("other", 100)
-	m.ID, m.X, m.BerserkFramesRemaining = "berserk", 3*ts, 100
+	m.ID, m.X, m.Berserk = "berserk", 3*ts, framesClock(100)
 	other.ID, other.X = "other", 4*ts
 	g.world.Monsters = []*monster.Monster3D{m, other}
 	if cs.monsterAIFoeMonster(m) != other {
@@ -859,7 +861,7 @@ func TestBerserkSelectsNearestActorIncludingParty(t *testing.T) {
 	if cs.monsterAIFoeMonster(m) != nil {
 		t.Fatal("berserk ignores nearer party")
 	}
-	m.AdvanceSpellControls(100)
+	spendFrames(100, m.AdvanceSpellControls)
 	if cs.monsterAIFoeMonster(m) != nil {
 		t.Fatal("expired berserk retains hostile faction target")
 	}
@@ -870,19 +872,19 @@ func TestFrozenWaterMaterialFollowsCastAndThawState(t *testing.T) {
 	g := r.game
 	g.gameLoop = &GameLoop{game: g, renderer: r}
 	g.world.Tiles[3][3] = world.TileWater
-	g.frozenWater = []FrozenWaterTile{{MapKey: wm.CurrentMapKey, X: 3, Y: 3, FramesRemaining: 1}}
+	g.frozenWater = []FrozenWaterTile{{MapKey: wm.CurrentMapKey, X: 3, Y: 3, Clock: framesClock(1)}}
 	r.buildFloorColorMap(g.world.Width, g.world.Height)
 	i := (3*g.world.Width+3)*4 + 2
 	base := r.floorTextureIndexPixels[i] &^ floorFrozenWater
 	if r.floorTextureIndexPixels[i]&floorFrozenWater == 0 {
 		t.Fatal("loaded frozen water has no floor material")
 	}
-	g.advanceFrozenWater(1)
+	g.advanceFrozenWater(false)
 	if r.floorTextureIndexPixels[i] != base {
 		t.Fatal("thaw did not restore the exact underlying floor profile")
 	}
 	// A load swaps the ice list after the floor was rebuilt; a reset drops it.
-	g.restoreSavedEffects(&GameSave{FrozenWater: []FrozenWaterTile{{MapKey: wm.CurrentMapKey, X: 3, Y: 3, FramesRemaining: 60}}})
+	g.restoreSavedEffects(&GameSave{FrozenWater: []FrozenWaterTile{{MapKey: wm.CurrentMapKey, X: 3, Y: 3, Clock: framesClock(60)}}})
 	if r.floorTextureIndexPixels[i]&floorFrozenWater == 0 || g.world.IsTileBlockingTerrainAt(3, 3) {
 		t.Fatal("restored ice is not both drawn and walkable")
 	}

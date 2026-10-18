@@ -1,9 +1,21 @@
 package monster
 
-import "math"
+import (
+	"math"
+
+	"ugataima/internal/config"
+)
 
 // defaultTileSize covers monsters built without a config (tests).
 const defaultTileSize = 64.0
+
+// tps is the simulation rate the monster's clocks are armed at.
+func (m *Monster3D) tps() int {
+	if m.config != nil {
+		return m.config.GetTPS()
+	}
+	return config.GlobalConfig.GetTPS()
+}
 
 // tileSize returns the configured tile size for this monster's world; no
 // package-level mutable state.

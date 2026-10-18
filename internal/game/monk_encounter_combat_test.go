@@ -11,6 +11,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -44,7 +45,7 @@ func TestMonkEncounterAbilities(t *testing.T) {
 						m.Abilities.RearBlink.Chance = chance
 					}
 					if gate == "stun" {
-						m.StunFramesRemaining, m.StunTurnsRemaining = 240, 2
+						m.Stun.Frames, m.Stun.Turns = 240, 2
 					}
 					if gate == "blocked" {
 						for x := 0; x < 6; x++ {
@@ -53,7 +54,7 @@ func TestMonkEncounterAbilities(t *testing.T) {
 						g.collisionSystem.UpdateTileChecker(g.world)
 					}
 					if gate == "rooted" {
-						m.RootFramesRemaining, m.RootTurnsRemaining = 240, 1
+						m.Root.Frames, m.Root.Turns = 240, 1
 					}
 					if gate == "occupied" {
 						// Fill every rear landing tile the blink may try.
@@ -198,22 +199,22 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 						g.collisionSystem.UpdateEntity(p.ID, p.X, p.Y)
 						cs.CheckProjectilePlayerCollisions()
 						want := !champion || spell == "lightning"
-						if (c.StunFramesRemaining > 0) != want {
-							t.Fatalf("stun frames=%d want active %v", c.StunFramesRemaining, want)
+						if (c.Stun.Frames > 0) != want {
+							t.Fatalf("stun frames=%d want active %v", c.Stun.Frames, want)
 						}
 						seconds := forced.StunDurationSeconds
 						if !champion {
 							seconds = meleeSeconds
 						}
-						if want && c.StunFramesRemaining != seconds*g.config.GetTPS() {
+						if want && c.Stun.Frames != seconds*g.config.GetTPS() {
 							t.Fatal("stun inherited melee duration")
 						}
 					} else {
 						target := &monster.Monster3D{ID: "victim", Name: "Victim", HitPoints: 100, MaxHitPoints: 100}
 						p.Owner = ProjectileOwnerMonsterAtActor
 						cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
-						if (target.StunFramesRemaining > 0) != (!champion || spell == "lightning") {
-							t.Fatalf("crossfire stun frames=%d", target.StunFramesRemaining)
+						if (target.Stun.Frames > 0) != (!champion || spell == "lightning") {
+							t.Fatalf("crossfire stun frames=%d", target.Stun.Frames)
 						}
 					}
 					if m.Abilities.Stun.Seconds != meleeSeconds {
@@ -227,7 +228,7 @@ func TestMonsterSpellStunUsesImpactSpell(t *testing.T) {
 
 func TestPartyRootMovementAndPersistence(t *testing.T) {
 	g, _ := newSpecialsTestGame(t)
-	g.partyRoot = PartyRootState{Frames: 240, Turns: 1, Rate: 240}
+	g.partyRoot = status.DualClock{Frames: 240, Turns: 1, Rate: 240}
 	ih := &InputHandler{game: g}
 	x, y := g.camera.X, g.camera.Y
 	ih.movePlayer(10, 0)
@@ -264,7 +265,7 @@ func TestPartyRootMovementAndPersistence(t *testing.T) {
 	if err = json.Unmarshal(raw, &save); err != nil {
 		t.Fatal(err)
 	}
-	g.partyRoot = PartyRootState{}
+	g.partyRoot = status.DualClock{}
 	g.restoreSavedTurnState(&save)
 	if g.partyRoot.Frames != 180 || g.partyRoot.Rate != 240 {
 		t.Fatalf("lost root clock: %+v", g.partyRoot)
@@ -278,7 +279,7 @@ func TestPartyRootMovementAndPersistence(t *testing.T) {
 	if g.partyRooted() {
 		t.Fatal("mode switch revived root")
 	}
-	g.partyRoot = PartyRootState{Frames: 2, Turns: 1, Rate: 2}
+	g.partyRoot = status.DualClock{Frames: 2, Turns: 1, Rate: 2}
 	gl := &GameLoop{game: g}
 	gl.updateSpecialEffects()
 	gl.updateSpecialEffects()
@@ -297,7 +298,7 @@ func TestMonkEncounterSaveRestoreAndReset(t *testing.T) {
 	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
 	wm.CurrentMapKey = "forest"
 	g := newTestGame(cfg, w)
-	g.partyRoot = PartyRootState{Frames: 180, Turns: 1, Rate: 240}
+	g.partyRoot = status.DualClock{Frames: 180, Turns: 1, Rate: 240}
 	raw, err := json.Marshal(g.buildSave(wm))
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +396,7 @@ func TestMonsterSpellStunRespectsDefenses(t *testing.T) {
 			defended := 0
 			for i := 0; i < 64; i++ {
 				c.HitPoints = 5000
-				c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+				c.Stun = status.DualClock{}
 				cs.spawnMonsterSpellProjectile(m, "lightning", g.camera.X, g.camera.Y, ProjectileOwnerMonster)
 				p := &g.magicProjectiles[len(g.magicProjectiles)-1]
 				p.X, p.Y = g.camera.X, g.camera.Y
@@ -403,7 +404,7 @@ func TestMonsterSpellStunRespectsDefenses(t *testing.T) {
 				cs.CheckProjectilePlayerCollisions()
 				if c.HitPoints >= 5000 {
 					defended++
-					if c.StunFramesRemaining > 0 {
+					if c.Stun.Frames > 0 {
 						t.Fatal("defended bolt still applied stun")
 					}
 				}

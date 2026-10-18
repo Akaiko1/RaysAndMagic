@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"testing"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -89,8 +90,7 @@ func TestRareRulesExplicitStepOwnsRefusal(t *testing.T) {
 					c.Equipment[items.SlotQuickAction] = it
 					switch reason {
 					case "reuse":
-						g.spatialReuseFrames = 1
-						g.spatialStepThisTurn = tb
+						g.spatialReuse = framesClock(1)
 					case "SP":
 						c.SpellPoints = 0
 					case "destination":
@@ -142,7 +142,7 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 					return g.combat.SpellCooldownFrames(actor, spells.SpellID(action))
 				}
 				base := frames()
-				g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
+				g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(100), RecoveryPct: 35})
 				want := base
 				if actor == c && base > 0 {
 					want = clampRTCooldown(base * 65 / 100)
@@ -159,7 +159,7 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 		g.combatBuffs = nil
 		first := monsterPkg.NewMonster3DFromConfig(0, 0, key, g.config)
 		g.mirrorChampionStats(first)
-		g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
+		g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(100), RecoveryPct: 35})
 		second := monsterPkg.NewMonster3DFromConfig(0, 0, key, g.config)
 		g.mirrorChampionStats(second)
 		if second.AttackCooldownMultiplier != first.AttackCooldownMultiplier {
@@ -207,7 +207,7 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 					c.Equipment[items.SlotQuickAction] = k.slot()
 					c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("archmage_staff")
 					c.Speed = 16
-					g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Frames: 100, RecoveryPct: 35})
+					g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(100), RecoveryPct: 35})
 					mult := 1.0
 					if k.staffed {
 						mult = staff.SpellCooldownMultiplier
@@ -298,7 +298,7 @@ func TestRareRulesQuietEntombedTechniques(t *testing.T) {
 		t.Run(fmt.Sprint(tb), func(t *testing.T) {
 			g, c := rareClassGame(t, character.ClassWayfarer, tb)
 			g.flyActive = true
-			g.flyDuration = 999
+			g.flyClock = framesClock(999)
 			ts := float64(g.config.GetTileSize())
 			g.world.Tiles[TileIndex(g.camera.Y, ts)][TileIndex(g.camera.X, ts)] = world.TileWall
 			c.RareClass.Automatic = map[string]bool{"purify": true}
@@ -360,8 +360,7 @@ func TestRareRulesBuildingFoldAndHarvest(t *testing.T) {
 							t.Fatal("Fold crossed a solid building instead of stopping before it")
 						}
 						g.setPartyPosition(x+9*ts, y)
-						g.spatialReuseFrames = 0
-						g.spatialStepThisTurn = false
+						g.spatialReuse = status.DualClock{}
 						if !g.useTechnique(0, "return_step", false, false) || g.camera.X != x {
 							t.Fatal("Return incorrectly inherited Fold's path restriction")
 						}
@@ -508,7 +507,7 @@ func TestRareRulesSharedSplashVictims(t *testing.T) {
 						want = 0
 					case "bound":
 						target.Bound = true
-						target.BoundFramesRemaining = 300
+						target.BoundClock = framesClock(300)
 					case "dormant":
 						target.BossDormant, want = true, 0
 					case "warded":

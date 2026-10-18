@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -31,7 +32,7 @@ type PlacedTrap struct {
 	TileX, TileY int
 	X, Y         float64                // tile center (render/VFX anchor)
 	Owner        *character.MMCharacter // scaling + per-owner limit; nil after failed save resolve
-	FramesLeft   int                    // armed lifetime; the trap despawns at 0
+	Life         status.DualClock       // armed lifetime; the trap despawns when it runs out
 }
 
 // trapAt returns the index of the trap occupying a tile on the current world, or -1.
@@ -196,11 +197,12 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 	caster.SpellPoints -= spCost
 	ts := float64(cs.game.config.GetTileSize())
 	cx, cy := TileCenterFromTile(tileX, tileY, ts)
-	cs.game.traps = append(cs.game.traps, PlacedTrap{
+	trap := PlacedTrap{
 		Key: trapKey, MapKey: currentMapKey(),
 		TileX: tileX, TileY: tileY, X: cx, Y: cy, Owner: caster,
-		FramesLeft: def.LifetimeSeconds * cs.game.config.GetTPS(),
-	})
+	}
+	trap.Life.Arm(def.LifetimeSeconds, cs.game.config.GetTPS())
+	cs.game.traps = append(cs.game.traps, trap)
 	cs.game.logCombat(logToneGood, "%s arms a %s!", logHeroName(caster), logAbility(def.Name))
 	// A trap thrown under a monster's feet fires immediately (TB has no
 	// per-frame sweep; in RT the next frame's sweep would catch it anyway).
@@ -428,7 +430,9 @@ func (cs *CombatSystem) finishIndirectKill(m *monsterPkg.Monster3D) {
 // Gameplay lifetimes and trigger sweeps retain their TB/RT clock rules.
 func (gl *GameLoop) updateTraps() {
 	g := gl.game
-	g.advanceTrapLifetimes(g.combatFrameElapsed())
+	if !g.turnBasedMode {
+		g.advanceTrapLifetimes(false)
+	}
 	w := 0
 	for _, burst := range g.trapBursts {
 		if float64(g.frameCount-burst.born) >= trapBurstSeconds*float64(g.config.GetTPS()) {
@@ -443,16 +447,13 @@ func (gl *GameLoop) updateTraps() {
 	}
 }
 
-// Lifetime is gameplay time on every map. Shader animation uses presentation
-// time independently, including while the party is thinking in TB mode.
-func (g *MMGame) advanceTrapLifetimes(elapsed int) {
-	if elapsed <= 0 {
-		return
-	}
+// Lifetime is gameplay time on every map: a frame or a turn per tick. Shader
+// animation uses presentation time independently, including while the party
+// is thinking in TB mode.
+func (g *MMGame) advanceTrapLifetimes(turn bool) {
 	w := 0
 	for _, t := range g.traps {
-		t.FramesLeft = max(0, t.FramesLeft-elapsed)
-		if t.FramesLeft == 0 {
+		if t.Life.Tick(turn) || !t.Life.Active() {
 			continue
 		}
 		g.traps[w] = t
@@ -481,7 +482,7 @@ func buildTrapSaves(traps []PlacedTrap) []TrapSave {
 	}
 	out := make([]TrapSave, len(traps))
 	for i, t := range traps {
-		ts := TrapSave{Key: t.Key, MapKey: t.MapKey, TileX: t.TileX, TileY: t.TileY, X: t.X, Y: t.Y, FramesLeft: t.FramesLeft}
+		ts := TrapSave{Key: t.Key, MapKey: t.MapKey, TileX: t.TileX, TileY: t.TileY, X: t.X, Y: t.Y, FramesLeft: t.Life.Frames}
 		if t.Owner != nil {
 			ts.Owner = t.Owner.Name
 		}
@@ -517,7 +518,7 @@ func restoreTraps(saves []TrapSave, party *character.Party) []PlacedTrap {
 		}
 		out[i] = PlacedTrap{
 			Key: s.Key, MapKey: s.MapKey, TileX: s.TileX, TileY: s.TileY,
-			X: s.X, Y: s.Y, Owner: byName[s.Owner], FramesLeft: left,
+			X: s.X, Y: s.Y, Owner: byName[s.Owner], Life: status.FromFrames(left, config.GlobalConfig.GetTPS()),
 		}
 	}
 	return out

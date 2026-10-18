@@ -71,9 +71,9 @@ func TestWorldRewardReach(t *testing.T) {
 							g.camera.Angle = math.Atan2(ry-py, rx-px)
 							g.world.Tiles[by][bx] = terrainTile(t, terrain.key)
 							g.flyActive = ability == "fly"
-							spiritActive, spiritDuration := ability == "spirit_walk", 600
+							spiritActive, spiritClock := ability == "spirit_walk", framesClock(600)
 							g.gameLoop = &GameLoop{game: g}
-							g.gameLoop.timedBuffRegistry = append(g.buildTimedBuffs(), timedBuff{id: "spirit_walk_fixture", active: &spiritActive, duration: &spiritDuration})
+							g.gameLoop.timedBuffRegistry = append(g.buildTimedBuffs(), timedBuff{id: "spirit_walk_fixture", active: &spiritActive, clock: &spiritClock})
 							// Deliberately unsynchronized: reach must use live party Fly.
 							g.world.SetTerrainPassageActive(!g.flyActive)
 							g.walkOnWaterActive = ability == "water_magic"

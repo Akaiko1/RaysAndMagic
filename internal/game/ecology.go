@@ -13,21 +13,23 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
 // EcologyState belongs to the campaign, never the account-wide profile.
 type EcologyState struct {
-	PopulationPhases map[string]int `json:"population_phases,omitempty"`
-	Unlocked         bool           `json:"unlocked,omitempty"`
-	ActorID          string         `json:"actor_id,omitempty"`
-	Route            string         `json:"route,omitempty"`
-	Checkpoint       int            `json:"checkpoint,omitempty"`
-	Returning        bool           `json:"returning,omitempty"`
-	RespawnDay       int            `json:"respawn_day,omitempty"`
-	StopFrames       int            `json:"stop_frames,omitempty"`
-	Deliveries       int            `json:"deliveries,omitempty"`
-	Stock            map[string]int `json:"stock,omitempty"`
+	PopulationPhases map[string]int   `json:"population_phases,omitempty"`
+	Unlocked         bool             `json:"unlocked,omitempty"`
+	ActorID          string           `json:"actor_id,omitempty"`
+	Route            string           `json:"route,omitempty"`
+	Checkpoint       int              `json:"checkpoint,omitempty"`
+	Returning        bool             `json:"returning,omitempty"`
+	RespawnDay       int              `json:"respawn_day,omitempty"`
+	Stop             status.DualClock `json:"stop,omitzero"`
+	LegacyStopFrames int              `json:"stop_frames,omitempty"` // read into Stop
+	Deliveries       int              `json:"deliveries,omitempty"`
+	Stock            map[string]int   `json:"stock,omitempty"`
 }
 
 func ecologyWorld(key string) *world.World3D {
@@ -215,7 +217,7 @@ func (g *MMGame) prepareAmbientTarget(m *monster.Monster3D) bool {
 	}
 	if m.AmbientFlee {
 		m.RememberAmbientThreat(tx, ty)
-	} else if m.Threat.Seconds > 0 {
+	} else if m.Threat.Clock.Active() {
 		m.AmbientFlee = true
 		tx, ty = m.Threat.X, m.Threat.Y
 	}
@@ -298,7 +300,7 @@ func (g *MMGame) setCaravanTarget(m *monster.Monster3D) {
 	m.AITargetX, m.AITargetY = m.X, m.Y
 	r := g.caravanRoute()
 	g.normalizeCaravanCheckpoint(r)
-	if r == nil || g.ecology.StopFrames > 0 || g.ecology.Checkpoint < 0 || g.ecology.Checkpoint >= len(r.Points) {
+	if r == nil || g.ecology.Stop.Active() || g.ecology.Checkpoint < 0 || g.ecology.Checkpoint >= len(r.Points) {
 		return
 	}
 	next, x, y := ecologyPoint(r.Points[g.ecology.Checkpoint], float64(g.config.GetTileSize()))
@@ -379,8 +381,8 @@ func (g *MMGame) updateEcology() {
 		}
 		return
 	}
-	if g.ecology.StopFrames > 0 {
-		g.ecology.StopFrames--
+	// The stop is spent with the party clocks (tickPartyClocks).
+	if g.ecology.Stop.Active() {
 		return
 	}
 	if g.turnBasedMode && (g.currentTurn != 1 || g.monsterTurnResolved) {
@@ -436,14 +438,14 @@ func (g *MMGame) updateEcology() {
 			g.ecology.Deliveries++
 			g.chooseCaravanRoute()
 			g.ecology.Checkpoint = 1
-			g.ecology.StopFrames = c.Caravan.StopSeconds * g.config.GetTPS()
+			g.armCaravanStop()
 		} else {
 			g.ecology.Checkpoint--
 		}
 	} else if g.ecology.Checkpoint == len(r.Points)-1 {
 		g.ecology.Returning = true
 		g.ecology.Checkpoint--
-		g.ecology.StopFrames = c.Caravan.StopSeconds * g.config.GetTPS()
+		g.armCaravanStop()
 	} else {
 		g.ecology.Checkpoint++
 	}
@@ -501,6 +503,17 @@ func (g *MMGame) syncCaravanStock() {
 			}
 		}
 	}
+}
+
+// migrateLegacy reads an old save's stop frames into the clock.
+func (s *EcologyState) migrateLegacy(tps int) {
+	status.MigrateFrames(&s.Stop, &s.LegacyStopFrames, tps)
+}
+
+// armCaravanStop starts a scheduled stop at a route end.
+func (g *MMGame) armCaravanStop() {
+	g.ecology.Stop = status.DualClock{}
+	g.ecology.Stop.Arm(config.GlobalEcology.Caravan.StopSeconds, g.config.GetTPS())
 }
 
 func cloneEcologyState(s EcologyState) EcologyState {

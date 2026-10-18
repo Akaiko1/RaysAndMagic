@@ -28,7 +28,7 @@ func gmReferenceChar(cfg *config.Config) *character.MMCharacter {
 func TestBaseTooltipsIndependentOfParty(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	cs.game.party.Members = []*character.MMCharacter{gmReferenceChar(cs.game.config)}
-	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Frames: 600, OutBonus: 99, OutDamageType: "all"}}
+	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Clock: framesClock(600), OutBonus: 99, OutDamageType: "all"}}
 	for _, full := range []bool{false, true} {
 		check := func(key string, it items.Item) {
 			t.Helper()
@@ -93,7 +93,7 @@ func TestSpellItemBaseUsesCurrentDefinition(t *testing.T) {
 		}
 	}
 	// Confirm the live path still applies real party buffs.
-	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Frames: 600, OutBonus: 99, OutDamageType: "all"}}
+	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Clock: framesClock(600), OutBonus: 99, OutDamageType: "all"}}
 	live := GetSpellTooltipRows("fireball", gmReferenceChar(cs.game.config), cs, true).String()
 	if !strings.Contains(live, "Active party buff: +99") {
 		t.Fatal(live)

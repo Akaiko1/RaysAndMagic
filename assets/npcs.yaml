@@ -3464,13 +3464,13 @@ npcs:
       - { type: "item", name: "Cogleather Pauldrons", cost: 7,  quantity: -1, tab: "Leather" }
       - { type: "item", name: "Cogleather Gloves",    cost: 6,  quantity: -1, tab: "Leather" }
       - { type: "item", name: "Cogleather Boots",     cost: 7,  quantity: -1, tab: "Leather" }
-      # Chain: the duelist's regalia (accuracy and stamina)
+      # Chain: the priest's regalia (personality and stamina) - clerics and paladins
       - { type: "item", name: "Chainwork Helm",      cost: 9,  quantity: -1, tab: "Chainmail" }
       - { type: "item", name: "Chainwork Hauberk",   cost: 13, quantity: -1, tab: "Chainmail" }
       - { type: "item", name: "Chainwork Pauldrons", cost: 10, quantity: -1, tab: "Chainmail" }
       - { type: "item", name: "Chainwork Gauntlets", cost: 9,  quantity: -1, tab: "Chainmail" }
       - { type: "item", name: "Chainwork Greaves",   cost: 10, quantity: -1, tab: "Chainmail" }
-      # Plate: the juggernaut's bulwark (might, half stuns)
+      # Plate: the juggernaut's bulwark (might; locked gears while the party holds)
       - { type: "item", name: "Clockplate Helm",      cost: 12, quantity: -1, tab: "Plate" }
       - { type: "item", name: "Clockplate Cuirass",   cost: 17, quantity: -1, tab: "Plate" }
       - { type: "item", name: "Clockplate Pauldrons", cost: 13, quantity: -1, tab: "Plate" }
@@ -3481,7 +3481,7 @@ npcs:
       - { type: "weapon", name: "Chime Maul",       cost: 18, quantity: -1, tab: "Arms&Stuff" }
       - { type: "weapon", name: "Minute Hand",      cost: 16, quantity: -1, tab: "Arms&Stuff" }
       - { type: "weapon", name: "Mainspring Pike",  cost: 16, quantity: -1, tab: "Arms&Stuff" }
-      - { type: "weapon", name: "Escapement Mace",  cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { type: "weapon", name: "Escapement Staff", cost: 16, quantity: -1, tab: "Arms&Stuff" }
       - { type: "weapon", name: "Clockwork Pistol", cost: 18, quantity: -1, tab: "Arms&Stuff" }
       - { type: "item",   name: "Chrono Cape",      cost: 11, quantity: -1, tab: "Arms&Stuff" }
       - { type: "item",   name: "Clock Oil",        cost: 2,  quantity: -1, tab: "Arms&Stuff" }

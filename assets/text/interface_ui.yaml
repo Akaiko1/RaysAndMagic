@@ -83,6 +83,8 @@ stash.hint: "Drag or double-click to move items. Right-click splits stacks."
 stash.chest_full: "The chest is full."
 stash.load_failed: "The shared stash could not be loaded."
 
+save.gear_back_in_bag: "%s: %s no longer fits that slot and is back in the bag"
+
 stack.part_needs_room: "Part of a stack goes onto a matching stack or an empty cell."
 
 collection.tab_showcase: "Legendary Showcase"

@@ -352,7 +352,6 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	cs.game.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, ""))
 	cs.game.logCombat(logToneGood, "%s empowers the party!", logKeyword("buff", def.Name))
-	cs.game.setBuffStatus(string(spellID), frames)
 	return true
 }
 
@@ -377,5 +376,7 @@ func (cs *CombatSystem) applyStatBuffSpell(spellID spells.SpellID, duration int,
 }
 
 func (cs *CombatSystem) applyStatBuffSpellFromSource(spellID spells.SpellID, sourceID string, duration int, bonuses character.StatBonuses) {
-	cs.game.addStatBuff(TimedStatBuff{SpellID: string(spellID), SourceID: sourceID, Frames: duration, Bonuses: bonuses})
+	buff := TimedStatBuff{SpellID: string(spellID), SourceID: sourceID, Bonuses: bonuses}
+	buff.Clock.ArmFrames(duration, cs.game.config.GetTPS())
+	cs.game.addStatBuff(buff)
 }

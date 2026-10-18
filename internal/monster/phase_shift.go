@@ -4,7 +4,6 @@ import (
 	"math"
 
 	"ugataima/internal/config"
-	"ugataima/internal/status"
 )
 
 // Phase Shift (abilities.phase_shift), monster side: the plan the serial
@@ -39,9 +38,9 @@ func (m *Monster3D) CanPhaseShift() bool {
 // PhaseShiftReady reports whether the active mode's cooldown has run out.
 func (m *Monster3D) PhaseShiftReady(turnBased bool) bool {
 	if turnBased {
-		return m.PhaseShiftCDTurns <= 0
+		return m.PhaseShiftCD.Turns <= 0
 	}
-	return m.PhaseShiftCDFrames <= 0
+	return m.PhaseShiftCD.Frames <= 0
 }
 
 // PhaseShiftWaitTiles is the rest of the cooldown as walking: the tiles the
@@ -50,15 +49,15 @@ func (m *Monster3D) PhaseShiftReady(turnBased bool) bool {
 // then perRound passes in each later round before the blink is ready.
 func (m *Monster3D) PhaseShiftWaitTiles(turnBased bool, passesLeft, perRound int) int {
 	if turnBased {
-		if m.PhaseShiftCDTurns <= 0 {
+		if m.PhaseShiftCD.Turns <= 0 {
 			return 0
 		}
-		return m.PeekTurnBasedSteps(max(0, passesLeft) + (m.PhaseShiftCDTurns-1)*max(1, perRound))
+		return m.PeekTurnBasedSteps(max(0, passesLeft) + (m.PhaseShiftCD.Turns-1)*max(1, perRound))
 	}
-	if m.PhaseShiftCDFrames <= 0 {
+	if m.PhaseShiftCD.Frames <= 0 {
 		return 0
 	}
-	return int(math.Ceil(float64(m.PhaseShiftCDFrames) * m.movementSpeed(StatePursuing) / m.tileSize()))
+	return int(math.Ceil(float64(m.PhaseShiftCD.Frames) * m.movementSpeed(StatePursuing) / m.tileSize()))
 }
 
 // ArmPhaseShiftCooldown starts both mode clocks from the authored whole rounds.
@@ -71,21 +70,7 @@ func (m *Monster3D) ArmPhaseShiftCooldown(tps int) {
 	}
 	seconds := m.Abilities.PhaseShift.CooldownSeconds
 	frames := max(1, int(math.Round(float64(seconds*tps)*m.SlowCadenceFactor())))
-	status.RefreshDualRated(&m.PhaseShiftCDFrames, &m.PhaseShiftCDTurns, &m.PhaseShiftCDRate, frames, config.CombatRounds(seconds))
-}
-
-func (m *Monster3D) TickPhaseShiftCooldownFrame() {
-	if m == nil {
-		return
-	}
-	status.TickFrameRated(&m.PhaseShiftCDFrames, &m.PhaseShiftCDTurns, &m.PhaseShiftCDRate)
-}
-
-func (m *Monster3D) TickPhaseShiftCooldownTurn() {
-	if m == nil {
-		return
-	}
-	status.TickTurnRated(&m.PhaseShiftCDTurns, &m.PhaseShiftCDFrames, &m.PhaseShiftCDRate)
+	m.PhaseShiftCD.Refresh(frames, config.CombatRounds(seconds))
 }
 
 // followPhaseShiftPlan walks an active plan's launch tile and holds on its

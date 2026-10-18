@@ -34,13 +34,13 @@ func relicActorID(ch *character.MMCharacter) uint64 {
 	return ch.ActorID
 }
 
-func (g *MMGame) tickRelicMarks(frames int) {
+func (g *MMGame) tickRelicMarks(turn bool) {
 	if g.world == nil {
 		return
 	}
 	for _, m := range g.world.Monsters {
 		if m != nil {
-			m.Relics.Tick(frames)
+			m.Relics.Tick(turn)
 		}
 	}
 }

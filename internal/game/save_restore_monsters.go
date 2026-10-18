@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -114,9 +115,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// DUEL (config contract), and an active Stone Skin keeps soaking.
 				m.OpeningSpellDone = ms.OpeningSpellDone
 				m.SoakDamage = ms.SoakDamage
-				m.SoakFrames = ms.SoakFrames
-				m.SoakTurns = ms.SoakTurns
-				m.SoakRate = ms.SoakRate
+				m.Soak = savedClock(ms.Soak, status.DualClock{Frames: ms.SoakFrames, Turns: ms.SoakTurns, Rate: ms.SoakRate})
 				if m.IsChampion() {
 					// Mirror at restore (not next frame): the first post-load
 					// input tick must already see tier HP pool and real armor.
@@ -133,92 +132,80 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					m.HitPoints = min(m.HitPoints, m.MaxHitPoints)
 				}
 				m.Bound = ms.Bound
-				m.BoundFramesRemaining = ms.BoundFramesRemaining
-				m.FearFramesRemaining = ms.FearFramesRemaining
-				m.SilenceFramesRemaining = max(0, ms.SilenceFramesRemaining)
-				m.SilenceImmunityFramesRemaining = max(0, ms.SilenceImmunityFramesRemaining)
-				m.BerserkFramesRemaining = ms.BerserkFramesRemaining
+				tps := config.GlobalConfig.GetTPS()
+				m.BoundClock = status.FromFrames(ms.BoundFramesRemaining, tps)
+				m.Fear = status.FromFrames(ms.FearFramesRemaining, tps)
+				m.Silence = status.FromFrames(ms.SilenceFramesRemaining, tps)
+				m.SilenceImmunity = status.FromFrames(ms.SilenceImmunityFramesRemaining, tps)
+				m.Berserk = status.FromFrames(ms.BerserkFramesRemaining, tps)
 				if m.IsAfraid() {
-					m.ApplyFear(m.FearFramesRemaining)
+					m.ApplyFear(m.Fear.Frames)
 				}
 				// Bind and Charm are mutually exclusive. New saves cannot contain
 				// both, but a defensive migration makes any older malformed state a
 				// bound ally rather than silently turning a card summon neutral.
 				m.Pacified = ms.Pacified && !m.Bound
 				if m.Pacified {
-					m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
+					m.PacifiedClock = status.FromFrames(ms.PacifiedFramesRemaining, config.GlobalConfig.GetTPS())
 				} else {
-					m.PacifiedFramesRemaining = 0
+					m.PacifiedClock = status.DualClock{}
 				}
 				// Old saves have no provenance bit, but an actively pacified monster
 				// was necessarily charmed by the party.
 				m.CharmedByParty = ms.CharmedByParty || ms.Pacified
-				m.StunFramesRemaining = ms.StunFramesRemaining
-				m.StunTurnsRemaining = ms.StunTurnsRemaining
-				m.StunRate = ms.StunRate
+				m.Stun = savedClock(ms.Stun, status.DualClock{Frames: ms.StunFramesRemaining, Turns: ms.StunTurnsRemaining, Rate: ms.StunRate})
 				m.PoisonedFramesRemaining = ms.PoisonedFramesRemaining
 				m.StunDRStacks = ms.StunDRStacks
-				m.StunDRMemoryTurns = ms.StunDRMemoryTurns
-				m.StunDRMemoryFrames = ms.StunDRMemoryFrames
-				m.RootFramesRemaining = ms.RootFramesRemaining
-				m.RootTurnsRemaining = ms.RootTurnsRemaining
-				m.RootRate = ms.RootRate
+				m.StunDRMemory = savedClock(ms.StunDRMemory, status.StunDRMemory(ms.StunDRMemoryFrames, ms.StunDRMemoryTurns, config.GlobalConfig.GetTPS()))
+				m.Root = savedClock(ms.Root, status.DualClock{Frames: ms.RootFramesRemaining, Turns: ms.RootTurnsRemaining, Rate: ms.RootRate})
 				m.ArmorShredPct = ms.ArmorShredPct
 				m.RestoreElementalMarks(ms.ElementalMarks)
 				m.Relics = ms.Relics.Normalized(crumbleCap)
-				m.ArmorShredFramesRemaining = ms.ArmorShredFrames
-				m.ArmorShredTurnsRemaining = ms.ArmorShredTurns
-				m.ArmorShredRate = ms.ArmorShredRate
+				m.ArmorShred = savedClock(ms.ArmorShred, status.DualClock{Frames: ms.ArmorShredFrames, Turns: ms.ArmorShredTurns, Rate: ms.ArmorShredRate})
 				// Pre-rated saves could preserve the inactive mode's stale clock
 				// after shred had already expired in the mode they were saved in.
 				// Treat that as expired rather than reviving it after load.
-				if (!save.TurnBased && m.ArmorShredFramesRemaining <= 0) ||
-					(save.TurnBased && m.ArmorShredTurnsRemaining <= 0) {
-					m.ArmorShredPct = 0
-					m.ArmorShredFramesRemaining = 0
-					m.ArmorShredTurnsRemaining = 0
-					m.ArmorShredRate = 0
+				if (!save.TurnBased && m.ArmorShred.Frames <= 0) ||
+					(save.TurnBased && m.ArmorShred.Turns <= 0) {
+					m.ArmorShredPct, m.ArmorShred = 0, status.DualClock{}
 				}
 				m.ArmorMelt.Restore(ms.ArmorMelt)
 				m.BurnFramesRemaining = ms.BurnFramesRemaining
 				m.RestoreDoTTickTimers(ms.PoisonTickTimer, ms.BurnTickTimer)
-				m.TrapVolleyCDFrames = ms.TrapVolleyCD
-				m.TrapVolleyTurnCD = ms.TrapVolleyTurnCD
-				m.TrapVolleyCDRate = ms.TrapVolleyCDRate
+				m.TrapVolleyCD = savedClock(ms.TrapVolleyCD, status.DualClock{Frames: ms.TrapVolleyCDFrames, Turns: ms.TrapVolleyTurnCD, Rate: ms.TrapVolleyCDRate})
 				m.Telegraph = ms.Telegraph.Clone()
+				m.Telegraph.MigrateLegacy(telegraphDefinition(m), config.GlobalConfig.GetTPS())
 				m.SlowPct = ms.SlowPct
-				m.SlowFramesRemaining = ms.SlowFrames
-				m.SlowTurnsRemaining = ms.SlowTurns
-				m.SlowRate = ms.SlowRate
-				if (!save.TurnBased && m.SlowFramesRemaining <= 0) ||
-					(save.TurnBased && m.SlowTurnsRemaining <= 0) {
-					m.SlowPct, m.SlowFramesRemaining, m.SlowTurnsRemaining, m.SlowRate = 0, 0, 0, 0
+				m.Slow = savedClock(ms.Slow, status.DualClock{Frames: ms.SlowFrames, Turns: ms.SlowTurns, Rate: ms.SlowRate})
+				if (!save.TurnBased && m.Slow.Frames <= 0) ||
+					(save.TurnBased && m.Slow.Turns <= 0) {
+					m.SlowPct, m.Slow = 0, status.DualClock{}
 				}
 				m.WeakenPct = ms.WeakenPct
-				m.WeakenFramesRemaining = ms.WeakenFrames
-				m.WeakenTurnsRemaining = ms.WeakenTurns
-				m.WeakenRate = ms.WeakenRate
-				if (!save.TurnBased && m.WeakenFramesRemaining <= 0) ||
-					(save.TurnBased && m.WeakenTurnsRemaining <= 0) {
-					m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.WeakenRate = 0, 0, 0, 0
+				m.Weaken = savedClock(ms.Weaken, status.DualClock{Frames: ms.WeakenFrames, Turns: ms.WeakenTurns, Rate: ms.WeakenRate})
+				if (!save.TurnBased && m.Weaken.Frames <= 0) ||
+					(save.TurnBased && m.Weaken.Turns <= 0) {
+					m.WeakenPct, m.Weaken = 0, status.DualClock{}
 				}
-				m.SlowTurnCount = ms.SlowTurnCount
 				if save.TurnBased {
 					m.RestoreTurnDebuffLatches(ms.RootHeldThisTurn, ms.SlowPctThisTurn, ms.WeakenPctThisTurn)
 				} else {
 					m.RestoreTurnDebuffLatches(false, 0, 0)
 				}
+				// After the latches: a slow kept alive by the latch keeps its cadence.
+				m.SlowSkip.Restore(ms.SlowSkip)
+				if ms.SlowSkip == nil {
+					m.RestoreLegacySlowSkip(ms.SlowTurnCount, config.SlowSkipEveryTurns())
+				}
 				m.Pilfered = ms.Pilfered
-				m.PounceCDFrames = ms.PounceCDFrames
-				m.PounceCDTurns = ms.PounceCDTurns
-				m.PounceCDRate = ms.PounceCDRate
-				m.PhaseShiftCDFrames = ms.PhaseShiftCDFrames
-				m.PhaseShiftCDTurns = ms.PhaseShiftCDTurns
-				m.PhaseShiftCDRate = ms.PhaseShiftCDRate
+				m.PounceCD = savedClock(ms.PounceCD, status.DualClock{Frames: ms.PounceCDFrames, Turns: ms.PounceCDTurns, Rate: ms.PounceCDRate})
+				m.PhaseShiftCD = savedClock(ms.PhaseShiftCD, status.DualClock{Frames: ms.PhaseShiftCDFrames, Turns: ms.PhaseShiftCDTurns, Rate: ms.PhaseShiftCDRate})
 				m.TurnBasedSwingCarry = ms.TurnBasedSwingCarry
 				m.TurnBasedStepCarry = ms.TurnBasedStepCarry
-				m.BossCD = ms.BossCD
-				m.InfernoCDFrames = ms.InfernoCD
+				m.Jammed = ms.Jammed
+				m.HourMarks = ms.HourMarks
+				m.BossCD = restoreClock(ms.BossCD, ms.LegacyBossCD)
+				m.InfernoCD = restoreClock(ms.InfernoCD, ms.LegacyInfernoCD)
 				m.BossHurtPending = ms.BossHurtPending
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone
@@ -237,8 +224,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.PackKey = ms.PackKey
 				m.Population = ms.Population
 				if m.IsWildlife() {
-					m.Threat = ms.AmbientThreat
-					m.AmbientFlee = m.Threat.Seconds > 0
+					m.RestoreAmbientThreat(ms.AmbientThreat)
 				}
 				if m.Arboreal != nil {
 					m.Arbor = ms.Arbor

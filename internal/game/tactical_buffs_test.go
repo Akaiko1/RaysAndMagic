@@ -82,7 +82,7 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 					cadence = monsterAttackPounce
 				case "cooldown":
 					if tb {
-						m.StunTurnsRemaining = 2
+						m.Stun.Turns = 2
 					} else {
 						m.AttackCDFrames = 100
 					}
@@ -91,7 +91,7 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 					g.world.Tiles[10][x] = world.TileWall
 					want = 0
 				case "stunned":
-					ch.StunFramesRemaining, ch.StunTurnsRemaining = 100, 5
+					ch.Stun.Frames, ch.Stun.Turns = 100, 5
 					want = 0
 				case "crossfire":
 					foe := monster.NewMonster3DFromConfig(g.camera.X, g.camera.Y, "skeleton", g.config)
@@ -110,7 +110,7 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 				case "volley":
 					m.Abilities.TrapVolley.Count = 4
 					m.Abilities.TrapVolley.RadiusTiles = 2
-					g.combat.tryBossTrapVolley(m, tb)
+					g.combat.tryBossTrapVolley(m)
 				default:
 					g.combat.commitMonsterAttack(m, target, cadence)
 				}

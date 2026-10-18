@@ -13,9 +13,9 @@ func TestSniperSaveLoadAndRecruitMigration(t *testing.T) {
 		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
 			g, _, ch, tile := sniperFixture(t, false)
 			m := spawnMonsterAtTile(g, "wolf", 10, 10, tile)
-			ch.AutoDrinkCooldown = 37
+			ch.AutoDrinkCD = framesClock(37)
 			ch.DesignatedTargetID = m.ID
-			ch.DesignationFrames = 99
+			ch.Designation = framesClock(99)
 			wm := world.NewWorldManager(g.config)
 			wm.LoadedMaps = map[string]*world.World3D{"forest": g.world}
 			wm.CurrentMapKey = "forest"
@@ -65,7 +65,7 @@ func TestSniperSaveLoadAndRecruitMigration(t *testing.T) {
 				}
 			} else {
 				ch = g.party.Members[0]
-				if ch.AutoDrinkCooldown != 37 || ch.DesignationFrames != 99 || ch.DesignatedTargetID != g.world.Monsters[0].ID {
+				if ch.AutoDrinkCD.Frames != 37 || ch.Designation.Frames != 99 || ch.DesignatedTargetID != g.world.Monsters[0].ID {
 					t.Fatal("tactical save lost timer or monster link")
 				}
 				if g.overwatchReady(ch) {

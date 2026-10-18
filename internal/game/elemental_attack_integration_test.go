@@ -35,8 +35,8 @@ func TestElementalCommitClocksAndInvalidActions(t *testing.T) {
 					m.HitPoints = 0
 				}
 				if state == "stunned" {
-					m.StunFramesRemaining = 100
-					m.StunTurnsRemaining = 2
+					m.Stun.Frames = 100
+					m.Stun.Turns = 2
 				}
 				if state == "idol" {
 					m.WarlordIdol = true

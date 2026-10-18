@@ -27,6 +27,7 @@ import (
 	"ugataima/internal/sound"
 	"ugataima/internal/spells"
 	"ugataima/internal/stash"
+	"ugataima/internal/status"
 	"ugataima/internal/threading"
 	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
@@ -226,9 +227,8 @@ type MMGame struct {
 	alchemyBrewableOnly      bool
 	rareBookMessage          string
 	brewAnimation            *alchemyBrewAnimation
-	spatialReuseFrames       int
-	spatialStepThisTurn      bool
-	partyRoot                PartyRootState
+	spatialReuse             status.DualClock // the Fold/Return Step shared reuse
+	partyRoot                status.DualClock
 	partyHinder              PartyHinderState
 	terrainChanges           []TerrainChange
 	atlasStyle               worldAtlasStyle
@@ -415,26 +415,35 @@ type MMGame struct {
 	mapOverlayOpen bool
 
 	// Lighting effects
-	torchLightActive   bool    // Whether torch light is currently active
-	torchLightDuration int     // Remaining duration in frames
-	torchLightRadius   float64 // Radius of the light effect
+	torchLightActive bool             // Whether torch light is currently active
+	torchLightClock  status.DualClock // time remaining
+	torchLightRadius float64          // Radius of the light effect
 
 	// Wizard Eye effect
-	wizardEyeActive      bool    // Whether wizard eye is currently active
-	wizardEyeRadiusTiles float64 // radar reach from spells.yaml (radar_radius_tiles)
-	wizardEyeDuration    int     // Remaining duration in frames
+	wizardEyeActive      bool             // Whether wizard eye is currently active
+	wizardEyeRadiusTiles float64          // radar reach from spells.yaml (radar_radius_tiles)
+	wizardEyeClock       status.DualClock // time remaining
 
 	// Walk on Water effect
-	walkOnWaterActive   bool // Whether walk on water is currently active
-	walkOnWaterDuration int  // Remaining duration in frames
+	walkOnWaterActive bool             // Whether walk on water is currently active
+	walkOnWaterClock  status.DualClock // time remaining
 
 	// Fly effect: the party passes through any non-border tile (outdoor maps only).
-	flyActive   bool
-	flyDuration int // Remaining duration in frames
+	flyActive bool
+	flyClock  status.DualClock // time remaining
 
 	// Stone Blossom mortars in flight: detonation is scheduled at cast time
 	// (the arc ignores everything until it lands). Transient - not saved.
 	pendingMortars []pendingMortar
+	// Clock Tower gear: tolls in flight, and the party's movement and fight
+	// edges for Clockplate and Cogleather.
+	pendingTolls    []pendingToll
+	partyMoveClock  status.DualClock // a round after the party moves (saved)
+	partyWasInFight bool
+	openerCooldown  status.DualClock // a round after a fight ends, before a new one arms an opener (saved)
+	// loadNotices are load-time messages printed once the loaded game's log
+	// starts (equipment that no longer fits its slot).
+	loadNotices []string
 
 	// Town Portal picker (visited destinations). Transient UI state.
 	townPortalPickerOpen bool
@@ -514,11 +523,11 @@ type MMGame struct {
 	playthroughID string
 
 	// Water Breathing effect
-	waterBreathingActive   bool    // Whether water breathing is currently active
-	waterBreathingDuration int     // Remaining duration in frames
-	underwaterReturnX      float64 // X position to return to when spell expires
-	underwaterReturnY      float64 // Y position to return to when spell expires
-	underwaterReturnMap    string  // Map to return to when spell expires
+	waterBreathingActive bool             // Whether water breathing is currently active
+	waterBreathingClock  status.DualClock // time remaining
+	underwaterReturnX    float64          // X position to return to when spell expires
+	underwaterReturnY    float64          // Y position to return to when spell expires
+	underwaterReturnMap  string           // Map to return to when spell expires
 
 	// Per-map last-known player pose so two-way map transitions (e.g. enter /
 	// leave a church) drop the player back where they left, not at the map's
@@ -762,13 +771,11 @@ type MMGame struct {
 	turnBasedMoveCooldown       int // Movement cooldown in frames (18 FPS = 0.3 second)
 	turnBasedRotCooldown        int // Rotation cooldown in frames (18 FPS = 0.3 second)
 	monsterTurnState
-	turnBasedSpRegenCount int // rounds since the last turn-based SP tick (slower in a fight)
-	turnBasedHPRegenCount int // rounds since the last turn-based HP regen tick (cards, draughts, Regeneration)
 
 	// cardSummonCooldowns independently silence each physical summon card after
 	// it fires. Keys are the stable per-card owner strings derived from the
 	// collection item's InstanceID; the timers never gate character actions.
-	cardSummonCooldowns map[string]int
+	cardSummonCooldowns map[string]status.DualClock
 
 	// Application exit request
 	exitRequested bool
@@ -2888,16 +2895,15 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 			}
 		}
 	}
-	g.tactics.movedTB = false
-	g.spatialStepThisTurn = false
 	if len(initial) == 0 || !initial[0] {
-		g.tickRareClassClocks(g.combatRoundFrames())
+		g.tickPartyClocks(true)
 		g.tickPartyBuffsTurn()
-		g.advanceControlledMonsters(g.combatRoundFrames())
-		g.advanceTrapLifetimes(g.combatRoundFrames())
-		for _, ch := range g.party.Members {
-			ch.AutoDrinkCooldown = max(0, ch.AutoDrinkCooldown-g.combatRoundFrames())
-			ch.DesignationFrames = max(0, ch.DesignationFrames-g.combatRoundFrames())
+		g.advanceControlledMonsters(true)
+		g.advanceTrapLifetimes(true)
+		if w := g.GetCurrentWorld(); w != nil {
+			for _, m := range w.Monsters {
+				m.TickBlinkTurn()
+			}
 		}
 	}
 	g.parkSelection = false // a new round clears any manual park
@@ -2938,7 +2944,7 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 			continue
 		}
 		// Stun-free this turn: count toward clearing the diminishing-returns chain.
-		m.StunDR().ForgetTurn()
+		m.StunDR().Forget(true)
 		if m.CanAct() {
 			// The personal action floor combines dual wielding with any
 			// weapon-authored floor. The party-wide Speed pool below stacks on
@@ -2950,7 +2956,12 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 		}
 	}
 	g.assignTurnBasedSpeedBonusActions()
-	if g.partyHinder.Slow > 0 {
+	for _, m := range g.party.Members {
+		if m != nil {
+			grantTurnBasedOpener(m)
+		}
+	}
+	if g.partyHinder.Slow.Active() {
 		keep := config.HinderKeepPercent()
 		for _, m := range g.party.Members {
 			if m.ActionsRemaining > 1 {
@@ -2970,9 +2981,8 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 	}
 }
 
-// updatePartyClocks advances the active mode's party clocks. A completed RT
-// regeneration cadence clears that resource's partial TB progress; the
-// reciprocal reset lives in endPartyTurn when a TB cadence pays out.
+// updatePartyClocks advances the party's RT frame clocks (regeneration,
+// poison, burn); TB spends them per turn.
 func (g *MMGame) updatePartyClocks() {
 	if g == nil || g.party == nil {
 		return
@@ -2983,13 +2993,7 @@ func (g *MMGame) updatePartyClocks() {
 	if !clock.TurnBased {
 		clock.InCombat = g.partyInCombat()
 	}
-	paid := g.party.UpdateWithMode(clock, g.absorbCelestialDamage)
-	if paid.SP {
-		g.turnBasedSpRegenCount = 0
-	}
-	if paid.HP {
-		g.turnBasedHPRegenCount = 0
-	}
+	g.party.UpdateWithMode(clock, g.absorbCelestialDamage)
 }
 
 func (g *MMGame) assignTurnBasedSpeedBonusActions() {
@@ -3103,40 +3107,15 @@ func (g *MMGame) reconcileTBRoundActionFloorAfterEquipmentChange(characterIndex 
 	}
 }
 
-// endPartyTurn ends the party's turn and starts the monster turn. Every
-// TurnBasedRegenEveryNRounds rounds each able-bodied member gets an HP regen
-// tick (cards, draughts, Regeneration) and, out of a fight, an SP tick; in a
-// fight SP waits config.CombatSPRegenRounds. KO members are skipped by the
-// tick bodies. Lives on MMGame so non-input callers (spellbook double-click,
-// future UI dialogs) can drive a turn end too.
+// endPartyTurn ends the party's turn and starts the monster turn, spending a
+// round of every member's regeneration periods (TickRegen). Lives on MMGame so
+// non-input callers (spellbook double-click, future UI dialogs) can drive a
+// turn end too.
 func (g *MMGame) endPartyTurn() {
 	g.tickPartyRoot(true)
-	g.turnBasedSpRegenCount++
-	g.turnBasedHPRegenCount++
-	spRounds := TurnBasedRegenEveryNRounds
-	if g.partyInCombat() {
-		spRounds = config.CombatSPRegenRounds
-	}
-	paid := character.RegenPayout{
-		SP: g.turnBasedSpRegenCount >= spRounds,
-		HP: g.turnBasedHPRegenCount >= TurnBasedRegenEveryNRounds,
-	}
-	if paid.SP {
-		g.turnBasedSpRegenCount = 0
-	}
-	if paid.HP {
-		g.turnBasedHPRegenCount = 0
-	}
-	if paid.Any() {
-		for _, member := range g.party.Members {
-			if paid.SP {
-				member.RegenerateSpellPoints()
-			}
-			if paid.HP {
-				member.ApplyCardRegenTick() // Troll Card(s): RT ticks on a frame timer, TB on this round counter
-			}
-			member.ResetRealtimeRegenCadence(paid)
-		}
+	inCombat := g.partyInCombat()
+	for _, member := range g.party.Members {
+		member.TickRegen(true, inCombat)
 	}
 
 	g.logTurnDivider("Enemy turn")

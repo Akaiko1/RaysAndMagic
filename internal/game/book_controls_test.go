@@ -153,7 +153,7 @@ func TestBookEnterAndFUseSelection(t *testing.T) {
 						case "down":
 							actor.HitPoints = 0
 						case "stunned":
-							actor.StunFramesRemaining = 30
+							actor.Stun.Frames = 30
 						case "no action":
 							if tb {
 								actor.ActionsRemaining = 0

@@ -51,7 +51,7 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 					takeDamageParts(m, damagecalc.Parts{True: 1}, "true", 0)
 				}
 				if tc.stunned {
-					m.StunTurnsRemaining, m.StunFramesRemaining = 5, 600
+					m.Stun.Turns, m.Stun.Frames = 5, 600
 				}
 				hp, startX := m.HitPoints, m.X
 				step := func(tb bool) {
@@ -158,14 +158,15 @@ func TestPursuitTemporaryRetaliation(t *testing.T) {
 				if g.partyInCombat() {
 					t.Fatal("the fight outlived the lapsed retaliation")
 				}
-				m.AttackCDFrames, m.OffHandCDFrames, m.PounceCDFrames, m.PounceCDTurns, m.PounceCDRate = 2, 3, 4, 2, 2
-				m.PhaseShiftCDFrames, m.PhaseShiftCDTurns, m.PhaseShiftCDRate = 4, 2, 2
-				m.BossCD, m.InfernoCDFrames, m.TrapVolleyCDFrames, m.TrapVolleyTurnCD, m.TrapVolleyCDRate = 2, 2, 4, 2, 2
+				m.AttackCDFrames, m.OffHandCDFrames, m.PounceCD.Frames, m.PounceCD.Turns, m.PounceCD.Rate = 2, 3, 4, 2, 2
+				m.PhaseShiftCD.Frames, m.PhaseShiftCD.Turns, m.PhaseShiftCD.Rate = 4, 2, 2
+				m.BossCD, m.InfernoCD = framesClock(2), framesClock(2)
+				m.TrapVolleyCD.Frames, m.TrapVolleyCD.Turns, m.TrapVolleyCD.Rate = 4, 2, 2
 				g.combat.HandleMonsterInteractions()
-				if m.AttackCDFrames != 1 || m.OffHandCDFrames != 2 || m.PounceCDFrames != 3 || m.PhaseShiftCDFrames != 3 {
+				if m.AttackCDFrames != 1 || m.OffHandCDFrames != 2 || m.PounceCD.Frames != 3 || m.PhaseShiftCD.Frames != 3 {
 					t.Fatal("calm monster froze its attack recovery")
 				}
-				if boss && (m.BossCD != 1 || m.InfernoCDFrames != 1 || m.TrapVolleyCDFrames != 3 || len(g.bossFireTraps) != 0) {
+				if boss && (m.BossCD.Frames != 1 || m.InfernoCD.Frames != 1 || m.TrapVolleyCD.Frames != 3 || len(g.bossFireTraps) != 0) {
 					t.Fatal("calm boss recovery must tick without releasing an action")
 				}
 			})
@@ -212,7 +213,7 @@ func TestPursuitRegionExitAndReentry(t *testing.T) {
 	wm.CurrentMapKey = "forest"
 	hunter.BeginPlayerEngagement()
 	normal.BeginPlayerEngagement()
-	hunter.Telegraph.Warning = 2
+	hunter.Telegraph.Warning = roundClock()
 	g.camera.X, g.camera.Y = wm.ProjectWorldPos("highlands", 10.5*ts, 10.5*ts)
 	g.syncOpenWorldRegion()
 	for _, m := range g.world.Monsters {
@@ -220,7 +221,7 @@ func TestPursuitRegionExitAndReentry(t *testing.T) {
 			t.Fatal("region exit retained pursuit")
 		}
 	}
-	if hunter.Telegraph.Warning != 0 || !hunter.Relentless || !normal.WasAttacked {
+	if hunter.Telegraph.Warning.Active() || !hunter.Relentless || !normal.WasAttacked {
 		t.Fatal("exit failed to cancel windup or erased hostility memory")
 	}
 	g.camera.X, g.camera.Y = wm.ProjectWorldPos("forest", 40.5*ts, 10.5*ts)

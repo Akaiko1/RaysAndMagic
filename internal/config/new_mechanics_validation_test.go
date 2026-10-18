@@ -34,9 +34,17 @@ func TestValidateWeaponConfigRejectsIncompleteNewMechanics(t *testing.T) {
 		{"shred for part of a round", func(w *WeaponDefinitionConfig) { w.ArmorShredPct, w.ArmorShredSeconds = 20, 10 }},
 		{"poison for part of a round", func(w *WeaponDefinitionConfig) { w.PoisonChance, w.PoisonSeconds = 0.2, 20 }},
 		{"slow off the skip step", func(w *WeaponDefinitionConfig) { w.SlowPct, w.SlowSeconds = 30, 6 }},
-		{"partial death burst", func(w *WeaponDefinitionConfig) { w.DeathBurstDamage = 10 }},
-		{"negative true damage", func(w *WeaponDefinitionConfig) { w.TrueDamage = -1 }},
+		{"partial death burst", func(w *WeaponDefinitionConfig) { w.DeathBurstMaxHPPct = 10 }},
+		{"death burst over one hundred", func(w *WeaponDefinitionConfig) { w.DeathBurstMaxHPPct, w.DeathBurstRadiusTiles = 101, 2 }},
+		{"true share over one hundred", func(w *WeaponDefinitionConfig) { w.TrueDamagePct = 101 }},
+		{"skirmish on a melee weapon", func(w *WeaponDefinitionConfig) {
+			w.Signature = &WeaponSignatureConfig{Kind: SignatureSkirmish, ChargeLimit: 1, ChargeMoveTiles: 1}
+		}},
 		{"echo over one hundred", func(w *WeaponDefinitionConfig) { w.SpellEchoPct = 101 }},
+		{"fresh-target multiplier alone", func(w *WeaponDefinitionConfig) { w.FreshTargetMultiplier = 0.5 }},
+		{"hour strike that weakens", func(w *WeaponDefinitionConfig) { w.HourStrikeMarks, w.HourStrikeMultiplier = 12, 0.5 }},
+		{"jam off the round", func(w *WeaponDefinitionConfig) { w.JamSeconds = 2 }},
+		{"jam of a whole round", func(w *WeaponDefinitionConfig) { w.JamSeconds = CombatRoundSeconds }},
 		{"ricochet without range", func(w *WeaponDefinitionConfig) { w.RicochetTargets = 1 }},
 		{"ricochet on melee", func(w *WeaponDefinitionConfig) {
 			w.RicochetTargets, w.RicochetRangeTiles = 1, 6
@@ -62,12 +70,15 @@ func TestValidateWeaponConfigAcceptsCompleteNewMechanics(t *testing.T) {
 	weapon.RootChance, weapon.RootSeconds = 0.1, 6
 	weapon.ArmorShredPct, weapon.ArmorShredSeconds = 20, 15
 	weapon.ExecuteBelowPct = 15
-	weapon.DeathBurstDamage, weapon.DeathBurstRadiusTiles = 20, 2
-	weapon.TrueDamage = 5
+	weapon.DeathBurstMaxHPPct, weapon.DeathBurstRadiusTiles = 20, 2
+	weapon.TrueDamagePct = 5
 	weapon.SlowPct, weapon.SlowSeconds = 20, 9
 	weapon.WeakenPct, weapon.WeakenSeconds = 25, 6
 	weapon.SpellEchoPct = 10
 	weapon.TBActionsPerRound = 3
+	weapon.FreshTargetMinHPPct, weapon.FreshTargetMultiplier = 90, 5
+	weapon.HourStrikeMarks, weapon.HourStrikeMultiplier = 12, 3
+	weapon.JamSeconds = 1
 
 	cfg := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{"test": weapon}}
 	if err := validateWeaponConfig(cfg); err != nil {
@@ -346,6 +357,23 @@ func TestEquipmentSlotRarityValidation(t *testing.T) {
 		}
 		if got := strings.Join(CrateEquipmentSlotKeys(src.EquipSlot, src.RarityTiers()), ","); got != tc.want {
 			t.Errorf("rarity=%q: keys=%q want %q", tc.rarity, got, tc.want)
+		}
+	}
+}
+
+// A returning weapon's return leg carries no weapon effects, so a true share
+// authored on one would silently vanish on the way back.
+func TestValidateWeaponConfigRejectsTrueShareOnReturningWeapon(t *testing.T) {
+	weapons, err := LoadWeaponConfig("../../assets/weapons.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pct := range []int{0, 10} {
+		weapon := *weapons.Weapons["solstice_returning_gale"]
+		weapon.TrueDamagePct = pct
+		cfg := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{"solstice_returning_gale": &weapon}}
+		if err := validateWeaponConfig(cfg); (err != nil) != (pct > 0) || err != nil && !strings.Contains(err.Error(), "true_damage_pct") {
+			t.Fatalf("true_damage_pct %d on a returning weapon: validation error = %v", pct, err)
 		}
 	}
 }

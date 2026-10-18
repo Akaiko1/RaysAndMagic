@@ -84,7 +84,7 @@ func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRe
 	summoner := r.game.summonerOf(s.monster)
 	catalysis := false
 	for _, mark := range s.monster.Relics.Catalysis {
-		catalysis = catalysis || mark.Frames > 0
+		catalysis = catalysis || mark.Clock.Active()
 	}
 	if !designated && badges == 0 && summoner == nil && !catalysis {
 		return
@@ -126,7 +126,7 @@ func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRe
 	x := float32(s.screenX) - (width-gap)/2
 	proj := worldProjectionOf(screen)
 	y := headBadgeRowY(proj, x, width-gap, tallest, float32(screenY))
-	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
+	if s.monster.Stun.Active() {
 		cy, _, ry := stunStarRingGeometry(proj, float64(s.screenX), float64(screenY), float64(s.spriteSize))
 		extent := float32(ry + float64(s.spriteSize)*.05)
 		above := float32(cy) - extent - tallest - 5

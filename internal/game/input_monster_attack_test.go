@@ -1094,8 +1094,8 @@ func TestMouseHoldDisplayedPartyCycle(t *testing.T) {
 					m.X = g.camera.X + float64(g.config.GetTileSize())
 					g.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity("closed-door", (g.camera.X+m.X)/2, m.Y, 16, 48, collision.CollisionTypeNPC, true))
 				}
-				m.StunFramesRemaining = 100000
-				m.StunTurnsRemaining = 100000
+				m.Stun.Frames = 100000
+				m.Stun.Turns = 100000
 				for i, h := range g.party.Members {
 					h.ActionsRemaining = 2
 					if i%2 == 1 {

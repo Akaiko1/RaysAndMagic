@@ -377,7 +377,7 @@ func (gl *GameLoop) stepTowardPhaseLaunchTB(m *monster.Monster3D, tileSize float
 // the walk to its plan's launch tile fits the passes before the last one,
 // which the blink takes.
 func (g *MMGame) phaseShiftLandingNextTurn(m *monster.Monster3D) ([2]int, bool) {
-	if !m.CanPhaseShift() || g.combatAuraTurnCooldown(m.PhaseShiftCDTurns) > 0 {
+	if !m.CanPhaseShift() || g.combatAuraTurnCooldown(m.PhaseShiftCD.Turns) > 0 {
 		return [2]int{}, false
 	}
 	passes := g.monsterTurnPasses(m)

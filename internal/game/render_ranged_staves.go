@@ -217,3 +217,109 @@ func buildEyeHeldModel() []modelFace {
 	}
 	return m.faces
 }
+
+// The escapement wheel stands in the shaft's plane, as on the icon: a toothed
+// rim, a fine inner rim on five spokes (the shaft is the sixth) and a stepped
+// hub with a steel arbor pin. The shaft runs on to the hub.
+func buildEscapementHeldModel() []modelFace {
+	m := weaponMeshBuilder{}
+	brass, light, steel := [3]int{204, 138, 38}, [3]int{246, 194, 82}, [3]int{168, 172, 176}
+	dark := [3]int{86, 52, 18}
+	collar := func(x0, x1, r float64, col [3]int) {
+		rangedLathe(&m, [][2]float64{{x0, r - .016}, {x0 + .011, r}, {x1 - .011, r}, {x1, r - .016}}, col, meshMetal)
+	}
+	rangedLathe(&m, [][2]float64{{-2.20, .052}, {-.6, .056}, {.98, .05}}, [3]int{146, 64, 30}, meshGrip)
+	// Round knob with a dark groove near its end, then the heel ferrule.
+	rangedLathe(&m, [][2]float64{{-2.43, 0}, {-2.42, .045}, {-2.39, .08}, {-2.34, .102}, {-2.28, .106}, {-2.22, .096}, {-2.18, .07}, {-2.15, .06}}, brass, meshMetal)
+	rangedLathe(&m, [][2]float64{{-2.385, .084}, {-2.37, .088}}, dark, meshMetal)
+	collar(-2.15, -2.09, .074, light)
+	rangedLathe(&m, [][2]float64{{-2.09, .066}, {-1.95, .066}}, steel, meshMetal)
+	collar(-1.95, -1.89, .074, light)
+	// Mid-shaft cluster and the long brass sleeve under the socket.
+	collar(-.68, -.61, .077, light)
+	rangedLathe(&m, [][2]float64{{-.61, .07}, {-.47, .07}}, steel, meshMetal)
+	collar(-.47, -.40, .079, light)
+	rangedLathe(&m, [][2]float64{{-.40, .066}, {.25, .066}}, brass, meshMetal)
+	for _, x := range []float64{-.30, -.08, .14} {
+		collar(x, x+.05, .075, light)
+	}
+	rangedLathe(&m, [][2]float64{{.25, .06}, {.30, .06}}, dark, meshMetal)
+	// The socket clasps the rim where the shaft crosses it.
+	rangedLathe(&m, [][2]float64{{.30, .072}, {.32, .088}, {.54, .088}, {.56, .072}}, light, meshMetal)
+	rangedLathe(&m, [][2]float64{{.56, .066}, {.60, .066}}, steel, meshMetal)
+
+	const hub, rootR, tipR, innerR, half, edge = 1.05, .60, .70, .50, .045, .03
+	// One tooth period: root, flank, flat top, flank, root. Sectors share
+	// their vertices so the rim has no radial seams.
+	fractions := []float64{0, .1, .2, .32, .5, .68, .8, .9}
+	outer := func(f float64) float64 {
+		switch {
+		case f < .2 || f > .8:
+			return rootR
+		case f < .32:
+			return rootR + (tipR-rootR)*(f-.2)/.12
+		case f > .68:
+			return tipR - (tipR-rootR)*(f-.68)/.12
+		}
+		return tipR
+	}
+	const teeth = 16
+	var angles, radii []float64
+	for i := 0; i < teeth; i++ {
+		for _, f := range fractions {
+			angles = append(angles, (float64(i)+f)*2*math.Pi/teeth)
+			radii = append(radii, outer(f))
+		}
+	}
+	at := func(a, r, z float64) [3]float64 { return [3]float64{hub + r*math.Cos(a), r * math.Sin(a), z} }
+	profile := [][2]float64{{0, edge}, {.08, half}, {.92, half}, {1, edge}}
+	for i := range angles {
+		j := (i + 1) % len(angles)
+		a, b, ra, rb := angles[i], angles[j], radii[i], radii[j]
+		if j == 0 {
+			b += 2 * math.Pi
+		}
+		for _, side := range []float64{-1, 1} {
+			for k := 1; k < len(profile); k++ {
+				p := func(ang, r float64, n int) [3]float64 {
+					t := profile[n][0]
+					return at(ang, r*(1-t)+innerR*t, side*profile[n][1])
+				}
+				rangedSurfaceTriangle(&m, p(a, ra, k-1), p(b, rb, k-1), p(a, ra, k), [3]float64{0, 0, side}, brass, meshMetal)
+				rangedSurfaceTriangle(&m, p(a, ra, k), p(b, rb, k-1), p(b, rb, k), [3]float64{0, 0, side}, brass, meshMetal)
+			}
+		}
+		// Tooth faces and flanks, then the rim's inner wall.
+		pa, pb := at(a, ra, 0), at(b, rb, 0)
+		out := [3]float64{pb[1] - pa[1], -(pb[0] - pa[0]), 0}
+		rangedSurfaceTriangle(&m, at(a, ra, -edge), at(b, rb, -edge), at(a, ra, edge), out, brass, meshMetal)
+		rangedSurfaceTriangle(&m, at(a, ra, edge), at(b, rb, -edge), at(b, rb, edge), out, brass, meshMetal)
+		in := [3]float64{-math.Cos((a + b) / 2), -math.Sin((a + b) / 2), 0}
+		rangedSurfaceTriangle(&m, at(a, innerR, -edge), at(b, innerR, -edge), at(a, innerR, edge), in, dark, meshMetal)
+		rangedSurfaceTriangle(&m, at(a, innerR, edge), at(b, innerR, -edge), at(b, innerR, edge), in, dark, meshMetal)
+	}
+	var fine []rangedSection
+	for i := 0; i <= 48; i++ {
+		a := float64(i) * 2 * math.Pi / 48
+		fine = append(fine, rangedSection{at(a, .45, 0), .021, .032})
+	}
+	rangedTube(&m, fine, light, meshMetal)
+	// Beveled bars, broader at the hub, read as cast spokes rather than wire.
+	for _, deg := range []float64{0, 60, -60, 120, -120} {
+		a := deg * math.Pi / 180
+		c, s := math.Cos(a), math.Sin(a)
+		var bar [][2]float64
+		for _, v := range [][2]float64{{.17, -.042}, {.51, -.032}, {.51, .032}, {.17, .042}} {
+			bar = append(bar, [2]float64{hub + v[0]*c - v[1]*s, v[0]*s + v[1]*c})
+		}
+		rangedStockPlate(&m, bar, 0, .03, .45, brass, meshMetal)
+	}
+	center := [3]float64{hub, 0, 0}
+	m.ring(center, .20, .036, light)
+	rangedOrb(&m, center, [3]float64{.17, .17, .066}, brass, meshMetal)
+	for _, side := range []float64{-1, 1} {
+		m.ring([3]float64{hub, 0, side * .05}, .115, .013, dark)
+	}
+	rangedOrb(&m, center, [3]float64{.062, .062, .10}, steel, meshMetal)
+	return m.faces
+}

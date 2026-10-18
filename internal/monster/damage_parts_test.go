@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	damagecalc "ugataima/internal/damage"
+	"ugataima/internal/status"
 )
 
 // takeDamageParts is the monster half of a single-school hit: normal and true
@@ -18,7 +19,7 @@ func TestTakeDamageParts_ResistanceThenNormalOnlySoak(t *testing.T) {
 		MaxHitPoints: 100,
 		Resistances:  map[DamageType]int{DamagePhysical: 50},
 		SoakDamage:   5,
-		SoakFrames:   1,
+		Soak:         status.DualClock{Frames: 1},
 	}
 
 	got := takeDamageParts(m, damagecalc.Parts{Normal: 50, True: 20}, DamagePhysical, 0)
@@ -51,7 +52,7 @@ func TestTakeDamagePacket_MultiSchoolHitPaysSoakOnce(t *testing.T) {
 		MaxHitPoints: 1000,
 		Resistances:  map[DamageType]int{},
 		SoakDamage:   10,
-		SoakFrames:   1,
+		Soak:         status.DualClock{Frames: 1},
 	}
 	dealt := m.TakeDamagePacket([]DamageComponent{
 		{Parts: damagecalc.Parts{Normal: 80}, DamageType: DamagePhysical},

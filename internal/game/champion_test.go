@@ -258,7 +258,7 @@ func TestChampionRTDualStreams(t *testing.T) {
 	for _, mem := range cs.game.party.Members {
 		mem.HitPoints = mem.MaxHitPoints
 		mem.Conditions = mem.Conditions[:0]
-		mem.StunFramesRemaining, mem.StunTurnsRemaining = 0, 0
+		mem.Stun.Frames, mem.Stun.Turns = 0, 0
 	}
 	mainBefore := m.AttackCDFrames
 	m.OffHandCDFrames = 0

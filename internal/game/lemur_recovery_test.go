@@ -116,7 +116,7 @@ func TestLemurInvalidTerrainRecovery(t *testing.T) {
 						g.world.Tiles[10][13] = world.TileWall
 					}
 					if scenario == "rooted" {
-						m.RootFramesRemaining, m.RootTurnsRemaining = 10000, 10000
+						m.Root.Frames, m.Root.Turns = 10000, 10000
 					}
 					advanceLemurThroughScheduler(g, m, turn)
 					if scenario == "no_landing" || scenario == "rooted" {
@@ -124,7 +124,7 @@ func TestLemurInvalidTerrainRecovery(t *testing.T) {
 							t.Fatal("unavailable/held recovery moved actor")
 						}
 						g.world.Tiles[10][13] = g.world.Tiles[9][13]
-						m.RootFramesRemaining, m.RootTurnsRemaining = 0, 0
+						m.Root.Frames, m.Root.Turns = 0, 0
 						// A new frame/turn clears the corresponding movement latch.
 						for i := 0; i < 4 && m.Arbor.Phase != ""; i++ {
 							advanceLemurThroughScheduler(g, m, turn)

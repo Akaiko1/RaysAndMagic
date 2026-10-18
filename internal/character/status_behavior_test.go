@@ -141,22 +141,22 @@ func TestCharStunDualClock(t *testing.T) {
 		t.Fatal("apply must stun")
 	}
 	c.ApplyCharStun(1, 1) // weaker re-apply
-	if c.StunFramesRemaining != 2 || c.StunTurnsRemaining != 3 {
+	if c.Stun.Frames != 2 || c.Stun.Turns != 3 {
 		t.Fatal("stun refresh must never shorten either clock")
 	}
 
 	// RT expiry clears the TB clock and the condition.
 	c.tickStunFrames()
 	c.tickStunFrames()
-	if c.IsStunned() || c.StunTurnsRemaining != 0 || c.HasCondition(ConditionStunned) {
-		t.Fatalf("RT expiry must clear everything: f=%d t=%d", c.StunFramesRemaining, c.StunTurnsRemaining)
+	if c.IsStunned() || c.Stun.Turns != 0 || c.HasCondition(ConditionStunned) {
+		t.Fatalf("RT expiry must clear everything: f=%d t=%d", c.Stun.Frames, c.Stun.Turns)
 	}
 
 	// TB expiry clears the RT clock symmetrically.
 	c.ApplyCharStun(500, 1)
 	c.TickStunTurn()
-	if c.IsStunned() || c.StunFramesRemaining != 0 || c.HasCondition(ConditionStunned) {
-		t.Fatalf("TB expiry must clear everything: f=%d t=%d", c.StunFramesRemaining, c.StunTurnsRemaining)
+	if c.IsStunned() || c.Stun.Frames != 0 || c.HasCondition(ConditionStunned) {
+		t.Fatalf("TB expiry must clear everything: f=%d t=%d", c.Stun.Frames, c.Stun.Turns)
 	}
 
 	c.ApplyCharStun(0, 0)
@@ -171,16 +171,16 @@ func TestCharStunWeakRefreshPreservesModeExchangeRate(t *testing.T) {
 	for range 119 {
 		c.tickStunFrames()
 	}
-	if c.StunFramesRemaining != 361 || c.StunTurnsRemaining != 4 || c.StunRate != 120 {
+	if c.Stun.Frames != 361 || c.Stun.Turns != 4 || c.Stun.Rate != 120 {
 		t.Fatalf("RT progress: frames=%d turns=%d rate=%d, want 361/4/120",
-			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
+			c.Stun.Frames, c.Stun.Turns, c.Stun.Rate)
 	}
 
 	c.ApplyCharStun(120, 1)
 	c.TickStunTurn()
-	if c.StunFramesRemaining != 241 || c.StunTurnsRemaining != 3 || c.StunRate != 120 {
+	if c.Stun.Frames != 241 || c.Stun.Turns != 3 || c.Stun.Rate != 120 {
 		t.Fatalf("weak refresh changed TB remainder: frames=%d turns=%d rate=%d, want 241/3/120",
-			c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate)
+			c.Stun.Frames, c.Stun.Turns, c.Stun.Rate)
 	}
 }
 

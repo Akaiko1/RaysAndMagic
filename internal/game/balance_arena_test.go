@@ -356,7 +356,7 @@ type purifyProbe struct {
 func (a *balanceArena) probePurify() purifyProbe {
 	p := purifyProbe{useful: a.g.partyNeedsPurify(), autoFrames: map[string]int{}}
 	for _, m := range a.g.party.Members {
-		p.autoFrames[m.Name] = m.AutocastFrames
+		p.autoFrames[m.Name] = m.AutocastCD.Frames
 	}
 	return p
 }
@@ -376,7 +376,7 @@ func (a *balanceArena) noteTechniques(before purifyProbe) {
 				a.tally(m.Name, b.ID)
 			}
 		}
-		restarted := before.autoFrames[m.Name] == 0 && m.AutocastFrames > 0
+		restarted := before.autoFrames[m.Name] == 0 && m.AutocastCD.Frames > 0
 		if a.techSeen[m.Name+"purify"] == 0 && restarted && before.useful && !g.partyNeedsPurify() {
 			a.techSeen[m.Name+"purify"] = 1
 			a.tally(m.Name, "technique:purify")

@@ -66,9 +66,9 @@ func restoreBossFireTraps(saves []bossFireTrap, fallbackMapKey string, wm *world
 	return transformBossFireTraps(saves, fallbackMapKey, false, wm.ProjectTile)
 }
 
-// tryBossTrapVolley is called from the boss action paths and owns both cadence
-// counters: RT ticks frames, while TB ticks once per monster pass.
-func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D, turnBased bool) {
+// tryBossTrapVolley is called from the boss action paths once TrapVolleyCD
+// (spent by Monster3D.TickAbilityClocks) has run out.
+func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D) {
 	if m == nil || m.Abilities.TrapVolley.Count <= 0 || !m.IsAlive() || cs.bossDisabled(m) || cs.bossEvasive(m) {
 		return
 	}
@@ -77,22 +77,8 @@ func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D, turnBased boo
 	if !m.IsEngagingPlayer && !m.IsInCombat() {
 		return
 	}
-	if turnBased {
-		// Decrement THEN test, mirroring the RT frames counter: a volley fires
-		// every interval-th pass, not every interval+1 (off-by-one otherwise).
-		if m.TrapVolleyTurnCD > 0 {
-			m.TickTrapVolleyCooldownTurn()
-		}
-		if m.TrapVolleyTurnCD > 0 {
-			return
-		}
-	} else {
-		if m.TrapVolleyCDFrames > 0 {
-			m.TickTrapVolleyCooldownFrame()
-		}
-		if m.TrapVolleyCDFrames > 0 {
-			return
-		}
+	if m.TrapVolleyCD.Active() {
+		return
 	}
 	if cs.attackOriginBlocked(m.X, m.Y) {
 		return

@@ -1342,6 +1342,7 @@ weapons:
     rarity: "unique"
     value: 1500
     flavor: "Loose, step, loose - the sand never sees you plant your feet."
+    signature: {kind: skirmish, charge_limit: 1, charge_move_tiles: 1}
     physics:
       speed_tiles: 13.0
       range_tiles: 7.0
@@ -1465,7 +1466,7 @@ weapons:
     range: 1
     bonus_stat: "Might"
     crit_chance: 18
-    armor_pierce_pct: 20
+    jam_seconds: 1              # teeth in the works: the target's next attack comes late
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
@@ -1487,8 +1488,7 @@ weapons:
     range: 1
     bonus_stat: "Might"
     crit_chance: 16
-    stun_chance: 0.15
-    stun_seconds: 9
+    toll_echo_pct: 50           # the toll rings again on the target a round later
     cooldown_multiplier: 1.40
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
@@ -1514,6 +1514,8 @@ weapons:
     bonus_stat_secondary: "Accuracy"
     crit_chance: 28
     cooldown_multiplier: 0.65
+    hour_strike_marks: 12       # every twelfth hit on one target strikes the hour
+    hour_strike_multiplier: 3
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
@@ -1535,7 +1537,8 @@ weapons:
     range: 2
     bonus_stat: "Might"
     crit_chance: 16
-    bonus_vs_stunned: 1.5
+    fresh_target_min_hp_pct: 90  # the wound spring lets go into a fresh target
+    fresh_target_multiplier: 5
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
@@ -1549,28 +1552,33 @@ weapons:
       slash_width: 22
       slash_length: 80
 
-  escapement_mace:
-    name: "Escapement Mace"
-    description: "A ratcheting cog-mace that strips armor tooth by tooth"
-    category: "mace"
-    damage: 19
-    range: 1
-    bonus_stat: "Might"
-    crit_chance: 18
-    armor_shred_pct: 20
-    armor_shred_seconds: 15
+  escapement_staff:
+    name: "Escapement Staff"
+    legacy_names: ["Escapement Mace"]  # it was a mace once; saved copies become the staff
+    description: "A tower clock's escapement on a brass staff, ticking out the time of every blessing"
+    category: "staff"
+    damage: 16
+    range: 6
+    bonus_stat: "Intellect"
+    damage_type: "spirit"
+    crit_chance: 14
+    buff_duration_pct: 50       # the escapement lets the clock run longer
     rarity: "unique"
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1500
-    flavor: "Tick: your pauldron. Tock: your greave."
-    melee:
-      arc_type: 2
-      animation_frames: 9
+    projectile_school: "spirit"
+    flavor: "Tick: one more minute. Tock: one more."
+    physics:
+      speed_tiles: 10.0
+      range_tiles: 6.0
+      hitbox: standard
     graphics:
-      slash_color: [225, 200, 140]
-      slash_fx: "clock_escapement"
-      slash_width: 40
-      slash_length: 54
+      held_model: escapement_staff
+      max_size: 30
+      min_size: 4
+      base_size: 15
+      color: [214, 192, 255]
+      projectile_fx: clock_escapement
 
   clockwork_pistol:
     name: "Clockwork Pistol"
@@ -1585,6 +1593,7 @@ weapons:
     no_loot: true  # Clockmaker stock and the clock_tower_gear table only: no random loot or rarity racks
     value: 1600
     flavor: "Wind, aim, and the mechanism does the rest."
+    signature: {kind: wind_up, charge_limit: 3}  # a spring per round without firing
     physics:
       speed_tiles: 14.0
       range_tiles: 6.0
@@ -1666,7 +1675,7 @@ weapons:
     crit_chance: 12
     damage_type: "fire"
     aoe_radius_tiles: 1.5
-    death_burst_damage: 45
+    death_burst_max_hp_pct: 33
     death_burst_radius_tiles: 2.0
     rarity: "legendary"
     value: 5000
@@ -1689,7 +1698,7 @@ weapons:
     range: 2
     bonus_stat: "Might"
     crit_chance: 12
-    true_damage: 10
+    true_damage_pct: 33
     rarity: "legendary"
     value: 5000
     no_loot: true

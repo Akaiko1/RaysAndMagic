@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
+	"ugataima/internal/status"
 )
 
 // The valve interact-quest advances via OnInteract on its own tag and
@@ -138,7 +139,7 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 		t.Errorf("evasive GTB must expose the shared evasive AI mode (flag=%v behavior=%v)",
 			gtb.BossEvasive, gtb.CurrentAIBehavior())
 	}
-	if !cs.updateBoss(gtb, true, true, true) {
+	if !cs.updateBoss(gtb, true) {
 		t.Errorf("evasive GTB should be fully handled by updateBoss (no normal attack)")
 	}
 
@@ -181,7 +182,7 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 
 	// First tick (far, undamaged) just establishes the HP baseline - it must NOT blink.
 	startX, startY := gtb.X, gtb.Y
-	if !cs.updateBoss(gtb, true, false, false) {
+	if !cs.updateBoss(gtb, false) {
 		t.Fatalf("evasive GTB action should be fully handled by updateBoss")
 	}
 	if gtb.X != startX || gtb.Y != startY {
@@ -192,7 +193,7 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 	// even though the party is far - and even though no hit-flash timer is set.
 	gtb.HitPoints -= 100
 	preX, preY := gtb.X, gtb.Y
-	cs.updateBoss(gtb, true, false, false)
+	cs.updateBoss(gtb, false)
 	if gtb.X == preX && gtb.Y == preY {
 		t.Errorf("a wounded evasive GTB should blink to a new tile, even from far away")
 	}
@@ -261,11 +262,11 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 
 	// 1) Far beyond the authored reach: no nova, in either mode.
 	gtb.X, gtb.Y = g.camera.X+40*tile, g.camera.Y
-	gtb.InfernoCDFrames = 0
-	if cs.updateBoss(gtb, true, false, true) {
+	gtb.InfernoCD = status.DualClock{}
+	if cs.updateBoss(gtb, false) {
 		t.Error("nova fired from 40 tiles - the range gate is not applied")
 	}
-	if cs.updateBoss(gtb, true, true, true) { // TB passes attackTick=true every pass
+	if cs.updateBoss(gtb, true) { // TB passes attackTick=true every pass
 		t.Error("nova fired from 40 tiles on a TB pass - the range gate is bypassed at the melee-moment branch")
 	}
 	if hpBefore() != 200 {
@@ -274,20 +275,20 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 
 	// 2) Inside the authored reach but outside melee: the ranged roll fires...
 	gtb.X, gtb.Y = g.camera.X+float64(gtb.Abilities.Inferno.RangeTiles-1)*tile, g.camera.Y
-	gtb.InfernoCDFrames = 0
-	if !cs.updateBoss(gtb, true, false, true) {
+	gtb.InfernoCD = status.DualClock{}
+	if !cs.updateBoss(gtb, false) {
 		t.Fatal("nova should fire from inside abilities.inferno.range_tiles")
 	}
 	if hpBefore() == 200 {
 		t.Error("in-range nova dealt no damage")
 	}
 	// ...and then respects its cadence instead of re-rolling every tick.
-	if gtb.InfernoCDFrames != BossInfernoRangedRollSeconds*g.config.GetTPS() {
+	if gtb.InfernoCD.Frames != BossInfernoRangedRollSeconds*g.config.GetTPS() {
 		t.Errorf("ranged nova cadence = %d frames, want %d",
-			gtb.InfernoCDFrames, BossInfernoRangedRollSeconds*g.config.GetTPS())
+			gtb.InfernoCD.Frames, BossInfernoRangedRollSeconds*g.config.GetTPS())
 	}
 	hpAfterFirst := hpBefore()
-	if cs.updateBoss(gtb, true, false, true) {
+	if cs.updateBoss(gtb, false) {
 		t.Error("nova re-fired while its cadence was still running")
 	}
 	if hpBefore() != hpAfterFirst {
@@ -296,8 +297,8 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 
 	// 3) Melee moment inside reach: the nova may still replace the normal hit.
 	gtb.X, gtb.Y = g.camera.X+tile, g.camera.Y
-	gtb.InfernoCDFrames = 0
-	if !cs.updateBoss(gtb, true, true, false) {
+	gtb.InfernoCD = status.DualClock{}
+	if !cs.updateBoss(gtb, true) {
 		t.Error("adjacent nova should still replace the normal attack")
 	}
 }

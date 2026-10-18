@@ -33,8 +33,6 @@ func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind, style string, x
 			model = bodyMinuteHand
 		case "clock_chime":
 			model = bodyChimeMaul
-		case "clock_escapement":
-			model = bodyEscapementMace
 		case "clock_cogfang":
 			model = bodyCogfangBlade
 		case "clock_mainspring":

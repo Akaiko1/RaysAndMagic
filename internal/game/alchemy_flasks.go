@@ -194,7 +194,9 @@ func (cs *CombatSystem) detonateFlask(p *FlaskProjectile, x, y float64) {
 				if m.Relics.Catalysis == nil {
 					m.Relics.Catalysis = make(map[uint64]monster.CatalysisMark)
 				}
-				m.Relics.Catalysis[p.ActorID] = monster.CatalysisMark{Percent: p.CatalysisPercent, Frames: p.CatalysisFrames}
+				mark := monster.CatalysisMark{Percent: p.CatalysisPercent}
+				mark.Clock.ArmFrames(p.CatalysisFrames, cs.game.config.GetTPS())
+				m.Relics.Catalysis[p.ActorID] = mark
 			}
 			if p.PoisonFrames > 0 {
 				m.ApplyPoison(p.PoisonFrames)
@@ -237,7 +239,7 @@ func catalyzedFlaskPacket(victim *monster.Monster3D, shot *FlaskProjectile, pack
 		return packet
 	}
 	mark, ok := victim.Relics.Catalysis[shot.ActorID]
-	if !ok || mark.Frames <= 0 || mark.Percent <= 0 {
+	if !ok || !mark.Clock.Active() || mark.Percent <= 0 {
 		return packet
 	}
 	delete(victim.Relics.Catalysis, shot.ActorID)

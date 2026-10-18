@@ -29,8 +29,8 @@ func TestMonsterTBStunExpiry_ClearsRTCounterpartToo(t *testing.T) {
 	// codebase authors it (spells pair stun_duration_seconds with _turns;
 	// weapon/card stun always defaults turns to at least 1).
 	cs.applyStunDR(m, 1, false)
-	if m.StunTurnsRemaining != 1 || m.StunFramesRemaining <= 0 {
-		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.StunTurnsRemaining, m.StunFramesRemaining)
+	if m.Stun.Turns != 1 || m.Stun.Frames <= 0 {
+		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.Stun.Turns, m.Stun.Frames)
 	}
 
 	gl := &GameLoop{game: game}
@@ -38,11 +38,11 @@ func TestMonsterTBStunExpiry_ClearsRTCounterpartToo(t *testing.T) {
 	game.monsterTurnResolved = false
 	gl.updateMonstersTurnBased() // the monster's one stunned turn
 
-	if m.StunTurnsRemaining != 0 {
-		t.Fatalf("expected TB stun to expire after its one turn, got %d", m.StunTurnsRemaining)
+	if m.Stun.Turns != 0 {
+		t.Fatalf("expected TB stun to expire after its one turn, got %d", m.Stun.Turns)
 	}
-	if m.StunFramesRemaining != 0 {
-		t.Errorf("StunFramesRemaining still %d after TB stun expired - stun-star overlay and bossDisabled would still read this monster as stunned", m.StunFramesRemaining)
+	if m.Stun.Frames != 0 {
+		t.Errorf("StunFramesRemaining still %d after TB stun expired - stun-star overlay and bossDisabled would still read this monster as stunned", m.Stun.Frames)
 	}
 }
 
@@ -69,8 +69,8 @@ func TestMonsterRTStunExpiry_ClearsTBCounterpartToo(t *testing.T) {
 	// every stun source in this codebase.
 	tps := game.config.GetTPS()
 	cs.applyStunDR(m, 1, false)
-	if m.StunTurnsRemaining <= 0 || m.StunFramesRemaining <= 0 {
-		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.StunTurnsRemaining, m.StunFramesRemaining)
+	if m.Stun.Turns <= 0 || m.Stun.Frames <= 0 {
+		t.Fatalf("setup: expected both counters set, got turns=%d frames=%d", m.Stun.Turns, m.Stun.Frames)
 	}
 
 	mw := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, frame: game.monsterFrameContext()}
@@ -81,11 +81,11 @@ func TestMonsterRTStunExpiry_ClearsTBCounterpartToo(t *testing.T) {
 		mw.ApplyCollisionUpdate()
 	}
 
-	if m.StunFramesRemaining != 0 {
-		t.Fatalf("expected RT stun to expire after %d frames, got %d remaining", stun, m.StunFramesRemaining)
+	if m.Stun.Frames != 0 {
+		t.Fatalf("expected RT stun to expire after %d frames, got %d remaining", stun, m.Stun.Frames)
 	}
-	if m.StunTurnsRemaining != 0 {
-		t.Errorf("StunTurnsRemaining still %d after RT stun expired in pure RT play - stun-star overlay would still read this monster as stunned", m.StunTurnsRemaining)
+	if m.Stun.Turns != 0 {
+		t.Errorf("StunTurnsRemaining still %d after RT stun expired in pure RT play - stun-star overlay would still read this monster as stunned", m.Stun.Turns)
 	}
 }
 

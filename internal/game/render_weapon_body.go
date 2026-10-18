@@ -64,7 +64,6 @@ const (
 	bodyShellknocker
 	bodyCogfangBlade
 	bodyChimeMaul
-	bodyEscapementMace
 	bodyMainspringPike
 	bodyMinuteHand
 	bodyStoneScript
@@ -152,7 +151,6 @@ var meleeBodies = [meleeBodyCount]struct {
 	bodyShellknocker:     {"shellknocker", familyUnique},
 	bodyCogfangBlade:     {"cogfang_blade", familyClock},
 	bodyChimeMaul:        {"chime_maul", familyClock},
-	bodyEscapementMace:   {"escapement_mace", familyClock},
 	bodyMainspringPike:   {"mainspring_pike", familyClock},
 	bodyMinuteHand:       {"minute_hand", familyClock},
 	bodyStoneScript:      {"solstice_stone_script", familyUnique},

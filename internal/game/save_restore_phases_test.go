@@ -20,9 +20,9 @@ func TestFileRestoreReplacesTimelineInDependencyOrder(t *testing.T) {
 			g.world.Monsters = []*monster.Monster3D{mob}
 			g.turnBasedMonsterStatusTick = true
 			g.turnBasedMonsterStunned = map[*monster.Monster3D]bool{mob: true}
-			g.waterBreathingActive, g.waterBreathingDuration = true, 123
+			g.waterBreathingActive, g.waterBreathingClock = true, framesClock(123)
 			g.questSpawnsDone = map[string]bool{"saved_spawn": true}
-			g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 91, Bonuses: character.UniformStatBonuses(2)})
+			g.addStatBuff(TimedStatBuff{SpellID: "bless", Clock: framesClock(91), Bonuses: character.UniformStatBonuses(2)})
 			g.mapReturnPoses = map[string]MapPose{"other": {X: 5.5 * ts, Y: 6.5 * ts, Angle: 0}}
 			save := g.buildSave(wm)
 			if format == "legacy_map_key" {
@@ -40,7 +40,7 @@ func TestFileRestoreReplacesTimelineInDependencyOrder(t *testing.T) {
 				g.dialogState = staleConversation(&character.NPC{Name: "Previous conversation"})
 				g.menuState = menuState{mainMenuOpen: true, mainMenuMode: MenuLoadSelect, saveRenameOpen: true, saveRenameInput: "Previous slot"}
 				g.questSpawnsDone = map[string]bool{"previous_spawn": true}
-				g.waterBreathingActive, g.waterBreathingDuration = false, 0
+				g.waterBreathingActive, g.waterBreathingClock = false, framesClock(0)
 				g.statBuffs = nil
 				g.buffStatuses = nil
 				g.turnBasedMonsterStunned = nil
@@ -52,7 +52,7 @@ func TestFileRestoreReplacesTimelineInDependencyOrder(t *testing.T) {
 				if !reflect.DeepEqual(g.dialogState, dialogState{dialogLastClickedIdx: -1}) || !reflect.DeepEqual(g.menuState, menuState{saveRenameSlot: -1, audioSliderDrag: -1}) {
 					t.Fatal("file load retained the previous UI owners")
 				}
-				if !g.waterBreathingActive || g.waterBreathingDuration != 123 || len(g.statBuffs) != 1 || g.statBuffs[0].Frames != 91 || g.buffStatuses["bless"] == nil {
+				if !g.waterBreathingActive || g.waterBreathingClock.Frames != 123 || len(g.statBuffs) != 1 || g.statBuffs[0].Clock.Frames != 91 || g.buffStatuses["bless"] == nil {
 					t.Fatal("restored effects and their presentation disagree before the first tick")
 				}
 				if len(g.world.Monsters) != 1 || len(g.turnBasedMonsterStunned) != 1 || !g.turnBasedMonsterStunned[g.world.Monsters[0]] || g.world.Monsters[0].ID != mob.ID {

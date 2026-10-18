@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/status"
 )
 
 // spawnSummonsBossScenario puts a card-summoned ally next to the boss and the
@@ -157,7 +158,7 @@ func TestBossWithDeadCachedFoeWaitsForRetargetRT(t *testing.T) {
 		aggro(m)
 		noSummons(m)
 		m.Abilities.Inferno.Chance = 1
-		m.InfernoCDFrames = 0
+		m.InfernoCD = status.DualClock{}
 	})
 	ally.HitPoints = 0 // killed by an earlier actor after target selection
 	if boss.AIFoe != ally {

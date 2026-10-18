@@ -245,7 +245,7 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 		dmg.AddDetail("Active party buff: +%d", preview.OutgoingBuff)
 	}
 	if preview.AuthoredTrue > 0 {
-		dmg.AddDetail("Weapon: +%d True", preview.AuthoredTrue)
+		dmg.AddDetail("Weapon: +%d True (%d%% of the hit)", preview.AuthoredTrue, def.TrueDamagePct)
 	}
 	masteryTrue := preview.True - preview.AuthoredTrue - preview.CardTrue
 	if masteryTrue > 0 {
@@ -320,12 +320,21 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 	}
 
 	effects := ttSection{Title: "EFFECTS"}
+	// Weapon hits add the card collection's disintegrate bonus, as spells do.
+	shown := def
+	chance, cardDisintegrate := cs.shownDisintegrate(def.DisintegrateChance)
+	if cardDisintegrate > 0 {
+		c := *def
+		c.DisintegrateChance = chance
+		shown = &c
+	}
 	// Config-computable specials minus the lines this template renders itself.
-	for _, ln := range def.CoreEffectLines() {
+	for _, ln := range shown.CoreEffectLines() {
 		effects.Add("%s", ln)
 	}
-	if def.HasSignature(config.SignatureSolarFlare) {
-		effects.Add("%s", uitext.Text("weapon.solar_stored", item.Signature.Charges, def.Signature.ChargeLimit))
+	addCardDisintegrateDetail(&effects, cardDisintegrate)
+	if def.StoresCharges() {
+		effects.Add("%s", def.Signature.StoredLine(item.Signature.Charges))
 	}
 
 	return renderTooltipRows(item.Name, subtitle, []ttSection{dmg, crit, attack, effects}, full)
@@ -633,21 +642,23 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	if def.IsProjectile && !def.DealsNoDamage {
 		dmg.Add("%s", damageTypeAoELine(def.DamageType(), def.AoeRadiusTiles))
 	}
-	// Party projectiles add the card collection's disintegrate bonus at launch.
+	// A live card shows the spell as this caster casts it: durations a wielded
+	// staff lengthens, and the card collection's disintegrate bonus, which
+	// party projectiles add at launch.
 	shown, cardDisintegrate := def, 0
-	if cs != nil && cs.game != nil && def.DisintegrateChance > 0 && def.IsProjectile {
-		cardDisintegrate = cs.game.cardDisintegratePct()
-		shown.DisintegrateChance = cs.game.partyDisintegrateChance(def.DisintegrateChance)
+	if char != nil {
+		shown.DurationByMastery = castersDurations(def, char)
+	}
+	if def.IsProjectile {
+		shown.DisintegrateChance, cardDisintegrate = cs.shownDisintegrate(def.DisintegrateChance)
 	}
 	effects := spellCurrentEffects(shown, char, false)
-	if cardDisintegrate > 0 {
-		effects.AddDetail("Cards: +%d%% disintegrate chance", cardDisintegrate)
-	}
+	addCardDisintegrateDetail(&effects, cardDisintegrate)
 	durationSection := ttSection{Title: "DURATION"}
 	// Advanced summaries already include their authored effect duration.
 	if def.Mechanic == nil && len(def.DurationByMastery) > 0 {
 		// A resolved TB round spends config.CombatRoundSeconds of every timer.
-		seconds := tierValues(func(t int) int { return def.DurationSeconds(t) })
+		seconds := tierValues(func(t int) int { return shown.DurationSeconds(t) })
 		durationSection.Add("%s: %s", tierLabel(hero, "Duration", seconds), tierDurationText(hero, tier, seconds))
 	}
 
@@ -863,8 +874,8 @@ func buildSimpleItemTooltipWithPartyRows(item items.Item, full bool, bearer *cha
 			usage.Hints = def.TooltipUsageLines()
 		}
 	}
-	if item.Type == items.ItemDevice && item.DeviceCooldownFrames > 0 {
-		recovery.Add("%s", uitext.Text("item.device_cooldown", float64(item.DeviceCooldownFrames)/float64(config.GetTargetTPS()), deviceCooldownTurns(item)))
+	if item.Type == items.ItemDevice && item.DeviceCooldown.Frames > 0 {
+		recovery.Add("%s", uitext.Text("item.device_cooldown", float64(item.DeviceCooldown.Frames)/float64(config.GetTargetTPS()), deviceCooldownTurns(item)))
 	}
 	for _, ln := range usage.Hints {
 		use.Add("%s", ln)
@@ -915,4 +926,20 @@ func addFlaskSections(dmg, effect, use *ttSection, key string, f *config.FlaskDe
 	}
 	use.Add("No critical hits.")
 	use.Add("Equip as a quick action, then use F or SmartAttack.")
+}
+
+// shownDisintegrate is the disintegrate chance a party attack carries: the
+// authored chance plus the card collection's bonus, and that bonus in percent.
+// A catalog card (no game) and an attack without its own chance show the base.
+func (cs *CombatSystem) shownDisintegrate(base float64) (float64, int) {
+	if cs == nil || cs.game == nil || base <= 0 {
+		return base, 0
+	}
+	return cs.game.partyDisintegrateChance(base), cs.game.cardDisintegratePct()
+}
+
+func addCardDisintegrateDetail(sec *ttSection, cardPct int) {
+	if cardPct > 0 {
+		sec.AddDetail("Cards: +%d%% disintegrate chance", cardPct)
+	}
 }

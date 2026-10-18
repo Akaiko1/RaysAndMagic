@@ -6,6 +6,7 @@ import (
 	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 )
 
 func quietActorCombat(attacker, target *monster.Monster3D) bool {
@@ -56,8 +57,8 @@ func (g *MMGame) notifyCaravanAttack(target *monster.Monster3D) {
 	}
 	owner := g.rewardOwner()
 	// Under attack, leave a scheduled stop instead of waiting out the rest.
-	g.ecology.StopFrames = 0
-	owner.ecology.StopFrames = 0
+	g.ecology.Stop = status.DualClock{}
+	owner.ecology.Stop = status.DualClock{}
 	now := time.Now()
 	if now.Before(owner.caravanAttackAlertUntil) {
 		return

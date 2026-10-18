@@ -225,7 +225,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 			name: "melee buff precedes card multiplier", weaponKey: "iron_sword",
 			setup: func(cs *CombatSystem, _ *character.MMCharacter) {
 				cs.game.cardSlots[0].key = "masked_serpent_dancer_card"
-				cs.game.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 60, OutBonus: 5, OutDamageType: "all"})
+				cs.game.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(60), OutBonus: 5, OutDamageType: "all"})
 			},
 			want:  []string{"Active party buff: +5", "Cards: +20% melee damage"},
 			order: []string{"Total Damage:", "Active party buff: +5", "Cards: +20% melee damage"},
@@ -234,7 +234,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 			name: "ranged card multiplier precedes buff", weaponKey: "hunting_bow",
 			setup: func(cs *CombatSystem, _ *character.MMCharacter) {
 				cs.game.cardSlots[0].key = "masked_huntress_card"
-				cs.game.addCombatBuff(TimedCombatBuff{ID: "test", Frames: 60, OutBonus: 5, OutDamageType: "all"})
+				cs.game.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(60), OutBonus: 5, OutDamageType: "all"})
 			},
 			want:  []string{"Cards: +20% ranged damage", "Active party buff: +5"},
 			order: []string{"Total Damage:", "Cards: +20% ranged damage", "Active party buff: +5"},

@@ -1,30 +1,30 @@
 package monster
 
 // IsAfraid reports Fear's forced retreat.
-func (m *Monster3D) IsAfraid() bool { return m != nil && m.FearFramesRemaining > 0 }
+func (m *Monster3D) IsAfraid() bool { return m != nil && m.Fear.Active() }
 
 // IsSilenced reports the Feeblemind lock on spells, ranged bolts and boss specials.
-func (m *Monster3D) IsSilenced() bool { return m != nil && m.SilenceFramesRemaining > 0 }
+func (m *Monster3D) IsSilenced() bool { return m != nil && m.Silence.Active() }
 
 // ControlDRActive holds the shared stun/control DR memory until the target is
 // free of stun and fear. Both scheduler clocks use this predicate before recovery.
 func (m *Monster3D) ControlDRActive() bool {
-	return m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0 || m.IsAfraid()
+	return m.Stun.Active() || m.IsAfraid()
 }
 
-// AdvanceSpellControls shares the game's elapsed combat clock in RT and TB.
-// No frame-local AI callback consumes these timers, so pausing and idle TB
-// frames cannot spend a control effect.
-func (m *Monster3D) AdvanceSpellControls(elapsed int) {
-	if elapsed <= 0 {
-		return
-	}
+// AdvanceSpellControls spends one tick of the control clocks: a frame in real
+// time, a turn at a turn-based party turn. No frame-local AI callback consumes
+// them, so pausing and idle TB frames cannot spend a control effect. The
+// feeblemind immunity runs only while the monster is not silenced.
+func (m *Monster3D) AdvanceSpellControls(turn bool) {
 	wasAfraid := m.IsAfraid()
-	m.FearFramesRemaining = max(0, m.FearFramesRemaining-elapsed)
-	unsilencedElapsed := max(0, elapsed-m.SilenceFramesRemaining)
-	m.SilenceFramesRemaining = max(0, m.SilenceFramesRemaining-elapsed)
-	m.SilenceImmunityFramesRemaining = max(0, m.SilenceImmunityFramesRemaining-unsilencedElapsed)
-	m.BerserkFramesRemaining = max(0, m.BerserkFramesRemaining-elapsed)
+	m.Fear.Tick(turn)
+	if m.Silence.Active() {
+		m.Silence.Tick(turn)
+	} else {
+		m.SilenceImmunity.Tick(turn)
+	}
+	m.Berserk.Tick(turn)
 	if m.IsAlive() && wasAfraid && !m.IsAfraid() {
 		m.State = StateAlert
 		m.StateTimer = 0
@@ -37,7 +37,7 @@ func (m *Monster3D) AdvanceSpellControls(elapsed int) {
 
 // ApplyFear overrides ordinary pursuit without changing faction or loot.
 func (m *Monster3D) ApplyFear(frames int) {
-	m.FearFramesRemaining = max(m.FearFramesRemaining, frames)
+	m.Fear.ArmFrames(frames, m.tps())
 	m.State, m.StateTimer = StateFleeing, 0
 	m.AIFoe = nil
 	m.ResetPathfinding()

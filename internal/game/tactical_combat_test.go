@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/threading"
 	"ugataima/internal/world"
 )
@@ -23,8 +24,7 @@ func sniperFixture(t *testing.T, tb bool) (*MMGame, *GameLoop, *character.MMChar
 	g.party.Inventory = nil
 	g.selectedChar = 0
 	g.updateTacticalClocks()
-	g.tactics.stationarySeconds = character.OverwatchReadySeconds
-	g.tactics.movedTB = false
+	g.tactics.still = status.DualClock{}
 	g.combat.reactionRoll = func() float64 { return 0 }
 	return g, gl, ch, tile
 }
@@ -43,14 +43,13 @@ func TestOverwatchReadinessAndIndicatorContract(t *testing.T) {
 					g.updateTacticalClocks()
 					want = false
 				case "waiting":
-					g.tactics.stationarySeconds = 0
-					g.tactics.movedTB = true
+					g.armOverwatchStill()
 					want = false
 				case "cooldown":
 					ch.RTCooldown = 999
 					ch.ActionsRemaining = 0
 				case "stun":
-					ch.StunFramesRemaining = 120
+					ch.Stun.Frames = 120
 					want = false
 				case "dead":
 					ch.HitPoints = 0
@@ -73,16 +72,17 @@ func TestOverwatchReadinessAndIndicatorContract(t *testing.T) {
 	g, _, ch, tile := sniperFixture(t, false)
 	g.camera.X += tile
 	g.updateTacticalClocks()
-	for range g.config.GetTPS() - 1 {
-		g.updateTacticalClocks()
-	}
+	passFrames(g, g.config.GetTPS()-1)
 	if g.overwatchReady(ch) {
 		t.Fatal("armed before a full stationary second")
 	}
-	g.updateTacticalClocks()
+	passFrames(g, 1)
 	if !g.overwatchReady(ch) {
 		t.Fatal("not armed after a full stationary second")
 	}
+	// A step right before the switch still owes its wait in TB.
+	g.camera.X += tile
+	g.updateTacticalClocks()
 	g.ToggleTurnBasedMode()
 	if g.overwatchReady(ch) {
 		t.Fatal("mode switch granted readiness")
@@ -278,7 +278,7 @@ func TestDesignationUsesWeaponImpactAndExpires(t *testing.T) {
 		return before - m.HitPoints
 	}
 	first := fire()
-	if ch.DesignatedTargetID != m.ID || ch.DesignationFrames <= 0 {
+	if ch.DesignatedTargetID != m.ID || ch.Designation.Frames <= 0 {
 		t.Fatal("successful impact did not designate target")
 	}
 	second := fire()
@@ -291,8 +291,8 @@ func TestDesignationUsesWeaponImpactAndExpires(t *testing.T) {
 	if g.designationBonus(m) != 0 {
 		t.Fatal("old target retained mark")
 	}
-	ch.DesignationFrames = 1
-	g.updateTacticalClocks()
+	ch.Designation = framesClock(1)
+	passFrames(g, 1)
 	if g.designationBonus(other) != 0 {
 		t.Fatal("expired mark still active")
 	}
@@ -441,7 +441,7 @@ func TestScreenShakeRestoresLogicalPosition(t *testing.T) {
 			g, _, ch, _ := sniperFixture(t, false)
 			g.camera.X, g.camera.Y = 1023.99, 2047.99
 			g.updateTacticalClocks()
-			g.tactics.stationarySeconds = 10
+			g.tactics.still = status.DualClock{}
 			if name != "idle" {
 				g.screenShake = 7.31
 			}
@@ -482,7 +482,7 @@ func TestOverwatchCombatLogIdentity(t *testing.T) {
 					m.PerfectDodge = 1
 					ch.Skills[character.SkillBlaster].Mastery = character.MasteryNovice
 				case "failed launch":
-					ch.StunFramesRemaining = 1
+					ch.Stun.Frames = 1
 				}
 				var fired bool
 				if reaction {
@@ -526,8 +526,8 @@ func TestDesignationSharedEligibility(t *testing.T) {
 			want := character.DesignationCritPct(ch.SkillTier(character.SkillDesignateTarget))
 			switch name {
 			case "expired":
-				ch.DesignationFrames = 1
-				g.updateTacticalClocks()
+				ch.Designation = framesClock(1)
+				passFrames(g, 1)
 				want = 0
 			case "dead target":
 				m.HitPoints = 0
@@ -536,7 +536,7 @@ func TestDesignationSharedEligibility(t *testing.T) {
 				ch.HitPoints = 0
 				want = 0
 			case "stunned owner":
-				ch.StunFramesRemaining = 1
+				ch.Stun.Frames = 1
 				want = 0
 			case "reserve owner":
 				g.party.Members = nil
@@ -569,7 +569,7 @@ func TestCatalogSkillsPreserveMasteryAcrossSave(t *testing.T) {
 			for _, skill := range []character.SkillType{character.SkillOverwatch, character.SkillBallistics, character.SkillFieldMedicine, character.SkillDesignateTarget} {
 				ch.Skills[skill].Mastery = character.SkillMastery(tier)
 			}
-			ch.AutoDrinkCooldown, ch.DesignationFrames, ch.DesignatedTargetID = 47, 93, "saved-mark"
+			ch.AutoDrinkCD, ch.Designation, ch.DesignatedTargetID = framesClock(47), framesClock(93), "saved-mark"
 			beforeCrit := g.combat.CalculateWeaponCritChance(ch.Equipment[items.SlotMainHand], ch)
 			beforeRecovery := character.ConsumableRestore(ch, 100, 0, false)
 			restored := restoreCharacterSave(buildCharacterSave(ch))
@@ -581,7 +581,7 @@ func TestCatalogSkillsPreserveMasteryAcrossSave(t *testing.T) {
 			if restored.Class != ch.Class {
 				t.Fatalf("saved class %v, want %v", restored.Class, ch.Class)
 			}
-			if g.combat.CalculateWeaponCritChance(restored.Equipment[items.SlotMainHand], restored) != beforeCrit || character.ConsumableRestore(restored, 100, 0, false) != beforeRecovery || restored.AutoDrinkCooldown != 47 || restored.DesignationFrames != 93 || restored.DesignatedTargetID != "saved-mark" {
+			if g.combat.CalculateWeaponCritChance(restored.Equipment[items.SlotMainHand], restored) != beforeCrit || character.ConsumableRestore(restored, 100, 0, false) != beforeRecovery || restored.AutoDrinkCD.Frames != 47 || restored.Designation.Frames != 93 || restored.DesignatedTargetID != "saved-mark" {
 				t.Fatal("save round trip changed skill effects or ongoing state")
 			}
 		})

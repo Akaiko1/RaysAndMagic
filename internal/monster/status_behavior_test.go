@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	"ugataima/internal/status"
 )
 
 func statusTestMonster() *Monster3D {
@@ -69,26 +70,26 @@ func TestMonsterPoisonTurnBased(t *testing.T) {
 func TestChampionSoakCarriesAcrossModes(t *testing.T) {
 	m := statusTestMonster()
 	m.ApplySoak(5, 120, 4)
-	if m.SoakDamage != 5 || m.SoakRate != 30 {
-		t.Fatalf("armed soak = damage %d rate %d, want 5/30", m.SoakDamage, m.SoakRate)
+	if m.SoakDamage != 5 || m.Soak.Rate != 30 {
+		t.Fatalf("armed soak = damage %d rate %d, want 5/30", m.SoakDamage, m.Soak.Rate)
 	}
 
 	for range 30 {
-		m.TickSoakFrame()
+		m.TickDebuffs(false)
 	}
-	if m.SoakFrames != 90 || m.SoakTurns != 3 {
-		t.Fatalf("soak after RT = %d frames/%d turns, want 90/3", m.SoakFrames, m.SoakTurns)
+	if m.Soak.Frames != 90 || m.Soak.Turns != 3 {
+		t.Fatalf("soak after RT = %d frames/%d turns, want 90/3", m.Soak.Frames, m.Soak.Turns)
 	}
-	m.TickSoakTurn()
-	if m.SoakFrames != 60 || m.SoakTurns != 2 {
-		t.Fatalf("soak after RT->TB = %d frames/%d turns, want 60/2", m.SoakFrames, m.SoakTurns)
+	m.TickDebuffs(true)
+	if m.Soak.Frames != 60 || m.Soak.Turns != 2 {
+		t.Fatalf("soak after RT->TB = %d frames/%d turns, want 60/2", m.Soak.Frames, m.Soak.Turns)
 	}
 	for range 60 {
-		m.TickSoakFrame()
+		m.TickDebuffs(false)
 	}
-	if m.SoakDamage != 0 || m.SoakFrames != 0 || m.SoakTurns != 0 || m.SoakRate != 0 {
+	if m.SoakDamage != 0 || m.Soak.Frames != 0 || m.Soak.Turns != 0 || m.Soak.Rate != 0 {
 		t.Fatalf("mixed-mode soak did not fully expire: damage=%d frames=%d turns=%d rate=%d",
-			m.SoakDamage, m.SoakFrames, m.SoakTurns, m.SoakRate)
+			m.SoakDamage, m.Soak.Frames, m.Soak.Turns, m.Soak.Rate)
 	}
 }
 
@@ -132,47 +133,47 @@ func TestPounceCooldownCarriesAcrossModes(t *testing.T) {
 	m := &Monster3D{Abilities: Abilities{Pounce: PounceAbility{CooldownSeconds: 4}}}
 	const tps = 120
 	m.ArmPounceCooldown(tps, 2)
-	if m.PounceCDFrames != 4*tps || m.PounceCDTurns != 2 {
+	if m.PounceCD.Frames != 4*tps || m.PounceCD.Turns != 2 {
 		t.Fatalf("armed pounce cooldown = %d frames/%d turns, want %d/2",
-			m.PounceCDFrames, m.PounceCDTurns, 4*tps)
+			m.PounceCD.Frames, m.PounceCD.Turns, 4*tps)
 	}
 
-	m.TickPounceCooldownTurn()
-	if m.PounceCDTurns != 1 || m.PounceCDFrames != 2*tps || m.PounceCDRate != 2*tps {
+	m.TickAbilityClocks(true)
+	if m.PounceCD.Turns != 1 || m.PounceCD.Frames != 2*tps || m.PounceCD.Rate != 2*tps {
 		t.Fatalf("first TB tick = %d frames/%d turns at rate %d, want %d/1 at %d",
-			m.PounceCDFrames, m.PounceCDTurns, m.PounceCDRate, 2*tps, 2*tps)
+			m.PounceCD.Frames, m.PounceCD.Turns, m.PounceCD.Rate, 2*tps, 2*tps)
 	}
 	for range tps {
-		m.TickPounceCooldownFrame()
+		m.TickAbilityClocks(false)
 	}
-	if m.PounceCDTurns != 1 || m.PounceCDFrames != tps {
+	if m.PounceCD.Turns != 1 || m.PounceCD.Frames != tps {
 		t.Fatalf("partial RT continuation = %d frames/%d turns, want %d/1",
-			m.PounceCDFrames, m.PounceCDTurns, tps)
+			m.PounceCD.Frames, m.PounceCD.Turns, tps)
 	}
 	for range tps {
-		m.TickPounceCooldownFrame()
+		m.TickAbilityClocks(false)
 	}
-	if m.PounceCDTurns != 0 || m.PounceCDFrames != 0 {
+	if m.PounceCD.Turns != 0 || m.PounceCD.Frames != 0 {
 		t.Fatalf("mixed-mode expiry did not clear both clocks: %d frames/%d turns",
-			m.PounceCDFrames, m.PounceCDTurns)
+			m.PounceCD.Frames, m.PounceCD.Turns)
 	}
 
 	m.ArmPounceCooldown(tps, 2)
 	for range tps {
-		m.TickPounceCooldownFrame()
+		m.TickAbilityClocks(false)
 	}
-	if m.PounceCDFrames != 3*tps || m.PounceCDTurns != 2 {
+	if m.PounceCD.Frames != 3*tps || m.PounceCD.Turns != 2 {
 		t.Fatalf("partial RT progress = %d frames/%d turns, want %d/2",
-			m.PounceCDFrames, m.PounceCDTurns, 3*tps)
+			m.PounceCD.Frames, m.PounceCD.Turns, 3*tps)
 	}
-	m.TickPounceCooldownTurn()
-	if m.PounceCDFrames != tps || m.PounceCDTurns != 1 {
+	m.TickAbilityClocks(true)
+	if m.PounceCD.Frames != tps || m.PounceCD.Turns != 1 {
 		t.Fatalf("RT-to-TB continuation = %d frames/%d turns, want %d/1",
-			m.PounceCDFrames, m.PounceCDTurns, tps)
+			m.PounceCD.Frames, m.PounceCD.Turns, tps)
 	}
-	m.TickPounceCooldownTurn()
-	if m.PounceCDFrames != 0 || m.PounceCDTurns != 0 {
-		t.Fatalf("TB expiry did not clear RT clock: %d frames/%d turns", m.PounceCDFrames, m.PounceCDTurns)
+	m.TickAbilityClocks(true)
+	if m.PounceCD.Frames != 0 || m.PounceCD.Turns != 0 {
+		t.Fatalf("TB expiry did not clear RT clock: %d frames/%d turns", m.PounceCD.Frames, m.PounceCD.Turns)
 	}
 }
 
@@ -181,22 +182,22 @@ func TestPounceCooldownCarriesAcrossModes(t *testing.T) {
 // and TB skip stuck on).
 func TestMonsterStunRTExpiryClearsTurns(t *testing.T) {
 	m := statusTestMonster()
-	m.StunFramesRemaining = 2
-	m.StunTurnsRemaining = 3
+	m.Stun.Frames = 2
+	m.Stun.Turns = 3
 
 	m.Update(nil, 0, 0)
 	if m.StateTimer != 0 {
 		t.Fatal("stunned monster must not run its state machine")
 	}
 	m.Update(nil, 0, 0)
-	if m.StunFramesRemaining != 0 || m.StunTurnsRemaining != 0 {
-		t.Fatalf("RT stun expiry must clear both clocks: f=%d t=%d", m.StunFramesRemaining, m.StunTurnsRemaining)
+	if m.Stun.Frames != 0 || m.Stun.Turns != 0 {
+		t.Fatalf("RT stun expiry must clear both clocks: f=%d t=%d", m.Stun.Frames, m.Stun.Turns)
 	}
 	// Post-stun the full update runs again - observable via the stun-DR memory
 	// countdown, which is frozen during the stun's early return.
-	m.StunDRMemoryFrames = 10
+	m.StunDRMemory = status.DualClock{Frames: 10, Turns: 1, Rate: 180}
 	m.Update(nil, 0, 0)
-	if m.StunDRMemoryFrames != 9 {
+	if m.StunDRMemory.Frames != 9 {
 		t.Fatal("monster must act again once the stun wears off")
 	}
 }
@@ -205,19 +206,19 @@ func TestMonsterStunRTExpiryClearsTurns(t *testing.T) {
 // (RootHeld covers the last rooted turn), then moves again.
 func TestMonsterRootTurnHeldSemantics(t *testing.T) {
 	m := statusTestMonster()
-	m.RootTurnsRemaining = 2
-	m.RootFramesRemaining = 120
+	m.Root.Turns = 2
+	m.Root.Frames = 120
 
 	m.TickRootTurn()
-	if !m.RootHeld() || m.RootTurnsRemaining != 1 {
-		t.Fatalf("turn 1 must be held: held=%v left=%d", m.RootHeld(), m.RootTurnsRemaining)
+	if !m.RootHeld() || m.Root.Turns != 1 {
+		t.Fatalf("turn 1 must be held: held=%v left=%d", m.RootHeld(), m.Root.Turns)
 	}
 	m.TickRootTurn()
-	if !m.RootHeld() || m.RootTurnsRemaining != 0 {
-		t.Fatalf("LAST rooted turn must still be held: held=%v left=%d", m.RootHeld(), m.RootTurnsRemaining)
+	if !m.RootHeld() || m.Root.Turns != 0 {
+		t.Fatalf("LAST rooted turn must still be held: held=%v left=%d", m.RootHeld(), m.Root.Turns)
 	}
-	if m.RootFramesRemaining != 0 {
-		t.Fatalf("TB root expiry must clear RT frames, got %d", m.RootFramesRemaining)
+	if m.Root.Frames != 0 {
+		t.Fatalf("TB root expiry must clear RT frames, got %d", m.Root.Frames)
 	}
 	m.TickRootTurn()
 	if m.RootHeld() {
@@ -229,8 +230,8 @@ func TestMonsterRootTurnHeldSemantics(t *testing.T) {
 // fights) but any displacement is undone - and the timer burns down.
 func TestMonsterRootRTPinsPosition(t *testing.T) {
 	m := statusTestMonster()
-	m.RootFramesRemaining = 3
-	m.RootTurnsRemaining = 2
+	m.Root.Frames = 3
+	m.Root.Turns = 2
 	m.State = StatePatrolling
 	x, y := m.X, m.Y
 
@@ -240,10 +241,32 @@ func TestMonsterRootRTPinsPosition(t *testing.T) {
 	if m.X != x || m.Y != y {
 		t.Fatalf("rooted monster moved: (%.1f,%.1f)", m.X, m.Y)
 	}
-	if m.RootFramesRemaining != 0 || m.RootTurnsRemaining != 0 {
-		t.Fatalf("RT root expiry must clear both clocks: frames=%d turns=%d", m.RootFramesRemaining, m.RootTurnsRemaining)
+	if m.Root.Frames != 0 || m.Root.Turns != 0 {
+		t.Fatalf("RT root expiry must clear both clocks: frames=%d turns=%d", m.Root.Frames, m.Root.Turns)
 	}
 	if m.StateTimer == 0 {
 		t.Fatal("root pins position, not the state machine")
+	}
+}
+
+// A slowed monster skips every third TB turn; an old save's count of slowed
+// turns resumes the cadence where it stood.
+func TestSlowSkipCadenceAndLegacySave(t *testing.T) {
+	for _, tc := range []struct {
+		legacy int
+		want   []bool
+	}{
+		{0, []bool{false, false, true, false, false, true}},
+		{1, []bool{false, true, false, false, true}},
+		{2, []bool{true, false, false, true}},
+	} {
+		m := &Monster3D{}
+		m.ApplySlow(30, 3600, 20)
+		m.RestoreLegacySlowSkip(tc.legacy, 3)
+		for i, want := range tc.want {
+			if got := m.ConsumeSlowedTurn(3); got != want {
+				t.Fatalf("legacy %d turn %d: skipped=%v, want %v", tc.legacy, i+1, got, want)
+			}
+		}
 	}
 }

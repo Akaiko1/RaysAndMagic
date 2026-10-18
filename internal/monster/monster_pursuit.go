@@ -12,9 +12,7 @@ type PartyAggroContext interface {
 }
 
 type RetaliationState struct {
-	Frames      int     `json:"frames,omitempty"`
-	Turns       int     `json:"turns,omitempty"`
-	Rate        int     `json:"rate,omitempty"`
+	status.DualClock
 	RadiusTiles float64 `json:"radius_tiles,omitempty"`
 }
 
@@ -59,21 +57,15 @@ func (m *Monster3D) RetaliateAgainstParty(x, y float64) {
 	m.WasAttacked = true
 	r := &m.Retaliation
 	r.RadiusTiles = math.Max(m.PursuitLimitTiles(), math.Hypot(m.X-x, m.Y-y)/m.tileSize()+c.RetaliationMarginTiles)
-	status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, int(math.Ceil(c.RetaliationSeconds*float64(m.config.GetTPS()))), c.RetaliationTurns)
+	r.Refresh(int(math.Ceil(c.RetaliationSeconds*float64(m.config.GetTPS()))), c.RetaliationTurns)
 	if !m.IsEngagingPlayer {
 		m.BeginPlayerEngagement()
 	}
 }
 
 func (m *Monster3D) TickRetaliation(turnBased bool) {
-	r := &m.Retaliation
-	if turnBased {
-		status.TickTurnRated(&r.Turns, &r.Frames, &r.Rate)
-	} else {
-		status.TickFrameRated(&r.Frames, &r.Turns, &r.Rate)
-	}
-	if r.Frames <= 0 {
-		*r = RetaliationState{}
+	if m.Retaliation.Tick(turnBased) {
+		m.Retaliation = RetaliationState{}
 	}
 }
 

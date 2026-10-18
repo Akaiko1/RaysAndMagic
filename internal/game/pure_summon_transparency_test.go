@@ -20,7 +20,7 @@ func partyTransparencyTargets(t *testing.T) (*MMGame, *monsterPkg.Monster3D, *mo
 	markCardAlly(pure)
 	bound := monsterPkg.NewMonster3DFromConfig(game.camera.X, game.camera.Y+tileSize, "skeleton", game.config)
 	bound.Bound = true
-	bound.BoundFramesRemaining = 300 * game.config.GetTPS()
+	bound.BoundClock = framesClock(300 * game.config.GetTPS())
 
 	for _, target := range []*monsterPkg.Monster3D{pure, bound} {
 		target.MaxHitPoints = 10000
@@ -228,12 +228,12 @@ func TestPartyAoeControlIgnoresPureSummonButHitsBoundUndead(t *testing.T) {
 	if !handled {
 		t.Fatal("AoE stun was not handled")
 	}
-	if pure.StunFramesRemaining != 0 || pure.StunTurnsRemaining != 0 || pure.StunDRStacks != 0 {
+	if pure.Stun.Frames != 0 || pure.Stun.Turns != 0 || pure.StunDRStacks != 0 {
 		t.Fatalf("pure summon received AoE control: frames=%d turns=%d DR=%d",
-			pure.StunFramesRemaining, pure.StunTurnsRemaining, pure.StunDRStacks)
+			pure.Stun.Frames, pure.Stun.Turns, pure.StunDRStacks)
 	}
-	if bound.StunFramesRemaining <= 0 || bound.StunTurnsRemaining <= 0 {
+	if bound.Stun.Frames <= 0 || bound.Stun.Turns <= 0 {
 		t.Fatalf("bound undead did not receive AoE control: frames=%d turns=%d",
-			bound.StunFramesRemaining, bound.StunTurnsRemaining)
+			bound.Stun.Frames, bound.Stun.Turns)
 	}
 }

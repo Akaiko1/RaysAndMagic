@@ -594,8 +594,9 @@ func TestAuditDisintegratePreservesSplash(t *testing.T) {
 				// splash victim (same defenses) takes the packet alone.
 				if kind == "boss" {
 					lost, splash := main.MaxHitPoints-main.HitPoints, near.MaxHitPoints-near.HitPoints
-					if lost != splash+config.DisintegrateBossTrueDamage {
-						t.Fatalf("primary lost %d, splash %d: want exactly +%d on the primary", lost, splash, config.DisintegrateBossTrueDamage)
+					sear := main.MaxHitPoints * config.DisintegrateBossMaxHPPct / 100
+					if lost != splash+sear {
+						t.Fatalf("primary lost %d, splash %d: want exactly +%d on the primary", lost, splash, sear)
 					}
 				}
 			})
@@ -623,7 +624,7 @@ func TestAuditTrapBinding(t *testing.T) {
 				if main.Bound == immune {
 					t.Fatal("trap bypassed racial binding eligibility")
 				}
-				if !immune && (main.HitPoints != main.MaxHitPoints || main.StunTurnsRemaining != 0 || main.RootTurnsRemaining != 0) {
+				if !immune && (main.HitPoints != main.MaxHitPoints || main.Stun.Turns != 0 || main.Root.Turns != 0) {
 					t.Fatal("binding also applied trap damage/control")
 				}
 				if key == "cleave_trap" && (!near.Bound || near.HitPoints != near.MaxHitPoints) {

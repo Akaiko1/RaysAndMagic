@@ -392,7 +392,7 @@ func TestChamberArenaLifecycle(t *testing.T) {
 					t.Fatal("Jump escaped")
 				}
 				hero := g.party.Members[0]
-				hero.RareClass.Anchor = character.SpatialAnchor{MapKey: key, X: outX, Y: outY, Frames: 1000}
+				hero.RareClass.Anchor = character.SpatialAnchor{MapKey: key, X: outX, Y: outY, Clock: framesClock(1000)}
 				if g.performSpatialStep(hero, config.Technique("return_step"), 3) {
 					t.Fatal("Return Step escaped")
 				}
@@ -414,9 +414,9 @@ func TestChamberArenaLifecycle(t *testing.T) {
 					{X: sx, Y: sy, MapKey: key, Group: "arena_probe", AutoActivate: true, ExcludeSelf: true, CooldownSeconds: 5},
 					{X: r[0] - 1, Y: sy, MapKey: key, Group: "arena_probe"},
 				}
-				delete(wm.GlobalTeleporterRegistry.LastUsedByGroup, "arena_probe")
+				delete(wm.GlobalTeleporterRegistry.GroupCooldowns, "arena_probe")
 				ih.checkTeleporter()
-				if g.camera.X != px || g.camera.Y != py || !wm.GlobalTeleporterRegistry.LastUsedByGroup["arena_probe"].IsZero() {
+				if g.camera.X != px || g.camera.Y != py || !wm.GlobalTeleporterRegistry.GroupReady("arena_probe") {
 					t.Fatal("blocked teleporter moved the party or consumed its cooldown")
 				}
 				g.world.Tiles[sy][sx], wm.GlobalTeleporterRegistry.Teleporters = tile, registry

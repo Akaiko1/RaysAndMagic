@@ -427,22 +427,24 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 			}
 
 			ch := &character.MMCharacter{
-				Name:      "Tower Gear Tester",
-				Might:     20,
-				Endurance: 20,
-				Accuracy:  20,
-				Speed:     20,
-				Luck:      20,
+				Name:        "Tower Gear Tester",
+				Might:       20,
+				Intellect:   20,
+				Personality: 20,
+				Endurance:   20,
+				Accuracy:    20,
+				Speed:       20,
+				Luck:        20,
 				Skills: map[character.SkillType]*character.Skill{
 					skill: {},
 				},
 				Equipment: make(map[items.EquipSlot]items.Item),
 			}
-			baseMight, _, _, baseEndurance, baseAccuracy, baseSpeed, baseLuck := ch.GetEffectiveStats()
+			baseMight, baseIntellect, basePersonality, baseEndurance, baseAccuracy, baseSpeed, baseLuck := ch.GetEffectiveStats()
 
 			// The set's bonus on top of every piece's own flat bonus.
-			want := struct{ might, endurance, accuracy, speed, luck int }{
-				set.BonusMight, set.BonusEndurance, set.BonusAccuracy, set.BonusSpeed, set.BonusLuck,
+			want := struct{ might, intellect, personality, endurance, accuracy, speed, luck int }{
+				set.BonusMight, set.BonusIntellect, set.BonusPersonality, set.BonusEndurance, set.BonusAccuracy, set.BonusSpeed, set.BonusLuck,
 			}
 			for _, piece := range pieces {
 				if piece.ArmorCategory != category {
@@ -453,6 +455,8 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 				}
 				def, _, _ := config.GetItemDefinitionByName(piece.Name)
 				want.might += def.BonusMight
+				want.intellect += def.BonusIntellect
+				want.personality += def.BonusPersonality
 				want.endurance += def.BonusEndurance
 				want.accuracy += def.BonusAccuracy
 				want.speed += def.BonusSpeed
@@ -469,12 +473,14 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 			if got := cs.CalculateTotalArmorClass(ch); got != wantAC {
 				t.Fatalf("total AC = %d, want %d from all equipped pieces", got, wantAC)
 			}
-			might, _, _, endurance, accuracy, speed, luck := ch.GetEffectiveStats()
+			might, intellect, personality, endurance, accuracy, speed, luck := ch.GetEffectiveStats()
 			for _, row := range []struct {
 				stat      string
 				got, want int
 			}{
 				{"Might", might - baseMight, want.might},
+				{"Intellect", intellect - baseIntellect, want.intellect},
+				{"Personality", personality - basePersonality, want.personality},
 				{"Endurance", endurance - baseEndurance, want.endurance},
 				{"Accuracy", accuracy - baseAccuracy, want.accuracy},
 				{"Speed", speed - baseSpeed, want.speed},

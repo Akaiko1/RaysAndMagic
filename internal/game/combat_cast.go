@@ -109,14 +109,12 @@ func (cs *CombatSystem) executeSpellCast(req spellCastRequest, effect func() spe
 		if req.Cost > 0 && def.IsOffensive() {
 			g.chargeSignatureWeapons(caster, 0, true)
 		}
+		g.armPendulum(caster, def)
 	}
 	if outcome != castCommitted {
 		caster.SpellPoints += req.Cost
 	} else if def.ReuseSeconds > 0 {
-		if caster.SpellState.ReuseFrames == nil {
-			caster.SpellState.ReuseFrames = make(map[string]int)
-		}
-		caster.SpellState.ReuseFrames[string(req.ID)] = def.ReuseSeconds * g.config.GetTPS()
+		caster.SpellState.ArmReuse(string(req.ID), def.ReuseSeconds, g.config.GetTPS())
 	}
 	// Penalty-free support kinds spend an action without adding the
 	// weapon/cast movement penalty. Automatic casts spend neither.

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
+	"ugataima/internal/status"
 
 	"ugataima/internal/spells"
 	"ugataima/internal/storage"
@@ -55,7 +56,7 @@ func TestSolsticeConnectionPlayable(t *testing.T) {
 							t.Fatal("Translocator cannot cross gap")
 						}
 					} else if method == "return" {
-						c.RareClass.Anchor = character.SpatialAnchor{MapKey: "solstice_vestibule", X: 10.5 * ts, Y: 7.5 * ts, Frames: 1000}
+						c.RareClass.Anchor = character.SpatialAnchor{MapKey: "solstice_vestibule", X: 10.5 * ts, Y: 7.5 * ts, Clock: framesClock(1000)}
 						if !g.useTechnique(0, "return_step", false, false) {
 							t.Fatal("Return cannot cross gap")
 						}
@@ -109,8 +110,7 @@ func TestSolsticeConnectionPlayable(t *testing.T) {
 					}
 					(&UISystem{game: g}).claimQuestReward("solstice_connection")
 					g.currentTurn = 0
-					g.spatialStepThisTurn = false
-					g.spatialReuseFrames = 0
+					g.spatialReuse = status.DualClock{}
 					g.party.Members[0].SpellPoints = 0
 					if method == "device" {
 						if err := g.enterAdventureSchedule("solstice_vestibule"); err != nil {
@@ -166,7 +166,7 @@ func TestSolsticeCrossingRejectsInvalidMoves(t *testing.T) {
 					g.world.Tiles[7][xx] = wall
 				}
 			case "rooted":
-				g.partyRoot = PartyRootState{Frames: 100, Turns: 2}
+				g.partyRoot = status.DualClock{Frames: 100, Turns: 2}
 			case "no SP":
 				c.SpellPoints = 0
 			}
@@ -231,7 +231,7 @@ func TestSolsticeTraversalGateEligibility(t *testing.T) {
 			case "unconscious":
 				c.AddCondition(character.ConditionUnconscious)
 			case "rooted":
-				g.partyRoot = PartyRootState{Frames: 100, Turns: 2}
+				g.partyRoot = status.DualClock{Frames: 100, Turns: 2}
 			case "no SP":
 				c.SpellPoints = 0
 			case "shared device", "other owner device", "reserve device", "unconfigured device", "device rooted":
@@ -253,7 +253,7 @@ func TestSolsticeTraversalGateEligibility(t *testing.T) {
 					g.party.Inventory = []items.Item{it}
 				}
 				if state == "device rooted" {
-					g.partyRoot = PartyRootState{Frames: 100, Turns: 2}
+					g.partyRoot = status.DualClock{Frames: 100, Turns: 2}
 				}
 			}
 			before := g.world

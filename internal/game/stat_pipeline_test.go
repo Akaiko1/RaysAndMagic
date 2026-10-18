@@ -102,7 +102,7 @@ func TestBless_SwellsAndShrinksMaxima(t *testing.T) {
 	}
 
 	// Expire through the registry tick (the real path).
-	if b, ok := g.statBuffByID("bless"); !ok || b.Frames != 600 {
+	if b, ok := g.statBuffByID("bless"); !ok || b.Clock.Frames != 600 {
 		t.Fatalf("bless not registered: %+v ok=%v", b, ok)
 	}
 	for i := 0; i < 600; i++ {
@@ -199,8 +199,8 @@ func TestStatBuffs_StackAcrossSpellsAndGear(t *testing.T) {
 	if want := baseMight + 2 + 10 + 5; might != want {
 		t.Errorf("after bless recast might = %d, want %d (refresh, no double-stack)", might, want)
 	}
-	if b, _ := g.statBuffByID("bless"); b.Frames != 900 {
-		t.Errorf("recast should refresh duration: %d, want 900", b.Frames)
+	if b, _ := g.statBuffByID("bless"); b.Clock.Frames != 900 {
+		t.Errorf("recast should refresh duration: %d, want 900", b.Clock.Frames)
 	}
 
 	// One expires -> only its share is removed.

@@ -89,9 +89,11 @@ in each projectile, weapon, or effect handler.
 | Designate Target adds weapon critical chance only for marked victims | Snapshot marks before that impact's primary-hit effects; a newly applied mark does not improve the same impact |
 | Weapon critical scaling precedes flat outgoing buffs and physical conversion | Preserve the normal and critical source packets; multiplying the final result changes flat bonuses |
 | True damage remains a separate component | It bypasses armor/dodge, still uses school resistance, and is not multiplied by ordinary critical scaling |
+| A weapon's `true_damage_pct` cuts a share of the hit itself | Taken after critical scaling and flat buffs, like physical conversion; the share then follows the true-damage rules, splash included |
 | Primary-only riders stay primary-only | Splash damage does not spread weapon stun, disintegration, or on-hit status effects |
 | Area spell forms have their own explicit scope | A nova, mortar AoE stun, or zone tick is not a primary-only projectile rider |
 | Continuations retain source damage | Pierce/ricochet must not reuse a previous victim's mitigated damage; later impacts see the marks current at that impact |
+| A toll (`toll_echo_pct`) repeats the landed source packet | Its share resolves against the target's defenses when it rings, a round later; it carries no riders and no drain |
 
 Persistent zones retain their own tick and armor policy while using shared
 per-victim damage resolution. Card target bonuses apply through the common

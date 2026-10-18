@@ -14,7 +14,7 @@ func (g *MMGame) elementalDamageBuff(parts damagecalc.Parts, school string) dama
 	}
 	pct := 0
 	for _, b := range g.combatBuffs {
-		if b.Frames <= 0 || b.OutPercent <= pct {
+		if !b.Clock.Active() || b.OutPercent <= pct {
 			continue
 		}
 		if typed, err := damagecalc.ParseType(b.OutDamageType); err == nil && typed == target {

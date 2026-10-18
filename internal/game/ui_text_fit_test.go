@@ -269,8 +269,8 @@ func TestCastBuffServiceGrantsAuthoredDuration(t *testing.T) {
 		Text: "Walk us over the water", Action: "cast_buff",
 		Buff: "walk_on_water", DurationSeconds: 300, Cost: 2000,
 	})
-	if !g.walkOnWaterActive || g.walkOnWaterDuration != 300*tps {
-		t.Fatalf("walk on water: active=%v duration=%d frames, want %d", g.walkOnWaterActive, g.walkOnWaterDuration, 300*tps)
+	if !g.walkOnWaterActive || g.walkOnWaterClock.Frames != 300*tps {
+		t.Fatalf("walk on water: active=%v duration=%d frames, want %d", g.walkOnWaterActive, g.walkOnWaterClock.Frames, 300*tps)
 	}
 	if g.party.Gold != 6000 {
 		t.Fatalf("gold after the 2000 cast = %d, want 6000", g.party.Gold)
@@ -283,8 +283,8 @@ func TestCastBuffServiceGrantsAuthoredDuration(t *testing.T) {
 		Text: "Give us the deep breath", Action: "cast_buff",
 		Buff: "water_breathing", DurationSeconds: 600, Cost: 5000,
 	})
-	if !g.waterBreathingActive || g.waterBreathingDuration != 600*tps {
-		t.Fatalf("water breathing: active=%v duration=%d frames, want %d", g.waterBreathingActive, g.waterBreathingDuration, 600*tps)
+	if !g.waterBreathingActive || g.waterBreathingClock.Frames != 600*tps {
+		t.Fatalf("water breathing: active=%v duration=%d frames, want %d", g.waterBreathingActive, g.waterBreathingClock.Frames, 600*tps)
 	}
 }
 
@@ -322,11 +322,11 @@ func TestCastBuffServiceRefusals(t *testing.T) {
 			&character.NPCDialogueChoice{Text: "Nonsense", Action: "cast_buff", Buff: "not_a_buff", DurationSeconds: 60, Cost: 10},
 			uitext.Text("dialog.nothing_happens")},
 		{"chant active, nearly spent", 5000, func(g *MMGame) {
-			g.walkOnWaterActive, g.walkOnWaterDuration = true, 10*tps
+			g.walkOnWaterActive, g.walkOnWaterClock = true, framesClock(10*tps)
 		}, walk, covered},
 		{"permanent card", 5000, func(g *MMGame) { g.cardSlots[0].key = waterCard }, walk, covered},
 		{"faded chant sells again", 5000, func(g *MMGame) {
-			g.walkOnWaterActive, g.walkOnWaterDuration = false, 0
+			g.walkOnWaterActive, g.walkOnWaterClock = false, framesClock(0)
 		}, walk, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -334,7 +334,7 @@ func TestCastBuffServiceRefusals(t *testing.T) {
 			g.gameLoop = &GameLoop{game: g}
 			g.party.Gold = tc.gold
 			tc.pose(g)
-			active, duration := g.walkOnWaterActive, g.walkOnWaterDuration
+			active, duration := g.walkOnWaterActive, g.walkOnWaterClock.Frames
 			(&InputHandler{game: g}).handleCastBuff(tc.choice)
 			if tc.wantLog == "" {
 				if !g.walkOnWaterActive || g.party.Gold != tc.gold-tc.choice.Cost {
@@ -345,8 +345,8 @@ func TestCastBuffServiceRefusals(t *testing.T) {
 			if g.party.Gold != tc.gold {
 				t.Fatalf("a refused cast charged the party: gold = %d, want %d", g.party.Gold, tc.gold)
 			}
-			if g.walkOnWaterActive != active || g.walkOnWaterDuration != duration {
-				t.Fatalf("a refused cast changed the buff: active %v->%v, duration %d->%d", active, g.walkOnWaterActive, duration, g.walkOnWaterDuration)
+			if g.walkOnWaterActive != active || g.walkOnWaterClock.Frames != duration {
+				t.Fatalf("a refused cast changed the buff: active %v->%v, duration %d->%d", active, g.walkOnWaterActive, duration, g.walkOnWaterClock.Frames)
 			}
 			if countCombatLog(g, tc.wantLog) != 1 {
 				t.Fatalf("the refusal did not log %q", tc.wantLog)
@@ -415,9 +415,9 @@ func TestUtilityTimedBuffActivationUsesAuthoredFlags(t *testing.T) {
 	); got != timedBuffApplied {
 		t.Fatalf("authored water-walk activation = %d, want applied", got)
 	}
-	if !g.walkOnWaterActive || g.walkOnWaterDuration != frames {
+	if !g.walkOnWaterActive || g.walkOnWaterClock.Frames != frames {
 		t.Fatalf("authored water_walk flag did not control runtime state: active=%v duration=%d",
-			g.walkOnWaterActive, g.walkOnWaterDuration)
+			g.walkOnWaterActive, g.walkOnWaterClock.Frames)
 	}
 }
 

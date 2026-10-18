@@ -35,6 +35,14 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	restoreRoster := func(dst *[]*character.MMCharacter, saves []CharacterSave) {
 		for _, cs := range saves {
 			member := restoreCharacterSave(cs)
+			if dst == &g.party.Members && cs.legacyRegen() {
+				// The old TB regen counters paced only the active members.
+				hpRounds := save.LegacyTBSPRegenRounds
+				if save.LegacyTBHPRegenRounds != nil {
+					hpRounds = *save.LegacyTBHPRegenRounds
+				}
+				member.RestoreLegacyRegen(cs.SpellRegenTimer, cs.HPRegenTimer, save.LegacyTBSPRegenRounds, hpRounds)
+			}
 			if member.EnsureClassKitSkills(g.config) {
 				g.loadNeedsResave = true
 			}
@@ -47,6 +55,13 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 	restoreRoster(&g.party.Members, save.Party.Members)
 	restoreRoster(&g.party.Reserve, save.Party.Reserve)
 	restoreRoster(&g.party.Captive, save.Party.Captive)
+	for _, roster := range [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive} {
+		for _, m := range roster {
+			if g.returnMisfitEquipment(m) {
+				g.loadNeedsResave = true
+			}
+		}
+	}
 	g.normalizeReactiveCards()
 	g.ensureAdditionalRecruits()
 	if save.TotalExperienceEarned > 0 {

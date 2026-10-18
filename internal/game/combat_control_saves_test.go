@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"testing"
+	"ugataima/internal/status"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
@@ -39,7 +40,7 @@ func TestControlSavingThrowsThroughInput(t *testing.T) {
 					sp, actions := c.SpellPoints, c.ActionsRemaining
 					ih := NewInputHandler(g)
 					pressKeys(ih, ebiten.KeyF)
-					if (m.ControlDRActive() || m.SilenceFramesRemaining > 0) == saves {
+					if (m.ControlDRActive() || m.Silence.Frames > 0) == saves {
 						t.Fatalf("control active=%v, saves=%v", m.ControlDRActive(), saves)
 					}
 					if c.SpellPoints != sp-c.MeditatedSPCost(def.SpellPointsCost) {
@@ -69,7 +70,7 @@ func TestOtherSpellControlsKeepFullDurationWithoutDR(t *testing.T) {
 				equipSpellAndPrepareCaster(t, g.combat, id, 1000, 50)
 				m := mkTestMonster("Guaranteed control target", 100)
 				m.X, m.Y = g.camera.X+64, g.camera.Y
-				m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames = 3, 4, 960
+				m.StunDRStacks, m.StunDRMemory = 3, framesClock(960)
 				g.world.Monsters = []*monster.Monster3D{m}
 				g.combat.controlSaveRoll = func() float64 {
 					if id == "feeblemind" {
@@ -80,14 +81,14 @@ func TestOtherSpellControlsKeepFullDurationWithoutDR(t *testing.T) {
 				}
 				ih := NewInputHandler(g)
 				pressKeys(ih, ebiten.KeyF)
-				frames := map[string]int{"slow": m.SlowFramesRemaining, "frozen_ground": m.RootFramesRemaining, "feeblemind": m.SilenceFramesRemaining, "berserk": m.BerserkFramesRemaining}[id]
+				frames := map[string]int{"slow": m.Slow.Frames, "frozen_ground": m.Root.Frames, "feeblemind": m.Silence.Frames, "berserk": m.Berserk.Frames}[id]
 				def, _ := spells.GetSpellDefinitionByID(spells.SpellID(id))
 				c := g.party.Members[0]
 				full := def.DurationSeconds(int(c.MagicSchools[c.SpellSchoolFor(def)].Mastery)) * g.config.GetTPS()
 				if full <= 0 || frames != full {
 					t.Fatalf("guaranteed control lasted %d frames, want the full authored %d", frames, full)
 				}
-				if m.StunDRMemoryTurns != 4 || m.StunDRMemoryFrames != 960 {
+				if m.StunDRStacks != 3 || m.StunDRMemory != framesClock(960) {
 					t.Fatal("guaranteed effect changed the DR chain")
 				}
 				if m.ControlDRActive() {
@@ -112,7 +113,7 @@ func TestControlSaveUsesAuthoredCurveAndSeparateVictimRolls(t *testing.T) {
 	rolls := 0
 	cs.controlSaveRoll = func() float64 { rolls++; return float64(rolls)*0.2 + 0.1 } // .3 resists; .5 lands.
 	cs.castResolvedSpell(def.ID, def, c, def.SpellPointsCost, false, false)
-	if rolls != 2 || a.FearFramesRemaining != 0 || b.FearFramesRemaining == 0 {
+	if rolls != 2 || a.Fear.Frames != 0 || b.Fear.Frames == 0 {
 		t.Fatal("area did not roll separately against the 50% boundary")
 	}
 	// Change authored balance and verify it reaches the production cast, not a copy.
@@ -122,9 +123,9 @@ func TestControlSaveUsesAuthoredCurveAndSeparateVictimRolls(t *testing.T) {
 	rule.Curve = append([]config.ControlSavePoint(nil), rule.Curve...)
 	rule.Curve[2].Percent = 60
 	cs.controlSaveRoll = func() float64 { return 0.5 }
-	a.FearFramesRemaining, b.FearFramesRemaining = 0, 0
+	a.Fear, b.Fear = status.DualClock{}, framesClock(0)
 	cs.castResolvedSpell(def.ID, def, c, def.SpellPointsCost, false, false)
-	if a.FearFramesRemaining != 0 || b.FearFramesRemaining != 0 {
+	if a.Fear.Frames != 0 || b.Fear.Frames != 0 {
 		t.Fatal("cast ignored the authored curve change")
 	}
 	// The same effect reads its own school's resistance, not physical armor.
@@ -132,7 +133,7 @@ func TestControlSaveUsesAuthoredCurveAndSeparateVictimRolls(t *testing.T) {
 	a.Resistances[monster.DamageMind] = 40
 	cs.controlSaveRoll = func() float64 { return 0.6 }
 	cs.castResolvedSpell(def.ID, def, c, def.SpellPointsCost, false, false)
-	if a.FearFramesRemaining != 0 || b.FearFramesRemaining == 0 {
+	if a.Fear.Frames != 0 || b.Fear.Frames == 0 {
 		t.Fatal("cast ignored school resistance")
 	}
 }
@@ -182,34 +183,34 @@ func TestSpellControlsShareStunDiminishingAndRecovery(t *testing.T) {
 	g.world.Monsters = []*monster.Monster3D{m}
 	// A weapon stun and fear share one chain in both directions.
 	cs.applyStunDR(m, 2, false)
-	m.StunFramesRemaining, m.StunTurnsRemaining = 0, 0
+	m.Stun.Frames, m.Stun.Turns = 0, 0
 	equipSpellAndPrepareCaster(t, cs, "mass_fear", 1000, 50)
 	def, _ := spells.GetSpellDefinitionByID("mass_fear")
 	cs.castResolvedSpell(def.ID, def, c, def.SpellPointsCost, false, false)
-	if m.FearFramesRemaining != 360 {
-		t.Fatalf("second control lasted %d frames, want 360", m.FearFramesRemaining)
+	if m.Fear.Frames != 360 {
+		t.Fatalf("second control lasted %d frames, want 360", m.Fear.Frames)
 	}
-	m.FearFramesRemaining = 0
+	m.Fear = status.DualClock{}
 	cs.applyStunDR(m, 2, false)
 	// 25% of two rounds rounds up to one whole round, the same span in RT.
-	if want := config.RoundFrames(1, g.config.GetTPS()); m.StunFramesRemaining != want || m.StunTurnsRemaining != 1 {
-		t.Fatalf("third control lasted %d frames / %d turns, want %d / 1", m.StunFramesRemaining, m.StunTurnsRemaining, want)
+	if want := config.RoundFrames(1, g.config.GetTPS()); m.Stun.Frames != want || m.Stun.Turns != 1 {
+		t.Fatalf("third control lasted %d frames / %d turns, want %d / 1", m.Stun.Frames, m.Stun.Turns, want)
 	}
-	m.StunFramesRemaining, m.StunTurnsRemaining = 0, 0
+	m.Stun.Frames, m.Stun.Turns = 0, 0
 	cs.castResolvedSpell(def.ID, def, c, def.SpellPointsCost, false, false)
-	if m.FearFramesRemaining != 0 {
+	if m.Fear.Frames != 0 {
 		t.Fatal("fourth control bypassed shared immunity")
 	}
 	m.ApplyFear(360)
 	// The RT and TB scheduler paths must not forget DR while a control is active.
-	beforeFrames, beforeTurns := m.StunDRMemoryFrames, m.StunDRMemoryTurns
+	beforeFrames, beforeTurns := m.StunDRMemory.Frames, m.StunDRMemory.Turns
 	CreateMonsterWrapper(m, g.collisionSystem, g.collisionSystem.Snapshot(), g).Update()
 	g.turnBasedMode = true
 	g.tickMonsterTurnStatuses(m, true)
-	if m.StunDRMemoryFrames != beforeFrames || m.StunDRMemoryTurns != beforeTurns {
+	if m.StunDRMemory.Frames != beforeFrames || m.StunDRMemory.Turns != beforeTurns {
 		t.Fatal("mode switch recovered DR under active control")
 	}
-	m.FearFramesRemaining, m.SilenceFramesRemaining = 0, 0
+	m.Fear, m.Silence = status.DualClock{}, framesClock(0)
 	for range 3 {
 		g.tickMonsterTurnStatuses(m, true)
 	}
@@ -221,7 +222,7 @@ func TestSpellControlsShareStunDiminishingAndRecovery(t *testing.T) {
 		t.Fatal("DR did not recover after four free turns")
 	}
 	cs.applyStunDR(m, 1, false)
-	m.StunFramesRemaining, m.StunTurnsRemaining = 0, 0
+	m.Stun.Frames, m.Stun.Turns = 0, 0
 	g.turnBasedMode = false
 	// The RT reset window is the same span as the four free TB turns.
 	window := config.RoundFrames(4, g.config.GetTPS())
@@ -256,36 +257,42 @@ func TestFeeblemindRecoveryWindow(t *testing.T) {
 				}
 			}
 			cast()
-			duration := m.SilenceFramesRemaining
+			duration := m.Silence.Frames
 			recovery := d.Mechanic.ReapplyImmunitySeconds * g.config.GetTPS()
-			if duration <= 0 || m.SilenceImmunityFramesRemaining != recovery {
+			if duration <= 0 || m.SilenceImmunity.Frames != recovery {
 				t.Fatal("silence did not initialize recovery")
 			}
-			step := 1
+			// A tick is a frame in real time and a party turn in turn-based.
+			unit := 1
 			if tb {
-				step = g.combatRoundFrames()
+				unit = g.combatRoundFrames()
 			}
-			g.advanceControlledMonsters(step)
+			ticks := func(n int) {
+				for range n {
+					g.advanceControlledMonsters(tb)
+				}
+			}
+			ticks(1)
 			cast()
-			if m.SilenceFramesRemaining != duration-step {
+			if m.Silence.Frames != duration-unit {
 				t.Fatal("repeat cast refreshed silence")
 			}
-			g.advanceControlledMonsters(duration - step)
-			if !m.HasRangedAttack() || m.SilenceImmunityFramesRemaining != recovery {
+			ticks(duration/unit - 1)
+			if !m.HasRangedAttack() || m.SilenceImmunity.Frames != recovery {
 				t.Fatal("silence expiry did not restore attacks for the full immunity window")
 			}
 			cast()
-			if m.SilenceFramesRemaining != 0 {
+			if m.Silence.Frames != 0 {
 				t.Fatal("silence bypassed recovery immunity")
 			}
-			g.advanceControlledMonsters(recovery - 1)
+			ticks(recovery/unit - 1)
 			cast()
-			if m.SilenceFramesRemaining != 0 {
+			if m.Silence.Frames != 0 {
 				t.Fatal("recovery ended early")
 			}
-			g.advanceControlledMonsters(1)
+			ticks(1)
 			cast()
-			if m.SilenceFramesRemaining != duration || m.StunDRStacks != 0 {
+			if m.Silence.Frames != duration || m.StunDRStacks != 0 {
 				t.Fatal("silence did not resume at the exact boundary without DR")
 			}
 		})

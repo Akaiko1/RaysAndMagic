@@ -7,20 +7,29 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
 type tacticalState struct {
-	initialized       bool
-	x, y              float64
-	world             *world.World3D
-	stationarySeconds float64
-	movedTB           bool
-	approach          map[*monster.Monster3D]float64
+	initialized bool
+	x, y        float64
+	world       *world.World3D
+	// still runs from the party's last move until Overwatch is ready: the
+	// ready seconds in RT, the rest of the turn in TB.
+	still    status.DualClock
+	approach map[*monster.Monster3D]float64
 }
 
 func (g *MMGame) resetOverwatch() {
-	g.tactics = tacticalState{movedTB: true}
+	g.tactics = tacticalState{}
+}
+
+// armOverwatchStill restarts the wait after a move.
+func (g *MMGame) armOverwatchStill() {
+	tps := g.config.GetTPS()
+	g.tactics.still = status.DualClock{}
+	g.tactics.still.ArmFrames(int(math.Ceil(character.OverwatchReadySeconds*float64(tps))), tps)
 }
 
 func (g *MMGame) updateTacticalClocks() {
@@ -29,26 +38,17 @@ func (g *MMGame) updateTacticalClocks() {
 	}
 	s := &g.tactics
 	if !s.initialized || s.world != g.world {
-		*s = tacticalState{initialized: true, x: g.camera.X, y: g.camera.Y, world: g.world, movedTB: true, approach: make(map[*monster.Monster3D]float64)}
+		*s = tacticalState{initialized: true, x: g.camera.X, y: g.camera.Y, world: g.world, approach: make(map[*monster.Monster3D]float64)}
+		g.armOverwatchStill()
 	}
 	if s.x != g.camera.X || s.y != g.camera.Y {
-		s.stationarySeconds = 0
-		s.movedTB = true
+		g.armOverwatchStill()
 		clear(s.approach)
-	} else if !g.turnBasedMode {
-		s.stationarySeconds += 1 / float64(g.config.GetTPS())
 	}
 	s.x, s.y = g.camera.X, g.camera.Y
 	for m := range s.approach {
 		if !m.IsAlive() || !m.IsEngagingPlayer {
 			delete(s.approach, m)
-		}
-	}
-	if !g.turnBasedMode {
-		for _, ch := range g.party.Members {
-			if ch != nil && ch.DesignationFrames > 0 {
-				ch.DesignationFrames--
-			}
 		}
 	}
 }
@@ -65,11 +65,7 @@ func (g *MMGame) overwatchReady(ch *character.MMCharacter) bool {
 	if math.Abs(x-g.tactics.x) > 1e-7 || math.Abs(y-g.tactics.y) > 1e-7 {
 		return false
 	}
-	if g.turnBasedMode {
-		if g.tactics.movedTB {
-			return false
-		}
-	} else if g.tactics.stationarySeconds+1e-9 < character.OverwatchReadySeconds {
+	if g.tactics.still.Active() {
 		return false
 	}
 	weapon, ok := ch.Equipment[items.SlotMainHand]
@@ -105,9 +101,10 @@ func (g *MMGame) observeOverwatchMovement(m *monster.Monster3D, oldX, oldY float
 	if g.tactics.approach == nil {
 		g.tactics.approach = make(map[*monster.Monster3D]float64)
 	}
-	g.tactics.approach[m] += distance
-	for g.tactics.approach[m]+1e-7 >= tile {
-		g.tactics.approach[m] -= tile
+	approach := g.tactics.approach[m]
+	steps := status.Accrue(&approach, distance, tile)
+	g.tactics.approach[m] = approach
+	for range steps {
 		g.tryOverwatchReaction(m, 1)
 	}
 }
@@ -168,7 +165,8 @@ func (g *MMGame) designateTarget(ch *character.MMCharacter, target *monster.Mons
 		return
 	}
 	ch.DesignatedTargetID = target.ID
-	ch.DesignationFrames = character.DesignationSeconds(ch.SkillTier(character.SkillDesignateTarget)) * g.config.GetTPS()
+	ch.Designation = status.DualClock{}
+	ch.Designation.Arm(character.DesignationSeconds(ch.SkillTier(character.SkillDesignateTarget)), g.config.GetTPS())
 }
 
 // designationBonus is shared by weapon damage and the visible target marker.
@@ -186,7 +184,7 @@ func (g *MMGame) designationBonus(target *monster.Monster3D) int {
 }
 
 func activeDesignationBonus(ch *character.MMCharacter) int {
-	if ch == nil || !ch.HasSkill(character.SkillDesignateTarget) || !ch.CanUseCombatAction() || ch.DesignationFrames <= 0 || ch.DesignatedTargetID == "" {
+	if ch == nil || !ch.HasSkill(character.SkillDesignateTarget) || !ch.CanUseCombatAction() || !ch.Designation.Active() || ch.DesignatedTargetID == "" {
 		return 0
 	}
 	return character.DesignationCritPct(ch.SkillTier(character.SkillDesignateTarget))

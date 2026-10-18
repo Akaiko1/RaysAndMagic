@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -1433,7 +1434,7 @@ func (ui *UISystem) dispelBuff(id string) {
 			continue
 		}
 		if *b.active {
-			*b.duration = 0
+			*b.clock = status.DualClock{}
 			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", buffSourceName(id)))
 		}
 		return

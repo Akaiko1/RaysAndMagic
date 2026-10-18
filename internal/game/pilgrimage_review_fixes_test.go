@@ -322,12 +322,12 @@ func TestAuthoredProjectileStunPreserved(t *testing.T) {
 					p.X, p.Y = g.camera.X, g.camera.Y
 					g.collisionSystem.UpdateEntity(p.ID, p.X, p.Y)
 					cs.CheckProjectilePlayerCollisions()
-					frames, turns = c.StunFramesRemaining, c.StunTurnsRemaining
+					frames, turns = c.Stun.Frames, c.Stun.Turns
 				} else {
 					target := &monster.Monster3D{ID: "target", Name: "Target", HitPoints: 10000, MaxHitPoints: 10000}
 					p.Owner = ProjectileOwnerMonsterAtActor
 					cs.resolveMonsterProjectileVsMonster(p, target, p.ID)
-					frames, turns = target.StunFramesRemaining, target.StunTurnsRemaining
+					frames, turns = target.Stun.Frames, target.Stun.Turns
 				}
 				if frames != rider.Seconds*g.config.GetTPS() || turns != config.CombatRounds(rider.Seconds) {
 					t.Fatalf("rider changed: %d frames/%d turns", frames, turns)
@@ -365,8 +365,8 @@ func TestChampionSpellSplashDoesNotInheritWeaponStun(t *testing.T) {
 			if spellStun {
 				want = 3 * g.config.GetTPS()
 			}
-			if c.StunFramesRemaining != want {
-				t.Fatalf("party splash stun=%d want%d", c.StunFramesRemaining, want)
+			if c.Stun.Frames != want {
+				t.Fatalf("party splash stun=%d want%d", c.Stun.Frames, want)
 			}
 		})
 	}

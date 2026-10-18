@@ -2,6 +2,8 @@ package game
 
 import (
 	"ugataima/internal/character"
+	"ugataima/internal/config"
+	"ugataima/internal/status"
 )
 
 // TimedStatBuff is one active, timed party STAT buff (Bless, and any spell
@@ -11,9 +13,9 @@ import (
 // entry instead of stacking a duplicate. This replaces the old single-slot
 // blessActive/blessBonuses fields.
 type TimedStatBuff struct {
-	SpellID  string // spell id (HUD status icon + replace-on-recast key)
-	SourceID string // optional owner for system-granted cleanup
-	Frames   int    // frames remaining
+	SpellID  string           // spell id (HUD status icon + replace-on-recast key)
+	SourceID string           // optional owner for system-granted cleanup
+	Clock    status.DualClock // time remaining
 	Bonuses  character.StatBonuses
 }
 
@@ -24,6 +26,7 @@ func (b TimedStatBuff) buffSourceID() string { return b.SourceID }
 // the new aggregate onto the party.
 func (g *MMGame) addStatBuff(b TimedStatBuff) {
 	g.statBuffs = upsertBuff(g.statBuffs, b)
+	g.setBuffStatus(b.SpellID, b.Clock.Frames)
 	g.recomputeStatBonuses()
 }
 
@@ -41,18 +44,22 @@ func (g *MMGame) recomputeStatBonuses() {
 	g.applyPartyStatBonuses()
 }
 
-// tickStatBuffs decrements every active stat buff, refreshes its HUD status,
-// and drops expired ones (re-deriving the aggregate). Called once per frame
-// next to tickCombatBuffs.
+// tickStatBuffs spends a real-time frame of every active stat buff; a
+// turn-based round is spent at the party turn. Called once per frame next to
+// tickCombatBuffs.
 func (g *MMGame) tickStatBuffs() {
-	g.advanceStatBuffs(g.combatFrameElapsed())
+	if !g.turnBasedMode {
+		g.advanceStatBuffs(false)
+	}
 }
 
-func (g *MMGame) advanceStatBuffs(elapsed int) {
+// advanceStatBuffs spends one tick of every stat buff, refreshes its HUD
+// status, and drops expired ones (re-deriving the aggregate).
+func (g *MMGame) advanceStatBuffs(turn bool) {
 	var expired bool
-	g.statBuffs, expired = tickBuffList(g, g.statBuffs, elapsed, func(b *TimedStatBuff, frames int) int {
-		b.Frames = g.remainingBuffFrames(b.SourceID, b.Frames, frames)
-		return b.Frames
+	g.statBuffs, expired = tickBuffList(g, g.statBuffs, turn, func(b *TimedStatBuff, turn bool) int {
+		g.tickBuffClock(b.SourceID, &b.Clock, turn)
+		return b.Clock.Frames
 	})
 	if expired {
 		g.recomputeStatBonuses()
@@ -90,7 +97,7 @@ func buildStatBuffSaves(buffs []TimedStatBuff) []StatBuffSave {
 	out := make([]StatBuffSave, len(buffs))
 	for i, b := range buffs {
 		out[i] = StatBuffSave{
-			SpellID: b.SpellID, SourceID: b.SourceID, Frames: b.Frames,
+			SpellID: b.SpellID, SourceID: b.SourceID, Frames: b.Clock.Frames,
 			Bonuses: statBonusesToMap(b.Bonuses),
 		}
 	}
@@ -107,7 +114,7 @@ func restoreStatBuffs(saves []StatBuffSave) []TimedStatBuff {
 	out := make([]TimedStatBuff, len(saves))
 	for i, s := range saves {
 		out[i] = TimedStatBuff{
-			SpellID: s.SpellID, SourceID: s.SourceID, Frames: s.Frames,
+			SpellID: s.SpellID, SourceID: s.SourceID, Clock: status.FromFrames(s.Frames, config.GlobalConfig.GetTPS()),
 			Bonuses: character.StatBonusesFromMap(s.Bonuses),
 		}
 	}

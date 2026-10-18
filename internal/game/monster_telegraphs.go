@@ -12,44 +12,55 @@ import (
 
 // A landed hinder (a slowing or rooting telegraph) lasts the telegraph's
 // duration, then an equally long recovery window shared by these roots and
-// slows. Recasts cannot extend it. Slow and Recovery are spent fractions of
-// one Window of whole rounds (the same span in RT).
+// slows: Recovery covers both. Recasts cannot extend it.
 type PartyHinderState struct {
-	Slow     float64 `json:"slow,omitempty"`
-	Recovery float64 `json:"recovery,omitempty"`
-	Window   int     `json:"window,omitempty"` // rounds; saves before it held two
+	Slow     status.DualClock `json:"slow_clock,omitzero"`
+	Recovery status.DualClock `json:"recovery_clock,omitzero"`
+	// Legacy saves: spent fractions of a Window of rounds (two when unset).
+	LegacySlow     float64 `json:"slow,omitempty"`
+	LegacyRecovery float64 `json:"recovery,omitempty"`
+	LegacyWindow   int     `json:"window,omitempty"`
 }
 
-func (g *MMGame) tickPartyHinder(tb bool) {
-	h := &g.partyHinder
-	window := h.Window
+// migrateLegacy turns an old save's fractions into clocks.
+func (h *PartyHinderState) migrateLegacy(tps int) {
+	window := h.LegacyWindow
 	if window <= 0 {
 		window = 2
 	}
-	dt := 1 / float64(max(1, g.config.GetTPS()))
-	seconds := float64(window * config.CombatRoundSeconds)
-	h.Slow = advanceEnvironmentBudget(h.Slow, seconds, window, dt, tb)
-	h.Recovery = advanceEnvironmentBudget(h.Recovery, seconds, window, dt, tb)
+	span := float64(config.RoundFrames(window, tps))
+	if h.LegacySlow > 0 {
+		h.Slow = status.FromFrames(int(math.Ceil(h.LegacySlow*span)), tps)
+	}
+	if h.LegacyRecovery > 0 {
+		h.Recovery = status.FromFrames(int(math.Ceil(h.LegacyRecovery*span)), tps)
+	}
+	h.LegacySlow, h.LegacyRecovery, h.LegacyWindow = 0, 0, 0
+}
+
+func (g *MMGame) tickPartyHinder(turn bool) {
+	g.partyHinder.Slow.Tick(turn)
+	g.partyHinder.Recovery.Tick(turn)
 }
 func (g *MMGame) applyTelegraphHinder(a *monster.TelegraphedAttack) {
 	h := &g.partyHinder
-	if h.Recovery > 0 {
+	if h.Recovery.Active() {
 		return
 	}
-	h.Window = config.CombatRounds(a.DurationSeconds)
-	h.Recovery = 2
+	tps := g.config.GetTPS()
+	h.Recovery.Arm(2*a.DurationSeconds, tps)
 	if a.Kind == "root" {
-		g.rootParty(h.Window)
+		g.rootParty(config.CombatRounds(a.DurationSeconds))
 		g.AddCombatMessage("Roots bind the party. Hold your ground or fight free!")
 	} else {
-		h.Slow = 1
+		h.Slow.Arm(a.DurationSeconds, tps)
 		g.AddCombatMessage("Cold water slows the party's movement and recovery.")
 	}
 }
 
 // hinderRecovery stretches a hero's recovery while the party is slowed.
 func (g *MMGame) hinderRecovery(cooldown int) int {
-	if g.partyHinder.Slow > 0 {
+	if g.partyHinder.Slow.Active() {
 		keep := config.HinderKeepPercent()
 		return (cooldown*100 + keep - 1) / keep
 	}
@@ -67,7 +78,7 @@ func (g *MMGame) telegraphAllowed(m *monster.Monster3D) bool {
 			return false
 		}
 	}
-	return m != nil && m.IsAlive() && !m.IsPartyControlled() && !m.Pacified && !m.BossDormant && m.CurrentAIBehavior().Caps().MayAttack && m.StunFramesRemaining == 0 && m.StunTurnsRemaining == 0 && !g.turnBasedMonsterStunned[m]
+	return m != nil && m.IsAlive() && !m.IsPartyControlled() && !m.Pacified && !m.BossDormant && m.CurrentAIBehavior().Caps().MayAttack && !m.Stun.Active() && !g.turnBasedMonsterStunned[m]
 }
 func (g *MMGame) telegraphLOS(m *monster.Monster3D, x, y float64) bool {
 	return g.collisionSystem != nil && g.collisionSystem.CheckLineOfSight(m.X, m.Y, x, y)
@@ -133,7 +144,7 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 		return false
 	}
 	s := &m.Telegraph
-	if s.Warning > 0 || s.Released {
+	if s.Warning.Active() || s.Released {
 		return true
 	}
 	// Support abilities obey the same combat-target gate as offensive casts.
@@ -141,7 +152,7 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 	if !m.TargetsParty() && (m.AIFoe == nil || !m.AIFoe.IsAlive() || !m.CanAttackActor(m.AIFoe)) {
 		return false
 	}
-	if !ready || s.Cooldown > 0 || s.Remaining > 0 {
+	if !ready || s.Cooldown.Active() || s.Remaining.Active() {
 		return false
 	}
 	if a.BelowHPPercent > 0 && m.HitPoints*100 > m.MaxHitPoints*a.BelowHPPercent {
@@ -183,7 +194,8 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 	if !slices.Contains(tiles, target) {
 		return false
 	}
-	*s = monster.TelegraphState{Cooldown: 1, Warning: 1, Tiles: tiles, Origin: [2]int{TileIndex(m.X, ts), TileIndex(m.Y, ts)}, TargetID: targetID}
+	tps := g.config.GetTPS()
+	*s = monster.TelegraphState{Cooldown: a.CooldownClock(tps), Warning: a.WarningClock(tps), Tiles: tiles, Origin: [2]int{TileIndex(m.X, ts), TileIndex(m.Y, ts)}, TargetID: targetID}
 	s.Direction = cardinalDelta(target[0]-s.Origin[0], target[1]-s.Origin[1])
 	g.releaseMonsterAttackPost(m)
 	m.ResetPathCache()
@@ -192,7 +204,7 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 	g.AddCombatMessage(m.Name + " prepares " + a.Name + ". Leave the marked tiles!")
 	return true
 }
-func (g *MMGame) tickMonsterTelegraphs(dt float64, tb bool) {
+func (g *MMGame) tickMonsterTelegraphs(turn bool) {
 	if g.world == nil {
 		return
 	}
@@ -203,18 +215,16 @@ func (g *MMGame) tickMonsterTelegraphs(dt float64, tb bool) {
 		}
 		s := &m.Telegraph
 		s.Released = false
-		s.Cooldown = advanceEnvironmentBudget(s.Cooldown, a.CooldownSeconds, a.CooldownRounds, dt, tb)
+		s.Cooldown.Tick(turn)
 		if !g.telegraphAllowed(m) {
-			s.Warning = 0
-			s.Remaining = 0
+			s.Warning, s.Remaining = status.DualClock{}, status.DualClock{}
 			s.Tiles = nil
 			continue
 		}
-		if s.Warning <= 0 {
+		if !s.Warning.Active() {
 			continue
 		}
-		s.Warning = advanceEnvironmentBudget(s.Warning, a.WarningSeconds, a.WarningRounds, dt, tb)
-		if s.Warning > 0 {
+		if s.Warning.Tick(turn); s.Warning.Active() {
 			continue
 		}
 		s.Released = true
@@ -268,7 +278,7 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 				foe.ApplySlow(config.HinderPercent(), frames, rounds)
 			}
 			if a.Kind == "root" {
-				status.RefreshDualRated(&foe.RootFramesRemaining, &foe.RootTurnsRemaining, &foe.RootRate, frames, rounds)
+				foe.Root.Refresh(frames, rounds)
 			}
 			if !foe.IsAlive() {
 				g.combat.finishMonsterKill(foe)
@@ -276,7 +286,8 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 		}
 	}
 	if a.SustainDamage > 0 {
-		s.Remaining = 1
+		s.Remaining = status.DualClock{}
+		s.Remaining.Arm(a.DurationSeconds, g.config.GetTPS())
 	}
 	if a.Kind == "retreat" {
 		g.moveTelegraphMonster(m, [2]int{-s.Direction[0], -s.Direction[1]}, 2)
@@ -328,7 +339,7 @@ func (g *MMGame) pushTelegraphParty(dir [2]int) {
 	x, y := g.GetPlayerTilePosition()
 	g.forcePartyStep(x+dir[0], y+dir[1])
 }
-func (g *MMGame) monsterFieldExposures(dt float64) []environmentExposure {
+func (g *MMGame) monsterFieldExposures(turn bool) []environmentExposure {
 	var out []environmentExposure
 	if g.world == nil {
 		return out
@@ -336,14 +347,14 @@ func (g *MMGame) monsterFieldExposures(dt float64) []environmentExposure {
 	x, y := g.GetPlayerTilePosition()
 	for _, m := range g.world.Monsters {
 		a := telegraphDefinition(m)
-		if a == nil || a.SustainDamage <= 0 || m.Telegraph.Remaining <= 0 {
+		if a == nil || a.SustainDamage <= 0 || !m.Telegraph.Remaining.Active() {
 			continue
 		}
 		s := &m.Telegraph
 		// Whole rounds: the field spans the same seconds in both modes.
-		span := float64(a.DurationSeconds)
-		elapsed := min(dt, s.Remaining*span)
-		s.Remaining = advanceEnvironmentBudget(s.Remaining, span, config.CombatRounds(a.DurationSeconds), dt, g.turnBasedMode)
+		tps := g.config.GetTPS()
+		elapsed := min(tickSeconds(turn, tps), float64(s.Remaining.Frames)/float64(tps))
+		s.Remaining.Tick(turn)
 		if !g.telegraphAllowed(m) {
 			continue
 		}
@@ -357,10 +368,7 @@ func (g *MMGame) monsterFieldExposures(dt float64) []environmentExposure {
 				if foe.ID != s.TargetID || !foe.IsAlive() || !m.CanAttackActor(foe) || !slices.Contains(s.Tiles, [2]int{TileIndex(foe.X, ts), TileIndex(foe.Y, ts)}) {
 					continue
 				}
-				s.Carry += float64(rate) * elapsed
-				damage := int(math.Floor(s.Carry + 1e-9))
-				s.Carry = max(0, s.Carry-float64(damage))
-				if damage > 0 {
+				if damage := status.Accrue(&s.Carry, float64(rate)*elapsed, 1); damage > 0 {
 					g.combat.applyMonsterDamagePacket(foe, singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, a.School, 0), monsterDamageOptions{})
 					if !foe.IsAlive() {
 						g.combat.finishMonsterKill(foe)
@@ -379,11 +387,11 @@ func (r *Renderer) collectMonsterTelegraphs() {
 	alpha, density, radius := r.auraEdgeParams()
 	ts := float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
-		if m == nil || !m.IsAlive() || (m.Telegraph.Warning <= 0 && m.Telegraph.Remaining <= 0) {
+		if m == nil || !m.IsAlive() || (!m.Telegraph.Warning.Active() && !m.Telegraph.Remaining.Active()) {
 			continue
 		}
 		rgb := [3]int{255, 235, 90}
-		if m.Telegraph.Warning <= 0 {
+		if !m.Telegraph.Warning.Active() {
 			rgb = [3]int{255, 90, 30}
 		}
 		for _, tile := range m.Telegraph.Tiles {

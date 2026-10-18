@@ -162,7 +162,7 @@ func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, ch
 	if err != nil {
 		return 0
 	}
-	return character.SpellDurationSeconds(def, char)
+	return lengthenBuff(def, char, character.SpellDurationSeconds(def, char))
 }
 
 // CalculateSpellDurationFrames returns duration in frames at the caster's authored mastery tier.
@@ -504,7 +504,7 @@ type cooldownBreakdown struct {
 	QuickenPct             int
 }
 
-// SpellCooldownFrames is a spell's recovery: Speed, the main-hand staff's
+// SpellCooldownFrames is a spell's recovery: Speed, the wielded staff's
 // spell_cooldown_multiplier, the RT limits and Quickening. Buffs have no
 // personal cooldown.
 func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID spells.SpellID) int {
@@ -524,18 +524,19 @@ func (cs *CombatSystem) spellCooldownBreakdown(char *character.MMCharacter, spel
 	return cs.cooldownBreakdown(char, seconds, name, mult)
 }
 
-// spellStaff is the main-hand weapon's spell_cooldown_multiplier, the caster
-// staff perk. Only spells read it.
+// spellStaff is the caster's spell_cooldown_multiplier, the staff perk. Only
+// spells read it.
 func spellStaff(char *character.MMCharacter) (string, float64) {
-	if char == nil {
+	def := strongestWeaponPerk(char, func(d *config.WeaponDefinitionConfig) float64 {
+		if d.SpellCooldownMultiplier > 0 {
+			return 1 - d.SpellCooldownMultiplier
+		}
+		return 0
+	})
+	if def == nil {
 		return "", 1
 	}
-	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
-		if def, _, found := config.GetWeaponDefinitionByName(weapon.Name); found && def != nil && def.SpellCooldownMultiplier > 0 {
-			return weapon.Name, def.SpellCooldownMultiplier
-		}
-	}
-	return "", 1
+	return def.Name, def.SpellCooldownMultiplier
 }
 
 // actionCooldownBreakdown is the recovery of a technique, flask or trap:

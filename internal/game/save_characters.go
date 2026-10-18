@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 func normalizeItemFromConfig(item *items.Item) {
@@ -87,15 +88,23 @@ func normalizeItemFromConfig(item *items.Item) {
 	item.UseAction = template.UseAction
 	if item.Type == items.ItemDevice {
 		item.SpellEffect = template.SpellEffect
-		limit := item.Attributes["use_cooldown_seconds"] * config.GetTargetTPS()
-		if item.LegacyDeviceCooldown > 0 && !math.IsNaN(item.LegacyDeviceCooldown) {
+		tps := config.GetTargetTPS()
+		limit := item.Attributes["use_cooldown_seconds"] * tps
+		recharge := deviceClock(item)
+		status.MigrateFrames(recharge, &item.LegacyDeviceCooldownFrames, tps)
+		if item.LegacyDeviceCooldown > 0 && !math.IsNaN(item.LegacyDeviceCooldown) && !recharge.Active() {
 			seconds := math.Min(item.LegacyDeviceCooldown, float64(item.Attributes["use_cooldown_seconds"]))
 			// Legacy float accumulation can drift just above an exact frame.
-			item.DeviceCooldownFrames = int(math.Round(seconds * float64(config.GetTargetTPS())))
+			*recharge = status.FromFrames(int(math.Round(seconds*float64(tps))), tps)
 		}
-		item.DeviceCooldownFrames = min(max(0, item.DeviceCooldownFrames), limit)
+		if recharge.Frames < 0 || recharge.Turns < 0 || recharge.Frames > limit {
+			// A recharge never outlasts the authored one.
+			*recharge = status.FromFrames(min(max(0, recharge.Frames), limit), tps)
+		}
+	} else {
+		item.DeviceCooldown = items.RoundClock{}
 	}
-	item.LegacyDeviceCooldown = 0
+	item.LegacyDeviceCooldownFrames, item.LegacyDeviceCooldown = 0, 0
 }
 
 // restoreCharacterSave reconstructs one character (active or reserve) from a save.
@@ -173,16 +182,21 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	}
 	m.RareClass = cs.RareClass.Clone()
 	m.SpellState = cs.SpellState.Clone()
-	// Older saves kept the autocast budget in the spell or rare-class state.
-	m.AutocastFrames = max(cs.AutocastFrames, m.SpellState.LegacyAutoFrames, m.RareClass.AutoFrames)
+	tps := config.GlobalConfig.GetTPS()
+	m.RareClass.MigrateLegacyClocks(tps)
+	m.SpellState.MigrateLegacyClocks(tps)
+	// Older saves kept the autocast budget as frames, in the spell or rare-class state.
+	m.AutocastCD = restoreClock(cs.AutocastCD, max(cs.AutocastFrames, m.SpellState.LegacyAutoFrames, m.RareClass.AutoFrames))
 	m.SpellState.LegacyAutoFrames, m.RareClass.AutoFrames = 0, 0
-	for id, frames := range m.SpellState.ReuseFrames {
+	for id, c := range m.SpellState.Reuse {
 		d, ok := config.GetSpellDefinition(id)
-		if !ok || d.ReuseSeconds <= 0 || frames <= 0 {
-			delete(m.SpellState.ReuseFrames, id)
+		if !ok || d.ReuseSeconds <= 0 || !c.Active() {
+			delete(m.SpellState.Reuse, id)
 			continue
 		}
-		m.SpellState.ReuseFrames[id] = min(frames, d.ReuseSeconds*config.GlobalConfig.GetTPS())
+		if c.Frames > d.ReuseSeconds*tps { // a lockout never outlasts the authored reuse
+			m.SpellState.ArmReuse(id, d.ReuseSeconds, tps)
+		}
 	}
 	// Old saves represented one charged attack by a timer. Preserve that one
 	// attack as a permanent charge; newer counts never inherit an expiry.
@@ -190,19 +204,23 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		m.RareClass.FlowCharges = 1
 	}
 	m.RareClass.FlowFrames = 0
-	m.AutoDrinkCooldown = max(0, cs.AutoDrinkCooldown)
-	m.DesignatedTargetID, m.DesignationFrames = cs.DesignatedTargetID, max(0, cs.DesignationFrames)
+	m.AutoDrinkCD = restoreClock(cs.AutoDrinkCD, max(0, cs.AutoDrinkCooldown))
+	m.DesignatedTargetID, m.Designation = cs.DesignatedTargetID, restoreClock(cs.Designation, max(0, cs.DesignationFrames))
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.BurnFramesRemaining = cs.BurnFramesRemaining
 	m.RestoreDoTTickTimers(cs.PoisonTickTimer, cs.BurnTickTimer)
-	m.RestoreRealtimeRegenProgress(cs.SpellRegenTimer, cs.HPRegenTimer)
-	m.StunFramesRemaining = cs.StunFramesRemaining
-	m.StunTurnsRemaining = cs.StunTurnsRemaining
-	m.StunRate = cs.StunRate
-	m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames = cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames
+	m.SPRegen.Restore(cs.SPRegen)
+	m.HPRegen.Restore(cs.HPRegen)
+	m.SPRegenFight = cs.SPRegenFight
+	if cs.legacyRegen() {
+		m.RestoreLegacyRegen(cs.SpellRegenTimer, cs.HPRegenTimer, 0, 0)
+	}
+	m.Stun = savedClock(cs.Stun, status.DualClock{Frames: cs.StunFramesRemaining, Turns: cs.StunTurnsRemaining, Rate: cs.StunRate})
+	m.StunDRStacks = cs.StunDRStacks
+	m.StunDRMemory = savedClock(cs.StunDRMemory, status.StunDRMemory(cs.StunDRMemoryFrames, cs.StunDRMemoryTurns, config.GlobalConfig.GetTPS()))
 	m.ArmorMelt.Restore(cs.ArmorMelt)
 	m.ActionsRemaining = cs.ActionsRemaining
-	m.ActorID, m.ReactiveCombat = cs.ActorID, cs.ReactiveCombat
+	m.ActorID, m.ReactiveCombat, m.Clockwork = cs.ActorID, cs.ReactiveCombat, cs.Clockwork
 	m.TBRoundActionFloor = cs.TBRoundActionFloor
 	if m.TBRoundActionFloor <= 0 && m.ActionsRemaining > 0 {
 		// Legacy saves predate the credited-floor field. Recover the floor
@@ -220,6 +238,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs := CharacterSave{
 		ActorID:          m.ActorID,
 		ReactiveCombat:   m.ReactiveCombat,
+		Clockwork:        m.Clockwork,
 		Name:             m.Name,
 		AdventureXP:      maps.Clone(m.AdventureXP),
 		Inventory:        append([]items.Item(nil), m.Inventory...),
@@ -274,17 +293,14 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	}
 	cs.RareClass = m.RareClass.Clone()
 	cs.SpellState = m.SpellState.Clone()
-	cs.AutoDrinkCooldown = m.AutoDrinkCooldown
-	cs.AutocastFrames = m.AutocastFrames
-	cs.DesignatedTargetID, cs.DesignationFrames = m.DesignatedTargetID, m.DesignationFrames
+	cs.AutoDrinkCD, cs.AutocastCD = m.AutoDrinkCD.Saved(), m.AutocastCD.Saved()
+	cs.DesignatedTargetID, cs.Designation = m.DesignatedTargetID, m.Designation.Saved()
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.BurnFramesRemaining = m.BurnFramesRemaining
 	cs.PoisonTickTimer, cs.BurnTickTimer = m.DoTTickTimers()
-	cs.SpellRegenTimer, cs.HPRegenTimer = m.RealtimeRegenProgress()
-	cs.StunFramesRemaining = m.StunFramesRemaining
-	cs.StunTurnsRemaining = m.StunTurnsRemaining
-	cs.StunRate = m.StunRate
-	cs.StunDRStacks, cs.StunDRMemoryTurns, cs.StunDRMemoryFrames = m.StunDRStacks, m.StunDRMemoryTurns, m.StunDRMemoryFrames
+	cs.SPRegen, cs.HPRegen, cs.SPRegenFight = m.SPRegen.Saved(), m.HPRegen.Saved(), m.SPRegenFight
+	cs.Stun = m.Stun.Saved()
+	cs.StunDRStacks, cs.StunDRMemory = m.StunDRStacks, m.StunDRMemory.Saved()
 	cs.ArmorMelt = m.ArmorMelt.Saved()
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.TBRoundActionFloor = m.TBRoundActionFloor
@@ -292,4 +308,18 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs.OffHandRTCooldown = m.OffHandRTCooldown
 	cs.NextTBAttackOffHand = m.NextTBAttackOffHand
 	return cs
+}
+
+// savedClock reads a saved clock, or legacy - what an older save wrote in its
+// place - when the save has none.
+func savedClock(saved *status.DualClock, legacy status.DualClock) status.DualClock {
+	if saved != nil {
+		return *saved
+	}
+	return legacy
+}
+
+// restoreClock reads a saved clock, or an older save's frame count.
+func restoreClock(saved *status.DualClock, legacyFrames int) status.DualClock {
+	return savedClock(saved, status.FromFrames(legacyFrames, config.GlobalConfig.GetTPS()))
 }

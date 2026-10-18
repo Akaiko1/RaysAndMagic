@@ -177,14 +177,14 @@ func TestCombatOverlayInformation(t *testing.T) {
 	if !r.combatAura.tiles[[2]int{8, 6}] {
 		t.Fatal("extra action did not extend movement to two steps")
 	}
-	m.RootTurnsRemaining = 1
+	m.Root.Turns = 1
 	collect()
 	for _, style := range r.combatAura.edges {
 		if style == combatAuraMove {
 			t.Fatal("rooted monster has a movement outline")
 		}
 	}
-	m.RootTurnsRemaining = 0
+	m.Root.Turns = 0
 	g.world.Tiles[8][9] = oldTile
 	r.precomputeFloorColorCache()
 	// Reusing the cached footprint must still observe a blocker being added,
@@ -216,7 +216,7 @@ func TestCombatOverlayInformation(t *testing.T) {
 		{SpellID: "hot_steam", X: x, Y: y, Radius: ts * .55, FramesLeft: 100},
 	}
 	g.bossFireTraps = []bossFireTrap{{TX: 5, TY: 8}}
-	g.traps = []PlacedTrap{{Key: "bear_trap", MapKey: currentMapKey(), TileX: 5, TileY: 8, FramesLeft: 100}}
+	g.traps = []PlacedTrap{{Key: "bear_trap", MapKey: currentMapKey(), TileX: 5, TileY: 8, Life: framesClock(100)}}
 	r.teleporterTiles = []teleporterTileFx{{tx: 5, ty: 8}}
 	sprites := r.collectPersistentDamageZoneEffects(nil)
 	sprites = r.collectBossFireTrapBorders(sprites)
@@ -229,7 +229,7 @@ func TestCombatOverlayInformation(t *testing.T) {
 	g.persistentDamageZones, g.bossFireTraps, g.traps = nil, nil, nil
 	r.teleporterTiles, r.zoneVisuals = nil, nil
 	// Existing warnings must replace tactical edges, not blend with them.
-	m.Telegraph = monster.TelegraphState{Warning: 1, Tiles: [][2]int{{5, 8}}}
+	m.Telegraph = monster.TelegraphState{Warning: roundClock(), Tiles: [][2]int{{5, 8}}}
 	collect()
 	for _, edge := range combatTileEdges(5, 8) {
 		if r.combatAura.priorityStrength(edge, .5) != 1 {

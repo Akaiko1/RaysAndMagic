@@ -38,16 +38,16 @@ func TestTransferStrikeDisplacement(t *testing.T) {
 				case "canopy":
 					m.Arbor.Phase = "perched"
 				case "root":
-					m.RootFramesRemaining, m.RootTurnsRemaining = 60, 2
+					m.Root.Frames, m.Root.Turns = 60, 2
 				case "stun":
-					m.StunFramesRemaining, m.StunTurnsRemaining = 60, 2
+					m.Stun.Frames, m.Stun.Turns = 60, 2
 				case "latched_stun":
 					held = tb
 					g.turnBasedMonsterStunned = map[*monster.Monster3D]bool{m: true}
 				case "immobile":
 					m.Speed = 0
 				case "full_slow":
-					m.SlowPct, m.SlowFramesRemaining, m.SlowTurnsRemaining = 100, 60, 2
+					m.SlowPct, m.Slow.Frames, m.Slow.Turns = 100, 60, 2
 				default:
 					held = false
 				}

@@ -103,10 +103,10 @@ func TestSlowRealtimeCadence(t *testing.T) {
 			if tb {
 				g.refreshMonsterAIState()
 				runOneMonsterTurn(g, gl)
-				s.pounceTurns = puma.PounceCDTurns
+				s.pounceTurns = puma.PounceCD.Turns
 			} else {
 				g.combat.HandleMonsterInteractions()
-				s.pounceCD = puma.PounceCDFrames
+				s.pounceCD = puma.PounceCD.Frames
 			}
 		}
 
@@ -221,7 +221,7 @@ func TestSlowTurnBasedSkipCadence(t *testing.T) {
 			if !e.g.combat.castResolvedSpell(d.ID, d, e.g.party.Members[0], 0, false, false) {
 				e.t.Fatal("Slow cast did not reach the scheduler fixture")
 			}
-			if m.SlowTurnsRemaining != 3 {
+			if m.Slow.Turns != 3 {
 				e.t.Fatal("Slow cast did not apply the authored duration")
 			}
 		}, cadence(3)},
@@ -292,8 +292,8 @@ func TestSlowSkippedTurnStillTicksRoot(t *testing.T) {
 	for turn := 1; turn <= 3; turn++ {
 		m.ApplySlow(30, 10*g.config.GetTPS(), 5)
 		runOneMonsterTurn(g, gl)
-		if m.RootTurnsRemaining != 5-turn {
-			t.Fatalf("turn %d: root turns %d, want %d", turn, m.RootTurnsRemaining, 5-turn)
+		if m.Root.Turns != 5-turn {
+			t.Fatalf("turn %d: root turns %d, want %d", turn, m.Root.Turns, 5-turn)
 		}
 	}
 }
@@ -622,9 +622,9 @@ func TestHeroStunDiminishingReturns(t *testing.T) {
 				}
 				stun := func() int {
 					g.combat.applyMonsterHitRiders(mob, "", heroHitTarget{g.combat, c}, true)
-					got := c.StunFramesRemaining
+					got := c.Stun.Frames
 					if tb {
-						got = c.StunTurnsRemaining
+						got = c.Stun.Turns
 					}
 					for c.IsStunned() {
 						advance()

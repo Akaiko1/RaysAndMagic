@@ -12,6 +12,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -48,7 +49,7 @@ func (g *MMGame) techniqueCastRefusal(idx int, key string, automatic bool) strin
 		if g.turnBasedMode && g.currentTurn != 0 {
 			return uitext.Text("technique.refusal_party_phase")
 		}
-		if g.spatialReuseFrames > 0 || (g.turnBasedMode && g.spatialStepThisTurn) {
+		if g.spatialReuse.Active() {
 			return uitext.Text("technique.refusal_space")
 		}
 	} else if !automatic && !g.canSpendCombatAction(idx) {
@@ -80,7 +81,7 @@ func (g *MMGame) techniqueUseful(d *config.TechniqueDefinition) bool {
 // partyNeedsPurify: a living ally has an affliction, or the party is rooted or
 // slowed. Shared by the Purify technique and the Purify/Dispel Magic spells.
 func (g *MMGame) partyNeedsPurify() bool {
-	if g.partyRooted() || g.partyHinder.Slow > 0 {
+	if g.partyRooted() || g.partyHinder.Slow.Active() {
 		return true
 	}
 	for _, c := range g.party.Members {
@@ -153,11 +154,11 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 		case config.TechniquePurify:
 			g.purifyParty()
 		case config.TechniqueDodge, config.TechniqueHaste:
-			b := TimedCombatBuff{ID: config.TechniqueID(d.Key), Frames: config.TierValue(d.Duration, tier) * tps, CombatClock: true, MasteryTier: tier}
+			b := TimedCombatBuff{ID: config.TechniqueID(d.Key), CombatClock: true, MasteryTier: tier}
+			b.Clock.Arm(config.TierValue(d.Duration, tier), tps)
 			applyTechniqueBuff(&b, d, tier)
 			b.DeferFirstTurnTick = d.Kind == config.TechniqueHaste
 			g.addCombatBuff(b)
-			g.refreshCombatBuffStatus(b)
 		}
 	}
 	cost := g.techniqueSPCost(c, d)
@@ -232,16 +233,30 @@ func (g *MMGame) quickenRecoveryPct(c *character.MMCharacter) int {
 	}
 	return b.RecoveryPct
 }
-func (g *MMGame) tickRareClassClocks(frames int) {
-	g.tickRelicMarks(frames)
-	g.spatialReuseFrames = max(0, g.spatialReuseFrames-frames)
+
+// tickPartyClocks spends one tick of the party's clocks (status.DualClock) -
+// a frame per RT frame, a turn at each TB party turn: personal spell reuse and
+// effects, the autocast and auto-drink budgets, target marks, the Fold Step
+// anchor and reuse, monster catalysis marks and the Clock Tower gear.
+func (g *MMGame) tickPartyClocks(turn bool) {
+	g.tickRelicMarks(turn)
+	g.tickClockworkGear(turn)
+	g.spatialReuse.Tick(turn)
+	g.tickCardSummonCooldowns(turn)
+	g.ecology.Stop.Tick(turn)
+	g.tactics.still.Tick(turn)
+	if wm := world.GlobalWorldManager; wm != nil && wm.GlobalTeleporterRegistry != nil {
+		wm.GlobalTeleporterRegistry.TickGroups(turn)
+	}
 	for _, c := range g.party.Members {
 		if c == nil {
 			continue
 		}
-		c.RareClass.Tick(frames)
-		c.SpellState.Tick(frames)
-		c.AutocastFrames = max(0, c.AutocastFrames-frames)
+		c.RareClass.Tick(turn)
+		c.SpellState.Tick(turn)
+		c.AutocastCD.Tick(turn)
+		c.AutoDrinkCD.Tick(turn)
+		c.Designation.Tick(turn)
 		if c.HasCondition(character.ConditionDead) || c.HasCondition(character.ConditionEradicated) {
 			c.RareClass.Anchor = character.SpatialAnchor{}
 		}
@@ -256,6 +271,9 @@ func (g *MMGame) partyMoved(x, y float64) {
 		return
 	}
 	distance := math.Hypot(g.camera.X-x, g.camera.Y-y)
+	if distance > 0 {
+		g.partyMovedClock()
+	}
 	for _, c := range g.party.Members {
 		g.chargeSignatureWeapons(c, distance/g.config.GetTileSize(), false)
 	}
@@ -263,9 +281,7 @@ func (g *MMGame) partyMoved(x, y float64) {
 		if c == nil || !c.CanUseCombatAction() || !c.HasSkill(character.SkillFlowingStaff) {
 			continue
 		}
-		c.RareClass.FlowDistance += distance
-		if c.RareClass.FlowDistance >= float64(g.config.GetTileSize()) {
-			c.RareClass.FlowDistance = math.Mod(c.RareClass.FlowDistance, float64(g.config.GetTileSize()))
+		if status.Accrue(&c.RareClass.FlowDistance, distance, float64(g.config.GetTileSize())) > 0 {
 			c.RareClass.FlowCharges = character.FlowingStaffCapacity(c.SkillTier(character.SkillFlowingStaff))
 		}
 	}
@@ -347,7 +363,7 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, d *config.Techniqu
 	var x, y float64
 	if d.Kind == config.TechniqueReturnStep {
 		a := c.RareClass.Anchor
-		if a.Frames <= 0 || a.MapKey != region {
+		if !a.Clock.Active() || a.MapKey != region {
 			return false
 		}
 		x, y = a.X, a.Y
@@ -386,34 +402,32 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, d *config.Techniqu
 	if d.Kind == config.TechniqueFoldStep {
 		// Keep the FIRST departure point across successive Folds; refreshing
 		// its lifetime must not replace it with the last hop's origin.
-		if c.RareClass.Anchor.Frames <= 0 || c.RareClass.Anchor.MapKey != region {
+		if !c.RareClass.Anchor.Clock.Active() || c.RareClass.Anchor.MapKey != region {
 			c.RareClass.Anchor = character.SpatialAnchor{MapKey: region, X: lx, Y: ly}
 		}
-		c.RareClass.Anchor.Frames = config.TierValue(d.Duration, tier) * g.config.GetTPS()
+		c.RareClass.Anchor.Clock = status.DualClock{}
+		c.RareClass.Anchor.Clock.Arm(config.TierValue(d.Duration, tier), g.config.GetTPS())
 	} else {
 		c.RareClass.Anchor = character.SpatialAnchor{}
 	}
-	g.spatialReuseFrames = d.ReuseSeconds * g.config.GetTPS()
-	if g.turnBasedMode {
-		g.spatialStepThisTurn = true
-	}
+	// The shared step reuse is whole rounds: a TB step locks the next until
+	// the next party turn at least.
+	g.spatialReuse = status.DualClock{}
+	g.spatialReuse.Arm(d.ReuseSeconds, g.config.GetTPS())
 	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
 		g.gameLoop.inputHandler.applyLandingTileEffects()
 	}
 	return true
 }
-func (g *MMGame) automaticCastDelayFrames() int {
-	return g.config.AutocastIntervalRounds * g.combatRoundFrames()
-}
 
 // canAutocast is independent of action points and recovery. Both spellbook
-// spells and Pilgrim techniques share one personal budget, AutocastFrames.
+// spells and Pilgrim techniques share one personal budget, AutocastCD.
 func (g *MMGame) canAutocast(index int) bool {
 	if g.party == nil || index < 0 || index >= len(g.party.Members) {
 		return false
 	}
 	c := g.party.Members[index]
-	if c == nil || !c.CanUseCombatAction() || c.AutocastFrames > 0 {
+	if c == nil || !c.CanUseCombatAction() || c.AutocastCD.Active() {
 		return false
 	}
 	if g.turnBasedMode {
@@ -423,7 +437,8 @@ func (g *MMGame) canAutocast(index int) bool {
 }
 
 func (g *MMGame) finishAutocast(c *character.MMCharacter, fxStart int) {
-	c.AutocastFrames = g.automaticCastDelayFrames()
+	c.AutocastCD = status.DualClock{}
+	c.AutocastCD.Arm(g.config.AutocastIntervalRounds*config.CombatRoundSeconds, g.config.GetTPS())
 	g.queueAutocastFx(fxStart)
 }
 

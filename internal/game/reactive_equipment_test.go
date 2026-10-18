@@ -183,7 +183,7 @@ func TestRainSerpentPotionCleansing(t *testing.T) {
 				ch.ApplyBurn(100)
 				// Legacy saves can retain damage timers without condition icons.
 				ch.Conditions = nil
-				ch.StunDRStacks, ch.StunDRMemoryFrames = 2, 200
+				ch.StunDRStacks, ch.StunDRMemory = 2, framesClock(200)
 				ch.ReactiveCombat = character.ReactiveCombatState{Shell: 15, DodgeCharges: 2}
 				var used bool
 				if quick {
@@ -199,7 +199,7 @@ func TestRainSerpentPotionCleansing(t *testing.T) {
 				if ch.ReactiveCombat.Shell != 15 || ch.ReactiveCombat.DodgeCharges != 2 {
 					t.Fatal("cleansing removed beneficial combat state")
 				}
-				if ch.StunDRStacks != 2 || ch.StunDRMemoryFrames != 200 {
+				if ch.StunDRStacks != 2 || ch.StunDRMemory.Frames != 200 {
 					t.Fatal("potion reset stun diminishing returns")
 				}
 				g.party.Inventory = []items.Item{p}

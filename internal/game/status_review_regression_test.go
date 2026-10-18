@@ -127,9 +127,9 @@ func TestStatusReviewProvidenceCleanup(t *testing.T) {
 					g, _, wm := clockSaveFixture(t)
 					g.dayNightFrames = g.dayNightPhaseStartFrame(true) - 1
 					g.dayNightIsNight = false
-					g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: celestialProvidenceSourceID, Frames: 1})
-					g.addCombatBuff(TimedCombatBuff{ID: "stone_skin", SourceID: celestialProvidenceSourceID, Frames: 1})
-					g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 1000})
+					g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: celestialProvidenceSourceID, Clock: framesClock(1)})
+					g.addCombatBuff(TimedCombatBuff{ID: "stone_skin", SourceID: celestialProvidenceSourceID, Clock: framesClock(1)})
+					g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(1000)})
 					g.celestialBuffSpellID = marker
 					if saved {
 						save := auditSaveJSON(t, g.buildSave(wm))
@@ -273,9 +273,8 @@ func TestStatusReviewSavedTurnPhases(t *testing.T) {
 			g.turnBasedMode, g.currentTurn = phase != 2, phase%2
 			m := monster.NewMonster3DFromConfig(400, 400, "wolf", g.config)
 			m.ApplySlow(50, 1, 1)
-			m.TickSlowTurn()
 			m.ApplyWeaken(50, 1, 1)
-			m.TickWeakenTurn()
+			m.TickDebuffs(true)
 			g.combat.applyMonsterRoot(m, 2)
 			g.world.Monsters = []*monster.Monster3D{m}
 			save := auditSaveJSON(t, g.buildSave(wm))

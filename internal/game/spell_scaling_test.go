@@ -17,8 +17,8 @@ import (
 
 func TestOutgoingDamageBonusFiltersByDamageType(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
-	game.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 600, OutBonus: 3, OutDamageType: "physical"})
-	game.addCombatBuff(TimedCombatBuff{ID: "hour_of_power", Frames: 600, OutBonus: 5})
+	game.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(600), OutBonus: 3, OutDamageType: "physical"})
+	game.addCombatBuff(TimedCombatBuff{ID: "hour_of_power", Clock: framesClock(600), OutBonus: 5})
 
 	if got := game.combatBuffOutBonusForDamageType("physical"); got != 8 {
 		t.Errorf("physical outgoing bonus = %d, want 8", got)
@@ -91,8 +91,8 @@ func TestPartyBuffMagnitudeScalesWithMastery(t *testing.T) {
 				if buff.OutDamageType != def.OutgoingDamageType {
 					t.Errorf("OutDamageType = %q, want %q", buff.OutDamageType, def.OutgoingDamageType)
 				}
-				if want := def.DurationByMastery[int(tier)] * game.config.GetTPS(); buff.Frames != want {
-					t.Errorf("duration = %d frames, want %d", buff.Frames, want)
+				if want := def.DurationByMastery[int(tier)] * game.config.GetTPS(); buff.Clock.Frames != want {
+					t.Errorf("duration = %d frames, want %d", buff.Clock.Frames, want)
 				}
 				card := GetSpellTooltipRows(tc.spellID, caster, cs, true).String()
 				if !strings.Contains(card, fmt.Sprintf("Current Duration: %ds", []int{11, 19, 31, 47}[int(tier)])) || strings.Contains(card, "Base Duration:") {

@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -33,7 +34,9 @@ type AdventureVisit struct {
 	Effects      map[string]*EnvironmentState `json:"effects,omitempty"`
 	BossGranted  bool                         `json:"boss_granted,omitempty"`
 	LanePatterns int                          `json:"lane_patterns,omitempty"` // patterns the boss has had its turn at, for the rotation
-	HealCarry    float64                      `json:"heal_carry,omitempty"`
+	HealClock    status.DualClock             `json:"heal_clock,omitzero"`     // the round between boss heals
+	// LegacyHealCarry is an old save's seconds toward the next heal.
+	LegacyHealCarry float64 `json:"heal_carry,omitempty"`
 }
 
 // Old saves stored a deadline using the original policy. Convert it once at
@@ -68,13 +71,45 @@ type EnvironmentState struct {
 	DamageCarry       float64            `json:"damage_carry,omitempty"`
 	Activated         bool               `json:"activated,omitempty"`
 	Disarmed          bool               `json:"disarmed,omitempty"`
-	Carry             float64            `json:"carry,omitempty"`
-	Warning           float64            `json:"warning,omitempty"`
-	Remaining         float64            `json:"remaining,omitempty"`
-	Rearm             float64            `json:"rearm,omitempty"`
+	Carry             float64            `json:"carry,omitempty"` // seconds toward the next field pulse
+	Warning           status.DualClock   `json:"warning_clock,omitzero"`
+	Remaining         status.DualClock   `json:"remaining_clock,omitzero"` // a fired lane's field
+	Rearm             status.DualClock   `json:"rearm_clock,omitzero"`
 	WasInside         bool               `json:"was_inside,omitempty"`
 	Triggered         bool               `json:"triggered,omitempty"`
 	Suppressed        bool               `json:"suppressed,omitempty"`
+	// Legacy saves: the part of each span left.
+	LegacyWarning   float64 `json:"warning,omitempty"`
+	LegacyRemaining float64 `json:"remaining,omitempty"`
+	LegacyRearm     float64 `json:"rearm,omitempty"`
+}
+
+// migrateLegacy reads an old save's spans left into the clocks.
+func (v *AdventureVisit) migrateLegacy(a *config.AdventureConfig, tps int) {
+	if v.LegacyHealCarry > 0 {
+		left := max(0, float64(config.CombatRoundSeconds)-v.LegacyHealCarry)
+		v.HealClock = status.FromFrames(int(math.Ceil(left*float64(tps))), tps)
+		v.LegacyHealCarry = 0
+	}
+	if a == nil {
+		return
+	}
+	for _, e := range a.Effects {
+		s := v.Effects[e.ID]
+		if s == nil {
+			continue
+		}
+		if s.LegacyWarning > 0 {
+			s.Warning = status.PairClock(e.WarningSeconds, e.WarningRounds, tps, s.LegacyWarning)
+		}
+		if s.LegacyRemaining > 0 {
+			s.Remaining = status.PairClock(float64(e.DurationSeconds), config.CombatRounds(e.DurationSeconds), tps, s.LegacyRemaining)
+		}
+		if s.LegacyRearm > 0 {
+			s.Rearm = status.PairClock(e.RearmSeconds, e.RearmRounds, tps, s.LegacyRearm)
+		}
+		s.LegacyWarning, s.LegacyRemaining, s.LegacyRearm = 0, 0, 0
+	}
 }
 
 func cloneAdventureState(s AdventureState) AdventureState {

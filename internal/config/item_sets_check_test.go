@@ -66,3 +66,16 @@ func TestExactItemSetRejectsDuplicateRequiredPiece(t *testing.T) {
 		t.Fatal("duplicate exact set piece must fail validation")
 	}
 }
+
+// A set's hold-your-ground reduction is authored within the cap the game
+// applies, so its card never promises more than it gives.
+func TestItemSetStationaryReductionWithinCap(t *testing.T) {
+	for _, pct := range []int{MaxStationaryDamageReductionPct, MaxStationaryDamageReductionPct + 1} {
+		cfg := &ItemSystemConfig{Sets: map[string]*ItemSetConfig{
+			"plate": {Name: "Plate", PiecesRequired: 2, StationaryDamageReductionPct: pct},
+		}}
+		if err := validateItemConfig(cfg); (err != nil) != (pct > MaxStationaryDamageReductionPct) {
+			t.Fatalf("stationary_damage_reduction_pct %d: validation error = %v", pct, err)
+		}
+	}
+}

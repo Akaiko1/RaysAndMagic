@@ -57,6 +57,7 @@ var rangedHeldAssets = map[string]rangedHeldAsset{
 	"battle_staff":          {heldStaff, .155, 1.35, onePart(buildBattleHeldModel), nil, false},
 	"lanista_scepter":       {heldStaff, .155, 1.0, onePart(buildLanistaHeldModel), nil, false},
 	"verdant_eye_scepter":   {heldStaff, .155, 1.03, onePart(buildEyeHeldModel), nil, false},
+	"escapement_staff":      {heldStaff, .155, 1.05, onePart(buildEscapementHeldModel), nil, false},
 	"book_of_darkness":      {heldBook, .185, 0, buildBookHeldModel, nil, false},
 	"long_bow":              {heldBow, .192, 0, onePart(buildLongBowHeldModel), bowLimbs(1.89, [3]float64{1.86, -.10, 0}, [3]int{157, 128, 78}), false},
 	"elven_bow":             {heldBow, .192, 0, onePart(buildElvenBowHeldModel), bowLimbs(1.62, [3]float64{1.59, -.21, 0}, [3]int{202, 162, 58}), false},

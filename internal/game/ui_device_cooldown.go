@@ -62,7 +62,7 @@ func (ui *UISystem) drawSpellReuse(screen *ebiten.Image, c *character.MMCharacte
 	if c == nil {
 		return
 	}
-	remaining := c.SpellState.ReuseFrames[string(id)]
+	remaining := c.SpellState.Reuse[string(id)].Frames
 	if remaining <= 0 {
 		return
 	}

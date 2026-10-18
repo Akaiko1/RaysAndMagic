@@ -108,13 +108,12 @@ func TestPartyUpdateWithMode(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name        string
-		turnBased   bool
-		wantRegen   int // SP gained per member over two intervals
-		wantReports int // frames reporting a completed cadence
+		name      string
+		turnBased bool
+		wantRegen int // SP gained per member over two intervals
 	}{
-		{"real-time frames pay the cadence", false, 4, 2}, // Personality >= 10 => 2 SP per payout
-		{"turn-based frames pay nothing", true, 0, 0},
+		{"real-time frames pay the period", false, 4}, // Personality >= 10 => 2 SP per payout
+		{"turn-based frames pay nothing", true, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			party := NewParty(cfg)
@@ -123,14 +122,8 @@ func TestPartyUpdateWithMode(t *testing.T) {
 				member.SpellPoints -= 5
 				start[i] = member.SpellPoints
 			}
-			reports := 0
-			for i := 0; i < 2*config.RegenerationIntervalFrames(); i++ {
-				if party.UpdateWithMode(PartyClock{TurnBased: tt.turnBased}).Any() {
-					reports++
-				}
-			}
-			if reports != tt.wantReports {
-				t.Errorf("frames reporting a cadence = %d, want %d", reports, tt.wantReports)
+			for i := 0; i < 2*(config.RegenerationSeconds*config.GetTargetTPS()); i++ {
+				party.UpdateWithMode(PartyClock{TurnBased: tt.turnBased})
 			}
 			for i, member := range party.Members {
 				if want := start[i] + tt.wantRegen; member.SpellPoints != want {
@@ -142,8 +135,6 @@ func TestPartyUpdateWithMode(t *testing.T) {
 
 	t.Run("empty party", func(t *testing.T) {
 		party := &Party{Members: make([]*MMCharacter, 0, 4)}
-		if party.UpdateWithMode(PartyClock{}).Any() {
-			t.Error("an empty party reported a completed cadence")
-		}
+		party.UpdateWithMode(PartyClock{})
 	})
 }

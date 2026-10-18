@@ -88,8 +88,6 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.turnBasedMoveCooldown = 7
 	game.turnBasedRotCooldown = 9
 	game.monsterTurnResolved = true
-	game.turnBasedSpRegenCount = 4
-	game.turnBasedHPRegenCount = 2
 	game.turnBasedExtraMonsterAction = true
 	schedulerMob := monster.NewMonster3DFromConfig(96, 96, "goblin", cfg)
 	schedulerMob.ID = "saved_scheduler_mob"
@@ -100,14 +98,14 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.turnBasedMonsterStunned = map[*monster.Monster3D]bool{schedulerMob: true}
 
 	game.torchLightActive = true
-	game.torchLightDuration = 120
+	game.torchLightClock = framesClock(120)
 	game.torchLightRadius = 4.0
 	game.wizardEyeActive = true
-	game.wizardEyeDuration = 45
+	game.wizardEyeClock = framesClock(45)
 	game.walkOnWaterActive = true
-	game.walkOnWaterDuration = 33
+	game.walkOnWaterClock = framesClock(33)
 	game.addStatBuff(TimedStatBuff{
-		SpellID: "bless", Frames: 60,
+		SpellID: "bless", Clock: framesClock(60),
 		Bonuses: character.UniformStatBonuses(2),
 	})
 	// Providence originally granted Bless, then the player recast it. The marker
@@ -118,7 +116,7 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 		IntervalFrames: 360, TickDamage: 3,
 	}}
 	game.waterBreathingActive = true
-	game.waterBreathingDuration = 25
+	game.waterBreathingClock = framesClock(25)
 	game.underwaterReturnX = 96
 	game.underwaterReturnY = 128
 	game.underwaterReturnMap = "forest"
@@ -156,9 +154,6 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.monsterTurnResolved != game.monsterTurnResolved {
 		t.Fatalf("monsterTurnResolved: got %v want %v", loaded.monsterTurnResolved, game.monsterTurnResolved)
 	}
-	if loaded.turnBasedSpRegenCount != game.turnBasedSpRegenCount || loaded.turnBasedHPRegenCount != game.turnBasedHPRegenCount {
-		t.Fatalf("TB regen counters: got SP %d HP %d want %d %d", loaded.turnBasedSpRegenCount, loaded.turnBasedHPRegenCount, game.turnBasedSpRegenCount, game.turnBasedHPRegenCount)
-	}
 	if loaded.turnBasedExtraMonsterAction != game.turnBasedExtraMonsterAction {
 		t.Fatalf("turnBasedExtraMonsterAction: got %v want %v", loaded.turnBasedExtraMonsterAction, game.turnBasedExtraMonsterAction)
 	}
@@ -173,8 +168,8 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 		t.Fatalf("stunned monster was not restored into the mid-pass scheduler: monsters=%d stunned=%v", len(worldLoad.Monsters), loaded.turnBasedMonsterStunned)
 	}
 
-	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightDuration != game.torchLightDuration {
-		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightDuration, game.torchLightActive, game.torchLightDuration)
+	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightClock.Frames != game.torchLightClock.Frames {
+		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightClock.Frames, game.torchLightActive, game.torchLightClock.Frames)
 	}
 	// The radius deliberately does NOT round-trip: on load an active torch
 	// adopts the CURRENT spells.yaml light_radius_tiles, so old saves pick
@@ -186,11 +181,11 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.torchLightRadius != torchDef.LightRadiusTiles {
 		t.Fatalf("torchLightRadius: got %v want spells.yaml value %v", loaded.torchLightRadius, torchDef.LightRadiusTiles)
 	}
-	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeDuration != game.wizardEyeDuration {
-		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeDuration, game.wizardEyeActive, game.wizardEyeDuration)
+	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeClock.Frames != game.wizardEyeClock.Frames {
+		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeClock.Frames, game.wizardEyeActive, game.wizardEyeClock.Frames)
 	}
-	if loaded.walkOnWaterActive != game.walkOnWaterActive || loaded.walkOnWaterDuration != game.walkOnWaterDuration {
-		t.Fatalf("walkOnWater: got %v/%d want %v/%d", loaded.walkOnWaterActive, loaded.walkOnWaterDuration, game.walkOnWaterActive, game.walkOnWaterDuration)
+	if loaded.walkOnWaterActive != game.walkOnWaterActive || loaded.walkOnWaterClock.Frames != game.walkOnWaterClock.Frames {
+		t.Fatalf("walkOnWater: got %v/%d want %v/%d", loaded.walkOnWaterActive, loaded.walkOnWaterClock.Frames, game.walkOnWaterActive, game.walkOnWaterClock.Frames)
 	}
 	loadedBless, ok := loaded.statBuffByID("bless")
 	wantBless, _ := game.statBuffByID("bless")
@@ -200,8 +195,8 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loadedBless.SourceID != "" || loaded.celestialBuffSpellID != "bless" {
 		t.Fatalf("player recast ownership changed on load: buff=%+v marker=%q", loadedBless, loaded.celestialBuffSpellID)
 	}
-	if loaded.waterBreathingActive != game.waterBreathingActive || loaded.waterBreathingDuration != game.waterBreathingDuration {
-		t.Fatalf("waterBreathing: got %v/%d want %v/%d", loaded.waterBreathingActive, loaded.waterBreathingDuration, game.waterBreathingActive, game.waterBreathingDuration)
+	if loaded.waterBreathingActive != game.waterBreathingActive || loaded.waterBreathingClock.Frames != game.waterBreathingClock.Frames {
+		t.Fatalf("waterBreathing: got %v/%d want %v/%d", loaded.waterBreathingActive, loaded.waterBreathingClock.Frames, game.waterBreathingActive, game.waterBreathingClock.Frames)
 	}
 	if loaded.underwaterReturnX != game.underwaterReturnX || loaded.underwaterReturnY != game.underwaterReturnY || loaded.underwaterReturnMap != game.underwaterReturnMap {
 		t.Fatalf("underwaterReturn: got %.0f/%.0f/%s want %.0f/%.0f/%s", loaded.underwaterReturnX, loaded.underwaterReturnY, loaded.underwaterReturnMap, game.underwaterReturnX, game.underwaterReturnY, game.underwaterReturnMap)
@@ -213,10 +208,10 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.buffStatuses == nil {
 		t.Fatalf("buffStatuses not initialized")
 	}
-	if status, ok := loaded.buffStatuses["torch_light"]; !ok || status.Duration != loaded.torchLightDuration {
+	if status, ok := loaded.buffStatuses["torch_light"]; !ok || status.Duration != loaded.torchLightClock.Frames {
 		t.Fatalf("utility torch_light missing or duration mismatch")
 	}
-	if status, ok := loaded.buffStatuses["bless"]; !ok || status.Duration != wantBless.Frames {
+	if status, ok := loaded.buffStatuses["bless"]; !ok || status.Duration != wantBless.Clock.Frames {
 		t.Fatalf("utility bless icon missing right after load (ok=%v)", ok)
 	}
 	if status, ok := loaded.buffStatuses["hot_steam"]; !ok || status.Duration != 42 {
@@ -241,35 +236,39 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 		t.Fatal("test party has no members")
 	}
 	member := game.party.Members[0]
-	member.StunFramesRemaining = 361
-	member.StunTurnsRemaining = 4
-	member.StunRate = 120
+	member.Stun.Frames = 361
+	member.Stun.Turns = 4
+	member.Stun.Rate = 120
 	member.ArmorMelt = status.DualClock{Frames: 361, Turns: 4, Rate: 120}
 
 	mob := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
 	mob.ID = "rated-clock-mob"
-	mob.StunFramesRemaining = 361
-	mob.StunTurnsRemaining = 4
-	mob.StunRate = 120
-	mob.RootFramesRemaining = 181
-	mob.RootTurnsRemaining = 2
-	mob.RootRate = 120
+	mob.Stun.Frames = 361
+	mob.Stun.Turns = 4
+	mob.Stun.Rate = 120
+	mob.Root.Frames = 181
+	mob.Root.Turns = 2
+	mob.Root.Rate = 120
 	mob.ArmorShredPct = 20
-	mob.ArmorShredFramesRemaining = 361
-	mob.ArmorShredTurnsRemaining = 4
-	mob.ArmorShredRate = 120
+	mob.ArmorShred.Frames = 361
+	mob.ArmorShred.Turns = 4
+	mob.ArmorShred.Rate = 120
 	mob.ArmorMelt = status.DualClock{Frames: 361, Turns: 4, Rate: 120}
-	mob.PounceCDFrames = 361
-	mob.PounceCDTurns = 2
-	mob.PounceCDRate = 240
-	mob.PhaseShiftCDFrames, mob.PhaseShiftCDTurns, mob.PhaseShiftCDRate = 361, 2, 240
+	mob.PounceCD.Frames = 361
+	mob.PounceCD.Turns = 2
+	mob.PounceCD.Rate = 240
+	mob.PhaseShiftCD.Frames, mob.PhaseShiftCD.Turns, mob.PhaseShiftCD.Rate = 361, 2, 240
 	mob.SoakDamage = 5
-	mob.SoakFrames = 361
-	mob.SoakTurns = 4
-	mob.SoakRate = 120
-	mob.InfernoCDFrames = 240      // ranged-nova cooldown: a reload must not refresh it
-	mob.TurnBasedSwingCarry = 0.25 // banked TB swing fraction: save/load per turn must not reset it
-	mob.TurnBasedStepCarry = -0.25 // banked TB step fraction, same contract
+	mob.Soak.Frames = 361
+	mob.Soak.Turns = 4
+	mob.Soak.Rate = 120
+	mob.InfernoCD = framesClock(240)                                       // ranged-nova cooldown: a reload must not refresh it
+	mob.TurnBasedSwingCarry = 0.25                                         // banked TB swing fraction: save/load per turn must not reset it
+	mob.TurnBasedStepCarry = -0.25                                         // banked TB step fraction, same contract
+	mob.Jammed = true                                                      // this attack cycle's jam has landed: a reload must not allow another
+	mob.HourMarks = 11                                                     // Minute Hand hits toward the hour: a reload must not reset them
+	game.openerCooldown = status.DualClock{Frames: 7, Turns: 1, Rate: 360} // a fight just ended: no opener on reload
+	game.partyMoveClock = status.DualClock{Frames: 9, Turns: 1, Rate: 360} // the party just moved: no held ground on reload
 	worldSave.Monsters = []*monster.Monster3D{mob}
 
 	raw, err := json.Marshal(game.buildSave(wmSave))
@@ -299,59 +298,60 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	}
 
 	loadedMember := loaded.party.Members[0]
-	if loadedMember.StunRate != 120 {
-		t.Fatalf("character stun rate = %d, want 120", loadedMember.StunRate)
+	if loadedMember.Stun.Rate != 120 {
+		t.Fatalf("character stun rate = %d, want 120", loadedMember.Stun.Rate)
 	}
 	if want := (status.DualClock{Frames: 361, Turns: 4, Rate: 120}); loadedMember.ArmorMelt != want || loaded.party.Members[1].ArmorMelted() {
 		t.Fatalf("character melt after load = %+v (unmelted member melted: %v), want %+v", loadedMember.ArmorMelt, loaded.party.Members[1].ArmorMelted(), want)
 	}
 	loadedMember.TickStunTurn()
-	if loadedMember.StunFramesRemaining != 241 || loadedMember.StunTurnsRemaining != 3 {
+	if loadedMember.Stun.Frames != 241 || loadedMember.Stun.Turns != 3 {
 		t.Fatalf("character clock after load/tick = %d frames/%d turns, want 241/3",
-			loadedMember.StunFramesRemaining, loadedMember.StunTurnsRemaining)
+			loadedMember.Stun.Frames, loadedMember.Stun.Turns)
 	}
 
 	loadedMob := worldLoad.Monsters[0]
-	if loadedMob.TurnBasedSwingCarry != 0.25 || loadedMob.TurnBasedStepCarry != -0.25 {
-		t.Errorf("TB carries = swing %v / step %v after reload, want 0.25 / -0.25", loadedMob.TurnBasedSwingCarry, loadedMob.TurnBasedStepCarry)
+	if loadedMob.TurnBasedSwingCarry != 0.25 || loadedMob.TurnBasedStepCarry != -0.25 || !loadedMob.Jammed || loadedMob.HourMarks != 11 {
+		t.Errorf("TB carries = swing %v / step %v, jammed %v, hour marks %d after reload, want 0.25 / -0.25, true, 11", loadedMob.TurnBasedSwingCarry, loadedMob.TurnBasedStepCarry, loadedMob.Jammed, loadedMob.HourMarks)
 	}
-	if loadedMob.InfernoCDFrames != 240 {
-		t.Errorf("inferno cadence = %d frames after reload, want 240 (a reload must not hand the boss a fresh nova roll)",
-			loadedMob.InfernoCDFrames)
+	if loaded.openerCooldown != game.openerCooldown || loaded.partyMoveClock != game.partyMoveClock {
+		t.Errorf("clocks after reload: opener %+v, move %+v; want %+v, %+v", loaded.openerCooldown, loaded.partyMoveClock, game.openerCooldown, game.partyMoveClock)
 	}
-	if loadedMob.StunRate != 120 || loadedMob.RootRate != 120 ||
-		loadedMob.ArmorShredRate != 120 || loadedMob.PounceCDRate != 240 || loadedMob.SoakRate != 120 {
+	if loadedMob.InfernoCD != framesClock(240) {
+		t.Errorf("inferno cadence = %+v after reload, want 240 frames (a reload must not hand the boss a fresh nova roll)",
+			loadedMob.InfernoCD)
+	}
+	if loadedMob.Stun.Rate != 120 || loadedMob.Root.Rate != 120 ||
+		loadedMob.ArmorShred.Rate != 120 || loadedMob.PounceCD.Rate != 240 || loadedMob.Soak.Rate != 120 {
 		t.Fatalf("monster rates after load = stun:%d root:%d shred:%d pounce:%d soak:%d",
-			loadedMob.StunRate, loadedMob.RootRate, loadedMob.ArmorShredRate,
-			loadedMob.PounceCDRate, loadedMob.SoakRate)
+			loadedMob.Stun.Rate, loadedMob.Root.Rate, loadedMob.ArmorShred.Rate,
+			loadedMob.PounceCD.Rate, loadedMob.Soak.Rate)
 	}
 	if want := (status.DualClock{Frames: 361, Turns: 4, Rate: 120}); loadedMob.ArmorMelt != want {
 		t.Fatalf("monster melt after load = %+v, want %+v", loadedMob.ArmorMelt, want)
 	}
 	loadedMob.TickRootTurn()
-	if loadedMob.RootFramesRemaining != 61 || loadedMob.RootTurnsRemaining != 1 {
+	if loadedMob.Root.Frames != 61 || loadedMob.Root.Turns != 1 {
 		t.Fatalf("root after load/tick = %d frames/%d turns, want 61/1",
-			loadedMob.RootFramesRemaining, loadedMob.RootTurnsRemaining)
+			loadedMob.Root.Frames, loadedMob.Root.Turns)
 	}
-	loadedMob.TickPounceCooldownTurn()
-	if loadedMob.PounceCDFrames != 121 || loadedMob.PounceCDTurns != 1 {
+	loadedMob.TickAbilityClocks(true)
+	if loadedMob.PounceCD.Frames != 121 || loadedMob.PounceCD.Turns != 1 {
 		t.Fatalf("pounce after load/tick = %d frames/%d turns, want 121/1",
-			loadedMob.PounceCDFrames, loadedMob.PounceCDTurns)
+			loadedMob.PounceCD.Frames, loadedMob.PounceCD.Turns)
 	}
-	loadedMob.TickPhaseShiftCooldownTurn()
-	if loadedMob.PhaseShiftCDFrames != 121 || loadedMob.PhaseShiftCDTurns != 1 || loadedMob.PhaseShiftCDRate != 240 {
+	if loadedMob.PhaseShiftCD.Frames != 121 || loadedMob.PhaseShiftCD.Turns != 1 || loadedMob.PhaseShiftCD.Rate != 240 {
 		t.Fatalf("phase shift after load/tick = %d frames/%d turns/rate %d, want 121/1/240",
-			loadedMob.PhaseShiftCDFrames, loadedMob.PhaseShiftCDTurns, loadedMob.PhaseShiftCDRate)
+			loadedMob.PhaseShiftCD.Frames, loadedMob.PhaseShiftCD.Turns, loadedMob.PhaseShiftCD.Rate)
 	}
-	loadedMob.TickArmorShredTurn()
-	if loadedMob.ArmorShredFramesRemaining != 241 || loadedMob.ArmorShredTurnsRemaining != 3 {
+	loadedMob.TickDebuffs(true)
+	if loadedMob.ArmorShred.Frames != 241 || loadedMob.ArmorShred.Turns != 3 {
 		t.Fatalf("shred after load/tick = %d frames/%d turns, want 241/3",
-			loadedMob.ArmorShredFramesRemaining, loadedMob.ArmorShredTurnsRemaining)
+			loadedMob.ArmorShred.Frames, loadedMob.ArmorShred.Turns)
 	}
-	loadedMob.TickSoakTurn()
-	if loadedMob.SoakFrames != 241 || loadedMob.SoakTurns != 3 {
+	if loadedMob.Soak.Frames != 241 || loadedMob.Soak.Turns != 3 {
 		t.Fatalf("soak after load/tick = %d frames/%d turns, want 241/3",
-			loadedMob.SoakFrames, loadedMob.SoakTurns)
+			loadedMob.Soak.Frames, loadedMob.Soak.Turns)
 	}
 }
 

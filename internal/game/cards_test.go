@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/stash"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -419,7 +420,7 @@ func TestCardSummonSourcesContractTable(t *testing.T) {
 				wantByMonster[def.CardSummonMonster] += want
 			}
 			if tt.coolFirst {
-				g.armCardSummonCooldown(sources[0].Owner, 10)
+				g.setCardSummonCooldown(sources[0].Owner, framesClock(10))
 			}
 			if tt.capFirst {
 				source := sources[0]
@@ -459,7 +460,7 @@ func TestCardSummonSourcesContractTable(t *testing.T) {
 							t.Errorf("cooling card %s spawned %d allies", source.CardKey, gotByOwner[source.Owner])
 						}
 					}
-					if capped && g.cardSummonCooldown(source.Owner) != 0 {
+					if capped && g.cardSummonCooldown(source.Owner).Active() {
 						t.Errorf("capped card %s spent a cooldown", source.CardKey)
 					}
 					continue
@@ -467,7 +468,7 @@ func TestCardSummonSourcesContractTable(t *testing.T) {
 				if got := gotByOwner[source.Owner]; got != source.Limit {
 					t.Errorf("owner %s controls %d allies, want its own limit %d", source.Owner, got, source.Limit)
 				}
-				if g.cardSummonCooldown(source.Owner) <= 0 {
+				if !g.cardSummonCooldown(source.Owner).Active() {
 					t.Errorf("successful %s proc did not arm its cooldown", source.CardKey)
 				}
 				if !strings.Contains(logText.String(), "The "+source.CardName+" rallies") {
@@ -506,32 +507,41 @@ func TestCardSummonNoSpawnSpaceDoesNotSpendCooldown(t *testing.T) {
 	if got := cs.countLiveSummonsByOwner(source.Owner); got != 0 {
 		t.Fatalf("blocked spawn created %d allies, want 0", got)
 	}
-	if got := g.cardSummonCooldown(source.Owner); got != 0 {
-		t.Fatalf("blocked spawn spent cooldown %d, want 0", got)
+	if got := g.cardSummonCooldown(source.Owner); got.Active() {
+		t.Fatalf("blocked spawn spent cooldown %+v, want none", got)
 	}
 }
 
 func TestCardSummonCooldownsTickAndExpireIndependently(t *testing.T) {
-	g := &MMGame{cardSummonCooldowns: map[string]int{"orc": 2, "lich": 1}}
-	g.tickCardSummonCooldowns()
-	if got := g.cardSummonCooldown("orc"); got != 1 {
-		t.Errorf("orc cooldown = %d, want 1", got)
-	}
-	if got := g.cardSummonCooldown("lich"); got != 0 {
-		t.Errorf("lich cooldown = %d, want expired", got)
-	}
-	if _, exists := g.cardSummonCooldowns["lich"]; exists {
-		t.Error("expired cooldown entry was not removed")
-	}
+	for _, turn := range []bool{false, true} {
+		round := config.RoundFrames(1, config.GlobalConfig.GetTPS())
+		g := &MMGame{cardSummonCooldowns: map[string]status.DualClock{"orc": framesClock(2 * round), "lich": framesClock(round)}}
+		g.tickCardSummonCooldowns(turn)
+		if !turn {
+			spendFrames(round-1, g.tickCardSummonCooldowns)
+		}
+		if got := g.cardSummonCooldown("orc"); got.Turns != 1 || got.Frames != round {
+			t.Errorf("turn=%v orc cooldown = %+v, want one round", turn, got)
+		}
+		if got := g.cardSummonCooldown("lich"); got.Active() {
+			t.Errorf("turn=%v lich cooldown = %+v, want expired", turn, got)
+		}
+		if _, exists := g.cardSummonCooldowns["lich"]; exists {
+			t.Error("expired cooldown entry was not removed")
+		}
 
-	g = &MMGame{cardSummonCooldowns: map[string]int{cardSummonOwner: 2}}
-	g.tickCardSummonCooldowns()
-	if got := g.cardSummonCooldown("late-card"); got != 1 {
-		t.Errorf("legacy shared cooldown after one tick = %d, want 1", got)
-	}
-	g.tickCardSummonCooldowns()
-	if got := g.cardSummonCooldown("late-card"); got != 0 {
-		t.Errorf("expired legacy shared cooldown = %d, want 0", got)
+		g = &MMGame{cardSummonCooldowns: map[string]status.DualClock{cardSummonOwner: framesClock(2 * round)}}
+		g.tickCardSummonCooldowns(turn)
+		if !turn {
+			spendFrames(round-1, g.tickCardSummonCooldowns)
+		}
+		if got := g.cardSummonCooldown("late-card"); got.Turns != 1 {
+			t.Errorf("turn=%v legacy shared cooldown after one round = %+v, want one round", turn, got)
+		}
+		g.tickCardSummonCooldowns(true)
+		if got := g.cardSummonCooldown("late-card"); got.Active() {
+			t.Errorf("turn=%v expired legacy shared cooldown = %+v", turn, got)
+		}
 	}
 }
 
@@ -576,11 +586,13 @@ func TestCardSummonSaveContractTable(t *testing.T) {
 	for _, tt := range []struct {
 		name           string
 		legacy         bool
+		legacyFrames   bool
 		orcCooldown    int
 		lichCooldown   int
 		legacyCooldown int
 	}{
 		{name: "per-card state", orcCooldown: 11, lichCooldown: 17},
+		{name: "per-card frames from an older save", legacyFrames: true, orcCooldown: 11, lichCooldown: 17},
 		{name: "legacy shared state migrates conservatively", legacy: true, legacyCooldown: 23},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -618,14 +630,21 @@ func TestCardSummonSaveContractTable(t *testing.T) {
 				wSave.Monsters = append(wSave.Monsters, m)
 			}
 			if !tt.legacy {
-				gSave.armCardSummonCooldown(owners["masked_huntress"], tt.orcCooldown)
-				gSave.armCardSummonCooldown(owners["revenant"], tt.lichCooldown)
+				gSave.setCardSummonCooldown(owners["masked_huntress"], framesClock(tt.orcCooldown))
+				gSave.setCardSummonCooldown(owners["revenant"], framesClock(tt.lichCooldown))
 			}
 			save := gSave.buildSave(wmSave)
 			save.MapKey = "forest"
 			if tt.legacy {
-				save.CardSummonCooldowns = nil
+				save.CardSummonClocks = nil
 				save.CardSummonCDFrames = tt.legacyCooldown
+			}
+			if tt.legacyFrames {
+				save.CardSummonCooldowns = map[string]int{}
+				for owner, clock := range save.CardSummonClocks {
+					save.CardSummonCooldowns[owner] = clock.Frames
+				}
+				save.CardSummonClocks = nil
 			}
 
 			wLoad := newTestWorld(cfg)
@@ -669,8 +688,8 @@ func TestCardSummonSaveContractTable(t *testing.T) {
 				if tt.legacy {
 					wantCooldown = tt.legacyCooldown
 				}
-				if got := gLoad.cardSummonCooldown(source.Owner); got != wantCooldown {
-					t.Errorf("%s cooldown = %d, want %d", monsterKey, got, wantCooldown)
+				if got := gLoad.cardSummonCooldown(source.Owner); got != framesClock(wantCooldown) {
+					t.Errorf("%s cooldown = %+v, want %d frames", monsterKey, got, wantCooldown)
 				}
 			}
 			if tt.legacy && !gLoad.loadNeedsResave {
@@ -693,7 +712,7 @@ func TestCardSummonCooldownFollowsRemovedCardThroughSave(t *testing.T) {
 		t.Fatal("could not slot Orc Warlord Card")
 	}
 	owner := gSave.cardSummonSources()[0].Owner
-	gSave.armCardSummonCooldown(owner, 19)
+	gSave.setCardSummonCooldown(owner, framesClock(19))
 	if !gSave.removeCardToInventory(0) {
 		t.Fatal("could not remove cooling summon card")
 	}
@@ -722,8 +741,8 @@ func TestCardSummonCooldownFollowsRemovedCardThroughSave(t *testing.T) {
 	if loadedSource.Owner != owner {
 		t.Fatalf("re-slotted card owner = %q, want stable %q", loadedSource.Owner, owner)
 	}
-	if got := gLoad.cardSummonCooldown(owner); got != 19 {
-		t.Fatalf("re-slotted card cooldown = %d, want 19", got)
+	if got := gLoad.cardSummonCooldown(owner); got != framesClock(19) {
+		t.Fatalf("re-slotted card cooldown = %+v, want 19 frames", got)
 	}
 }
 
@@ -766,7 +785,7 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 				wmSave.CurrentMapKey = "forest"
 				save := g.buildSave(wmSave)
 				save.MapKey = "forest"
-				save.CardSummonCooldowns = nil
+				save.CardSummonClocks = nil
 				save.CardSummonCDFrames = 23
 
 				wLoad := newTestWorld(cfg)
@@ -783,14 +802,14 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 				}
 				ally = w.Monsters[0]
 			} else {
-				g.restoreCardSummonState(nil, 23)
+				g.restoreCardSummonState(nil, nil, 23)
 			}
 
 			if ally.SummonedBy != owner {
 				t.Fatalf("%s legacy ally owner = %q, want physical owner %q", tt.name, ally.SummonedBy, owner)
 			}
-			if got := g.cardSummonCooldown(owner); got != 23 {
-				t.Fatalf("%s migrated cooldown = %d, want 23", tt.name, got)
+			if got := g.cardSummonCooldown(owner); got != framesClock(23) {
+				t.Fatalf("%s migrated cooldown = %+v, want 23 frames", tt.name, got)
 			}
 
 			if tt.inBag {
@@ -830,22 +849,22 @@ func TestLegacyCardSummonStateMigrationByStorage(t *testing.T) {
 func TestLegacyCardSummonCooldownSurvivesWithoutOwnedCard(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
-	g.restoreCardSummonState(nil, 31)
+	g.restoreCardSummonState(nil, nil, 31)
 	saved := g.snapshotCardSummonCooldowns()
-	if saved[cardSummonOwner] != 31 {
-		t.Fatalf("legacy fallback snapshot = %d, want 31", saved[cardSummonOwner])
+	if saved[cardSummonOwner] != framesClock(31) {
+		t.Fatalf("legacy fallback snapshot = %+v, want 31 frames", saved[cardSummonOwner])
 	}
 
 	loaded := newTestGame(cfg, newTestWorld(cfg))
-	loaded.restoreCardSummonState(saved, 0)
+	loaded.restoreCardSummonState(saved, nil, 0)
 	card := items.CreateItemFromYAML("orc_warlord_card")
 	card.InstanceID = 704
 	if !loaded.setCardCollectionSlot(0, card) {
 		t.Fatal("could not activate card after legacy load")
 	}
 	source := loaded.cardSummonSources()[0]
-	if got := loaded.cardSummonCooldown(source.Owner); got != 31 {
-		t.Fatalf("late-activated card cooldown = %d, want legacy fallback 31", got)
+	if got := loaded.cardSummonCooldown(source.Owner); got != framesClock(31) {
+		t.Fatalf("late-activated card cooldown = %+v, want legacy fallback 31 frames", got)
 	}
 	def := cardDef("orc_warlord_card")
 	oldChance := def.CardSummonChance
@@ -873,7 +892,7 @@ func TestLegacyCardSummonAlliesDistributeAcrossDuplicatePhysicalCards(t *testing
 			w.Monsters = append(w.Monsters, ally)
 		}
 	}
-	g.restoreCardSummonState(nil, 0)
+	g.restoreCardSummonState(nil, nil, 0)
 
 	got := map[string]int{}
 	for _, ally := range w.Monsters {
@@ -1086,7 +1105,7 @@ func TestCardOnHitProcsTriggerSometimes(t *testing.T) {
 			hit: func(cs *CombatSystem) bool {
 				m := mkTestMonster("Target", 100000)
 				cs.tryApplyWeaponStun(m, nil)
-				return m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0
+				return m.Stun.Active()
 			},
 		},
 	} {
@@ -1244,7 +1263,7 @@ func TestTrollCards_RegenPct(t *testing.T) {
 
 	member.MaxHitPoints = 1000
 	member.HitPoints = 500
-	for i := 0; i < config.RegenerationIntervalFrames(); i++ {
+	for i := 0; i < (config.RegenerationSeconds * config.GetTargetTPS()); i++ {
 		member.UpdateWithMode(character.PartyClock{})
 	}
 	if want := 500 + 1000*regen/100; member.HitPoints != want {
@@ -1264,11 +1283,11 @@ func TestTrollCard_RegensInTurnBasedMode(t *testing.T) {
 	member.MaxHitPoints, member.HitPoints = 1000, 500
 	member.BonusRegenPct = 5 // as if a Troll Card were active
 
-	for i := 0; i < TurnBasedRegenEveryNRounds; i++ {
+	for i := 0; i < config.RegenerationRounds; i++ {
 		g.endPartyTurn()
 	}
 	if member.HitPoints != 550 {
-		t.Errorf("HP after %d TB rounds = %d, want 550 (500 + 5%% of 1000)", TurnBasedRegenEveryNRounds, member.HitPoints)
+		t.Errorf("HP after %d TB rounds = %d, want 550 (500 + 5%% of 1000)", config.RegenerationRounds, member.HitPoints)
 	}
 }
 

@@ -247,17 +247,12 @@ func (p *Party) AddMember(character *MMCharacter) {
 	}
 }
 
-// UpdateWithMode updates the party on its clock and reports which RT
-// regeneration cadences any member completed. Optional absorbers are shared by
-// every member's periodic damage.
-func (p *Party) UpdateWithMode(clock PartyClock, absorbDoT ...func(int) int) RegenPayout {
-	var paid RegenPayout
+// UpdateWithMode updates the party on its clock. Optional absorbers are
+// shared by every member's periodic damage.
+func (p *Party) UpdateWithMode(clock PartyClock, absorbDoT ...func(int) int) {
 	for _, member := range p.Members {
-		memberPaid := member.UpdateWithMode(clock, absorbDoT...)
-		paid.SP = paid.SP || memberPaid.SP
-		paid.HP = paid.HP || memberPaid.HP
+		member.UpdateWithMode(clock, absorbDoT...)
 	}
-	return paid
 }
 
 // AddItem adds an item to the party inventory automatically: stackable items

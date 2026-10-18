@@ -351,41 +351,34 @@ type Monster3D struct {
 	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
-	SpawnX, SpawnY      float64           // Original spawn position
-	TetherRadius        float64           // Maximum distance from spawn point (default 4 tiles = 256 pixels)
-	IsEngagingPlayer    bool              // True when actively pursuing/fighting player
-	WasAttacked         bool              // Persistent provocation memory, not an active fight.
-	AggroContext        PartyAggroContext // Live world/region ownership, bound at registration.
-	Retaliation         RetaliationState
-	BandHitPending      bool    // Fresh damage event, consumed by social scatter.
-	ReturningHome       bool    // Disengaged actor walks home without healing or teleporting.
-	HitTintFrames       int     // Frames remaining for red hit tint
-	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
-	BodyCenterFrac      float64 // Render-only: visible body centre as a share of frame height (0 = unmeasured)
-	StandeeYaw          float64 // Render-only: displayed token yaw (eases toward heading)
-	StandeeYawTick      int64   // Render-only: frame the token yaw was last advanced
-	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
-	FaceAccX            float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (band snaps / teleports excluded)
-	FaceAccY            float64
-	StunTurnsRemaining  int // Turn-based stun duration (monster skips turns)
-	StunFramesRemaining int // Real-time stun duration in frames
-	StunRate            int // Persisted frames-per-turn exchange rate keeping mode switches proportional
-	StunDRStacks        int // Shared stun/fear DR chain length (0=fresh; caps -> immune)
-	StunDRMemoryTurns   int // TB: stun/fear-free turns left before the DR chain resets
-	StunDRMemoryFrames  int // RT: stun/fear-free frames left before the DR chain resets
-	RootTurnsRemaining  int // TB root (bear trap): can't move, CAN attack
-	RootFramesRemaining int // RT root in frames: position pinned, attacks work
-	RootRate            int // Persisted frames-per-turn rate for the root clocks
+	SpawnX, SpawnY   float64           // Original spawn position
+	TetherRadius     float64           // Maximum distance from spawn point (default 4 tiles = 256 pixels)
+	IsEngagingPlayer bool              // True when actively pursuing/fighting player
+	WasAttacked      bool              // Persistent provocation memory, not an active fight.
+	AggroContext     PartyAggroContext // Live world/region ownership, bound at registration.
+	Retaliation      RetaliationState
+	BandHitPending   bool    // Fresh damage event, consumed by social scatter.
+	ReturningHome    bool    // Disengaged actor walks home without healing or teleporting.
+	HitTintFrames    int     // Frames remaining for red hit tint
+	AttackAnimFrames int     // Frames remaining for attack animation (TB mode)
+	BodyCenterFrac   float64 // Render-only: visible body centre as a share of frame height (0 = unmeasured)
+	StandeeYaw       float64 // Render-only: displayed token yaw (eases toward heading)
+	StandeeYawTick   int64   // Render-only: frame the token yaw was last advanced
+	StandeeMirror    bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
+	FaceAccX         float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (band snaps / teleports excluded)
+	FaceAccY         float64
+	StunDRStacks     int              // Shared stun/fear DR chain length (0=fresh; caps -> immune)
+	Stun             status.DualClock // skips the monster's turns
+	StunDRMemory     status.DualClock // stun/fear-free time left before the DR chain resets
+	Root             status.DualClock // can't move, CAN attack
 
 	movementHeldThisFrame bool // RT: retain the final stun/root frame through social reconciliation
 	rootHeldThisTurn      bool // TB: rooted at the start of the current turn (runtime-only)
 
 	// Armor shred (Pit Labrys): while active, EffectiveArmorClass drops by
 	// ArmorShredPct percent. Refreshes on hit, never stacks.
-	ArmorShredPct             int
-	ArmorShredTurnsRemaining  int
-	ArmorShredFramesRemaining int
-	ArmorShredRate            int // Persisted frames-per-turn rate keeping mode switches proportional
+	ArmorShredPct int
+	ArmorShred    status.DualClock
 	// ArmorMelt: a melting monster's hit leaves this monster's armor blunting a
 	// physical hit only as far as an elemental one (ArmorMelted).
 	ArmorMelt status.DualClock
@@ -403,36 +396,32 @@ type Monster3D struct {
 	burnTickTimer       int
 	// Slow (Tarn Trident silt): real-time movement and attack cadence drop by
 	// SlowPct while active; turn-based play skips one turn in the configured
-	// cadence instead (SlowTurnCount). Same rated dual-clock contract as armor
+	// cadence instead (SlowSkip). Same rated dual-clock contract as armor
 	// shred. The ThisTurn latch is the Root pattern: TB ticks the clock BEFORE
 	// the monster moves, so the turn that consumed the last tick must still
 	// suffer the debuff.
-	SlowPct             int
-	SlowTurnsRemaining  int
-	SlowFramesRemaining int
-	SlowRate            int
-	SlowTurnCount       int // TB turns spent slowed in the current spell of slow
-	slowPctThisTurn     int
+	SlowPct         int
+	Slow            status.DualClock
+	SlowSkip        status.DualClock // TB: the rounds to the next skipped turn of this spell of slow
+	slowPctThisTurn int
 	// Weaken (Scalebreaker roar): outgoing damage drops by WeakenPct while
 	// active. Same rated dual-clock contract as armor shred; same TB latch.
-	WeakenPct             int
-	WeakenTurnsRemaining  int
-	WeakenFramesRemaining int
-	WeakenRate            int
-	weakenPctThisTurn     int
+	WeakenPct         int
+	Weaken            status.DualClock
+	weakenPctThisTurn int
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
-	Bound                          bool       // Bind Undead: under party control - hunts other monsters, ignores party
-	BoundFramesRemaining           int        // Shared RT/TB bind duration in frames (0 = permanent, e.g. card summon)
-	Pacified                       bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
-	PacifiedFramesRemaining        int        // Shared RT/TB charm duration in frames
-	FearFramesRemaining            int        // Forced retreat; damage does not cancel it.
-	SilenceImmunityFramesRemaining int        // Recovery immunity starts after silence ends.
-	SilenceFramesRemaining         int        // Disables spell attacks and ranged bolts.
-	BerserkFramesRemaining         int        // Attacks the closest visible actor, regardless of faction.
-	CharmedByParty                 bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
-	AITargetX                      float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshMonsterAIState)
-	AITargetY                      float64    // Per-frame pursuit target Y
-	AIFoe                          *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
+	Bound           bool             // Bind Undead: under party control - hunts other monsters, ignores party
+	BoundClock      status.DualClock // Bind's time left; idle while bound = permanent (e.g. card summon)
+	Pacified        bool             // Charm: simply stops attacking (no fighting others); breaks on any hit taken
+	PacifiedClock   status.DualClock // Charm's time left
+	Fear            status.DualClock // Forced retreat; damage does not cancel it.
+	SilenceImmunity status.DualClock // Recovery immunity; runs only once silence ends.
+	Silence         status.DualClock // Disables spell attacks and ranged bolts.
+	Berserk         status.DualClock // Attacks the closest visible actor, regardless of faction.
+	CharmedByParty  bool             // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
+	AITargetX       float64          // Per-frame pursuit target X (precomputed single-threaded; see refreshMonsterAIState)
+	AITargetY       float64          // Per-frame pursuit target Y
+	AIFoe           *Monster3D       // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
 	// Loot guard is a calm, map-prop-specific assignment. The game owns target
 	// discovery and band membership; this struct only carries the serially
 	// prepared patrol tile into the parallel RT AI step.
@@ -460,8 +449,10 @@ type Monster3D struct {
 	PassiveUntilAttacked     bool     // True when the monster should not aggro until hit
 	HatesTraits              []string // party traits (from hates.yaml) that enrage this passive monster on sight
 	AttackCooldownMultiplier float64  // The one attack speed: RT cooldown scale (0.5 = twice as often) and TB swings per action (turn_based_cadence.go)
-	TurnBasedSwingCarry      float64  // Fractional TB swing banked between attack actions, in [-0.5, 0.5); persisted
+	TurnBasedSwingCarry      float64  // Fractional TB swing banked between attack actions, in [-0.5, 0.5) unless attack time was lost (a jam); persisted
 	TurnBasedStepCarry       float64  // Fractional TB step banked between movement actions, in [-0.5, 0.5); persisted
+	Jammed                   bool     // A jam already landed on this attack cycle (one per attack the monster makes); persisted
+	HourMarks                int      // Minute Hand hits counted toward striking the hour
 	AttackCDFrames           int      // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
 	// Abilities is this monster's own copy of its authored abilities
 	// (abilities.go); a champion stamps its striking weapon's riders onto it.
@@ -493,34 +484,28 @@ type Monster3D struct {
 
 	// Pounce cooldown remainders (Abilities.Pounce) are tracked per mode and
 	// share a persisted conversion rate.
-	PounceCDFrames int // real-time cooldown countdown (frames)
-	PounceCDTurns  int // turn-based cooldown countdown (turns)
-	PounceCDRate   int // persisted frames-per-turn rate keeping mode switches proportional
+	PounceCD status.DualClock
 
 	// Phase Shift cooldown remainders (Abilities.PhaseShift): the same rated
 	// pair as pounce. PhasePlan is runtime only, refreshed by the serial planner.
-	PhaseShiftCDFrames int
-	PhaseShiftCDTurns  int
-	PhaseShiftCDRate   int
-	PhasePlan          PhaseShiftPlan
+	PhaseShiftCD status.DualClock
+	PhasePlan    PhaseShiftPlan
 
 	// Boss is the static YAML classification. Runtime code uses IsBoss rather
 	// than inferring bosshood from the currently-authored special abilities.
 	Boss bool
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
-	InfernoCDFrames int // RT: frames until the next AT-RANGE inferno roll (persisted; melee-moment rolls ignore it)
+	InfernoCD status.DualClock // until the next AT-RANGE inferno roll (melee-moment rolls ignore it)
 	// Trap volley (Abilities.TrapVolley) cadence state: the fresh volley
 	// replaces the old field.
-	TrapVolleyCDFrames int     // RT frames until the next volley (persisted)
-	TrapVolleyTurnCD   int     // TB monster passes until the next volley (persisted)
-	TrapVolleyCDRate   int     // persisted frames-per-turn rate keeping mode switches proportional
-	PassiveUntilQuest  string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
-	EvadeRadiusTiles   float64 // evasive phase: blink when the party is within this many tiles
-	BossCooldownSecs   float64 // RT cooldown between evasive blinks (seconds)
-	BossCD             int     // RT cooldown (frames) between boss special actions (evasive blink)
-	BossAggro          bool    // transient (per-frame): an authored map hunter active in its home region (set by refreshMonsterAIState)
-	BossEvasive        bool    // transient (per-frame): a quest-gated boss that keeps patrolling but only blinks away; never acquires a combat target (set by refreshMonsterAIState)
-	BossDormant        bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)
+	TrapVolleyCD      status.DualClock // until the next volley
+	PassiveUntilQuest string           // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
+	EvadeRadiusTiles  float64          // evasive phase: blink when the party is within this many tiles
+	BossCooldownSecs  float64          // RT cooldown between evasive blinks (seconds)
+	BossCD            status.DualClock // between evasive blinks
+	BossAggro         bool             // transient (per-frame): an authored map hunter active in its home region (set by refreshMonsterAIState)
+	BossEvasive       bool             // transient (per-frame): a quest-gated boss that keeps patrolling but only blinks away; never acquires a combat target (set by refreshMonsterAIState)
+	BossDormant       bool             // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
 	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
@@ -632,9 +617,7 @@ type Monster3D struct {
 	// active while its dual-clock timers run (stun convention: RT frames,
 	// TB turns).
 	SoakDamage int
-	SoakFrames int
-	SoakTurns  int
-	SoakRate   int // Persisted frames-per-turn rate keeping mode switches proportional
+	Soak       status.DualClock
 }
 
 // IsChampion reports whether this mob rides a champions.yaml character build.
@@ -738,7 +721,7 @@ func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Pa
 
 	// Flat soak (champion Stone Skin) after resists, like the party's
 	// incoming-damage-reduction buff ordering. True damage bypasses it.
-	if m.SoakDamage > 0 && (m.SoakFrames > 0 || m.SoakTurns > 0) {
+	if m.SoakDamage > 0 && (m.Soak.Active()) {
 		dealt.Normal -= m.SoakDamage
 		if dealt.Normal < 0 {
 			dealt.Normal = 0
@@ -856,9 +839,9 @@ func (m *Monster3D) HasRangedAttack() bool {
 // pinned for the WHOLE turn it started rooted (RootHeld), so an adjacent
 // rooted monster that only attacks still burns its root down each turn.
 func (m *Monster3D) TickRootTurn() {
-	m.rootHeldThisTurn = m.RootTurnsRemaining > 0
-	if m.RootTurnsRemaining > 0 {
-		status.TickTurnRated(&m.RootTurnsRemaining, &m.RootFramesRemaining, &m.RootRate)
+	m.rootHeldThisTurn = m.Root.Turns > 0
+	if m.Root.Turns > 0 {
+		m.Root.TickTurn()
 	}
 }
 
@@ -878,7 +861,7 @@ func (m *Monster3D) RootHeld() bool { return m.rootHeldThisTurn }
 // combat math - reading m.ArmorClass directly bypasses the debuff.
 func (m *Monster3D) EffectiveArmorClass() int {
 	armor := max(0, m.ArmorClass-m.Relics.Erosion(m.ArmorClass))
-	if m.ArmorShredPct > 0 && (m.ArmorShredFramesRemaining > 0 || m.ArmorShredTurnsRemaining > 0) {
+	if m.ArmorShredPct > 0 && (m.ArmorShred.Active()) {
 		return armor * (100 - m.ArmorShredPct) / 100
 	}
 	return armor
@@ -904,37 +887,25 @@ func (m *Monster3D) ApplyArmorShred(pct, frames, turns int) {
 	if pct > m.ArmorShredPct {
 		m.ArmorShredPct = pct
 	}
-	if !status.RefreshDualRated(
-		&m.ArmorShredFramesRemaining,
-		&m.ArmorShredTurnsRemaining,
-		&m.ArmorShredRate,
-		frames,
-		turns,
-	) {
+	if !m.ArmorShred.Refresh(frames, turns) {
 		m.ArmorShredPct = 0
 	}
 }
 
-// TickArmorShredFrame burns one RT frame of the shred debuff.
-func (m *Monster3D) TickArmorShredFrame() {
-	if status.TickFrameRated(
-		&m.ArmorShredFramesRemaining,
-		&m.ArmorShredTurnsRemaining,
-		&m.ArmorShredRate,
-	) {
+// TickDebuffs spends one tick of the running mode on every debuff and
+// reactive clock that decays regardless of stun or root.
+func (m *Monster3D) TickDebuffs(turn bool) {
+	if m.ArmorShred.Tick(turn) {
 		m.ArmorShredPct = 0
 	}
-}
-
-// TickArmorShredTurn burns one TB turn of the shred debuff.
-func (m *Monster3D) TickArmorShredTurn() {
-	if status.TickTurnRated(
-		&m.ArmorShredTurnsRemaining,
-		&m.ArmorShredFramesRemaining,
-		&m.ArmorShredRate,
-	) {
-		m.ArmorShredPct = 0
+	m.ArmorMelt.Tick(turn)
+	m.TickElementalMarks(turn)
+	tickRatedPercent(&m.SlowPct, &m.Slow, &m.slowPctThisTurn, turn)
+	tickRatedPercent(&m.WeakenPct, &m.Weaken, &m.weakenPctThisTurn, turn)
+	if m.Soak.Tick(turn) {
+		m.SoakDamage = 0
 	}
+	m.TickRetaliation(turn)
 }
 
 // ApplyBurn applies or refreshes a party-inflicted burn DoT (Drakefang
@@ -990,43 +961,39 @@ func (m *Monster3D) RestoreDoTTickTimers(poison, burn int) {
 // dragged down by an active slow (Tarn Trident silt). The ONE speed read point
 // for movement math.
 func (m *Monster3D) EffectiveSpeed() float64 {
-	if pct := activeRatedPercent(m.SlowPct, m.SlowFramesRemaining, m.SlowTurnsRemaining, 0); pct > 0 {
+	if pct := activeRatedPercent(m.SlowPct, m.Slow, 0); pct > 0 {
 		return m.Speed * float64(100-pct) / 100
 	}
 	return m.Speed
 }
 
-func refreshRatedPercent(activePct, framesRemaining, turnsRemaining, rate *int, pct, frames, turns int) {
+func refreshRatedPercent(activePct *int, clock *status.DualClock, pct, frames, turns int) {
 	if pct > 100 {
 		pct = 100
 	}
 	if pct > *activePct {
 		*activePct = pct
 	}
-	if !status.RefreshDualRated(framesRemaining, turnsRemaining, rate, frames, turns) {
+	if !clock.Refresh(frames, turns) {
 		*activePct = 0
 	}
 }
 
-func tickRatedPercentFrame(activePct, framesRemaining, turnsRemaining, rate, turnLatch *int) {
+// tickRatedPercent spends one tick of a percent debuff. A TB turn LATCHES its
+// percentage first (Root pattern): a monster whose last tick is consumed by
+// this very turn still suffers the debuff through it.
+func tickRatedPercent(activePct *int, clock *status.DualClock, turnLatch *int, turn bool) {
 	*turnLatch = 0
-	if status.TickFrameRated(framesRemaining, turnsRemaining, rate) {
-		*activePct = 0
-	}
-}
-
-func tickRatedPercentTurn(activePct, framesRemaining, turnsRemaining, rate, turnLatch *int) {
-	*turnLatch = 0
-	if *activePct > 0 && (*turnsRemaining > 0 || *framesRemaining > 0) {
+	if turn && *activePct > 0 && clock.Active() {
 		*turnLatch = *activePct
 	}
-	if status.TickTurnRated(turnsRemaining, framesRemaining, rate) {
+	if clock.Tick(turn) {
 		*activePct = 0
 	}
 }
 
-func activeRatedPercent(activePct, framesRemaining, turnsRemaining, turnLatch int) int {
-	if activePct > 0 && (framesRemaining > 0 || turnsRemaining > 0) {
+func activeRatedPercent(activePct int, clock status.DualClock, turnLatch int) int {
+	if activePct > 0 && clock.Active() {
 		return activePct
 	}
 	return turnLatch
@@ -1036,26 +1003,14 @@ func activeRatedPercent(activePct, framesRemaining, turnsRemaining, turnLatch in
 // A fresh slow restarts the TB skip cadence; a refresh keeps it running.
 func (m *Monster3D) ApplySlow(pct, frames, turns int) {
 	if m.ActiveSlowPct() <= 0 {
-		m.SlowTurnCount = 0
+		m.SlowSkip = status.DualClock{}
 	}
-	refreshRatedPercent(&m.SlowPct, &m.SlowFramesRemaining, &m.SlowTurnsRemaining, &m.SlowRate, pct, frames, turns)
-}
-
-// TickSlowFrame burns one RT frame of the slow debuff.
-func (m *Monster3D) TickSlowFrame() {
-	tickRatedPercentFrame(&m.SlowPct, &m.SlowFramesRemaining, &m.SlowTurnsRemaining, &m.SlowRate, &m.slowPctThisTurn)
-}
-
-// TickSlowTurn burns one TB turn of the slow debuff, LATCHING this turn's
-// percentage first (Root pattern): a monster whose last slow tick is consumed
-// by this very turn still moves slowed through it.
-func (m *Monster3D) TickSlowTurn() {
-	tickRatedPercentTurn(&m.SlowPct, &m.SlowFramesRemaining, &m.SlowTurnsRemaining, &m.SlowRate, &m.slowPctThisTurn)
+	refreshRatedPercent(&m.SlowPct, &m.Slow, pct, frames, turns)
 }
 
 // StunDR exposes this monster's diminishing-returns chain to the shared rule.
 func (m *Monster3D) StunDR() status.StunDRChain {
-	return status.StunDRChain{Stacks: &m.StunDRStacks, MemoryTurns: &m.StunDRMemoryTurns, MemoryFrames: &m.StunDRMemoryFrames}
+	return status.StunDRChain{Stacks: &m.StunDRStacks, Memory: &m.StunDRMemory}
 }
 
 // SlowCadenceFactor stretches a real-time interval (attack or pounce
@@ -1068,21 +1023,32 @@ func (m *Monster3D) SlowCadenceFactor() float64 {
 	return 100 / float64(max(1, 100-pct))
 }
 
-// ConsumeSlowedTurn counts a turn-based turn under slow and reports whether
-// this is the turn the cadence skips. A turn without slow restarts the count.
+// ConsumeSlowedTurn spends a turn-based turn under slow and reports whether
+// this is the turn the cadence skips: one every `every` rounds. A turn
+// without slow restarts the cadence.
 func (m *Monster3D) ConsumeSlowedTurn(every int) bool {
-	if m.ActiveSlowPct() <= 0 {
-		m.SlowTurnCount = 0
+	if m.ActiveSlowPct() <= 0 || every <= 1 {
+		m.SlowSkip = status.DualClock{}
 		return false
 	}
-	m.SlowTurnCount++
-	return every > 1 && m.SlowTurnCount%every == 0
+	return m.SlowSkip.Every(every*config.CombatRoundSeconds, m.tps(), true)
+}
+
+// RestoreLegacySlowSkip reads an old save's slowed-turn count into the
+// cadence clock.
+func (m *Monster3D) RestoreLegacySlowSkip(count, every int) {
+	if count <= 0 || every <= 1 || m.ActiveSlowPct() <= 0 {
+		return
+	}
+	left := every - count%every
+	m.SlowSkip = status.DualClock{}
+	m.SlowSkip.Arm(left*config.CombatRoundSeconds, m.tps())
 }
 
 // ActiveSlowPct is the slow percentage in force RIGHT NOW: the live clocks, or
 // the latched value for the TB turn that consumed the final tick.
 func (m *Monster3D) ActiveSlowPct() int {
-	return activeRatedPercent(m.SlowPct, m.SlowFramesRemaining, m.SlowTurnsRemaining, m.slowPctThisTurn)
+	return activeRatedPercent(m.SlowPct, m.Slow, m.slowPctThisTurn)
 }
 
 // OutgoingDamage applies every source-side modifier to one complete outgoing
@@ -1103,23 +1069,12 @@ func (m *Monster3D) OutgoingDamage(parts damagecalc.Parts) damagecalc.Parts {
 
 // ActiveWeakenPct includes the latched final TB turn for damage and visuals.
 func (m *Monster3D) ActiveWeakenPct() int {
-	return activeRatedPercent(m.WeakenPct, m.WeakenFramesRemaining, m.WeakenTurnsRemaining, m.weakenPctThisTurn)
+	return activeRatedPercent(m.WeakenPct, m.Weaken, m.weakenPctThisTurn)
 }
 
 // ApplyWeaken refreshes the weaken debuff (never stacks; strongest percent wins).
 func (m *Monster3D) ApplyWeaken(pct, frames, turns int) {
-	refreshRatedPercent(&m.WeakenPct, &m.WeakenFramesRemaining, &m.WeakenTurnsRemaining, &m.WeakenRate, pct, frames, turns)
-}
-
-// TickWeakenFrame burns one RT frame of the weaken debuff.
-func (m *Monster3D) TickWeakenFrame() {
-	tickRatedPercentFrame(&m.WeakenPct, &m.WeakenFramesRemaining, &m.WeakenTurnsRemaining, &m.WeakenRate, &m.weakenPctThisTurn)
-}
-
-// TickWeakenTurn burns one TB turn of the weaken debuff, LATCHING this turn's
-// percentage first (Root pattern) - see TickSlowTurn.
-func (m *Monster3D) TickWeakenTurn() {
-	tickRatedPercentTurn(&m.WeakenPct, &m.WeakenFramesRemaining, &m.WeakenTurnsRemaining, &m.WeakenRate, &m.weakenPctThisTurn)
+	refreshRatedPercent(&m.WeakenPct, &m.Weaken, pct, frames, turns)
 }
 
 // TurnDebuffLatches exposes the final-tick TB state needed by save/load while
@@ -1150,25 +1105,7 @@ func (m *Monster3D) ApplySoak(damage, frames, turns int) {
 		return
 	}
 	m.SoakDamage = damage
-	if !status.RefreshDualRated(&m.SoakFrames, &m.SoakTurns, &m.SoakRate, frames, turns) {
-		m.SoakDamage = 0
-	}
-}
-
-func (m *Monster3D) TickSoakFrame() {
-	if m == nil {
-		return
-	}
-	if status.TickFrameRated(&m.SoakFrames, &m.SoakTurns, &m.SoakRate) {
-		m.SoakDamage = 0
-	}
-}
-
-func (m *Monster3D) TickSoakTurn() {
-	if m == nil {
-		return
-	}
-	if status.TickTurnRated(&m.SoakTurns, &m.SoakFrames, &m.SoakRate) {
+	if !m.Soak.Refresh(frames, turns) {
 		m.SoakDamage = 0
 	}
 }
@@ -1178,8 +1115,8 @@ func (m *Monster3D) CanPounce() bool {
 	// A rooted monster is pinned to its tile - the leap is a movement.
 	// rootHeldThisTurn covers the LAST rooted TB turn: TickRootTurn has
 	// already decremented the counter to 0 but the pin lasts the whole turn.
-	return m.PounceRangePixels() > 0 && m.RootFramesRemaining <= 0 &&
-		m.RootTurnsRemaining <= 0 && !m.rootHeldThisTurn
+	return m.PounceRangePixels() > 0 && m.Root.Frames <= 0 &&
+		m.Root.Turns <= 0 && !m.rootHeldThisTurn
 }
 
 // ArmPounceCooldown starts both mode clocks. The active clock drains its
@@ -1195,21 +1132,7 @@ func (m *Monster3D) ArmPounceCooldown(tps, turns int) {
 	if m.Abilities.Pounce.CooldownSeconds > 0 && frames < 1 {
 		frames = 1
 	}
-	status.RefreshDualRated(&m.PounceCDFrames, &m.PounceCDTurns, &m.PounceCDRate, frames, turns)
-}
-
-func (m *Monster3D) TickPounceCooldownFrame() {
-	if m == nil {
-		return
-	}
-	status.TickFrameRated(&m.PounceCDFrames, &m.PounceCDTurns, &m.PounceCDRate)
-}
-
-func (m *Monster3D) TickPounceCooldownTurn() {
-	if m == nil {
-		return
-	}
-	status.TickTurnRated(&m.PounceCDTurns, &m.PounceCDFrames, &m.PounceCDRate)
+	m.PounceCD.Refresh(frames, turns)
 }
 
 // ArmTrapVolleyCooldown starts both authored mode clocks. The rated pair keeps
@@ -1225,47 +1148,31 @@ func (m *Monster3D) ArmTrapVolleyCooldown(tps int) {
 	if m.Abilities.TrapVolley.IntervalSeconds > 0 && frames < 1 {
 		frames = 1
 	}
-	status.RefreshDualRated(
-		&m.TrapVolleyCDFrames,
-		&m.TrapVolleyTurnCD,
-		&m.TrapVolleyCDRate,
-		frames,
-		m.Abilities.TrapVolley.IntervalTurns,
-	)
+	m.TrapVolleyCD.Refresh(frames, m.Abilities.TrapVolley.IntervalTurns)
 }
 
-func (m *Monster3D) TickTrapVolleyCooldownFrame() {
+// TickAbilityClocks spends one tick of the running mode on every ability
+// cooldown: RT each frame, TB once per monster turn, in or out of a fight.
+// BossCD's TB round starts with the party turn instead (TickBlinkTurn).
+func (m *Monster3D) TickAbilityClocks(turn bool) {
 	if m == nil {
 		return
 	}
-	status.TickFrameRated(&m.TrapVolleyCDFrames, &m.TrapVolleyTurnCD, &m.TrapVolleyCDRate)
+	for _, c := range []*status.DualClock{&m.PounceCD, &m.PhaseShiftCD, &m.TrapVolleyCD, &m.SummonCD, &m.PushCD, &m.LaneCD, &m.InfernoCD} {
+		c.Tick(turn)
+	}
+	if !turn {
+		m.BossCD.TickFrame()
+	}
 }
 
-func (m *Monster3D) TickTrapVolleyCooldownTurn() {
-	if m == nil {
-		return
+// TickBlinkTurn spends a TB round of the evasive blink cooldown at the start
+// of the party turn: the hurt-blink reacts during the party's round, so a
+// blink on the monster turn is ready again for the next party round.
+func (m *Monster3D) TickBlinkTurn() {
+	if m != nil {
+		m.BossCD.TickTurn()
 	}
-	status.TickTurnRated(&m.TrapVolleyTurnCD, &m.TrapVolleyCDFrames, &m.TrapVolleyCDRate)
-}
-
-// TickAbilityClocksFrame spends one RT frame of every ability cooldown.
-func (m *Monster3D) TickAbilityClocksFrame() {
-	if m == nil {
-		return
-	}
-	m.SummonCD.TickFrame()
-	m.PushCD.TickFrame()
-	m.LaneCD.TickFrame()
-}
-
-// TickAbilityClocksTurn spends one TB turn of every ability cooldown.
-func (m *Monster3D) TickAbilityClocksTurn() {
-	if m == nil {
-		return
-	}
-	m.SummonCD.TickTurn()
-	m.PushCD.TickTurn()
-	m.LaneCD.TickTurn()
 }
 
 // GetAttackRangePixels returns the effective attack range in pixels.
@@ -1403,7 +1310,7 @@ func (m *Monster3D) CanMoveWithinTether(newX, newY float64) bool {
 // MovementHeld is the shared non-random movement gate. Slow percentages below
 // 100 are applied by RT speed or one TB roll per attempted movement action.
 func (m *Monster3D) MovementHeld(turnBased bool) bool {
-	if m == nil || !m.IsAlive() || m.Speed <= 0 || m.Telegraph.Warning > 0 {
+	if m == nil || !m.IsAlive() || m.Speed <= 0 || m.Telegraph.Warning.Active() {
 		return true
 	}
 	// Charm may wander on the ground, but cannot hand an unfinished canopy
@@ -1412,7 +1319,7 @@ func (m *Monster3D) MovementHeld(turnBased bool) bool {
 		return true
 	}
 	if turnBased {
-		return m.StunTurnsRemaining > 0 || m.RootTurnsRemaining > 0 || m.RootHeld() || m.ActiveSlowPct() >= 100
+		return m.Stun.Turns > 0 || m.Root.Turns > 0 || m.RootHeld() || m.ActiveSlowPct() >= 100
 	}
-	return m.movementHeldThisFrame || m.StunFramesRemaining > 0 || m.RootFramesRemaining > 0 || m.EffectiveSpeed() <= 0
+	return m.movementHeldThisFrame || m.Stun.Frames > 0 || m.Root.Frames > 0 || m.EffectiveSpeed() <= 0
 }

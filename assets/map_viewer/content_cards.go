@@ -340,8 +340,8 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	for _, term := range formula.Terms {
 		subtitle += fmt.Sprintf("  +%s/%d", term.Stat, term.Divisor)
 	}
-	if def.TrueDamage > 0 {
-		subtitle += fmt.Sprintf("  +%d True", def.TrueDamage)
+	if def.TrueDamagePct > 0 {
+		subtitle += fmt.Sprintf("  %d%% True", def.TrueDamagePct)
 	}
 	rows := game.GetItemTooltipRows(items.CreateWeaponFromYAML(key), nil, nil, true)
 	return contentCard{

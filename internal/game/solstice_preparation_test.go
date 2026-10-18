@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
+	"ugataima/internal/status"
 )
 
 func TestSolsticeDamageDraughts(t *testing.T) {
@@ -43,7 +44,7 @@ func TestSolsticeDamageDraughts(t *testing.T) {
 							t.Fatal("consumption/restore lost regeneration")
 						}
 					}
-					if len(g.combatBuffs) != 1 || g.combatBuffs[0].Frames != 60*g.config.GetTPS() {
+					if len(g.combatBuffs) != 1 || g.combatBuffs[0].Clock.Frames != 60*g.config.GetTPS() {
 						t.Fatal("lost clock")
 					}
 					for _, target := range []string{"fire", "water", "earth", "air", "physical"} {
@@ -76,9 +77,9 @@ func TestElementalDraughtSharedDamagePaths(t *testing.T) {
 			g := cs.game
 			g.turnBasedMode = tb
 			for _, pct := range []int{15, 30, 40} {
-				g.addCombatBuff(TimedCombatBuff{ID: fmt.Sprint(pct), Frames: 600, OutDamageType: "fire", OutPercent: pct})
+				g.addCombatBuff(TimedCombatBuff{ID: fmt.Sprint(pct), Clock: framesClock(600), OutDamageType: "fire", OutPercent: pct})
 			}
-			g.addCombatBuff(TimedCombatBuff{ID: "flat", Frames: 600, OutBonus: 10})
+			g.addCombatBuff(TimedCombatBuff{ID: "flat", Clock: framesClock(600), OutBonus: 10})
 			m, _ := partyDamageTargets(g, 64)
 			attack := cs.newPartyWeaponAttack(100, 20, "fire", nil, "test", false, false, 0)
 			if hit := cs.applyPartyMonsterAttack(m, attack); hit.Normal != 154 || hit.True != 28 {
@@ -92,7 +93,7 @@ func TestElementalDraughtSharedDamagePaths(t *testing.T) {
 			if parts.Normal != 154 || parts.True != 28 {
 				t.Fatal(parts)
 			}
-			g.combatBuffs[2].Frames = 0
+			g.combatBuffs[2].Clock = status.DualClock{}
 			if got := g.elementalDamageBuff(damagecalc.Parts{Normal: 100}, "fire").Normal; got != 130 {
 				t.Fatalf("expired strongest still applies: %d", got)
 			}
@@ -128,10 +129,8 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 				}
 			}
 			prime := func() {
-				g.turnBasedSpRegenCount = TurnBasedRegenEveryNRounds - 1
-				g.turnBasedHPRegenCount = TurnBasedRegenEveryNRounds - 1
 				for _, c := range g.party.Members {
-					c.RestoreRealtimeRegenProgress(config.RegenerationIntervalFrames()-1, config.RegenerationIntervalFrames()-1)
+					c.SPRegen, c.HPRegen = lastTickClock(), lastTickClock()
 				}
 			}
 			drink("solstice_fire_ward")
@@ -150,11 +149,11 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 				t.Fatalf("medium regeneration HP=%d, want 530", c.HitPoints)
 			}
 			// Refreshing a potion must not reset a partially completed tick.
-			c.RestoreRealtimeRegenProgress(123, 123)
+			c.SPRegen, c.HPRegen = framesClock(123), framesClock(123)
 			drink("solstice_fire_advanced_ward")
 			drink("solstice_air_advanced_ward")
 			checkBonus(5, 5)
-			if sp, hp := c.RealtimeRegenProgress(); sp != 123 || hp != 123 {
+			if c.SPRegen != framesClock(123) || c.HPRegen != framesClock(123) {
 				t.Fatal("consuming a potion reset regeneration progress")
 			}
 			g.cardSlots[0].key = "troll_card"
@@ -169,7 +168,7 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 			}
 			// Thinking in TB must not advance RT clocks, or grant a second tick.
 			g.turnBasedMode = true
-			for range config.RegenerationIntervalFrames() {
+			for range config.RegenerationSeconds * config.GetTargetTPS() {
 				g.updatePartyClocks()
 			}
 			if c.HitPoints != 570 || c.SpellPoints != 550+ordinaryMana {
@@ -225,7 +224,13 @@ func TestSolsticeDraughtRegenerationLifecycle(t *testing.T) {
 			checkBonus(5, 5)
 			g.removeCombatBuff("solstice_air_advanced_ward")
 			checkBonus(3, 0)
-			g.advanceCombatBuffs(60*g.config.GetTPS(), tb)
+			if tb {
+				for range config.CombatRounds(60) {
+					g.advanceCombatBuffs(true)
+				}
+			} else {
+				spendFrames(60*g.config.GetTPS(), g.advanceCombatBuffs)
+			}
 			checkBonus(0, 0)
 			if g.party.Members[0].BonusRegenPct != 2 {
 				t.Fatal("draught expiry removed troll regeneration")

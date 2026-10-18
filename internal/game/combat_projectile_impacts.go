@@ -651,17 +651,20 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 	if budget != nil {
 		budget.hits[monster]++
 	}
-	// The sear belongs to this victim; the splash keeps the source attack.
-	primary := attack
+	// The landed hit carries the riders; a boss's sear joins its damage only;
+	// the splash keeps the source attack.
+	landed := attack
+	landed.PrimaryHit = true
+	primary := landed
 	if outcome == disintegrateSear {
-		primary = cs.searDisintegrated(monster, attack)
+		primary = cs.searDisintegrated(monster, landed)
 	}
 	hit := cs.applyPartyMonsterAttack(monster, primary)
 	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, hit.SourceNormal)
 	cs.markMonsterHit(monster)
 	cs.reportProjectileHit(monster, weaponName, damageTypeStr, hit)
 	shot, _ := projectile.(*Arrow)
-	executed := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, shot, func() {
+	executed := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, landed, shot, func() {
 		cs.applyAdvancedSpellImpact(spellShot, monster)
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {

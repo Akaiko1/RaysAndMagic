@@ -52,18 +52,20 @@ item_sets:
     pieces_required: 5
     bonus_speed: 8
     bonus_luck: 4
+    fight_opener_actions: 1   # quick draw: the scout acts first when a fight starts
 
   chainwork:
     name: "Chainwork Regalia"
     pieces_required: 5
-    bonus_accuracy: 6
+    bonus_personality: 6
     bonus_endurance: 5
+    heal_follow_up_spell: true  # pendulum: a heal swings back as a free offensive spell
 
   clockplate:
     name: "Clockplate Bulwark"
     pieces_required: 5
     bonus_might: 6
-    stun_duration_pct: -50
+    stationary_damage_reduction_pct: 20  # locked gears: holding ground hardens the plate
 
   # Drakeforged pair (Scalewright tier): shield + gauntlets answer in fire.
   drakeforged:
@@ -2736,7 +2738,7 @@ items:
     equip_slot: "helmet"
     armor_class_base: 4
     endurance_scaling_divisor: 7
-    bonus_accuracy: 2
+    bonus_personality: 2
     rarity: "rare"
     value: 2800
 
@@ -2750,7 +2752,7 @@ items:
     equip_slot: "armor"
     armor_class_base: 8
     endurance_scaling_divisor: 7
-    bonus_accuracy: 3
+    bonus_personality: 3
     rarity: "rare"
     value: 4200
 
@@ -2779,7 +2781,7 @@ items:
     armor_class_base: 3
     endurance_scaling_divisor: 7
     bonus_might: 2
-    bonus_accuracy: 2
+    bonus_personality: 2
     rarity: "rare"
     value: 3000
 
@@ -2875,6 +2877,7 @@ items:
     equip_slot: "cloak"
     armor_class_base: 4
     personality_scaling_divisor: 5
+    rewind_cooldown_seconds: 9   # rewind: a round of wounds undone, once per three rounds
     rarity: "rare"
     value: 3400
 

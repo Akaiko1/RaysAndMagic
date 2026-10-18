@@ -205,10 +205,10 @@ func TestPointerAdaptiveTrapKeepsTarget(t *testing.T) {
 			g.world.Monsters = append(g.world.Monsters, front)
 			fp.press()
 			tick()
-			if target.RootFramesRemaining == 0 && target.RootTurnsRemaining == 0 {
+			if !target.Root.Active() {
 				t.Fatal("adaptive trap did not land on selected diagonal")
 			}
-			if front.RootFramesRemaining > 0 || front.RootTurnsRemaining > 0 || len(g.slashEffects) > 0 || ch.SpellPoints >= 100 {
+			if front.Root.Active() || len(g.slashEffects) > 0 || ch.SpellPoints >= 100 {
 				t.Fatal("trap priority, target, or cost changed")
 			}
 		})

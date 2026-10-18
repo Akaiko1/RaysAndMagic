@@ -103,18 +103,18 @@ func TestPhaseShiftCrossesGapsOnlyWhenWalkingFails(t *testing.T) {
 		{name: "open_floor_walks", key: "solstice_cinder_hound", monsterX: 12, walks: true},
 		{name: "ranged_shoots_across", barrier: "solstice_gap", rows: full, key: "solstice_ember_elemental", monsterX: 16, partyX: 21},
 		{name: "cooldown_spent", barrier: "solstice_gap", rows: full, key: "solstice_cinder_hound", monsterX: 12, holds: true, prep: func(g *MMGame, m *monster.Monster3D) {
-			m.PhaseShiftCDFrames, m.PhaseShiftCDTurns = 1_000_000, 1_000
+			m.PhaseShiftCD.Frames, m.PhaseShiftCD.Turns = 1_000_000, 1_000
 		}},
 		// The rest of the cooldown counts as walking: a long wait loses to the
 		// detour, a short one still beats it.
 		{name: "long_detour_long_wait_walks", barrier: "solstice_gap", rows: [2]int{14, 26}, key: "solstice_cinder_hound", monsterX: 12, walks: true, prep: func(g *MMGame, m *monster.Monster3D) {
-			m.PhaseShiftCDFrames, m.PhaseShiftCDTurns = 1_000_000, 1_000
+			m.PhaseShiftCD.Frames, m.PhaseShiftCD.Turns = 1_000_000, 1_000
 		}},
 		{name: "long_detour_short_wait_blinks", barrier: "solstice_gap", rows: [2]int{14, 26}, key: "solstice_cinder_hound", monsterX: 12, blink: true, prep: func(g *MMGame, m *monster.Monster3D) {
-			m.PhaseShiftCDFrames, m.PhaseShiftCDTurns = g.config.GetTPS(), 1
+			m.PhaseShiftCD.Frames, m.PhaseShiftCD.Turns = g.config.GetTPS(), 1
 		}},
 		{name: "rooted", barrier: "solstice_gap", rows: full, key: "solstice_cinder_hound", monsterX: 14, prep: func(g *MMGame, m *monster.Monster3D) {
-			m.RootFramesRemaining, m.RootTurnsRemaining = 1_000_000, 1_000
+			m.Root.Frames, m.Root.Turns = 1_000_000, 1_000
 		}},
 		{name: "calm", barrier: "solstice_gap", rows: full, key: "solstice_cinder_hound", monsterX: 12, prep: func(g *MMGame, m *monster.Monster3D) {
 			m.IsEngagingPlayer, m.WasAttacked = false, false
@@ -137,7 +137,7 @@ func TestPhaseShiftCrossesGapsOnlyWhenWalkingFails(t *testing.T) {
 					t.Fatalf("blinked=%v logged=%v, want %v (monster at tile %d)", blinked, phaseShiftLogged(game), tc.blink, TileIndex(m.X, ts))
 				}
 				if !tc.blink {
-					if m.PhaseShiftCDFrames < 0 || tc.prep == nil && (m.PhaseShiftCDFrames != 0 || m.PhaseShiftCDTurns != 0) {
+					if m.PhaseShiftCD.Frames < 0 || tc.prep == nil && (m.PhaseShiftCD.Frames != 0 || m.PhaseShiftCD.Turns != 0) {
 						t.Fatal("a monster that never blinked armed the cooldown")
 					}
 					if tc.walks && TileIndex(m.X, ts) <= phaseTestGapX1 {
@@ -148,7 +148,7 @@ func TestPhaseShiftCrossesGapsOnlyWhenWalkingFails(t *testing.T) {
 					}
 					// This driver runs no projectile or telegraph clock, so a bolt in
 					// flight or a warned strike counts as the attack.
-					attacked := partyHPSum(game) < hp || len(game.magicProjectiles) > 0 || m.Telegraph.Warning > 0 || m.Telegraph.Released
+					attacked := partyHPSum(game) < hp || len(game.magicProjectiles) > 0 || m.Telegraph.Warning.Active() || m.Telegraph.Released
 					if tc.name == "ranged_shoots_across" && !attacked {
 						t.Fatal("a ranged monster in range must attack across the gap instead of blinking")
 					}
@@ -157,8 +157,8 @@ func TestPhaseShiftCrossesGapsOnlyWhenWalkingFails(t *testing.T) {
 				if landing-phaseTestGapX1 > m.Abilities.PhaseShift.RangeTiles || landing >= partyX {
 					t.Fatalf("landed on tile %d: past the reach or onto the party", landing)
 				}
-				if m.PhaseShiftCDFrames <= 0 || m.PhaseShiftCDTurns <= 0 {
-					t.Fatalf("blink did not arm both cooldown clocks: %d frames / %d turns", m.PhaseShiftCDFrames, m.PhaseShiftCDTurns)
+				if m.PhaseShiftCD.Frames <= 0 || m.PhaseShiftCD.Turns <= 0 {
+					t.Fatalf("blink did not arm both cooldown clocks: %d frames / %d turns", m.PhaseShiftCD.Frames, m.PhaseShiftCD.Turns)
 				}
 			})
 		}
@@ -234,7 +234,7 @@ func TestPhaseShiftCrossesEveryChamberJumpLink(t *testing.T) {
 							} else {
 								// The real frame's telegraph clock: a chamber mob may
 								// strike across the gap first, then blink.
-								g.tickMonsterTelegraphs(1/float64(g.config.GetTPS()), false)
+								g.tickMonsterTelegraphs(false)
 								stepMonstersRT(g, gl)
 								g.combat.HandleMonsterInteractions()
 							}
@@ -290,20 +290,20 @@ func TestPhaseShiftOverlayShowsTheLanding(t *testing.T) {
 		cooldown int
 		shown    bool
 	}{{0, true}, {2, false}} {
-		m.PhaseShiftCDTurns = tc.cooldown
+		m.PhaseShiftCD.Turns = tc.cooldown
 		game.combatAuraMovement(c, m, game.combatAuraMoveSteps(m), ts)
 		if c.tiles[landing] != tc.shown {
 			t.Errorf("cooldown %d turns: landing shown=%v want %v", tc.cooldown, c.tiles[landing], tc.shown)
 		}
 	}
-	m.PhaseShiftCDTurns = 0
+	m.PhaseShiftCD.Turns = 0
 	ready := game.combatAuraStateKey(px, py, 10, ts)
-	m.PhaseShiftCDTurns = 2
+	m.PhaseShiftCD.Turns = 2
 	if game.combatAuraStateKey(px, py, 10, ts) == ready {
 		t.Error("the overlay cache key ignores the Phase Shift cooldown")
 	}
 	// One tile short of the launch: the blink needs a pass after the walk.
-	m.PhaseShiftCDTurns = 0
+	m.PhaseShiftCD.Turns = 0
 	m.X, m.Y = TileCenterFromTile(plan.Launch.X-1, plan.Launch.Y, ts)
 	game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 	game.currentTurn = 1
@@ -395,7 +395,7 @@ func TestPhaseShiftWalkersWaitingTogetherFanOut(t *testing.T) {
 	game.world.Monsters = append(game.world.Monsters, b)
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	for _, m := range game.world.Monsters { // waiting, so neither blinks yet
-		m.PhaseShiftCDFrames, m.PhaseShiftCDTurns = 1_000_000, 1_000
+		m.PhaseShiftCD.Frames, m.PhaseShiftCD.Turns = 1_000_000, 1_000
 	}
 	for i := 0; i < 3; i++ {
 		stepMonstersRT(game, gl)
@@ -479,7 +479,7 @@ func TestPhaseShiftTBWaitCountsTheRoundsPasses(t *testing.T) {
 	for _, tc := range []struct{ cooldown, passesLeft, perRound, actions int }{
 		{0, 2, 1, 0}, {1, 2, 1, 2}, {2, 2, 1, 3}, {3, 1, 2, 5},
 	} {
-		m.PhaseShiftCDTurns = tc.cooldown
+		m.PhaseShiftCD.Turns = tc.cooldown
 		if got, want := m.PhaseShiftWaitTiles(true, tc.passesLeft, tc.perRound), m.PeekTurnBasedSteps(tc.actions); got != want {
 			t.Errorf("cooldown %d, %d passes left, %d a round: wait %d tiles, want %d (%d actions)", tc.cooldown, tc.passesLeft, tc.perRound, got, want, tc.actions)
 		}

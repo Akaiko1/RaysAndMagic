@@ -112,7 +112,7 @@ func (ui *UISystem) drawPersonalSpellEffects(screen *ebiten.Image, c *character.
 		if !ui.modalLayerOwnsInput() && isMouseHoveringBox(mx, my, box.x, box.y, box.right(), box.bottom()) {
 			lines := []string{label, detail}
 			if charges > 0 {
-				lines = append(lines, uitext.Text("advanced.charges", charges))
+				lines = append(lines, pluralizeCount(charges, uitext.Text("advanced.charge"), uitext.Text("advanced.charges")))
 			}
 			ui.queueTooltip(lines, mx+12, my+8)
 		}
@@ -120,20 +120,27 @@ func (ui *UISystem) drawPersonalSpellEffects(screen *ebiten.Image, c *character.
 	if n := c.FlowingStaffCharges(); n > 0 {
 		draw("", drawFlowingStaffCharge, character.SkillFlowingStaff.String(), uitext.Text("advanced.flowing_staff_effect", character.FlowingStaffPct(c.SkillTier(character.SkillFlowingStaff))), n, color.RGBA{86, 238, 209, 255})
 	}
-	// One Solar Flare badge counts both hands: with Flowing Staff and the
+	// One weapon-charge badge counts both hands: with Flowing Staff and the
 	// three personal enchantments that is five rows, the portrait's height.
-	var flare *config.WeaponDefinitionConfig
-	flares := 0
+	var charged *config.WeaponDefinitionConfig
+	stored := 0
 	for i, def := range equippedWeaponDefinitions(c) {
-		if n := c.Equipment[equippedWeaponSlots[i]].Signature.Charges; n > 0 && def.HasSignature(config.SignatureSolarFlare) {
-			flares += n
-			if flare == nil {
-				flare = def
-			}
+		n := c.Equipment[equippedWeaponSlots[i]].Signature.Charges
+		if n <= 0 || !def.StoresCharges() || charged != nil && def.Signature.Kind != charged.Signature.Kind {
+			continue
+		}
+		stored += n
+		if charged == nil {
+			charged = def
 		}
 	}
-	if flare != nil {
-		draw("", drawSolarFlareCharge, flare.Name, flare.Signature.FlareLine(), flares, SchoolColor(flare.Signature.School))
+	switch {
+	case charged.HasSignature(config.SignatureSolarFlare):
+		draw("", drawSolarFlareCharge, charged.Name, charged.Signature.FlareLine(), stored, SchoolColor(charged.Signature.School))
+	case charged.HasSignature(config.SignatureSkirmish):
+		draw("", drawSkirmishCharge, charged.Name, uitext.Text("weapon.skirmish_ready"), stored, combatMessageGold)
+	case charged.HasSignature(config.SignatureWindUp):
+		draw("", drawWindUpCharge, charged.Name, uitext.Text("weapon.wind_up_ready"), stored, compassRGB(clockBrass, 255))
 	}
 	for _, e := range c.SpellState.Effects {
 		d, ok := config.GetSpellDefinition(e.SpellID)
@@ -141,8 +148,8 @@ func (ui *UISystem) drawPersonalSpellEffects(screen *ebiten.Image, c *character.
 			continue
 		}
 		detail := d.Mechanic.SummaryText(e.Tier, d.DurationByMastery)
-		if e.Frames > 0 {
-			detail += " | " + uitext.Text("buff.remaining", ui.game.buffRemainingText(e.Frames))
+		if e.Clock.Active() {
+			detail += " | " + uitext.Text("buff.remaining", ui.game.buffRemainingText(e.Clock.Frames))
 		}
 		// The authored targeting glyph is deliberately readable without a book
 		// frame at this scale; reuse it instead of shrinking a detailed square.

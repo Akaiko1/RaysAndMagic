@@ -86,7 +86,7 @@ func TestOverwatchRequiresHostileDelivery(t *testing.T) {
 						t.Fatal("offensive spell control did not deliver a fireball")
 					}
 				}
-				if kind == "buff" && m.SoakFrames == 0 {
+				if kind == "buff" && m.Soak.Frames == 0 {
 					t.Fatal("buff control did not execute")
 				}
 				if kind == "mixed" || kind == "dual mixed" {

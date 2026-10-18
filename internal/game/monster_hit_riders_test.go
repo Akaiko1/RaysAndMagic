@@ -37,7 +37,7 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 		{"stun", func(_ *CombatSystem, a *monsterPkg.Monster3D) {
 			a.Abilities.Stun.Chance, a.Abilities.Stun.Seconds = 1, 6
 		},
-			func(m *monsterPkg.Monster3D) bool { return m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0 },
+			func(m *monsterPkg.Monster3D) bool { return m.Stun.Active() },
 			func(c *character.MMCharacter) bool { return c.IsStunned() }, []string{"is stunned!"}},
 		{"champion weapon stun", func(cs *CombatSystem, a *monsterPkg.Monster3D) {
 			mace, ok := config.GetWeaponDefinition("steel_mace")
@@ -48,7 +48,7 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 			sure.StunChance = 1
 			cs.applyChampionHandRiders(a, character.CreateCharacter("Gwen", character.ClassArmsMaster, cs.game.config), &sure)
 		},
-			func(m *monsterPkg.Monster3D) bool { return m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0 },
+			func(m *monsterPkg.Monster3D) bool { return m.Stun.Active() },
 			func(c *character.MMCharacter) bool { return c.IsStunned() }, []string{"is stunned!"}},
 	}
 	type side struct {
@@ -144,7 +144,7 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 		cs := newTestCombatSystemWithConfig(t)
 		g := cs.game
 		// A Might-only buff: no luck, so the struck hero cannot dodge the hit.
-		g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 600, Bonuses: character.StatBonusesFromMap(map[string]int{"might": 5})})
+		g.addStatBuff(TimedStatBuff{SpellID: "bless", Clock: framesClock(600), Bonuses: character.StatBonusesFromMap(map[string]int{"might": 5})})
 		attacker := foe()
 		attacker.Abilities.Dispel.Chance = 1
 		cs.strikeMonsterPacketFor(attacker, ally(), singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)

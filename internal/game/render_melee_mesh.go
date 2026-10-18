@@ -237,8 +237,6 @@ func buildMeleeWeaponMesh(body meleeBody) []modelFace {
 		}
 	case body == bodyChimeMaul:
 		contact = [3]float64{-.5, .98, 0}
-	case body == bodyEscapementMace:
-		contact = [3]float64{-.55, .64, 0}
 	}
 	for i := range m.faces {
 		f := &m.faces[i]
@@ -877,26 +875,22 @@ func (m *weaponMeshBuilder) clock(body meleeBody) {
 		}
 	} else {
 		m.grip(-3.0, -.8, 0, .09, meshWood, meshGold)
-		if body == bodyEscapementMace {
-			m.gear([3]float64{-.55, 0, 0}, .56, .12)
-		} else {
-			m.box([3]float64{-.5, 0, 0}, [3]float64{.33, .67, .28}, .09, meshGold, meshMetal)
-			for _, sg := range []float64{-1, 1} {
-				m.rod([3]float64{-.5, sg * .55, 0}, [3]float64{-.5, sg * .98, 0}, .31, 0, meshGold, meshMetal)
-			}
-			for _, sg := range []float64{-1, 1} {
-				z := sg * .31
-				m.rod([3]float64{-.5, 0, z}, [3]float64{-.5, 0, z + sg*.04}, .44, .44, meshBone, meshGrip)
-				m.ring([3]float64{-.5, 0, z + sg*.06}, .44, .035, meshGold)
-				for k := 0; k < 12; k++ {
-					a := float64(k) * math.Pi / 6
-					m.rod([3]float64{-.5 + math.Cos(a)*.32, math.Sin(a) * .32, z + sg*.05}, [3]float64{-.5 + math.Cos(a)*.38, math.Sin(a) * .38, z + sg*.05}, .013, .013, meshDark, meshGrip)
-				}
-				m.rod([3]float64{-.5, 0, z + sg*.055}, [3]float64{-.56, -.29, z + sg*.055}, .015, .011, meshDark, meshGrip)
-				m.rod([3]float64{-.5, 0, z + sg*.055}, [3]float64{-.29, .1, z + sg*.055}, .02, .01, meshDark, meshGrip)
-			}
-			m.rod([3]float64{-1.08, .15, 0}, [3]float64{-1.1, .72, 0}, .018, .018, meshGold, meshMetal)
-			m.gem([3]float64{-1.1, .83, 0}, [3]float64{.13, .15, .07}, meshGold)
+		m.box([3]float64{-.5, 0, 0}, [3]float64{.33, .67, .28}, .09, meshGold, meshMetal)
+		for _, sg := range []float64{-1, 1} {
+			m.rod([3]float64{-.5, sg * .55, 0}, [3]float64{-.5, sg * .98, 0}, .31, 0, meshGold, meshMetal)
 		}
+		for _, sg := range []float64{-1, 1} {
+			z := sg * .31
+			m.rod([3]float64{-.5, 0, z}, [3]float64{-.5, 0, z + sg*.04}, .44, .44, meshBone, meshGrip)
+			m.ring([3]float64{-.5, 0, z + sg*.06}, .44, .035, meshGold)
+			for k := 0; k < 12; k++ {
+				a := float64(k) * math.Pi / 6
+				m.rod([3]float64{-.5 + math.Cos(a)*.32, math.Sin(a) * .32, z + sg*.05}, [3]float64{-.5 + math.Cos(a)*.38, math.Sin(a) * .38, z + sg*.05}, .013, .013, meshDark, meshGrip)
+			}
+			m.rod([3]float64{-.5, 0, z + sg*.055}, [3]float64{-.56, -.29, z + sg*.055}, .015, .011, meshDark, meshGrip)
+			m.rod([3]float64{-.5, 0, z + sg*.055}, [3]float64{-.29, .1, z + sg*.055}, .02, .01, meshDark, meshGrip)
+		}
+		m.rod([3]float64{-1.08, .15, 0}, [3]float64{-1.1, .72, 0}, .018, .018, meshGold, meshMetal)
+		m.gem([3]float64{-1.1, .83, 0}, [3]float64{.13, .15, .07}, meshGold)
 	}
 }

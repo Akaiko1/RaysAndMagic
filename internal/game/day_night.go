@@ -19,6 +19,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -225,7 +226,6 @@ func (g *MMGame) refreshCelestialProvidence() {
 		g.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, celestialProvidenceSourceID))
 	}
 	g.celestialBuffSpellID = string(spellID)
-	g.setBuffStatus(string(spellID), frames)
 	g.combat.playSpellBuffFx(spellID)
 	g.AddCombatMessage(fmt.Sprintf("Celestial Providence grants Master-tier %s until the next dawn or dusk.", def.Name))
 }
@@ -366,7 +366,7 @@ func (g *MMGame) dropFlyWithoutOpenSky() {
 		return
 	}
 	g.flyActive = false
-	g.flyDuration = 0
+	g.flyClock = status.DualClock{}
 	if g.world != nil {
 		g.world.SetTerrainPassageActive(g.partyHasTerrainPassage())
 	}

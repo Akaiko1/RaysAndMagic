@@ -65,7 +65,7 @@ func TestFleeOutranksFoeAndBand(t *testing.T) {
 				if tc.summon {
 					summon = monster.NewMonster3DFromConfig(mate.X+tile, mate.Y, "bandit", g.config)
 					summon.ID, summon.Bound = "summon", true
-					summon.StunFramesRemaining = 1 << 20 // only the bandmate acts
+					summon.Stun.Frames = 1 << 20 // only the bandmate acts
 					summonHP = summon.HitPoints
 					g.world.Monsters = append(g.world.Monsters, summon)
 					w, h := summon.GetSize()

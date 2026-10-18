@@ -56,8 +56,8 @@ func TestModeSwitch_BearTrapRootPinsMinotaurAndWeaponMasterInRT(t *testing.T) {
 			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
 			game.combat.fireTrap(&PlacedTrap{Key: "bear_trap", X: m.X, Y: m.Y}, m)
-			if m.RootTurnsRemaining <= 0 || m.RootFramesRemaining <= 0 {
-				t.Fatalf("bear trap must arm both root clocks: turns=%d frames=%d", m.RootTurnsRemaining, m.RootFramesRemaining)
+			if m.Root.Turns <= 0 || m.Root.Frames <= 0 {
+				t.Fatalf("bear trap must arm both root clocks: turns=%d frames=%d", m.Root.Turns, m.Root.Frames)
 			}
 
 			game.ToggleTurnBasedMode() // TB -> RT while the root is still active

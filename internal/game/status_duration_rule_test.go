@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 // Every timed status lasts the same span in both modes: whatever lands it, its
@@ -60,8 +61,8 @@ func TestStatusSourcesLastTheSameSpanInBothModes(t *testing.T) {
 			target := mkTestMonster("Target", 100000)
 			cs.applyMonsterHitRiders(attacker, "", monsterHitTarget{cs, attacker, target}, true)
 			if a.Stun.Chance > 0 {
-				expect(t, cs, key+" stun on a hero", landed{hero.StunFramesRemaining, hero.StunTurnsRemaining}, a.Stun.Seconds)
-				expect(t, cs, key+" stun on a monster", landed{target.StunFramesRemaining, target.StunTurnsRemaining}, a.Stun.Seconds)
+				expect(t, cs, key+" stun on a hero", landed{hero.Stun.Frames, hero.Stun.Turns}, a.Stun.Seconds)
+				expect(t, cs, key+" stun on a monster", landed{target.Stun.Frames, target.Stun.Turns}, a.Stun.Seconds)
 			}
 			if a.MeltArmor.Chance > 0 {
 				expect(t, cs, key+" melt on a hero", landed{hero.ArmorMelt.Frames, hero.ArmorMelt.Turns}, config.ArmorMeltSeconds())
@@ -85,7 +86,7 @@ func TestStatusSourcesLastTheSameSpanInBothModes(t *testing.T) {
 			hero := probeHero(cs)
 			cs.applyMonsterHitRiders(&monsterPkg.Monster3D{ID: key, Name: def.Name}, def.ProjectileSpell, heroHitTarget{cs, hero}, false)
 			config.GlobalSpells.Spells[def.ProjectileSpell] = spell
-			expect(t, cs, key+" "+def.ProjectileSpell+" stun", landed{hero.StunFramesRemaining, hero.StunTurnsRemaining}, spell.StunDurationSeconds)
+			expect(t, cs, key+" "+def.ProjectileSpell+" stun", landed{hero.Stun.Frames, hero.Stun.Turns}, spell.StunDurationSeconds)
 		}
 	})
 
@@ -102,18 +103,18 @@ func TestStatusSourcesLastTheSameSpanInBothModes(t *testing.T) {
 				seconds int
 				got     landed
 			}{
-				{"stun", def.StunSeconds, landed{m.StunFramesRemaining, m.StunTurnsRemaining}},
-				{"root", def.RootSeconds, landed{m.RootFramesRemaining, m.RootTurnsRemaining}},
-				{"armor shred", def.ArmorShredSeconds, landed{m.ArmorShredFramesRemaining, m.ArmorShredTurnsRemaining}},
-				{"slow", def.SlowSeconds, landed{m.SlowFramesRemaining, m.SlowTurnsRemaining}},
-				{"weaken", def.WeakenSeconds, landed{m.WeakenFramesRemaining, m.WeakenTurnsRemaining}},
+				{"stun", def.StunSeconds, landed{m.Stun.Frames, m.Stun.Turns}},
+				{"root", def.RootSeconds, landed{m.Root.Frames, m.Root.Turns}},
+				{"armor shred", def.ArmorShredSeconds, landed{m.ArmorShred.Frames, m.ArmorShred.Turns}},
+				{"slow", def.SlowSeconds, landed{m.Slow.Frames, m.Slow.Turns}},
+				{"weaken", def.WeakenSeconds, landed{m.Weaken.Frames, m.Weaken.Turns}},
 			} {
 				if r.seconds > 0 {
 					expect(t, cs, key+" "+r.what, r.got, r.seconds)
 				}
 			}
-			if def.SlowSeconds > 0 && m.SlowTurnsRemaining%config.SlowSkipEveryTurns() != 0 {
-				t.Errorf("%s slow lasts %d TB turns, not whole steps of %d", key, m.SlowTurnsRemaining, config.SlowSkipEveryTurns())
+			if def.SlowSeconds > 0 && m.Slow.Turns%config.SlowSkipEveryTurns() != 0 {
+				t.Errorf("%s slow lasts %d TB turns, not whole steps of %d", key, m.Slow.Turns, config.SlowSkipEveryTurns())
 			}
 		}
 	})
@@ -133,7 +134,7 @@ func TestStatusSourcesLastTheSameSpanInBothModes(t *testing.T) {
 			} else {
 				cs.applyStun(m, def.StunDurationSeconds, false) // projectile and mortar impacts
 			}
-			expect(t, cs, id+" stun", landed{m.StunFramesRemaining, m.StunTurnsRemaining}, def.StunDurationSeconds)
+			expect(t, cs, id+" stun", landed{m.Stun.Frames, m.Stun.Turns}, def.StunDurationSeconds)
 		}
 	})
 
@@ -151,10 +152,10 @@ func TestStatusSourcesLastTheSameSpanInBothModes(t *testing.T) {
 				cs.fireTrap(&PlacedTrap{Key: key, X: m.X, Y: m.Y, Owner: owner}, m)
 				bonus := character.TrapperRoundBonus(int(tier)) * config.CombatRoundSeconds
 				if def.StunSeconds > 0 {
-					expect(t, cs, key+" stun at "+tier.String(), landed{m.StunFramesRemaining, m.StunTurnsRemaining}, def.StunSeconds+bonus)
+					expect(t, cs, key+" stun at "+tier.String(), landed{m.Stun.Frames, m.Stun.Turns}, def.StunSeconds+bonus)
 				}
 				if def.RootSeconds > 0 {
-					expect(t, cs, key+" root at "+tier.String(), landed{m.RootFramesRemaining, m.RootTurnsRemaining}, def.RootSeconds+bonus)
+					expect(t, cs, key+" root at "+tier.String(), landed{m.Root.Frames, m.Root.Turns}, def.RootSeconds+bonus)
 				}
 			}
 		}
@@ -168,14 +169,14 @@ func TestStatusSourcesLastTheSameSpanInBothModes(t *testing.T) {
 			if a == nil || (a.Kind != "slow" && a.Kind != "root") {
 				continue
 			}
-			g.partyHinder, g.partyRoot = PartyHinderState{}, PartyRootState{}
+			g.partyHinder, g.partyRoot = PartyHinderState{}, status.DualClock{}
 			g.applyTelegraphHinder(a)
 			if a.Kind == "root" {
 				expect(t, cs, key+" root", landed{g.partyRoot.Frames, g.partyRoot.Turns}, a.DurationSeconds)
 				continue
 			}
-			window := g.partyHinder.Window
-			expect(t, cs, key+" slow", landed{config.RoundFrames(window, g.config.GetTPS()), window}, a.DurationSeconds)
+			window := g.partyHinder.Slow.Turns
+			expect(t, cs, key+" slow", landed{g.partyHinder.Slow.Frames, window}, a.DurationSeconds)
 			if window%config.SlowSkipEveryTurns() != 0 {
 				t.Errorf("%s slow lasts %d TB turns, not whole steps of %d", key, window, config.SlowSkipEveryTurns())
 			}

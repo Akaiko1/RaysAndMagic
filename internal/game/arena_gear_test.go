@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -29,8 +30,8 @@ func TestArenaUniqueWeaponData(t *testing.T) {
 		{"trident", "Root Chance:", func(w *config.WeaponDefinitionConfig) bool { return w.RootChance > 0 && w.RootSeconds > 0 }},
 		{"parry_dagger", "Riposte:", func(w *config.WeaponDefinitionConfig) bool { return w.ThornsPct > 0 }},
 		{"lion_warhammer", "of the target's armor", func(w *config.WeaponDefinitionConfig) bool { return w.ArmorPiercePct > 0 }},
-		{"arena_shortbow", "Base weapon cooldown:", func(w *config.WeaponDefinitionConfig) bool {
-			return w.CooldownMultiplier > 0 && w.CooldownMultiplier < 1.2
+		{"arena_shortbow", "Skirmish:", func(w *config.WeaponDefinitionConfig) bool {
+			return w.HasSignature(config.SignatureSkirmish) && w.CooldownMultiplier > 0 && w.CooldownMultiplier < 1.2
 		}},
 		{"arbalest", "Pierces through", func(w *config.WeaponDefinitionConfig) bool { return w.PierceCount > 0 }},
 		{"lanista_scepter", "Personality", func(w *config.WeaponDefinitionConfig) bool { return w.EquipPersonalityMin > 0 }},
@@ -56,6 +57,83 @@ func TestArenaUniqueWeaponData(t *testing.T) {
 	}
 }
 
+// The Skirmisher Recurve stores a charge per tile the party moves, any way,
+// up to one; the charged shot always crits and spends the charge on release,
+// hit or miss, and the next shot rolls as usual. A stunned hero does not
+// charge, and a stored charge survives a save.
+func TestSkirmishChargedShotAlwaysCrits(t *testing.T) {
+	step := func(g *MMGame) { (&InputHandler{game: g}).movePlayer(g.config.GetTileSize(), 0) }
+	for _, tc := range []struct {
+		name    string
+		tb      bool
+		move    func(*MMGame)
+		charged bool
+	}{
+		{"standing", false, func(*MMGame) {}, false},
+		{"one step", false, step, true},
+		{"three steps hold one", false, func(g *MMGame) { step(g); step(g); step(g) }, true},
+		{"pushed a tile", false, func(g *MMGame) {
+			ts := g.config.GetTileSize()
+			g.camera.X += ts
+			g.partyMoved(g.camera.X-ts, g.camera.Y)
+		}, true},
+		{"turn-based step", true, step, true},
+		{"stunned while moving", false, func(g *MMGame) {
+			hero := g.party.Members[0]
+			hero.ApplyCharStun(60, 1)
+			step(g)
+			hero.Stun.Frames, hero.Stun.Turns = 0, 0
+			hero.RemoveCondition(character.ConditionStunned)
+		}, false},
+	} {
+		for _, saved := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/saved=%v", tc.name, saved), func(t *testing.T) {
+				g, ch := rareClassGame(t, character.ClassArcher, tc.tb)
+				g.selectedChar = 0
+				isolateTrueDamageMember(ch, 0)
+				ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("arena_shortbow")
+				def, _ := config.GetWeaponDefinition("arena_shortbow")
+				authored := def.CritChance
+				def.CritChance = 0
+				t.Cleanup(func() { def.CritChance = authored })
+				if chance := g.combat.CalculateWeaponCritChance(ch.Equipment[items.SlotMainHand], ch); chance != 0 {
+					t.Fatalf("fixture: an uncharged shot keeps %d%% crit", chance)
+				}
+				tc.move(g)
+				if saved {
+					ch = restoreCharacterSave(buildCharacterSave(ch))
+					g.party.Members[0] = ch
+				}
+				want := 0
+				if tc.charged {
+					want = 1
+				}
+				if got := ch.Equipment[items.SlotMainHand].Signature.Charges; got != want {
+					t.Fatalf("stored %d charges, want %d", got, want)
+				}
+				// The bow's card counts what the bow holds.
+				card := GetItemTooltipRows(ch.Equipment[items.SlotMainHand], ch, g.combat, true).String()
+				if line := fmt.Sprintf("Skirmish charges ready: %d / 1", want); !strings.Contains(card, line) {
+					t.Fatalf("card lacks %q:\n%s", line, card)
+				}
+				for shot := 0; shot < 2; shot++ {
+					g.arrows = nil
+					g.combat.createArrowAttack(100, items.SlotMainHand, "")
+					if len(g.arrows) != 1 {
+						t.Fatalf("shot %d fired %d arrows", shot, len(g.arrows))
+					}
+					if wantCrit := tc.charged && shot == 0; g.arrows[0].Crit != wantCrit {
+						t.Fatalf("shot %d crit = %v, want %v", shot, g.arrows[0].Crit, wantCrit)
+					}
+					if left := ch.Equipment[items.SlotMainHand].Signature.Charges; left != 0 {
+						t.Fatalf("shot %d left %d charges; the charge goes on release", shot, left)
+					}
+				}
+			})
+		}
+	}
+}
+
 // TestArmorShredAndPierce: the Pit Labrys shred and the warhammer's flat
 // pierce both reduce the armor value combat mitigates against.
 func TestArmorShredAndPierce(t *testing.T) {
@@ -71,19 +149,19 @@ func TestArmorShredAndPierce(t *testing.T) {
 	}
 	// Pure RT expiry clears the inactive TB clock too.
 	for i := 0; i < 100; i++ {
-		m.TickArmorShredFrame()
+		m.TickDebuffs(false)
 	}
 	if got := m.EffectiveArmorClass(); got != 40 {
 		t.Fatalf("pure-RT expired shred AC = %d, want 40", got)
 	}
-	if m.ArmorShredTurnsRemaining != 0 || m.ArmorShredRate != 0 {
-		t.Fatalf("pure-RT expiry left TB clock/rate = %d/%d", m.ArmorShredTurnsRemaining, m.ArmorShredRate)
+	if m.ArmorShred.Turns != 0 || m.ArmorShred.Rate != 0 {
+		t.Fatalf("pure-RT expiry left TB clock/rate = %d/%d", m.ArmorShred.Turns, m.ArmorShred.Rate)
 	}
 
 	// Pure TB and a mixed RT->TB lifetime expire symmetrically.
 	m.ApplyArmorShred(20, 120, 4)
 	for range 4 {
-		m.TickArmorShredTurn()
+		m.TickDebuffs(true)
 	}
 	if got := m.EffectiveArmorClass(); got != 40 {
 		t.Fatalf("pure-TB expired shred AC = %d, want 40", got)
@@ -91,14 +169,14 @@ func TestArmorShredAndPierce(t *testing.T) {
 
 	m.ApplyArmorShred(20, 120, 4)
 	for range 30 {
-		m.TickArmorShredFrame()
+		m.TickDebuffs(false)
 	}
-	if m.ArmorShredFramesRemaining != 90 || m.ArmorShredTurnsRemaining != 3 {
+	if m.ArmorShred.Frames != 90 || m.ArmorShred.Turns != 3 {
 		t.Fatalf("mixed shred after RT = %d frames/%d turns, want 90/3",
-			m.ArmorShredFramesRemaining, m.ArmorShredTurnsRemaining)
+			m.ArmorShred.Frames, m.ArmorShred.Turns)
 	}
 	for range 3 {
-		m.TickArmorShredTurn()
+		m.TickDebuffs(true)
 	}
 	if got := m.EffectiveArmorClass(); got != 40 {
 		t.Fatalf("mixed-mode expired shred AC = %d, want 40", got)
@@ -113,7 +191,7 @@ func TestStunnedBonusMultiplier(t *testing.T) {
 	if got := weaponStunnedBonusMultiplier(gladius, m); got != 1.0 {
 		t.Fatalf("unstunned mult = %v, want 1.0", got)
 	}
-	m.StunFramesRemaining = 10
+	m.Stun.Frames = 10
 	if got := weaponStunnedBonusMultiplier(gladius, m); got != gladius.BonusVsStunned {
 		t.Fatalf("stunned mult = %v, want %v", got, gladius.BonusVsStunned)
 	}
@@ -338,7 +416,7 @@ func TestFlyDropsIndoors(t *testing.T) {
 		MapConfigs:    map[string]*config.MapConfig{"arena": {SkyTexture: "arena_panorama"}},
 		CurrentMapKey: "arena",
 	}
-	game.flyActive, game.flyDuration = true, 999
+	game.flyActive, game.flyClock = true, framesClock(999)
 	game.dropFlyWithoutOpenSky()
 	if !game.flyActive {
 		t.Fatal("Fly must survive on an open-sky map")
@@ -350,8 +428,8 @@ func TestFlyDropsIndoors(t *testing.T) {
 		CurrentMapKey: "church",
 	}
 	game.dropFlyWithoutOpenSky()
-	if game.flyActive || game.flyDuration != 0 {
-		t.Fatalf("Fly must fade indoors (active=%v duration=%d)", game.flyActive, game.flyDuration)
+	if game.flyActive || game.flyClock.Frames != 0 {
+		t.Fatalf("Fly must fade indoors (active=%v duration=%d)", game.flyActive, game.flyClock.Frames)
 	}
 }
 
@@ -385,7 +463,7 @@ func TestStoneBlossomMortar(t *testing.T) {
 	if far.HitPoints >= 500 {
 		t.Fatal("bloom did not damage the landing-zone monster")
 	}
-	if far.StunFramesRemaining <= 0 && far.StunTurnsRemaining <= 0 {
+	if !far.Stun.Active() {
 		t.Fatal("bloom did not stun the landing-zone monster")
 	}
 	if near.HitPoints < 500 {

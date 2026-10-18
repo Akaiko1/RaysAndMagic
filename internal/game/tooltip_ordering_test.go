@@ -79,13 +79,13 @@ func TestTooltipOrderedWeaponResults(t *testing.T) {
 								t.Fatalf("displayed cooldown stages do not add up: %s", card)
 							}
 						}
-						if full && def.TrueDamage > 0 {
-							source := strings.Index(card, fmt.Sprintf("Weapon: +%d True", def.TrueDamage))
+						preview := cs.calculateWeaponDamagePreview(item, ch)
+						if full && def.TrueDamagePct > 0 {
+							source := strings.Index(card, fmt.Sprintf("Weapon: +%d True", preview.AuthoredTrue))
 							if source < strings.Index(card, "Total Damage:") || source > strings.Index(card, "\nCRITICAL\n") {
 								t.Fatalf("authored damage outside breakdown: %s", card)
 							}
 						}
-						preview := cs.calculateWeaponDamagePreview(item, ch)
 						for _, want := range []string{fmt.Sprintf("Total Damage: %d", preview.Total), fmt.Sprintf("Critical Damage: %d", preview.CriticalTotal)} {
 							if !strings.Contains(card, want) {
 								t.Fatal(card)
@@ -223,7 +223,7 @@ func TestTooltipItemContributionAndRecovery(t *testing.T) {
 func TestTooltipSpellComparisonDamageUnits(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	ch := gmReferenceChar(cs.game.config)
-	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Frames: 600, OutBonus: 7, OutDamageType: "all"}}
+	cs.game.combatBuffs = []TimedCombatBuff{{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"}}
 	types := []struct {
 		id    spells.SpellID
 		label string

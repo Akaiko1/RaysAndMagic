@@ -23,7 +23,7 @@ func TestFlyEjectFromWall(t *testing.T) {
 	placePlayerAtTile(game, 5, 5, ts)
 
 	// Fly ends at the next resolved TB round, not while the player thinks.
-	game.flyActive, game.flyDuration = true, 1
+	game.flyActive, game.flyClock = true, framesClock(1)
 	game.startPartyTurn()
 
 	if game.flyActive {

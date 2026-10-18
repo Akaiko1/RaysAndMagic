@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"time"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 
@@ -51,8 +50,7 @@ func NewWorldManager(cfg *config.Config) *WorldManager {
 		TransitionInProgress: false,
 		config:               cfg,
 		GlobalTeleporterRegistry: &TeleporterRegistry{
-			Teleporters:     make([]TeleporterLocation, 0),
-			LastUsedByGroup: make(map[string]time.Time),
+			Teleporters: make([]TeleporterLocation, 0),
 		},
 	}
 }
@@ -227,8 +225,7 @@ func (wm *WorldManager) Reset() error {
 	// Clear loaded maps and teleporter registry
 	wm.LoadedMaps = make(map[string]*World3D)
 	wm.GlobalTeleporterRegistry = &TeleporterRegistry{
-		Teleporters:     make([]TeleporterLocation, 0),
-		LastUsedByGroup: make(map[string]time.Time),
+		Teleporters: make([]TeleporterLocation, 0),
 	}
 	// The unified world rebuilds with the maps (LoadAllMaps -> buildOpenWorld).
 	wm.OpenWorld = nil

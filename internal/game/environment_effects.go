@@ -13,6 +13,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/world"
 )
 
@@ -122,7 +123,7 @@ func (g *MMGame) effectEnabled(a *config.AdventureConfig, v *AdventureVisit, e c
 	}
 	if e.TriggerLane != "" {
 		lane := v.Effects[e.TriggerLane]
-		if lane == nil || (lane.Warning <= 0 && lane.Remaining <= 0) {
+		if lane == nil || (!lane.Warning.Active() && !lane.Remaining.Active()) {
 			return false
 		}
 	}
@@ -170,46 +171,42 @@ func (g *MMGame) damageEnvironment(e config.EnvironmentEffect, ticks int) {
 	})
 }
 
-// Durations are fractions of an authored RT or TB budget. Switching modes
-// preserves the spent fraction rather than granting a fresh warning or action.
-func advanceEnvironmentBudget(value, seconds float64, rounds int, dt float64, tb bool) float64 {
-	if value <= 0 {
-		return 0
+// tickSeconds is the game time one tick of the running mode stands for.
+func tickSeconds(turn bool, tps int) float64 {
+	if turn {
+		return config.CombatRoundSeconds
 	}
-	step := 0.0
-	if tb {
-		if rounds > 0 {
-			step = 1 / float64(rounds)
-		}
-	} else if seconds > 0 {
-		step = dt / seconds
-	}
-	return max(0, value-step)
+	return 1 / float64(max(1, tps))
 }
-func (g *MMGame) tickEnvironment(dt float64, tb bool) {
+
+// tickEnvironment advances chamber hazards and monster fields by one tick of
+// the running mode: an RT frame, or a TB round.
+func (g *MMGame) tickEnvironment(turn bool) {
 	key := currentMapKey()
 	a := g.adventureConfig(key)
 	if g.world == nil {
 		return
 	}
+	tps := g.config.GetTPS()
+	dt := tickSeconds(turn, tps)
 	if a == nil {
-		g.damageEnvironmentExposures(g.adventureVisit(key), g.monsterFieldExposures(dt))
+		g.damageEnvironmentExposures(g.adventureVisit(key), g.monsterFieldExposures(turn))
 		return
 	}
 	v := g.adventureVisit(key)
 	tx, ty := g.GetPlayerTilePosition()
-	continuous := g.monsterFieldExposures(dt)
+	continuous := g.monsterFieldExposures(turn)
 	releaseTransfers := false
 	lo, hi := adventureBossAttack(g.config.AdventureScaling, a, v)
 	for _, e := range a.Effects {
 		e = effectDamage(e, lo, hi)
 		s := v.effectState(e.ID)
 		inside := e.Contains(tx, ty)
-		s.Rearm = advanceEnvironmentBudget(s.Rearm, e.RearmSeconds, e.RearmRounds, dt, tb)
+		s.Rearm.Tick(turn)
 		if !inside {
 			s.WasInside = false
 			s.Suppressed = false
-			if s.Rearm == 0 {
+			if !s.Rearm.Active() {
 				s.Triggered = false
 			}
 		}
@@ -218,21 +215,21 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 		}
 		if e.BossBelowPercent > 0 && !s.Activated {
 			s.Activated = true
-			s.Warning = 1
+			s.Warning = status.PairClock(e.WarningSeconds, e.WarningRounds, tps, 1)
 			g.AddCombatMessage(e.Name + " is charging. Leave the marked tiles!")
 			continue
 		}
-		if e.Kind != "lane" && s.Warning > 0 {
-			s.Warning = advanceEnvironmentBudget(s.Warning, e.WarningSeconds, e.WarningRounds, dt, tb)
-			releaseTransfers = releaseTransfers || (e.Kind == "transfer" && s.Warning == 0)
+		if e.Kind != "lane" && s.Warning.Active() {
+			s.Warning.Tick(turn)
+			releaseTransfers = releaseTransfers || (e.Kind == "transfer" && !s.Warning.Active())
 			continue
 		}
 		if e.Kind == "lane" {
-			if s.Warning > 0 {
-				s.Warning = advanceEnvironmentBudget(s.Warning, e.WarningSeconds, e.WarningRounds, dt, tb)
-				if s.Warning == 0 {
+			if s.Warning.Active() {
+				if s.Warning.Tick(turn); !s.Warning.Active() {
 					releaseTransfers = true
-					s.Remaining = 1
+					s.Remaining = status.DualClock{}
+					s.Remaining.Arm(e.DurationSeconds, tps)
 					s.Carry = 0
 					if inside {
 						g.damageEnvironment(e, 1)
@@ -242,13 +239,12 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 				continue
 			}
 			// Whole rounds: the field spans the same seconds in both modes.
-			span := float64(e.DurationSeconds)
-			if s.Remaining > 0 && inside && e.SustainDamage > 0 {
+			if s.Remaining.Active() && inside && e.SustainDamage > 0 {
 				field := e
 				field.Damage = e.SustainDamage
-				continuous = append(continuous, environmentExposure{effect: field, seconds: min(dt, s.Remaining*span)})
+				continuous = append(continuous, environmentExposure{effect: field, seconds: min(dt, float64(s.Remaining.Frames)/float64(tps))})
 			}
-			s.Remaining = advanceEnvironmentBudget(s.Remaining, span, config.CombatRounds(e.DurationSeconds), dt, tb)
+			s.Remaining.Tick(turn)
 			continue
 		}
 		if e.Kind == "occupation" && inside {
@@ -275,8 +271,7 @@ func (g *MMGame) tickEnvironment(dt float64, tb bool) {
 			return
 		}
 		// Every round (its seconds in RT) the boss heals toward its ceiling.
-		v.HealCarry += dt
-		for round := float64(config.CombatRoundSeconds); v.HealCarry >= round; v.HealCarry -= round {
+		if v.HealClock.Every(config.CombatRoundSeconds, tps, turn) {
 			ceiling := m.MaxHitPoints * b.HealCeilingPercent / 100
 			if heal := min(max(1, m.MaxHitPoints*b.HealPercent/100), ceiling-m.HitPoints); heal > 0 {
 				m.HitPoints += heal
@@ -370,7 +365,7 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 			if !inside {
 				s.WasInside = false
 				s.Suppressed = false
-				if s.Rearm == 0 {
+				if !s.Rearm.Active() {
 					s.Triggered = false
 				}
 				continue
@@ -380,12 +375,12 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 			if !g.effectEnabled(a, v, e) {
 				continue
 			}
-			if e.BossBelowPercent > 0 && (!s.Activated || s.Warning > 0) {
+			if e.BossBelowPercent > 0 && (!s.Activated || s.Warning.Active()) {
 				continue
 			}
-			if charge && e.Kind == "trap" && !wasInside && !s.Triggered && s.Rearm <= 0 {
+			if charge && e.Kind == "trap" && !wasInside && !s.Triggered && !s.Rearm.Active() {
 				s.Triggered = true
-				s.Rearm = 1
+				s.Rearm = status.PairClock(e.RearmSeconds, e.RearmRounds, g.config.GetTPS(), 1)
 				g.damageEnvironment(e, 1)
 			}
 			// A current never chains: one under the receiving tile sleeps until
@@ -400,7 +395,7 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 			}
 			if e.TriggerLane != "" {
 				lane := v.Effects[e.TriggerLane]
-				if lane == nil || lane.Warning > 0 || lane.Remaining <= 0 {
+				if lane == nil || lane.Warning.Active() || !lane.Remaining.Active() {
 					continue
 				}
 			}
@@ -569,13 +564,13 @@ func (g *MMGame) announceAdventureBossLanes(m *monster.Monster3D, a *config.Adve
 			return
 		}
 		s := v.effectState(id)
-		if s.Warning > 0 || s.Remaining > 0 {
+		if s.Warning.Active() || s.Remaining.Active() {
 			return
 		}
 	}
 	for _, id := range pattern {
 		e := a.Effect(id)
-		v.effectState(id).Warning = 1
+		v.effectState(id).Warning = status.PairClock(e.WarningSeconds, e.WarningRounds, g.config.GetTPS(), 1)
 		g.AddCombatMessage(fmt.Sprintf("%s announces %s (%s): tiles %d,%d to %d,%d. Leave the marked lane!", m.Name, e.Name, e.School, e.Rect[0], e.Rect[1], e.Rect[2], e.Rect[3]))
 	}
 }
@@ -684,7 +679,7 @@ func (g *MMGame) damageEnvironmentExposures(v *AdventureVisit, exposures []envir
 			remaining := end - start
 			for remaining > 1e-9 {
 				step := min(remaining, 1-state.Carry)
-				state.Carry += step
+				pulse := status.Accrue(&state.Carry, step, 1) > 0
 				contribution := step * float64(strongest.effect.Damage)
 				if strongest.source == nil {
 					state.DamageCarry += contribution
@@ -695,14 +690,11 @@ func (g *MMGame) damageEnvironmentExposures(v *AdventureVisit, exposures []envir
 					state.SourceDamageCarry[strongest.source.ID] += contribution
 				}
 				remaining -= step
-				if state.Carry >= 1-1e-9 {
-					damage := int(math.Floor(state.DamageCarry + 1e-9))
-					state.Carry = 0
-					state.DamageCarry -= float64(damage)
-					pulse := strongest.effect
-					pulse.Damage = damage
-					g.damageEnvironment(pulse, 1)
-					g.damageMonsterFieldContributions(state, pulse.School)
+				if pulse {
+					hit := strongest.effect
+					hit.Damage = status.Accrue(&state.DamageCarry, 0, 1)
+					g.damageEnvironment(hit, 1)
+					g.damageMonsterFieldContributions(state, hit.School)
 				}
 			}
 			start = end
@@ -721,9 +713,9 @@ func (g *MMGame) damageMonsterFieldContributions(state *EnvironmentState, school
 	sort.Strings(ids)
 	for _, id := range ids {
 		carry := state.SourceDamageCarry[id]
-		damage := int(math.Floor(carry + 1e-9))
-		state.SourceDamageCarry[id] = max(0, carry-float64(damage))
-		if state.SourceDamageCarry[id] == 0 {
+		damage := status.Accrue(&carry, 0, 1)
+		state.SourceDamageCarry[id] = carry
+		if carry == 0 {
 			delete(state.SourceDamageCarry, id)
 		}
 		if damage <= 0 {

@@ -100,7 +100,7 @@ func TestAIRegressionStunnedFlockMemberHoldsPosition(t *testing.T) {
 		wr.(*MonsterWrapper).ApplyCollisionUpdate()
 	}
 	gl.updateMonsterBands()
-	if follower.StunFramesRemaining <= 0 {
+	if follower.Stun.Frames <= 0 {
 		t.Fatal("stun should remain active")
 	}
 	if follower.X != x || follower.Y != y {
@@ -128,8 +128,8 @@ func TestAIRegressionChampionOpenerWhenFightingSummon(t *testing.T) {
 			foe.Bound = true
 			foe.HitPoints = 100000
 			foe.MaxHitPoints = 100000
-			foe.StunTurnsRemaining = 10
-			foe.StunFramesRemaining = 10 * g.config.GetTPS()
+			foe.Stun.Turns = 10
+			foe.Stun.Frames = 10 * g.config.GetTPS()
 			g.world.Monsters = []*monster.Monster3D{m, foe}
 			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 			g.refreshMonsterAIState()
@@ -144,8 +144,8 @@ func TestAIRegressionChampionOpenerWhenFightingSummon(t *testing.T) {
 				gl.reconcileMonsterAttackPosts()
 				g.combat.HandleMonsterInteractions()
 			}
-			if !m.OpeningSpellDone || m.SoakFrames <= 0 {
-				t.Fatalf("champion skipped guaranteed Stone Skin opener against summon; opener=%v soak=%d projectiles=%d/%d", m.OpeningSpellDone, m.SoakFrames, len(g.magicProjectiles), len(g.arrows))
+			if !m.OpeningSpellDone || m.Soak.Frames <= 0 {
+				t.Fatalf("champion skipped guaranteed Stone Skin opener against summon; opener=%v soak=%d projectiles=%d/%d", m.OpeningSpellDone, m.Soak.Frames, len(g.magicProjectiles), len(g.arrows))
 			}
 		})
 	}
@@ -169,8 +169,8 @@ func TestAIRegressionHealerKeepsSpecialAgainstSummon(t *testing.T) {
 						placePlayerAtTile(g, 30, 30, tile)
 						foe := monster.NewMonster3DFromConfig((10.5+float64(distance))*tile, 10.5*tile, "skeleton", g.config)
 						foe.Bound = true
-						foe.StunTurnsRemaining = 10
-						foe.StunFramesRemaining = 10 * g.config.GetTPS()
+						foe.Stun.Turns = 10
+						foe.Stun.Frames = 10 * g.config.GetTPS()
 						g.world.Monsters = append(g.world.Monsters, foe)
 					}
 					g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)

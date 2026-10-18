@@ -189,14 +189,14 @@ func TestBalanceArenaStartsClean(t *testing.T) {
 	g.traps = append(g.traps, PlacedTrap{Key: "probe"})
 	g.persistentDamageZones = append(g.persistentDamageZones, PersistentDamageZone{SpellID: "probe"})
 	for _, b := range g.timedBuffs() {
-		*b.active, *b.duration = true, 99
+		*b.active, *b.clock = true, framesClock(99)
 	}
 	g.currentTurn, g.partyActionsUsed, g.partyPenaltyFreeActionsUsed, g.monsterTurnResolved = 1, 3, 1, true
 	g.actionInputStagger, g.viewTurnFramesLeft = 30, 10
 
 	a.reset()
 	for _, b := range g.timedBuffs() {
-		if *b.active || *b.duration != 0 {
+		if *b.active || b.clock.Active() {
 			t.Errorf("a timed buff survived the reset")
 			break
 		}

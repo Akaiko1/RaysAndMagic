@@ -241,7 +241,7 @@ func TestCaravanRangedLaunchWarnsBeforeImpactAndCancelsRest(t *testing.T) {
 			g.world.Monsters = append(g.world.Monsters, source)
 			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 			g.turnBasedMode = turn
-			g.ecology.StopFrames = 15 * g.config.GetTPS()
+			g.armCaravanStop()
 			hp := target.HitPoints
 			cadence := monsterAttackRealtime
 			if turn {
@@ -254,7 +254,7 @@ func TestCaravanRangedLaunchWarnsBeforeImpactAndCancelsRest(t *testing.T) {
 				t.Fatal("expected projectile still in flight")
 			}
 			assertCaravanAlerts(t, g, 1)
-			if g.ecology.StopFrames != 0 {
+			if g.ecology.Stop.Active() {
 				t.Fatal("caravan waits under attack")
 			}
 			g.setCaravanTarget(target)

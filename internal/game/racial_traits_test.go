@@ -393,7 +393,7 @@ func TestWeaponDeathBurstPreservesRacialAttacker(t *testing.T) {
 			before := target.HitPoints
 
 			cs.finishWeaponKill(corpse, &config.WeaponDefinitionConfig{
-				Name: "Test Ember Egg", DeathBurstDamage: 25, DeathBurstRadiusTiles: 2,
+				Name: "Test Ember Egg", DeathBurstMaxHPPct: 25, DeathBurstRadiusTiles: 2,
 			}, attacker)
 
 			if target.Bound != tt.wantBound {
@@ -551,21 +551,21 @@ func TestCelestialProvidenceOwnershipAcrossRecastAndRemoval(t *testing.T) {
 		{
 			name: "stat buff", spellID: "bless",
 			install: func(g *MMGame, source string) {
-				g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: source, Frames: 60, Bonuses: character.UniformStatBonuses(8)})
+				g.addStatBuff(TimedStatBuff{SpellID: "bless", SourceID: source, Clock: framesClock(60), Bonuses: character.UniformStatBonuses(8)})
 			},
 			lookup: func(g *MMGame, id string) (string, int, bool) {
 				b, ok := g.statBuffByID(id)
-				return b.SourceID, b.Frames, ok
+				return b.SourceID, b.Clock.Frames, ok
 			},
 		},
 		{
 			name: "combat buff", spellID: "heroism",
 			install: func(g *MMGame, source string) {
-				g.addCombatBuff(TimedCombatBuff{ID: "heroism", SourceID: source, Frames: 60, OutBonus: 7})
+				g.addCombatBuff(TimedCombatBuff{ID: "heroism", SourceID: source, Clock: framesClock(60), OutBonus: 7})
 			},
 			lookup: func(g *MMGame, id string) (string, int, bool) {
 				b, ok := g.combatBuffByID(id)
-				return b.SourceID, b.Frames, ok
+				return b.SourceID, b.Clock.Frames, ok
 			},
 		},
 	}
@@ -587,9 +587,9 @@ func TestCelestialProvidenceOwnershipAcrossRecastAndRemoval(t *testing.T) {
 			g.celestialBuffSpellID = tt.spellID
 			tt.install(g, "")
 			if tt.spellID == "bless" {
-				g.statBuffs[0].Frames = 999
+				g.statBuffs[0].Clock = framesClock(999)
 			} else {
-				g.combatBuffs[0].Frames = 999
+				g.combatBuffs[0].Clock = framesClock(999)
 			}
 			g.refreshCelestialProvidence()
 			source, frames, ok := tt.lookup(g, tt.spellID)
@@ -612,11 +612,11 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 		{
 			name: "manual stat falls back to combat", manualSpellID: "bless", fallbackSpellID: "heroism",
 			installManual: func(g *MMGame) {
-				g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 999, Bonuses: character.UniformStatBonuses(10)})
+				g.addStatBuff(TimedStatBuff{SpellID: "bless", Clock: framesClock(999), Bonuses: character.UniformStatBonuses(10)})
 			},
 			manualStillOwned: func(g *MMGame) bool {
 				b, ok := g.statBuffByID("bless")
-				return ok && b.SourceID == "" && b.Frames == 999 && b.Bonuses.Might == 10
+				return ok && b.SourceID == "" && b.Clock.Frames == 999 && b.Bonuses.Might == 10
 			},
 			fallbackOwned: func(g *MMGame) bool {
 				b, ok := g.combatBuffByID("heroism")
@@ -626,11 +626,11 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 		{
 			name: "manual combat falls back to stat", manualSpellID: "heroism", fallbackSpellID: "bless",
 			installManual: func(g *MMGame) {
-				g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 999, OutBonus: 10})
+				g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(999), OutBonus: 10})
 			},
 			manualStillOwned: func(g *MMGame) bool {
 				b, ok := g.combatBuffByID("heroism")
-				return ok && b.SourceID == "" && b.Frames == 999 && b.OutBonus == 10
+				return ok && b.SourceID == "" && b.Clock.Frames == 999 && b.OutBonus == 10
 			},
 			fallbackOwned: func(g *MMGame) bool {
 				b, ok := g.statBuffByID("bless")
@@ -674,14 +674,14 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 
 		g := newTestCombatSystemWithConfig(t).game
 		g.party.Members = []*character.MMCharacter{newCelestialHero(t, g.config)}
-		g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 999, Bonuses: character.UniformStatBonuses(10)})
-		g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 999, OutBonus: 10})
+		g.addStatBuff(TimedStatBuff{SpellID: "bless", Clock: framesClock(999), Bonuses: character.UniformStatBonuses(10)})
+		g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(999), OutBonus: 10})
 
 		g.refreshCelestialProvidence()
 		bless, blessOK := g.statBuffByID("bless")
 		heroism, heroismOK := g.combatBuffByID("heroism")
-		if !blessOK || bless.SourceID != "" || bless.Frames != 999 ||
-			!heroismOK || heroism.SourceID != "" || heroism.Frames != 999 {
+		if !blessOK || bless.SourceID != "" || bless.Clock.Frames != 999 ||
+			!heroismOK || heroism.SourceID != "" || heroism.Clock.Frames != 999 {
 			t.Fatalf("all-blocked Providence changed manual buffs: bless=%+v heroism=%+v", bless, heroism)
 		}
 		if g.celestialBuffSpellID != "" {
@@ -692,11 +692,11 @@ func TestCelestialProvidencePreservesActiveBuffOwnership(t *testing.T) {
 
 func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 	stat := restoreStatBuffs(buildStatBuffSaves([]TimedStatBuff{{
-		SpellID: "bless", SourceID: celestialProvidenceSourceID, Frames: 42,
+		SpellID: "bless", SourceID: celestialProvidenceSourceID, Clock: framesClock(42),
 		Bonuses: character.UniformStatBonuses(8),
 	}}))
 	combat := restoreCombatBuffs(buildCombatBuffSaves([]TimedCombatBuff{{
-		ID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 42, OutBonus: 7,
+		ID: "heroism", SourceID: celestialProvidenceSourceID, Clock: framesClock(42), OutBonus: 7,
 	}}))
 	if len(stat) != 1 || stat[0].SourceID != celestialProvidenceSourceID ||
 		len(combat) != 1 || combat[0].SourceID != celestialProvidenceSourceID {
@@ -708,8 +708,8 @@ func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 		stat   []TimedStatBuff
 		combat []TimedCombatBuff
 	}{
-		{"legacy stat", []TimedStatBuff{{SpellID: "bless", Frames: 42}}, nil},
-		{"legacy combat", nil, []TimedCombatBuff{{ID: "heroism", Frames: 42}}},
+		{"legacy stat", []TimedStatBuff{{SpellID: "bless", Clock: framesClock(42)}}, nil},
+		{"legacy combat", nil, []TimedCombatBuff{{ID: "heroism", Clock: framesClock(42)}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -732,7 +732,7 @@ func TestCelestialProvidenceSourcePersistsAndMigrates(t *testing.T) {
 
 	t.Run("source-aware player recast", func(t *testing.T) {
 		g := newTestCombatSystemWithConfig(t).game
-		g.statBuffs = []TimedStatBuff{{SpellID: "bless", Frames: 42}}
+		g.statBuffs = []TimedStatBuff{{SpellID: "bless", Clock: framesClock(42)}}
 		g.celestialBuffSpellID = "bless"
 		g.restoreCelestialProvidenceOwnership(timedBuffSourceSaveVersion)
 		if g.statBuffs[0].SourceID != "" {
@@ -745,11 +745,11 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	g.addStatBuff(TimedStatBuff{
-		SpellID: "bless", SourceID: celestialProvidenceSourceID, Frames: 60,
+		SpellID: "bless", SourceID: celestialProvidenceSourceID, Clock: framesClock(60),
 		Bonuses: character.UniformStatBonuses(8),
 	})
 	g.addCombatBuff(TimedCombatBuff{
-		ID: "heroism", SourceID: celestialProvidenceSourceID, Frames: 60, OutBonus: 7,
+		ID: "heroism", SourceID: celestialProvidenceSourceID, Clock: framesClock(60), OutBonus: 7,
 	})
 	dispeller := &monster.Monster3D{Name: "Dispeller", Abilities: monster.Abilities{Dispel: monster.ChanceAbility{Chance: 1}}}
 	cs.applyMonsterHitRiders(dispeller, "", heroHitTarget{cs, g.party.Members[0]}, true)
@@ -762,7 +762,7 @@ func TestCelestialProvidenceCannotBeDispelledAsAnOrdinaryCast(t *testing.T) {
 
 	// A player recast of the same spell replaces ownership and becomes normally
 	// dispellable again.
-	g.addCombatBuff(TimedCombatBuff{ID: "heroism", Frames: 90, OutBonus: 3})
+	g.addCombatBuff(TimedCombatBuff{ID: "heroism", Clock: framesClock(90), OutBonus: 3})
 	if !g.removeCombatBuff("heroism") {
 		t.Fatal("player-owned recast was incorrectly protected from dispel")
 	}

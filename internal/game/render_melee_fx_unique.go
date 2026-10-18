@@ -52,7 +52,6 @@ var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, fl
 	"clock_chime":           (*Renderer).drawMeleeFxClockChime,
 	"clock_minute":          (*Renderer).drawMeleeFxClockMinute,
 	"clock_mainspring":      (*Renderer).drawMeleeFxClockMainspring,
-	"clock_escapement":      (*Renderer).drawMeleeFxClockEscapement,
 	"dragon_fang":           (*Renderer).drawMeleeFxDragonFang,
 	"dragon_jaws":           (*Renderer).drawMeleeFxDragonJaws,
 	"dragon_ember_egg":      (*Renderer).drawMeleeFxDragonEmberEgg,

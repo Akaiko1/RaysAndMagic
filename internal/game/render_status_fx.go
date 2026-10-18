@@ -66,18 +66,23 @@ func heroStatusCondition(c character.Condition) func(*MMGame, *character.MMChara
 var statusVisualCatalog = []statusVisualEntry{
 	{visualRoot, "root",
 		func(m *monster.Monster3D) {
-			status.RefreshDualRated(&m.RootFramesRemaining, &m.RootTurnsRemaining, &m.RootRate, statusStageFrames, statusStageTurns)
+			m.Root.Refresh(statusStageFrames, statusStageTurns)
 		},
 		func(g *MMGame, _ *character.MMCharacter) {
-			r := &g.partyRoot
-			status.RefreshDualRated(&r.Frames, &r.Turns, &r.Rate, statusStageFrames, statusStageTurns)
+			g.partyRoot.Refresh(statusStageFrames, statusStageTurns)
 		}},
 	{visualSlow, "slow", func(m *monster.Monster3D) { m.ApplySlow(50, statusStageFrames, statusStageTurns) },
-		func(g *MMGame, _ *character.MMCharacter) { g.partyHinder.Slow = 1 }},
+		func(g *MMGame, _ *character.MMCharacter) {
+			g.partyHinder.Slow.Refresh(statusStageFrames, statusStageTurns)
+		}},
 	{visualWeaken, "weaken", func(m *monster.Monster3D) { m.ApplyWeaken(50, statusStageFrames, statusStageTurns) }, nil},
 	{visualShred, "armor_shred", func(m *monster.Monster3D) { m.ApplyArmorShred(50, statusStageFrames, statusStageTurns) }, nil},
-	{visualCharm, "charm", func(m *monster.Monster3D) { m.Pacified, m.PacifiedFramesRemaining = true, statusStageFrames }, nil},
-	{visualBind, "bind", func(m *monster.Monster3D) { m.Bound, m.BoundFramesRemaining = true, statusStageFrames }, nil},
+	{visualCharm, "charm", func(m *monster.Monster3D) {
+		m.Pacified, m.PacifiedClock = true, status.FromFrames(statusStageFrames, config.DefaultTPS)
+	}, nil},
+	{visualBind, "bind", func(m *monster.Monster3D) {
+		m.Bound, m.BoundClock = true, status.FromFrames(statusStageFrames, config.DefaultTPS)
+	}, nil},
 	{visualEnrage, "enrage", func(m *monster.Monster3D) { m.Abilities.Enrage.AtHP = max(1, m.HitPoints) }, nil},
 	{visualDisease, "diseased", nil, heroStatusCondition(character.ConditionDiseased)},
 	{visualCurse, "cursed", nil, heroStatusCondition(character.ConditionCursed)},
@@ -103,16 +108,16 @@ func monsterStatusVisuals(m *monster.Monster3D, monsterTurn bool) statusVisuals 
 		return 0
 	}
 	var v statusVisuals
-	if m.RootFramesRemaining > 0 || m.RootTurnsRemaining > 0 || (monsterTurn && m.RootHeld()) {
+	if m.Root.Active() || (monsterTurn && m.RootHeld()) {
 		v |= visualRoot
 	}
-	if (m.SlowPct > 0 && (m.SlowFramesRemaining > 0 || m.SlowTurnsRemaining > 0)) || (monsterTurn && m.ActiveSlowPct() > 0) {
+	if (m.SlowPct > 0 && (m.Slow.Active())) || (monsterTurn && m.ActiveSlowPct() > 0) {
 		v |= visualSlow
 	}
-	if (m.WeakenPct > 0 && (m.WeakenFramesRemaining > 0 || m.WeakenTurnsRemaining > 0)) || (monsterTurn && m.ActiveWeakenPct() > 0) {
+	if (m.WeakenPct > 0 && (m.Weaken.Active())) || (monsterTurn && m.ActiveWeakenPct() > 0) {
 		v |= visualWeaken
 	}
-	if m.Relics.CrumbleArmor > 0 || m.ArmorShredPct > 0 && (m.ArmorShredFramesRemaining > 0 || m.ArmorShredTurnsRemaining > 0) {
+	if m.Relics.CrumbleArmor > 0 || m.ArmorShredPct > 0 && (m.ArmorShred.Active()) {
 		v |= visualShred
 	}
 	if m.ArmorMelted() {
@@ -141,7 +146,7 @@ func (g *MMGame) partyStatusVisuals(m *character.MMCharacter) statusVisuals {
 		return 0
 	}
 	var v statusVisuals
-	if g.partyHinder.Slow > 0 {
+	if g.partyHinder.Slow.Active() {
 		v |= visualSlow
 	}
 	if g.partyRooted() {
@@ -194,7 +199,7 @@ func (g *MMGame) partyConditionNames(m *character.MMCharacter) (full, short []st
 	if g.partyRooted() && !gone {
 		add("root", true)
 	}
-	if g.partyHinder.Slow > 0 && !gone {
+	if g.partyHinder.Slow.Active() && !gone {
 		add("slow", true)
 	}
 	if m.ArmorMelted() && !gone {

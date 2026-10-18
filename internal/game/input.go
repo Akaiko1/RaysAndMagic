@@ -406,7 +406,6 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.turnBasedMoveCooldown = 0
 	g.turnBasedRotCooldown = 0
 	g.monsterTurnResolved = false
-	g.turnBasedSpRegenCount, g.turnBasedHPRegenCount = 0, 0
 
 	// Clear pending level-up choices
 	g.levelUpChoiceQueue = nil
@@ -1104,6 +1103,14 @@ func (ih *InputHandler) commitRTWeaponAttack(kind rtActionKind, sel *character.M
 	} else {
 		sel.RTCooldown = ih.game.combat.WeaponCooldownFrames(sel)
 	}
+	if sel.Clockwork.QuickDraw { // Cogleather: a fight's first attack has no recovery
+		sel.Clockwork.QuickDraw = false
+		if slot == items.SlotOffHand {
+			sel.OffHandRTCooldown = 0
+		} else {
+			sel.RTCooldown = 0
+		}
+	}
 	sel.NextTBAttackOffHand = slot == items.SlotMainHand
 	ih.game.actionInputStagger = rtActionStagger
 	ih.game.advanceRTActor(kind)
@@ -1334,7 +1341,7 @@ func (ih *InputHandler) movementScale() float64 {
 // not rotation.
 func (ih *InputHandler) moveSpeed() float64 {
 	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
-	if ih.game.partyHinder.Slow > 0 {
+	if ih.game.partyHinder.Slow.Active() {
 		speed *= float64(config.HinderKeepPercent()) / 100
 	}
 	if ih.isRunning() {
@@ -1360,7 +1367,7 @@ func (ih *InputHandler) isRunning() bool {
 
 // checkTeleporter checks if player is on a teleporter and handles teleportation
 func (ih *InputHandler) checkTeleporter() {
-	targetMapKey, newX, newY, group, teleported := ih.tryTeleportation()
+	targetMapKey, newX, newY, source, teleported := ih.tryTeleportation()
 	if !teleported {
 		return // No teleportation occurred
 	}
@@ -1384,32 +1391,28 @@ func (ih *InputHandler) checkTeleporter() {
 			ih.game.snapToCardinalDirection()
 		}
 	}
-	reg := world.GlobalWorldManager.GlobalTeleporterRegistry
-	if reg.LastUsedByGroup == nil {
-		reg.LastUsedByGroup = make(map[string]time.Time)
-	}
-	reg.LastUsedByGroup[group] = time.Now()
+	world.GlobalWorldManager.GlobalTeleporterRegistry.ArmGroup(source.Group, source.CooldownSeconds, ih.game.config.GetTPS())
 }
 
 // tryTeleportation selects a destination without moving or consuming cooldown.
-func (ih *InputHandler) tryTeleportation() (string, float64, float64, string, bool) {
+func (ih *InputHandler) tryTeleportation() (string, float64, float64, world.TeleporterLocation, bool) {
 	x, y := ih.game.camera.X, ih.game.camera.Y
 	worldInst := ih.game.GetCurrentWorld()
 	if worldInst == nil || world.GlobalWorldManager == nil {
-		return "", x, y, "", false
+		return "", x, y, world.TeleporterLocation{}, false
 	}
 	tileSize := float64(ih.game.config.GetTileSize())
 	tx, ty := TileIndex(x, tileSize), TileIndex(y, tileSize)
 	if tx < 0 || tx >= worldInst.Width || ty < 0 || ty >= worldInst.Height {
-		return "", x, y, "", false
+		return "", x, y, world.TeleporterLocation{}, false
 	}
 	tile := worldInst.Tiles[ty][tx]
 	if world.GlobalTileManager == nil {
-		return "", x, y, "", false
+		return "", x, y, world.TeleporterLocation{}, false
 	}
 	tileData := world.GlobalTileManager.GetTileData(tile)
 	if tileData == nil || strings.ToLower(tileData.Type) != "teleporter" {
-		return "", x, y, "", false
+		return "", x, y, world.TeleporterLocation{}, false
 	}
 	reg := world.GlobalWorldManager.GlobalTeleporterRegistry
 	// Unified world: teleporters register under their REGION key at unified
@@ -1423,23 +1426,18 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, string, bo
 	}
 	source, ok := reg.FindTeleporter(lookupKey, tx, ty)
 	if !ok || !source.AutoActivate {
-		return "", x, y, "", false
+		return "", x, y, world.TeleporterLocation{}, false
 	}
-	cooldown := time.Duration(source.CooldownSeconds * float64(time.Second))
-	if cooldown > 0 {
-		if last, exists := reg.LastUsedByGroup[source.Group]; exists {
-			if time.Since(last) < cooldown {
-				return "", x, y, "", false
-			}
-		}
+	if !reg.GroupReady(source.Group) {
+		return "", x, y, world.TeleporterLocation{}, false
 	}
 
 	dest, ok := reg.GetRandomDestinationTeleporter(source)
 	if !ok {
-		return "", x, y, "", false
+		return "", x, y, world.TeleporterLocation{}, false
 	}
 	nx, ny := TileCenterFromTile(dest.X, dest.Y, tileSize)
-	return dest.MapKey, nx, ny, source.Group, true
+	return dest.MapKey, nx, ny, source, true
 }
 
 // checkDeepWater checks if player stepped on deep water and handles Water Breathing teleportation

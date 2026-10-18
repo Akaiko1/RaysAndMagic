@@ -138,11 +138,6 @@ const (
 	// each has direct line of sight to the party.
 	TurnBasedPackAggroRadiusTiles = 8.0
 
-	// TurnBasedRegenEveryNRounds: how many full party rounds pass in turn-based
-	// mode between regeneration ticks - HP (cards, draughts, Regeneration)
-	// always, SP out of a fight (config.CombatSPRegenRounds while fighting).
-	TurnBasedRegenEveryNRounds = config.RegenerationRounds
-
 	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
 	// monster action pass and the anti-kite extra pass.
 	TurnBasedExtraMonsterActionDelaySeconds = 0.18

@@ -68,9 +68,9 @@ func TestStunDR_DiminishesThenImmune(t *testing.T) {
 	// requestStun applies a fresh 4-turn stun after clearing any active stun, so
 	// each call's RESULT reflects only the DR scaling (not refresh-to-max).
 	requestStun := func() (stunned bool, turns int) {
-		m.StunTurnsRemaining, m.StunFramesRemaining = 0, 0
+		m.Stun.Turns, m.Stun.Frames = 0, 0
 		stunned = cs.applyStunDR(m, 4, true)
-		return stunned, m.StunTurnsRemaining
+		return stunned, m.Stun.Turns
 	}
 
 	for i, want := range []int{4, 2, 1, 0} { // 100% -> 50% -> 25% -> immune
@@ -84,8 +84,8 @@ func TestStunDR_DiminishesThenImmune(t *testing.T) {
 	}
 	// The reset window was (re)armed on every attempt.
 	resetRounds := config.CombatRounds(config.Status("stun").RepeatResetSeconds)
-	if m.StunDRMemoryTurns != resetRounds || m.StunDRMemoryFrames != config.RoundFrames(resetRounds, tps) {
-		t.Fatalf("reset window not armed: turns=%d frames=%d", m.StunDRMemoryTurns, m.StunDRMemoryFrames)
+	if m.StunDRMemory.Turns != resetRounds || m.StunDRMemory.Frames != config.RoundFrames(resetRounds, tps) {
+		t.Fatalf("reset window not armed: turns=%d frames=%d", m.StunDRMemory.Turns, m.StunDRMemory.Frames)
 	}
 
 	// Once the chain resets (stun-free window elapsed), stuns are full again.
@@ -109,9 +109,9 @@ func TestStunDR_OneTurnStunNeverFloorsToZeroBeforeImmune(t *testing.T) {
 	tps := g.config.GetTPS()
 
 	requestStun := func() (stunned bool, turns int) {
-		m.StunTurnsRemaining, m.StunFramesRemaining = 0, 0
+		m.Stun.Turns, m.Stun.Frames = 0, 0
 		stunned = cs.applyStunDR(m, 1, true) // Stasis Trap: stun_seconds=3, one round
-		return stunned, m.StunTurnsRemaining
+		return stunned, m.Stun.Turns
 	}
 
 	for i, want := range []int{1, 1, 1, 0} { // 100% / 50% / 25% all keep 1 turn; only immune (0%) drops to 0
@@ -119,8 +119,8 @@ func TestStunDR_OneTurnStunNeverFloorsToZeroBeforeImmune(t *testing.T) {
 		if got != want {
 			t.Fatalf("stun #%d: got %d turns, want %d", i+1, got, want)
 		}
-		if frames := config.RoundFrames(want, tps); m.StunFramesRemaining != frames {
-			t.Fatalf("stun #%d: RT frames %d, want the same span %d", i+1, m.StunFramesRemaining, frames)
+		if frames := config.RoundFrames(want, tps); m.Stun.Frames != frames {
+			t.Fatalf("stun #%d: RT frames %d, want the same span %d", i+1, m.Stun.Frames, frames)
 		}
 		if (want > 0) != stunned {
 			t.Fatalf("stun #%d: stunned=%v, want %v", i+1, stunned, want > 0)
@@ -312,8 +312,8 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	if _, placed := g.combat.tryPlaceQuickTrap(thief, true); !placed {
 		t.Fatal("stasis trap should place")
 	}
-	if want := config.CombatRounds(config.GlobalTrapConfig.Traps["stasis_trap"].StunSeconds); stunned.StunTurnsRemaining != want {
-		t.Errorf("stasis: want %d stun turns, got %d", want, stunned.StunTurnsRemaining)
+	if want := config.CombatRounds(config.GlobalTrapConfig.Traps["stasis_trap"].StunSeconds); stunned.Stun.Turns != want {
+		t.Errorf("stasis: want %d stun turns, got %d", want, stunned.Stun.Turns)
 	}
 
 	if !equipTrap(thief, "bear_trap") {
@@ -324,14 +324,14 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	if _, placed := g.combat.tryPlaceQuickTrap(thief, true); !placed {
 		t.Fatal("bear trap should place")
 	}
-	if rooted.StunTurnsRemaining != 0 {
+	if rooted.Stun.Turns != 0 {
 		t.Errorf("bear trap must not stun")
 	}
-	if want := config.CombatRounds(config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds); rooted.RootTurnsRemaining != want {
-		t.Errorf("bear: want %d root turns, got %d", want, rooted.RootTurnsRemaining)
+	if want := config.CombatRounds(config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds); rooted.Root.Turns != want {
+		t.Errorf("bear: want %d root turns, got %d", want, rooted.Root.Turns)
 	}
-	if want := config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds * g.config.GetTPS(); rooted.RootFramesRemaining != want {
-		t.Errorf("bear: want %d root frames, got %d", want, rooted.RootFramesRemaining)
+	if want := config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds * g.config.GetTPS(); rooted.Root.Frames != want {
+		t.Errorf("bear: want %d root frames, got %d", want, rooted.Root.Frames)
 	}
 
 	// Rooted: the root burns one charge per monster TURN (TickRootTurn) and
@@ -345,8 +345,8 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 			t.Fatalf("turn %d: rooted monster must not move", turn)
 		}
 	}
-	if rooted.RootTurnsRemaining != 0 {
-		t.Errorf("root must be spent after %d turns, %d left", baseTurns, rooted.RootTurnsRemaining)
+	if rooted.Root.Turns != 0 {
+		t.Errorf("root must be spent after %d turns, %d left", baseTurns, rooted.Root.Turns)
 	}
 	rooted.TickRootTurn() // root expired: movement unpinned
 	if rooted.RootHeld() {

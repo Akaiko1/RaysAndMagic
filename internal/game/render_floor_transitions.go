@@ -226,7 +226,7 @@ func (r *Renderer) syncFrozenFloorMaterial() {
 	}
 	r.frozenFloorTiles = r.frozenFloorTiles[:0]
 	for _, ice := range r.game.frozenWater {
-		if ice.FramesRemaining <= 0 || !mapKeyOnCurrentWorld(ice.MapKey) {
+		if !ice.Clock.Active() || !mapKeyOnCurrentWorld(ice.MapKey) {
 			continue
 		}
 		x, y := ice.X, ice.Y

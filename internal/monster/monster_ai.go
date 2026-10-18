@@ -6,7 +6,6 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/mathutil"
-	"ugataima/internal/status"
 )
 
 // CollisionChecker interface for checking movement validity
@@ -164,16 +163,10 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, partyX, partyY flo
 // game.MonsterWrapper.Update, not on its own. Tests that need RT fidelity (not
 // just AI/position behavior) should do the same.
 func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
-	m.movementHeldThisFrame = m.StunFramesRemaining > 0 || m.RootFramesRemaining > 0 || m.EffectiveSpeed() <= 0
-	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
-	m.TickBurn()            // Drakefang ignite; independent clock, stacks with poison
-	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
-	m.ArmorMelt.TickFrame() // a melting monster's hit decays regardless of stun/root state
-	m.TickElementalMarks(false)
-	m.TickSlowFrame()   // Tarn Trident silt decays regardless of stun/root state
-	m.TickWeakenFrame() // Scalebreaker roar decays regardless of stun/root state
-	m.TickSoakFrame()   // Champion Stone Skin uses the same rated dual-clock contract
-	m.TickRetaliation(false)
+	m.movementHeldThisFrame = m.Stun.Frames > 0 || m.Root.Frames > 0 || m.EffectiveSpeed() <= 0
+	m.TickPoison() // Venom-proc cards; ticks regardless of stun/root state
+	m.TickBurn()   // Drakefang ignite; independent clock, stacks with poison
+	m.TickDebuffs(false)
 	if !m.IsAlive() {
 		// Match the TB scheduler: a lethal autonomous tick ends this actor's
 		// action immediately. The game-level indirect-kill sweep awards and
@@ -187,22 +180,22 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
-	if m.StunFramesRemaining > 0 {
+	if m.Stun.Frames > 0 {
 		// Expiry clears the TB clock too, or the stun-star overlay stays on.
 		// Rated: the TB clock drains proportionally so a mode switch cannot
 		// hand the stun its frozen turn count back (stun farming).
-		status.TickFrameRated(&m.StunFramesRemaining, &m.StunTurnsRemaining, &m.StunRate)
+		m.Stun.TickFrame()
 		return
 	}
 	// Recovery starts only while free of every control in the shared chain.
 	if !m.ControlDRActive() {
-		m.StunDR().ForgetFrame()
+		m.StunDR().Forget(false)
 	}
 	// Rooted (bear trap): the FULL update runs - detection, state machine,
 	// attack cadence - but any displacement it produced is undone, so the
 	// monster fights from where it stands without being stunned.
-	if m.RootFramesRemaining > 0 {
-		status.TickFrameRated(&m.RootFramesRemaining, &m.RootTurnsRemaining, &m.RootRate)
+	if m.Root.Frames > 0 {
+		m.Root.TickFrame()
 	}
 	if m.MovementHeld(false) {
 		px, py := m.X, m.Y

@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/stash"
+	"ugataima/internal/status"
 )
 
 // The rule and its effective-stat damage travel with the shot. Selection and
@@ -49,12 +50,20 @@ func statScaledDamage(s config.StatScaledDamage, ch *character.MMCharacter) int 
 	return damage
 }
 
-// normalizedSignatureState repairs a saved weapon's signature state: Solar
-// Flare keeps its charges within the limit and its walked distance within one
-// charge step; any other weapon carries none.
+// normalizedSignatureState repairs a saved weapon's signature state: a
+// charge-storing signature keeps its charges within the limit, its walked
+// distance within one charge step (movement) and a well-formed winding clock
+// (Wind-up); any other weapon carries none.
 func normalizedSignatureState(def *config.WeaponDefinitionConfig, state items.WeaponSignatureState) items.WeaponSignatureState {
-	if !def.HasSignature(config.SignatureSolarFlare) {
+	if !def.StoresCharges() {
 		return items.WeaponSignatureState{}
+	}
+	if def.HasSignature(config.SignatureWindUp) {
+		wind := state.Wind
+		if wind.Frames < 0 || wind.Turns < 0 || wind.Rate < 0 {
+			wind = items.RoundClock{}
+		}
+		return items.WeaponSignatureState{Charges: min(max(0, state.Charges), def.Signature.ChargeLimit), Wind: wind}
 	}
 	state.Charges = min(max(0, state.Charges), def.Signature.ChargeLimit)
 	distance := state.MoveDistance
@@ -65,8 +74,8 @@ func normalizedSignatureState(def *config.WeaponDefinitionConfig, state items.We
 	return state
 }
 
-// chargeSignatureWeapons charges a hero's Solar Flare weapons for movedTiles
-// of party movement, by any means, and for an offensive cast.
+// chargeSignatureWeapons charges a hero's movement-charged signature weapons
+// for movedTiles of party movement, by any means, and for an offensive cast.
 func (g *MMGame) chargeSignatureWeapons(ch *character.MMCharacter, movedTiles float64, offensiveCast bool) {
 	if ch == nil || !ch.CanUseCombatAction() {
 		return
@@ -74,7 +83,7 @@ func (g *MMGame) chargeSignatureWeapons(ch *character.MMCharacter, movedTiles fl
 	defs := equippedWeaponDefinitions(ch)
 	for i, slot := range equippedWeaponSlots {
 		def := defs[i]
-		if !def.HasSignature(config.SignatureSolarFlare) {
+		if !def.ChargesByMovement() {
 			continue
 		}
 		item := ch.Equipment[slot]
@@ -84,17 +93,28 @@ func (g *MMGame) chargeSignatureWeapons(ch *character.MMCharacter, movedTiles fl
 			charges = 1
 		}
 		if movedTiles > 0 {
-			item.Signature.MoveDistance += movedTiles
-			if item.Signature.MoveDistance >= rule.ChargeMoveTiles {
-				charges += int(math.Min(float64(rule.ChargeLimit), math.Floor(item.Signature.MoveDistance/rule.ChargeMoveTiles)))
-				item.Signature.MoveDistance = math.Mod(item.Signature.MoveDistance, rule.ChargeMoveTiles)
-			}
+			charges += min(rule.ChargeLimit, status.Accrue(&item.Signature.MoveDistance, movedTiles, rule.ChargeMoveTiles))
 		}
 		if charges > 0 {
 			item.Signature.Charges = min(rule.ChargeLimit, max(0, item.Signature.Charges)+charges)
 		}
 		ch.Equipment[slot] = item
 	}
+}
+
+// spendSkirmishCharge spends a Skirmish weapon's stored charge on the shot
+// being fired, which then always crits; the charge goes on release, hit or miss.
+func spendSkirmishCharge(ch *character.MMCharacter, slot items.EquipSlot, def *config.WeaponDefinitionConfig) bool {
+	if ch == nil || !def.HasSignature(config.SignatureSkirmish) {
+		return false
+	}
+	item := ch.Equipment[slot]
+	if item.Signature.Charges <= 0 {
+		return false
+	}
+	item.Signature.Charges--
+	ch.Equipment[slot] = item
+	return true
 }
 
 func (cs *CombatSystem) snapshotWeaponSignature(shot *Arrow, owner *character.MMCharacter, slot items.EquipSlot, def *config.WeaponDefinitionConfig) {

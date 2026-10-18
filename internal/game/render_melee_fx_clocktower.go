@@ -291,87 +291,6 @@ func (r *Renderer) drawMeleeFxClockMainspring(screen *ebiten.Image, s SlashEffec
 	}
 }
 
-// Escapement Mace - tick, tock: two ratcheting chops that CONVERGE on the same
-// strike point, the second half a beat behind, each advancing through four
-// hard notches with a click-spark at every one. The finish shears BRASS GEAR
-// TEETH off the target - faceted shards tumbling with ghost trails - while
-// pawl-click arc segments snap in around the strike. Armor stripped, tooth by
-// tooth.
-func (r *Renderer) drawMeleeFxClockEscapement(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
-	progress, fade, sweepT, _ := meleeFxTiming(s)
-	if fade <= 0 {
-		return
-	}
-	seed := seedFromID(s.ID)
-	h, w := arenaFxScale(s, screenH)
-	reach := h * 0.26
-	meetX, meetY := cx, cy-reach*0.25
-
-	for i, sign := range []float64{-1, 1} {
-		lag := float64(i) * 0.3
-		p := math.Min(1, math.Max(0, (progress-lag*meleeSweepFrac)/(1-lag*meleeSweepFrac)))
-		st := math.Min(1, p/meleeSweepFrac)
-		ld := clockTickLead(1-(1-st)*(1-st), 4)
-		// A sagging cut from high-out to the meet: start -> meet with an outward
-		// bulge, so both chops visibly END on the same strike point.
-		startX, startY := meetX+sign*reach*1.5, meetY-reach*0.85
-		pathTo := func(t float64) (float64, float64) {
-			tt := t * ld
-			bulge := math.Sin(math.Pi*tt) * reach * 0.34
-			return startX + (meetX-startX)*tt + sign*bulge*0.35,
-				startY + (meetY-startY)*tt + bulge
-		}
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   pathTo,
-			width:  func(t float64) float64 { return (20 + 12*math.Sin(math.Pi*t)) * w },
-			color:  func(t float64) [3]int { return mixColor(clockCopper, clockBrass, t) },
-			alpha:  func(t float64) float64 { return 0.72 + 0.28*t },
-			length: reach * 2.0, seed: seed, salt: 390 + i, blend: additiveGlowBlend,
-		}, 1, p)
-		r.drawDissolveStroke(screen, dissolveStroke{
-			path:   pathTo,
-			width:  func(t float64) float64 { return (7 + 5*math.Sin(math.Pi*t)) * w },
-			color:  func(t float64) [3]int { return mixColor(clockBrass, clockWhite, t) },
-			alpha:  func(t float64) float64 { return 0.75 + 0.25*t },
-			length: reach * 2.0, seed: seed, salt: 394 + i, blend: additiveGlowBlend,
-		}, 1, p)
-		// Click-spark at each ratchet notch the head has passed. pathTo scales
-		// its argument by ld, so notch n sits at pathTo((n/4)/ld) - one source
-		// for the arc math.
-		notches := int(ld * 4)
-		for n := 1; n <= notches && n <= 4; n++ {
-			nx, ny := pathTo(float64(n) / 4 / ld)
-			r.weaponFxAccent(screen, nx, ny, math.Max(3, h*0.012), clockWhite, fade*0.65, additiveGlowBlend)
-		}
-		if st < 1 {
-			tx, ty := pathTo(1)
-			r.drawGlowSprite(screen, tx, ty, h*0.055*w, clockWhite, fade*0.95, additiveGlowBlend)
-		}
-	}
-
-	// The strip: sheared gear teeth tumbling + pawl-click arcs snapping in.
-	if sweepT >= 1 {
-		u := (progress - meleeSweepFrac) / (1 - meleeSweepFrac)
-		if u < 0.3 {
-			r.drawSparkStar(screen, meetX, meetY, h*0.1*w*(1-u/0.3), clockBrass, clockWhite, fade*(1-u/0.3), 1)
-		}
-		r.arenaImpactCloud(screen, meetX, meetY, u, reach*1.1, 0.5, clockBrass, fade)
-		// Pawl clicks: three short arc segments appear around the strike, stepwise.
-		clicks := int(u * 6)
-		for c := 0; c < 3 && c < clicks; c++ {
-			base := -math.Pi/2 + float64(c)*2*math.Pi/3
-			rad := reach * (0.6 + 0.2*float64(c))
-			for k := 0; k <= 5; k++ {
-				ang := base + (float64(k)/5-0.5)*0.7
-				r.drawGlowSprite(screen, meetX+math.Cos(ang)*rad, meetY+math.Sin(ang)*rad*0.6,
-					math.Max(2.5, h*0.012), clockBrass, fade*(1-u), additiveGlowBlend)
-			}
-		}
-		// Sheared gear teeth: square brass flakes (shared debris beat).
-		r.arenaDebrisSpray(screen, meetX, meetY, u, fade, h, 3.0, 0.4, 0.24, 0.32, 0.017, 14, 4, seed, 398, clockBrass, clockWhite)
-	}
-}
-
 // Clockwork Pistol - the wound shot: a live cog spins around the slug as it
 // flies, and spent steam puffs vent off the mechanism behind it. Reads as
 // machinery even at a glance across the room.
@@ -405,4 +324,93 @@ func (r *Renderer) drawWeaponProjectileFxClockPistol(screen *ebiten.Image, cx, c
 		r.drawGlowSprite(screen, cx+dirX*size*(0.6+0.9*t), cy+dirY*size*(0.6+0.9*t),
 			size*(0.16-0.03*t), clockBrass, (0.4-0.09*t)*critBoost, additiveGlowBlend)
 	}
+}
+
+// Escapement Staff - the spirit bolt carries a ghost of the staff's own
+// escapement wheel. It turns one tooth per tick, let through as a clock's
+// pallets let its wheel through, and the ticks already counted fade behind
+// it. The wheel spins about the flight axis: a narrow upright ellipse from
+// the side, its full face from behind.
+var (
+	clockSpirit      = [3]int{186, 150, 255}
+	clockSpiritWhite = [3]int{246, 240, 255}
+)
+
+const (
+	escapementTicksPerSecond = 8
+	escapementTeeth          = 16
+	escapementTooth          = 2 * math.Pi / escapementTeeth
+	escapementSideSquash     = .38
+)
+
+// escapementTurn is the wheel angle: each tick snaps one tooth in its first
+// quarter and then holds. fresh is 1 at the tick and falls to 0 before the next.
+func escapementTurn(seconds float64, id int) (angle, fresh float64) {
+	t := seconds*escapementTicksPerSecond + float64(uint(id)%escapementTeeth)
+	step := math.Floor(t)
+	return (step + math.Min(1, (t-step)*4)) * escapementTooth, 1 - (t - step)
+}
+
+// drawEscapementWheel draws the wheel about (cx, cy): u is its upright axis on
+// screen, v the flight axis it is squashed along. Teeth on the far half dim.
+func (r *Renderer) drawEscapementWheel(screen *ebiten.Image, cx, cy, ux, uy, vx, vy, radius, squash, spin, size, alpha float64, teethOnly bool) {
+	at := func(a, rr float64) (float64, float64) {
+		c, s := math.Cos(a)*rr, math.Sin(a)*rr*squash
+		return cx + ux*c + vx*s, cy + uy*c + vy*s
+	}
+	depth := func(a float64) float64 { return 1 - (1-squash)*.45*(1-math.Sin(a)) }
+	step := 1
+	if teethOnly {
+		step = 2
+	} else {
+		r.drawDissolveStroke(screen, dissolveStroke{
+			path:   func(t float64) (float64, float64) { return at(t*2*math.Pi, radius) },
+			width:  func(float64) float64 { return math.Max(1.5, size*.1) },
+			color:  func(float64) [3]int { return clockBrass },
+			alpha:  func(t float64) float64 { return alpha * .8 * depth(t*2*math.Pi) },
+			length: 2 * math.Pi * radius, seed: r.weaponMaterialState.seed, salt: 431, blend: additiveGlowBlend,
+		}, 1, -1-r.weaponMaterialState.phase)
+		for k := 0; k < 6; k++ {
+			a := spin + float64(k)*math.Pi/3
+			hx, hy := at(a, radius*.22)
+			ex, ey := at(a, radius*.92)
+			r.weaponFxSegment(screen, hx, hy, ex, ey, math.Max(1, size*.06), mixColor(clockBrass, clockSpirit, .35), .6*alpha*depth(a), additiveGlowBlend)
+		}
+	}
+	for i := 0; i < escapementTeeth; i += step {
+		a := spin + float64(i)*escapementTooth
+		x, y := at(a, radius*1.13)
+		dx, dy := ux*math.Cos(a)+vx*math.Sin(a)*squash, uy*math.Cos(a)+vy*math.Sin(a)*squash
+		col := mixColor(clockBrass, clockWhite, .15)
+		if teethOnly {
+			col = clockSpirit
+		}
+		r.weaponFxPlate(screen, x, y, size*.26, math.Max(2, size*.16), math.Atan2(dy, dx), col, alpha*depth(a), additiveGlowBlend)
+	}
+}
+
+func (r *Renderer) drawWeaponProjectileFxClockEscapement(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
+	l := math.Hypot(dirX, dirY)
+	if l == 0 {
+		r.drawWeaponProjectileFxClockEscapementHeadOn(screen, cx, cy, size, alpha, id)
+		return
+	}
+	dirX, dirY = dirX/l, dirY/l
+	nx, ny := projectilePerpendicular(dirX, dirY)
+	spin, fresh := escapementTurn(r.weaponMaterialState.phase, id)
+	r.drawGlowSprite(screen, cx, cy, size*1.6, clockSpirit, .3*alpha, additiveGlowBlend)
+	for k := 2; k >= 1; k-- {
+		back := float64(k)
+		r.drawEscapementWheel(screen, cx-dirX*size*1.45*back, cy-dirY*size*1.45*back, nx, ny, dirX, dirY,
+			size*(1.2-.1*back), escapementSideSquash, spin-back*escapementTooth, size, (.55-.18*back)*alpha, true)
+	}
+	r.drawEscapementWheel(screen, cx, cy, nx, ny, dirX, dirY, size*1.2, escapementSideSquash, spin, size, (.75+.35*fresh*fresh)*alpha, false)
+	r.drawGlowSprite(screen, cx, cy, size*.32, clockSpiritWhite, .5*alpha, additiveGlowBlend)
+}
+
+func (r *Renderer) drawWeaponProjectileFxClockEscapementHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
+	spin, fresh := escapementTurn(r.weaponMaterialState.phase, id)
+	r.drawGlowSprite(screen, cx, cy, size*1.8, clockSpirit, .3*alpha, additiveGlowBlend)
+	r.drawEscapementWheel(screen, cx, cy, 1, 0, 0, 1, size*1.2, 1, spin, size, (.75+.35*fresh*fresh)*alpha, false)
+	r.drawGlowSprite(screen, cx, cy, size*.32, clockSpiritWhite, .5*alpha, additiveGlowBlend)
 }

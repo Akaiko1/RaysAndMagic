@@ -461,7 +461,7 @@ func techniqueMagnitude(c *character.MMCharacter, d *config.TechniqueDefinition,
 		if c == nil {
 			return "Any distance, same map"
 		}
-		return fmt.Sprintf("Any distance, same map | Anchor %ds", c.RareClass.Anchor.Frames/max(1, tps))
+		return fmt.Sprintf("Any distance, same map | Anchor %ds", c.RareClass.Anchor.Clock.Frames/max(1, tps))
 	}
 	return ""
 }

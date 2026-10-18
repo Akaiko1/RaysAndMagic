@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
@@ -32,9 +33,9 @@ func TestTranslocatorUse(t *testing.T) {
 				it := hero.QuickSlots[0]
 				switch state {
 				case "recharging":
-					it.DeviceCooldownFrames = 4 * g.config.GetTPS()
+					it.DeviceCooldown = items.RoundClock(framesClock(4 * g.config.GetTPS()))
 				case "rooted":
-					g.partyRoot = PartyRootState{Frames: 60, Turns: 1}
+					g.partyRoot = status.DualClock{Frames: 60, Turns: 1}
 				case "wall":
 					g.world.Tiles[10][11] = world.TileWall
 				case "arena boundary":
@@ -48,14 +49,14 @@ func TestTranslocatorUse(t *testing.T) {
 				case "missing spell":
 					it.SpellEffect = "missing"
 				}
-				x, y, before := g.camera.X, g.camera.Y, it.DeviceCooldownFrames
+				x, y, before := g.camera.X, g.camera.Y, it.DeviceCooldown.Frames
 				beforeAction := hero.RTCooldown
 				g.useQuickSlot(0, 0)
 				if hero.QuickSlots[0] != it || it.Count() != 1 || hero.SpellPoints != 0 {
 					t.Fatal("device was consumed, replaced or charged spell points")
 				}
 				if state != "ready" {
-					if g.camera.X != x || g.camera.Y != y || it.DeviceCooldownFrames != before || g.currentTurn != 0 || hero.RTCooldown != beforeAction {
+					if g.camera.X != x || g.camera.Y != y || it.DeviceCooldown.Frames != before || g.currentTurn != 0 || hero.RTCooldown != beforeAction {
 						t.Fatal("rejected device use moved, spent cooldown or ended turn")
 					}
 					if len(g.combatLogHistory) == 0 {
@@ -63,8 +64,8 @@ func TestTranslocatorUse(t *testing.T) {
 					}
 					return
 				}
-				if math.Abs(g.camera.X-x-3*ts) > .01 || g.camera.Y != y || it.DeviceCooldownFrames != 10*g.config.GetTPS() {
-					t.Fatalf("jump=(%v,%v), recharge=%v", g.camera.X-x, g.camera.Y-y, it.DeviceCooldownFrames)
+				if math.Abs(g.camera.X-x-3*ts) > .01 || g.camera.Y != y || it.DeviceCooldown.Frames != 10*g.config.GetTPS() {
+					t.Fatalf("jump=(%v,%v), recharge=%v", g.camera.X-x, g.camera.Y-y, it.DeviceCooldown.Frames)
 				}
 				if hero.RTCooldown <= 0 || g.canSpendCombatAction(0) {
 					t.Fatal("successful jump did not spend the hero action")
@@ -78,7 +79,7 @@ func TestTranslocatorUse(t *testing.T) {
 				landed := g.camera.X
 				g.currentTurn, hero.ActionsRemaining, hero.RTCooldown = 0, 1, 0
 				g.useQuickSlot(0, 0)
-				if g.camera.X != landed || it.DeviceCooldownFrames != 10*g.config.GetTPS() {
+				if g.camera.X != landed || it.DeviceCooldown.Frames != 10*g.config.GetTPS() {
 					t.Fatal("second use bypassed recharge")
 				}
 			})
@@ -110,7 +111,7 @@ func TestTranslocatorDisplayedInventory(t *testing.T) {
 			before := g.camera.X
 			h.clicks(false, x, y, 2)
 			bag := g.party.Bag(owner).Items()
-			if g.camera.X != before+3*g.config.GetTileSize() || len(bag) != 1 || bag[0].DeviceCooldownFrames != 10*g.config.GetTPS() {
+			if g.camera.X != before+3*g.config.GetTileSize() || len(bag) != 1 || bag[0].DeviceCooldown.Frames != 10*g.config.GetTPS() {
 				t.Fatal("displayed double click did not use the device in its source bag")
 			}
 			for i := 0; i < 10; i++ {
@@ -118,7 +119,7 @@ func TestTranslocatorDisplayedInventory(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if bag[0].DeviceCooldownFrames != 10*g.config.GetTPS() {
+			if bag[0].DeviceCooldown.Frames != 10*g.config.GetTPS() {
 				t.Fatal("paused inventory drained gameplay recharge")
 			}
 		})
@@ -137,12 +138,12 @@ func TestTranslocatorClockAndSave(t *testing.T) {
 			}
 			g.dragSrc, g.dragInvIndex = dragFromInventory, 0
 			g.resolveQuickSlotDrop(0, 0)
-			if len(g.party.Inventory) != 0 || g.party.Members[0].QuickSlots[0].DeviceCooldownFrames != 10*g.config.GetTPS() {
+			if len(g.party.Inventory) != 0 || g.party.Members[0].QuickSlots[0].DeviceCooldown.Frames != 10*g.config.GetTPS() {
 				t.Fatal("moving to quick slot reset or duplicated device")
 			}
 			gl := &GameLoop{game: g}
 			remaining := func() float64 {
-				return float64(g.party.Members[0].QuickSlots[0].DeviceCooldownFrames) / float64(g.config.GetTPS())
+				return float64(g.party.Members[0].QuickSlots[0].DeviceCooldown.Frames) / float64(g.config.GetTPS())
 			}
 			if mode != "turn based" {
 				seconds := 4
@@ -300,12 +301,12 @@ func TestTranslocatorRestoreCooldown(t *testing.T) {
 				it.LegacyDeviceCooldown = 30
 				want = 10 * g.config.GetTPS()
 			case "frames clamped":
-				it.DeviceCooldownFrames = 30 * g.config.GetTPS()
+				it.DeviceCooldown = items.RoundClock(framesClock(30 * g.config.GetTPS()))
 				want = 10 * g.config.GetTPS()
 			case "negative":
-				it.DeviceCooldownFrames, want = -10, 0
+				it.DeviceCooldown.Frames, want = -10, 0
 			case "partial":
-				it.DeviceCooldownFrames, want = 17, 17
+				it.DeviceCooldown.Frames, want = 17, 17
 			}
 			it.Attributes["use_cooldown_seconds"] = 30
 			it.UseAction, it.SpellEffect = "outdated", "outdated"
@@ -319,7 +320,7 @@ func TestTranslocatorRestoreCooldown(t *testing.T) {
 			check := func(want int) {
 				t.Helper()
 				for _, got := range []items.Item{g.party.Inventory[0], g.party.Members[0].Inventory[0], *g.party.Members[0].QuickSlots[0], g.groundContainers[0].Items[0]} {
-					if got.DeviceCooldownFrames != want || got.LegacyDeviceCooldown != 0 || got.UseAction != "jump" || got.SpellEffect != "jump" {
+					if got.DeviceCooldown.Frames != want || got.LegacyDeviceCooldown != 0 || got.UseAction != "jump" || got.SpellEffect != "jump" {
 						t.Fatalf("restored device: %+v, want %d frames", got, want)
 					}
 				}
@@ -328,13 +329,13 @@ func TestTranslocatorRestoreCooldown(t *testing.T) {
 			g.turnBasedMode = false
 			(&GameLoop{game: g}).updateSpecialEffects()
 			check(max(0, want-1))
-			g.tickDeviceCooldowns(30 * g.config.GetTPS())
+			spendFrames(30*g.config.GetTPS(), g.tickDeviceCooldowns)
 			// Withdrawal into an idle party wakes its timer, including bag reallocations.
 			it = items.CreateItemFromYAML("translocator")
-			it.DeviceCooldownFrames = 2
+			it.DeviceCooldown = items.RoundClock(framesClock(2))
 			g.party.Bag().Add(it)
 			(&GameLoop{game: g}).updateSpecialEffects()
-			if g.party.Inventory[len(g.party.Inventory)-1].DeviceCooldownFrames != 1 {
+			if g.party.Inventory[len(g.party.Inventory)-1].DeviceCooldown.Frames != 1 {
 				t.Fatal("idle sweep missed an incoming device")
 			}
 		})
@@ -373,7 +374,7 @@ func TestTranslocatorConfiguredAction(t *testing.T) {
 	g.party.Inventory = nil
 	g.party.Bag().Add(items.CreateItemFromYAML("translocator"))
 	x := g.camera.X
-	if !g.useDeviceFromInventory(0, 0) || math.Abs(g.camera.X-x-5*ts) > .01 || g.party.Inventory[0].DeviceCooldownFrames != 7*g.config.GetTPS() {
+	if !g.useDeviceFromInventory(0, 0) || math.Abs(g.camera.X-x-5*ts) > .01 || g.party.Inventory[0].DeviceCooldown.Frames != 7*g.config.GetTPS() {
 		t.Fatal("device ignored configured spell, range or recharge")
 	}
 	rows := GetItemTooltipRows(g.party.Inventory[0], g.party.Members[0], g.combat, true).String()

@@ -24,7 +24,7 @@ func (r *Renderer) collectEnvironmentEffects() {
 		if e.Kind == "transfer" {
 			r.collectAuraTileEdges(e.Destination[0], e.Destination[1], ts, density, alpha*.65, float64(radius)*ts, [3]int{100, 255, 170})
 		}
-		if e.Kind == "lane" && (s == nil || (s.Warning <= 0 && s.Remaining <= 0)) {
+		if e.Kind == "lane" && (s == nil || (!s.Warning.Active() && !s.Remaining.Active())) {
 			continue
 		}
 		if e.Kind == "trap" && s != nil && s.Triggered {
@@ -41,7 +41,7 @@ func (r *Renderer) collectEnvironmentEffects() {
 		case "air":
 			rgb = [3]int{150, 220, 255}
 		}
-		if s != nil && s.Warning > 0 {
+		if s != nil && s.Warning.Active() {
 			rgb = [3]int{255, 245, 120}
 		}
 		for y := e.Rect[1]; y <= e.Rect[3]; y++ {

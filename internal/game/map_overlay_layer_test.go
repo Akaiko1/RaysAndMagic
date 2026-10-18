@@ -12,6 +12,7 @@ import (
 	"ugataima/internal/threading"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"ugataima/internal/status"
 )
 
 // firstPartyStatChipClick aims at the first card's stat chip, laid out as if
@@ -483,7 +484,7 @@ func TestModalClosedDuringInputDoesNotAdvanceWorldBeforeDraw(t *testing.T) {
 	g.combatLogOpen = true
 	ui.renderedModalSnapshot = ui.topModalSnapshot()
 	g.cardFxTimers[fxBlink][0] = 2
-	g.cardSummonCooldowns = map[string]int{"test-card": 2}
+	g.cardSummonCooldowns = map[string]status.DualClock{"test-card": framesClock(2)}
 	uiBefore := g.uiFrameCount
 	loop := &GameLoop{game: g, inputHandler: NewInputHandler(g), ui: ui}
 	loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == ebiten.KeyEscape })
@@ -495,8 +496,8 @@ func TestModalClosedDuringInputDoesNotAdvanceWorldBeforeDraw(t *testing.T) {
 	if got := g.cardFxTimers[fxBlink][0]; got != 1 {
 		t.Fatalf("party-card visual timer = %d, want 1 behind the redraw barrier", got)
 	}
-	if got := g.cardSummonCooldowns["test-card"]; got != 2 {
-		t.Fatalf("world cooldown = %d, want 2 until Draw replaces the modal", got)
+	if got := g.cardSummonCooldowns["test-card"]; got != framesClock(2) {
+		t.Fatalf("world cooldown = %+v, want 2 frames until Draw replaces the modal", got)
 	}
 	if g.uiFrameCount != uiBefore+1 {
 		t.Fatalf("interface clock advanced %d frames, want exactly 1", g.uiFrameCount-uiBefore)

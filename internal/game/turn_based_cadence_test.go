@@ -76,11 +76,11 @@ func TestTurnBasedSwingsAccumulateThroughAttackActions(t *testing.T) {
 		if got := act(t, cs, m, swings, monsterAttackTurn); got != 1 {
 			t.Fatalf("first action = %d swings, want 1", got)
 		}
-		m.StunTurnsRemaining = 1
+		m.Stun.Turns = 1
 		if got := act(t, cs, m, swings, monsterAttackTurn); got != 0 {
 			t.Fatalf("stunned action = %d swings, want 0", got)
 		}
-		m.StunTurnsRemaining = 0
+		m.Stun.Turns = 0
 		if got := act(t, cs, m, swings, monsterAttackTurn); got != 2 {
 			t.Fatalf("action after the revoked one = %d swings, want 2 (the banked fraction survives)", got)
 		}
@@ -192,8 +192,8 @@ func TestTurnBasedStepsAccumulateThroughMonsterPasses(t *testing.T) {
 		if got := pass(game, gl, m, ts); got != 1 {
 			t.Fatalf("pass over a bear trap moved %d tiles, want 1 (rooted on the crossed tile)", got)
 		}
-		if len(game.traps) != 0 || m.RootTurnsRemaining == 0 {
-			t.Fatalf("crossed trap did not spring: traps=%d root=%d", len(game.traps), m.RootTurnsRemaining)
+		if len(game.traps) != 0 || m.Root.Turns == 0 {
+			t.Fatalf("crossed trap did not spring: traps=%d root=%d", len(game.traps), m.Root.Turns)
 		}
 	})
 

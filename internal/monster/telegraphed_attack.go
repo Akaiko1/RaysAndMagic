@@ -6,13 +6,14 @@ import (
 
 	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
+	"ugataima/internal/status"
 )
 
 // TelegraphedAttack defines one visible, avoidable special action. Its warning
 // and cooldown are timers authored in RT seconds and TB rounds; its effect
 // (a sustained field, an ally shield, the slow or root it lands) lasts
-// DurationSeconds, whole rounds, the same span in both modes. Runtime stores
-// spent fractions.
+// DurationSeconds, whole rounds, the same span in both modes. Runtime keeps
+// them on DualClocks (TelegraphState).
 type TelegraphedAttack struct {
 	Name            string  `yaml:"name"`
 	Kind            string  `yaml:"kind"`
@@ -83,18 +84,48 @@ func (a *TelegraphedAttack) validate() error {
 // TelegraphState retains the exact announced tiles across saving and mode
 // changes. TargetID empty means the party; it never retargets on release.
 type TelegraphState struct {
-	Carry     float64  `json:"carry,omitempty"`
-	Cooldown  float64  `json:"cooldown,omitempty"`
-	Warning   float64  `json:"warning,omitempty"`
-	Remaining float64  `json:"remaining,omitempty"`
-	Tiles     [][2]int `json:"tiles,omitempty"`
-	Origin    [2]int   `json:"origin,omitempty"`
-	Direction [2]int   `json:"direction,omitempty"`
-	TargetID  string   `json:"target_id,omitempty"`
-	Released  bool     `json:"released,omitempty"`
+	Carry     float64          `json:"carry,omitempty"`
+	Cooldown  status.DualClock `json:"cooldown_clock,omitzero"`
+	Warning   status.DualClock `json:"warning_clock,omitzero"`
+	Remaining status.DualClock `json:"remaining_clock,omitzero"` // the lingering field
+	Tiles     [][2]int         `json:"tiles,omitempty"`
+	Origin    [2]int           `json:"origin,omitempty"`
+	Direction [2]int           `json:"direction,omitempty"`
+	TargetID  string           `json:"target_id,omitempty"`
+	Released  bool             `json:"released,omitempty"`
+	// Legacy saves: the part of each span left.
+	LegacyCooldown  float64 `json:"cooldown,omitempty"`
+	LegacyWarning   float64 `json:"warning,omitempty"`
+	LegacyRemaining float64 `json:"remaining,omitempty"`
 }
 
 func (s TelegraphState) Clone() TelegraphState { s.Tiles = append([][2]int(nil), s.Tiles...); return s }
+
+// CooldownClock arms the authored cooldown: RT seconds beside TB rounds.
+func (a *TelegraphedAttack) CooldownClock(tps int) status.DualClock {
+	return status.PairClock(a.CooldownSeconds, a.CooldownRounds, tps, 1)
+}
+
+// WarningClock arms the authored warning: RT seconds beside TB rounds.
+func (a *TelegraphedAttack) WarningClock(tps int) status.DualClock {
+	return status.PairClock(a.WarningSeconds, a.WarningRounds, tps, 1)
+}
+
+// MigrateLegacy reads an old save's spans left into the clocks.
+func (s *TelegraphState) MigrateLegacy(a *TelegraphedAttack, tps int) {
+	if a != nil {
+		if s.LegacyCooldown > 0 {
+			s.Cooldown = status.PairClock(a.CooldownSeconds, a.CooldownRounds, tps, s.LegacyCooldown)
+		}
+		if s.LegacyWarning > 0 {
+			s.Warning = status.PairClock(a.WarningSeconds, a.WarningRounds, tps, s.LegacyWarning)
+		}
+		if s.LegacyRemaining > 0 {
+			s.Remaining = status.PairClock(float64(a.DurationSeconds), config.CombatRounds(a.DurationSeconds), tps, s.LegacyRemaining)
+		}
+	}
+	s.LegacyCooldown, s.LegacyWarning, s.LegacyRemaining = 0, 0, 0
+}
 
 // lines describes the telegraph as an ability; d supplies the attack that a
 // shield variant converts into absorption.

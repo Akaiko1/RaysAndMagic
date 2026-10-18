@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"slices"
+	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -78,7 +79,7 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 			return castNoEffect
 		}
 		if a.Kind == "berserk" {
-			m.BerserkFramesRemaining = max(m.BerserkFramesRemaining, frames)
+			m.Berserk.ArmFrames(frames, cs.game.config.GetTPS())
 			m.WasAttacked = true
 			m.BeginPlayerEngagement()
 			cs.refreshMonsterAITarget(m)
@@ -119,8 +120,9 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 				m.ApplyFear(frames)
 				cs.game.releaseMonsterAttackPost(m)
 			case "feeblemind":
-				m.SilenceFramesRemaining = frames
-				m.SilenceImmunityFramesRemaining = a.ReapplyImmunitySeconds * cs.game.config.GetTPS()
+				m.Silence, m.SilenceImmunity = status.DualClock{}, status.DualClock{}
+				m.Silence.ArmFrames(frames, cs.game.config.GetTPS())
+				m.SilenceImmunity.Arm(a.ReapplyImmunitySeconds, cs.game.config.GetTPS())
 			}
 			if a.Kind != "frozen_ground" {
 				cs.game.startMonsterSpellVisual(def, m)

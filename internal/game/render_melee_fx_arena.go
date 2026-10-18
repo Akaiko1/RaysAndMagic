@@ -28,7 +28,7 @@ func (r *Renderer) arenaImpactCloud(screen *ebiten.Image, x, y, u, maxR, squashY
 
 // arenaDebrisSpray throws `count` ballistic chips from (ox,oy) with 3-step
 // ghost trails and a parabolic fall - the shared "something broke off" beat
-// (gladius bronze chips, cogfang plate, escapement teeth). u is the finish
+// (gladius bronze chips, cogfang plate). u is the finish
 // phase 0..1; spread is the fan in radians around straight up; speed/gravity/
 // size scale with h; every everyN-th chip takes the accent color.
 func (r *Renderer) arenaDebrisSpray(screen *ebiten.Image, ox, oy, u, fade, h, spread, spdBase, speed, gravity, size float64, count, everyN, seed, salt int, base, accent [3]int) {

@@ -317,7 +317,7 @@ func TestWaterBreathingRecastKeepsTheSurfacePoint(t *testing.T) {
 			if g.underwaterReturnMap != "forest" || g.underwaterReturnX != surfaceX || g.underwaterReturnY != surfaceY {
 				t.Fatalf("recast moved the surface point to %s (%v,%v)", g.underwaterReturnMap, g.underwaterReturnX, g.underwaterReturnY)
 			}
-			g.advanceUtilityBuffs(g.waterBreathingDuration + 1)
+			spendFrames(g.waterBreathingClock.Frames+1, g.advanceUtilityBuffs)
 			if wm.CurrentMapKey != "forest" || g.camera.X != surfaceX || g.camera.Y != surfaceY {
 				t.Fatalf("spell ended on %s at (%v,%v), want forest (%v,%v)", wm.CurrentMapKey, g.camera.X, g.camera.Y, surfaceX, surfaceY)
 			}
@@ -365,7 +365,7 @@ func TestCooldownShowsQuickeningOnlyWhileActive(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			char := cs.game.party.Members[0]
 			if active {
-				cs.game.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Frames: 600, RecoveryPct: 20})
+				cs.game.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(600), RecoveryPct: 20})
 			}
 			card := GetSpellTooltipRows("fireball", char, cs, true).String()
 			if got := strings.Contains(card, "Quickening: -20% recovery"); got != active {

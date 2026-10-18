@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"testing"
 	"ugataima/internal/character"
@@ -172,7 +173,7 @@ func TestSolsticeVisitLifecycle(t *testing.T) {
 					}
 					// Return at the same weekly window; time alone never spawns a visit.
 					g.calendarDay += 5
-					g.tickEnvironment(0, false)
+					g.tickEnvironment(false)
 					if g.adventure.Visits[key].Generation != 1 {
 						t.Fatal("visit refreshed without entering")
 					}
@@ -215,8 +216,8 @@ func TestAdventureTerrainCadence(t *testing.T) {
 				t.Fatal("entry did not trigger")
 			}
 			g.applyEnvironmentArrival()
-			g.tickEnvironment(3, tb)
-			g.tickEnvironment(3, tb)
+			tickEnvironmentFor(g, 3, tb)
+			tickEnvironmentFor(g, 3, tb)
 			g.applyEnvironmentArrival()
 			if g.party.Members[0].HitPoints != after {
 				t.Fatal("standing retriggered trap")
@@ -329,7 +330,7 @@ func TestAdventureScalingSaveProvenance(t *testing.T) {
 				case "authored", "charmed":
 					scaleAdventureMonster(g.config.AdventureScaling, m, 56)
 					if kind == "charmed" {
-						m.Bound, m.CharmedByParty, m.BoundFramesRemaining = true, true, 100000
+						m.Bound, m.CharmedByParty, m.BoundClock = true, true, framesClock(100000)
 					}
 				case "boss":
 					for _, sp := range wm.LoadedMaps[key].MonsterSpawns {
@@ -346,7 +347,7 @@ func TestAdventureScalingSaveProvenance(t *testing.T) {
 					m.IsEncounterMonster, m.EncounterRewards = true, &monster.EncounterRewards{}
 				case "party_summon":
 					m.SummonedBy, m.QuestProgressIgnored, m.Bound = spellSummonOwnerPrefix+"test", true, true
-					m.BoundFramesRemaining = 100000
+					m.BoundClock = framesClock(100000)
 					m.MaxHitPoints, m.ArmorClass, m.DamageMin, m.DamageMax = 900, 90, 45, 67
 				}
 				m.ID = fmt.Sprintf("%s-%d", kind, i)
@@ -434,5 +435,17 @@ func TestAdventurePercentDamageFollowsTheBoss(t *testing.T) {
 		if flat := effectDamage(vent, lo, hi); flat.Damage != 12 {
 			t.Fatalf("L%d: flat damage became %d", level, flat.Damage)
 		}
+	}
+}
+
+// tickEnvironmentFor runs seconds of game time through tickEnvironment: RT
+// frames, or TB rounds.
+func tickEnvironmentFor(g *MMGame, seconds float64, turn bool) {
+	n := int(math.Round(seconds * float64(g.config.GetTPS())))
+	if turn {
+		n = int(math.Ceil(seconds / config.CombatRoundSeconds))
+	}
+	for range n {
+		g.tickEnvironment(turn)
 	}
 }

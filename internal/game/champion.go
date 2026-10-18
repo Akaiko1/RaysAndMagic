@@ -261,6 +261,7 @@ func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, d
 		armorPiercePct = wd.ArmorPiercePct
 	}
 	hit := hitFromMonster(m, damage, damageType, false, 0, true, false)
+	hit.Parts = weaponTrueShare(wd, hit.Parts)
 	hit.ArmorPiercePct = armorPiercePct
 	return hit
 }

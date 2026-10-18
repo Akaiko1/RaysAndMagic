@@ -240,14 +240,14 @@ func TestTBAttackPassRunsTheMonsterTurn(t *testing.T) {
 	equipTBAttackLoadout(t, g, 3, "unarmed")
 	strandTBParty(g, 3)
 	g.combat.applyStunDR(m, 2, false)
-	stunned := m.StunTurnsRemaining
+	stunned := m.Stun.Turns
 	fp.press()
 	tick()
 	if g.currentTurn != 1 {
 		t.Fatalf("turn = %d, want the monster turn", g.currentTurn)
 	}
 	g.gameLoop.updateMonstersTurnBased()
-	if m.StunTurnsRemaining != stunned-1 || g.currentTurn != 0 || g.partyAllExhausted() {
-		t.Fatalf("monster turn: stun %d -> %d, turn=%d exhausted=%v", stunned, m.StunTurnsRemaining, g.currentTurn, g.partyAllExhausted())
+	if m.Stun.Turns != stunned-1 || g.currentTurn != 0 || g.partyAllExhausted() {
+		t.Fatalf("monster turn: stun %d -> %d, turn=%d exhausted=%v", stunned, m.Stun.Turns, g.currentTurn, g.partyAllExhausted())
 	}
 }

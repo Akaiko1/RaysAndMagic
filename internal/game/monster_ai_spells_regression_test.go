@@ -66,18 +66,18 @@ func TestAIChampionSpellsFollowTarget(t *testing.T) {
 							}
 							switch spell {
 							case "stone_skin":
-								if m.SoakFrames <= 0 {
+								if m.Soak.Frames <= 0 {
 									t.Fatal("cast did not apply self buff")
 								}
 							case "stun":
 								if redirected {
-									if foe.StunTurnsRemaining <= 0 {
+									if foe.Stun.Turns <= 0 {
 										t.Fatal("shockwave missed summon")
 									}
 								} else {
 									stunned := false
 									for _, ch := range g.party.Members {
-										if ch.StunTurnsRemaining > 0 {
+										if ch.Stun.Turns > 0 {
 											stunned = true
 										}
 									}

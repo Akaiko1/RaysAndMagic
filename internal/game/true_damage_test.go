@@ -113,7 +113,7 @@ func TestPartyCardTrueDamage_DodgeResistanceAndMeleeMultiplier(t *testing.T) {
 	trueDmg := cardItemDef(t, "samurai_card").CardMeleeTrueDmg
 	meleePct := cardItemDef(t, "masked_serpent_dancer_card").CardMeleeDmgPct
 	maul := lookupWeaponConfigByName("Idol-Breaker, the Warlord's Maul")
-	if maul == nil || maul.TrueDamage != 0 {
+	if maul == nil || maul.TrueDamagePct != 0 {
 		t.Fatal("fixture weapon missing or carries its own true damage")
 	}
 
@@ -130,6 +130,64 @@ func TestPartyCardTrueDamage_DodgeResistanceAndMeleeMultiplier(t *testing.T) {
 	cs.ApplyDamageToMonster(dodger, 100, maul.Name, false)
 	if got, want := 100-dodger.HitPoints, trueDmg*(100-50)/100; got != want {
 		t.Fatalf("card true through dodge dealt %d, want %d after physical resistance", got, want)
+	}
+}
+
+// Broodspike turns a third of each hit into true damage: the cut moves damage
+// without adding any, it is taken after flat damage buffs, and the share
+// ignores armor and a Perfect Dodge but still meets resistance. A plain spear dealing the
+// remaining normal part is the control that measures armor and resistance; a
+// champion wielding Broodspike makes the same cut.
+func TestBroodspikeTurnsAShareOfEachHitIntoTrueDamage(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	attacker := cs.game.party.Members[cs.game.selectedChar]
+	isolateTrueDamageMember(attacker, 0)
+	cs.game.cardSlots = [MaxCardSlots]cardSlot{}
+	brood, plain := lookupWeaponConfigByName("Broodspike"), lookupWeaponConfigByName("Tarn Trident")
+	if brood == nil || plain == nil || brood.TrueDamagePct != 33 || plain.TrueDamagePct != 0 {
+		t.Fatal("fixture: Broodspike must cut 33% and the control spear nothing")
+	}
+	hit := func(weapon string, normal int, setup func(*monsterPkg.Monster3D)) int {
+		m := mkTestMonster("Target", 10000)
+		setup(m)
+		cs.ApplyDamageToMonster(m, normal, weapon, false)
+		return 10000 - m.HitPoints
+	}
+	// A flat +60 outgoing buff joins the hit before the cut: a third of 360.
+	buffed := func() int {
+		cs.game.combatBuffs = []TimedCombatBuff{{OutBonus: 60}}
+		defer func() { cs.game.combatBuffs = nil }()
+		m := mkTestMonster("Target", 10000)
+		m.PerfectDodge = 100
+		cs.ApplyDamageToMonster(m, 300, brood.Name, false)
+		return 10000 - m.HitPoints
+	}
+	bare := func(*monsterPkg.Monster3D) {}
+	armored := func(m *monsterPkg.Monster3D) { m.ArmorClass = 60 }
+	dodger := func(m *monsterPkg.Monster3D) { m.PerfectDodge = 100 }
+	resists := func(m *monsterPkg.Monster3D) { m.Resistances[monsterPkg.DamagePhysical] = 50 }
+
+	for _, tc := range []struct {
+		name string
+		got  int
+		want int
+	}{
+		{"bare target", hit(brood.Name, 300, bare), 300},
+		{"armor spares the share", hit(brood.Name, 300, armored), hit(plain.Name, 201, armored) + 99},
+		{"the share lands through a dodge", hit(brood.Name, 300, dodger), 99},
+		{"the share is cut after flat buffs", buffed(), 360 * 33 / 100},
+		{"resistance meets the share", hit(brood.Name, 300, resists), hit(plain.Name, 201, resists) + 99*(100-50)/100},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s: dealt %d, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+
+	champion := mkTestMonster("Champion", 1000)
+	champion.TrueDamage = 4
+	parts := championMeleeHit(champion, brood, 300).Parts
+	if parts.Normal != 201 || parts.True != 4+99 {
+		t.Fatalf("champion Broodspike hit = %d normal + %d true, want 201 + %d", parts.Normal, parts.True, 4+99)
 	}
 }
 
@@ -177,7 +235,7 @@ func TestPartyTrueDamage_ReachesWeaponAoeVictims(t *testing.T) {
 	near := mkTestMonster("Near", 1000)
 	near.X, near.Y = center.X+tile, center.Y
 	near.Resistances[monsterPkg.DamagePhysical] = 50
-	near.SoakDamage, near.SoakFrames = 999, 1
+	near.SoakDamage, near.Soak.Frames = 999, 1
 	g.world.Monsters = []*monsterPkg.Monster3D{center, near}
 
 	cs.ApplyDamageToMonster(center, 0, "Idol-Breaker, the Warlord's Maul", false)
@@ -192,7 +250,7 @@ func TestMonsterCrossfireProjectile_CarriesTrueDamage(t *testing.T) {
 	source.Bound = true
 	target := mkTestMonster("Target", 100)
 	target.Resistances[monsterPkg.DamagePhysical] = 50
-	target.SoakDamage, target.SoakFrames = 999, 1
+	target.SoakDamage, target.Soak.Frames = 999, 1
 
 	bolt := &Arrow{
 		ID:            "true_crossfire",
@@ -307,7 +365,7 @@ func TestGrandmasterHitGrazesThroughPerfectDodge(t *testing.T) {
 				target := mkTestMonster("Dodger", 1000)
 				target.PerfectDodge = 100
 				cs.ApplyDamageToMonster(target, normal, sword.Name, false)
-				want := sword.TrueDamage + tc.tiers*MasteryWeaponTrueDamagePerTier
+				want := tc.tiers * MasteryWeaponTrueDamagePerTier
 				if tc.grazes {
 					want += graze
 				}

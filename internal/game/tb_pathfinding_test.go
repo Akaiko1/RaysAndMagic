@@ -473,7 +473,7 @@ func TestMonsterTurnBased_PounceFailFallsThroughToMovement(t *testing.T) {
 	gorilla.IsEngagingPlayer = true
 	gorilla.SummonFirstDone = true
 	disableRandomSpecials(gorilla)
-	gorilla.PounceCDTurns = 0
+	gorilla.PounceCD.Turns = 0
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshMonsterAIState()
@@ -500,8 +500,8 @@ func TestMonsterTurnBased_PounceFailFallsThroughToMovement(t *testing.T) {
 	if end != [2]int{5, 3} {
 		t.Fatalf("gorilla moved to %v after failed pounce, want one normal step to [5 3]", end)
 	}
-	if gorilla.PounceCDTurns != 0 {
-		t.Fatalf("failed pounce should not arm TB cooldown, got %d", gorilla.PounceCDTurns)
+	if gorilla.PounceCD.Turns != 0 {
+		t.Fatalf("failed pounce should not arm TB cooldown, got %d", gorilla.PounceCD.Turns)
 	}
 }
 
@@ -626,7 +626,7 @@ func gorillaReadyToAttackOrPounceTB(g *MMGame, gorilla *monsterPkg.Monster3D, ti
 	if dx <= 1 && dy <= 1 && dx+dy > 0 {
 		return g.collisionSystem.CheckLineOfSight(gorilla.X, gorilla.Y, g.camera.X, g.camera.Y)
 	}
-	if !gorilla.CanPounce() || gorilla.PounceCDTurns != 0 {
+	if !gorilla.CanPounce() || gorilla.PounceCD.Turns != 0 {
 		return false
 	}
 	pounceTiles := int(gorilla.PounceRangePixels() / tile)

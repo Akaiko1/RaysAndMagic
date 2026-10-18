@@ -12,7 +12,7 @@ import (
 )
 
 // Mana regeneration tunables. SP regenerates by (1 + Personality/divisor +
-// the Meditation bonus) every config.RegenerationIntervalFrames() ticks. Kept in
+// the Meditation bonus) every regeneration period (TickRegen). Kept in
 // this package because game's balance.go can't be imported from
 // internal/character (circular).
 const (
@@ -79,6 +79,7 @@ type MMCharacter struct {
 	// (Catalysis): assigned on first use, saved.
 	ActorID        uint64
 	ReactiveCombat ReactiveCombatState
+	Clockwork      ClockworkGearState
 	AdventureXP    map[string]AdventureExperience
 	Inventory      []items.Item // Personal bag; travels with this hero through roster changes.
 	RareClass      RareClassState
@@ -141,13 +142,13 @@ type MMCharacter struct {
 
 	// Status effects
 	Conditions []Condition
-	// Consumable and target-mark timers use simulation frames in both RT and TB.
-	AutoDrinkCooldown  int
+	// Consumable and target-mark cooldowns on the one RT/TB clock.
+	AutoDrinkCD        status.DualClock
 	DesignatedTargetID string
-	DesignationFrames  int
-	// AutocastFrames is the hero's one autocast budget, shared by spellbook
-	// and technique autocasts.
-	AutocastFrames int
+	Designation        status.DualClock
+	// AutocastCD is the hero's one autocast budget, shared by spellbook and
+	// technique autocasts.
+	AutocastCD status.DualClock
 
 	// Poison status timer and tick accumulator (frames).
 	PoisonFramesRemaining int
@@ -155,29 +156,28 @@ type MMCharacter struct {
 	// Ignite (burn): a separate DoT 3x as strong as poison that STACKS with it.
 	BurnFramesRemaining int
 	burnTickTimer       int
-	// Stun: skips the character's actions. RT counts frames, TB counts turns.
-	StunFramesRemaining int
-	StunTurnsRemaining  int
-	StunRate            int // persisted frames-per-turn rate keeping mode switches proportional
+	// Stun: skips the character's actions.
+	Stun status.DualClock
 	// ArmorMelt: a melting monster's hit leaves the hero's armor blunting a
 	// physical hit only as far as an elemental one (ArmorMelted).
 	ArmorMelt status.DualClock
 	// Stun diminishing returns (status.StunDRChain): chain step plus the
-	// stun-free TB turns / RT frames left before the chain resets.
-	StunDRStacks       int
-	StunDRMemoryTurns  int
-	StunDRMemoryFrames int
+	// stun-free time left before the chain resets.
+	StunDRStacks int
+	StunDRMemory status.DualClock
 	// ScaleStacks: equipped scale-growth armor accumulated this combat.
 	// Runtime-only - stacks shed the moment combat ends (never saved).
 	ScaleStacks int
 
-	// Regeneration timer - counts frames until next spell point regeneration
-	spellRegenTimer int
+	// SPRegen and HPRegen run to the next regeneration payouts (TickRegen);
+	// SPRegenFight is the SP period's kind, the fight one or the calm one.
+	SPRegen      status.DualClock
+	HPRegen      status.DualClock
+	SPRegenFight bool
 
-	// BonusRegenPct is a % of max HP regenerated every config.RegenerationIntervalFrames(),
+	// BonusRegenPct is a % of max HP regenerated every regeneration period,
 	// pushed by the game (Troll Cards) the same way as BonusMaxHP. Runtime-only.
 	BonusRegenPct int
-	hpRegenTimer  int
 	// Timed party draught bonuses are derived from active buffs, never saved here.
 	BuffHPRegenPct   int
 	BuffManaRegenPct int
@@ -257,10 +257,9 @@ func (c *MMCharacter) CanDualWield() bool {
 // IsDualWielding reports whether c has the Dual Wielding skill AND an actual
 // weapon (not a shield or nothing) in the off-hand. Dual Wielding's perks -
 // the personal extra TB action, the independent off-hand RT cooldown - only
-// kick in while both hold. The skill check is load-bearing: save restore does
-// not revalidate equipment slots, so a crafted/legacy save with an off-hand
-// weapon on a skill-less character would otherwise hand out every perk for
-// free. Without the skill the off-hand weapon simply sits inert.
+// kick in while both hold. Loading returns gear that no longer fits its slot
+// to the bag (ItemBelongsInSlot); the skill check still keeps the perks off
+// whatever else fills the slot.
 func (c *MMCharacter) IsDualWielding() bool {
 	if !c.CanDualWield() {
 		return false
@@ -695,58 +694,41 @@ type PartyClock struct {
 	InCombat  bool
 }
 
-// RegenPayout names the regeneration cadences that paid out. SP and HP keep
-// separate phases (SP slows in a fight), so a payout clears only its own
-// resource's progress in the other mode.
-type RegenPayout struct {
-	SP, HP bool
-}
-
-// Any reports whether either cadence paid out.
-func (p RegenPayout) Any() bool { return p.SP || p.HP }
-
-// UpdateWithMode updates the character on the party clock and reports which
-// RT regeneration cadences completed this frame. Optional absorbers reduce
-// pending DoT damage before HP is deducted.
-func (c *MMCharacter) UpdateWithMode(clock PartyClock, absorbDoT ...func(int) int) RegenPayout {
-	// Turn-based mode: skip timer-based regen AND poison/burn - those advance
-	// once per party turn (TickPoisonTurn/TickBurnTurn, called from
-	// startPartyTurn) so deliberating over a move doesn't bleed real-time HP,
-	// mirroring monster poison's RT-frame-vs-TB-turn split.
+// UpdateWithMode advances the character one RT frame on the party clock.
+// Optional absorbers reduce pending DoT damage before HP is deducted.
+func (c *MMCharacter) UpdateWithMode(clock PartyClock, absorbDoT ...func(int) int) {
+	// Turn-based mode: regen and poison/burn advance once per party turn
+	// (TickRegen from endPartyTurn, TickPoisonTurn/TickBurnTurn from
+	// startPartyTurn), so deliberating over a move doesn't bleed real-time HP.
 	if clock.TurnBased {
-		return RegenPayout{}
+		return
 	}
-
-	// Use normal timer-based regeneration in real-time mode
-	return c.updateRegenAndPoison(clock.InCombat, absorbDoT...)
+	c.updateRegenAndPoison(clock.InCombat, absorbDoT...)
 }
 
-// A stun carries both a RT (seconds->frames) and a TB (turns) counter; only the
-// current mode's counter is ticked. The stun ends when the ACTIVE counter
-// expires (clearing the other), so it lasts its full single-mode duration and a
-// mode switch ends it on whichever runs out first - never permanent.
+// A stun is a rated status.DualClock: a mode switch keeps its spent part.
 
 // tickStunFrames counts down a real-time stun, clearing it when the timer ends.
 // Rated: the TB clock drains proportionally so toggling combat mode cannot
 // hand the stun its frozen turn count back.
 func (c *MMCharacter) tickStunFrames() {
 	if !c.IsStunned() {
-		c.StunDR().ForgetFrame()
+		c.StunDR().Forget(false)
 		return
 	}
-	if status.TickFrameRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate) {
+	if c.Stun.TickFrame() {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
 
 // StunDR exposes this hero's diminishing-returns chain to the shared rule.
 func (c *MMCharacter) StunDR() status.StunDRChain {
-	return status.StunDRChain{Stacks: &c.StunDRStacks, MemoryTurns: &c.StunDRMemoryTurns, MemoryFrames: &c.StunDRMemoryFrames}
+	return status.StunDRChain{Stacks: &c.StunDRStacks, Memory: &c.StunDRMemory}
 }
 
 // TickStunTurn counts down a turn-based stun at the start of the party's turn.
 func (c *MMCharacter) TickStunTurn() {
-	if status.TickTurnRated(&c.StunTurnsRemaining, &c.StunFramesRemaining, &c.StunRate) {
+	if c.Stun.TickTurn() {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
@@ -810,18 +792,67 @@ func (c *MMCharacter) dotDamage(amount int, absorbDoT ...func(int) int) {
 	}
 }
 
-// spellRegenIntervalFrames is the RT SP cadence: the regen interval, or the
-// slower fight interval while the party fights.
-func spellRegenIntervalFrames(inCombat bool) int {
-	if inCombat {
-		return config.CombatSPRegenIntervalFrames()
+// regenPeriod is a fresh regeneration period, RT seconds beside TB rounds
+// (config); SP waits the slower fight period while the party fights.
+func regenPeriod(sp, inCombat bool) status.DualClock {
+	seconds, rounds := config.RegenerationSeconds, config.RegenerationRounds
+	if sp && inCombat {
+		seconds, rounds = config.CombatSPRegenSeconds, config.CombatSPRegenRounds
 	}
-	return config.RegenerationIntervalFrames()
+	return status.PairClock(float64(seconds), rounds, config.GetTargetTPS(), 1)
 }
 
-// updateRegenAndPoison ticks poison and the RT regen cadences (buffs flow in
+// regenLeft is period with spentFrames of RT and spentTurns of TB gone, each
+// counted in its own mode as the elapsed time it is; a mode whose part is
+// spent pays on its next tick.
+func regenLeft(period status.DualClock, spentFrames, spentTurns int) status.DualClock {
+	left := period
+	left.Frames = max(1, period.Frames-max(0, spentFrames))
+	left.Turns = max(1, min(period.Turns-max(0, spentTurns), (left.Frames+left.Rate-1)/left.Rate))
+	return left
+}
+
+// TickRegen spends one tick of the running mode on both regeneration periods
+// and pays each one that lapses. When the party starts or stops fighting the
+// running SP period takes the other length, keeping the time already spent.
+// Cards, carried supplies and draughts share the HP period, including before
+// a supply is acquired. An unconscious hero's periods wait.
+func (c *MMCharacter) TickRegen(turn, inCombat bool) {
+	if c.HasCondition(ConditionUnconscious) {
+		return
+	}
+	if c.SPRegenFight != inCombat {
+		if c.SPRegen.Active() {
+			from := regenPeriod(true, c.SPRegenFight)
+			c.SPRegen = regenLeft(regenPeriod(true, inCombat), from.Frames-c.SPRegen.Frames, from.Turns-c.SPRegen.Turns)
+		}
+		c.SPRegenFight = inCombat
+	}
+	if c.SPRegen.EveryClock(func() status.DualClock { return regenPeriod(true, inCombat) }, turn) {
+		c.RegenerateSpellPoints()
+	}
+	if c.HPRegen.EveryClock(func() status.DualClock { return regenPeriod(false, false) }, turn) {
+		c.ApplyCardRegenTick()
+	}
+}
+
+// RestoreLegacyRegen reads an old save's progress since the last payouts -
+// RT frames per hero, TB rounds per party, each counted in its own mode - into
+// the periods. SP progress past the calm period was made in a fight.
+func (c *MMCharacter) RestoreLegacyRegen(spellFrames, hpFrames, spellRounds, hpRounds int) {
+	calm := regenPeriod(true, false)
+	c.SPRegenFight = spellFrames >= calm.Frames || spellRounds >= calm.Turns
+	if spellFrames > 0 || spellRounds > 0 {
+		c.SPRegen = regenLeft(regenPeriod(true, c.SPRegenFight), spellFrames, spellRounds)
+	}
+	if hpFrames > 0 || hpRounds > 0 {
+		c.HPRegen = regenLeft(regenPeriod(false, false), hpFrames, hpRounds)
+	}
+}
+
+// updateRegenAndPoison ticks poison and the RT regen periods (buffs flow in
 // via BuffBonuses).
-func (c *MMCharacter) updateRegenAndPoison(inCombat bool, absorbDoT ...func(int) int) RegenPayout {
+func (c *MMCharacter) updateRegenAndPoison(inCombat bool, absorbDoT ...func(int) int) {
 	tps := config.GetTargetTPS()
 	if tps <= 0 {
 		tps = config.DefaultTPS
@@ -831,56 +862,7 @@ func (c *MMCharacter) updateRegenAndPoison(inCombat bool, absorbDoT ...func(int)
 	c.tickStunFrames()
 	c.ArmorMelt.TickFrame()
 
-	// If unconscious, skip regeneration and updates
-	if c.HasCondition(ConditionUnconscious) {
-		return RegenPayout{}
-	}
-	var paid RegenPayout
-	c.spellRegenTimer++
-	if c.spellRegenTimer >= spellRegenIntervalFrames(inCombat) {
-		c.RegenerateSpellPoints()
-		c.spellRegenTimer = 0
-		paid.SP = true
-	}
-	// Cards, carried supplies and draughts share one cadence, including before
-	// a supply is acquired. Moving a kit cannot reset or accelerate its ticks.
-	c.hpRegenTimer++
-	if c.hpRegenTimer >= config.RegenerationIntervalFrames() {
-		c.hpRegenTimer = 0
-		c.ApplyCardRegenTick()
-		paid.HP = true
-	}
-	return paid
-}
-
-// ResetRealtimeRegenCadence clears the RT progress of the cadences a TB round
-// paid. Conversely, an RT payout resets the matching game-owned TB counter.
-// The first cadence to complete therefore owns each resource's payout and
-// switching modes cannot award a second one immediately.
-func (c *MMCharacter) ResetRealtimeRegenCadence(paid RegenPayout) {
-	if c == nil {
-		return
-	}
-	if paid.SP {
-		c.spellRegenTimer = 0
-	}
-	if paid.HP {
-		c.hpRegenTimer = 0
-	}
-}
-
-// RealtimeRegenProgress exposes the cadence phase for active and reserve saves.
-func (c *MMCharacter) RealtimeRegenProgress() (spell, hp int) {
-	return c.spellRegenTimer, c.hpRegenTimer
-}
-
-// RestoreRealtimeRegenProgress preserves valid partial progress, up to the
-// longest interval of each cadence (SP slows in a fight). Missing legacy
-// fields start at zero; malformed phases are clamped into that range.
-func (c *MMCharacter) RestoreRealtimeRegenProgress(spell, hp int) {
-	spellLongest := max(spellRegenIntervalFrames(false), spellRegenIntervalFrames(true))
-	c.spellRegenTimer = min(max(0, spell), spellLongest-1)
-	c.hpRegenTimer = min(max(0, hp), config.RegenerationIntervalFrames()-1)
+	c.TickRegen(false, inCombat)
 }
 
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
@@ -964,7 +946,7 @@ func (c *MMCharacter) CureDamageOverTime() {
 func (c *MMCharacter) clearAfflictionClocks() {
 	status.Clear(&c.PoisonFramesRemaining, &c.poisonTickTimer)
 	status.Clear(&c.BurnFramesRemaining, &c.burnTickTimer)
-	c.StunFramesRemaining, c.StunTurnsRemaining, c.StunRate = 0, 0, 0
+	c.Stun = status.DualClock{}
 	c.ArmorMelt = status.DualClock{}
 }
 
@@ -1033,7 +1015,7 @@ func (c *MMCharacter) updateBurn(tps int, absorbDoT ...func(int) int) {
 // ApplyCharStun stuns the character for the given RT frames / TB turns (max with
 // any existing stun). A stunned character takes no action until it wears off.
 func (c *MMCharacter) ApplyCharStun(frames, turns int) {
-	if status.RefreshDualRated(&c.StunFramesRemaining, &c.StunTurnsRemaining, &c.StunRate, frames, turns) {
+	if c.Stun.Refresh(frames, turns) {
 		c.AddCondition(ConditionStunned)
 	}
 }
@@ -1046,7 +1028,7 @@ func (c *MMCharacter) ArmorMelted() bool { return c != nil && c.ArmorMelt.Active
 
 // IsStunned reports whether the character currently skips actions.
 func (c *MMCharacter) IsStunned() bool {
-	return c != nil && (c.StunFramesRemaining > 0 || c.StunTurnsRemaining > 0)
+	return c != nil && (c.Stun.Active())
 }
 
 func (c *MMCharacter) updatePoison(tps int, absorbDoT ...func(int) int) {
@@ -1291,6 +1273,12 @@ func (c *MMCharacter) GetSpellsForSchool(school MagicSchoolID) []spells.SpellID 
 
 // CanEquipWeapon checks if this character class can equip a specific weapon by name
 func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
+	return c.canWieldWeapon(weaponName, true)
+}
+
+// canWieldWeapon is the weapon gate. statGates false skips stat thresholds
+// (equip_personality_min), which are checked when a weapon is put on only.
+func (c *MMCharacter) canWieldWeapon(weaponName string, statGates bool) bool {
 	// Get weapon key and definition from YAML
 	weaponKey := items.GetWeaponKeyByName(weaponName)
 	weaponDef, exists := getWeaponDefinitionFromGlobal(weaponKey)
@@ -1300,7 +1288,7 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 
 	// Personality-gated weapons (Lanista's Scepter): force of presence replaces
 	// weapon training entirely.
-	if weaponDef.EquipPersonalityMin > 0 && c.GetEffectivePersonality() >= weaponDef.EquipPersonalityMin {
+	if weaponDef.EquipPersonalityMin > 0 && (!statGates || c.GetEffectivePersonality() >= weaponDef.EquipPersonalityMin) {
 		return true
 	}
 	// Firearms need no training to point and shoot: anyone with real weapon
@@ -1414,13 +1402,23 @@ func (c *MMCharacter) itemClassAllowed(item items.Item) bool {
 // the type->slot mapping plus the class/armor gates. Single source of truth for
 // the model equip paths and the UI drag highlight / drop validation.
 func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
+	return c.itemFitsSlot(item, slot, true)
+}
+
+// ItemBelongsInSlot is ItemFitsSlot without stat thresholds: worn gear a buff
+// once allowed stays worn, as in play. A loaded save revalidates with it.
+func (c *MMCharacter) ItemBelongsInSlot(item items.Item, slot items.EquipSlot) bool {
+	return c.itemFitsSlot(item, slot, false)
+}
+
+func (c *MMCharacter) itemFitsSlot(item items.Item, slot items.EquipSlot, statGates bool) bool {
 	if !c.itemClassAllowed(item) {
 		return false
 	}
 
 	switch item.Type {
 	case items.ItemWeapon:
-		if !c.CanEquipWeaponByName(item.Name) {
+		if !c.canWieldWeapon(item.Name, statGates) {
 			return false
 		}
 		if slot == items.SlotMainHand {

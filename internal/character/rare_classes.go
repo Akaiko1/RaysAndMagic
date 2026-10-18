@@ -8,25 +8,28 @@ import (
 	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/status"
 )
 
-// RareClassState travels with the hero, including while benched. All timers use
-// simulation frames; a resolved TB round advances three seconds, never thinking time.
+// RareClassState travels with the hero, including while benched. Its timers are
+// status.DualClock: a frame per RT frame, a turn per resolved TB round.
 type RareClassState struct {
 	FlowDistance float64         `json:"flow_distance,omitempty"`
 	KitGranted   bool            `json:"kit_granted,omitempty"`
 	Automatic    map[string]bool `json:"automatic,omitempty"`
-	AutoFrames   int             `json:"auto_frames,omitempty"` // Legacy input, migrated to MMCharacter.AutocastFrames on load.
+	AutoFrames   int             `json:"auto_frames,omitempty"` // Legacy input, migrated to MMCharacter.AutocastCD on load.
 	FlowFrames   int             `json:"flow_frames,omitempty"` // Legacy save field; migrated to one persistent charge on load.
 	FlowCharges  int             `json:"flow_charges,omitempty"`
 	Anchor       SpatialAnchor   `json:"anchor,omitempty"`
 }
 
 type SpatialAnchor struct {
-	MapKey string  `json:"map_key,omitempty"`
-	X      float64 `json:"x,omitempty"`
-	Y      float64 `json:"y,omitempty"`
-	Frames int     `json:"frames,omitempty"`
+	MapKey string           `json:"map_key,omitempty"`
+	X      float64          `json:"x,omitempty"`
+	Y      float64          `json:"y,omitempty"`
+	Clock  status.DualClock `json:"clock,omitzero"`
+	// LegacyFrames is an older save's lifetime, moved into Clock on load.
+	LegacyFrames int `json:"frames,omitempty"`
 }
 
 func (r RareClassState) Clone() RareClassState {
@@ -34,11 +37,17 @@ func (r RareClassState) Clone() RareClassState {
 	return r
 }
 
-func (r *RareClassState) Tick(frames int) {
-	r.Anchor.Frames = max(0, r.Anchor.Frames-frames)
-	if r.Anchor.Frames == 0 {
+// Tick spends one tick of the anchor's lifetime; a spent anchor is gone.
+func (r *RareClassState) Tick(turn bool) {
+	r.Anchor.Clock.Tick(turn)
+	if !r.Anchor.Clock.Active() {
 		r.Anchor = SpatialAnchor{}
 	}
+}
+
+// MigrateLegacyClocks moves an older save's frame counts onto the clocks.
+func (r *RareClassState) MigrateLegacyClocks(tps int) {
+	status.MigrateFrames(&r.Anchor.Clock, &r.Anchor.LegacyFrames, tps)
 }
 
 func AlchemyYield(tier int, family string) int {

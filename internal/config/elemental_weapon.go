@@ -110,6 +110,8 @@ const (
 	SignatureSolarFlare    SignatureKind = "solar_flare"
 	SignatureRuneDischarge SignatureKind = "rune_discharge"
 	SignatureReturning     SignatureKind = "returning"
+	SignatureSkirmish      SignatureKind = "skirmish"
+	SignatureWindUp        SignatureKind = "wind_up"
 )
 
 // WeaponSignatureConfig is a weapon's signature rider. Solar Flare and Rune
@@ -131,6 +133,26 @@ type WeaponSignatureConfig struct {
 // HasSignature reports a weapon whose signature is kind.
 func (w *WeaponDefinitionConfig) HasSignature(kind SignatureKind) bool {
 	return w != nil && w.Signature != nil && w.Signature.Kind == kind
+}
+
+// ChargesByMovement reports a weapon whose signature stores charges earned by
+// party movement (Solar Flare, Skirmish).
+func (w *WeaponDefinitionConfig) ChargesByMovement() bool {
+	return w.HasSignature(SignatureSolarFlare) || w.HasSignature(SignatureSkirmish)
+}
+
+// StoresCharges reports a weapon whose signature keeps charges on the item:
+// the movement-charged ones and Wind-up, which winds a spring per round.
+func (w *WeaponDefinitionConfig) StoresCharges() bool {
+	return w.ChargesByMovement() || w.HasSignature(SignatureWindUp)
+}
+
+// TileCountText prints a tile distance with its noun: "1 tile", "2 tiles".
+func TileCountText(tiles float64) string {
+	if tiles == 1 {
+		return "1 tile"
+	}
+	return NumberText(tiles) + " tiles"
 }
 
 func positive(value float64) bool { return value > 0 && finite(value) }
@@ -174,6 +196,16 @@ func (s *WeaponSignatureConfig) validate(d *WeaponDefinitionConfig) error {
 			return fmt.Errorf("returning requires a ranged dagger and return_damage_percent 1..100")
 		}
 		unused.ReturnDamagePercent = 0
+	case SignatureSkirmish:
+		if !d.IsRanged() || s.ChargeLimit <= 0 || !positive(s.ChargeMoveTiles) {
+			return fmt.Errorf("skirmish requires a ranged weapon, charge limit and movement")
+		}
+		unused.ChargeLimit, unused.ChargeMoveTiles = 0, 0
+	case SignatureWindUp:
+		if !d.IsRanged() || s.ChargeLimit <= 0 {
+			return fmt.Errorf("wind_up requires a ranged weapon and a charge limit")
+		}
+		unused.ChargeLimit = 0
 	default:
 		return fmt.Errorf("unknown weapon signature kind %q", s.Kind)
 	}
@@ -188,13 +220,26 @@ func (s *WeaponSignatureConfig) FlareLine() string {
 	return uitext.Text("weapon.solar_flare", s.Text(), s.School, NumberText(s.LaneWidthTiles), NumberText(s.LaneBehindTiles), DurationText(s.BurnSeconds))
 }
 
+// StoredLine is a weapon card's count of the charges its item holds.
+func (s *WeaponSignatureConfig) StoredLine(charges int) string {
+	switch s.Kind {
+	case SignatureSolarFlare:
+		return uitext.Text("weapon.solar_stored", charges, s.ChargeLimit)
+	case SignatureSkirmish:
+		return uitext.Text("weapon.skirmish_stored", charges, s.ChargeLimit)
+	case SignatureWindUp:
+		return uitext.Text("weapon.wind_up_stored", charges, s.ChargeLimit)
+	}
+	return ""
+}
+
 func (s *WeaponSignatureConfig) Lines() []string {
 	if s == nil {
 		return nil
 	}
 	switch s.Kind {
 	case SignatureSolarFlare:
-		lines := []string{uitext.Text("weapon.solar_charge", uitext.Text("weapon.solar_flare_name"), NumberText(s.ChargeMoveTiles), s.ChargeLimit)}
+		lines := []string{uitext.Text("weapon.solar_charge", uitext.Text("weapon.solar_flare_name"), TileCountText(s.ChargeMoveTiles), s.ChargeLimit)}
 		if s.ChargeOnOffensiveCast {
 			lines = append(lines, uitext.Text("weapon.solar_charge_spell"))
 		}
@@ -203,6 +248,10 @@ func (s *WeaponSignatureConfig) Lines() []string {
 		return []string{uitext.Text("weapon.rune_discharge", uitext.Text("weapon.rune_discharge_name"), s.SPCost, s.Text(), s.School)}
 	case SignatureReturning:
 		return []string{uitext.Text("weapon.returning_gale", s.ReturnDamagePercent)}
+	case SignatureSkirmish:
+		return []string{uitext.Text("weapon.skirmish", uitext.Text("weapon.skirmish_name"), TileCountText(s.ChargeMoveTiles), s.ChargeLimit)}
+	case SignatureWindUp:
+		return []string{uitext.Text("weapon.wind_up", uitext.Text("weapon.wind_up_name"), s.ChargeLimit)}
 	}
 	return nil
 }

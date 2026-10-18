@@ -335,7 +335,7 @@ func TestDamageReportsCaptureResolvedHits(t *testing.T) {
 	g.combat.applyDamageThroughDodge(m, g.combat.newPartyWeaponAttack(40, 6, "fire", nil, "Blade", false, false, 0), hero, hero.Name, nil)
 	// A bound ally's graze on a dodging foe reads the same way.
 	ally := spawnTestMonsterAt(g, 3, 1)
-	ally.Name, ally.Bound, ally.BoundFramesRemaining = "Ghoul", true, 1000
+	ally.Name, ally.Bound, ally.BoundClock = "Ghoul", true, framesClock(1000)
 	m.PerfectDodge = 100
 	g.combat.strikeMonsterPacketFor(ally, m, singleMonsterDamagePacket(damage.Parts{Normal: 40}, "fire", 0), nil, false, true, true)
 	var hits []combatLogEntry

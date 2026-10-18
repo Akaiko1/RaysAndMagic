@@ -42,10 +42,10 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 		return false
 	}
 	if cadence == monsterAttackTurn {
-		if m.StunTurnsRemaining > 0 || cs.game.turnBasedMonsterStunned[m] {
+		if m.Stun.Turns > 0 || cs.game.turnBasedMonsterStunned[m] {
 			return false
 		}
-	} else if m.StunFramesRemaining > 0 {
+	} else if m.Stun.Frames > 0 {
 		return false
 	}
 	if target.foe != nil {
@@ -82,6 +82,12 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 	if !cs.monsterAttackStillValid(m, target, cadence) {
 		return false
 	}
+	// An attack ends its cycle's jam window (one jam per attack it makes).
+	defer func() {
+		if spent {
+			m.Jammed = false
+		}
+	}()
 	// Champions own independently timed hands; ordinary attacks have one clock.
 	independentHands := m.IsChampion() && !m.Bound && (target.foe != nil || cs.monsterUsesMeleeAgainstParty(m))
 	actionReady := cadence != monsterAttackRealtime || (m.AttackCDFrames == 0 && (target.foe != nil || m.StateTimer == 1))
@@ -105,10 +111,18 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 			cs.game.observeOverwatchAttack(m)
 		}
 	}()
+	m.State = monster.StateAttacking
+	if cadence == monsterAttackTurn && m.PeekTurnBasedSwings() == 0 {
+		// Jams took a whole action's swings (Cogfang Blade): the action is
+		// spent with no attack and no ability roll.
+		m.TakeTurnBasedSwings()
+		cs.armMonsterRTAttackCooldowns(m)
+		cs.game.logCombat(logToneGood, "%s's works jam - its attack is lost!", logMonsterName(m))
+		return true
+	}
 	if target.foe == nil && actionReady {
 		cs.tryMonsterPartyAbilities(m, cadence)
 	}
-	m.State = monster.StateAttacking
 	if cadence == monsterAttackTurn {
 		// Swings per action are fractional and accumulate (turn_based_cadence.go).
 		// They are drawn on the first swing, so an attack revoked before it lands

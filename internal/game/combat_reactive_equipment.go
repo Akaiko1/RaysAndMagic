@@ -2,7 +2,6 @@ package game
 
 import (
 	"math/rand"
-	"slices"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
@@ -59,16 +58,8 @@ func (cs *CombatSystem) consumeDodgeCharge(attack partyMonsterAttack) partyMonst
 	if stacks == 0 || pct == 0 {
 		return attack
 	}
-	boost := func(p monsterDamagePacket) monsterDamagePacket {
-		p.Components = slices.Clone(p.Components)
-		for i := range p.Components {
-			p.Components[i].Parts.Normal = p.Components[i].Parts.Normal * (100 + pct*stacks) / 100
-			p.Components[i].Parts.True = p.Components[i].Parts.True * (100 + pct*stacks) / 100
-		}
-		return p
-	}
-	attack.Packet = boost(attack.Packet)
-	attack.CriticalPacket = boost(attack.CriticalPacket)
+	attack.Packet = scaleMonsterPacket(attack.Packet, 100+pct*stacks)
+	attack.CriticalPacket = scaleMonsterPacket(attack.CriticalPacket, 100+pct*stacks)
 	return attack
 }
 
@@ -97,7 +88,7 @@ func (g *MMGame) reactiveHitReduction(source *monsterPkg.Monster3D, s *character
 
 // Resolve one landed hit before HP loss, regardless of its attack dispatcher.
 func (cs *CombatSystem) resolveHeroHitDamage(source *monsterPkg.Monster3D, target *character.MMCharacter, amount int) int {
-	amount = cs.game.absorbCelestialDamage(amount)
+	amount = cs.game.absorbCelestialDamage(cs.game.heldGroundReduction(source, target, amount))
 	return cs.redirectDamageThroughSacrifice(target, cs.game.reactiveHitReduction(source, &target.ReactiveCombat, amount))
 }
 
@@ -106,6 +97,7 @@ func (cs *CombatSystem) resolveHeroHitDamage(source *monsterPkg.Monster3D, targe
 // on a copy of the hero's reactive state. Sacrifice redirects a landed hit,
 // so a preview leaves it out.
 func (cs *CombatSystem) previewHeroHitDamage(source *monsterPkg.Monster3D, target *character.MMCharacter, amount int) int {
+	amount = cs.game.heldGroundReduction(source, target, amount)
 	amount -= cs.game.celestialAbsorb(amount)
 	preview := target.ReactiveCombat
 	return cs.game.reactiveHitReduction(source, &preview, amount)

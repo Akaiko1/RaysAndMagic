@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 	"ugataima/internal/threading"
 	"ugataima/internal/world"
@@ -81,7 +82,7 @@ func TestTelegraphOwnedDamageContract(t *testing.T) {
 							if actor {
 								placePlayerAtTile(g, 2, 2, 64)
 								foe = spawnSpecialsMonster(g, "goblin", 6, 6)
-								foe.Bound, foe.BoundFramesRemaining = true, 100000
+								foe.Bound, foe.BoundClock = true, framesClock(100000)
 								foe.HitPoints, foe.MaxHitPoints = 10000, 10000
 								foe.Speed, foe.AttackCDFrames = 0, 100000
 								foe.Resistances = nil
@@ -91,7 +92,7 @@ func TestTelegraphOwnedDamageContract(t *testing.T) {
 								vengefulNingyoThornsPct(t, g)
 							}
 							contractMonsterFrame(g, gl)
-							if m.Telegraph.Warning <= 0 {
+							if !m.Telegraph.Warning.Active() {
 								t.Fatal("scheduler did not announce special")
 							}
 							if weaken {
@@ -99,12 +100,12 @@ func TestTelegraphOwnedDamageContract(t *testing.T) {
 							}
 							duration := 1
 							if field {
-								m.Telegraph.Warning, m.Telegraph.Remaining = 0, 1
+								m.Telegraph.Warning, m.Telegraph.Remaining = status.DualClock{}, framesClock(600)
 								if !tb {
 									duration = g.config.GetTPS()
 								}
 							} else {
-								m.Telegraph.Warning = 1e-6
+								m.Telegraph.Warning = lastTickClock()
 							}
 							// Keep ordinary attacks out of a lingering-field measurement.
 							m.AttackCDFrames = 100000
@@ -160,10 +161,10 @@ func TestTelegraphStatusPrecedesRelease(t *testing.T) {
 			t.Run(fmt.Sprintf("TB%v/%s", tb, condition), func(t *testing.T) {
 				g, gl, m := telegraphContractGame(t, tb)
 				contractMonsterFrame(g, gl)
-				if m.Telegraph.Warning <= 0 {
+				if !m.Telegraph.Warning.Active() {
 					t.Fatal("no warning")
 				}
-				m.Telegraph.Warning = 1e-6
+				m.Telegraph.Warning = lastTickClock()
 				switch condition {
 				case "burn":
 					m.HitPoints = 1
@@ -174,10 +175,10 @@ func TestTelegraphStatusPrecedesRelease(t *testing.T) {
 					m.PoisonedFramesRemaining = 1000
 					m.RestoreDoTTickTimers(g.config.GetTPS()-1, 0)
 				case "stun":
-					m.StunFramesRemaining, m.StunTurnsRemaining = 2, 1
+					m.Stun.Frames, m.Stun.Turns = 2, 1
 				case "slow-skip":
 					m.ApplySlow(25, 1000, 5)
-					m.SlowTurnCount = config.SlowSkipEveryTurns() - 1
+					m.SlowSkip = lastTickClock()
 				}
 				hits := 0
 				g.heroHitObserver = func(_ *character.MMCharacter, _ string, damage int) { hits += damage }
@@ -201,10 +202,10 @@ func TestTelegraphTurnPositionAndPasses(t *testing.T) {
 				m.Key = "solstice_gale_elemental"
 				contractMonsterFrame(g, gl)
 				if transfer {
-					m.Telegraph.Warning = 0
+					m.Telegraph.Warning = status.DualClock{}
 					a := &config.AdventureConfig{Effects: []config.EnvironmentEffect{{ID: "transfer", Name: "Transfer", Kind: "transfer", School: "air", Rect: [4]int{6, 6, 6, 6}, Destination: [2]int{5, 6}, WarningSeconds: 1, WarningRounds: 1}}}
 					world.GlobalWorldManager = &world.WorldManager{CurrentMapKey: "forest", MapConfigs: map[string]*config.MapConfig{"forest": {Adventure: a}}}
-					g.adventureVisit("forest").effectState("transfer").Warning = 1
+					g.adventureVisit("forest").effectState("transfer").Warning = roundClock()
 				}
 				if restored {
 					raw, err := json.Marshal(m.Telegraph)
@@ -265,9 +266,9 @@ func TestTelegraphFieldOwnershipSave(t *testing.T) {
 	m.BeginPlayerEngagement()
 	m.WasAttacked = true
 	placePlayerAtTile(g, 4, 4, 64)
-	m.Telegraph = monster.TelegraphState{Cooldown: 1, Remaining: 1, Tiles: [][2]int{{4, 4}}}
+	m.Telegraph = monster.TelegraphState{Cooldown: roundClock(), Remaining: framesClock(600), Tiles: [][2]int{{4, 4}}}
 	g.refreshMonsterAIState()
-	g.tickEnvironment(.25, false)
+	tickEnvironmentFor(g, .25, false)
 	state := g.adventureVisit("solstice_fire").effectState("continuous:fire:")
 	if state.SourceDamageCarry[m.ID] <= 0 {
 		t.Fatalf("missing partial source contribution: state=%+v key=%s allowed=%v party=%v mode=%v", state, currentMapKey(), g.telegraphAllowed(m), m.TargetsParty(), m.CurrentAIBehavior())
@@ -294,7 +295,7 @@ func TestTelegraphFieldOwnershipSave(t *testing.T) {
 			hits += damage
 		}
 	}
-	g.tickEnvironment(.75, false)
+	tickEnvironmentFor(g, .75, false)
 	if hits <= 0 {
 		t.Fatal("restored field became unowned environmental damage")
 	}
@@ -310,7 +311,7 @@ func TestTelegraphFieldOverlapAttribution(t *testing.T) {
 				g, _, m := telegraphContractGame(t, tb)
 				contractTelegraphDefinition(t, m)
 				vengefulNingyoThornsPct(t, g)
-				m.Telegraph = monster.TelegraphState{Cooldown: 1, Remaining: 1, Tiles: [][2]int{{6, 6}}}
+				m.Telegraph = monster.TelegraphState{Cooldown: roundClock(), Remaining: framesClock(600), Tiles: [][2]int{{6, 6}}}
 				a := &config.AdventureConfig{}
 				if kind == "monster strongest" || kind == "terrain strongest" {
 					rate := 50
@@ -328,22 +329,22 @@ func TestTelegraphFieldOverlapAttribution(t *testing.T) {
 					other.Resistances = nil
 					other.Telegraph = m.Telegraph.Clone()
 					if kind == "owner changes" {
-						other.Telegraph.Remaining = 0
+						other.Telegraph.Remaining = status.DualClock{}
 					}
 				}
 				g.refreshMonsterAIState()
 				attributed := map[string]int{}
 				g.heroHitObserver = func(_ *character.MMCharacter, name string, damage int) { attributed[name] += damage }
 				if kind == "owner changes" {
-					g.tickEnvironment(.5, false)
+					tickEnvironmentFor(g, .5, false)
 					g.adventure = cloneAdventureState(g.adventure)
-					m.Telegraph.Remaining = 0
-					other.Telegraph.Remaining = 1
-					g.tickEnvironment(.5, false)
+					m.Telegraph.Remaining = status.DualClock{}
+					other.Telegraph.Remaining = framesClock(600)
+					tickEnvironmentFor(g, .5, false)
 				} else if tb {
-					g.tickEnvironment(3, true)
+					tickEnvironmentFor(g, 3, true)
 				} else {
-					g.tickEnvironment(1, false)
+					tickEnvironmentFor(g, 1, false)
 				}
 				want := 100
 				if kind == "terrain strongest" {
@@ -380,12 +381,12 @@ func TestTelegraphFieldOverlapAttribution(t *testing.T) {
 func TestTelegraphFieldRetainsSchoolAtZeroRate(t *testing.T) {
 	g, _, m := telegraphContractGame(t, false)
 	contractTelegraphDefinition(t, m)
-	m.Telegraph = monster.TelegraphState{Cooldown: 1, Remaining: 1, Tiles: [][2]int{{6, 6}}}
+	m.Telegraph = monster.TelegraphState{Cooldown: roundClock(), Remaining: framesClock(600), Tiles: [][2]int{{6, 6}}}
 	g.combatBuffs = []TimedCombatBuff{{ResistSchool: "fire", ResistSchoolPct: 100}}
 	g.refreshMonsterAIState()
-	g.tickEnvironment(.5, false)
+	tickEnvironmentFor(g, .5, false)
 	m.ApplyWeaken(100, 1000, 5)
-	g.tickEnvironment(.5, false)
+	tickEnvironmentFor(g, .5, false)
 	if g.party.Members[0].HitPoints != 10000 {
 		t.Fatal("partial fire exposure lost its school when the current rate became zero")
 	}
@@ -402,10 +403,10 @@ func TestTelegraphChargeObservesMovementOnce(t *testing.T) {
 	m.Speed = 0
 	m.State, m.StateTimer = monster.StateAttacking, 1
 	contractMonsterFrame(g, gl)
-	if m.Telegraph.Warning <= 0 {
+	if !m.Telegraph.Warning.Active() {
 		t.Fatal("charge did not start")
 	}
-	m.Telegraph.Warning = 1e-6
+	m.Telegraph.Warning = lastTickClock()
 	m.Speed = 1
 	rolls := 0
 	g.combat.reactionRoll = func() float64 { rolls++; return 1 }
@@ -429,12 +430,12 @@ func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
 					isolateTrueDamageMember(second, 0)
 					second.HitPoints, second.MaxHitPoints = 10000, 10000
 					g.party.Members = append(g.party.Members, second)
-					g.combatBuffs = []TimedCombatBuff{{ID: "protection_from_magic", Frames: 1000, Charges: 1}}
+					g.combatBuffs = []TimedCombatBuff{{ID: "protection_from_magic", Clock: framesClock(1000), Charges: 1}}
 					a := &monster.TelegraphedAttack{Name: "Test impact", Kind: kind, School: school, DamagePercent: 100, DurationSeconds: 9}
 					m.Telegraph = monster.TelegraphState{Tiles: [][2]int{{6, 6}}, Direction: [2]int{-1, 0}}
 					hasControl := func() bool {
 						x, _ := g.GetPlayerTilePosition()
-						return g.partyRoot.Frames > 0 || g.partyHinder.Slow > 0 || x != 6
+						return g.partyRooted() || g.partyHinder.Slow.Active() || x != 6
 					}
 					g.resolveMonsterTelegraph(m, a)
 					if school == "water" {
@@ -467,7 +468,7 @@ func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
 	}
 	// Elemental immunity is not ward immunity: zero damage must not cancel control.
 	g, _, m := telegraphContractGame(t, false)
-	g.combatBuffs = []TimedCombatBuff{{ID: "test_resist", Frames: 1000, ResistSchool: "water", ResistSchoolPct: 100}}
+	g.combatBuffs = []TimedCombatBuff{{ID: "test_resist", Clock: framesClock(1000), ResistSchool: "water", ResistSchoolPct: 100}}
 	m.Telegraph = monster.TelegraphState{Tiles: [][2]int{{6, 6}}}
 	g.resolveMonsterTelegraph(m, &monster.TelegraphedAttack{Name: "Resisted root", Kind: "root", School: "water", DamagePercent: 100, DurationSeconds: 6})
 	if g.party.Members[0].HitPoints != 10000 || g.partyRoot.Frames == 0 {

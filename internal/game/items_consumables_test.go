@@ -115,7 +115,7 @@ func TestTimedDraughtUsesItemDefinitionAsSourceOfTruth(t *testing.T) {
 	if !ok {
 		t.Fatal("draught did not use its YAML item key as buff identity")
 	}
-	if buff.ResistSchool != def.ResistBuffSchool || buff.ResistSchoolPct != def.ResistBuffSchoolPct || buff.Frames != def.BuffDurationSeconds*g.config.GetTPS() {
+	if buff.ResistSchool != def.ResistBuffSchool || buff.ResistSchoolPct != def.ResistBuffSchoolPct || buff.Clock.Frames != def.BuffDurationSeconds*g.config.GetTPS() {
 		t.Fatalf("draught buff = %+v, want %s +%d%% for %ds", buff, def.ResistBuffSchool, def.ResistBuffSchoolPct, def.BuffDurationSeconds)
 	}
 
@@ -131,7 +131,7 @@ func TestTimedDraughtUsesItemDefinitionAsSourceOfTruth(t *testing.T) {
 		t.Fatalf("restored draught did not re-derive YAML data: %+v", restored)
 	}
 
-	g.setBuffStatus("flame_ward_draught", buff.Frames)
+	g.setBuffStatus("flame_ward_draught", buff.Clock.Frames)
 	status := g.buffStatuses["flame_ward_draught"]
 	// The draught wears its OWN bottle, not a spell's icon: pointing status_icon
 	// at "fire_shield" once put the Fire Shield spell icon in the status bar for
