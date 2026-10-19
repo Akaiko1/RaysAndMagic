@@ -13,7 +13,7 @@ import (
 )
 
 func flaskDefinition(item items.Item) (string, *config.ItemDefinitionConfig) {
-	d, k, ok := config.GetItemDefinitionByName(item.Name)
+	d, k, ok := config.ItemDefOf(item)
 	if ok && d.Flask != nil {
 		return k, d
 	}
@@ -153,10 +153,10 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 	}
 	g.flasks = append(g.flasks, p)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(p.ID, p.X, p.Y, 10, 10, collision.CollisionTypeProjectile, false))
-	g.consumeCharacterActionWithRTCooldown(idx, g.combat.FlaskCooldownFrames(c, key))
+	g.commitHeroAction(idx, g.combat.FlaskCooldownFrames(c, key))
 	g.actionInputStagger = rtActionStagger
 	if announce {
-		g.AddCombatMessage(c.Name + " throws " + d.Name + ".")
+		g.AddCombatMessage(uitext.Text("combat.throws", c.Name, d.Name))
 	}
 	return true
 }
@@ -198,12 +198,8 @@ func (cs *CombatSystem) detonateFlask(p *FlaskProjectile, x, y float64) {
 				mark.Clock.ArmFrames(p.CatalysisFrames, cs.game.config.GetTPS())
 				m.Relics.Catalysis[p.ActorID] = mark
 			}
-			if p.PoisonFrames > 0 {
-				m.ApplyPoison(p.PoisonFrames)
-			}
-			if p.BurnFrames > 0 {
-				m.ApplyBurn(p.BurnFrames)
-			}
+			cs.afflictMonster(m, monsterPoison, p.PoisonFrames, logToneGood, false)
+			cs.afflictMonster(m, monsterBurn, p.BurnFrames, logToneGood, false)
 		}
 		cs.finishIndirectKill(m)
 	})

@@ -461,6 +461,9 @@ characters:
       main_hand: oak_staff
       equipment: [leather_armor]
 
+  # Celestial Providence draws one of these party buffs at every dawn and dusk.
+  providence_pool: [day_of_the_gods, hour_of_power, bless, stone_skin, heroism]
+
   # Race stat shifts are listed in the party-creation pitch from these numbers;
   # description points follow them (same shape as a class description).
   races:
@@ -472,6 +475,8 @@ characters:
       intellect: -2
       personality: -2
       speed: -1
+      card_rarity: uncommon
+      replaces: {class: knight, skill: impenetrable_defense, with: orcish_fury}
       description:
         - {skill: orcish_fury, text: "{damage:Orcish Fury} takes the place of Impenetrable Defense: every normal weapon hit deals extra damage."}
     halfling:
@@ -481,6 +486,8 @@ characters:
       luck: 2
       might: -3
       endurance: -1
+      card_rarity: uncommon
+      passive_skill: halfling_guile
       description:
         - {skill: halfling_guile, text: "{defense:Halfling Guile}: enemies that pick a random hero to hit pick this one half as often."}
     dark_elf:
@@ -491,8 +498,10 @@ characters:
       might: -2
       endurance: -2
       luck: -1
+      card_rarity: uncommon
+      passive_skill: dark_elf_binding
       description:
-        - {skill: dark_elf_binding, text: "{control:Dark Elf Binding}: a weapon, spell or trap hit may turn the foe into an ally for this map instead of hurting it (not undead or bosses)."}
+        - {skill: dark_elf_binding, text: "{control:Dark Elf Binding}: a weapon or spell hit may turn the foe into an ally for this map instead of hurting it (not undead or bosses)."}
     celestial:
       name: Celestial
       personality: 3
@@ -500,6 +509,8 @@ characters:
       luck: 1
       might: -2
       endurance: -2
+      card_rarity: uncommon
+      passive_skill: celestial_providence
       description:
         - {skill: celestial_providence, text: "{auto:Celestial Providence}: while the Celestial is alive in the active party, every dawn and dusk gives the party a {auto:random Master-tier buff} until the next dawn or dusk."}
 

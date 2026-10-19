@@ -1,14 +1,13 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"iter"
 	"os"
 	"slices"
 	"strings"
 	"ugataima/internal/items"
+	"ugataima/internal/strictyaml"
 )
 
 // Techniques are class actions, independent of magic schools and spell learning.
@@ -86,9 +85,7 @@ func LoadTechniques(filename string) error {
 		return err
 	}
 	var c TechniqueConfig
-	dec := yaml.NewDecoder(bytes.NewReader(b))
-	dec.KnownFields(true)
-	if err = dec.Decode(&c); err != nil {
+	if err = strictyaml.Decode(b, &c); err != nil {
 		return err
 	}
 	seen := map[string]bool{}

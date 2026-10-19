@@ -314,16 +314,16 @@ func TestLayerOwnershipLossCancelsTransientDrags(t *testing.T) {
 
 	t.Run("stash drag cancelled", func(t *testing.T) {
 		g, ui := stage(t)
-		g.stashDragActive, g.stashDragDrop, g.stashDragFrom = true, true, 3
+		g.stashDrag.active, g.stashDragDrop, g.stashDragFrom = true, true, 3
 		ui.updateMouseState()
-		if g.stashDragActive || g.stashDragDrop || g.stashDragFrom != -1 {
+		if g.stashDrag.active || g.stashDragDrop || g.stashDragFrom != -1 {
 			t.Fatalf("frozen stash drag survived ownership loss: active=%v drop=%v from=%d",
-				g.stashDragActive, g.stashDragDrop, g.stashDragFrom)
+				g.stashDrag.active, g.stashDragDrop, g.stashDragFrom)
 		}
 	})
 	t.Run("stash fragment survives", func(t *testing.T) {
 		g, ui := stage(t)
-		g.stashDragActive, g.stashDragPickedUp = true, true
+		g.stashDrag.active, g.stashDragPickedUp = true, true
 		ui.updateMouseState()
 		if !g.stashDragPickedUp {
 			t.Fatal("picked-up stash fragment was discarded by ownership loss")
@@ -332,17 +332,17 @@ func TestLayerOwnershipLossCancelsTransientDrags(t *testing.T) {
 	t.Run("quick drag cancelled", func(t *testing.T) {
 		g, ui := stage(t)
 		g.menuOpen = true
-		g.dragArmed, g.dragActive, g.dragSrc = true, true, dragFromInventory
+		g.drag.armed, g.drag.active, g.dragSrc = true, true, dragFromInventory
 		ui.updateMouseState()
-		if g.dragArmed || g.dragActive || g.dragSrc != dragNone {
+		if g.drag.armed || g.drag.active || g.dragSrc != dragNone {
 			t.Fatalf("frozen inventory drag survived ownership loss: armed=%v active=%v src=%d",
-				g.dragArmed, g.dragActive, g.dragSrc)
+				g.drag.armed, g.drag.active, g.dragSrc)
 		}
 	})
 	t.Run("inventory fragment survives", func(t *testing.T) {
 		g, ui := stage(t)
 		g.menuOpen = true
-		g.dragActive, g.dragPickedUp = true, true
+		g.drag.active, g.dragPickedUp = true, true
 		ui.updateMouseState()
 		if !g.dragPickedUp {
 			t.Fatal("picked-up inventory fragment was discarded by ownership loss")
@@ -665,8 +665,8 @@ func TestAWipeClosesTheConversationAndPauses(t *testing.T) {
 	g.dialogActive = true
 	g.dialogNPC = &character.NPC{Name: "Merchant", RenderCategory: "npc"}
 	g.skillTrainerPopup = true
-	g.dragActive, g.dragPickedUp = true, true
-	g.stashDragActive, g.stashDragPickedUp = true, true
+	g.drag.active, g.dragPickedUp = true, true
+	g.stashDrag.active, g.stashDragPickedUp = true, true
 	for _, m := range g.party.Members {
 		m.HitPoints = 0
 	}

@@ -9,11 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 // The Actionables page is the rules sheet: every status from
@@ -565,7 +566,7 @@ func hazardText(h game.AdventureHazard) string {
 	}
 	var parts []string
 	if h.Damage > 0 {
-		parts = append(parts, part(h.Percent, h.Damage, h.Kind == "occupation"))
+		parts = append(parts, part(h.Percent, h.Damage, h.Kind == config.EffectOccupation))
 	}
 	if h.Sustain > 0 {
 		parts = append(parts, "then "+part(h.SustainPercent, h.Sustain, true))

@@ -107,11 +107,7 @@ func (ui *UISystem) drawAutoStatsHUD(screen *ebiten.Image) {
 		}
 		ui.queueTooltip([]string{"Auto-assign party stats", fmt.Sprintf("Spend %d points by each hero's build", points), "Builds: Settings > Gameplay"}, mouseX+12, mouseY+8)
 	}
-	ui.onDisplayedInput(uiCommandClick, r, func() {
-		if !ui.hudClicksBlocked() && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			g.autoDistributePartyStatPoints()
-		}
-	})
+	ui.onGatedClick(r, func() bool { return !ui.hudClicksBlocked() }, func() { g.autoDistributePartyStatPoints() })
 }
 
 func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
@@ -145,11 +141,7 @@ func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
 		lines, colors := g.campStatusCardRows()
 		ui.queueCardTooltip(lines, colors, woodPlateColor, nil, campHUDSprite, mouseX+12, mouseY+8)
 	}
-	ui.onDisplayedInput(uiCommandClick, r, func() {
-		if !ui.hudClicksBlocked() && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			g.campConfirmOpen = true
-		}
-	})
+	ui.onGatedClick(r, func() bool { return !ui.hudClicksBlocked() }, func() { g.campConfirmOpen = true })
 }
 
 type campConfirmationLayout struct {
@@ -192,10 +184,8 @@ func (ui *UISystem) drawCampConfirmation(screen *ebiten.Image) {
 		r := button.r
 		hover := interactive && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom())
 		ui.drawMenuButton(screen, button.label, r.x, r.y, r.w, r.h, hover)
-		ui.onDisplayedInput(uiCommandClick, r, func() {
-			if interactive && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				g.resolveCampConfirmation(button.confirm)
-			}
+		ui.onClick(r, interactive, func() {
+			g.resolveCampConfirmation(button.confirm)
 		})
 	}
 	ui.drawPopupCloseButton(screen, l.close.x, l.close.y, l.close.w, interactive, func() {

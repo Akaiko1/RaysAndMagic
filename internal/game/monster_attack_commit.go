@@ -1,6 +1,9 @@
 package game
 
-import "ugataima/internal/monster"
+import (
+	uitext "ugataima/assets/text"
+	"ugataima/internal/monster"
+)
 
 type monsterAttackCadence uint8
 
@@ -18,8 +21,32 @@ type monsterAttackDestination struct{ foe *monster.Monster3D }
 // zero damage. Spending an action on healing or a buff is not an attack.
 type monsterActionObservation struct {
 	actor       *monster.Monster3D
+	foe         *monster.Monster3D // the action's monster target; nil = the party
 	partyAttack bool
 	actorAttack bool
+}
+
+// monsterActionScope runs one monster action - a committed attack, a boss
+// special, a telegraph release, a trap volley. Its hits record what they
+// attacked, and the action is answered once when it ends: Overwatch reacts to
+// an attack on the party, the caravan alarm to an attack on a caravan. Hits of
+// an action already open for this actor join it.
+func (cs *CombatSystem) monsterActionScope(m, foe *monster.Monster3D, run func() bool) bool {
+	if a := cs.monsterAction; a != nil && a.actor == m {
+		return run()
+	}
+	previous := cs.monsterAction
+	action := monsterActionObservation{actor: m, foe: foe}
+	cs.monsterAction = &action
+	defer func() { cs.monsterAction = previous }()
+	spent := run()
+	if spent && foe != nil && action.actorAttack {
+		cs.game.notifyCaravanAttack(foe)
+	}
+	if spent && foe == nil && action.partyAttack {
+		cs.game.observeOverwatchAttack(m)
+	}
+	return spent
 }
 
 func (cs *CombatSystem) recordMonsterActorAttack(m *monster.Monster3D) {
@@ -64,14 +91,10 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 	if !m.TargetsParty() || cs.game.party == nil || len(alivePartyIndices(cs.game.party.Members)) == 0 {
 		return false
 	}
-	x, y := cs.logicalCameraXY()
-	if !m.CanPursueParty(x, y) {
+	if !m.CanPursueParty(cs.logicalCameraXY()) {
 		return false
 	}
-	if cadence == monsterAttackTurn {
-		return !monsterInAttackTransit(m) && cs.monsterAttackPointInReachTB(m, x, y)
-	}
-	return cs.monsterCanAttackParty(m, Distance(m.X, m.Y, x, y), m.GetAttackRangePixels())
+	return cs.partyInStrikeReach(m, cadence == monsterAttackTurn)
 }
 
 // commitMonsterAttack owns normal attack delivery and action clocks in both
@@ -99,25 +122,21 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 	}
 	// Observe actual delivery across all hands/hits, including replacement
 	// spells. A mixed support/attack action earns only one reaction.
-	previous := cs.monsterAction
-	action := monsterActionObservation{actor: m}
-	cs.monsterAction = &action
-	defer func() {
-		cs.monsterAction = previous
-		if spent && target.foe != nil && action.actorAttack {
-			cs.game.notifyCaravanAttack(target.foe)
-		}
-		if spent && target.foe == nil && action.partyAttack {
-			cs.game.observeOverwatchAttack(m)
-		}
-	}()
+	return cs.monsterActionScope(m, target.foe, func() bool {
+		return cs.deliverCommittedAttack(m, target, cadence, actionReady)
+	})
+}
+
+// deliverCommittedAttack is the body of a committed attack: the jam check, the
+// party abilities, then the swings of the cadence.
+func (cs *CombatSystem) deliverCommittedAttack(m *monster.Monster3D, target monsterAttackDestination, cadence monsterAttackCadence, actionReady bool) (spent bool) {
 	m.State = monster.StateAttacking
 	if cadence == monsterAttackTurn && m.PeekTurnBasedSwings() == 0 {
 		// Jams took a whole action's swings (Cogfang Blade): the action is
 		// spent with no attack and no ability roll.
 		m.TakeTurnBasedSwings()
 		cs.armMonsterRTAttackCooldowns(m)
-		cs.game.logCombat(logToneGood, "%s's works jam - its attack is lost!", logMonsterName(m))
+		cs.game.logCombatLine(logToneGood, uitext.Text("combat.s_works_jam_its_attack_is", logSlot), logMonsterName(m))
 		return true
 	}
 	if target.foe == nil && actionReady {
@@ -151,8 +170,10 @@ func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monster
 			return cs.championRTCrossfireStrike(m, target.foe)
 		}
 	} else {
-		if m.IsChampion() && cs.monsterUsesMeleeAgainstParty(m) && cs.championRTDualStrike(m, m.StateTimer == 1) {
-			return true
+		if m.IsChampion() && cs.monsterUsesMeleeAgainstParty(m) {
+			if handled, struck := cs.championRTDualStrike(m, m.StateTimer == 1); handled {
+				return struck
+			}
 		}
 		if !actionReady {
 			return false

@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/storage"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // The interface size shrinks the logical frame by its scale, never below the

@@ -56,7 +56,7 @@ func TestChamberDevicesPlayable(t *testing.T) {
 									g.currentTurn = 0
 									ih := NewInputHandler(g)
 									ih.openNPCInteraction(npc)
-									dialogActions[c.Action](ih, npc, c)
+									dialogActions[c.Action].run(ih, npc, c)
 									return
 								}
 							}

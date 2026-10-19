@@ -68,7 +68,7 @@ func (g *MMGame) activityNPCAbsent(npc *character.NPC) bool {
 		return false
 	}
 	q := g.questManager.GetQuest(id)
-	if q == nil || q.RewardsClaimed || q.Status == quests.QuestStatusFailed {
+	if q == nil || q.RewardsClaimed {
 		return true
 	}
 	return len(d.Activity.Forage) > 0 && (!slices.Contains(q.Activity.Selected, prop.Token) || slices.Contains(q.Activity.Collected, prop.Token))
@@ -93,7 +93,7 @@ func (g *MMGame) handleQuestActivity(npc *character.NPC, id string, words *chara
 		}
 		return true
 	}
-	if q == nil || q.Status != quests.QuestStatusActive {
+	if q == nil {
 		g.AddCombatMessage(words.NotYet)
 		return true
 	}
@@ -129,7 +129,7 @@ func (g *MMGame) completePropErrand(npc *character.NPC, q *quests.Quest, complet
 		return
 	}
 	g.announceQuestCompletionWithMessage(q, completed)
-	if g.claimQuestReward(q.ID) {
+	if g.claimQuestReward(q.ID, npc) {
 		g.concludeGiverAfterPayout(npc, q.ID)
 		return
 	}

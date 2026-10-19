@@ -22,38 +22,44 @@ func (g *MMGame) weaponDisintegrateChance(def *config.WeaponDefinitionConfig) fl
 	return g.partyDisintegrateChance(base)
 }
 
-// disintegrateOutcome is what a disintegrate roll does to its target.
-type disintegrateOutcome uint8
+// instakillOutcome is what an instakill that landed does to its target:
+// disintegrate, Destroy Undead, the Maw.
+type instakillOutcome uint8
 
 const (
-	disintegrateNone disintegrateOutcome = iota
-	disintegrateKill
-	// disintegrateSear: a boss is never erased; the proc adds
-	// disintegrateSearDamage true damage to the hit.
-	disintegrateSear
+	instakillNone instakillOutcome = iota
+	instakillKill
+	// instakillSear: a boss is never erased; it takes instakillSearDamage
+	// true damage instead.
+	instakillSear
 )
 
-func rollMonsterDisintegrate(target *monsterPkg.Monster3D, chance float64) disintegrateOutcome {
-	if target == nil || chance <= 0 || monsterImmuneToDisintegrate(target) || rand.Float64() >= chance {
-		return disintegrateNone
-	}
+// instakillOn is the one rule for an instakill that landed on target.
+func instakillOn(target *monsterPkg.Monster3D) instakillOutcome {
 	if target.IsBoss() {
-		return disintegrateSear
+		return instakillSear
 	}
-	return disintegrateKill
+	return instakillKill
 }
 
-// disintegrateSearDamage is the true damage a boss takes in place of the
-// disintegrate kill: config.DisintegrateBossMaxHPPct of its max HP.
-func disintegrateSearDamage(boss *monsterPkg.Monster3D) int {
-	return max(1, boss.MaxHitPoints*config.DisintegrateBossMaxHPPct/100)
+func rollMonsterDisintegrate(target *monsterPkg.Monster3D, chance float64) instakillOutcome {
+	if target == nil || chance <= 0 || monsterImmuneToDisintegrate(target) || rand.Float64() >= chance {
+		return instakillNone
+	}
+	return instakillOn(target)
 }
 
-// withDisintegrateSear adds the boss proc's true damage to both packets of
-// one victim's attack, in the attack's own school. Packets are cloned: the
+// instakillSearDamage is the true damage a boss takes in place of an
+// instakill: config.InstakillSearMaxHPPct of its max HP.
+func instakillSearDamage(target *monsterPkg.Monster3D) int {
+	return max(1, target.MaxHitPoints*config.InstakillSearMaxHPPct/100)
+}
+
+// withInstakillSear adds the sear's true damage to both packets of one
+// victim's attack, in the attack's own school. Packets are cloned: the
 // source attack is shared with every AoE victim.
-func withDisintegrateSear(attack partyMonsterAttack, boss *monsterPkg.Monster3D) partyMonsterAttack {
-	sear := disintegrateSearDamage(boss)
+func withInstakillSear(attack partyMonsterAttack, boss *monsterPkg.Monster3D) partyMonsterAttack {
+	sear := instakillSearDamage(boss)
 	attack.Packet = attack.Packet.withTrue(sear)
 	attack.CriticalPacket = attack.CriticalPacket.withTrue(sear)
 	return attack

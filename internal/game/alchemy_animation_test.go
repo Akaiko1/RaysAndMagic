@@ -8,12 +8,13 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func stockAlchemyRecipe(g *MMGame, r *config.AlchemyRecipe, batches int) {

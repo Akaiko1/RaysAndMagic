@@ -229,7 +229,7 @@ func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
 	if pct := cardDef("lich_card").CardLethalSavePct; g.cardLethalSavePct() != pct || pct <= 0 || pct >= 100 {
 		t.Fatalf("lich save pct = %d, want the authored partial chance %d", g.cardLethalSavePct(), pct)
 	}
-	mon := &monster.Monster3D{Name: "Dragon", Abilities: monster.Abilities{Fireburst: monster.FireburstAbility{DamageMin: 9999, DamageMax: 9999}}}
+	mon := &monster.Monster3D{Name: "Dragon"}
 	member := g.party.Members[0]
 
 	saves := 0
@@ -238,7 +238,7 @@ func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
 		member.HitPoints = 1 // fresh, conscious, on the brink each trial
 		member.SpellPoints = 0
 		member.Conditions = nil
-		cs.applyMonsterFireburst(mon)
+		castTestPartyAttack(cs, mon, catalogPartyAttack("fireburst"), 9999)
 		if member.HitPoints > 0 { // reviveHalf left HP up -> cheated death (direct KO would be 0)
 			saves++
 		}
@@ -269,7 +269,7 @@ func TestArchmageCard_SplashGetsFullSplit(t *testing.T) {
 
 	// Idol-Breaker: physical mace, aoe_radius_tiles 1.5. No armor/resist on targets,
 	// so the splash should land the full 100 (physical remainder + converted fire).
-	cs.ApplyDamageToMonster(primary, 100, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(primary, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 
 	if got := 1000 - near.HitPoints; got != 100 {
 		t.Fatalf("splash dealt %d, want 100 - the fire share is dropped if this is the physical remainder", got)
@@ -1080,7 +1080,7 @@ func TestCardOnHitProcsTriggerSometimes(t *testing.T) {
 			field: func(d *config.ItemDefinitionConfig) int { return d.CardDisintegratePct },
 			hit: func(cs *CombatSystem) bool {
 				m := mkTestMonster("Skeleton Warrior", 1000)
-				cs.ApplyDamageToMonster(m, 10, "Idol-Breaker, the Warlord's Maul", false)
+				cs.ApplyDamageToMonster(m, 10, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 				return m.HitPoints == 0
 			},
 		},
@@ -1093,7 +1093,7 @@ func TestCardOnHitProcsTriggerSometimes(t *testing.T) {
 				m := mkTestMonster("Armored Target", 100000)
 				m.ArmorClass = 200
 				before := m.HitPoints
-				cs.ApplyDamageToMonster(m, 100, "Idol-Breaker, the Warlord's Maul", false)
+				cs.ApplyDamageToMonster(m, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 				return before-m.HitPoints >= 100
 			},
 		},
@@ -1209,7 +1209,7 @@ func TestJungleGoblinCard_DoublesGold(t *testing.T) {
 	m := mkTestMonster("Goblin", 10)
 	m.Gold = 40
 	g.world.Monsters = []*monster.Monster3D{m}
-	cs.ApplyDamageToMonster(m, 1000, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(m, 1000, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 
 	if len(g.groundContainers) == 0 {
 		t.Fatal("expected a loot bag to spawn")
@@ -1358,7 +1358,7 @@ func TestHexerIsisCards_ElementConversion(t *testing.T) {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "masked_hexer_girl_card" // physical -> dark
 	dark := mkTestMonster("Target", 1000)
-	cs.ApplyDamageToMonster(dark, 100, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(dark, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	if got := 1000 - dark.HitPoints; got != 100 {
 		t.Errorf("hexer split total damage = %d, want 100 conserved", got)
 	}
@@ -1366,7 +1366,7 @@ func TestHexerIsisCards_ElementConversion(t *testing.T) {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "isis_card" // physical -> light, melee AND ranged
 	light := mkTestMonster("Target2", 1000)
-	cs.ApplyDamageToMonster(light, 100, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(light, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	if got := 1000 - light.HitPoints; got != 100 {
 		t.Errorf("isis split total damage = %d, want 100 conserved", got)
 	}

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/monster"
 )
 
@@ -53,15 +54,27 @@ func foePrefix(format string) func(line, foe string) bool {
 	return func(line, foe string) bool { return strings.HasPrefix(line, strings.ReplaceAll(format, "<foe>", foe)) }
 }
 
-var balanceAbilities = []balanceAbility{
+// partyAttackBalanceAbilities is one row per shipped party attack key, read
+// by its own cast line.
+func partyAttackBalanceAbilities() []balanceAbility {
+	var out []balanceAbility
+	for _, a := range shippedPartyAttacks() {
+		out = append(out, balanceAbility{
+			name: a.Key,
+			authored: func(d monster.MonsterDefinition) bool {
+				return slices.ContainsFunc(d.Abilities.PartyAttacks, func(p monster.PartyAttack) bool { return p.Key == a.Key })
+			},
+			foeLine: func(line, foe string) bool {
+				return line == uitext.Text("combat.party_attack.cast", foe, a.Name)
+			},
+		})
+	}
+	return out
+}
+
+var balanceAbilities = append(partyAttackBalanceAbilities(), []balanceAbility{
 	{name: "telegraph", foeLine: foePrefix("<foe> prepares ")},
-	{name: "piercing_shot", foeLine: foeLine("<foe> fires a Piercing Shot!")},
-	{name: "dragon_breath", foeLine: foePrefix("<foe> breathes ")},
-	{name: "fireburst", foeLine: func(l, f string) bool {
-		return foeLine("<foe> erupts in a wave of fire!")(l, f) || foeLine("<foe> casts Fireburst!")(l, f)
-	}},
 	{name: "trap_volley", bareLine: func(l string, _ map[string]string) bool { return l == "The ground erupts in brood-fire!" }},
-	{name: "inferno", bareLine: func(l string, _ map[string]string) bool { return strings.HasPrefix(l, "Inferno scorches ") }},
 	{name: "pounce", foeLine: foeLine("<foe> pounces at the party!")},
 	{name: "phase_shift", foeLine: foeLine("<foe> phase-shifts toward the party!")},
 	{name: "poison", bareLine: heroLine(" is poisoned!")},
@@ -81,7 +94,7 @@ var balanceAbilities = []balanceAbility{
 	{name: "death_rally", authored: func(d monster.MonsterDefinition) bool { return d.DeathRalliesType != "" },
 		foeLine: foePrefix("<foe> falls - its retainers turn on you")},
 	{name: "enrage"},
-}
+}...)
 
 // balanceCoverage collects, over a sweep, which authored monster abilities
 // fired and what each class actually did. The log names monsters by display

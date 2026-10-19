@@ -15,7 +15,7 @@ func gmSkill() *character.Skill { return &character.Skill{Mastery: character.Mas
 // damage; only a Grandmaster's strike grazes through Perfect Dodge.
 func TestWeaponMasteryStrike_TrueDamageAndDodge(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
-	weaponDef := lookupWeaponConfigByName(items.CreateWeaponFromYAML("iron_sword").Name) // category: sword
+	weaponDef := lookupWeaponConfig(items.CreateWeaponFromYAML("iron_sword")) // category: sword
 	if weaponDef == nil {
 		t.Fatal("iron_sword config missing")
 	}

@@ -467,7 +467,7 @@ func (p *FxPreview) stageSpellTargets(def *config.SpellDefinitionConfig) {
 	g := p.g
 	ts := g.config.GetTileSize()
 	key := fxStatusDummy()
-	if def.Mechanic != nil && (def.Mechanic.Kind == "turn_undead" || def.Mechanic.Kind == "destroy_undead") {
+	if def.Mechanic != nil && (def.Mechanic.Kind == config.MechanicTurnUndead || def.Mechanic.Kind == config.MechanicDestroyUndead) {
 		// Pick a real eligible recipient; a living dummy would make these
 		// previews silently no-op. Lowest key makes the stage deterministic.
 		key = ""

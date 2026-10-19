@@ -8,6 +8,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/stats"
 	"ugataima/internal/status"
 )
 
@@ -310,6 +311,17 @@ func (c *MMCharacter) IsLiving() bool {
 	return c != nil && c.HitPoints > 0 && !c.HasCondition(ConditionDead) && !c.HasCondition(ConditionEradicated)
 }
 
+// Revive is the one return to life: Unconscious and Dead clear (Eradicated
+// too when eradicated is set) and HP rises to hp, at least 1, never lowered.
+func (c *MMCharacter) Revive(hp int, eradicated bool) {
+	c.RemoveCondition(ConditionUnconscious)
+	c.RemoveCondition(ConditionDead)
+	if eradicated {
+		c.RemoveCondition(ConditionEradicated)
+	}
+	c.HitPoints = max(c.HitPoints, hp, 1)
+}
+
 func (c *MMCharacter) CanAct() bool {
 	if c == nil || c.HitPoints <= 0 {
 		return false
@@ -358,19 +370,46 @@ const (
 	PromotionLich
 )
 
+// promotionKeys is the authored vocabulary of promotions (a quest's
+// rewards.promotion, promoted sprite suffixes).
+var promotionKeys = map[Promotion]string{PromotionArchmage: "archmage", PromotionLich: "lich"}
+
+// PromotionByKey resolves an authored promotion key.
+func PromotionByKey(key string) (Promotion, bool) {
+	for p, k := range promotionKeys {
+		if k == key {
+			return p, true
+		}
+	}
+	return PromotionNone, false
+}
+
+// Key is the promotion's authored key, "" for none.
+func (p Promotion) Key() string { return promotionKeys[p] }
+
+// Title is the promoted class name, "" for none.
+func (p Promotion) Title() string {
+	switch p {
+	case PromotionArchmage:
+		return "Archmage"
+	case PromotionLich:
+		return "Lich"
+	}
+	return ""
+}
+
+// RejectsUndead: the Archmage's Light is refused to a party holding a lich.
+func (p Promotion) RejectsUndead() bool { return p == PromotionArchmage }
+
 // IsLich is the promotion predicate behind party traits (hates.yaml aggro).
 func (c *MMCharacter) IsLich() bool { return c.Promotion == PromotionLich }
 
 // ClassDisplayName returns the promoted title if any, else the base class name.
 func (c *MMCharacter) ClassDisplayName() string {
-	switch c.Promotion {
-	case PromotionArchmage:
-		return "Archmage"
-	case PromotionLich:
-		return "Lich"
-	default:
-		return c.Class.String()
+	if t := c.Promotion.Title(); t != "" {
+		return t
 	}
+	return c.Class.String()
 }
 
 func CreateCharacter(name string, class CharacterClass, cfg *config.Config) *MMCharacter {
@@ -402,15 +441,9 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 		panic(fmt.Sprintf("class %q missing from config.yaml characters.classes", key))
 	}
 
-	c.Might = stats.Might
-	c.Intellect = stats.Intellect
-	c.Personality = stats.Personality
-	c.Endurance = stats.Endurance
-	c.Accuracy = stats.Accuracy
-	c.Speed = stats.Speed
-	c.Luck = stats.Luck
+	c.SetBaseStats(stats.Base)
 
-	c.ensureClassKitSkills(stats, key)
+	c.ensureClassKitSkills(stats, key, cfg)
 
 	for _, entry := range stats.Magic {
 		school := MagicSchoolID(entry.School)
@@ -457,7 +490,7 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 	}
 }
 
-func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string) bool {
+func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string, cfg *config.Config) bool {
 	if c.Skills == nil {
 		c.Skills = make(map[SkillType]*Skill)
 	}
@@ -467,9 +500,9 @@ func (c *MMCharacter) ensureClassKitSkills(stats config.ClassStats, key string) 
 		if !ok {
 			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
 		}
-		// The half-orc Knight replaces this class skill with Orcish Fury.
+		// A race may swap this kit skill (the half-orc Knight's Orcish Fury).
 		// Do not re-add the replaced skill on every save migration.
-		if replaced, _, ok := c.racialSkillReplacement(); ok && st == replaced {
+		if replaced, _, ok := c.racialSkillReplacement(cfg); ok && st == replaced {
 			continue
 		}
 		mastery := MasteryNovice
@@ -500,7 +533,7 @@ func (c *MMCharacter) EnsureClassKitSkills(cfg *config.Config) bool {
 	if !ok {
 		panic(fmt.Sprintf("class %q missing from config.yaml characters.classes", key))
 	}
-	return c.ensureClassKitSkills(stats, key)
+	return c.ensureClassKitSkills(stats, key, cfg)
 }
 
 func isKnownMagicSchool(id MagicSchoolID) bool {
@@ -523,13 +556,9 @@ func (c *MMCharacter) ApplyRace(race string, cfg *config.Config) {
 	if !ok {
 		panic(fmt.Sprintf("race %q missing from config.yaml characters.races", race))
 	}
-	c.Might += mods.Might
-	c.Intellect += mods.Intellect
-	c.Personality += mods.Personality
-	c.Endurance += mods.Endurance
-	c.Accuracy += mods.Accuracy
-	c.Speed += mods.Speed
-	c.Luck += mods.Luck
+	for i, p := range c.baseStatFields() {
+		*p += *mods.Shifts.At(i)
+	}
 	c.Race = race
 	c.EnsureRacialTraits(cfg)
 }
@@ -573,15 +602,12 @@ func (c *MMCharacter) EnsureRacialTraits(cfg *config.Config) bool {
 			changed = true
 		}
 	}
-	switch c.Race {
-	case "celestial":
-		ensureFixed(SkillCelestialProvidence)
-	case "halfling":
-		ensureFixed(SkillHalflingGuile)
-	case "dark_elf":
-		ensureFixed(SkillDarkElfBinding)
+	if race, ok := c.raceConfig(cfg); ok && race.PassiveSkill != "" {
+		if st, ok := SkillTypeFromKey(race.PassiveSkill); ok {
+			ensureFixed(st)
+		}
 	}
-	if replaced, replacement, ok := c.racialSkillReplacement(); ok {
+	if replaced, replacement, ok := c.racialSkillReplacement(cfg); ok {
 		mastery := MasteryNovice
 		if old := c.Skills[replaced]; old != nil {
 			mastery = old.Mastery
@@ -599,13 +625,28 @@ func (c *MMCharacter) EnsureRacialTraits(cfg *config.Config) bool {
 	return changed
 }
 
+// raceConfig is the hero's race entry (cfg, else the loaded config).
+func (c *MMCharacter) raceConfig(cfg *config.Config) (config.RaceStats, bool) {
+	if cfg == nil {
+		cfg = config.GlobalConfig
+	}
+	if cfg == nil || c.Race == "" {
+		return config.RaceStats{}, false
+	}
+	race, ok := cfg.Characters.Races[c.Race]
+	return race, ok
+}
+
 // racialSkillReplacement is shared by class-kit initialization and racial
 // migration, so a replaced skill cannot be reintroduced on the next load.
-func (c *MMCharacter) racialSkillReplacement() (SkillType, SkillType, bool) {
-	if c.Race == "half_orc" && c.Class == ClassKnight {
-		return SkillImpenetrableDefense, SkillOrcishFury, true
+func (c *MMCharacter) racialSkillReplacement(cfg *config.Config) (SkillType, SkillType, bool) {
+	race, ok := c.raceConfig(cfg)
+	if !ok || race.Replaces == nil || race.Replaces.Class != c.Class.Key() {
+		return 0, 0, false
 	}
-	return 0, 0, false
+	replaced, okSkill := SkillTypeFromKey(race.Replaces.Skill)
+	with, okWith := SkillTypeFromKey(race.Replaces.With)
+	return replaced, with, okSkill && okWith
 }
 
 // derivedStatMultipliers returns the HP/SP formula multipliers, falling back to
@@ -1271,19 +1312,21 @@ func (c *MMCharacter) GetSpellsForSchool(school MagicSchoolID) []spells.SpellID 
 	return []spells.SpellID{}
 }
 
-// CanEquipWeapon checks if this character class can equip a specific weapon by name
-func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
-	return c.canWieldWeapon(weaponName, true)
+// CanEquipWeapon checks if this character class can wield a weapon.
+func (c *MMCharacter) CanEquipWeapon(weapon items.Item) bool {
+	return c.canWieldWeapon(weapon, true)
 }
 
 // canWieldWeapon is the weapon gate. statGates false skips stat thresholds
 // (equip_personality_min), which are checked when a weapon is put on only.
-func (c *MMCharacter) canWieldWeapon(weaponName string, statGates bool) bool {
-	// Get weapon key and definition from YAML
-	weaponKey := items.GetWeaponKeyByName(weaponName)
+func (c *MMCharacter) canWieldWeapon(weapon items.Item, statGates bool) bool {
+	_, weaponKey, ok := config.WeaponDefOf(weapon)
+	if !ok {
+		return false // Unknown weapon cannot be equipped
+	}
 	weaponDef, exists := getWeaponDefinitionFromGlobal(weaponKey)
 	if !exists {
-		return false // Unknown weapon cannot be equipped
+		return false
 	}
 
 	// Personality-gated weapons (Lanista's Scepter): force of presence replaces
@@ -1382,7 +1425,7 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 }
 
 func (c *MMCharacter) itemClassAllowed(item items.Item) bool {
-	if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && len(def.AllowedClasses) > 0 {
+	if def, _, ok := config.ItemDefOf(item); ok && len(def.AllowedClasses) > 0 {
 		allowed := false
 		for _, key := range def.AllowedClasses {
 			if key == c.Class.Key() {
@@ -1418,7 +1461,7 @@ func (c *MMCharacter) itemFitsSlot(item items.Item, slot items.EquipSlot, statGa
 
 	switch item.Type {
 	case items.ItemWeapon:
-		if !c.canWieldWeapon(item.Name, statGates) {
+		if !c.canWieldWeapon(item, statGates) {
 			return false
 		}
 		if slot == items.SlotMainHand {
@@ -1524,62 +1567,57 @@ func (c *MMCharacter) UnequipItem(slot items.EquipSlot) (items.Item, bool) {
 	return items.Item{}, false
 }
 
+// baseStatFields are the hero's base stat fields in stats.Names order: the
+// one place the character's fields meet the canonical list.
+func (c *MMCharacter) baseStatFields() []*int {
+	return []*int{&c.Might, &c.Intellect, &c.Personality, &c.Endurance, &c.Accuracy, &c.Speed, &c.Luck}
+}
+
+// BaseStats is the hero's unmodified stats as one value.
+func (c *MMCharacter) BaseStats() StatBonuses {
+	var b StatBonuses
+	for i, p := range c.baseStatFields() {
+		*b.At(i) = *p
+	}
+	return b
+}
+
+// SetBaseStats overwrites the hero's base stats.
+func (c *MMCharacter) SetBaseStats(b StatBonuses) {
+	for i, p := range c.baseStatFields() {
+		*p = *b.At(i)
+	}
+}
+
+// BaseStatField points at a base stat by canonical name, nil when unknown.
+func (c *MMCharacter) BaseStatField(name string) *int {
+	for i, n := range stats.Names {
+		if n == name {
+			return c.baseStatFields()[i]
+		}
+	}
+	return nil
+}
+
+// EffectiveStatBlock is the one effective-stat sum: base, buffs, permanent
+// gains and equipment.
+func (c *MMCharacter) EffectiveStatBlock() StatBonuses {
+	return c.BaseStats().Add(c.BuffBonuses).Add(c.PermanentBonuses).Add(c.calculateEquipmentBonuses())
+}
+
 // GetEffectiveStats returns character stats with any active bonuses applied (spells + equipment)
 func (c *MMCharacter) GetEffectiveStats() (might, intellect, personality, endurance, accuracy, speed, luck int) {
-	// Calculate equipment bonuses (YAML-driven); buffs come from BuffBonuses
-	// (pushed by the game when spells like Bless apply/expire).
-	eqMight, eqIntellect, eqPersonality, eqEndurance, eqAccuracy, eqSpeed, eqLuck := c.calculateEquipmentBonuses()
-
-	return c.Might + c.BuffBonuses.Might + c.PermanentBonuses.Might + eqMight,
-		c.Intellect + c.BuffBonuses.Intellect + c.PermanentBonuses.Intellect + eqIntellect,
-		c.Personality + c.BuffBonuses.Personality + c.PermanentBonuses.Personality + eqPersonality,
-		c.Endurance + c.BuffBonuses.Endurance + c.PermanentBonuses.Endurance + eqEndurance,
-		c.Accuracy + c.BuffBonuses.Accuracy + c.PermanentBonuses.Accuracy + eqAccuracy,
-		c.Speed + c.BuffBonuses.Speed + c.PermanentBonuses.Speed + eqSpeed,
-		c.Luck + c.BuffBonuses.Luck + c.PermanentBonuses.Luck + eqLuck
+	b := c.EffectiveStatBlock()
+	return b.Might, b.Intellect, b.Personality, b.Endurance, b.Accuracy, b.Speed, b.Luck
 }
 
-// GetEffectiveMight returns effective Might with bonuses applied
-func (c *MMCharacter) GetEffectiveMight() int {
-	eqBonus, _, _, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Might + c.BuffBonuses.Might + c.PermanentBonuses.Might + eqBonus
-}
-
-// GetEffectiveIntellect returns effective Intellect with bonuses applied
-func (c *MMCharacter) GetEffectiveIntellect() int {
-	_, eqBonus, _, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Intellect + c.BuffBonuses.Intellect + c.PermanentBonuses.Intellect + eqBonus
-}
-
-// GetEffectivePersonality returns effective Personality with bonuses applied
-func (c *MMCharacter) GetEffectivePersonality() int {
-	_, _, eqBonus, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Personality + c.BuffBonuses.Personality + c.PermanentBonuses.Personality + eqBonus
-}
-
-// GetEffectiveEndurance returns effective Endurance with bonuses applied
-func (c *MMCharacter) GetEffectiveEndurance() int {
-	_, _, _, eqBonus, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Endurance + c.BuffBonuses.Endurance + c.PermanentBonuses.Endurance + eqBonus
-}
-
-// GetEffectiveAccuracy returns effective Accuracy with bonuses applied
-func (c *MMCharacter) GetEffectiveAccuracy() int {
-	_, _, _, _, eqBonus, _, _ := c.calculateEquipmentBonuses()
-	return c.Accuracy + c.BuffBonuses.Accuracy + c.PermanentBonuses.Accuracy + eqBonus
-}
-
-// GetEffectiveSpeed returns effective Speed with bonuses applied
-func (c *MMCharacter) GetEffectiveSpeed() int {
-	_, _, _, _, _, eqBonus, _ := c.calculateEquipmentBonuses()
-	return c.Speed + c.BuffBonuses.Speed + c.PermanentBonuses.Speed + eqBonus
-}
-
-// GetEffectiveLuck returns effective Luck with bonuses applied
-func (c *MMCharacter) GetEffectiveLuck() int {
-	_, _, _, _, _, _, eqBonus := c.calculateEquipmentBonuses()
-	return c.Luck + c.BuffBonuses.Luck + c.PermanentBonuses.Luck + eqBonus
-}
+func (c *MMCharacter) GetEffectiveMight() int       { return c.EffectiveStatBlock().Might }
+func (c *MMCharacter) GetEffectiveIntellect() int   { return c.EffectiveStatBlock().Intellect }
+func (c *MMCharacter) GetEffectivePersonality() int { return c.EffectiveStatBlock().Personality }
+func (c *MMCharacter) GetEffectiveEndurance() int   { return c.EffectiveStatBlock().Endurance }
+func (c *MMCharacter) GetEffectiveAccuracy() int    { return c.EffectiveStatBlock().Accuracy }
+func (c *MMCharacter) GetEffectiveSpeed() int       { return c.EffectiveStatBlock().Speed }
+func (c *MMCharacter) GetEffectiveLuck() int        { return c.EffectiveStatBlock().Luck }
 
 // ItemAttributeScalingBonuses uses base attributes, excluding gear and buffs.
 func (c *MMCharacter) ItemAttributeScalingBonuses(item items.Item) (intellect, personality int) {
@@ -1592,51 +1630,30 @@ func (c *MMCharacter) ItemAttributeScalingBonuses(item items.Item) (intellect, p
 	return
 }
 
-// calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)
-func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus int) {
+// calculateEquipmentBonuses returns stat bonuses from all equipped items
+// (YAML-driven). Only a positive flat bonus counts.
+func (c *MMCharacter) calculateEquipmentBonuses() StatBonuses {
+	var b StatBonuses
 	for _, it := range c.Equipment {
 		intBonus, perBonus := c.ItemAttributeScalingBonuses(it)
-		intellectBonus += intBonus
-		personalityBonus += perBonus
+		b.Intellect += intBonus
+		b.Personality += perBonus
 		// endurance_scaling_divisor is deliberately NOT a stat bonus: it is the
 		// armor piece's AC formula input (AC = base + effective End / divisor,
 		// see CalculateArmorClassContribution). Feeding it back into Endurance
 		// made every armor piece inflate every other piece's AC.
-		// Flat bonuses
-		if bonus := it.Attributes["bonus_might"]; bonus > 0 {
-			mightBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_intellect"]; bonus > 0 {
-			intellectBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_personality"]; bonus > 0 {
-			personalityBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_endurance"]; bonus > 0 {
-			enduranceBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_accuracy"]; bonus > 0 {
-			accuracyBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_speed"]; bonus > 0 {
-			speedBonus += bonus
-		}
-		if bonus := it.Attributes["bonus_luck"]; bonus > 0 {
-			luckBonus += bonus
+		for i, key := range items.StatBonusAttributes {
+			if v := it.Attributes[key]; v > 0 {
+				*b.At(i) += v
+			}
 		}
 	}
 	// Equipment-set bonuses: this loop is the only place that sees the whole
 	// equipped kit together, so completed sets add their bonuses here.
 	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
-		mightBonus += set.BonusMight
-		intellectBonus += set.BonusIntellect
-		personalityBonus += set.BonusPersonality
-		enduranceBonus += set.BonusEndurance
-		accuracyBonus += set.BonusAccuracy
-		speedBonus += set.BonusSpeed
-		luckBonus += set.BonusLuck
+		b = b.Add(set.StatBonus.Stats())
 	})
-	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
+	return b
 }
 
 // forEachCompletedSet visits every equipment set completed by the equipped
@@ -1719,31 +1736,13 @@ func (c *MMCharacter) equipmentSetPieceCount(key string, set *config.ItemSetConf
 	count = 0
 	for _, required := range set.RequiredPieces {
 		for _, equipped := range c.Equipment {
-			if equipped.Set == key && setPieceKey(equipped) == required {
+			if equipped.Set == key && config.CatalogKey(equipped) == required {
 				count++
 				break
 			}
 		}
 	}
 	return count
-}
-
-// setPieceKey resolves a saved equipped item to its data key. Exact-piece
-// sets need keys rather than names, because the YAML key is their stable
-// authored identity across item and weapon catalogs.
-func setPieceKey(item items.Item) string {
-	if item.Type == items.ItemWeapon {
-		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
-		if ok {
-			return key
-		}
-		return ""
-	}
-	_, key, ok := config.GetItemDefinitionByName(item.Name)
-	if ok {
-		return key
-	}
-	return ""
 }
 
 // SetStunDurationPct sums stun-duration shifts from completed armor sets.
@@ -1786,7 +1785,7 @@ func (c *MMCharacter) forEachEquippedItemDefinition(fn func(*config.ItemDefiniti
 		return
 	}
 	for _, it := range c.Equipment {
-		if def, _, ok := config.GetItemDefinitionByName(it.Name); ok && def != nil {
+		if def, _, ok := config.ItemDefOf(it); ok && def != nil {
 			fn(def)
 		}
 	}

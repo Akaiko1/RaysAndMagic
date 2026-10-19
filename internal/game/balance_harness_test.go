@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	damagecalc "ugataima/internal/damage"
 )
@@ -126,13 +127,13 @@ func TestBalanceCoverageTellsMonstersApart(t *testing.T) {
 		want    map[string]map[string]tally // key -> ability -> tally
 		elem    map[string]int
 	}{
-		"shared name, both breathe": {foes: []balanceFoeRef{gold, green}, line: "Dragon breathes fire!",
+		"shared name, both breathe": {foes: []balanceFoeRef{gold, green}, line: uitext.Text("combat.party_attack.cast", "Dragon", "Dragon Breath"),
 			want: map[string]map[string]tally{"dragon_gold": {"dragon_breath": {}}, "dragon_green": {"dragon_breath": {}}}},
 		"shared name, only one stuns": {foes: []balanceFoeRef{gold, green}, line: "Mara is stunned!",
 			want: map[string]map[string]tally{"dragon_gold": {"stun": {1, 1}}, "dragon_green": {"poison": {1, 0}}}},
 		"shared name, only one poisons": {foes: []balanceFoeRef{gold, green}, line: "Mara is poisoned!",
 			want: map[string]map[string]tally{"dragon_green": {"poison": {1, 1}}, "dragon_gold": {"stun": {1, 0}}}},
-		"alone, its breath counts": {foes: []balanceFoeRef{gold}, line: "Dragon breathes fire!",
+		"alone, its breath counts": {foes: []balanceFoeRef{gold}, line: uitext.Text("combat.party_attack.cast", "Dragon", "Dragon Breath"),
 			want: map[string]map[string]tally{"dragon_gold": {"dragon_breath": {1, 1}}}},
 		"two stunners by different names": {foes: []balanceFoeRef{gold, clock}, line: "Mara is stunned!",
 			want: map[string]map[string]tally{"dragon_gold": {"stun": {}, "dragon_breath": {1, 0}}, "grandfather_clock": {"stun": {}}}},

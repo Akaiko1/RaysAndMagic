@@ -2,11 +2,12 @@ package main
 
 import (
 	"bytes"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"ugataima/internal/boot"
 	"ugataima/internal/config"

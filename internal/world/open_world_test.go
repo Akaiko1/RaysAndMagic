@@ -1,6 +1,7 @@
 package world
 
 import (
+	"image"
 	"math"
 	"slices"
 	"testing"
@@ -382,4 +383,40 @@ func (r *OpenWorldRegion) OpeningInteriorCells(side config.OpenWorldPortalSide, 
 		cells = append(cells, [2]int{x, y})
 	}
 	return cells
+}
+
+// A tile is a region's exactly when it lies in that region's footprint. The
+// corridors between regions are part of the world - walkable, flyable - but
+// belong to no region; their state is saved under the nearest region.
+func TestOpenWorldCorridorsBelongToNoRegion(t *testing.T) {
+	wm, _ := bootOpenWorldTest(t)
+	w := wm.OpenWorld
+	corridors := 0
+	for ty := 0; ty < w.Height; ty++ {
+		for tx := 0; tx < w.Width; tx++ {
+			var owner *OpenWorldRegion
+			for i := range wm.OpenWorldRegions {
+				if r := &wm.OpenWorldRegions[i]; image.Pt(tx, ty).In(r.TileBounds()) {
+					owner = r
+				}
+			}
+			if got := wm.OpenWorldRegionAtTile(tx, ty); got != owner {
+				t.Fatalf("tile %d,%d owned by %v, want its footprint's %v", tx, ty, got, owner)
+			}
+			inWorld := wm.OpenWorldTileInWorld(tx, ty)
+			if inWorld == w.flyBoundary(tx, ty) {
+				t.Fatalf("tile %d,%d: in world=%v but fly boundary=%v", tx, ty, inWorld, w.flyBoundary(tx, ty))
+			}
+			if owner != nil || !inWorld {
+				continue
+			}
+			corridors++
+			if key := wm.MapKeyAt(w, tx, ty); key != wm.nearestOpenWorldRegion(tx, ty).MapKey {
+				t.Fatalf("corridor tile %d,%d saved under %q, want the nearest region", tx, ty, key)
+			}
+		}
+	}
+	if corridors == 0 {
+		t.Fatal("fixture: the unified world has no corridor tiles")
+	}
 }

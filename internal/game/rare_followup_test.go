@@ -9,12 +9,13 @@ import (
 	"testing"
 	"ugataima/internal/status"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/items"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Every flask and collision route shares the tile scatter, native particle
@@ -286,7 +287,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 				g, c := rareClassGame(t, character.ClassWayfarer, tb)
 				c.Skills[character.SkillFlowingStaff] = &character.Skill{Mastery: character.SkillMastery(tier)}
 				c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("oak_staff")
-				d := lookupWeaponConfigByName("Oak Staff")
+				d := lookupWeaponConfig(testWeapon("Oak Staff"))
 				base := character.WeaponDamageAtNight(d, c, false).Total
 				if !g.useTechnique(0, "fold_step", false, false) {
 					t.Fatal("Fold failed")

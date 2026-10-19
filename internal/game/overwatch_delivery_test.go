@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
 )
 
 func TestOverwatchRequiresHostileDelivery(t *testing.T) {
 	for _, cadence := range []monsterAttackCadence{monsterAttackRealtime, monsterAttackTurn, monsterAttackPounce} {
-		for _, kind := range []string{"healing", "melee", "dodged", "zero damage", "mixed", "buff", "spell", "dual mixed"} {
+		for _, kind := range []string{"healing", "melee", "dodged", "zero damage", "mixed", "buff", "spell", "dual mixed", "fireburst"} {
 			if (kind == "mixed" && cadence != monsterAttackTurn) || (kind == "dual mixed" && cadence != monsterAttackRealtime) {
 				continue
 			}
@@ -45,8 +46,11 @@ func TestOverwatchRequiresHostileDelivery(t *testing.T) {
 				m.HitPoints, m.MaxHitPoints = 100, 500
 				if key == "ningyo" {
 					m.Abilities.AllyHeal.Chance, m.Abilities.AllyHeal.Amount = 1, 200
-					if kind == "melee" || kind == "dodged" || kind == "zero damage" {
+					if kind == "melee" || kind == "dodged" || kind == "zero damage" || kind == "fireburst" {
 						m.Abilities.AllyHeal.Chance = 0
+					}
+					if kind == "fireburst" {
+						armTestPartyAttack(m, catalogPartyAttack("fireburst"), 10)
 					}
 					if kind == "dodged" {
 						ch.Luck = 500
@@ -96,5 +100,44 @@ func TestOverwatchRequiresHostileDelivery(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A monster action outside a committed attack - a boss special, a telegraph
+// release, a trap volley - is answered once; a sown trap erupting under the
+// party later is no new action.
+func TestOverwatchAnswersEachMonsterActionOnce(t *testing.T) {
+	for _, kind := range []string{"inferno", "telegraph", "trap volley", "trap eruption"} {
+		t.Run(kind, func(t *testing.T) {
+			g, _, ch, ts := sniperFixture(t, false)
+			ch.HitPoints, ch.MaxHitPoints = 100000, 100000
+			ch.Luck = 0
+			m := spawnMonsterAtTile(g, "ningyo", 6, 10, ts)
+			m.BeginPlayerEngagement()
+			m.Abilities.TrapVolley = monster.TrapVolleyAbility{Count: 4, RadiusTiles: 2, IntervalSeconds: 9, IntervalTurns: 3}
+			armTestTrapVolley(m, 10)
+			want := 1
+			switch kind {
+			case "inferno":
+				castTestPartyAttack(g.combat, m, catalogPartyAttack("inferno"), 10)
+			case "telegraph":
+				g.strikeTelegraphParty(m, "Heat", "fire", damagecalc.Parts{Normal: 10}, true)
+			case "trap volley":
+				m.Boss = true
+				g.combat.tryBossTrapVolley(m)
+				if len(g.bossFireTraps) == 0 {
+					t.Fatal("fixture: no field sown")
+				}
+			case "trap eruption":
+				g.detonateBossFireTrap(m)
+				want = 0
+			}
+			if got := overwatchShots(g); got != want {
+				t.Fatalf("reaction shots=%d want %d", got, want)
+			}
+			if g.combat.monsterAction != nil {
+				t.Fatal("action observation leaked to later actions")
+			}
+		})
 	}
 }

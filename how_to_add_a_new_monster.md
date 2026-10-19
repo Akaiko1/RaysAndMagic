@@ -132,7 +132,7 @@ monsters:
 
 | Kind | Fields | Effect |
 |---|---|---|
-| `telegraph` | `name`, `kind`, `school`, `shape`, `range`, `cooldown_seconds`, `cooldown_rounds`, `warning_seconds`, `warning_rounds`, `damage_percent`; optional `duration_seconds` (required for shield, slow, root and sustained fields: how long the field, shield or landed status lasts), `sustain_damage`, `below_hp_percent` | A marked-tile attack the party sees coming and can step out of. `kind`: strike, charge, slow, root, shield, push, retreat. `shape`: lane, burst, cone, target. `school`: fire, water, earth, air. See the solstice monsters. |
+| `telegraph` | `name`, `kind`, `school`, `shape`, `range`, `cooldown_seconds`, `cooldown_rounds`, `warning_seconds`, `warning_rounds`, `damage_percent`, `riders` (required with damage; see party attacks); optional `duration_seconds` (required for shield, slow, root and sustained fields: how long the field, shield or landed status lasts), `sustain_percent` (the lingering field's damage per second, percent of the attack), `below_hp_percent` | A marked-tile attack the party sees coming and can step out of. `kind`: strike, charge, slow, root, shield, push, retreat. `shape`: lane, burst, cone, target. `school`: fire, water, earth, air. See the solstice monsters. |
 | `root_party` | `chance`, `seconds` | An attack roots the whole party. |
 | `rear_blink` | `chance`, `range_tiles` | A ranged attacker blinks behind the party and strikes. Needs a ranged attack; `range_tiles` runs from 2 up to `ranged_attack_range`. |
 | `pounce` | `range_tiles`, `cooldown_seconds` | Leaps to melee from range, e.g. the puma. |
@@ -142,9 +142,7 @@ monsters:
 | `stun` | `chance`, `seconds` | A hit stuns the target. |
 | `dispel` | `chance` | A hit strips a buff from the party. |
 | `melt_armor` | `chance` | A melee or projectile hit melts the struck target's armor (heroes and party allies): for 5 TB rounds / 15 s, armor reduces physical damage by at most 33%. It refreshes and never stacks; breath, novas, telegraphs and traps never melt armor; Purify cleanses it. |
-| `fireburst` | `chance`, `damage_min`, `damage_max` | A fire blast instead of the normal attack. |
-| `dragon_breath` | `chance`, `damage_type` | The attack hits every living party member in that school. |
-| `piercing_shot` | `chance`, `targets` | An armor-piercing shot at several party members. |
+| `party_attacks` | a list; each entry `key`, `trigger`, `delivery`, `school`, `chance`, `damage_percent`, `targets`, `riders`; optional `ignore_armor`, `range_tiles` | Attacks on several party members at once: breath, fire novas, a piercing volley. See below. |
 | `ally_heal` | `chance`, `amount`, `radius_tiles` | Heals itself or a nearby ally instead of attacking. |
 
 A `chance` is in (0, 1]. Each kind's fields are validated at load: a kind
@@ -160,21 +158,75 @@ old schema such as `poison_chance`.
 The editor's Mobs page lists a monster's abilities under ABILITIES, after its
 ATTACK lines, and can group the catalog by ability.
 
+### Party attacks (`abilities.party_attacks`)
+
+Every attack that strikes several party members is one entry of this list,
+run by one runtime: each struck member takes its own damage roll and its own
+dodge. Entries roll in list order; the first that fires replaces the
+monster's action.
+
+`riders: true|false` is required on every party attack, every damaging
+telegraph and the trap volley: `true` rolls the monster's on-hit riders
+(`poison`, `ignite`, `stun`, `dispel`, `melt_armor`) for each member (or
+monster) it strikes, `false` keeps them off. Nothing decides it by an
+unwritten rule; the shipped novas say `false`, everything else `true`.
+
+```yaml
+monsters:
+  ash_drake:
+    name: "Ash Drake"
+    boss: true
+    level: 20
+    max_hit_points: 2400
+    armor_class: 30
+    experience: 2000
+    damage_min: 40
+    damage_max: 60
+    alert_radius: 5
+    attack_radius: 2
+    speed: 1.2
+    sprite: "dragon"
+    biomes: [desert]
+    letter: "z"
+    size_class: huge
+    resistances: {fire: 75}
+    abilities:
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: fire, chance: 0.33, damage_percent: 100, targets: all, riders: true}
+        - {key: inferno, name: "Inferno", trigger: nova, delivery: spell, school: fire, chance: 0.22, damage_percent: 200, targets: all, riders: false, range_tiles: 7}
+```
+
+| Field | Values |
+|---|---|
+| `key` | The attack's identity (tests, the balance sweep). |
+| `name` | What the monster card and the log call it: "Ash Drake unleashes Dragon Breath!" (`combat.party_attack.cast`). |
+| `trigger` | `attack`: replaces the monster's attack on the party on a roll. `nova`: a boss nova; it rolls at the boss's action while the party is within `range_tiles`, and between attacks every `BossNovaRangedRollSeconds`. A nova needs `boss: true` and `range_tiles`. |
+| `delivery` | `spell`: a spell channel (magic wards absorb it; a fire spell burns the cards). `shot`: a weapon shot (the ranged ward stops it). |
+| `school` | Any damage school. |
+| `damage_percent` | A percent of the monster's attack band (1-200), rolled per member: at 100 it hits like the monster's attack. It follows the attack through auto-level. |
+| `targets` | `all` living members, or a count drawn at random (Halfling Guile weighs the draw). |
+| `ignore_armor` | Armor does not reduce it. |
+
+Every damage number of a telegraph, a party attack or a trap volley is a
+percent of the monster's attack (1-200), so auto-level moves it with the
+attack.
+
 ### Boss kit (all data-driven; see golden_thief_bug)
-- `boss: true` - a disintegrate proc deals 100 true damage to a boss
-  instead of the kill, whatever its type (undead and dragons stay immune).
+- `boss: true` - an instakill (disintegrate, Destroy Undead) sears it for
+  20% of its max HP as true damage instead of the kill (undead and dragons
+  stay immune to disintegrate). `elite: true` only classifies a strong common
+  monster (never with `boss`); an instakill erases it like any other.
 - `type: "formless"` - a boss-only type (it fails the load without
   `boss: true`) that blocks Bind Undead and Charm. A boss does not have to
   be formless.
 - `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` -
   evades (blinks away, never attacks) until the named quest completes
 
-Six ability kinds need `boss: true`:
+Five ability kinds need `boss: true`, and so does a `party_attacks` nova:
 
 | Kind | Fields | Effect |
 |---|---|---|
-| `trap_volley` | `count`, `radius_tiles`, `interval_seconds`, `interval_turns`, `damage` | Sows fire traps around itself on a cadence; each new volley replaces the old field. |
-| `inferno` | `chance`, `damage`, `range_tiles` | A party-wide fire nova within `range_tiles`. |
+| `trap_volley` | `count`, `radius_tiles`, `interval_seconds`, `interval_turns`, `damage_percent` (each trap's hit, percent of the attack), `riders` | Sows fire traps around itself on a cadence; each new volley replaces the old field. |
 | `teleport` | `at_hp`, `chance` | At or below `at_hp` it may blink to a random tile. |
 | `summon` | `monsters` and either `chance` (optional `first_guaranteed`) or `cooldown_seconds` (whole rounds); optional `count` (default 1), `max` (0 = no cap) | Rallies adds picked from `monsters` (monster keys) in place of its attack: on a roll at its action, or surely each time the timer runs out while below `max` (the first right as the fight starts; kiting cannot stall it). Adds spawn inside the boss's arena, at its auto-level; they give no XP but drop their own gold and loot (intended). |
 | `push` | `cooldown_seconds` (whole rounds) | Once its cooldown is over, the boss's next landed attack (on anyone, dodged or not) also shoves the party 1 tile toward the nearest lane of its current health phase; free, the boss still attacks, then the cooldown restarts. Only for the boss of a chamber with `lanes` (map load fails otherwise). |

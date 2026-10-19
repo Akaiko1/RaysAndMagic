@@ -141,10 +141,10 @@ func TestCombatAttackTransitIsWalkableSkipsArcAndTakesAoe(t *testing.T) {
 		!game.collisionSystem.Snapshot().CanMoveToWithTileOverrides(transit.ID, holder.X, holder.Y, transit.WalkableTileOverrides, transit.Flying) {
 		t.Fatal("the party and transit monster must pass through the claimed post")
 	}
-	if !game.combat.monsterCanAttackParty(holder, Distance(game.camera.X, game.camera.Y, holder.X, holder.Y), holder.GetAttackRangePixels()) {
+	if !game.combat.partyInStrikeReach(holder, false) {
 		t.Fatal("the post holder must retain its normal party attack")
 	}
-	if game.combat.monsterCanAttackParty(transit, Distance(game.camera.X, game.camera.Y, transit.X, transit.Y), transit.GetAttackRangePixels()) {
+	if game.combat.partyInStrikeReach(transit, false) {
 		t.Fatal("a transit mob must not attack from another monster's claimed post")
 	}
 

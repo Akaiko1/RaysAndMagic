@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func presentInputScreen(h *displayedModalHarness) {
@@ -287,7 +288,7 @@ func TestTopLevelActionsWaitForDestinationPresentation(t *testing.T) {
 			presentInputScreen(h)
 			fp.release()
 			updateInputScreen(h)
-			if g.entryMenuMode != EntryMenuRoot || g.entryMenuRootPressArmed || g.dragArmed || g.stashDragArmed {
+			if g.entryMenuMode != EntryMenuRoot || g.entryMenuRootPressArmed || g.drag.armed || g.stashDrag.armed {
 				t.Fatal("screen transition forwarded a raw edge to its destination")
 			}
 			if len(g.mouseLeftClicks)+len(g.mouseRightClicks) != 0 {

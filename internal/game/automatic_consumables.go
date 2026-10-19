@@ -67,7 +67,7 @@ func (g *MMGame) automaticRestorative(item *items.Item, resource string) bool {
 	if item == nil || item.Type != items.ItemConsumable || item.Count() <= 0 || item.Attributes[resource] <= 0 || item.Attributes["revive"] > 0 || item.Attributes["summon_distance_tiles"] > 0 {
 		return false
 	}
-	def, _, ok := config.GetItemDefinitionByName(item.Name)
+	def, _, ok := config.ItemDefOf(*item)
 	return ok && g.config.AllowsAutoPotion(def, resource == "mana_base")
 }
 

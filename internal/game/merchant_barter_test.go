@@ -397,7 +397,7 @@ func TestCommissionDeliveryPaysAtTheGiver(t *testing.T) {
 	}
 	def.Rewards.ItemPool = pool
 	gold = g.party.Gold
-	if !g.claimQuestReward(lamps) || g.party.Gold != gold+2000 {
+	if !g.claimQuestReward(lamps, nil) || g.party.Gold != gold+2000 {
 		t.Fatalf("the journal did not pay the refused delivery: gold +%d", g.party.Gold-gold)
 	}
 }

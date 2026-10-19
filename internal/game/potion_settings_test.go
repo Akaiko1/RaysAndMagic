@@ -9,12 +9,13 @@ import (
 	"testing"
 	"ugataima/internal/status"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/items"
 	"ugataima/internal/storage"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestPotionPolicyAutomaticFamilies(t *testing.T) {

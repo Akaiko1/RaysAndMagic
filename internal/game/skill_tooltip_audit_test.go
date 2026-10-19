@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Case table: all 48 skills, all four tiers, fixed/no-effect skills, all nine
@@ -46,7 +47,7 @@ func TestSkillTooltipAuditAllMechanics(t *testing.T) {
 		character.SkillCelestialProvidence: {"dawn/dusk", "Living active Celestial", "Master-tier", "Does not stack"},
 		character.SkillOrcishFury:          {"Normal weapon damage +3/5/7/10"},
 		character.SkillHalflingGuile:       {"two to one", "random target"},
-		character.SkillDarkElfBinding:      {" 3% chance", "including fields", "turn the target into an ally until the party leaves for another map", "undead, bosses and invulnerable"},
+		character.SkillDarkElfBinding:      {"Weapon and spell hits: 3% chance", "turn the target into an ally until the party leaves for another map", "undead, bosses and invulnerable"},
 		character.SkillSpellAbsorption:     {"15/30/45/60%", "both HP and SP", "damage before defenses"},
 		character.SkillStrongMagic:         {"+25/50/75/100% damage", "25/50/75/100% of their SP cost", "at least 1 HP"},
 		character.SkillBallistics:          {"15/25/35/50%", "0/0/1/2 tiles", "2/4/6/8%"},

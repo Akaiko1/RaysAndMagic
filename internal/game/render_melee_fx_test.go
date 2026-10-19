@@ -2,11 +2,12 @@ package game
 
 import (
 	"fmt"
-	"github.com/hajimehoshi/ebiten/v2"
 	"image/color"
 	"math"
 	"os"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
 
 	"ugataima/internal/config"
 	"ugataima/internal/monster"

@@ -51,14 +51,14 @@ var spellWorldStyles = map[string]struct {
 	outlivesTarget bool    // stays at the cast contact after a lethal hit
 	seconds        float64 // lifetime; 0 is spellWorldVisualSeconds
 }{
-	"glacier":       {mechanic: "frozen_ground", material: actorSpellNone},
-	"sun_pyre":      {mechanic: "destroy_undead", material: actorSpellNone, outlivesTarget: true},
+	"glacier":       {mechanic: string(config.MechanicFrozenGround), material: actorSpellNone},
+	"sun_pyre":      {mechanic: string(config.MechanicDestroyUndead), material: actorSpellNone, outlivesTarget: true},
 	worldSolarFlare: {mechanic: string(config.SignatureSolarFlare), material: actorSpellNone, outlivesTarget: true, seconds: .85},
-	"mind_web":      {mechanic: "feeblemind", material: actorSpellMindWeb, y: .13, rx: .28, ry: .23},
-	"earth_drag":    {mechanic: "slow", material: actorSpellEarthDrag, y: .85, rx: .55, ry: .24},
-	"blood_frenzy":  {mechanic: "berserk", material: actorSpellBloodFrenzy, y: .15, rx: .34, ry: .34},
-	"holy_dread":    {mechanic: "turn_undead", material: actorSpellHolyDread, y: .43, rx: .58, ry: .65},
-	"dread_shroud":  {mechanic: "mass_fear", material: actorSpellDreadShroud, y: .40, rx: .55, ry: .63, headroom: .3},
+	"mind_web":      {mechanic: string(config.MechanicFeeblemind), material: actorSpellMindWeb, y: .13, rx: .28, ry: .23},
+	"earth_drag":    {mechanic: string(config.MechanicSlow), material: actorSpellEarthDrag, y: .85, rx: .55, ry: .24},
+	"blood_frenzy":  {mechanic: string(config.MechanicBerserk), material: actorSpellBloodFrenzy, y: .15, rx: .34, ry: .34},
+	"holy_dread":    {mechanic: string(config.MechanicTurnUndead), material: actorSpellHolyDread, y: .43, rx: .58, ry: .65},
+	"dread_shroud":  {mechanic: string(config.MechanicMassFear), material: actorSpellDreadShroud, y: .40, rx: .55, ry: .63, headroom: .3},
 }
 
 // spellWorldSeconds is how long a flourish of this kind lasts.
@@ -238,7 +238,7 @@ func (r *Renderer) drawMonsterSpellVisuals(dst *ebiten.Image, s UnifiedSpriteRen
 			for _, p := range [4][2]float64{{float64(left), top}, {float64(right), top}, {float64(left), 1}, {float64(right), 1}} {
 				vertex := weaponMaterialVertex(p[0], cy+p[1]*ry, (p[0]-cx)/rx, p[1], [3]int{202, 139, 255}, 1)
 				vertex.Custom0 = float32(age / spellWorldVisualSeconds)
-				vertex.Custom1 = float32(monsterBurnSalt(s.monster.ID)) * .013
+				vertex.Custom1 = float32(monsterFXSalt(s.monster.ID)) * .013
 				vertex.Custom2 = float32(style.material)
 				vertex.Custom3 = float32(style.headroom)
 				m.vertices = append(m.vertices, vertex)

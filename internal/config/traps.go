@@ -6,8 +6,7 @@ import (
 	"sort"
 
 	"ugataima/internal/items"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // TrapDefinitionConfig is one trap from assets/traps.yaml. Damage traps carry
@@ -53,7 +52,7 @@ func LoadTrapConfig(filename string) (*TrapSystemConfig, error) {
 		return nil, fmt.Errorf("read trap config: %w", err)
 	}
 	var cfg TrapSystemConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse trap config: %w", err)
 	}
 	if err := validateTrapConfig(&cfg); err != nil {

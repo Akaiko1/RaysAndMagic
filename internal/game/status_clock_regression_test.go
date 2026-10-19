@@ -181,9 +181,7 @@ func TestStatusClockProvidenceCalendar(t *testing.T) {
 					g.turnBasedMode = tb
 					g.party.Members[0].Race = "celestial"
 					g.party.Members[0].EnsureRacialTraits(nil)
-					old := celestialProvidenceBuffPool
-					celestialProvidenceBuffPool = []spells.SpellID{id}
-					t.Cleanup(func() { celestialProvidenceBuffPool = old })
+					setProvidencePool(g, id)
 					g.dayNightFrames = g.dayNightCycleFrames()/4 - 20
 					g.dayNightIsNight = false
 					g.refreshCelestialProvidence()

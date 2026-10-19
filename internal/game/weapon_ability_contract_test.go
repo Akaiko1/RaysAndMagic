@@ -107,7 +107,7 @@ func TestWeaponDisintegrateCombatContract(t *testing.T) {
 							if targetState == "boss" {
 								wantSear := source != "neither"
 								lost := m.MaxHitPoints - m.HitPoints
-								if seared := countCombatLog(g, "withstands disintegration") == 1; seared != wantSear || wantSear && lost < m.MaxHitPoints*config.DisintegrateBossMaxHPPct/100 {
+								if seared := countCombatLog(g, "withstands disintegration") == 1; seared != wantSear || wantSear && lost < m.MaxHitPoints*config.InstakillSearMaxHPPct/100 {
 									t.Fatalf("seared=%v want %v; lost %d", seared, wantSear, lost)
 								}
 							}
@@ -281,7 +281,7 @@ func TestWeaponAndCardBonusTargetContract(t *testing.T) {
 					}
 					switch path {
 					case "melee":
-						cs.ApplyDamageToMonster(m, 200, def.Name, false)
+						cs.ApplyDamageToMonster(m, 200, testWeapon(def.Name), false)
 					case "projectile":
 						ar := Arrow{ID: "bonus-arrow", Active: true, LifeTime: 100, Damage: 200, Owner: ProjectileOwnerPlayer, BowKey: "elven_bow", DamageType: "physical"}
 						cs.applyProjectileDamage(&ar, m, ar.ID)
@@ -455,7 +455,7 @@ func TestProjectileDisintegrateOwnerContract(t *testing.T) {
 						t.Fatalf("dead=%v want %v", dead, wantDead)
 					}
 					// A 1-damage bolt can only reach the sear's damage through the sear.
-					if lost := m.MaxHitPoints - m.HitPoints; state == "boss" && (lost >= m.MaxHitPoints*config.DisintegrateBossMaxHPPct/100) != (owner != ProjectileOwnerReflected) {
+					if lost := m.MaxHitPoints - m.HitPoints; state == "boss" && (lost >= m.MaxHitPoints*config.InstakillSearMaxHPPct/100) != (owner != ProjectileOwnerReflected) {
 						t.Fatalf("boss lost %d (owner %v)", lost, owner)
 					}
 				})
@@ -495,6 +495,34 @@ func TestProjectileDoesNotAcquireTargetsDuringFlight(t *testing.T) {
 			cs.CheckProjectileMonsterCollisions()
 			if m.HitPoints >= want || g.arrows[0].Active {
 				t.Fatal("physical contact did not land the existing projectile")
+			}
+		})
+	}
+}
+
+// The Maw devours any target left at or under its threshold - a boss too; a
+// target left above it survives the hit.
+func TestMawExecuteDevoursEveryClass(t *testing.T) {
+	for _, c := range []struct {
+		class string
+		above bool
+	}{{"ordinary", false}, {"boss", false}, {"boss", true}} {
+		t.Run(fmt.Sprintf("%s/above=%v", c.class, c.above), func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			def, ok := config.GetWeaponDefinition("wyrmcleaver")
+			if !ok || def.ExecuteBelowPct <= 0 {
+				t.Fatal("fixture: wyrmcleaver must author execute_below_pct")
+			}
+			m := mkTestMonster("Maw target", 10000)
+			m.HitPoints = 10000*def.ExecuteBelowPct/100 - 100
+			if c.above {
+				m.HitPoints = 10000*def.ExecuteBelowPct/100 + 100
+			}
+			m.Boss = c.class == "boss"
+			cs.game.world.Monsters = []*monsterPkg.Monster3D{m}
+			cs.ApplyDamageToMonster(m, 1, testWeapon(def.Name), false)
+			if devoured := countCombatLog(cs.game, "devours") > 0; devoured == c.above || m.IsAlive() != c.above {
+				t.Fatalf("devoured=%v alive=%v", devoured, m.IsAlive())
 			}
 		})
 	}

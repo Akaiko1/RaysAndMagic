@@ -61,6 +61,20 @@ func (s *Stash) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Place lands an item on chest cell idx under items.DropOnto, as Bag.Place
+// does in a bag: onto a matching stack it merges, an empty cell takes it, onto
+// any other item it takes the cell and returns the item it displaced. Callers
+// refuse part of a stack onto another item before taking anything.
+func (s *Stash) Place(idx int, it items.Item) (displaced items.Item) {
+	cell := &s.Slots[idx]
+	if items.DropOnto(it, *cell, true) == items.DropMerge {
+		cell.MergeStack(it)
+		return items.Item{}
+	}
+	displaced, *cell = *cell, it
+	return displaced
+}
+
 // Each visits every stored item - chest cells, collection, album - in a fixed
 // order and keeps whatever fn changes. It is the one walk over the stash, so
 // anti-dupe claims, load normalization and every reader cover every container.

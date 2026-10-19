@@ -3,6 +3,7 @@ package character
 import (
 	"testing"
 	"ugataima/internal/config"
+	"ugataima/internal/stats"
 )
 
 // regenTestConfig builds a minimal config with one class so we can construct
@@ -12,7 +13,7 @@ func regenTestConfig() *config.Config {
 	return &config.Config{
 		Characters: config.CharacterConfig{
 			Classes: map[string]config.ClassStats{
-				"cleric": {Might: 10, Intellect: 10, Personality: 10, Endurance: 10, Accuracy: 10, Speed: 10, Luck: 10},
+				"cleric": {Base: stats.StatBonuses{Might: 10, Intellect: 10, Personality: 10, Endurance: 10, Accuracy: 10, Speed: 10, Luck: 10}},
 			},
 			HitPoints:   config.HitPointsConfig{EnduranceMultiplier: 1, LevelMultiplier: 1},
 			SpellPoints: config.SpellPointsConfig{LevelMultiplier: 1},

@@ -272,6 +272,61 @@ func TestAdventureScalingIsIdempotent(t *testing.T) {
 	}
 }
 
+// Auto-level moves a monster's attack, and every ability authored as a share
+// of it follows: a breath at 100% hits the bite's band at every level, a
+// telegraph's field and the brood mother's trap volley grow with the attack.
+// At the authored level the shares keep the old flat numbers (field 8 per
+// second, volley 40), and scaling never writes through to the catalog.
+func TestAdventureScalingMovesAbilityDamage(t *testing.T) {
+	cfg := loadTestConfig(t)
+	field := func(m *monster.Monster3D) int {
+		if m.Abilities.Telegraph == nil {
+			return 0
+		}
+		return percentOfAttack(m.DamageMin, m.DamageMax, m.Abilities.Telegraph.SustainPercent)
+	}
+	volley := func(m *monster.Monster3D) int {
+		return percentOfAttack(m.DamageMin, m.DamageMax, m.Abilities.TrapVolley.DamagePercent)
+	}
+	for _, c := range []struct {
+		key           string
+		field, volley int // at the authored level
+	}{{"dragon", 0, 0}, {"solstice_ember_elemental", 8, 0}, {"dragon_brood_mother", 0, 40}} {
+		t.Run(c.key, func(t *testing.T) {
+			d := monster.MonsterConfig.Monsters[c.key]
+			authored := d.Abilities.Clone()
+			m := monster.NewMonster3DFromConfig(0, 0, c.key, cfg)
+			if field(m) != c.field || volley(m) != c.volley {
+				t.Fatalf("authored level: field %d volley %d, want %d and %d", field(m), volley(m), c.field, c.volley)
+			}
+			for _, level := range []int{d.Level + 20, 6, d.Level + 20} {
+				scaleAdventureMonster(cfg.AdventureScaling, m, level)
+				ratio := float64(m.DamageMin+m.DamageMax) / float64(d.DamageMin+d.DamageMax)
+				// A whole percent rounds the authored number by under 1, which the
+				// ratio scales.
+				for _, got := range []struct{ now, base int }{{field(m), c.field}, {volley(m), c.volley}} {
+					if math.Abs(float64(got.now)-float64(got.base)*ratio) > 1+ratio {
+						t.Fatalf("level %d: %d, want %d moved with the attack (x%.2f)", level, got.now, got.base, ratio)
+					}
+				}
+				for _, a := range m.Abilities.PartyAttacks {
+					lo, hi := a.DamageBand(m.DamageMin, m.DamageMax)
+					share := float64(lo+hi) / float64(m.DamageMin+m.DamageMax) * 100
+					if math.Abs(share-float64(a.DamagePercent)) > 2 {
+						t.Fatalf("level %d: %s band %d-%d is %.0f%% of the attack %d-%d, want %d%%", level, a.Key, lo, hi, share, m.DamageMin, m.DamageMax, a.DamagePercent)
+					}
+					if a.DamagePercent == 100 && (lo != m.DamageMin || hi != m.DamageMax) {
+						t.Fatalf("level %d: %s at 100%% hits %d-%d, the attack %d-%d", level, a.Key, lo, hi, m.DamageMin, m.DamageMax)
+					}
+				}
+			}
+			if !reflect.DeepEqual(monster.MonsterConfig.Monsters[c.key].Abilities, authored) {
+				t.Fatal("scaling a monster wrote through to the catalog")
+			}
+		})
+	}
+}
+
 func TestSolsticeWardRecipes(t *testing.T) {
 	rareClassGame(t, character.ClassAlchemist, false)
 	for _, c := range []struct{ element, signature, harvest, outdoor, herb string }{

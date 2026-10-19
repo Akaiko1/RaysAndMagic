@@ -78,7 +78,7 @@ func (g *MMGame) useDevice(item *items.Item, charIndex int) bool {
 		}
 		g.armDeviceRecharge(item)
 		g.AddCombatMessage(uitext.Text("item.device_summon_success"))
-		g.consumeCharacterActionWithRTCooldown(charIndex, g.combat.CalculateActionCooldownFrames(g.party.Members[charIndex]))
+		g.commitHeroAction(charIndex, g.combat.CalculateActionCooldownFrames(g.party.Members[charIndex]))
 		return true
 	}
 	jump, ok := deviceJump(*item)
@@ -134,7 +134,7 @@ func (g *MMGame) tickDeviceCooldowns(turn bool) {
 	}
 	clock.party, clock.revision, clock.rosters, clock.containers = g.party, g.party.ContentRevision(), rosters, len(g.groundContainers)
 	clock.remaining = 0
-	g.eachCarriedItem(func(it *items.Item) bool {
+	g.eachLiveItem(func(it *items.Item) bool {
 		if recharge := deviceClock(it); recharge.Active() {
 			recharge.Tick(turn)
 			clock.remaining = max(clock.remaining, recharge.Frames)
@@ -143,56 +143,23 @@ func (g *MMGame) tickDeviceCooldowns(turn bool) {
 	})
 }
 
-// eachLiveItem visits every item the live game holds outside the stash: each
-// roster hero's equipment, then everything carried (eachCarriedItem).
-// Changes through the pointer stick; true stops the walk and is returned.
+// eachLiveItem visits every item the live game holds outside the stash - the
+// party's own, worn and carried (party.OwnedItems), then ground containers -
+// until visit reports true. Changes through the pointer stick.
 func (g *MMGame) eachLiveItem(visit func(*items.Item) bool) bool {
 	if g.party == nil {
 		return false
 	}
-	for hero := range g.party.Heroes() {
-		for slot, it := range hero.Equipment {
-			stop := visit(&it)
-			hero.Equipment[slot] = it
-			if stop {
-				return true
-			}
-		}
-	}
-	return g.eachCarriedItem(visit)
-}
-
-// eachCarriedItem visits every live item not worn: the shared bag, each
-// roster hero's bag and quick slots, and ground containers. Devices live only
-// here - they are never equipped.
-func (g *MMGame) eachCarriedItem(visit func(*items.Item) bool) bool {
-	bag := func(stock []items.Item) bool {
-		for i := range stock {
-			if visit(&stock[i]) {
-				return true
-			}
-		}
-		return false
-	}
-	if g.party == nil {
-		return false
-	}
-	if bag(g.party.Inventory) {
-		return true
-	}
-	for hero := range g.party.Heroes() {
-		if bag(hero.Inventory) {
+	for it := range g.party.OwnedItems() {
+		if visit(it) {
 			return true
-		}
-		for _, it := range hero.QuickSlots {
-			if it != nil && visit(it) {
-				return true
-			}
 		}
 	}
 	for i := range g.groundContainers {
-		if bag(g.groundContainers[i].Items) {
-			return true
+		for j := range g.groundContainers[i].Items {
+			if visit(&g.groundContainers[i].Items[j]) {
+				return true
+			}
 		}
 	}
 	return false

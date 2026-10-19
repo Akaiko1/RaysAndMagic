@@ -52,6 +52,34 @@ func (g *MMGame) arrivalTileError(mapKey string, tile [2]int) error {
 	return nil
 }
 
+// validateNPCArrivalTiles fails the boot on an authored arrival_tile the
+// travel would refuse at the moment of use (arrivalTileError). It needs every
+// map loaded, as the boot does.
+func (g *MMGame) validateNPCArrivalTiles() error {
+	wm := world.GlobalWorldManager
+	if character.NPCConfigInstance == nil || wm == nil {
+		return nil
+	}
+	for _, key := range sortedMapKeys(character.NPCConfigInstance.NPCs) {
+		data := character.NPCConfigInstance.NPCs[key]
+		if data == nil || data.Dialogue == nil {
+			continue
+		}
+		if err := data.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
+			if c.ArrivalTile == nil {
+				return nil
+			}
+			if err := g.arrivalTileError(c.Map, *c.ArrivalTile); err != nil {
+				return fmt.Errorf("NPC %q row %q arrival_tile %v on %q: %w", key, c.Text, *c.ArrivalTile, c.Map, err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // transitionToMap owns one complete travel operation. No arrival, quest entry
 // spawn or autosave runs unless the destination world was selected successfully.
 func (g *MMGame) transitionToMap(request mapTransition) error {
@@ -274,10 +302,8 @@ func (g *MMGame) relocateTravelAllies() {
 		if !ok {
 			x, y = g.camera.X, g.camera.Y
 		} // controlled allies may share the party's tile
-		m.X, m.Y = x, y
-		m.ResetPathfinding()
+		g.placeMonster(m, x, y)
 		m.AIFoe = nil
 		m.IsEngagingPlayer = false
-		g.collisionSystem.UpdateEntity(m.ID, x, y)
 	}
 }

@@ -117,25 +117,6 @@ func (v *viewer) overlayBiomes() []string {
 	return biomes
 }
 
-func overlayItemNames(weapons bool) []string {
-	names := []string{}
-	if weapons && config.GlobalWeapons != nil {
-		for _, w := range config.GlobalWeapons.Weapons {
-			if w != nil && w.Name != "" {
-				names = append(names, w.Name)
-			}
-		}
-	} else if !weapons && config.GlobalItems != nil {
-		for _, it := range config.GlobalItems.Items {
-			if it != nil && it.Name != "" {
-				names = append(names, it.Name)
-			}
-		}
-	}
-	sort.Strings(names)
-	return slices.Compact(names)
-}
-
 // overlayDoorKeys lists only items the game accepts as door keys (door_key > 0).
 func overlayDoorKeys() []string {
 	keys := []string{}
@@ -511,13 +492,13 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 			overlayBool("Arena champions board", &n.ArenaBoard, "Adds the champions' leaderboard tab, as the arena gladiators have."),
 			overlayString("Also sell every weapon of rarity", &n.StockWeaponsRarity, "Adds all weapons of this rarity at the price below.", overlayWeaponRarities()...),
 			overlayInt("Price of those weapons", &n.StockWeaponsCost, "Required with a rarity."))
+		wares := append(slices.Clone(v.overlayCatalog("weapons", "weapons")), items...)
 		for i, it := range n.Inventory {
 			if it == nil {
 				continue
 			}
 			label := fmt.Sprintf("Stock %d", i+1)
-			add(nested(overlayString(label+" kind", &it.Type, "weapon looks the name up among weapons; anything else among items.", "item", "potion", "weapon")),
-				nested(overlayString(label+" name", &it.Name, "Display name of the item or weapon.", overlayItemNames(strings.EqualFold(it.Type, "weapon"))...)),
+			add(nested(overlayString(label+" ware", &it.Key, "weapons.yaml or items.yaml key of the ware.", wares...)),
 				nested(overlayInt(label+" price", &it.Cost, "0 uses the item's own value.")),
 				nested(overlayInt(label+" quantity", &it.Quantity, "-1 never sells out; 0 means one copy.")),
 				nested(overlayString(label+" tab", &it.Tab, "Optional shop tab. Use tabs for every entry or none; a tab is all barter or all priced.")),
@@ -532,11 +513,11 @@ func (v *viewer) overlayObjectFields(d *overlayDocument) []overlayField {
 			add(nested(overlayAction("Remove "+strings.ToLower(label), "Remove this stock entry.", edit(func(x *character.NPCData) { x.Inventory = slices.Delete(x.Inventory, i, i+1) }))))
 		}
 		add(overlayAction("+ Add stock", "Add an item to the shop.", edit(func(x *character.NPCData) {
-			x.Inventory = append(x.Inventory, &character.NPCItem{Type: "item", Quantity: 1})
+			x.Inventory = append(x.Inventory, &character.NPCItem{Quantity: 1})
 		})))
 	} else if opensDialog && n.Type != character.NPCTypeDoor && shopDrawn {
 		add(overlayAction("+ Add shop", "Let this object sell items.", edit(func(x *character.NPCData) {
-			x.Inventory = append(x.Inventory, &character.NPCItem{Type: "item", Quantity: 1})
+			x.Inventory = append(x.Inventory, &character.NPCItem{Quantity: 1})
 			x.ShopDialogue = shopTabs
 		})))
 	} else if opensDialog && n.Type != character.NPCTypeDoor {

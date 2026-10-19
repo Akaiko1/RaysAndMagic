@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/threading"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestWorldClickCannotAcquireTargetAfterTurn(t *testing.T) {

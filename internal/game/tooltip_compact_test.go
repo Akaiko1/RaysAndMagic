@@ -267,7 +267,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 				probe := character.CreateCharacter("Probe", char.Class, cs.game.config)
 				probe.Speed = 0
 				delete(probe.Skills, character.SkillDualWielding)
-				want = append(slices.Clone(want), "Base weapon cooldown: "+cooldownSeconds(cs, cs.WeaponCooldownFramesFor(probe, weapon.Name)))
+				want = append(slices.Clone(want), "Base weapon cooldown: "+cooldownSeconds(cs, cs.WeaponCooldownFramesFor(probe, testWeapon(weapon.Name))))
 			}
 			if tt.cooldownLimit {
 				want = append(slices.Clone(want), "Cooldown limit: "+cooldownSeconds(cs, RTCooldownMinFrames))

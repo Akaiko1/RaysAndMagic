@@ -47,7 +47,7 @@ type stashAddr struct {
 // the tavern's "Manage your stash" action.
 func (g *MMGame) openStash() bool {
 	if !g.ensureStashLoaded() {
-		g.AddCombatMessage("Could not open the stash.")
+		g.AddCombatMessage(uitext.Text("combat.could_not_open_the_stash"))
 		return false
 	}
 	g.stashScreenOpen = true
@@ -57,8 +57,8 @@ func (g *MMGame) openStash() bool {
 }
 
 func (g *MMGame) clearStashDrag() {
-	g.stashDragArmed = false
-	g.stashDragActive = false
+	g.stashDrag.armed = false
+	g.stashDrag.active = false
 	g.stashDragDrop = false
 	g.stashDragFrom = -1
 	g.stashDragItem = items.Item{}
@@ -87,13 +87,13 @@ func (g *MMGame) commitStashTransfer(snapshot stashTransferSnapshot) bool {
 	}
 	if err := stash.SaveTransferJournal(journal); err != nil {
 		snapshot.restore(g)
-		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+		g.AddCombatMessage(uitext.Text("combat.stash_transfer_failed_nothing_was_moved"))
 		return false
 	}
 	if err := stash.Save(g.stash); err != nil {
 		snapshot.restore(g) // chest never committed -> just undo the in-memory move
 		_ = stash.ClearTransferJournal()
-		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+		g.AddCombatMessage(uitext.Text("combat.stash_transfer_failed_nothing_was_moved"))
 		return false
 	}
 	g.pendingStashTransferID = journal.ID
@@ -105,9 +105,9 @@ func (g *MMGame) commitStashTransfer(snapshot stashTransferSnapshot) bool {
 			snapshot.restore(g)
 			g.pendingStashTransferID = ""
 			_ = stash.ClearTransferJournal()
-			g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+			g.AddCombatMessage(uitext.Text("combat.stash_transfer_failed_nothing_was_moved"))
 		} else {
-			g.AddCombatMessage("Stash saved, but autosave failed. Do not quit; save again.")
+			g.AddCombatMessage(uitext.Text("combat.stash_saved_but_autosave_failed_do"))
 		}
 		return false
 	}
@@ -149,11 +149,11 @@ func (g *MMGame) finishPendingStashTransfer() bool {
 		return true
 	}
 	if err := g.autosaveErr(); err != nil {
-		g.AddCombatMessage("Stash autosave is still failing. Try again before moving more items.")
+		g.AddCombatMessage(uitext.Text("combat.stash_autosave_is_still_failing_try"))
 		return false
 	}
 	if err := stash.ClearTransferJournal(); err != nil {
-		g.AddCombatMessage("Stash is waiting for journal cleanup. Try again before moving more items.")
+		g.AddCombatMessage(uitext.Text("combat.stash_is_waiting_for_journal_cleanup"))
 		return false
 	}
 	g.pendingStashTransferID = ""
@@ -177,7 +177,7 @@ func (ui *UISystem) updateStashDrag(now int64) bool {
 			g.clearStashDrag()
 			return false
 		}
-		g.stashDragCurX, g.stashDragCurY = pointerPosition()
+		g.stashDrag.curX, g.stashDrag.curY = pointerPosition()
 		if pointerLeftJustPressed() {
 			g.stashDragDrop = true
 			return true // destination click is a drag drop, never a stash click
@@ -188,43 +188,37 @@ func (ui *UISystem) updateStashDrag(now int64) bool {
 		return false
 	}
 	if !g.stashDragSurfaceOpen() {
-		if g.stashDragArmed || g.stashDragActive {
+		if g.stashDrag.armed || g.stashDrag.active {
 			g.clearStashDrag()
 		}
 		return false
 	}
 	x, y := pointerPosition()
 	if pointerLeftJustPressed() {
-		g.stashDragArmed = true
-		g.stashDragActive = false
+		g.stashDrag.press(x, y)
 		g.stashDragDrop = false
 		g.stashDragFrom = -1
-		g.stashDragStartX, g.stashDragStartY = x, y
-		g.stashDragCurX, g.stashDragCurY = x, y
 		g.stashDragItem = items.Item{}
 		g.stashDragSplitQuantity = 0
 	}
-	if g.stashDragArmed && pointerLeftPressed() {
-		g.stashDragCurX, g.stashDragCurY = x, y
-		if !g.stashDragActive && (absInt(x-g.stashDragStartX) > quickDragThreshold || absInt(y-g.stashDragStartY) > quickDragThreshold) {
-			g.stashDragActive = true
-		}
+	if pointerLeftPressed() {
+		g.stashDrag.follow(x, y)
 	}
 	if pointerLeftJustRelease() {
-		wasArmed := g.stashDragArmed
-		g.stashDragCurX, g.stashDragCurY = x, y
-		if g.stashDragActive && g.stashDragFrom >= 0 {
+		wasArmed := g.stashDrag.armed
+		g.stashDrag.curX, g.stashDrag.curY = x, y
+		if g.stashDrag.active && g.stashDragFrom >= 0 {
 			g.stashDragDrop = true // Update resolves against the displayed cell
 		} else {
-			if wasArmed && !g.stashDragActive {
+			if wasArmed && !g.stashDrag.active {
 				// A press that never became a drag IS the click - queue it now,
 				// at the point it started, so grids act on completed gestures.
-				g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: g.stashDragStartX, y: g.stashDragStartY, at: now})
-				g.mouseLeftClickX, g.mouseLeftClickY = g.stashDragStartX, g.stashDragStartY
+				g.mouseLeftClicks = append(g.mouseLeftClicks, queuedClick{x: g.stashDrag.startX, y: g.stashDrag.startY, at: now})
+				g.mouseLeftClickX, g.mouseLeftClickY = g.stashDrag.startX, g.stashDrag.startY
 			}
 			g.clearStashDrag()
 		}
-		g.stashDragArmed = false
+		g.stashDrag.armed = false
 	}
 	return false
 }
@@ -346,23 +340,11 @@ func (g *MMGame) moveStashItem(src, dst stashAddr, quantity int) {
 	rollback := g.stashSnapshot()
 	switch {
 	case src.kind != stashKindBag && dst.kind != stashKindBag: // cell <-> cell
-		sp, dp := g.stashCellPtr(src), g.stashCellPtr(dst)
-		if items.DropOnto(*sp, *dp, true) == items.DropMerge {
-			dp.MergeStack(*sp)
-			*sp = items.Item{}
-		} else {
-			*sp, *dp = *dp, *sp
-		}
+		g.stash.Slots[src.idx] = items.Item{}
+		g.stash.Slots[src.idx] = g.stash.Place(dst.idx, moving) // a displaced item takes the source cell
 	case src.kind == stashKindBag: // bag -> cell
-		dp := g.stashCellPtr(dst)
 		bag.Remove(src.idx)
-		if items.DropOnto(moving, *dp, true) == items.DropMerge {
-			dp.MergeStack(moving)
-			break
-		}
-		occ := *dp
-		*dp = moving
-		if !stash.IsEmpty(occ) {
+		if occ := g.stash.Place(dst.idx, moving); !stash.IsEmpty(occ) {
 			g.releaseFromChest(&occ)
 			bag.Insert(src.idx, occ) // the displaced item takes the bag cell
 		}
@@ -406,7 +388,6 @@ func (g *MMGame) releaseFromChest(it *items.Item) {
 // fragment merges onto a matching stack or fills an empty cell. Stack
 // provenance lives on items.Item, so any matching chest stack accepts it.
 func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
-	dstCell := g.stashCellPtr(dst)
 	if !g.finishPendingStashTransfer() {
 		return
 	}
@@ -430,14 +411,11 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 		return
 	}
 
-	switch {
-	case dst.kind == stashKindBag:
+	if dst.kind == stashKindBag {
 		g.releaseFromChest(&fragment)
 		g.party.Bag().Place(fragment, dst.idx)
-	case stash.IsEmpty(*dstCell):
-		*dstCell = fragment
-	default:
-		dstCell.MergeStack(fragment)
+	} else {
+		g.stash.Place(dst.idx, fragment) // the placement rule refused any occupant already
 	}
 	g.commitStashTransfer(rollback)
 }
@@ -522,7 +500,7 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	// ESC is handled in the Update input loop (edge-tracked) so it closes the
 	// modal without leaking to the menu-open handler; here only the close button
 	// (click-inert while a drag is in flight).
-	ui.drawPopupCloseButton(screen, popup.right()-36, popup.y+10, 24, interactive && !g.stashDragActive && !ui.stackSplitPicker.open, func() {
+	ui.drawPopupCloseButton(screen, popup.right()-36, popup.y+10, 24, interactive && !g.stashDrag.active && !ui.stackSplitPicker.open, func() {
 		g.closeStashScreen()
 	})
 }
@@ -567,7 +545,7 @@ func (ui *UISystem) drawStashManager(screen *ebiten.Image, L stashLayout, intera
 		}
 		ui.drawStashSlot(screen, stashAddr{stashKindBag, idx}, it, stashGridCell(L.bag, L.bagCols, slot), interactive, mouseX, mouseY)
 	}
-	pagerOpen := interactive && !g.stashDragActive && !ui.stackSplitPicker.open
+	pagerOpen := interactive && !g.stashDrag.active && !ui.stackSplitPicker.open
 	ui.drawPager(screen, L.bag.x, L.noteY, L.bag.w, &g.stashInvPage, pages, pagerOpen)
 	// The wheel turns bag pages, also while an item is carried.
 	ui.onWheelOver(L.bag, interactive && !ui.stackSplitPicker.open, func(dir int) {
@@ -602,7 +580,7 @@ func (ui *UISystem) drawStashSlot(screen *ebiten.Image, a stashAddr, it items.It
 			ui.stashInvSource(a.idx, r)
 		}
 	}
-	ui.drawStashCell(screen, it, r, g.stashDragActive && g.stashDragFrom == from && g.stashDragSplitQuantity == 0)
+	ui.drawStashCell(screen, it, r, g.stashDrag.active && g.stashDragFrom == from && g.stashDragSplitQuantity == 0)
 	if ptInRect(mouseX, mouseY, r) {
 		hover := color.RGBA{210, 170, 80, 230}
 		if a.kind == stashKindBag {
@@ -620,14 +598,14 @@ func (ui *UISystem) drawStashSlot(screen *ebiten.Image, a stashAddr, it items.It
 		if a.kind == stashKindChest {
 			zone = "stash_chest"
 		}
-		ui.onDisplayedInput(uiCommandClick, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() {
-			if !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeDoubleClickIn(zone, a.idx, r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
+		ui.onDisplayedInput(uiCommandClick, layoutRectOf(r), func() {
+			if !g.stashDrag.active && !ui.stackSplitPicker.open && g.consumeDoubleClickIn(zone, a.idx, r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
 				g.quickMoveStashItem(a)
 			}
 		})
 	}
 	ui.onDisplayedInput(uiCommandDrag, layoutRect{}, func() {
-		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
+		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDrag.curX, g.stashDrag.curY, r) {
 			g.resolveStashDrop(a)
 		}
 	})
@@ -636,15 +614,15 @@ func (ui *UISystem) drawStashSlot(screen *ebiten.Image, a stashAddr, it items.It
 // stashCellSource captures a chest cell as a drag source.
 func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashCellSource(i, r) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRectOf(r), func() { ui.stashCellSource(i, r) })
 		return
 	}
 
 	g := ui.game
-	if !g.stashDragArmed || g.stashDragFrom >= 0 {
+	if !g.stashDrag.armed || g.stashDragFrom >= 0 {
 		return
 	}
-	if stash.IsEmpty(g.stash.Slots[i]) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
+	if stash.IsEmpty(g.stash.Slots[i]) || !ptInRect(g.stashDrag.startX, g.stashDrag.startY, r) {
 		return
 	}
 	ui.beginStashDrag(i, g.stash.Slots[i])
@@ -653,15 +631,15 @@ func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
 // stashInvSource captures a bag cell as a drag source.
 func (ui *UISystem) stashInvSource(idx int, r image.Rectangle) {
 	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandDrag, layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()}, func() { ui.stashInvSource(idx, r) })
+		ui.onDisplayedInput(uiCommandDrag, layoutRectOf(r), func() { ui.stashInvSource(idx, r) })
 		return
 	}
 
 	g := ui.game
-	if !g.stashDragArmed || g.stashDragFrom >= 0 {
+	if !g.stashDrag.armed || g.stashDragFrom >= 0 {
 		return
 	}
-	if idx < 0 || idx >= len(g.party.Inventory) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
+	if idx < 0 || idx >= len(g.party.Inventory) || !ptInRect(g.stashDrag.startX, g.stashDrag.startY, r) {
 		return
 	}
 	ui.beginStashDrag(stashDragInvBase+idx, g.party.Inventory[idx])
@@ -687,7 +665,7 @@ func (ui *UISystem) stashSplitPickerTrigger(from int, item items.Item, r image.R
 	}
 
 	g := ui.game
-	if g.stashDragActive || ui.stackSplitPicker.open || !item.Stackable() || item.Count() < 2 {
+	if g.stashDrag.active || ui.stackSplitPicker.open || !item.Stackable() || item.Count() < 2 {
 		return
 	}
 	if g.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
@@ -699,9 +677,9 @@ func (ui *UISystem) stashSplitPickerTrigger(from int, item items.Item, r image.R
 // the cursor - shared by the stash manager and the merchant's drag-to-sell.
 func (ui *UISystem) drawStashCarriedIcon(screen *ebiten.Image) {
 	g := ui.game
-	if g.stashDragActive && g.stashDragFrom >= 0 {
+	if g.stashDrag.active && g.stashDragFrom >= 0 {
 		const sz = 48
-		ui.drawInventoryItemIcon(screen, g.stashDragItem, g.stashDragCurX-sz/2, g.stashDragCurY-sz/2, sz, sz, 0, true)
+		ui.drawInventoryItemIcon(screen, g.stashDragItem, g.stashDrag.curX-sz/2, g.stashDrag.curY-sz/2, sz, sz, 0, true)
 	}
 }
 
@@ -724,7 +702,7 @@ func (ui *UISystem) drawStashCell(screen *ebiten.Image, it items.Item, r image.R
 // shop: no hero is holding the item. Nothing shows while a drag is active.
 func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX, mouseY int) {
 	g := ui.game
-	if g.stashDragActive || stash.IsEmpty(it) || !ptInRect(mouseX, mouseY, cell) {
+	if g.stashDrag.active || stash.IsEmpty(it) || !ptInRect(mouseX, mouseY, cell) {
 		return
 	}
 	if key := itemCardKey(it); key != "" {

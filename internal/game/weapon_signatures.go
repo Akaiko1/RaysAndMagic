@@ -233,7 +233,7 @@ func (cs *CombatSystem) releaseSolarFlare(primary *monster.Monster3D, shot *Arro
 	cs.forEachAreaVictim(lane, partyAreaHurts, func(victim *monster.Monster3D) {
 		cs.elementalWeaponBonus(victim, payload.Damage, rule.School, uitext.Text("weapon.solar_flare_name"))
 		if victim.IsAlive() {
-			victim.ApplyBurn(rule.BurnSeconds * cs.game.config.GetTPS())
+			cs.afflictMonster(victim, monsterBurn, rule.BurnSeconds*cs.game.config.GetTPS(), logToneGood, false)
 		} else if victim != primary {
 			cs.finishMonsterKillImmediately(victim)
 		}

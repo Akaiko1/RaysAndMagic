@@ -21,8 +21,10 @@ func (c monsterAggroContext) PartyScope() (bool, string) {
 	if g.camera == nil || g.config == nil {
 		return true, ""
 	}
+	// A corridor belongs to no region, but the leash reads the region the
+	// party is crossing into or out of: the corridor's side.
 	ts := g.config.GetTileSize()
-	return true, g.mapKeyAtTile(TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts))
+	return true, g.mapKeyAtWorldTile(c.world, TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts))
 }
 
 // Departure always cancels temporary retaliation too. It never heals the actor

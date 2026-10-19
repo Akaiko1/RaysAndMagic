@@ -10,8 +10,8 @@ import (
 // ControlSaveConfig defines a target's saving throw against authored spell controls.
 // The curve is for a Grandmaster caster against zero school resistance.
 type ControlSaveConfig struct {
-	Mechanics             []string           `yaml:"mechanics"`
-	DiminishingMechanics  []string           `yaml:"diminishing_mechanics"`
+	Mechanics             []MechanicKind     `yaml:"mechanics"`
+	DiminishingMechanics  []MechanicKind     `yaml:"diminishing_mechanics"`
 	Curve                 []ControlSavePoint `yaml:"curve"`
 	MinPercent            float64            `yaml:"min_percent"`
 	MaxPercent            float64            `yaml:"max_percent"`
@@ -28,9 +28,9 @@ type ControlSavePoint struct {
 	Percent         float64 `yaml:"percent"`
 }
 
-func (c ControlSaveConfig) Applies(kind string) bool { return slices.Contains(c.Mechanics, kind) }
+func (c ControlSaveConfig) Applies(kind MechanicKind) bool { return slices.Contains(c.Mechanics, kind) }
 
-func (c ControlSaveConfig) Diminishes(kind string) bool {
+func (c ControlSaveConfig) Diminishes(kind MechanicKind) bool {
 	return slices.Contains(c.DiminishingMechanics, kind)
 }
 
@@ -78,17 +78,17 @@ func (c ControlSaveConfig) validate() error {
 	}
 	for i, kind := range c.Mechanics {
 		switch kind {
-		case "turn_undead", "mass_fear", "feeblemind":
+		case MechanicTurnUndead, MechanicMassFear, MechanicFeeblemind:
 		default:
-			return fail("mechanics: " + kind)
+			return fail("mechanics: " + string(kind))
 		}
 		if slices.Contains(c.Mechanics[:i], kind) {
-			return fail("duplicate mechanic: " + kind)
+			return fail("duplicate mechanic: " + string(kind))
 		}
 	}
 	for i, kind := range c.DiminishingMechanics {
-		if !c.Applies(kind) || (kind != "turn_undead" && kind != "mass_fear") || slices.Contains(c.DiminishingMechanics[:i], kind) {
-			return fail("diminishing_mechanics: " + kind)
+		if !c.Applies(kind) || (kind != MechanicTurnUndead && kind != MechanicMassFear) || slices.Contains(c.DiminishingMechanics[:i], kind) {
+			return fail("diminishing_mechanics: " + string(kind))
 		}
 	}
 	if c.ResistedMessage == "" || c.Summary == "" || c.Details == "" || len(c.DiminishingMechanics) > 0 && c.DiminishingSummary == "" {

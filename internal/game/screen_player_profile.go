@@ -42,11 +42,7 @@ func (ui *UISystem) profileButton(screen *ebiten.Image, label string, r layoutRe
 		drawFilledRect(screen, r.x, r.y, r.w, r.h, color.RGBA{0, 0, 0, 100})
 		return
 	}
-	ui.onDisplayedInput(uiCommandNavigation, r, func() {
-		if ui.game.consumeLeftClickIn(r.x, r.y, r.x+r.w, r.y+r.h) {
-			action()
-		}
-	})
+	ui.onClick(r, true, action)
 }
 
 func (ui *UISystem) profileIcon(screen *ebiten.Image, key, label string, x, y, size int) {
@@ -303,15 +299,7 @@ func (g *MMGame) setStatisticsTab(tab int) {
 }
 
 func profileScrollInput(offset, limit, viewport int, wheel float64, pressed func(ebiten.Key) bool) int {
-	delta := int(wheel * 48)
-	if delta == 0 && wheel != 0 {
-		if wheel > 0 {
-			delta = 1
-		} else {
-			delta = -1
-		}
-	}
-	offset -= delta
+	offset += wheelScrollPixels(wheel, 48)
 	if pressed(ebiten.KeyDown) {
 		offset += 48
 	}
@@ -523,7 +511,7 @@ func (ui *UISystem) drawProfileRanking(screen *ebiten.Image, view layoutRect, sp
 		onScreen := layoutRect{view.x + track.x, view.y + track.y, track.w, track.h}
 		strip := scrollbarGrabStrip(onScreen)
 		seen := image.Rect(strip.x, strip.y, strip.right(), strip.bottom()).Intersect(image.Rect(view.x, view.y, view.right(), view.bottom()))
-		hit := layoutRect{seen.Min.X, seen.Min.Y, seen.Dx(), seen.Dy()}
+		hit := layoutRectOf(seen)
 		g := ui.game
 		ui.scrollbarGesture("profile:ranking:"+spec.group, onScreen, hit, scroll, len(entries)*profileRankingRowH, func(v int) {
 			g.statisticsRankingScroll[spec.group] = v

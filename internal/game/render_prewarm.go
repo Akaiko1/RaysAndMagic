@@ -350,8 +350,7 @@ func (s mapRenderPrewarmScope) containsTile(tx, ty int) bool {
 	if s.region == nil {
 		return true
 	}
-	return tx >= s.region.OffsetX && tx < s.region.OffsetX+s.region.Width &&
-		ty >= s.region.OffsetY && ty < s.region.OffsetY+s.region.Height
+	return image.Pt(tx, ty).In(s.region.TileBounds())
 }
 
 func (s mapRenderPrewarmScope) containsWorld(x, y float64) bool {
@@ -597,8 +596,9 @@ func (r *Renderer) collectMapRenderPrewarmPlanAndPriorities(scope mapRenderPrewa
 			// The stitched world caches cover every region. Inventory only tiles
 			// physically placed in this logical region; the retained neighbour
 			// provides the art visible across a seam.
-			for ty := scope.region.OffsetY; ty < scope.region.OffsetY+scope.region.Height; ty++ {
-				for tx := scope.region.OffsetX; tx < scope.region.OffsetX+scope.region.Width; tx++ {
+			bounds := scope.region.TileBounds()
+			for ty := bounds.Min.Y; ty < bounds.Max.Y; ty++ {
+				for tx := bounds.Min.X; tx < bounds.Max.X; tx++ {
 					x, y := TileCenterFromTile(tx, ty, scope.tileSize)
 					tileType := currentWorld.GetTileAt(x, y)
 					tileTypes[tileType] = struct{}{}
@@ -1401,10 +1401,7 @@ func mapRenderRegionIntersectsView(region *world.OpenWorldRegion, tileSize, came
 	if region == nil || tileSize <= 0 || fov <= 0 || distance <= 0 {
 		return false
 	}
-	minX := float64(region.OffsetX) * tileSize
-	minY := float64(region.OffsetY) * tileSize
-	maxX := float64(region.OffsetX+region.Width) * tileSize
-	maxY := float64(region.OffsetY+region.Height) * tileSize
+	minX, minY, maxX, maxY := region.PixelBounds(tileSize)
 	camera := mapRenderViewPoint{x: cameraX, y: cameraY}
 	if mapRenderPointInRect(camera, minX, minY, maxX, maxY) {
 		return true
@@ -1476,10 +1473,7 @@ func nearbyOpenWorldMapKeys(wm *world.WorldManager, camera *FirstPersonCamera, t
 	keys := make([]string, 0, len(wm.OpenWorldRegions))
 	for i := range wm.OpenWorldRegions {
 		region := &wm.OpenWorldRegions[i]
-		minX := float64(region.OffsetX) * tileSize
-		minY := float64(region.OffsetY) * tileSize
-		maxX := float64(region.OffsetX+region.Width) * tileSize
-		maxY := float64(region.OffsetY+region.Height) * tileSize
+		minX, minY, maxX, maxY := region.PixelBounds(tileSize)
 		closestX := math.Max(minX, math.Min(camera.X, maxX))
 		closestY := math.Max(minY, math.Min(camera.Y, maxY))
 		dx, dy := closestX-camera.X, closestY-camera.Y
@@ -1505,10 +1499,7 @@ func mapRenderRegionDistanceSq(wm *world.WorldManager, mapKey string, x, y, tile
 	if region == nil {
 		return math.Inf(1)
 	}
-	minX := float64(region.OffsetX) * tileSize
-	minY := float64(region.OffsetY) * tileSize
-	maxX := float64(region.OffsetX+region.Width) * tileSize
-	maxY := float64(region.OffsetY+region.Height) * tileSize
+	minX, minY, maxX, maxY := region.PixelBounds(tileSize)
 	closestX := math.Max(minX, math.Min(x, maxX))
 	closestY := math.Max(minY, math.Min(y, maxY))
 	dx, dy := closestX-x, closestY-y
@@ -2640,7 +2631,7 @@ func (g *MMGame) warmHeroWeaponModels(hero *character.MMCharacter) {
 		return
 	}
 	warm := func(weapon items.Item) {
-		def, key, found := config.GetWeaponDefinitionByName(weapon.Name) // a shield is no weapon
+		def, key, found := config.WeaponDefOf(weapon) // a shield is no weapon
 		if !found {
 			return
 		}

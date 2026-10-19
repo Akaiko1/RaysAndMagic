@@ -242,7 +242,7 @@ func (ui *UISystem) beginMerchantSellPicker(idx, carried int) {
 	}
 	item := g.party.Inventory[idx]
 	if price, _ := g.merchantUnitSellPrice(item); price <= 0 {
-		g.AddCombatMessage("This item has no value.")
+		g.AddCombatMessage(uitext.Text("combat.this_item_has_no_value"))
 		return
 	}
 	ui.openStackSplitPicker(stackSplitPickerMerchantSell, idx, item)
@@ -259,7 +259,7 @@ func (ui *UISystem) beginMerchantBuyPicker(idx int) {
 	}
 	entry := stock[idx]
 	if !entry.InStock() {
-		ui.game.AddCombatMessage("That item is sold out.")
+		ui.game.AddCombatMessage(uitext.Text("combat.that_item_is_sold_out"))
 		return
 	}
 	if ui.game.merchantMaxUnits(entry) < 1 {
@@ -365,22 +365,22 @@ func (ui *UISystem) beginPickedUpStackSplit(item items.Item) {
 	switch s.source {
 	case stackSplitPickerInventory:
 		g.clearDrag()
-		g.dragActive = true
+		g.drag.active = true
 		g.dragPickedUp = true
 		g.dragSrc = dragFromInventory
 		g.dragInvIndex = s.from
 		g.dragInvOwner = s.owner
 		g.dragSplitQuantity = quantity
 		g.dragItem = item
-		g.dragCurX, g.dragCurY = x, y
+		g.drag.curX, g.drag.curY = x, y
 	case stackSplitPickerStash:
 		g.clearStashDrag()
-		g.stashDragActive = true
+		g.stashDrag.active = true
 		g.stashDragPickedUp = true
 		g.stashDragFrom = s.from
 		g.stashDragSplitQuantity = quantity
 		g.stashDragItem = item
-		g.stashDragCurX, g.stashDragCurY = x, y
+		g.stashDrag.curX, g.stashDrag.curY = x, y
 	}
 }
 
@@ -457,48 +457,32 @@ func (ui *UISystem) drawStackSplitPicker(screen *ebiten.Image) {
 		r        image.Rectangle
 		quantity int
 	}{{L.one, 1}, {L.maximum, ui.stackSplitMaxQuantity(item)}} {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{preset.r.Min.X, preset.r.Min.Y, preset.r.Dx(), preset.r.Dy()}, func() {
-			if g.consumeLeftClickIn(preset.r.Min.X, preset.r.Min.Y, preset.r.Max.X, preset.r.Max.Y) {
-				ui.stackSplitChoose(preset.quantity)
-			}
-		})
+		ui.onClick(layoutRectOf(preset.r), true, func() { ui.stackSplitChoose(preset.quantity) })
 	}
-	ui.onDisplayedInput(uiCommandClick, layoutRect{minus.Min.X, minus.Min.Y, (minus.Max.X) - (minus.Min.X), (minus.Max.Y) - (minus.Min.Y)}, func() {
-		if g.consumeLeftClickIn(minus.Min.X, minus.Min.Y, minus.Max.X, minus.Max.Y) {
-			ui.stackSplitAdjust(-1)
-			return
-		}
+	ui.onClick(layoutRectOf(minus), true, func() {
+		ui.stackSplitAdjust(-1)
+		return
 	})
-	ui.onDisplayedInput(uiCommandClick, layoutRect{plus.Min.X, plus.Min.Y, (plus.Max.X) - (plus.Min.X), (plus.Max.Y) - (plus.Min.Y)}, func() {
-		if g.consumeLeftClickIn(plus.Min.X, plus.Min.Y, plus.Max.X, plus.Max.Y) {
-			ui.stackSplitAdjust(1)
-			return
-		}
+	ui.onClick(layoutRectOf(plus), true, func() {
+		ui.stackSplitAdjust(1)
+		return
 	})
-	ui.onDisplayedInput(uiCommandClick, layoutRect{half.Min.X, half.Min.Y, (half.Max.X) - (half.Min.X), (half.Max.Y) - (half.Min.Y)}, func() {
-		if g.consumeLeftClickIn(half.Min.X, half.Min.Y, half.Max.X, half.Max.Y) {
-			// A trade halves the PICKER's maximum (a buy's item is a one-unit shelf
-			// template); a split halves the carried stack, as it always did.
-			halfQ := item.Count() / 2
-			if stackSplitIsMerchantTrade(ui.stackSplitPicker.source) {
-				halfQ = ui.stackSplitMaxQuantity(item) / 2
-			}
-			ui.stackSplitChoose(halfQ)
-			return
+	ui.onClick(layoutRectOf(half), true, func() {
+		// A trade halves the PICKER's maximum (a buy's item is a one-unit shelf
+		// template); a split halves the carried stack, as it always did.
+		halfQ := item.Count() / 2
+		if stackSplitIsMerchantTrade(ui.stackSplitPicker.source) {
+			halfQ = ui.stackSplitMaxQuantity(item) / 2
 		}
+		ui.stackSplitChoose(halfQ)
+		return
 	})
-	ui.onDisplayedInput(uiCommandClick, layoutRect{take.Min.X, take.Min.Y, (take.Max.X) - (take.Min.X), (take.Max.Y) - (take.Min.Y)}, func() {
-		if g.consumeLeftClickIn(take.Min.X, take.Min.Y, take.Max.X, take.Max.Y) {
-			ui.stackSplitConfirm()
-			return
-		}
+	ui.onClick(layoutRectOf(take), true, func() {
+		ui.stackSplitConfirm()
+		return
 	})
 	// Cancel is a BUTTON (and ESC), never a stray click on the dim: this dialog
 	// confirms a purchase or a sale, so an accidental press must not dismiss it
 	// and leave the player wondering whether the trade went through.
-	ui.onDisplayedInput(uiCommandClick, layoutRect{cancel.Min.X, cancel.Min.Y, (cancel.Max.X) - (cancel.Min.X), (cancel.Max.Y) - (cancel.Min.Y)}, func() {
-		if g.consumeLeftClickIn(cancel.Min.X, cancel.Min.Y, cancel.Max.X, cancel.Max.Y) {
-			ui.closeStackSplitPicker()
-		}
-	})
+	ui.onClick(layoutRectOf(cancel), true, ui.closeStackSplitPicker)
 }

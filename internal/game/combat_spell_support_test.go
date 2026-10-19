@@ -38,7 +38,7 @@ func TestPersonalSpellDamageSchoolReachesWeaponHits(t *testing.T) {
 							weapon = "hunting_bow"
 						}
 						c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(weapon)
-						wd := lookupWeaponConfigByName(c.Equipment[items.SlotMainHand].Name)
+						wd := lookupWeaponConfig(c.Equipment[items.SlotMainHand])
 						oldCrit := wd.CritChance
 						t.Cleanup(func() { wd.CritChance = oldCrit })
 						wd.CritChance = 0
@@ -227,14 +227,7 @@ func TestAdvancedMagicWardSharesCastBudget(t *testing.T) {
 					g := advancedSupportGame(t, tb)
 					d := castAdvancedSupport(t, g, "protection_from_magic", tier, nil)
 					m := mkTestMonster("Ward tester", 10000)
-					m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax, m.Abilities.Inferno.Damage = 100, 100, 100
-					attack := func() {
-						if route == "fireburst" {
-							g.combat.applyMonsterFireburst(m)
-						} else {
-							g.combat.applyMonsterInferno(m)
-						}
-					}
+					attack := func() { castTestPartyAttack(g.combat, m, catalogPartyAttack(route), 100) }
 					budget := d.Mechanic.Charges(tier)
 					for cast := 0; cast < budget; cast++ {
 						attack()
@@ -243,7 +236,7 @@ func TestAdvancedMagicWardSharesCastBudget(t *testing.T) {
 								t.Fatalf("cast %d bypassed shared ward for hero %d: HP=%d", cast, slot, c.HitPoints)
 							}
 						}
-						if b := g.advancedBuff("protection_from_magic"); cast+1 < budget && (b == nil || b.Charges != budget-cast-1) {
+						if b := g.advancedBuff(config.MechanicProtectionFromMagic); cast+1 < budget && (b == nil || b.Charges != budget-cast-1) {
 							t.Fatalf("one AoE must spend exactly one shared charge, got %+v", b)
 						}
 						// Exercise the real saved-buff representation after partial use.
@@ -456,7 +449,7 @@ func TestAdvancedVampirismHealsActualDodgeDamage(t *testing.T) {
 					shot := &Arrow{ID: "vampire-dodge", Active: true, Owner: ProjectileOwnerPlayer, LifeTime: 60, Attacker: c, BowKey: "hunting_bow", Damage: 100, TrueDamage: trueDamage, DamageType: "physical", VampiricPct: d.Mechanic.Power(3)}
 					g.combat.applyProjectileDamage(shot, m, shot.ID)
 				} else {
-					g.combat.ApplyDamageToMonster(m, 100, "Iron Sword", false)
+					g.combat.ApplyDamageToMonster(m, 100, testWeapon("Iron Sword"), false)
 				}
 				lost := before - m.HitPoints
 				if lost != min(before, trueDamage) {
@@ -476,7 +469,7 @@ func TestAdvancedTechniqueSpellRetreatAccounting(t *testing.T) {
 			g := advancedSupportGame(t, true)
 			g.party.Members[1].Conditions = []character.Condition{character.ConditionPoisoned}
 			castAdvancedSupport(t, g, key, 0, nil)
-			g.consumeSelectedCharAction()
+			g.commitHeroAction(g.selectedChar, 0)
 			if g.partyActionsUsed != 1 || g.partyPenaltyFreeActionsUsed != 1 {
 				t.Fatal("manual technique alternative counted as an ordinary offensive cast")
 			}
@@ -645,7 +638,7 @@ func TestAutocastBudgetAcrossRoundsModesAndSave(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.SpellPoints != sp-armor.SpellPointsCost || g.advancedBuff("celestial_armor") == nil {
+			if c.SpellPoints != sp-armor.SpellPointsCost || g.advancedBuff(config.MechanicCelestialArmor) == nil {
 				t.Fatal("autocast did not resume at the exact budget boundary")
 			}
 		})
@@ -678,7 +671,7 @@ func TestAutocastCastersCommitOnConsecutivePasses(t *testing.T) {
 			t.Fatalf("%s caster SP=%d, want %d", key, got, 1000-d.SpellPointsCost)
 		}
 	}
-	if g.party.Members[2].SpellPoints != 1000 || g.advancedBuff("celestial_armor") == nil {
+	if g.party.Members[2].SpellPoints != 1000 || g.advancedBuff(config.MechanicCelestialArmor) == nil {
 		t.Fatal("second autocast did not apply or charged a bystander")
 	}
 }
@@ -695,16 +688,18 @@ func TestShieldAndPainReflectionSkipHazards(t *testing.T) {
 					ch := g.party.Members[0]
 					if warded {
 						castAdvancedSupport(t, g, buff, int(character.MasteryGrandMaster), nil)
-						b := g.advancedBuff(buff)
+						b := g.advancedBuff(config.MechanicKind(buff))
 						pct = b.RangedWardPct + b.ReflectionPct
 					}
 					m := mkTestMonster("Attacker", 1000)
-					m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax, m.Abilities.TrapVolley.Damage = 100, 100, 100
+					armTestTrapVolley(m, 100)
 					switch route {
 					case "melee", "weapon projectile":
-						g.combat.monsterHitCharacter(m, ch, m.Name, hitFromMonster(m, 100, "physical", false, 0, route == "melee", false))
+						hit := hitFromMonster(m, 100, "physical", false, 0, route == "melee", false)
+						hit.Projectile = route == "weapon projectile"
+						g.combat.monsterHitCharacter(m, ch, m.Name, hit)
 					case "fireburst":
-						g.combat.applyMonsterFireburst(m)
+						castTestPartyAttack(g.combat, m, catalogPartyAttack(route), 100)
 					case "boss trap":
 						g.detonateBossFireTrap(m)
 					}
@@ -789,7 +784,7 @@ func TestHealTriageChain(t *testing.T) {
 				id = g.combat.SmartAttack().Spell
 				cast = id != ""
 			} else {
-				cast, id = g.combat.CastBestHealOnTarget(1)
+				cast, id = g.combat.CastBestHealOnTarget(g.party.Members[1])
 			}
 			if cast != (tc.want != "") || string(id) != tc.want {
 				t.Fatalf("triage cast=%v %q, want %q", cast, id, tc.want)
@@ -810,7 +805,7 @@ func TestMassHealReuseHandsTriageOver(t *testing.T) {
 	for _, want := range []string{"mass_heal", "heal_other"} {
 		g.party.Members[1].HitPoints = g.party.Members[1].MaxHitPoints / 2
 		caster.RTCooldown, caster.ActionsRemaining = 0, 1
-		if cast, id := g.combat.CastBestHealOnTarget(1); !cast || string(id) != want {
+		if cast, id := g.combat.CastBestHealOnTarget(g.party.Members[1]); !cast || string(id) != want {
 			t.Fatalf("triage cast=%v %q, want %q", cast, id, want)
 		}
 	}
@@ -987,7 +982,7 @@ func TestAutocastManualReuseAndLegacySave(t *testing.T) {
 							if !fired {
 								t.Fatal("manual spell rejected during automatic suppression")
 							}
-							g.consumeSelectedCharActionWithRTCooldown(recovery)
+							g.commitHeroAction(g.selectedChar, recovery)
 						} else {
 							ih.useSlottedAction(c)
 						}
@@ -1086,7 +1081,7 @@ func TestCelestialArmorEndsWhenSpent(t *testing.T) {
 	for _, tb := range []bool{false, true} {
 		g := advancedSupportGame(t, tb)
 		castAdvancedSupport(t, g, "celestial_armor", 3, nil)
-		b := g.advancedBuff("celestial_armor")
+		b := g.advancedBuff(config.MechanicCelestialArmor)
 		if b == nil || b.Absorb <= 0 {
 			t.Fatal("fixture: no absorption")
 		}

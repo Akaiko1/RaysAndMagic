@@ -369,7 +369,7 @@ spells:
       radius_tiles: 7
       damage_school: "light"
       instant_kill_chance: 0.25
-      summary: "Has a {instant_kill_chance}% chance to instantly destroy one undead within {radius} tiles; otherwise deals Light damage. Has no effect on living creatures."
+      summary: "Has a {instant_kill_chance}% chance to instantly destroy one undead within {radius} tiles (bosses take {instakill_sear_pct}% of max HP as true damage); otherwise deals Light damage. Has no effect on living creatures."
 
   prismatic_light:
     name: "Prismatic Light"

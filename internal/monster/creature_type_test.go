@@ -49,11 +49,21 @@ func TestMonsterAbilitiesRequireTheirNumbers(t *testing.T) {
 	for _, tc := range []struct {
 		name, yaml, wantErr string
 	}{
-		{"complete fireburst", "abilities:\n      fireburst: {chance: 0.2, damage_min: 6, damage_max: 9}", ""},
-		{"fireburst without damage", "abilities:\n      fireburst: {chance: 0.2}", "fireburst needs damage_min"},
-		{"fireburst max below min", "abilities:\n      fireburst: {chance: 0.2, damage_min: 9, damage_max: 6}", "fireburst needs damage_min"},
-		{"complete piercing shot", "abilities:\n      piercing_shot: {chance: 0.2, targets: 2}", ""},
-		{"piercing shot without targets", "abilities:\n      piercing_shot: {chance: 0.2}", "piercing_shot needs targets"},
+		{"complete party attack", partyAttackYAML(""), ""},
+		{"party attack without damage", partyAttackYAML("damage_percent: 0"), "needs damage_percent in 1..200"},
+		{"party attack past the cap", partyAttackYAML("damage_percent: 201"), "needs damage_percent in 1..200"},
+		{"party attack in fixed numbers", partyAttackYAML("damage_min: 6"), "damage_min"},
+		{"party attack without riders", strings.Replace(partyAttackYAML(""), ", riders: true", "", 1), "needs riders"},
+		{"party attack without targets", partyAttackYAML("targets: 0"), "targets must be all or a positive count"},
+		{"party attack without a name", partyAttackYAML(`name: ""`), "needs a name"},
+		{"party attack trigger outside the set", partyAttackYAML("trigger: sometimes"), "trigger must be"},
+		{"party attack delivery outside the set", partyAttackYAML("delivery: thrown"), "delivery must be"},
+		{"party attack in an unknown school", partyAttackYAML("school: flame"), "needs a known school"},
+		{"attack-trigger entry with a reach", partyAttackYAML("range_tiles: 3"), "range_tiles is a nova's reach"},
+		{"nova on a common monster", partyAttackYAML("trigger: nova; range_tiles: 3"), "a nova needs boss: true"},
+		{"boss nova", "boss: true\n    " + partyAttackYAML("trigger: nova; range_tiles: 3"), ""},
+		{"the same party attack twice", "abilities:\n      party_attacks:\n        - " + partyAttackEntry("") + "\n        - " + partyAttackEntry(""), "lists \"fireburst\" twice"},
+		{"kind from before party_attacks", "abilities:\n      fireburst: {chance: 0.2, damage_min: 6, damage_max: 9}", "fireburst"},
 		{"complete ally heal", "abilities:\n      ally_heal: {chance: 0.2, amount: 10, radius_tiles: 2}", ""},
 		{"ally heal without radius", "abilities:\n      ally_heal: {chance: 0.2, amount: 10}", "ally_heal needs amount and radius_tiles"},
 		{"ability without its chance", "abilities:\n      poison: {duration_seconds: 4}", "poison needs a chance"},
@@ -89,4 +99,30 @@ func TestMonsterAbilitiesRequireTheirNumbers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// partyAttackEntry is a complete fireburst entry; override replaces fields
+// ("key: x; targets: 2").
+func partyAttackEntry(override string) string {
+	fields := []string{"key: fireburst", `name: "Fireburst"`, "trigger: attack", "delivery: spell", "school: fire", "chance: 0.2", "damage_percent: 80", "targets: all", "riders: true"}
+	for _, field := range strings.Split(override, "; ") {
+		if field == "" {
+			continue
+		}
+		name := strings.SplitN(field, ":", 2)[0]
+		replaced := false
+		for i := range fields {
+			if strings.HasPrefix(fields[i], name+":") {
+				fields[i], replaced = field, true
+			}
+		}
+		if !replaced {
+			fields = append(fields, field)
+		}
+	}
+	return "{" + strings.Join(fields, ", ") + "}"
+}
+
+func partyAttackYAML(override string) string {
+	return "abilities:\n      party_attacks:\n        - " + partyAttackEntry(override)
 }

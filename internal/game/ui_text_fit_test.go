@@ -84,8 +84,9 @@ func TestShippedMerchantStockPricesFit(t *testing.T) {
 		t.Fatal("no merchant stock measured - the catalog did not load")
 	}
 	for _, npc := range shops {
+		g.dialogNPC = npc
 		for _, entry := range npc.MerchantStock {
-			label := g.merchantStockPriceText(npc, entry)
+			label := g.quoteMerchantEntry(entry).shelfLabel()
 			if w := uiTextWidth(label); w > merchantPriceBoxW {
 				t.Errorf("NPC %q sells %q at %q: %dpx wide, box is %dpx",
 					npc.Key, entry.Item.Name, label, w, merchantPriceBoxW)
@@ -362,12 +363,11 @@ func TestSwitchDialogTabClearsPendingBuffService(t *testing.T) {
 	}
 	g := &MMGame{
 		dialogState: dialogState{
-			dialogTab:            0,
-			selectedChoice:       3,
-			merchantBuyPage:      2,
-			pendingBuffService:   pending,
-			dialogLastClickedIdx: 4,
-			dialogLastClickZone:  "service",
+			dialogTab:          0,
+			selectedChoice:     3,
+			merchantBuyPage:    2,
+			pendingBuffService: pending,
+			dialogClicks:       doubleClickTracker[dialogClickKey]{at: 1000, target: dialogClickKey{"service", 4}},
 		},
 	}
 
@@ -380,7 +380,7 @@ func TestSwitchDialogTabClearsPendingBuffService(t *testing.T) {
 	if g.pendingBuffService != nil {
 		t.Fatal("tab transition retained a deferred paid service")
 	}
-	if g.dialogLastClickedIdx != -1 || g.dialogLastClickZone != "" {
+	if g.dialogClicks.pending() {
 		t.Fatal("tab transition retained the previous tab's click tracker")
 	}
 }

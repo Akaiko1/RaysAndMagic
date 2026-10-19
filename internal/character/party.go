@@ -287,6 +287,75 @@ func (p *Party) Heroes() iter.Seq[*MMCharacter] {
 	}
 }
 
+// walkOwned is the one list of places a party item lives: the shared bag,
+// then every hero's (active, reserve, captive) bag, equipment and quick slots.
+// visit may edit the item in place; keep false removes it, stop ends the walk.
+// Card collection and ground containers belong to the game and are walked
+// beside it.
+func (p *Party) walkOwned(visit func(it *items.Item) (keep, stop bool)) {
+	stopped := false
+	bag := func(list []items.Item) []items.Item {
+		kept := list[:0]
+		for _, it := range list {
+			keep := true
+			if !stopped {
+				keep, stopped = visit(&it)
+			}
+			if keep {
+				kept = append(kept, it)
+			}
+		}
+		return kept
+	}
+	if p == nil {
+		return
+	}
+	p.Inventory = bag(p.Inventory)
+	for hero := range p.Heroes() {
+		if stopped {
+			return
+		}
+		hero.Inventory = bag(hero.Inventory)
+		for slot, it := range hero.Equipment {
+			if stopped {
+				break
+			}
+			keep := true
+			keep, stopped = visit(&it)
+			if keep {
+				hero.Equipment[slot] = it
+			} else {
+				delete(hero.Equipment, slot)
+			}
+		}
+		for i, it := range hero.QuickSlots {
+			if stopped {
+				break
+			}
+			if it != nil {
+				keep := true
+				if keep, stopped = visit(it); !keep {
+					hero.QuickSlots[i] = nil
+				}
+			}
+		}
+	}
+}
+
+// OwnedItems yields every item the party owns (see walkOwned), editable in
+// place.
+func (p *Party) OwnedItems() iter.Seq[*items.Item] {
+	return func(yield func(*items.Item) bool) {
+		p.walkOwned(func(it *items.Item) (bool, bool) { return true, !yield(it) })
+	}
+}
+
+// RetainOwnedItems drops every owned item keep rejects; keep may edit the
+// item it keeps.
+func (p *Party) RetainOwnedItems(keep func(*items.Item) bool) {
+	p.walkOwned(func(it *items.Item) (bool, bool) { return keep(it), false })
+}
+
 // CountItemsByName counts carried units available for crafting and item exchanges.
 func (p *Party) CountItemsByName(name string) int {
 	n := 0

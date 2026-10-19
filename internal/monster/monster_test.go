@@ -2,7 +2,10 @@ package monster
 
 import (
 	"math"
+	"reflect"
 	"testing"
+
+	damagecalc "ugataima/internal/damage"
 )
 
 // Boss flags travel in pairs (chance + magnitude, evasive phase + tuning);
@@ -14,20 +17,23 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		def     MonsterDefinition
 		wantErr bool
 	}{
-		{"inferno chance without damage", MonsterDefinition{Boss: true, Abilities: Abilities{Inferno: InfernoAbility{Chance: 0.1}}}, true},
-		{"inferno chance without range", MonsterDefinition{Boss: true, Abilities: Abilities{Inferno: InfernoAbility{Chance: 0.1, Damage: 28}}}, true},
-		{"inferno fully configured", MonsterDefinition{Boss: true, Abilities: Abilities{Inferno: InfernoAbility{Chance: 0.1, Damage: 28, RangeTiles: 8}}}, false},
+		{"nova without damage", MonsterDefinition{Boss: true, Abilities: Abilities{PartyAttacks: []PartyAttack{testNova(func(a *PartyAttack) { a.DamagePercent = 0 })}}}, true},
+		{"nova without range", MonsterDefinition{Boss: true, Abilities: Abilities{PartyAttacks: []PartyAttack{testNova(func(a *PartyAttack) { a.RangeTiles = 0 })}}}, true},
+		{"nova on a common monster", MonsterDefinition{Abilities: Abilities{PartyAttacks: []PartyAttack{testNova(nil)}}}, true},
+		{"nova fully configured", MonsterDefinition{Boss: true, Abilities: Abilities{PartyAttacks: []PartyAttack{testNova(nil)}}}, false},
 		{"poison chance without duration", MonsterDefinition{Abilities: Abilities{Poison: DoTAbility{Chance: 0.2}}}, true},
 		{"poison fully configured", MonsterDefinition{Abilities: Abilities{Poison: DoTAbility{Chance: 0.2, DurationSeconds: 15}}}, false},
 		{"boss-only behavior needs boss flag", MonsterDefinition{Abilities: Abilities{Summon: SummonAbility{Chance: 0.2, Monsters: []string{"rat"}}}}, true},
 		{"bare boss is valid", MonsterDefinition{Boss: true}, false},
+		{"elite is valid", MonsterDefinition{Elite: true}, false},
+		{"boss and elite at once", MonsterDefinition{Boss: true, Elite: true}, true},
 		{"dormant boss (passive, no evade) is valid", MonsterDefinition{Boss: true, PassiveUntilQuest: "q"}, false},
 		{"evasive without cooldown", MonsterDefinition{Boss: true, PassiveUntilQuest: "q", EvadeRadiusTiles: 3}, true},
 		{"evasive fully configured", MonsterDefinition{Boss: true, PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1}, false},
 		{"summon chance without monsters", MonsterDefinition{Boss: true, Abilities: Abilities{Summon: SummonAbility{Chance: 0.2}}}, true},
 		{"summon configured", MonsterDefinition{Boss: true, Abilities: Abilities{Summon: SummonAbility{Chance: 0.2, Monsters: []string{"rat"}}}}, false},
-		{"dragon breath chance without damage type", MonsterDefinition{Abilities: Abilities{DragonBreath: DragonBreathAbility{Chance: 0.33}}}, true},
-		{"dragon breath configured", MonsterDefinition{Abilities: Abilities{DragonBreath: DragonBreathAbility{Chance: 0.33, DamageType: "fire"}}}, false},
+		{"breath without a school", MonsterDefinition{Abilities: Abilities{PartyAttacks: []PartyAttack{testBreath("")}}}, true},
+		{"breath configured", MonsterDefinition{Abilities: Abilities{PartyAttacks: []PartyAttack{testBreath(damagecalc.Fire)}}}, false},
 		{"enrage without effect", MonsterDefinition{Boss: true, Abilities: Abilities{Enrage: EnrageAbility{AtHP: 100}}}, true},
 		{"enrage with damage mult", MonsterDefinition{Boss: true, Abilities: Abilities{Enrage: EnrageAbility{AtHP: 100, DamageMult: 1.5}}}, false},
 		{"fully configured boss", MonsterDefinition{
@@ -35,7 +41,7 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 			PassiveUntilQuest: "q",
 			EvadeRadiusTiles:  3,
 			BossCooldownSecs:  1,
-			Abilities:         Abilities{Inferno: InfernoAbility{Chance: 0.1, Damage: 28, RangeTiles: 8}, Summon: SummonAbility{Chance: 0.1, Monsters: []string{"rat"}}, Enrage: EnrageAbility{AtHP: 100, CooldownMult: 0.6}},
+			Abilities:         Abilities{PartyAttacks: []PartyAttack{testNova(nil)}, Summon: SummonAbility{Chance: 0.1, Monsters: []string{"rat"}}, Enrage: EnrageAbility{AtHP: 100, CooldownMult: 0.6}},
 		}, false},
 	}
 	for _, tc := range cases {
@@ -121,15 +127,15 @@ func TestValidateMonsterConfigurationCanonicalizesDamageSchools(t *testing.T) {
 		"typed": {
 			SizeClass:   "person",
 			Resistances: map[string]int{" DARK ": 50},
-			Abilities:   Abilities{DragonBreath: DragonBreathAbility{Chance: 0.2, DamageType: " FIRE "}},
+			Abilities:   Abilities{PartyAttacks: []PartyAttack{testBreath(" FIRE ")}},
 		},
 	}}
 	if err := validateMonsterConfiguration(cfg); err != nil {
 		t.Fatalf("validate monster: %v", err)
 	}
 	def := cfg.Monsters["typed"]
-	if def.Abilities.DragonBreath.DamageType != "fire" || def.Resistances["dark"] != 50 {
-		t.Fatalf("damage schools were not canonicalized: breath=%q resistances=%v", def.Abilities.DragonBreath.DamageType, def.Resistances)
+	if def.Abilities.PartyAttacks[0].School != damagecalc.Fire || def.Resistances["dark"] != 50 {
+		t.Fatalf("damage schools were not canonicalized: breath=%q resistances=%v", def.Abilities.PartyAttacks[0].School, def.Resistances)
 	}
 
 	cfg.Monsters["typed"] = MonsterDefinition{
@@ -199,12 +205,12 @@ func TestNewMonster3DFromConfig_Valid(t *testing.T) {
 	}
 }
 
-// Dragon breath travels from the definition to the runtime monster unchanged;
+// Party attacks travel from the definition to the runtime monster unchanged;
 // the synthetic row keeps the rule covered whatever the catalog authors.
-func TestDragonBreathLoadedFromConfig(t *testing.T) {
-	defs := map[string]MonsterDefinition{"synthetic": {Name: "Breather", Abilities: Abilities{DragonBreath: DragonBreathAbility{Chance: 0.5, DamageType: "earth"}}}}
+func TestPartyAttacksLoadedFromConfig(t *testing.T) {
+	defs := map[string]MonsterDefinition{"synthetic": {Name: "Breather", Abilities: Abilities{PartyAttacks: []PartyAttack{testBreath(damagecalc.Earth)}}}}
 	for key, def := range MonsterConfig.Monsters {
-		if def.Abilities.DragonBreath.Chance > 0 {
+		if len(def.Abilities.PartyAttacks) > 0 {
 			defs[key] = def
 		}
 	}
@@ -217,11 +223,27 @@ func TestDragonBreathLoadedFromConfig(t *testing.T) {
 			} else {
 				m = NewMonster3DFromConfig(0, 0, key, nil)
 			}
-			if m.Abilities.DragonBreath.Chance != def.Abilities.DragonBreath.Chance || m.Abilities.DragonBreath.DamageType != def.Abilities.DragonBreath.DamageType {
-				t.Fatalf("breath = %v/%q, want %v/%q", m.Abilities.DragonBreath.Chance, m.Abilities.DragonBreath.DamageType, def.Abilities.DragonBreath.Chance, def.Abilities.DragonBreath.DamageType)
+			if !reflect.DeepEqual(m.Abilities.PartyAttacks, def.Abilities.PartyAttacks) {
+				t.Fatalf("party attacks = %+v, want %+v", m.Abilities.PartyAttacks, def.Abilities.PartyAttacks)
 			}
 		})
 	}
+}
+
+// testBreath is a dragon's breath in a school.
+func testBreath(school damagecalc.Type) PartyAttack {
+	return PartyAttack{Key: "dragon_breath", Name: "Dragon Breath", Trigger: PartyAttackOnAttack, Delivery: PartyAttackSpell, School: school,
+		Chance: 0.33, DamagePercent: 100, Targets: PartyAttackTargets{All: true}, Riders: CarryRiders(true)}
+}
+
+// testNova is a complete boss fire nova; edit adjusts it.
+func testNova(edit func(*PartyAttack)) PartyAttack {
+	a := PartyAttack{Key: "inferno", Name: "Inferno", Trigger: PartyAttackNova, Delivery: PartyAttackSpell, School: damagecalc.Fire,
+		Chance: 0.1, DamagePercent: 200, Targets: PartyAttackTargets{All: true}, Riders: CarryRiders(false), RangeTiles: 8}
+	if edit != nil {
+		edit(&a)
+	}
+	return a
 }
 
 // A biome-specific definition wins over a universal one sharing its letter;

@@ -46,9 +46,7 @@ func (g *MMGame) closeMainMenu() {
 type dialogState struct {
 	guildLedger          [3][]guildLedgerEntry
 	guildScroll          int
-	dialogLastClickTime  int64
-	dialogLastClickedIdx int
-	dialogLastClickZone  string
+	dialogClicks         doubleClickTracker[dialogClickKey]
 	dialogActive         bool
 	dialogNPC            *character.NPC
 	dialogSelectedSpell  int
@@ -71,7 +69,7 @@ type dialogState struct {
 }
 
 func newDialogState() dialogState {
-	return dialogState{dialogLastClickedIdx: -1}
+	return dialogState{}
 }
 
 func (g *MMGame) beginConversation(npc *character.NPC) {

@@ -58,7 +58,7 @@ func finishInteractQuest(t *testing.T, qm *quests.QuestManager, id string) {
 	for i := 0; i < q.Target(); i++ {
 		qm.OnInteract(q.Definition.TargetMonster)
 	}
-	if !q.Completed || q.Status != quests.QuestStatusCompleted {
+	if !q.Completed || q.Status() != quests.QuestStatusCompleted {
 		t.Fatalf("%s not completed after %d interactions: %+v", id, q.Target(), q)
 	}
 }
@@ -120,10 +120,11 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 
 	gtb := monster.NewMonster3DFromConfig(g.camera.X+500, g.camera.Y+500, "golden_thief_bug", g.config)
 	g.world.Monsters = append(g.world.Monsters, gtb)
-	if gtb.Abilities.MeltArmor.Chance <= 0 || gtb.Abilities.Inferno.Chance <= 0 || gtb.Abilities.Teleport.AtHP <= 0 ||
+	nova := monsterPartyAttack(gtb, "inferno")
+	if gtb.Abilities.MeltArmor.Chance <= 0 || nova == nil || nova.Trigger != monster.PartyAttackNova || gtb.Abilities.Teleport.AtHP <= 0 ||
 		gtb.Abilities.Teleport.AtHP >= gtb.MaxHitPoints || gtb.PassiveUntilQuest != "culverts_valves" {
-		t.Fatalf("GTB flags not parsed: HP=%d meltArmor=%.2f inferno=%.2f teleAtHP=%d quest=%q",
-			gtb.MaxHitPoints, gtb.Abilities.MeltArmor.Chance, gtb.Abilities.Inferno.Chance, gtb.Abilities.Teleport.AtHP, gtb.PassiveUntilQuest)
+		t.Fatalf("GTB flags not parsed: HP=%d meltArmor=%.2f inferno=%+v teleAtHP=%d quest=%q",
+			gtb.MaxHitPoints, gtb.Abilities.MeltArmor.Chance, nova, gtb.Abilities.Teleport.AtHP, gtb.PassiveUntilQuest)
 	}
 
 	// Quest not taken -> evasive: never chases (target = self), updateBoss handles
@@ -248,12 +249,13 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 	gtb := monster.NewMonster3DFromConfig(g.camera.X, g.camera.Y, "golden_thief_bug", g.config)
 	g.world.Monsters = append(g.world.Monsters, gtb)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(gtb.ID, gtb.X, gtb.Y, 16, 16, collision.CollisionTypeMonster, false))
-	if gtb.Abilities.Inferno.RangeTiles <= 0 {
-		t.Fatalf("setup: golden_thief_bug must author abilities.inferno.range_tiles, got %.1f", gtb.Abilities.Inferno.RangeTiles)
+	nova := monsterPartyAttack(gtb, "inferno")
+	if nova == nil || nova.RangeTiles <= 0 {
+		t.Fatalf("setup: golden_thief_bug must author an inferno nova with range_tiles, got %+v", nova)
 	}
 	// Aggressive (the quest gate is a separate concern) and guaranteed to roll.
 	finishInteractQuest(t, g.questManager, "culverts_valves")
-	gtb.Abilities.Inferno.Chance = 1.0
+	setPartyAttackChance(gtb, "inferno", 1.0)
 	gtb.Abilities.Teleport.AtHP = 0 // isolate the nova from the low-HP blink
 
 	member := g.party.Members[0]
@@ -262,7 +264,7 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 
 	// 1) Far beyond the authored reach: no nova, in either mode.
 	gtb.X, gtb.Y = g.camera.X+40*tile, g.camera.Y
-	gtb.InfernoCD = status.DualClock{}
+	gtb.NovaRollCD = status.DualClock{}
 	if cs.updateBoss(gtb, false) {
 		t.Error("nova fired from 40 tiles - the range gate is not applied")
 	}
@@ -274,18 +276,18 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 	}
 
 	// 2) Inside the authored reach but outside melee: the ranged roll fires...
-	gtb.X, gtb.Y = g.camera.X+float64(gtb.Abilities.Inferno.RangeTiles-1)*tile, g.camera.Y
-	gtb.InfernoCD = status.DualClock{}
+	gtb.X, gtb.Y = g.camera.X+float64(nova.RangeTiles-1)*tile, g.camera.Y
+	gtb.NovaRollCD = status.DualClock{}
 	if !cs.updateBoss(gtb, false) {
-		t.Fatal("nova should fire from inside abilities.inferno.range_tiles")
+		t.Fatal("nova should fire from inside its range_tiles")
 	}
 	if hpBefore() == 200 {
 		t.Error("in-range nova dealt no damage")
 	}
 	// ...and then respects its cadence instead of re-rolling every tick.
-	if gtb.InfernoCD.Frames != BossInfernoRangedRollSeconds*g.config.GetTPS() {
+	if gtb.NovaRollCD.Frames != BossNovaRangedRollSeconds*g.config.GetTPS() {
 		t.Errorf("ranged nova cadence = %d frames, want %d",
-			gtb.InfernoCD.Frames, BossInfernoRangedRollSeconds*g.config.GetTPS())
+			gtb.NovaRollCD.Frames, BossNovaRangedRollSeconds*g.config.GetTPS())
 	}
 	hpAfterFirst := hpBefore()
 	if cs.updateBoss(gtb, false) {
@@ -297,7 +299,7 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 
 	// 3) Melee moment inside reach: the nova may still replace the normal hit.
 	gtb.X, gtb.Y = g.camera.X+tile, g.camera.Y
-	gtb.InfernoCD = status.DualClock{}
+	gtb.NovaRollCD = status.DualClock{}
 	if !cs.updateBoss(gtb, true) {
 		t.Error("adjacent nova should still replace the normal attack")
 	}

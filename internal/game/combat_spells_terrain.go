@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -29,7 +30,7 @@ func (cs *CombatSystem) tryPartyJump(name string, tiles float64, onCommit func()
 		return castNotHandled
 	}
 	if g.partyRooted() {
-		g.AddCombatMessage("The party is rooted in place.")
+		g.AddCombatMessage(uitext.Text("technique.refusal_rooted"))
 		return castNoEffect
 	}
 	ts := float64(g.config.GetTileSize())
@@ -38,14 +39,14 @@ func (cs *CombatSystem) tryPartyJump(name string, tiles float64, onCommit func()
 	landY := g.camera.Y + dy*tiles*ts
 
 	if g.collisionSystem == nil || !g.canMovePartyTo(landX, landY) {
-		g.AddCombatMessage("There is no room to land.")
+		g.AddCombatMessage(uitext.Text("combat.there_is_no_room_to_land"))
 		return castNoEffect
 	}
 	if onCommit != nil {
 		onCommit()
 	}
 	g.displaceParty(landX, landY, "jump")
-	g.AddCombatMessage(fmt.Sprintf("%s carries the party forward!", name))
+	g.AddCombatMessage(uitext.Text("combat.carries_the_party_forward", name))
 	// Landing on a teleporter or in deep water must resolve like any other arrival.
 	if g.gameLoop != nil && g.gameLoop.inputHandler != nil {
 		g.gameLoop.inputHandler.applyLandingTileEffects()
@@ -110,7 +111,7 @@ func (cs *CombatSystem) topplePropsInRadius(cx, cy, radius, chance float64) {
 	if len(toppled) == 0 {
 		return
 	}
-	g.AddCombatMessage(fmt.Sprintf("The shaking topples %s!", pluralizeCount(len(toppled), "standing thing", "standing things")))
+	g.AddCombatMessage(uitext.Text("combat.the_shaking_topples", pluralizeCount(len(toppled), "standing thing", "standing things")))
 	// Props were only REMOVED, so the caches need filtering, not a world rescan.
 	g.dropPropTilesFromRenderCaches(toppled)
 }
@@ -170,13 +171,13 @@ func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *charac
 	owner := summonSpellOwner(def.ID)
 	live := cs.countLiveSummonsByOwner(owner)
 	if live >= def.SummonMax {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s already serves you.", def.Name))
+		cs.game.AddCombatMessage(uitext.Text("combat.already_serves_you", def.Name))
 		return castNoEffect
 	}
 
 	add := cs.spawnPartyAlly(def.SummonMonster, owner)
 	if add == nil {
-		cs.game.AddCombatMessage("There is no room to summon here.")
+		cs.game.AddCombatMessage(uitext.Text("combat.there_is_no_room_to_summon"))
 		return castNoEffect
 	}
 	if caster != nil {
@@ -190,7 +191,7 @@ func (cs *CombatSystem) tryCastSummon(def spells.SpellDefinition, caster *charac
 		add.DamageMin, add.DamageMax = dmg, dmg
 	}
 	// spawnPartyAlly already registered it in the world and collision system.
-	cs.game.logCombat(logToneGood, "%s answers the call! (%d HP, %d damage)", logMonsterName(add), add.MaxHitPoints, add.DamageMax)
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.answers_the_call_hp_damage", logSlot, add.MaxHitPoints, add.DamageMax), logMonsterName(add))
 	return castCommitted
 }
 

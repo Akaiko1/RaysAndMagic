@@ -1,10 +1,10 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
@@ -70,7 +70,7 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 		School:      spellDef.DamageType(),
 	})
 	if announce {
-		cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", spellDef.Name))
+		cs.game.AddCombatMessage(uitext.Text("combat.casting", spellDef.Name))
 	}
 	return true
 }
@@ -136,35 +136,17 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 		name = def.Name
 	}
 	damageTypeStr := normalizeDamageTypeStr(m.School)
-	parts, _ := cs.spellPartsWithOutgoingBuff(
-		damagecalc.Parts{Normal: m.Damage, True: m.TrueDamage},
-		damageTypeStr,
-	)
-	resistPierce := cs.spellResistPierce(m.Caster, m.SpellID)
-	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, damageTypeStr, resistPierce, nil, name, false, true, false)
+	attack := cs.partySpellAttack(m.Caster, m.SpellID, damagecalc.Parts{Normal: m.Damage, True: m.TrueDamage}, m.Crit)
 
 	cs.game.spawnStarburstFx(m.X, m.Y, m.RadiusTiles)
-	cs.game.AddCombatMessage(fmt.Sprintf("%s blooms!", name))
+	cs.game.AddCombatMessage(uitext.Text("combat.blooms", name))
 	// Stone Blossom is artillery lobbed in a high arc, not a point blast: the
 	// bloom falls on everything around the landing point, walls or not.
 	bloom := cs.pointBlast(m.X, m.Y, m.RadiusTiles)
 	bloom.throughWalls = true
+	blow := partyBlow{caster: m.Caster, attack: attack, name: name, school: damageTypeStr, kind: damageLogCrush}
 	cs.forEachAreaVictim(bloom, partyAreaHurts, func(target *monsterPkg.Monster3D) {
-		if cs.tryDarkElfBindInstead(m.Caster, target) {
-			return
-		}
-		actual := cs.applyPartyMonsterAttack(target, attack).Total()
-		cs.markMonsterHit(target)
-		cs.spawnMonsterHitBurst(target, damageTypeStr)
-		cs.game.reportDamage(logToneGood, damageLog{
-			Source: logSchoolWord(damageTypeStr, name),
-			Target: monsterLogTarget(target),
-			Amount: actual,
-			School: damageTypeStr,
-			Kind:   damageLogCrush,
-		})
-		if !target.IsAlive() {
-			cs.finishMonsterKill(target)
+		if _, landed := cs.landPartyHit(target, blow); !landed || !target.IsAlive() {
 			return
 		}
 		if m.StunChance >= 1 || rand.Float64() < m.StunChance {

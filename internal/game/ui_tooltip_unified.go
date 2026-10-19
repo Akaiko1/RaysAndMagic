@@ -153,7 +153,7 @@ func armorInteractionRules(sec *ttSection, damageType string, isRanged, hasTrueD
 // ---------------------------------------------------------------- weapons ---
 
 func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
-	def := lookupWeaponConfigByName(item.Name)
+	def := lookupWeaponConfig(item)
 	if def == nil {
 		return character.CardRows{{Text: item.Name, Kind: character.CardRowTitle}}
 	}
@@ -197,7 +197,7 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 	}
 	preview := cs.calculateWeaponDamagePreview(item, char)
 	addDamageTotal(&dmg, "Total Damage", preview.Total, preview.True)
-	if aura, school := personalSpellDamage(char, "fire_aura"); aura > 0 {
+	if aura, school := personalSpellDamage(char, config.MechanicFireAura); aura > 0 {
 		dmg.AddDetail("%s", uitext.Text("weapon.fire_aura_detail", aura, school.String()))
 	}
 	dmg.Add("%s", damageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
@@ -278,7 +278,7 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 			crit.AddDetail("Flowing Staff: guaranteed critical hit")
 		} else if char != nil {
 			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(item, char)
-			fate := personalSpellPower(char, "fate")
+			fate := personalSpellPower(char, config.MechanicFate)
 			rawCrit := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics + fate
 			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit)}
 			if fate > 0 {
@@ -343,7 +343,7 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 // ----------------------------------------------------------------- armor ----
 
 func buildArmorTooltipUnifiedRows(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
-	def, _, ok := config.GetItemDefinitionByName(item.Name)
+	def, _, ok := config.ItemDefOf(item)
 	subtitle := item.DisplayKind()
 	if ok && def != nil && def.Rarity != "" {
 		subtitle += " - " + config.TitleWords(def.Rarity)
@@ -438,7 +438,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	switch {
 	case def.TargetsAlly():
 		casting.Add("Target: One Ally")
-	case def.HealParty || def.IsBuff() || def.StatBonus > 0 || len(def.StatBonuses) > 0:
+	case def.HealParty || def.IsBuff() || def.GrantsStatBuff():
 		casting.Add("Target: Entire Party")
 	case def.TargetSelf:
 		casting.Add("Target: Self")
@@ -847,7 +847,7 @@ func techniqueStepNames() []string {
 // -------------------------------------------------- misc item categories ----
 
 func buildSimpleItemTooltipWithPartyRows(item items.Item, full bool, bearer *character.MMCharacter, party *character.Party, cs *CombatSystem, usage itemUsage) character.CardRows {
-	def, itemKey, ok := config.GetItemDefinitionByName(item.Name)
+	def, itemKey, ok := config.ItemDefOf(item)
 	subtitle := item.DisplayKind()
 	if ok && def != nil && def.Rarity != "" {
 		subtitle += " - " + config.TitleWords(def.Rarity)

@@ -1114,3 +1114,90 @@ func TestCombatStateTransitionsInvalidatePreviousRoute(t *testing.T) {
 		assertRouteCleared(t, m)
 	})
 }
+
+// Every entry into an attack - alert, pursuit, relentless pursuit - starts
+// it only inside reach x attack_enter_range_fraction; the band up to the full
+// reach is where an attacking monster stays without a new one starting.
+func TestAttackEntryUsesTheEnterFractionEverywhere(t *testing.T) {
+	cfg := &config.Config{MonsterAI: config.MonsterAIConfig{AttackEnterRangeFraction: 0.9}}
+	for _, entry := range []string{"alert", "pursuing", "relentless"} {
+		for _, share := range []float64{0.85, 0.95} {
+			m := &Monster3D{ID: "archer", X: 4.5 * defaultTileSize, Y: 4.5 * defaultTileSize, RangedAttackRange: 5 * defaultTileSize,
+				ProjectileSpell: "darkbolt", IsEngagingPlayer: true, config: cfg}
+			targetX, targetY := m.X+share*m.PursuitReachPixels(), m.Y
+			checker := NewMockCollisionChecker(defaultTileSize)
+			switch entry {
+			case "alert":
+				m.updateAlert(checker, targetX, targetY)
+			case "pursuing":
+				m.updatePursuing(checker, targetX, targetY)
+			case "relentless":
+				m.pursueRelentlessly(checker, targetX, targetY)
+			}
+			if attacking := m.State == StateAttacking; attacking != (share < 0.9) {
+				t.Errorf("%s at %.2f of reach: attacking=%v", entry, share, attacking)
+			}
+		}
+	}
+}
+
+// A pursuer's goal ring is the reach its attack may start within: every goal
+// tile lies inside reach x attack_enter_range_fraction, so a ranged mob that
+// arrives never parks in the band where it may not begin to shoot.
+func TestPursuitGoalsLieWhereAnAttackMayStart(t *testing.T) {
+	cfg := &config.Config{MonsterAI: config.MonsterAIConfig{AttackEnterRangeFraction: 0.9}}
+	m := &Monster3D{ID: "archer", X: 2.5 * defaultTileSize, Y: 10.5 * defaultTileSize, RangedAttackRange: 6 * defaultTileSize,
+		ProjectileSpell: "darkbolt", IsEngagingPlayer: true, config: cfg}
+	checker := NewMockCollisionChecker(defaultTileSize)
+	px, py := tileToWorldCenter(12, 10)
+	goals := m.collectGoalTiles(checker, px, py)
+	if len(goals) == 0 {
+		t.Fatal("fixture: an open field must offer goals")
+	}
+	far := false
+	for _, g := range goals {
+		x, y := tileToWorldCenter(g.X, g.Y)
+		d := distance(x, y, px, py)
+		if d > m.attackEnterReach()+0.1 {
+			t.Fatalf("goal (%d,%d) at %.1f px lies past the entry reach %.1f", g.X, g.Y, d, m.attackEnterReach())
+		}
+		far = far || d > m.PursuitReachPixels()/2
+	}
+	if !far {
+		t.Fatal("positive control: the ring keeps its long tiles, not just the near ones")
+	}
+	// A one-tile reach keeps its contact goals: the band never cuts below the
+	// neighbour tile, and the attack starts from there.
+	short := &Monster3D{ID: "spitter", X: 2.5 * defaultTileSize, Y: 10.5 * defaultTileSize, RangedAttackRange: defaultTileSize,
+		ProjectileSpell: "darkbolt", IsEngagingPlayer: true, config: cfg}
+	contact := short.collectGoalTiles(checker, px, py)
+	if len(contact) == 0 {
+		t.Fatal("a one-tile reach lost every goal tile")
+	}
+	short.X, short.Y = tileToWorldCenter(contact[0].X, contact[0].Y)
+	if !short.startsAttack(checker, px, py) {
+		t.Fatalf("a one-tile reach cannot start from its goal (%d,%d)", contact[0].X, contact[0].Y)
+	}
+}
+
+// A goal judged reachable is always stepped toward by the same search: a TB
+// wildlife patrol target behind a long wall - reachable only by a detour
+// wider than a pursuit search's window - still gets a step.
+func TestAmbientStepUsesTheSearchThatJudgedTheGoal(t *testing.T) {
+	checker := NewMockCollisionChecker(defaultTileSize)
+	for y := 0; y <= 28; y++ {
+		checker.BlockTile(10, y) // open only from row 29 down
+	}
+	x, y := tileToWorldCenter(5, 20)
+	m := &Monster3D{ID: "deer", X: x, Y: y, AlertRadius: defaultTileSize}
+	goal := TileCoord{X: 15, Y: 20}
+	if !m.HasPathToTile(checker, goal.X, goal.Y) {
+		t.Fatal("fixture: the goal must be reachable around the wall")
+	}
+	if _, _, ok := m.NextPathStepTileToAny(checker, []TileCoord{goal}, nil); ok {
+		t.Fatal("fixture: the detour must lie outside a pursuit search's window")
+	}
+	if !m.stepAmbientPath(checker, goal, true) || m.X == x && m.Y == y {
+		t.Fatal("the TB step found no way to a goal judged reachable")
+	}
+}

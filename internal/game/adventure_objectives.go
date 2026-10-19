@@ -1,8 +1,8 @@
 package game
 
 import (
-	"fmt"
 	"slices"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/quests"
@@ -22,7 +22,7 @@ func (g *MMGame) handleObjectiveProp(npc *character.NPC, id string, p *character
 		return true
 	}
 	if o.RequiresBoss != "" && !g.adventure.Records[o.RequiresBoss] {
-		g.AddCombatMessage("The regulator still holds this record.")
+		g.AddCombatMessage(uitext.Text("combat.the_regulator_still_holds_this_record"))
 		return true
 	}
 	itemName := ""
@@ -33,7 +33,7 @@ func (g *MMGame) handleObjectiveProp(npc *character.NPC, id string, p *character
 		}
 		itemName = d.Name
 		if g.party.CountItemsByName(itemName) < o.Count {
-			g.AddCombatMessage(fmt.Sprintf("Bring %d %s.", o.Count, itemName))
+			g.AddCombatMessage(uitext.Text("combat.bring", o.Count, itemName))
 			return true
 		}
 	}

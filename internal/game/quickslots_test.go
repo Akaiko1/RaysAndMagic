@@ -71,7 +71,7 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	game.dragQuickSlot = 3
 	game.menuOpen = true
 	game.dragDropAt = 1
-	game.dragCurX, game.dragCurY = 5, 5
+	game.drag.curX, game.drag.curY = 5, 5
 	ui.quickInvDropZone(0, 0, 100, 100)
 	if ch.QuickSlots[3] != nil {
 		t.Fatalf("dragging out should empty the slot")
@@ -148,7 +148,7 @@ func TestInventoryDropZonesRespectModalBlocker(t *testing.T) {
 			}
 			game.dragInvIndex = 0
 			game.dragDropAt = 1
-			game.dragCurX, game.dragCurY = 5, 5
+			game.drag.curX, game.drag.curY = 5, 5
 
 			tt.drop(ui)
 

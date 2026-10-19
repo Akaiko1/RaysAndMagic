@@ -291,7 +291,7 @@ func TestCrateAllowsBoundAllyAfterPartyHit(t *testing.T) {
 
 			// Exercise the real party damage hub rather than setting the flags by hand.
 			hpBefore := ally.HitPoints
-			g.combat.ApplyDamageToMonster(ally, 1, "Iron Sword", false)
+			g.combat.ApplyDamageToMonster(ally, 1, testWeapon("Iron Sword"), false)
 			if gotHit := ally.HitPoints < hpBefore; gotHit != tt.wantHit {
 				t.Fatalf("party hit landed=%v, want %v (HP %d -> %d)", gotHit, tt.wantHit, hpBefore, ally.HitPoints)
 			}
@@ -343,7 +343,7 @@ func TestCrateBlockedAfterPartyBreaksCharm(t *testing.T) {
 	g.world.Monsters = []*monster.Monster3D{charmed}
 	g.combat.applyPacify(charmed, 60, "Charm")
 
-	g.combat.ApplyDamageToMonster(charmed, 1, "Iron Sword", false)
+	g.combat.ApplyDamageToMonster(charmed, 1, testWeapon("Iron Sword"), false)
 	if charmed.Pacified || !g.interactionBlockedByCombat() {
 		t.Fatalf("a hit charmed monster must become a hostile combatant (pacified=%v combat=%v)",
 			charmed.Pacified, g.interactionBlockedByCombat())

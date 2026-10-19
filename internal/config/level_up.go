@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // LevelUpChoice defines a single selectable option for a level-up choice.
@@ -43,7 +42,7 @@ func LoadLevelUpConfig(filename string) (*LevelUpConfig, error) {
 	}
 
 	var cfg LevelUpConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse level up config: %w", err)
 	}
 	if err := validateLevelUpConfig(&cfg); err != nil {

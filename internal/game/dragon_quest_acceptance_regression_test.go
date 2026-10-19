@@ -33,8 +33,8 @@ func TestDragonSlayerAcceptanceDoesNotCompleteBeforeSummons(t *testing.T) {
 	if quest.Completed {
 		t.Fatal("dragon_slayer completed before any Elder Dragon was summoned")
 	}
-	if quest.Status != quests.QuestStatusActive {
-		t.Fatalf("dragon_slayer status = %q, want active", quest.Status)
+	if quest.Status() != quests.QuestStatusActive {
+		t.Fatalf("dragon_slayer status = %q, want active", quest.Status())
 	}
 	if quest.CurrentCount != 0 {
 		t.Fatalf("dragon_slayer progress = %d, want 0", quest.CurrentCount)

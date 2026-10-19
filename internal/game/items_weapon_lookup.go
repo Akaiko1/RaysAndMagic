@@ -9,12 +9,12 @@ import (
 
 var equippedWeaponSlots = [...]items.EquipSlot{items.SlotMainHand, items.SlotOffHand}
 
-// lookupWeaponConfigByName resolves a weapon by display name. Returns nil and
-// logs a warning if the weapon is missing from weapons.yaml.
-func lookupWeaponConfigByName(weaponName string) *config.WeaponDefinitionConfig {
-	weaponDef, _, exists := config.GetWeaponDefinitionByName(weaponName)
+// lookupWeaponConfig resolves a weapon item's weapons.yaml entry. Returns nil
+// and logs a warning if it is missing.
+func lookupWeaponConfig(weapon items.Item) *config.WeaponDefinitionConfig {
+	weaponDef, _, exists := config.WeaponDefOf(weapon)
 	if !exists {
-		fmt.Printf("[WARN] weapon '%s' not found in weapons.yaml\n", weaponName)
+		fmt.Printf("[WARN] weapon '%s' not found in weapons.yaml\n", weapon.Name)
 		return nil
 	}
 	return weaponDef
@@ -40,7 +40,7 @@ func equippedWeaponDefinitions(member *character.MMCharacter) [2]*config.WeaponD
 	}
 	for i, slot := range equippedWeaponSlots {
 		if weapon, ok := member.Equipment[slot]; ok && weapon.Type == items.ItemWeapon {
-			defs[i] = lookupWeaponConfigByName(weapon.Name)
+			defs[i] = lookupWeaponConfig(weapon)
 		}
 	}
 	return defs

@@ -158,15 +158,14 @@ func TestTavernPendingActionUsesExistingServiceLogic(t *testing.T) {
 func TestSwitchDialogTabClearsTransientTabState(t *testing.T) {
 	g := &MMGame{
 		dialogState: dialogState{
-			dialogTab:            0,
-			pendingTavernAction:  &character.NPCDialogueChoice{Action: "tavern_rest"},
-			pendingBuffService:   &character.NPCDialogueChoice{Action: "cast_buff"},
-			dialogLastClickedIdx: 3,
-			dialogLastClickZone:  "tavern",
+			dialogTab:           0,
+			pendingTavernAction: &character.NPCDialogueChoice{Action: "tavern_rest"},
+			pendingBuffService:  &character.NPCDialogueChoice{Action: "cast_buff"},
+			dialogClicks:        doubleClickTracker[dialogClickKey]{at: 1000, target: dialogClickKey{"tavern", 3}},
 		},
 
 		rosterSelectedActive: 1,
-		stashDragActive:      true,
+		stashDrag:            dragGesture{active: true},
 		stashDragFrom:        2,
 		stashDragItem:        items.Item{Name: "Test"},
 	}
@@ -176,10 +175,10 @@ func TestSwitchDialogTabClearsTransientTabState(t *testing.T) {
 	if g.pendingTavernAction != nil || g.pendingBuffService != nil {
 		t.Fatal("tab transition retained a pending action from the previous tab")
 	}
-	if g.dialogLastClickedIdx != -1 || g.dialogLastClickZone != "" {
+	if g.dialogClicks.pending() {
 		t.Fatal("tab transition retained the previous tab's click tracker")
 	}
-	if g.rosterSelectedActive != -1 || g.stashDragActive || g.stashDragFrom != -1 {
+	if g.rosterSelectedActive != -1 || g.stashDrag.active || g.stashDragFrom != -1 {
 		t.Fatal("tab transition retained embedded manager state")
 	}
 }

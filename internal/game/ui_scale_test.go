@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // keepUIScreenScale restores the package's screen scale and frame surfaces

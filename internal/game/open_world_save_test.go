@@ -1,6 +1,7 @@
 package game
 
 import (
+	"image"
 	"math"
 	"testing"
 
@@ -207,6 +208,85 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 // TestOpenWorldTavernRegionScoping: Town Portal must resolve "this map's
 // tavern" per REGION on the unified world - each merged map owns exactly its
 // own tavern, never the first tavern of the combined NPC list.
+// A record that keeps its own map key (a return pose, the underwater exit)
+// is saved into that region and restored out of it: one recorded at a
+// corridor point nearer another region comes back at its own region's
+// interior point nearest where it was, not projected through a stranger.
+func TestOpenWorldKeyedPosesStayInTheirRegion(t *testing.T) {
+	t.Chdir("../..")
+	g, wm, cfg := bootOpenWorldGame(t, true)
+	ts := cfg.GetTileSize()
+	var key string
+	var corridor [2]int
+	for ty := 0; ty < wm.OpenWorld.Height && key == ""; ty++ {
+		for tx := 0; tx < wm.OpenWorld.Width && key == ""; tx++ {
+			if !wm.OpenWorldTileInWorld(tx, ty) || wm.OpenWorldRegionAtTile(tx, ty) != nil {
+				continue
+			}
+			anchor := wm.MapKeyAt(wm.OpenWorld, tx, ty)
+			for _, r := range wm.OpenWorldRegions {
+				if r.MapKey != anchor {
+					key, corridor = r.MapKey, [2]int{tx, ty} // a region other than the nearest
+					break
+				}
+			}
+		}
+	}
+	if key == "" {
+		t.Fatal("fixture: no corridor tile")
+	}
+	x, y := (float64(corridor[0])+.5)*ts, (float64(corridor[1])+.5)*ts
+	g.mapReturnPoses = map[string]MapPose{key: {X: x, Y: y}}
+	g.underwaterReturnMap, g.underwaterReturnX, g.underwaterReturnY = key, x, y
+	save := g.buildSave(wm)
+	if err := g.applySave(wm, &save); err != nil {
+		t.Fatal(err)
+	}
+	region := wm.OpenWorldRegionByKey(key)
+	for name, p := range map[string][2]float64{"return pose": {g.mapReturnPoses[key].X, g.mapReturnPoses[key].Y},
+		"underwater exit": {g.underwaterReturnX, g.underwaterReturnY}} {
+		tile := image.Pt(TileIndex(p[0], ts), TileIndex(p[1], ts))
+		if !tile.In(region.TileBounds()) {
+			t.Fatalf("%s left its region %s: restored at tile %v", name, key, tile)
+		}
+	}
+}
+
+// A corridor belongs to no region, yet it looks like - and the pursuit
+// leash reads - the region of its side: the biome, the map config and the
+// party's scope all name that region, while ownership stays empty.
+func TestOpenWorldCorridorTakesItsSidesLook(t *testing.T) {
+	t.Chdir("../..")
+	g, wm, cfg := bootOpenWorldGame(t, true)
+	ts := cfg.GetTileSize()
+	found := false
+	for ty := 0; ty < wm.OpenWorld.Height && !found; ty++ {
+		for tx := 0; tx < wm.OpenWorld.Width && !found; tx++ {
+			if !wm.OpenWorldTileInWorld(tx, ty) || wm.OpenWorldRegionAtTile(tx, ty) != nil {
+				continue
+			}
+			found = true
+			side := wm.MapKeyAt(wm.OpenWorld, tx, ty)
+			if side == "" {
+				t.Fatal("a corridor tile has no side region")
+			}
+			if got, want := wm.BiomeAtTile(tx, ty), wm.MapConfigs[side].Biome; got != want {
+				t.Fatalf("corridor (%d,%d) biome %q, its side %s has %q", tx, ty, got, side, want)
+			}
+			if wm.MapConfigAtTile(tx, ty) != wm.MapConfigs[side] {
+				t.Fatalf("corridor (%d,%d) takes another map config than its side %s", tx, ty, side)
+			}
+			g.setPartyPosition((float64(tx)+.5)*float64(ts), (float64(ty)+.5)*float64(ts))
+			if _, scope := (monsterAggroContext{game: g, world: g.world}).PartyScope(); scope != side {
+				t.Fatalf("party in the corridor scopes pursuit to %q, want its side %s", scope, side)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("fixture: no corridor tile")
+	}
+}
+
 func TestOpenWorldTavernRegionScoping(t *testing.T) {
 	t.Chdir("../..")
 

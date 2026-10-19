@@ -259,10 +259,11 @@ func TestMonsterFireburstDamagesParty(t *testing.T) {
 
 	monster := &monsterPkg.Monster3D{
 		Name:      "Pixie",
+		HitPoints: 10,
 		DamageMin: 1,
 		DamageMax: 1,
-		Abilities: monsterPkg.Abilities{Fireburst: monsterPkg.FireburstAbility{Chance: 1.0, DamageMin: 6, DamageMax: 6}},
 	}
+	armTestPartyAttack(monster, catalogPartyAttack("fireburst"), 6)
 
 	cs.applyMonsterMeleeDamage(monster)
 
@@ -292,11 +293,15 @@ func TestMonsterDragonBreathHitsWholePartyThroughNormalHitPath(t *testing.T) {
 
 	monster := &monsterPkg.Monster3D{
 		Name:       "Dragon",
+		HitPoints:  10,
 		DamageMin:  10,
 		DamageMax:  10,
 		TrueDamage: 2,
-		Abilities:  monsterPkg.Abilities{Poison: monsterPkg.DoTAbility{Chance: 1.0, DurationSeconds: 5}, DragonBreath: monsterPkg.DragonBreathAbility{Chance: 1.0, DamageType: "fire"}},
+		Abilities:  monsterPkg.Abilities{Poison: monsterPkg.DoTAbility{Chance: 1.0, DurationSeconds: 5}},
 	}
+	breath := catalogPartyAttack("dragon_breath")
+	breath.School = damagecalc.Fire
+	armTestPartyAttack(monster, breath, 10)
 
 	cs.applyMonsterMeleeDamage(monster)
 

@@ -134,7 +134,7 @@ func (d *ActivityDefinition) TokenPhase(token string) string {
 	return ""
 }
 func validateActivity(id string, d *QuestDefinition, cfg *QuestConfig) error {
-	if d.Type == QuestTypeEncounter && (d.NextQuest != "" || len(d.Rewards.Items) > 0 || len(d.OnAcceptSpawns) > 0) {
+	if d.Type == QuestTypeEncounter && (d.NextQuest != "" || len(d.OnAcceptSpawns) > 0) {
 		return fmt.Errorf("quest %q: encounter auto-rewards do not support chain chapters", id)
 	}
 	if d.MinPartyLevel < 0 {
@@ -255,7 +255,7 @@ func (qm *QuestManager) InteractActivity(id, tag, token string, night bool) (cre
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	q := qm.activeQuests[id]
-	if q == nil || q.Status != QuestStatusActive || q.Definition.Activity == nil || !q.Definition.MatchesTarget(tag) {
+	if q == nil || q.Completed || q.Definition.Activity == nil || !q.Definition.MatchesTarget(tag) {
 		return
 	}
 	a := q.Definition.Activity

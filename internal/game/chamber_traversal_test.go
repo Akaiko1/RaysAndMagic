@@ -141,7 +141,7 @@ func TestChamberTraversalCapabilities(t *testing.T) {
 									place(p)
 									ih := NewInputHandler(g)
 									ih.openNPCInteraction(n)
-									dialogActions[choice.Action](ih, n, choice)
+									dialogActions[choice.Action].run(ih, n, choice)
 									if !g.adventureVisit(key).Controls[choice.Control] {
 										t.Fatalf("reachable control %s did not activate", choice.Control)
 									}

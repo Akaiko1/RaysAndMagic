@@ -75,7 +75,7 @@ func (g *MMGame) joinThievesGuild() {
 		g.AddCombatMessage(refusal)
 		return
 	}
-	g.party.Gold -= n.Guild.MembershipGold
+	g.spendGold(n.Guild.MembershipGold)
 	g.party.ThievesGuildMember = true
 	g.AddCombatMessage(uitext.Text("guild.joined"))
 	g.refreshGuildLedger()
@@ -87,7 +87,7 @@ func (g *MMGame) guildJoinRefusal(n *character.NPC) string {
 	switch {
 	case g.party.NonKeyDoorsOpened < n.Guild.NonKeyDoorsOpened:
 		return uitext.Text("guild.no_non_key_door")
-	case g.party.Gold < n.Guild.MembershipGold:
+	case !g.canAfford(n.Guild.MembershipGold):
 		return uitext.Text("guild.no_gold")
 	}
 	return ""

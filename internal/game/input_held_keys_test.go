@@ -11,9 +11,10 @@ import (
 	"testing"
 	"ugataima/internal/status"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/game/keytracker"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func heldOnly(keys ...ebiten.Key) func(ebiten.Key) bool {

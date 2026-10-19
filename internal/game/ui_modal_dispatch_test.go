@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -18,6 +17,8 @@ import (
 	"ugataima/internal/storage"
 	"ugataima/internal/threading"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 type displayedModalHarness struct {
@@ -156,7 +157,7 @@ func TestDisplayedPointerGesturesReachUpdate(t *testing.T) {
 				}
 				fp.release()
 				h.pointerStep()
-				if g.dragSrc != dragNone || g.stashDragActive || g.stashDragDrop {
+				if g.dragSrc != dragNone || g.stashDrag.active || g.stashDragDrop {
 					t.Fatal("released gesture remained active")
 				}
 				if outside {
@@ -476,7 +477,7 @@ func TestSpellbookDragAcrossPresentationStalls(t *testing.T) {
 			if !wantDrop && got != nil {
 				t.Fatal("cancelled gesture replayed a drop after loading")
 			}
-			if g.dragArmed || g.dragActive || g.dragDropAt != 0 {
+			if g.drag.armed || g.drag.active || g.dragDropAt != 0 {
 				t.Fatal("released gesture retained drag state")
 			}
 		})

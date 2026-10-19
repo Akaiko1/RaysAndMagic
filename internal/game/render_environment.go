@@ -1,5 +1,7 @@
 package game
 
+import "ugataima/internal/config"
+
 // Authored fields use the same depth-tested tile edges as player traps. The
 // warning and active phases share geometry with damage and editor validation.
 func (r *Renderer) collectEnvironmentEffects() {
@@ -21,13 +23,13 @@ func (r *Renderer) collectEnvironmentEffects() {
 		if e.TriggerLane != "" {
 			s = v.Effects[e.TriggerLane]
 		}
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			r.collectAuraTileEdges(e.Destination[0], e.Destination[1], ts, density, alpha*.65, float64(radius)*ts, [3]int{100, 255, 170})
 		}
-		if e.Kind == "lane" && (s == nil || (!s.Warning.Active() && !s.Remaining.Active())) {
+		if e.Kind == config.EffectLane && (s == nil || (!s.Warning.Active() && !s.Remaining.Active())) {
 			continue
 		}
-		if e.Kind == "trap" && s != nil && s.Triggered {
+		if e.Kind == config.EffectTrap && s != nil && s.Triggered {
 			continue
 		}
 		rgb := [3]int{224, 176, 65}

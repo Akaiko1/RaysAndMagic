@@ -98,12 +98,12 @@ func TestChamberCrumblingDirectHitContract(t *testing.T) {
 			m, _ := partyDamageTargets(g, tile)
 			m.ArmorClass = 101
 			m.PerfectDodge = 100
-			g.combat.ApplyDamageToMonster(m, 10, it.Name, false)
+			g.combat.ApplyDamageToMonster(m, 10, testWeapon(it.Name), false)
 			if m.Relics.CrumbleArmor != 0 {
 				t.Fatal("dodged hit eroded armor")
 			}
 			m.PerfectDodge = 0
-			g.combat.ApplyDamageToMonster(m, 10, it.Name, false)
+			g.combat.ApplyDamageToMonster(m, 10, testWeapon(it.Name), false)
 			if m.Relics.CrumbleArmor != 3 || m.EffectiveArmorClass() != 98 {
 				t.Fatal("first direct hit or duplicate card rule failed")
 			}
@@ -112,7 +112,7 @@ func TestChamberCrumblingDirectHitContract(t *testing.T) {
 				t.Fatal("secondary elemental bonus eroded armor")
 			}
 			for range 20 {
-				g.combat.ApplyDamageToMonster(m, 10, it.Name, false)
+				g.combat.ApplyDamageToMonster(m, 10, testWeapon(it.Name), false)
 			}
 			if m.Relics.CrumbleArmor != 50 || m.EffectiveArmorClass() != 51 {
 				t.Fatalf("cap failed: %+v", m.Relics)
@@ -126,7 +126,7 @@ func TestChamberCrumblingDirectHitContract(t *testing.T) {
 			first, _ := partyDamageTargets(g, tile)
 			first.ArmorClass, first.PerfectDodge = 45, 0
 			for range 20 {
-				g.combat.ApplyDamageToMonster(first, 10, it.Name, false)
+				g.combat.ApplyDamageToMonster(first, 10, testWeapon(it.Name), false)
 			}
 			if first.EffectiveArmorClass() != 23 {
 				t.Fatalf("armor cut before erosion: %d, want 23", first.EffectiveArmorClass())

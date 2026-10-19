@@ -186,21 +186,12 @@ func (b InventoryBag) Reorder(src, dst int) {
 // MergeStacks folds every stack into the first of its kind. It runs once on a
 // save written before free stacks (see stackLayoutSaveVersion).
 func (b InventoryBag) MergeStacks() {
-	type key struct {
-		name string
-		typ  items.ItemType
-	}
-	first := map[key]int{}
 	inv := b.Items()
 	kept := inv[:0]
 	for _, it := range inv {
-		k := key{it.Name, it.Type}
-		if it.Stackable() {
-			if at, ok := first[k]; ok {
-				kept[at].MergeStack(it)
-				continue
-			}
-			first[k] = len(kept)
+		if at := slices.IndexFunc(kept, func(k items.Item) bool { return items.SameStack(k, it) }); at >= 0 {
+			kept[at].MergeStack(it)
+			continue
 		}
 		kept = append(kept, it)
 	}
@@ -257,6 +248,15 @@ func (s carriedStack) consume(n int) bool {
 	}
 	s.bag.party.contentRev++
 	return true
+}
+
+// ConsumeQuickSlotUnits spends n units of a hero's quick-slot stack, clearing
+// the slot with its last unit.
+func (p *Party) ConsumeQuickSlotUnits(hero *MMCharacter, slot, n int) bool {
+	if hero == nil || slot < 0 || slot >= len(hero.QuickSlots) {
+		return false
+	}
+	return carriedStack{InventoryBag{p, hero}, slot, true}.consume(n)
 }
 
 func physicalQuickStacks(p *Party, hero *MMCharacter) iter.Seq[carriedStack] {

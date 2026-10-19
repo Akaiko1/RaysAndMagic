@@ -37,7 +37,7 @@ func personalSpellDamageBonus(weaponDamage, percent int) int {
 	return weaponDamage * percent / 100
 }
 
-func personalSpellPower(c *character.MMCharacter, kind string) int {
+func personalSpellPower(c *character.MMCharacter, kind config.MechanicKind) int {
 	m, tier := personalSpellMechanic(c, kind)
 	if m == nil {
 		return 0
@@ -45,7 +45,7 @@ func personalSpellPower(c *character.MMCharacter, kind string) int {
 	return m.Power(tier)
 }
 
-func personalSpellDamage(c *character.MMCharacter, kind string) (int, monsterPkg.DamageType) {
+func personalSpellDamage(c *character.MMCharacter, kind config.MechanicKind) (int, monsterPkg.DamageType) {
 	m, tier := personalSpellMechanic(c, kind)
 	if m == nil {
 		return 0, monsterPkg.DamagePhysical
@@ -53,7 +53,7 @@ func personalSpellDamage(c *character.MMCharacter, kind string) (int, monsterPkg
 	return m.Power(tier), convertToMonsterDamageType(m.DamageSchool)
 }
 
-func personalSpellMechanic(c *character.MMCharacter, kind string) (*config.SpellMechanicConfig, int) {
+func personalSpellMechanic(c *character.MMCharacter, kind config.MechanicKind) (*config.SpellMechanicConfig, int) {
 	if c == nil {
 		return nil, 0
 	}
@@ -81,20 +81,7 @@ func consumePersonalAttackCharges(c *character.MMCharacter) {
 	c.SpellState.Effects = c.SpellState.Effects[:n]
 }
 
-func (cs *CombatSystem) personalSpellTarget(caster *character.MMCharacter) *character.MMCharacter {
-	if cs.spellTarget != nil {
-		return cs.spellTarget
-	}
-	if gl := cs.game.gameLoop; gl != nil && gl.inputHandler != nil {
-		x, y := uiCursorPosition()
-		if i := gl.inputHandler.getPartyMemberUnderMouse(x, y); i >= 0 {
-			return cs.game.party.Members[i]
-		}
-	}
-	return caster
-}
-
-func (g *MMGame) advancedBuff(kind string) *TimedCombatBuff {
+func (g *MMGame) advancedBuff(kind config.MechanicKind) *TimedCombatBuff {
 	for i := range g.combatBuffs {
 		b := &g.combatBuffs[i]
 		if !b.active() {
@@ -125,19 +112,19 @@ func restoreAdvancedBuff(b *TimedCombatBuff, d spells.SpellDefinition) {
 		return
 	}
 	switch m.Kind {
-	case "haste":
+	case config.MechanicHaste:
 		b.RecoveryPct, b.ExtraActions = m.Power(tier), m.ExtraActions(tier)
-	case "shield":
+	case config.MechanicShield:
 		b.RangedWardPct = m.Power(tier)
-	case "regeneration":
+	case config.MechanicRegeneration:
 		b.HPRegenPct = m.Power(tier)
-	case "pain_reflection":
+	case config.MechanicPainReflection:
 		b.ReflectionPct = m.Power(tier)
 	}
 	if len(m.ChargesByMastery) > 0 {
 		b.Charges = min(b.Charges, m.Charges(tier))
 	}
-	if m.Kind == "celestial_armor" {
+	if m.Kind == config.MechanicCelestialArmor {
 		b.Absorb = min(b.Absorb, m.Power(tier))
 	}
 }
@@ -151,43 +138,45 @@ func (cs *CombatSystem) tryCastAdvancedSupport(id spells.SpellID, d spells.Spell
 	frames := cs.CalculateSpellDurationFrames(id, caster)
 	switch {
 	case m.TargetsAlly():
-		target := cs.personalSpellTarget(caster)
-		if !target.IsLiving() {
+		// The hero picked in the paused target picker (castSpell opens it
+		// before anything is paid).
+		target := cs.spellTarget
+		if target == nil || !target.IsLiving() {
 			return castRejected
 		}
 		effect := character.PersonalSpellEffect{SpellID: string(id), Tier: tier, Charges: m.Charges(tier)}
 		effect.Clock.ArmFrames(frames, g.config.GetTPS())
 		target.SpellState.Set(effect)
 	case m.IsPartyBuff():
-		if m.Kind == "haste" && !g.partyNeedsHaste() {
+		if m.Kind == config.MechanicHaste && !g.partyNeedsHaste() {
 			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
 			return castRejected
 		}
-		b := TimedCombatBuff{ID: string(id), MasteryTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == "haste"}
+		b := TimedCombatBuff{ID: string(id), MasteryTier: tier, Charges: m.Charges(tier), DeferFirstTurnTick: g.turnBasedMode && m.Kind == config.MechanicHaste}
 		b.Clock.ArmFrames(frames, g.config.GetTPS())
-		if m.Kind == "celestial_armor" {
+		if m.Kind == config.MechanicCelestialArmor {
 			b.Absorb = m.Power(tier)
 		}
 		restoreAdvancedBuff(&b, d)
 		g.addCombatBuff(b)
-	case m.Kind == "purify" || m.Kind == "dispel_magic":
-		if !g.partyNeedsPurify() && (m.Kind != "dispel_magic" || !g.hostileMagicNearby(m.RadiusTiles)) {
+	case m.Kind == config.MechanicPurify || m.Kind == config.MechanicDispelMagic:
+		if !g.partyNeedsPurify() && (m.Kind != config.MechanicDispelMagic || !g.hostileMagicNearby(m.RadiusTiles)) {
 			g.AddCombatMessage(uitext.Text("technique.refusal_no_benefit"))
 			return castRejected
 		}
 		g.purifyParty()
-		if m.Kind == "dispel_magic" {
+		if m.Kind == config.MechanicDispelMagic {
 			g.dispelHostileProjectiles(m.RadiusTiles)
 		}
-	case m.Kind == "shared_life":
+	case m.Kind == config.MechanicSharedLife:
 		if !cs.sharePartyLife(character.SpellHealingBreakdown(d, caster).Total) {
 			return castRejected
 		}
-	case m.Kind == "vvoid_beacon":
+	case m.Kind == config.MechanicVvoidBeacon:
 		if !g.beaconConfirming {
 			return castRejected
 		}
-	case m.Kind == "identify_monster":
+	case m.Kind == config.MechanicIdentifyMonster:
 		target := g.identifyConfirming
 		if !g.canIdentifyMonster(target, d) {
 			return castRejected
@@ -332,6 +321,12 @@ func (cs *CombatSystem) partyDamageEvent() func() {
 // inPartyDamageEvent reports a hit landing as part of a party-wide event.
 func (cs *CombatSystem) inPartyDamageEvent() bool { return cs.partyEventDepth > 0 }
 
+// magicWardBlockedEvent reports that the ward blocked the party-wide event in
+// progress.
+func (cs *CombatSystem) magicWardBlockedEvent() bool {
+	return cs.inPartyDamageEvent() && cs.magicWardDecision == 1
+}
+
 // magicWardBlocks spends Protection from Magic's shared budget. By design,
 // eligible hostile hits include spells (even physical-damage spells) AND
 // nonphysical monster hits: elemental melee, elemental weapon projectiles and
@@ -346,7 +341,7 @@ func (cs *CombatSystem) magicWardBlocks(school string, hostileSpell, monsterOwne
 	if cs.inPartyDamageEvent() && cs.magicWardDecision != 0 {
 		return cs.magicWardDecision == 1
 	}
-	blocked := cs.game.spendPartyBuffCharge("protection_from_magic")
+	blocked := cs.game.spendPartyBuffCharge(config.MechanicProtectionFromMagic)
 	if blocked {
 		cs.game.AddCombatMessage(uitext.Text("advanced.magic_blocked"))
 	}
@@ -370,7 +365,7 @@ func (g *MMGame) preserveFromLethal(c *character.MMCharacter, damage int) int {
 }
 
 func (g *MMGame) spendPreservation(c *character.MMCharacter) bool {
-	if !g.spendPartyBuffCharge("preservation") {
+	if !g.spendPartyBuffCharge(config.MechanicPreservation) {
 		return false
 	}
 	c.CureDamageOverTime()
@@ -379,8 +374,8 @@ func (g *MMGame) spendPreservation(c *character.MMCharacter) bool {
 }
 
 // spendPartyBuffCharge spends one charge of a party buff; its last charge ends it.
-func (g *MMGame) spendPartyBuffCharge(id string) bool {
-	b := g.advancedBuff(id)
+func (g *MMGame) spendPartyBuffCharge(kind config.MechanicKind) bool {
+	b := g.advancedBuff(kind)
 	if b == nil || b.Charges <= 0 {
 		return false
 	}
@@ -393,7 +388,7 @@ func (g *MMGame) spendPartyBuffCharge(id string) bool {
 
 // celestialAbsorb is what Celestial Armor would take from a hit of amount.
 func (g *MMGame) celestialAbsorb(amount int) int {
-	if b := g.advancedBuff("celestial_armor"); amount > 0 && b != nil && b.Absorb > 0 {
+	if b := g.advancedBuff(config.MechanicCelestialArmor); amount > 0 && b != nil && b.Absorb > 0 {
 		return min(amount, b.Absorb)
 	}
 	return 0
@@ -402,7 +397,7 @@ func (g *MMGame) celestialAbsorb(amount int) int {
 func (g *MMGame) absorbCelestialDamage(amount int) int {
 	absorbed := g.celestialAbsorb(amount)
 	if absorbed > 0 {
-		b := g.advancedBuff("celestial_armor")
+		b := g.advancedBuff(config.MechanicCelestialArmor)
 		if b.Absorb -= absorbed; b.Absorb == 0 {
 			g.removeCombatBuff(buffRegistryID(*b))
 		}

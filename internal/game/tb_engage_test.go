@@ -27,7 +27,7 @@ func TestTurnBasedHitEngagesPack(t *testing.T) {
 	worldTest.Monsters = []*monster.Monster3D{hit, nearSame, farSame, nearOther, beyondLeash}
 	worldTest.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	game.combat.ApplyDamageToMonster(hit, 1, "Test", false)
+	game.combat.ApplyDamageToMonster(hit, 1, testWeapon("Test"), false)
 
 	if !hit.IsEngagingPlayer {
 		t.Fatalf("expected hit monster to engage in turn-based mode")

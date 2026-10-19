@@ -12,22 +12,55 @@ import (
 // SpellMechanicConfig is the shared authored contract for advanced spell effects.
 // Mastery ladders run from Novice to Grandmaster; durations are gameplay seconds.
 type SpellMechanicConfig struct {
-	ReapplyImmunitySeconds int     `yaml:"reapply_immunity_seconds,omitempty"`
-	Kind                   string  `yaml:"kind"`
-	PowerByMastery         []int   `yaml:"power_by_mastery,omitempty"`
-	ChargesByMastery       []int   `yaml:"charges_by_mastery,omitempty"`
-	WaterFreezeSeconds     int     `yaml:"water_freeze_seconds,omitempty"` // Crossing lifetime, independent of the root timer.
-	RadiusTiles            float64 `yaml:"radius_tiles,omitempty"`
-	ConeDegrees            float64 `yaml:"cone_degrees,omitempty"`
-	MaxTargets             int     `yaml:"max_targets,omitempty"`
-	ProjectilesByMastery   []int   `yaml:"projectiles_by_mastery,omitempty"`
-	ExtraActionsByMastery  []int   `yaml:"extra_actions_by_mastery,omitempty"` // Party bonus actions per TB round.
-	MaxHitsPerTarget       int     `yaml:"max_hits_per_target,omitempty"`      // Per cast, shared by all projectiles.
-	InstantKillChance      float64 `yaml:"instant_kill_chance,omitempty"`      // Probability in 0..1, before fallback damage.
-	Autocast               bool    `yaml:"autocast,omitempty"`                 // The caster may set it to cast itself; the kind owns the trigger.
-	DamageSchool           string  `yaml:"damage_school,omitempty"`
-	Summary                string  `yaml:"summary"`
+	ReapplyImmunitySeconds int          `yaml:"reapply_immunity_seconds,omitempty"`
+	Kind                   MechanicKind `yaml:"kind"`
+	PowerByMastery         []int        `yaml:"power_by_mastery,omitempty"`
+	ChargesByMastery       []int        `yaml:"charges_by_mastery,omitempty"`
+	WaterFreezeSeconds     int          `yaml:"water_freeze_seconds,omitempty"` // Crossing lifetime, independent of the root timer.
+	RadiusTiles            float64      `yaml:"radius_tiles,omitempty"`
+	ConeDegrees            float64      `yaml:"cone_degrees,omitempty"`
+	MaxTargets             int          `yaml:"max_targets,omitempty"`
+	ProjectilesByMastery   []int        `yaml:"projectiles_by_mastery,omitempty"`
+	ExtraActionsByMastery  []int        `yaml:"extra_actions_by_mastery,omitempty"` // Party bonus actions per TB round.
+	MaxHitsPerTarget       int          `yaml:"max_hits_per_target,omitempty"`      // Per cast, shared by all projectiles.
+	InstantKillChance      float64      `yaml:"instant_kill_chance,omitempty"`      // Probability in 0..1, before fallback damage.
+	Autocast               bool         `yaml:"autocast,omitempty"`                 // The caster may set it to cast itself; the kind owns the trigger.
+	DamageSchool           string       `yaml:"damage_school,omitempty"`
+	Summary                string       `yaml:"summary"`
 }
+
+// MechanicKind is the closed set of advanced spell mechanics (spellMechanicRules).
+type MechanicKind string
+
+const (
+	MechanicFireAura            MechanicKind = "fire_aura"
+	MechanicFate                MechanicKind = "fate"
+	MechanicVampiricWeapon      MechanicKind = "vampiric_weapon"
+	MechanicHaste               MechanicKind = "haste"
+	MechanicShield              MechanicKind = "shield"
+	MechanicRegeneration        MechanicKind = "regeneration"
+	MechanicPainReflection      MechanicKind = "pain_reflection"
+	MechanicPreservation        MechanicKind = "preservation"
+	MechanicProtectionFromMagic MechanicKind = "protection_from_magic"
+	MechanicCelestialArmor      MechanicKind = "celestial_armor"
+	MechanicAcidBurst           MechanicKind = "acid_burst"
+	MechanicFlyingFist          MechanicKind = "flying_fist"
+	MechanicFrozenGround        MechanicKind = "frozen_ground"
+	MechanicSlow                MechanicKind = "slow"
+	MechanicTurnUndead          MechanicKind = "turn_undead"
+	MechanicMassFear            MechanicKind = "mass_fear"
+	MechanicFeeblemind          MechanicKind = "feeblemind"
+	MechanicBerserk             MechanicKind = "berserk"
+	MechanicDestroyUndead       MechanicKind = "destroy_undead"
+	MechanicPrismaticLight      MechanicKind = "prismatic_light"
+	MechanicShrapmetal          MechanicKind = "shrapmetal"
+	MechanicSouldrinker         MechanicKind = "souldrinker"
+	MechanicDispelMagic         MechanicKind = "dispel_magic"
+	MechanicPurify              MechanicKind = "purify"
+	MechanicVvoidBeacon         MechanicKind = "vvoid_beacon"
+	MechanicIdentifyMonster     MechanicKind = "identify_monster"
+	MechanicSharedLife          MechanicKind = "shared_life"
+)
 
 type spellMechanicRule struct {
 	offensive, personal, party                                                                 bool
@@ -39,8 +72,8 @@ type spellMechanicRule struct {
 
 // AutocastMechanicKinds lists the mechanic kinds a spell may set to cast
 // itself; the game owns one trigger for each.
-func AutocastMechanicKinds() []string {
-	var out []string
+func AutocastMechanicKinds() []MechanicKind {
+	var out []MechanicKind
 	for kind, rule := range spellMechanicRules {
 		if rule.autocast {
 			out = append(out, kind)
@@ -50,32 +83,32 @@ func AutocastMechanicKinds() []string {
 	return out
 }
 
-var spellMechanicRules = map[string]spellMechanicRule{
-	"fire_aura":             {personal: true, power: true, charges: true, percent: true},
-	"fate":                  {personal: true, power: true, charges: true, percent: true},
-	"vampiric_weapon":       {personal: true, power: true, duration: true, percent: true},
-	"haste":                 {party: true, power: true, duration: true, percent: true, extraActions: true, autocast: true, penaltyFree: true},
-	"shield":                {party: true, power: true, duration: true, percent: true},
-	"regeneration":          {party: true, power: true, duration: true, percent: true},
-	"pain_reflection":       {party: true, power: true, duration: true, percent: true},
-	"preservation":          {party: true, charges: true},
-	"protection_from_magic": {party: true, charges: true},
-	"celestial_armor":       {party: true, power: true, duration: true, autocast: true},
-	"acid_burst":            {offensive: true, power: true, duration: true, damage: true, projectile: true, percent: true},
-	"flying_fist":           {offensive: true, power: true, damage: true, projectile: true},
-	"frozen_ground":         {offensive: true, duration: true, radius: true, cone: true},
-	"slow":                  {offensive: true, power: true, duration: true, radius: true, percent: true},
-	"turn_undead":           {offensive: true, duration: true, radius: true},
-	"mass_fear":             {offensive: true, duration: true, radius: true},
-	"feeblemind":            {offensive: true, duration: true, radius: true},
-	"berserk":               {offensive: true, duration: true, radius: true, cone: true},
-	"destroy_undead":        {offensive: true, radius: true, damage: true, cone: true},
-	"prismatic_light":       {offensive: true, radius: true, damage: true, targets: true},
-	"shrapmetal":            {offensive: true, cone: true, damage: true, projectile: true},
-	"souldrinker":           {offensive: true, power: true, radius: true, damage: true, percent: true},
-	"dispel_magic":          {radius: true, autocast: true, penaltyFree: true},
-	"purify":                {autocast: true, penaltyFree: true},
-	"vvoid_beacon":          {charges: true}, "identify_monster": {radius: true}, "shared_life": {},
+var spellMechanicRules = map[MechanicKind]spellMechanicRule{
+	MechanicFireAura:            {personal: true, power: true, charges: true, percent: true},
+	MechanicFate:                {personal: true, power: true, charges: true, percent: true},
+	MechanicVampiricWeapon:      {personal: true, power: true, duration: true, percent: true},
+	MechanicHaste:               {party: true, power: true, duration: true, percent: true, extraActions: true, autocast: true, penaltyFree: true},
+	MechanicShield:              {party: true, power: true, duration: true, percent: true},
+	MechanicRegeneration:        {party: true, power: true, duration: true, percent: true},
+	MechanicPainReflection:      {party: true, power: true, duration: true, percent: true},
+	MechanicPreservation:        {party: true, charges: true},
+	MechanicProtectionFromMagic: {party: true, charges: true},
+	MechanicCelestialArmor:      {party: true, power: true, duration: true, autocast: true},
+	MechanicAcidBurst:           {offensive: true, power: true, duration: true, damage: true, projectile: true, percent: true},
+	MechanicFlyingFist:          {offensive: true, power: true, damage: true, projectile: true},
+	MechanicFrozenGround:        {offensive: true, duration: true, radius: true, cone: true},
+	MechanicSlow:                {offensive: true, power: true, duration: true, radius: true, percent: true},
+	MechanicTurnUndead:          {offensive: true, duration: true, radius: true},
+	MechanicMassFear:            {offensive: true, duration: true, radius: true},
+	MechanicFeeblemind:          {offensive: true, duration: true, radius: true},
+	MechanicBerserk:             {offensive: true, duration: true, radius: true, cone: true},
+	MechanicDestroyUndead:       {offensive: true, radius: true, damage: true, cone: true},
+	MechanicPrismaticLight:      {offensive: true, radius: true, damage: true, targets: true},
+	MechanicShrapmetal:          {offensive: true, cone: true, damage: true, projectile: true},
+	MechanicSouldrinker:         {offensive: true, power: true, radius: true, damage: true, percent: true},
+	MechanicDispelMagic:         {radius: true, autocast: true, penaltyFree: true},
+	MechanicPurify:              {autocast: true, penaltyFree: true},
+	MechanicVvoidBeacon:         {charges: true}, MechanicIdentifyMonster: {radius: true}, MechanicSharedLife: {},
 }
 
 func (m *SpellMechanicConfig) IsOffensive() bool {
@@ -144,6 +177,7 @@ func (m *SpellMechanicConfig) SummaryText(tier int, durations []int) string {
 		"{extra_actions}", format(m.ExtraActionsByMastery),
 		"{max_hits_per_target}", strconv.Itoa(m.MaxHitsPerTarget),
 		"{instant_kill_chance}", strconv.FormatFloat(m.InstantKillChance*100, 'f', -1, 64),
+		"{instakill_sear_pct}", strconv.Itoa(InstakillSearMaxHPPct),
 	).Replace(m.Summary)
 	if GlobalConfig != nil && GlobalConfig.StatusEffects.ControlSaves.Applies(m.Kind) {
 		text += " " + GlobalConfig.StatusEffects.ControlSaves.Summary
@@ -158,10 +192,10 @@ func (m *SpellMechanicConfig) SummaryText(tier int, durations []int) string {
 		}
 		text += uitext.Text("advanced.summary_tb_duration", format(turns))
 	}
-	if m.Kind == "slow" && GlobalConfig != nil {
+	if m.Kind == MechanicSlow && GlobalConfig != nil {
 		text += uitext.Text("advanced.summary_slow", SlowSkipEveryTurns())
 	}
-	if m.Kind == "regeneration" {
+	if m.Kind == MechanicRegeneration {
 		text += uitext.Text("advanced.summary_regeneration", RegenerationIntervalSeconds(), RegenerationRounds)
 	}
 	if m.ReapplyImmunitySeconds > 0 {
@@ -184,7 +218,7 @@ func validateSpellDuration(def *SpellDefinitionConfig) error {
 		}
 		what := fmt.Sprintf("duration_by_mastery[%d]", i)
 		check := ValidateEffectSeconds
-		if def.Mechanic != nil && def.Mechanic.Kind == "slow" {
+		if def.Mechanic != nil && def.Mechanic.Kind == MechanicSlow {
 			check = ValidateSlowSeconds
 		}
 		if err := check(what, seconds); err != nil {
@@ -220,11 +254,20 @@ func validateSpellDuration(def *SpellDefinitionConfig) error {
 	return nil
 }
 
+// GrantsStatBuff and GrantsCombatBuff are the authored party-buff payloads
+// (spells.SpellDefinition reads the same two at runtime).
+func (def *SpellDefinitionConfig) GrantsStatBuff() bool {
+	return def.StatBonus > 0 || len(def.StatBonuses) > 0
+}
+
+func (def *SpellDefinitionConfig) GrantsCombatBuff() bool {
+	return def.ResistBuffPct > 0 || def.ResistBuffSchoolPct > 0 || def.OutgoingDamageBonus > 0 || def.IncomingDamageReduction > 0
+}
+
 // HasTimedUtilityEffect reports a non-mechanic utility field that runs on the
 // spell's lifetime ladder (stat, defense, travel and vision buffs).
 func (def *SpellDefinitionConfig) HasTimedUtilityEffect() bool {
-	return def.StatBonus > 0 || len(def.StatBonuses) > 0 ||
-		def.ResistBuffPct > 0 || def.ResistBuffSchoolPct > 0 || def.OutgoingDamageBonus > 0 || def.IncomingDamageReduction > 0 ||
+	return def.GrantsStatBuff() || def.GrantsCombatBuff() ||
 		def.WaterWalk || def.WaterBreathing || def.Fly || def.TerrainPassage ||
 		def.LightRadiusTiles > 0 || def.RadarRadiusTiles > 0
 }
@@ -262,10 +305,10 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 	if math.IsNaN(m.InstantKillChance) || math.IsInf(m.InstantKillChance, 0) || m.InstantKillChance < 0 || m.InstantKillChance > 1 {
 		return fmt.Errorf("mechanic.instant_kill_chance must be finite and within 0..1")
 	}
-	if m.InstantKillChance != 0 && m.Kind != "destroy_undead" {
+	if m.InstantKillChance != 0 && m.Kind != MechanicDestroyUndead {
 		return fmt.Errorf("mechanic %s does not support instant_kill_chance", m.Kind)
 	}
-	if m.ReapplyImmunitySeconds < 0 || (m.Kind == "feeblemind") != (m.ReapplyImmunitySeconds > 0) {
+	if m.ReapplyImmunitySeconds < 0 || (m.Kind == MechanicFeeblemind) != (m.ReapplyImmunitySeconds > 0) {
 		return fmt.Errorf("mechanic.reapply_immunity_seconds is required only for feeblemind")
 	}
 	if m.Summary == "" {
@@ -283,13 +326,13 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 	if rule.projectile && !def.IsProjectile {
 		return fmt.Errorf("%s requires projectile physics", m.Kind)
 	}
-	if m.Kind == "destroy_undead" && m.InstantKillChance <= 0 {
+	if m.Kind == MechanicDestroyUndead && m.InstantKillChance <= 0 {
 		return fmt.Errorf("destroy_undead requires instant_kill_chance")
 	}
-	if m.WaterFreezeSeconds < 0 || (m.Kind == "frozen_ground") != (m.WaterFreezeSeconds > 0) {
+	if m.WaterFreezeSeconds < 0 || (m.Kind == MechanicFrozenGround) != (m.WaterFreezeSeconds > 0) {
 		return fmt.Errorf("mechanic.water_freeze_seconds must be positive for frozen_ground and omitted otherwise")
 	}
-	if m.Kind == "shared_life" && (def.HealAmount <= 0 || !def.HealParty || def.TargetSelf) {
+	if m.Kind == MechanicSharedLife && (def.HealAmount <= 0 || !def.HealParty || def.TargetSelf) {
 		return fmt.Errorf("shared_life requires heal_amount for its distributed healing pool")
 	}
 	for _, field := range []struct {
@@ -303,10 +346,10 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 		{"radius_tiles", radius, m.RadiusTiles > 0},
 		{"cone_degrees", cone, m.ConeDegrees > 0},
 		{"max_targets", targets, m.MaxTargets > 0},
-		{"projectiles_by_mastery", m.Kind == "shrapmetal", len(m.ProjectilesByMastery) == 4},
+		{"projectiles_by_mastery", m.Kind == MechanicShrapmetal, len(m.ProjectilesByMastery) == 4},
 		{"extra_actions_by_mastery", rule.extraActions, len(m.ExtraActionsByMastery) == 4},
-		{"max_hits_per_target", m.Kind == "shrapmetal", m.MaxHitsPerTarget > 0},
-		{"damage_school", damage || m.Kind == "fire_aura", m.DamageSchool != ""},
+		{"max_hits_per_target", m.Kind == MechanicShrapmetal, m.MaxHitsPerTarget > 0},
+		{"damage_school", damage || m.Kind == MechanicFireAura, m.DamageSchool != ""},
 	} {
 		if field.required != field.present {
 			return fmt.Errorf("mechanic %s requires exactly its supported %s settings", m.Kind, field.name)
@@ -323,7 +366,7 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 	}
 	if percent {
 		for _, value := range m.PowerByMastery {
-			if value > 100 || m.Kind == "slow" && value == 100 {
+			if value > 100 || m.Kind == MechanicSlow && value == 100 {
 				return fmt.Errorf("mechanic percentage exceeds its usable range")
 			}
 		}
@@ -333,8 +376,8 @@ func validateSpellMechanic(def *SpellDefinitionConfig) error {
 		available bool
 	}{
 		{"power", power}, {"charges", charges}, {"duration", duration}, {"radius", radius}, {"cone", cone}, {"max_targets", targets}, {"water_freeze_seconds", m.WaterFreezeSeconds > 0},
-		{"instant_kill_chance", m.Kind == "destroy_undead"},
-		{"projectiles", m.Kind == "shrapmetal"}, {"max_hits_per_target", m.Kind == "shrapmetal"}, {"extra_actions", rule.extraActions},
+		{"instant_kill_chance", m.Kind == MechanicDestroyUndead}, {"instakill_sear_pct", m.Kind == MechanicDestroyUndead},
+		{"projectiles", m.Kind == MechanicShrapmetal}, {"max_hits_per_target", m.Kind == MechanicShrapmetal}, {"extra_actions", rule.extraActions},
 	} {
 		if strings.Contains(m.Summary, "{"+field.token+"}") && !field.available {
 			return fmt.Errorf("mechanic.summary references absent %s", field.token)

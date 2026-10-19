@@ -2,18 +2,17 @@ package game
 
 import (
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/strictyaml"
 	"ugataima/internal/world"
 )
 
@@ -55,22 +54,15 @@ type ScenarioMember struct {
 }
 
 func LoadTestScenarios(path string) (map[string]TestScenario, error) {
-	f, err := os.Open(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	var data struct {
 		Scenarios map[string]TestScenario `yaml:"scenarios"`
 	}
-	dec := yaml.NewDecoder(f)
-	dec.KnownFields(true)
-	if err := dec.Decode(&data); err != nil {
+	if err := strictyaml.Decode(raw, &data); err != nil {
 		return nil, err
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		return nil, fmt.Errorf("scenario catalog must contain one YAML document")
 	}
 	if len(data.Scenarios) == 0 {
 		return nil, fmt.Errorf("empty scenario catalog")
@@ -190,7 +182,7 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			return fmt.Errorf("scenario: unknown class %q", data.Class)
 		}
 		m := character.CreateCharacter(data.Name, class, g.config)
-		if data.Race != "" && data.Race != "human" {
+		if data.Race != "" {
 			if _, ok := g.config.Characters.Races[data.Race]; !ok {
 				return fmt.Errorf("scenario: %s has unknown race %q", data.Name, data.Race)
 			}
@@ -210,7 +202,7 @@ func (g *MMGame) applyTestScenario(s TestScenario, bench *BenchCatalog) error {
 			m.Skills[skill].Mastery = mastery
 		}
 		for _, key := range data.Equipment {
-			it, err := benchGear(key)
+			it, err := items.FromKey(key)
 			if err != nil {
 				return err
 			}

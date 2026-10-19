@@ -196,7 +196,7 @@ func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *ch
 // the SAME pieces CalculateWeaponCritChance sums, so the tooltip's breakdown
 // can't drift from the rolled total.
 func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics int) {
-	if def, _, ok := config.GetWeaponDefinitionByName(weapon.Name); ok && def != nil {
+	if def, _, ok := config.WeaponDefOf(weapon); ok && def != nil {
 		baseCrit = def.CritChance
 		if character.BallisticsWeapon(def) && char != nil && char.HasSkill(character.SkillBallistics) {
 			ballistics = character.BallisticsCritPct(char.SkillTier(character.SkillBallistics))
@@ -216,11 +216,11 @@ func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.M
 }
 
 func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
-	if char.HasChargedStaffAttack(lookupWeaponConfigByName(weapon.Name)) {
+	if char.HasChargedStaffAttack(lookupWeaponConfig(weapon)) {
 		return 100
 	}
 	baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms, ballistics := cs.WeaponCritBreakdown(weapon, char)
-	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics + personalSpellPower(char, "fate")
+	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms + ballistics + personalSpellPower(char, config.MechanicFate)
 	if total < 0 {
 		return 0
 	}
@@ -411,32 +411,29 @@ func clampRTCooldown(frames int) int {
 // per-weapon `cooldown_multiplier` override for legendaries). Unarmed = sword
 // baseline. Speed still drives the underlying curve.
 func (cs *CombatSystem) WeaponCooldownFrames(char *character.MMCharacter) int {
-	weaponName := ""
+	var weapon items.Item
 	if char != nil {
-		if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
-			weaponName = weapon.Name
-		}
+		weapon = char.Equipment[items.SlotMainHand]
 	}
-	return cs.WeaponCooldownFramesFor(char, weaponName)
+	return cs.WeaponCooldownFramesFor(char, weapon)
 }
 
 // OffHandWeaponCooldownFrames mirrors WeaponCooldownFrames for the off-hand
 // weapon (Dual Wielding only) - the two hands cool down independently.
 func (cs *CombatSystem) OffHandWeaponCooldownFrames(char *character.MMCharacter) int {
-	weaponName := ""
+	var weapon items.Item
 	if char != nil {
-		if weapon, ok := char.Equipment[items.SlotOffHand]; ok {
-			weaponName = weapon.Name
-		}
+		weapon = char.Equipment[items.SlotOffHand]
 	}
-	return cs.WeaponCooldownFramesFor(char, weaponName)
+	return cs.WeaponCooldownFramesFor(char, weapon)
 }
 
 // WeaponCooldownFramesFor computes the real-time cooldown for a SPECIFIC
 // weapon (tooltips hover unequipped weapons too) - the ONE formula combat and
-// every tooltip share. Empty name = unarmed (sword baseline).
-func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, weaponName string) int {
-	return cs.weaponCooldownBreakdown(char, weaponName).TotalFrames
+// every tooltip share. A zero item = unarmed (sword baseline).
+func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, weapon items.Item) int {
+	def, _, _ := config.WeaponDefOf(weapon)
+	return cs.weaponCooldownBreakdown(char, def).TotalFrames
 }
 
 type weaponCooldownBreakdown struct {
@@ -450,17 +447,15 @@ type weaponCooldownBreakdown struct {
 	TotalFrames              int
 }
 
-func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, weaponName string) weaponCooldownBreakdown {
+func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, def *config.WeaponDefinitionConfig) weaponCooldownBreakdown {
 	result := weaponCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
 	if cs == nil || cs.game == nil || char == nil {
 		return result
 	}
 	result.Speed = char.GetEffectiveSpeed()
 	result.BaseFrames = float64(calculateSpeedActionCooldownFrames(result.Speed)) * RTBaseCooldownMult
-	if weaponName != "" {
-		if def, _, found := config.GetWeaponDefinitionByName(weaponName); found && def != nil {
-			result.WeaponMultiplier = character.WeaponCooldownMultiplier(def)
-		}
+	if def != nil {
+		result.WeaponMultiplier = character.WeaponCooldownMultiplier(def)
 	}
 	// Dual Wielding: -10%/tier ABOVE Novice on cooldown, either hand (Novice
 	// itself only unlocks the off-hand weapon slot, no reduction yet).

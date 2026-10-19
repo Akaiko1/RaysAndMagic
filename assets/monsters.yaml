@@ -33,8 +33,9 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 90
+        riders: true
         duration_seconds: 6
-        sustain_damage: 8
+        sustain_percent: 17
 
   solstice_cinder_hound:
     name: "Cinder Hound"
@@ -68,6 +69,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 115
+        riders: true
 
   solstice_kiln_automaton:
     name: "Kiln Automaton"
@@ -102,6 +104,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 110
+        riders: true
 
   solstice_aureth:
     type: "formless"
@@ -164,6 +167,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 90
+        riders: true
         duration_seconds: 9
 
   solstice_cistern_eel:
@@ -198,6 +202,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 110
+        riders: true
         duration_seconds: 9
 
   solstice_flow_automaton:
@@ -249,6 +254,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 100
+        riders: true
         duration_seconds: 9
         below_hp_percent: 25
       summon: {cooldown_seconds: 12, monsters: ["solstice_tide_elemental"], count: 1, max: 1}
@@ -308,6 +314,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 75
+        riders: true
         duration_seconds: 6
 
   solstice_shardback_burrower:
@@ -342,6 +349,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 110
+        riders: true
 
   solstice_anchor_automaton:
     name: "Anchor Automaton"
@@ -376,6 +384,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 110
+        riders: true
 
   solstice_talura:
     type: "formless"
@@ -417,6 +426,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 80
+        riders: true
     name: "Gale Elemental"
     level: 24
     max_hit_points: 1270
@@ -454,6 +464,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 110
+        riders: true
     name: "Storm Kite"
     level: 23
     max_hit_points: 1100
@@ -487,6 +498,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 120
+        riders: true
     name: "Transfer Automaton"
     level: 25
     max_hit_points: 1520
@@ -561,6 +573,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 100
+        riders: true
 
   solstice_rain_serpent:
     name: "Rain Serpent"
@@ -591,6 +604,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 90
+        riders: true
         duration_seconds: 9
 
   solstice_rootbound_sentinel:
@@ -620,6 +634,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 70
+        riders: true
         duration_seconds: 6
 
   solstice_dusk_moth:
@@ -636,6 +651,7 @@ monsters:
         warning_seconds: 1.25
         warning_rounds: 1
         damage_percent: 100
+        riders: true
     name: "Dusk Moth"
     level: 22
     max_hit_points: 1000
@@ -861,7 +877,8 @@ monsters:
     damage_max: 66
     true_damage: 12  # follows the attack school; resistance applies, armor/flat/dodge do not
     abilities:
-      dragon_breath: {chance: 0.33, damage_type: "fire"}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: fire, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2  # 2 tiles (breath weapon/bite)
     projectile_spell: "firebolt"
@@ -897,7 +914,8 @@ monsters:
       ignite:
         chance: 0.30  # 30% to set a character ablaze
         duration_seconds: 30  # burn DoT (3x poison strength), stacks with poison
-      dragon_breath: {chance: 0.33, damage_type: "dark"}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: dark, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
@@ -927,7 +945,8 @@ monsters:
     attack_cooldown_multiplier: 0.6  # attacks fast
     abilities:
       poison: {chance: 0.33, duration_seconds: 45}
-      dragon_breath: {chance: 0.33, damage_type: "earth"}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: earth, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
@@ -956,7 +975,8 @@ monsters:
       stun:
         chance: 0.10  # 10% to stun the struck character
         seconds: 6  # whole 3 s rounds, the same span in TB
-      dragon_breath: {chance: 0.33, damage_type: "air"}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: air, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
@@ -989,7 +1009,8 @@ monsters:
     true_damage: 18
     attack_cooldown_multiplier: 0.75
     abilities:
-      dragon_breath: {chance: 0.33, damage_type: "fire"}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: fire, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "firebolt"
@@ -1016,7 +1037,8 @@ monsters:
     attack_cooldown_multiplier: 0.75
     abilities:
       ignite: {chance: 0.35, duration_seconds: 42}
-      dragon_breath: {chance: 0.33, damage_type: "dark"}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: dark, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
@@ -1043,7 +1065,8 @@ monsters:
     attack_cooldown_multiplier: 0.55
     abilities:
       poison: {chance: 0.40, duration_seconds: 60}
-      dragon_breath: {chance: 0.33, damage_type: "earth"}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: earth, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
@@ -1068,7 +1091,8 @@ monsters:
     attack_cooldown_multiplier: 0.65
     abilities:
       stun: {chance: 0.10, seconds: 6}
-      dragon_breath: {chance: 0.33, damage_type: "air"}
+      party_attacks:
+        - {key: dragon_breath, name: "Dragon Breath", trigger: attack, delivery: spell, school: air, chance: 0.33, damage_percent: 100, targets: all, riders: true}
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
@@ -1202,7 +1226,8 @@ monsters:
     damage_min: 15
     damage_max: 15
     abilities:
-      fireburst: {chance: 0.33, damage_min: 6, damage_max: 18}
+      party_attacks:
+        - {key: fireburst, name: "Fireburst", trigger: attack, delivery: spell, school: fire, chance: 0.33, damage_percent: 80, targets: all, riders: true}
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "firebolt"
@@ -1509,6 +1534,7 @@ monsters:
 
   lich_king:
     type: "undead"
+    elite: true
     name: "Lich King"
     level: 21
     max_hit_points: 950
@@ -1610,10 +1636,9 @@ monsters:
     attack_cooldown_multiplier: 0.5
     abilities:
       melt_armor: {chance: 1.0}
-      inferno:
-        chance: 0.10
-        damage: 28
-        range_tiles: 8  # nova reaches this far in BOTH modes; melee range still lets it replace a normal hit
+      # nova reaches this far in BOTH modes; melee range still lets it replace a normal hit
+      party_attacks:
+        - {key: inferno, name: "Inferno", trigger: nova, delivery: spell, school: fire, chance: 0.10, damage_percent: 200, targets: all, riders: false, range_tiles: 8}
       teleport: {at_hp: 300, chance: 0.10}
     passive_until_quest: "culverts_valves"
     evade_radius_tiles: 3
@@ -1643,7 +1668,8 @@ monsters:
     damage_min: 32
     damage_max: 49
     abilities:
-      piercing_shot: {chance: 0.50, targets: 2}
+      party_attacks:
+        - {key: piercing_shot, name: "Piercing Shot", trigger: attack, delivery: shot, school: physical, chance: 0.50, damage_percent: 100, targets: 2, riders: true, ignore_armor: true}
     projectile_weapon: "tanegashima"
     ranged_attack_range: 6
     alert_radius: 8
@@ -1661,6 +1687,7 @@ monsters:
 
   ronin_marksman:
     type: "undead"
+    elite: true
     name: "Ronin Marksman"
     level: 15
     max_hit_points: 640
@@ -1670,7 +1697,8 @@ monsters:
     damage_min: 37
     damage_max: 56
     abilities:
-      piercing_shot: {chance: 0.25, targets: 2}
+      party_attacks:
+        - {key: piercing_shot, name: "Piercing Shot", trigger: attack, delivery: shot, school: physical, chance: 0.25, damage_percent: 100, targets: 2, riders: true, ignore_armor: true}
     projectile_weapon: "tanegashima"
     ranged_attack_range: 7
     alert_radius: 9
@@ -1714,6 +1742,7 @@ monsters:
 
   vengeful_ningyo:
     type: "undead"
+    elite: true
     name: "Vengeful Ningyo"
     level: 19
     max_hit_points: 740
@@ -2039,7 +2068,8 @@ monsters:
     speed: 2.6
     abilities:
       pounce: {range_tiles: 3, cooldown_seconds: 6}
-      fireburst: {chance: 0.15, damage_min: 30, damage_max: 50}
+      party_attacks:
+        - {key: fireburst, name: "Fireburst", trigger: attack, delivery: spell, school: fire, chance: 0.15, damage_percent: 69, targets: all, riders: true}
       # Rallies a pair of Masked Huntress escorts (shared boss summon kit): first is
       # guaranteed, refills the pair via chance once both die (cap 2 live).
       summon: {chance: 0.18, first_guaranteed: true, monsters: ["masked_huntress"], count: 2, max: 2}
@@ -2350,9 +2380,10 @@ monsters:
     projectile_spell: "fireball"
     ranged_attack_range: 11
     abilities:
-      trap_volley: {count: 20, radius_tiles: 15, interval_seconds: 10, interval_turns: 3, damage: 40}
+      trap_volley: {count: 20, radius_tiles: 15, interval_seconds: 10, interval_turns: 3, damage_percent: 48, riders: true}
       ignite: {chance: 0.15, duration_seconds: 30}
-      inferno: {chance: 0.22, damage: 150, range_tiles: 7}
+      party_attacks:
+        - {key: inferno, name: "Inferno", trigger: nova, delivery: spell, school: fire, chance: 0.22, damage_percent: 176, targets: all, riders: false, range_tiles: 7}
       summon: {chance: 0.25, monsters: ["dragon"], count: 1, max: 3}
       enrage: {at_hp: 1920, damage_mult: 1.5, cooldown_mult: 0.6}
     sprite: "dragon_brood_mother"

@@ -236,13 +236,13 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	if nextDamage.True != oldDamage.True {
 		lines = append(lines, fmt.Sprintf("True damage / hit: %d -> %d (%+d)", oldDamage.True, nextDamage.True, nextDamage.True-oldDamage.True))
 	}
-	oldFrames, nextFrames := combatSystem.WeaponCooldownFramesFor(char, equipped.Name), afterCombat.WeaponCooldownFramesFor(after, item.Name)
+	oldFrames, nextFrames := combatSystem.WeaponCooldownFramesFor(char, equipped), afterCombat.WeaponCooldownFramesFor(after, item)
 	oldRecovery, nextRecovery := cooldownSeconds(combatSystem, oldFrames), cooldownSeconds(afterCombat, nextFrames)
 	if oldRecovery != nextRecovery {
 		lines = append(lines, fmt.Sprintf("RT recovery: %s -> %s", oldRecovery, nextRecovery))
 	}
-	oldDef, _, _ := config.GetWeaponDefinitionByName(equipped.Name)
-	nextDef, _, _ := config.GetWeaponDefinitionByName(item.Name)
+	oldDef, _, _ := config.WeaponDefOf(equipped)
+	nextDef, _, _ := config.WeaponDefOf(item)
 	if oldDef != nil && nextDef != nil {
 		oldCount, nextCount := character.WeaponStrikeCount(oldDef), character.WeaponStrikeCount(nextDef)
 		if oldCount != nextCount {
@@ -264,10 +264,10 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	}
 
 	itemArc, eqArc := "", ""
-	if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+	if def, _, ok := config.WeaponDefOf(item); ok {
 		itemArc = character.MeleeArcShortLabel(def)
 	}
-	if def, _, ok := config.GetWeaponDefinitionByName(equipped.Name); ok {
+	if def, _, ok := config.WeaponDefOf(equipped); ok {
 		eqArc = character.MeleeArcShortLabel(def)
 	}
 	if itemArc != eqArc {
@@ -468,12 +468,12 @@ func itemProseRows(item items.Item) character.CardRows {
 	}
 	description, flavor := "", ""
 	if item.Type == items.ItemWeapon {
-		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+		if def, _, ok := config.WeaponDefOf(item); ok {
 			description, flavor = def.Description, def.Flavor
 		} else {
 			flavor = item.Description
 		}
-	} else if def, _, ok := config.GetItemDefinitionByName(item.Name); ok {
+	} else if def, _, ok := config.ItemDefOf(item); ok {
 		description, flavor = def.Description, def.Flavor
 	} else {
 		flavor = item.Description

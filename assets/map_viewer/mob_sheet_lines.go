@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
+	"ugataima/internal/stats"
 )
 
 // tbPreviewRounds is how many rounds the sheet plays out below a TB rate.
@@ -124,20 +124,11 @@ func appendChampionTierLines(out []infoLine, tiers []game.ChampionTierSheet) []i
 		add(mobStatDefault, 1, "RT cooldown %s", hand(func(s game.ChampionHandSheet) string { return fmt.Sprintf("%.2fs", float64(s.CooldownFrames)/tps) }))
 	}
 
-	attributes := []struct {
-		name  string
-		value func(*character.MMCharacter) int
-	}{
-		{"Might", (*character.MMCharacter).GetEffectiveMight},
-		{"Intellect", (*character.MMCharacter).GetEffectiveIntellect},
-		{"Personality", (*character.MMCharacter).GetEffectivePersonality},
-		{"Endurance", (*character.MMCharacter).GetEffectiveEndurance},
-		{"Accuracy", (*character.MMCharacter).GetEffectiveAccuracy},
-		{"Speed", (*character.MMCharacter).GetEffectiveSpeed},
-		{"Luck", (*character.MMCharacter).GetEffectiveLuck},
-	}
-	for _, a := range attributes {
-		add(mobStatDefault, 0, "%s %s", a.name, ladder(func(t game.ChampionTierSheet) string { return itoa(a.value(t.Build)) }))
+	for i, name := range stats.Names {
+		add(mobStatDefault, 0, "%s %s", stats.Title(name), ladder(func(t game.ChampionTierSheet) string {
+			eff := t.Build.EffectiveStatBlock()
+			return itoa(*eff.At(i))
+		}))
 	}
 	for _, school := range monster.DamageTypes() {
 		present := false

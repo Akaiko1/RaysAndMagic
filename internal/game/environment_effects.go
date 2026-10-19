@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"slices"
@@ -41,7 +40,8 @@ func effectDamage(e config.EnvironmentEffect, lo, hi int) config.EnvironmentEffe
 // AdventureHazard is a chamber effect's damage at a visit level: on a hit, or
 // per second for occupation and a lane's lingering field.
 type AdventureHazard struct {
-	Name, Kind              string
+	Name                    string
+	Kind                    config.EffectKind
 	Percent, SustainPercent int
 	Damage, Sustain         int
 }
@@ -60,8 +60,16 @@ func AdventureHazards(s config.AdventureScalingConfig, a *config.AdventureConfig
 }
 
 // percentOfAttack is a percent of the average of an attack range: the one
-// rule for telegraphs and chamber hazards.
+// rule for telegraph hits and fields, boss trap volleys and chamber hazards
+// (a party attack rolls a share of the band instead: PartyAttack.DamageBand).
 func percentOfAttack(lo, hi, percent int) int { return (lo + hi) * percent / 200 }
+
+// attackShare is percentOfAttack of m's current attack band, an enrage
+// included (Monster3D.AttackBand).
+func attackShare(m *monster.Monster3D, percent int) int {
+	lo, hi := m.AttackBand()
+	return percentOfAttack(lo, hi, percent)
+}
 
 // adventureBossAttack is the map boss's attack range at the visit's level
 // (load validation guarantees a leveled, attacking boss for percent damage).
@@ -216,15 +224,15 @@ func (g *MMGame) tickEnvironment(turn bool) {
 		if e.BossBelowPercent > 0 && !s.Activated {
 			s.Activated = true
 			s.Warning = status.PairClock(e.WarningSeconds, e.WarningRounds, tps, 1)
-			g.AddCombatMessage(e.Name + " is charging. Leave the marked tiles!")
+			g.AddCombatMessage(uitext.Text("combat.is_charging_leave_the_marked_tiles", e.Name))
 			continue
 		}
-		if e.Kind != "lane" && s.Warning.Active() {
+		if e.Kind != config.EffectLane && s.Warning.Active() {
 			s.Warning.Tick(turn)
-			releaseTransfers = releaseTransfers || (e.Kind == "transfer" && !s.Warning.Active())
+			releaseTransfers = releaseTransfers || (e.Kind == config.EffectTransfer && !s.Warning.Active())
 			continue
 		}
-		if e.Kind == "lane" {
+		if e.Kind == config.EffectLane {
 			if s.Warning.Active() {
 				if s.Warning.Tick(turn); !s.Warning.Active() {
 					releaseTransfers = true
@@ -234,7 +242,7 @@ func (g *MMGame) tickEnvironment(turn bool) {
 					if inside {
 						g.damageEnvironment(e, 1)
 					}
-					g.AddCombatMessage(e.Name + " fires.")
+					g.AddCombatMessage(uitext.Text("combat.fires", e.Name))
 				}
 				continue
 			}
@@ -247,7 +255,7 @@ func (g *MMGame) tickEnvironment(turn bool) {
 			s.Remaining.Tick(turn)
 			continue
 		}
-		if e.Kind == "occupation" && inside {
+		if e.Kind == config.EffectOccupation && inside {
 			continuous = append(continuous, environmentExposure{effect: e, seconds: dt})
 		}
 	}
@@ -293,14 +301,7 @@ func (g *MMGame) forcedArrivalOpen(x, y int) bool {
 	if g.collisionSystem == nil || !g.collisionSystem.CanMoveTo("player", wx, wy) {
 		return false
 	}
-	if g.world != nil {
-		for _, m := range g.world.Monsters {
-			if m != nil && m.IsAlive() && TileIndex(m.X, ts) == x && TileIndex(m.Y, ts) == y {
-				return false
-			}
-		}
-	}
-	return true
+	return livingMonsterOnTile(g.world, x, y, float64(ts), nil) == nil
 }
 
 // forcePartyStep moves the party onto an open tile and lands it there
@@ -378,7 +379,7 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 			if e.BossBelowPercent > 0 && (!s.Activated || s.Warning.Active()) {
 				continue
 			}
-			if charge && e.Kind == "trap" && !wasInside && !s.Triggered && !s.Rearm.Active() {
+			if charge && e.Kind == config.EffectTrap && !wasInside && !s.Triggered && !s.Rearm.Active() {
 				s.Triggered = true
 				s.Rearm = status.PairClock(e.RearmSeconds, e.RearmRounds, g.config.GetTPS(), 1)
 				g.damageEnvironment(e, 1)
@@ -386,11 +387,11 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 			// A current never chains: one under the receiving tile sleeps until
 			// the party steps off it (Suppressed clears once it is outside),
 			// whatever later releases transfers.
-			if e.Kind == "transfer" && pass > 0 {
+			if e.Kind == config.EffectTransfer && pass > 0 {
 				s.Suppressed = true
 				continue
 			}
-			if e.Kind != "transfer" || s.Suppressed || transferred {
+			if e.Kind != config.EffectTransfer || s.Suppressed || transferred {
 				continue
 			}
 			if e.TriggerLane != "" {
@@ -407,7 +408,7 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 			s.Suppressed = true
 			transferred, carried = true, true
 			g.autoPickupLootBags()
-			g.AddCombatMessage(e.Name + " carries the party to the receiving platform.")
+			g.AddCombatMessage(uitext.Text("combat.carries_the_party_to_the_receiving", e.Name))
 		}
 		if !carried {
 			return
@@ -418,18 +419,18 @@ func (g *MMGame) resolveEnvironmentArrival(chargeTraps bool) {
 func (g *MMGame) disarmEnvironment(id string) {
 	a := g.adventureConfig(currentMapKey())
 	e := a.Effect(id)
-	if e == nil || e.Kind != "trap" {
+	if e == nil || e.Kind != config.EffectTrap {
 		return
 	}
 	v := g.adventureVisit(currentMapKey())
 	s := v.effectState(id)
 	if s.Disarmed {
-		g.AddCombatMessage("The plate is already safe.")
+		g.AddCombatMessage(uitext.Text("combat.the_plate_is_already_safe"))
 		return
 	}
 	chance, hand := g.partyTrapAvoidChancePct()
 	if hand == nil {
-		g.AddCombatMessage("An active hero needs Disarm Trap.")
+		g.AddCombatMessage(uitext.Text("combat.an_active_hero_needs_disarm_trap"))
 		return
 	}
 	if !g.turnBasedMode && hand.RTCooldown > 0 {
@@ -437,9 +438,9 @@ func (g *MMGame) disarmEnvironment(id string) {
 	}
 	if rand.Intn(100) < chance {
 		s.Disarmed = true
-		g.AddCombatMessage(e.Name + " is disarmed for this visit.")
+		g.AddCombatMessage(uitext.Text("combat.is_disarmed_for_this_visit", e.Name))
 	} else {
-		g.AddCombatMessage("The catch slips. The plate remains armed.")
+		g.AddCombatMessage(uitext.Text("combat.the_catch_slips_the_plate_remains"))
 	}
 	if g.turnBasedMode {
 		g.endPartyTurnAfterMovement()
@@ -456,7 +457,7 @@ func (g *MMGame) useAdventureControl(id string) {
 	}
 	v := g.adventureVisit(key)
 	if v.Controls[id] {
-		g.AddCombatMessage("The mechanism is already secured.")
+		g.AddCombatMessage(uitext.Text("combat.the_mechanism_is_already_secured"))
 		return
 	}
 	// Validate the complete edit before committing any control or tile.
@@ -485,7 +486,7 @@ func (g *MMGame) useAdventureControl(id string) {
 	if c.Message != "" {
 		g.AddCombatMessage(c.Message)
 	} else {
-		g.AddCombatMessage("The service mechanism locks into its safe position.")
+		g.AddCombatMessage(uitext.Text("combat.the_service_mechanism_locks_into_its"))
 	}
 	if g.turnBasedMode {
 		g.endPartyTurnAfterMovement()
@@ -571,7 +572,7 @@ func (g *MMGame) announceAdventureBossLanes(m *monster.Monster3D, a *config.Adve
 	for _, id := range pattern {
 		e := a.Effect(id)
 		v.effectState(id).Warning = status.PairClock(e.WarningSeconds, e.WarningRounds, g.config.GetTPS(), 1)
-		g.AddCombatMessage(fmt.Sprintf("%s announces %s (%s): tiles %d,%d to %d,%d. Leave the marked lane!", m.Name, e.Name, e.School, e.Rect[0], e.Rect[1], e.Rect[2], e.Rect[3]))
+		g.AddCombatMessage(uitext.Text("combat.announces_tiles_to_leave_the_marked", m.Name, e.Name, e.School, e.Rect[0], e.Rect[1], e.Rect[2], e.Rect[3]))
 	}
 }
 
@@ -723,8 +724,8 @@ func (g *MMGame) damageMonsterFieldContributions(state *EnvironmentState, school
 		}
 		for _, m := range g.world.Monsters {
 			if m.ID == id {
-				if a := telegraphDefinition(m); a != nil {
-					g.damageTelegraphParty(m, a.Name, school, damagecalc.Parts{Normal: damage})
+				if a := monsterTelegraph(m); a != nil {
+					g.burnTelegraphFieldParty(m, a.Name, school, damagecalc.Parts{Normal: damage})
 				}
 				break
 			}

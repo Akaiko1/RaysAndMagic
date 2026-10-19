@@ -7,17 +7,17 @@ import (
 
 // Every shipped melee item has its own procedural model. Synthetic effects
 // without a source weapon retain a procedural category model.
-func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind, style string, x, y, angle, size, alpha float64) {
+func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind swingKind, style string, x, y, angle, size, alpha float64) {
 	model, ok := weaponBodyModels[r.weaponMaterialState.weaponKey]
 	if !ok {
 		switch kind {
-		case "stab":
+		case swingStab:
 			model = bodyParryDagger
-		case "lunge":
+		case swingLunge:
 			model = bodyIronSpear
-		case "smash":
+		case swingSmash:
 			model = bodySteelMace
-		case "chop":
+		case swingChop:
 			model = bodySteelAxe
 		default:
 			model = bodyIronSword
@@ -39,7 +39,7 @@ func (r *Renderer) drawWeaponSilhouette(dst *ebiten.Image, kind, style string, x
 			model = bodyMainspringPike
 		}
 	}
-	if kind == "smash" {
+	if kind == swingSmash {
 		angle -= math.Pi / 2
 	}
 	r.drawWeaponBody(dst, x, y, angle, size, alpha, kind, model)

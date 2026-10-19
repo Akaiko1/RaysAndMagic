@@ -162,7 +162,7 @@ func TestProfileQuestTurnInDetails(t *testing.T) {
 				if source == "npc" {
 					(&InputHandler{game: g}).handleTurnInQuest("test")
 				} else {
-					h.ui.claimQuestReward("test")
+					h.ui.game.claimQuestReward("test", nil)
 				}
 			}
 			want := int64(1)

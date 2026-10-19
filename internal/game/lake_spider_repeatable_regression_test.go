@@ -52,7 +52,7 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 	if !quest.Completed || quest.CurrentCount != need {
 		t.Fatalf("lake_spiders after %d night-pack kills = completed %v, progress %d", need, quest.Completed, quest.CurrentCount)
 	}
-	if !game.claimQuestReward("lake_spiders") {
+	if !game.claimQuestReward("lake_spiders", nil) {
 		t.Fatal("claim first nightly lake_spiders reward")
 	}
 	if countCombatLog(game, "You receive ") != 1 {
@@ -62,7 +62,7 @@ func TestLakeSpiderNightPackAdvancesRepeatableQuest(t *testing.T) {
 		t.Fatal("generic item reward used giver-specific wording")
 	}
 
-	game.refreshRepeatableQuests("night")
+	game.refreshRepeatableQuests(quests.RepeatNightly)
 	if questManager.GetQuest("lake_spiders") != nil {
 		t.Fatal("claimed repeatable quest was not cleared for the next night")
 	}

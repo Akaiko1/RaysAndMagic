@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 )
 
 func TestCelestialArmorAbsorbsPeriodicDamageInBothModes(t *testing.T) {
@@ -21,7 +22,7 @@ func TestCelestialArmorAbsorbsPeriodicDamageInBothModes(t *testing.T) {
 					t.Run(fmt.Sprintf("TB=%v/restored=%v/%s/budget=%d", tb, restored, effect.name, budget), func(t *testing.T) {
 						g := advancedSupportGame(t, tb)
 						castAdvancedSupport(t, g, "celestial_armor", 0, nil)
-						g.advancedBuff("celestial_armor").Absorb = budget
+						g.advancedBuff(config.MechanicCelestialArmor).Absorb = budget
 						c := g.party.Members[1]
 						// A small pool, so the barrier can hold all three seconds.
 						const full = 100
@@ -77,7 +78,7 @@ func TestCelestialArmorAbsorbsPeriodicDamageInBothModes(t *testing.T) {
 							t.Fatalf("%s bypassed absorption: HP=%d, want %d", effect.name, c.HitPoints, want)
 						}
 						remaining := 0
-						if b := g.advancedBuff("celestial_armor"); b != nil {
+						if b := g.advancedBuff(config.MechanicCelestialArmor); b != nil {
 							remaining = b.Absorb
 						}
 						if remaining != max(0, budget-damage) {
@@ -100,7 +101,7 @@ func TestCelestialArmorPeriodicPoolAndLethalOrdering(t *testing.T) {
 			t.Run(fmt.Sprintf("TB=%v/budget=%d", tb, budget), func(t *testing.T) {
 				g := advancedSupportGame(t, tb)
 				castAdvancedSupport(t, g, "celestial_armor", 0, nil)
-				g.advancedBuff("celestial_armor").Absorb = budget
+				g.advancedBuff(config.MechanicCelestialArmor).Absorb = budget
 				castAdvancedSupport(t, g, "preservation", 0, nil)
 				tps := g.config.GetTPS()
 				// 100 max HP burns 3 a tick: budget 4 shields one hero and part of
@@ -122,7 +123,7 @@ func TestCelestialArmorPeriodicPoolAndLethalOrdering(t *testing.T) {
 						g.sweepLethalDoTVictims()
 					}
 				}
-				if b := g.advancedBuff("celestial_armor"); b != nil && b.Absorb != 0 {
+				if b := g.advancedBuff(config.MechanicCelestialArmor); b != nil && b.Absorb != 0 {
 					t.Fatalf("shared absorption was not exhausted: %+v", b)
 				}
 				for i, c := range g.party.Members[1:3] {
@@ -134,7 +135,7 @@ func TestCelestialArmorPeriodicPoolAndLethalOrdering(t *testing.T) {
 						t.Fatalf("hero %d: HP=%d conditions=%v, want HP=%d", i+1, c.HitPoints, c.Conditions, wantHP)
 					}
 				}
-				preservation := g.advancedBuff("preservation")
+				preservation := g.advancedBuff(config.MechanicPreservation)
 				if (preservation != nil) != (budget == 6) {
 					t.Fatalf("Preservation must be spent only after barrier overflow: %+v", preservation)
 				}

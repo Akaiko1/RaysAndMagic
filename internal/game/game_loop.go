@@ -5,6 +5,7 @@ import (
 	"image"
 	"math"
 	"time"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
@@ -613,6 +614,13 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 	if rewards.QuestID != "" && quests.GlobalQuestManager != nil {
 		questRewards := quests.GlobalQuestManager.CompleteEncounterQuest(rewards.QuestID)
 		if questRewards != nil {
+			// Every reward key is proven to create at boot
+			// (validateQuestWorldReferences): the purse is rolled once the
+			// quest is complete, with nothing to retry.
+			loot, err := questItemRewards(*questRewards)
+			if err != nil {
+				gl.game.AddCombatMessage(uitext.Text("combat.cannot_claim_reward", err))
+			}
 			if rewards.CompletionMessage != "" {
 				gl.game.AddCombatMessage(rewards.CompletionMessage)
 			}
@@ -621,18 +629,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 				"Quest Completed: Received "+questRewardSummary(questRewards.Gold, questRewards.ArenaPoints, questRewards.Experience)+"!",
 			)
 
-			// Award gold to party
-			if questRewards.Gold > 0 {
-				gl.game.awardGold(questRewards.Gold)
-			}
-			if questRewards.ArenaPoints > 0 {
-				gl.game.awardArenaPoints(questRewards.ArenaPoints)
-			}
-
-			// Award experience to all party members
-			if questRewards.Experience > 0 {
-				gl.game.grantSharedXP(questRewards.Experience)
-			}
+			gl.game.payQuestRewards(questRewards, loot)
 			gl.game.addTreasureChestsFromRewards(rewards)
 			gl.freeCaptivesFromRewards(rewards)
 			return // Quest handled rewards, don't double-award
@@ -649,13 +646,13 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 	// Award gold to party
 	if rewards.Gold > 0 {
 		gl.game.awardGold(rewards.Gold)
-		gl.game.AddCombatMessage(fmt.Sprintf("Party found %d gold!", rewards.Gold))
+		gl.game.AddCombatMessage(uitext.Text("combat.party_found_gold", rewards.Gold))
 	}
 
 	// Award experience to all party members
 	if rewards.Experience > 0 {
 		gl.game.grantSharedXP(rewards.Experience)
-		gl.game.AddCombatMessage(fmt.Sprintf("Party gains %d experience!", rewards.Experience))
+		gl.game.AddCombatMessage(uitext.Text("combat.party_gains_experience", rewards.Experience))
 	}
 	gl.freeCaptivesFromRewards(rewards)
 }
@@ -671,7 +668,7 @@ func (gl *GameLoop) freeCaptivesFromRewards(rewards *monster.EncounterRewards) {
 	freed := gl.game.party.FreeCaptives()
 	gl.game.profileAdd("captives_freed", int64(len(freed)))
 	for _, c := range freed {
-		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed - they'll wait at the tavern.", c.Name, c.Class.String()))
+		gl.game.AddCombatMessage(uitext.Text("combat.the_is_freed_they_ll_wait", c.Name, c.Class.String()))
 	}
 }
 
@@ -969,7 +966,7 @@ func (g *MMGame) advanceControlledMonsters(turn bool) {
 				m.Bound = false
 				m.WasAttacked = true // Freed undead remember provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
-				g.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+				g.AddCombatMessage(uitext.Text("combat.breaks_free_of_your_binding", m.Name))
 			}
 		}
 		if m.Pacified && m.PacifiedClock.Active() {
@@ -977,7 +974,7 @@ func (g *MMGame) advanceControlledMonsters(turn bool) {
 				m.Pacified = false
 				m.WasAttacked = true // Charm expiry restores provocation; live scope gates engagement.
 				m.BeginPlayerEngagement()
-				g.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
+				g.AddCombatMessage(uitext.Text("combat.the_charm_on_wears_off", m.Name))
 			}
 		}
 	}
@@ -991,7 +988,7 @@ func (gl *GameLoop) returnFromUnderwater() {
 	if err := gl.game.transitionToMap(mapTransition{mapKey: returnMapKey, pose: MapPose{
 		X: gl.game.underwaterReturnX, Y: gl.game.underwaterReturnY, Angle: gl.game.camera.Angle,
 	}}); err != nil {
-		gl.game.AddCombatMessage("Cannot return to the surface: " + err.Error())
+		gl.game.AddCombatMessage(uitext.Text("combat.cannot_return_to_the_surface", err.Error()))
 		return
 	}
 

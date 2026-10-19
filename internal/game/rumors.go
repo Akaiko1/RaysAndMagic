@@ -8,8 +8,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/quests"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // Tavern rumors are objective story guide rails. Every tavern-capable NPC
@@ -50,7 +49,7 @@ func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
 		return fmt.Errorf("rumors: %w", err)
 	}
 	var cfg rumorConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return fmt.Errorf("rumors: %w", err)
 	}
 	for i, r := range cfg.Rumors {
@@ -74,12 +73,15 @@ func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
 				return fmt.Errorf("rumors: entry %d references unknown quest spawn %q", i, r.Spawn)
 			}
 		}
-		for _, ref := range []string{r.Quest, r.After} {
-			if ref == "" {
-				continue
+		if r.Quest != "" && (questManager == nil || questManager.Definitions()[r.Quest] == nil) {
+			return fmt.Errorf("rumors: entry %d references unknown quest %q", i, r.Quest)
+		}
+		if r.After != "" {
+			if questManager == nil {
+				return fmt.Errorf("rumors: entry %d references unknown quest %q", i, r.After)
 			}
-			if questManager == nil || questManager.Definitions()[ref] == nil {
-				return fmt.Errorf("rumors: entry %d references unknown quest %q", i, ref)
+			if err := questGateError(questManager, r.After); err != nil {
+				return fmt.Errorf("rumors: entry %d after: %w", i, err)
 			}
 		}
 	}
@@ -106,19 +108,24 @@ func validRumorSpawnReference(ref string, questManager *quests.QuestManager) boo
 
 // questCompleted reports whether a quest is completed in the current run.
 func (g *MMGame) questCompleted(id string) bool {
-	// Older versions removed the trial from the journal after promotion.
-	if id == "archmage_trial" && g.party != nil {
-		for member := range g.party.Heroes() {
-			if member.Promotion == character.PromotionArchmage {
-				return true
-			}
-		}
-	}
 	if g.questManager == nil {
 		return false
 	}
-	q := g.questManager.GetQuest(id)
-	return q != nil && q.Completed
+	if q := g.questManager.GetQuest(id); q != nil {
+		return q.Completed
+	}
+	// Older versions dropped a promotion quest from the journal once paid: a
+	// member holding its rank still proves it done.
+	if def := g.questManager.Definitions()[id]; def != nil && g.party != nil {
+		if p := questPromotion(def.Rewards); p != character.PromotionNone {
+			for member := range g.party.Heroes() {
+				if member.Promotion == p {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (g *MMGame) rumorMonsterObjectiveComplete(r RumorDef) bool {

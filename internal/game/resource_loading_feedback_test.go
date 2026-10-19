@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestAreaLoadingFeedbackStartsWithPause(t *testing.T) {

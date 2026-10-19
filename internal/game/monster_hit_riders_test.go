@@ -95,7 +95,7 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 					afflicted = r.onHero(hero)
 				} else {
 					target := sd.target()
-					cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)
+					cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false, false)
 					afflicted = r.onMob(target)
 				}
 				if !afflicted {
@@ -124,7 +124,7 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 		attacker.Abilities.Poison.Chance, attacker.Abilities.Poison.DurationSeconds = 1, 5
 		target := ally()
 		target.PerfectDodge = 100
-		cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 1}, "physical", 0), nil, false, false, true)
+		cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 1}, "physical", 0), nil, false, false, true, false)
 		if target.PoisonedFramesRemaining > 0 {
 			t.Error("a dodged strike poisoned its target")
 		}
@@ -135,7 +135,7 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 		attacker.Abilities.Poison.Chance, attacker.Abilities.Poison.DurationSeconds = 1, 5
 		target := ally()
 		target.HitPoints = 1
-		cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{True: 50}, "physical", 0), nil, false, true, false)
+		cs.strikeMonsterPacketFor(attacker, target, singleMonsterDamagePacket(damagecalc.Parts{True: 50}, "physical", 0), nil, false, true, false, false)
 		if target.IsAlive() || target.PoisonedFramesRemaining > 0 {
 			t.Errorf("slain target alive=%v poison=%d", target.IsAlive(), target.PoisonedFramesRemaining)
 		}
@@ -147,7 +147,7 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 		g.addStatBuff(TimedStatBuff{SpellID: "bless", Clock: framesClock(600), Bonuses: character.StatBonusesFromMap(map[string]int{"might": 5})})
 		attacker := foe()
 		attacker.Abilities.Dispel.Chance = 1
-		cs.strikeMonsterPacketFor(attacker, ally(), singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)
+		cs.strikeMonsterPacketFor(attacker, ally(), singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false, false)
 		if len(g.statBuffs) != 1 {
 			t.Fatal("a foe striking the party's summon dispelled a party buff")
 		}
@@ -159,4 +159,45 @@ func TestMonsterHitRidersReachEveryTarget(t *testing.T) {
 			t.Error("a dispelling hit on a hero left the party buff")
 		}
 	})
+}
+
+// A DoT landing on a monster is named when it starts, whatever its source;
+// a refresh, an immune undead and a quiet wildlife hunt say nothing.
+func TestMonsterDoTIsAnnouncedWhenItStarts(t *testing.T) {
+	for _, row := range [][2]string{{"weapon rider", "living"}, {"weapon rider", "undead"},
+		{"monster rider", "living"}, {"monster rider", "undead"}, {"monster rider", "wildlife hunt"}} {
+		source, target := row[0], row[1]
+		{
+			t.Run(source+"/"+target, func(t *testing.T) {
+				cs := newTestCombatSystemWithConfig(t)
+				g := cs.game
+				victim := mkTestMonster("Victim", 1000)
+				attacker := mkTestMonster("Attacker", 1000)
+				switch target {
+				case "undead":
+					victim.MonsterType = monsterPkg.TypeUndead
+				case "wildlife hunt":
+					victim.Disposition, attacker.Disposition = monsterPkg.DispositionWildlife, monsterPkg.DispositionWildlife
+				}
+				land := func() {
+					switch source {
+					case "weapon rider":
+						cs.tryApplyWeaponHitRiders(victim, &config.WeaponDefinitionConfig{Name: "Venom Test", PoisonChance: 1, PoisonSeconds: 6})
+					case "monster rider":
+						attacker.Abilities.Poison = monsterPkg.DoTAbility{Chance: 1, DurationSeconds: 6}
+						cs.applyMonsterHitRiders(attacker, "", monsterHitTarget{cs, attacker, victim}, true)
+					}
+				}
+				land()
+				land() // a refresh
+				want := 1
+				if target != "living" {
+					want = 0
+				}
+				if got := countCombatLog(g, "Victim is poisoned!"); got != want {
+					t.Fatalf("poison lines = %d, want %d", got, want)
+				}
+			})
+		}
+	}
 }

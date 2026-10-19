@@ -11,8 +11,7 @@ func EffectiveCombatStats(c *MMCharacter) stats.StatBonuses {
 	if c == nil {
 		return stats.StatBonuses{}
 	}
-	m, i, p, e, a, s, l := c.GetEffectiveStats()
-	return stats.StatBonuses{Might: m, Intellect: i, Personality: p, Endurance: e, Accuracy: a, Speed: s, Luck: l}
+	return c.EffectiveStatBlock()
 }
 
 func SpellMasteryTier(c *MMCharacter, def spells.SpellDefinition) int {

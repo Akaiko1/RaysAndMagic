@@ -224,7 +224,7 @@ func TestDualWield_MixedBowAndMuramasaAlternateInRTAndTB(t *testing.T) {
 
 				assertAttackArrow(tt.firstArrow)
 				if turnBased {
-					g.consumeSelectedCharWeaponAction()
+					g.commitWeaponAction()
 				} else {
 					ih.commitRTWeaponAttack(rtActWeapon, member)
 					if !g.rtActionReady(0, rtActSmart) {
@@ -278,15 +278,15 @@ func TestConsumeSelectedCharWeaponAction_FlipsCursorEachSwing(t *testing.T) {
 	if member.NextTBAttackOffHand {
 		t.Fatal("setup: cursor should start false")
 	}
-	g.consumeSelectedCharWeaponAction() // swing 1: main hand -> flips to true
+	g.commitWeaponAction() // swing 1: main hand -> flips to true
 	if !member.NextTBAttackOffHand {
 		t.Error("after 1st swing, cursor should point to the off-hand")
 	}
-	g.consumeSelectedCharWeaponAction() // swing 2: off hand -> flips to false
+	g.commitWeaponAction() // swing 2: off hand -> flips to false
 	if member.NextTBAttackOffHand {
 		t.Error("after 2nd swing, cursor should wrap back to the main hand")
 	}
-	g.consumeSelectedCharWeaponAction() // swing 3 (e.g. Speed bonus): main hand again
+	g.commitWeaponAction() // swing 3 (e.g. Speed bonus): main hand again
 	if !member.NextTBAttackOffHand {
 		t.Error("after 3rd swing, cursor should point to the off-hand again")
 	}

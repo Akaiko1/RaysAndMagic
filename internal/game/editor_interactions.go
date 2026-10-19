@@ -2,6 +2,7 @@ package game
 
 import (
 	"slices"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/quests"
@@ -54,7 +55,7 @@ func (g *MMGame) projectAdventureConfig(key string, a *config.AdventureConfig) *
 	for i := range result.Effects {
 		e := &result.Effects[i]
 		e.Rect = box(e.Rect)
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			e.Destination[0], e.Destination[1] = project(e.Destination[0], e.Destination[1])
 		}
 	}
@@ -133,7 +134,7 @@ func (g *MMGame) sceneInteractionInCurrentRegion(n *character.NPC) bool {
 	if r == nil || r.MapKey == currentMapKey() {
 		return true
 	}
-	g.AddCombatMessage("Enter the mechanism's region before operating it.")
+	g.AddCombatMessage(uitext.Text("combat.enter_the_mechanism_s_region_before"))
 	return false
 }
 

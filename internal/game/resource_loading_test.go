@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
 	"ugataima/internal/threading"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func loadingFixture(t *testing.T) *GameLoop {
@@ -490,7 +491,7 @@ func TestLoadingRetiresDragActionsWithoutLosingPickedUpFragments(t *testing.T) {
 			gl := loadingFixture(t)
 			g := gl.game
 			g.dragPickedUp, g.stashDragPickedUp = pickedUp, pickedUp
-			g.dragArmed, g.stashDragArmed = true, true
+			g.drag.armed, g.stashDrag.armed = true, true
 			g.dragDropAt, g.stashDragDrop = 1, true
 			gl.loading.begin(time.Now())
 			if err := gl.Update(); err != nil {
@@ -502,7 +503,7 @@ func TestLoadingRetiresDragActionsWithoutLosingPickedUpFragments(t *testing.T) {
 			if g.dragPickedUp != pickedUp || g.stashDragPickedUp != pickedUp {
 				t.Fatal("loading lost ownership of a carried fragment")
 			}
-			if !pickedUp && (g.dragArmed || g.stashDragArmed) {
+			if !pickedUp && (g.drag.armed || g.stashDrag.armed) {
 				t.Fatal("ordinary gesture survived loading")
 			}
 		})

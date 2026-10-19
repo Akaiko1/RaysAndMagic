@@ -7,7 +7,7 @@ import (
 
 // A readable weapon leads each authored strike; the material wake stays behind
 // the blade instead of substituting for it. Paired weapons have staggered poses.
-func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, screenH float64, style, kind string) {
+func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, screenH float64, style string, kind swingKind) {
 	r.weaponMaterialState.bodyHandled = true
 	p, fade, _, lead := meleeFxTiming(s)
 	if fade <= 0 {
@@ -41,9 +41,9 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 			side = -1
 		}
 		path := func(t float64) (float64, float64) {
-			if kind == "stab" || kind == "lunge" {
+			if kind == swingStab || kind == swingLunge {
 				reach := .34
-				if kind == "lunge" {
+				if kind == swingLunge {
 					reach = .46
 				}
 				lateral := .11 - .13*t
@@ -53,10 +53,10 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 				return cx + side*h*lateral, cy + h*(.19-reach*t)
 			}
 
-			if kind == "smash" {
+			if kind == swingSmash {
 				return cx + h*(.16-.10*t), cy + h*(-.32+.36*t*t)
 			}
-			if kind == "chop" {
+			if kind == swingChop {
 				return cx + h*(.30-.51*t), cy + h*(-.26+.40*t)
 			}
 			return cx + h*(-.23+.46*t), cy + h*(.04-.16*math.Sin(t*math.Pi))
@@ -68,21 +68,21 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 			}
 		}
 		width := h * .012
-		if kind == "lunge" {
+		if kind == swingLunge {
 			width = h * .009
 		}
 		r.drawDissolveStroke(dst, dissolveStroke{path: path, width: func(t float64) float64 { return width * math.Sin(math.Pi*t) }, color: func(float64) [3]int { return col }, alpha: func(float64) float64 { return .36 }, length: h * .5, seed: seedFromID(s.ID), salt: 811 + i, blend: additiveGlowBlend}, ld, local)
 		x, y := path(ld)
 		angle := tangentAt(path, ld)
-		if kind == "slash" || kind == "chop" {
+		if kind == swingSlash || kind == swingChop {
 			angle -= math.Pi / 2
 		}
 		bodyFade := 1 - math.Min(1, math.Max(0, (local-.40)/.24))
 		size := h * .065
-		if kind == "stab" {
+		if kind == swingStab {
 			size = h * .070
 		}
-		if kind == "lunge" {
+		if kind == swingLunge {
 			size = h * .067
 		}
 		if style == "war_fan" {
@@ -106,10 +106,10 @@ func (r *Renderer) drawIdentityStrike(dst *ebiten.Image, s SlashEffect, cx, cy, 
 }
 
 func (r *Renderer) drawMeleeFxWarFan(dst *ebiten.Image, s SlashEffect, x, y, h float64) {
-	r.drawIdentityStrike(dst, s, x, y, h, "war_fan", "slash")
+	r.drawIdentityStrike(dst, s, x, y, h, "war_fan", swingSlash)
 }
 func (r *Renderer) drawMeleeFxKatana(dst *ebiten.Image, s SlashEffect, x, y, h float64) {
-	r.drawIdentityStrike(dst, s, x, y, h, "katana", "slash")
+	r.drawIdentityStrike(dst, s, x, y, h, "katana", swingSlash)
 }
 
 type weaponStrokePose struct {
@@ -134,14 +134,14 @@ func (r *Renderer) drawSignatureSilhouette(dst *ebiten.Image, s SlashEffect, cx,
 	kind := s.Kind
 	style := s.Style
 	if kind == "" || style == "naginata" {
-		kind = "slash"
+		kind = swingSlash
 	}
 	pose := r.weaponMaterialState.pose
 	if !pose.ready {
 		return
 	}
 	x, y, angle := pose.x, pose.y, pose.angle
-	if kind == "slash" || kind == "chop" {
+	if kind == swingSlash || kind == swingChop {
 		angle -= math.Pi / 2
 	}
 

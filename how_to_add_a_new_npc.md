@@ -70,12 +70,10 @@ npcs:
     dialogue:
       greeting: "Welcome to my shop!"
     inventory:
-      - type: "potion"
-        name: "Health Potion"
+      - key: "health_potion"
         cost: 50
         quantity: 10
-      - type: "weapon"
-        name: "Iron Sword"
+      - key: "iron_sword"
         cost: 200
         quantity: 3
 ```
@@ -97,8 +95,7 @@ npcs:
 Notes:
 - If `inventory` is empty, the left list shows "No stock for sale."
 - If `sell_available: false`, the merchant won't buy your items.
-- Inventory item names are resolved by display name from `items.yaml` or `weapons.yaml`.
-- `type` is only special-cased for `"weapon"` (resolved via `weapons.yaml`); any other value (`"potion"`, `"armor"`, etc.) falls back to a name lookup in `items.yaml`.
+- A stock entry names its ware by `key`: a `weapons.yaml` or `items.yaml` key (the two never share one). An unknown key fails the load.
 
 ### Encounter example
 ```yaml

@@ -2,7 +2,6 @@ package game
 
 import (
 	"image/color"
-	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -22,6 +21,43 @@ const doubleClickWindowMs = 500
 func withinDoubleClickWindow(current, previous int64) bool {
 	return previous > 0 && current >= previous && current-previous <= doubleClickWindowMs
 }
+
+// doubleClickTracker pairs two clicks on one target inside the double-click
+// window: the ONE tracker behind every double-click gesture. A completed pair
+// resets it, so a third quick click starts a new pair.
+type doubleClickTracker[K comparable] struct {
+	at     int64 // the pending click's time in ms; 0 = none
+	target K
+}
+
+// click records a click on target at now and reports whether it completes a
+// double-click.
+func (t *doubleClickTracker[K]) click(target K, now int64) bool {
+	if t.at > 0 && t.target == target && withinDoubleClickWindow(now, t.at) {
+		t.reset()
+		return true
+	}
+	*t = doubleClickTracker[K]{at: now, target: target}
+	return false
+}
+
+func (t *doubleClickTracker[K]) reset() { *t = doubleClickTracker[K]{} }
+
+// pending reports a first click waiting for its pair.
+func (t *doubleClickTracker[K]) pending() bool { return t.at > 0 }
+
+type (
+	bagClickKey struct {
+		index int
+		owner *character.MMCharacter
+	}
+	bookClickKey   struct{ group, index int }
+	quickClickKey  struct{ char, slot int }
+	dialogClickKey struct {
+		zone  string
+		index int
+	}
+)
 
 // UI Dimension constants
 const (
@@ -78,9 +114,7 @@ type UISystem struct {
 	statHoldStat          string
 	statHoldFrames        int
 	statPlan              statPlanMemo // AUTO's preview in the stat popup
-	lastClickTime         time.Time
-	lastClickedItem       int
-	lastClickedBagOwner   *character.MMCharacter
+	bagClicks             doubleClickTracker[bagClickKey]
 	inventoryContextOpen  bool
 	inventoryContextX     int
 	inventoryContextY     int
@@ -93,8 +127,7 @@ type UISystem struct {
 	inventoryTab          int // active inventory category filter (index into inventoryTabs)
 	questPage             int // current quest log page (0-based)
 	spellPage             int // current spell/trap book spread (0-based)
-	lastEquipClickTime    time.Time
-	lastClickedSlot       items.EquipSlot
+	equipClicks           doubleClickTracker[items.EquipSlot]
 	hubInteractionOpen    bool
 	hubInteractionChar    int
 	hubInteractionTab     MenuTab
@@ -140,8 +173,6 @@ type UISystem struct {
 func NewUISystem(game *MMGame) *UISystem {
 	ui := &UISystem{
 		game:               game,
-		lastClickedItem:    -1,
-		lastClickedSlot:    items.EquipSlot(-1),
 		hubInteractionChar: -1,
 	}
 	ui.initRadarDots()

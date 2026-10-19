@@ -14,6 +14,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/storage"
+	"ugataima/internal/strictyaml"
 	"ugataima/internal/world"
 
 	"gopkg.in/yaml.v3"
@@ -270,7 +271,7 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 	}
 	// Validate the actual merged document, including references from other maps.
 	var cfg config.MapConfigs
-	if err = yaml.Unmarshal(next, &cfg); err != nil {
+	if err = strictyaml.Decode(next, &cfg); err != nil {
 		return err
 	}
 	if err = cfg.ValidateAdventures(); err != nil {
@@ -331,7 +332,7 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 				return err
 			}
 		}
-		if err = yaml.Unmarshal(npcNext, &merged); err != nil {
+		if err = strictyaml.Decode(npcNext, &merged); err != nil {
 			return fmt.Errorf("Merged NPC catalog: %w", err)
 		}
 		if err = game.ValidateEditorNPCs(merged.NPCs, v.cfg.Graphics.SizeClasses); err != nil {
@@ -382,7 +383,7 @@ func (v *viewer) saveOverlay(d *overlayDocument) error {
 	if mechanicsNext != nil {
 		d.mechanicsBase = mechanicsNext
 		var rules config.BossMechanicsConfig
-		if err := yaml.Unmarshal(mechanicsNext, &rules); err == nil {
+		if err := strictyaml.Decode(mechanicsNext, &rules); err == nil {
 			config.GlobalBossMechanics = &rules
 		}
 	}

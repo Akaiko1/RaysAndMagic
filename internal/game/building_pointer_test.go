@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"github.com/hajimehoshi/ebiten/v2"
 	"image"
 	"math"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Wall-backed facades must pick through their own backing plane, with the

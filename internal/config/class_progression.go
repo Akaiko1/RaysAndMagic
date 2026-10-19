@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"ugataima/internal/stats"
+)
 
 // AutoStatsConfig is one AUTO build: Speed and Endurance targets, then the
 // primary to 99 with the secondary to 50 alongside. Gear names the weapons and
@@ -39,7 +42,7 @@ func (c ClassStats) DefaultAutoBuild() AutoBuild {
 }
 
 func validAutoStats(a AutoStatsConfig) bool {
-	return IsStatName(a.Primary) && (a.Secondary == "" || IsStatName(a.Secondary) && a.Secondary != a.Primary) &&
+	return stats.IsName(a.Primary) && (a.Secondary == "" || stats.IsName(a.Secondary) && a.Secondary != a.Primary) &&
 		a.Speed >= 1 && a.Speed <= 99 && a.Endurance >= 1 && a.Endurance <= 99 && len(a.Gear) >= 1 && len(a.Gear) <= MaxAutoBuildGear
 }
 

@@ -21,7 +21,7 @@ func (ih *InputHandler) blockMouseAttackUntilRelease() {
 }
 
 func (g *MMGame) mouseCombatInputAllowed() bool {
-	return g.worldClickAllowed() && !g.dragArmed && !g.dragActive && !g.dragPickedUp && !g.stashDragPickedUp
+	return g.worldClickAllowed() && !g.drag.armed && !g.drag.active && !g.dragPickedUp && !g.stashDragPickedUp
 }
 
 func (ih *InputHandler) beginMouseAttack(target *monster.Monster3D) {
@@ -171,9 +171,9 @@ func (ih *InputHandler) performTurnBasedSmartAttack() {
 	}
 	g := ih.game
 	if action := g.combat.SmartAttack(); action.Swing() {
-		g.consumeSelectedCharWeaponAction()
+		g.commitWeaponAction()
 	} else if action.Acted {
-		g.consumeSelectedCharActionWithRTCooldown(action.Recovery)
+		g.commitHeroAction(g.selectedChar, action.Recovery)
 	}
 	g.actionInputStagger = ih.actionCooldown(15)
 }

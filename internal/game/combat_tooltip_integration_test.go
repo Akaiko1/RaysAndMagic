@@ -17,7 +17,7 @@ import (
 // character's equipped spell.
 func mustEquipSpellID(t *testing.T, c *character.MMCharacter, spellID spells.SpellID) {
 	t.Helper()
-	if !characterKnowsSpellByID(c, spellID) && !addSpellByID(c, spellID) {
+	if !characterKnowsSpellByID(c, spellID) && !c.LearnSpell(spellID) {
 		t.Fatalf("%s: failed to add spell %s", c.Name, spellID)
 	}
 	sp, err := spells.CreateSpellItem(spellID)
@@ -65,7 +65,7 @@ func TestWeaponTooltipStrikeUnits(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					def := lookupWeaponConfigByName(weapon.Name)
+					def := lookupWeaponConfig(weapon)
 					original := *def
 					t.Cleanup(func() { *def = original })
 					def.Damage, def.Range, def.DoubleStrike, def.Volley = tc.base, tc.rangeTiles, tc.doubleStrike, tc.volley
@@ -264,7 +264,7 @@ func TestWeaponTooltipMatchesRealAttackStages(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					def := lookupWeaponConfigByName(weapon.Name)
+					def := lookupWeaponConfig(weapon)
 					originalCrit := def.CritChance
 					t.Cleanup(func() { def.CritChance = originalCrit })
 					def.CritChance = 0

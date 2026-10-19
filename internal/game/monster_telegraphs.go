@@ -3,6 +3,8 @@ package game
 import (
 	"math"
 	"slices"
+
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -49,12 +51,12 @@ func (g *MMGame) applyTelegraphHinder(a *monster.TelegraphedAttack) {
 	}
 	tps := g.config.GetTPS()
 	h.Recovery.Arm(2*a.DurationSeconds, tps)
-	if a.Kind == "root" {
+	if a.Kind == monster.TelegraphRoot {
 		g.rootParty(config.CombatRounds(a.DurationSeconds))
-		g.AddCombatMessage("Roots bind the party. Hold your ground or fight free!")
+		g.AddCombatMessage(uitext.Text("combat.telegraph.root", a.Name))
 	} else {
 		h.Slow.Arm(a.DurationSeconds, tps)
-		g.AddCombatMessage("Cold water slows the party's movement and recovery.")
+		g.AddCombatMessage(uitext.Text("combat.telegraph.slow", a.Name))
 	}
 }
 
@@ -66,19 +68,18 @@ func (g *MMGame) hinderRecovery(cooldown int) int {
 	}
 	return cooldown
 }
-func telegraphDefinition(m *monster.Monster3D) *monster.TelegraphedAttack {
-	if m == nil || monster.MonsterConfig == nil {
+
+// monsterTelegraph is the monster's own telegraph (auto-level scales it).
+func monsterTelegraph(m *monster.Monster3D) *monster.TelegraphedAttack {
+	if m == nil {
 		return nil
 	}
-	return monster.MonsterConfig.Monsters[m.Key].Abilities.Telegraph
+	return m.Abilities.Telegraph
 }
+
+// telegraphAllowed: every telegraph is elemental, so silence stops it.
 func (g *MMGame) telegraphAllowed(m *monster.Monster3D) bool {
-	if m.IsSilenced() {
-		if a := telegraphDefinition(m); a != nil && a.School != "physical" {
-			return false
-		}
-	}
-	return m != nil && m.IsAlive() && !m.IsPartyControlled() && !m.Pacified && !m.BossDormant && m.CurrentAIBehavior().Caps().MayAttack && !m.Stun.Active() && !g.turnBasedMonsterStunned[m]
+	return m != nil && !m.IsSilenced() && m.IsAlive() && !m.IsPartyControlled() && !m.Pacified && !m.BossDormant && m.CurrentAIBehavior().Caps().MayAttack && !m.Stun.Active() && !g.turnBasedMonsterStunned[m]
 }
 func (g *MMGame) telegraphLOS(m *monster.Monster3D, x, y float64) bool {
 	return g.collisionSystem != nil && g.collisionSystem.CheckLineOfSight(m.X, m.Y, x, y)
@@ -110,9 +111,9 @@ func (g *MMGame) telegraphTiles(m *monster.Monster3D, a *monster.TelegraphedAtta
 		}
 	}
 	switch a.Shape {
-	case "target":
+	case monster.TelegraphTarget:
 		add(target[0], target[1])
-	case "burst":
+	case monster.TelegraphBurst:
 		for y := -a.Range; y <= a.Range; y++ {
 			for x := -a.Range; x <= a.Range; x++ {
 				if x*x+y*y <= a.Range*a.Range {
@@ -120,10 +121,10 @@ func (g *MMGame) telegraphTiles(m *monster.Monster3D, a *monster.TelegraphedAtta
 				}
 			}
 		}
-	case "lane", "cone":
+	case monster.TelegraphLane, monster.TelegraphCone:
 		for d := 1; d <= a.Range; d++ {
 			width := 0
-			if a.Shape == "cone" {
+			if a.Shape == monster.TelegraphCone {
 				width = (d - 1) / 2
 			}
 			for side := -width; side <= width; side++ {
@@ -139,7 +140,7 @@ func (g *MMGame) telegraphTiles(m *monster.Monster3D, a *monster.TelegraphedAtta
 // through a wind-up, including extra TB passes or an RT state transition.
 func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) bool {
 	g := cs.game
-	a := telegraphDefinition(m)
+	a := monsterTelegraph(m)
 	if a == nil || !g.telegraphAllowed(m) {
 		return false
 	}
@@ -160,7 +161,7 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 	}
 	tx, ty := g.camera.X, g.camera.Y
 	targetID := ""
-	if a.Kind == "shield" {
+	if a.Kind == monster.TelegraphShield {
 		var ally *monster.Monster3D
 		for _, other := range g.world.Monsters {
 			if other == m || !other.IsAlive() || other.IsPartyControlled() || other.Pacified || other.BossDormant || m.CanAttackActor(other) || other.SoakDamage > 0 {
@@ -201,7 +202,7 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 	m.ResetPathCache()
 	g.armMonsterAttackAnimation(m)
 	cs.armMonsterRTAttackCooldowns(m)
-	g.AddCombatMessage(m.Name + " prepares " + a.Name + ". Leave the marked tiles!")
+	g.AddCombatMessage(uitext.Text("combat.telegraph.prepare", m.Name, a.Name))
 	return true
 }
 func (g *MMGame) tickMonsterTelegraphs(turn bool) {
@@ -209,7 +210,7 @@ func (g *MMGame) tickMonsterTelegraphs(turn bool) {
 		return
 	}
 	for _, m := range g.world.Monsters {
-		a := telegraphDefinition(m)
+		a := monsterTelegraph(m)
 		if a == nil {
 			continue
 		}
@@ -235,34 +236,32 @@ func (g *MMGame) tickMonsterTelegraphs(turn bool) {
 func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.TelegraphedAttack) {
 	s := &m.Telegraph
 	ts := float64(g.config.GetTileSize())
-	if a.Kind == "shield" {
+	if a.Kind == monster.TelegraphShield {
 		for _, ally := range g.world.Monsters {
 			if ally.ID != s.TargetID || !ally.IsAlive() || ally.IsPartyControlled() || ally.Pacified || m.CanAttackActor(ally) || !g.telegraphLOS(m, ally.X, ally.Y) || Distance(m.X, m.Y, ally.X, ally.Y) > float64(a.Range)*ts {
 				continue
 			}
 			frames, rounds := config.EffectClock(a.DurationSeconds, g.config.GetTPS())
 			ally.ApplySoak(monster.TelegraphShieldAbsorption(m.DamageMin, m.DamageMax), frames, rounds)
-			g.AddCombatMessage(m.Name + " shields " + ally.Name + " with circulating water.")
+			g.AddCombatMessage(uitext.Text("combat.telegraph.shield", m.Name, ally.Name, a.Name))
 			vx, vy := g.combat.monsterVisualPos(ally)
-			g.createElementalAbilityImpact(vx, vy, "water", ally)
+			g.createElementalAbilityImpact(vx, vy, a.School.String(), ally)
 		}
 		return
 	}
-	if a.Kind == "charge" {
+	if a.Kind == monster.TelegraphCharge {
 		g.moveTelegraphMonster(m, s.Direction, a.Range)
 	}
-	damage := percentOfAttack(m.DamageMin, m.DamageMax, a.DamagePercent)
+	damage := attackShare(m, a.DamagePercent)
 	parts := m.OutgoingDamage(damagecalc.Parts{Normal: damage, True: m.TrueDamage})
 	if s.TargetID == "" && m.TargetsParty() {
 		px, py := g.GetPlayerTilePosition()
 		if slices.Contains(s.Tiles, [2]int{px, py}) && g.telegraphLOS(m, g.camera.X, g.camera.Y) {
-			unblocked := g.damageTelegraphParty(m, a.Name, a.School, parts)
-			g.observeOverwatchAttack(m)
-			if unblocked {
-				switch a.Kind {
-				case "slow", "root":
+			if g.strikeTelegraphParty(m, a.Name, a.School.String(), parts, a.Riders.Carried()) {
+				switch {
+				case a.Kind.Hinders():
 					g.applyTelegraphHinder(a)
-				case "push":
+				case a.Kind == monster.TelegraphPush:
 					g.pushTelegraphParty(s.Direction)
 				}
 			}
@@ -272,41 +271,62 @@ func (g *MMGame) resolveMonsterTelegraph(m *monster.Monster3D, a *monster.Telegr
 			if foe.ID != s.TargetID || !foe.IsAlive() || !m.CanAttackActor(foe) || !slices.Contains(s.Tiles, [2]int{TileIndex(foe.X, ts), TileIndex(foe.Y, ts)}) || !g.telegraphLOS(m, foe.X, foe.Y) {
 				continue
 			}
-			g.combat.applyMonsterDamagePacket(foe, singleMonsterDamagePacket(parts, a.School, 0), monsterDamageOptions{})
-			frames, rounds := config.EffectClock(a.DurationSeconds, g.config.GetTPS())
-			if a.Kind == "slow" {
-				foe.ApplySlow(config.HinderPercent(), frames, rounds)
-			}
-			if a.Kind == "root" {
-				foe.Root.Refresh(frames, rounds)
-			}
-			if !foe.IsAlive() {
-				g.combat.finishMonsterKill(foe)
+			g.combat.landMonsterOnMonster(m, foe, monsterOnMonsterHit{
+				packet:   singleMonsterDamagePacket(parts, a.School.String(), 0),
+				canDodge: true, kind: damageLogHit, evades: a.Name, riders: a.Riders.Carried(),
+			})
+			// The lane's control lands like on a hero: a dodge evades only
+			// the damage.
+			if foe.IsAlive() {
+				frames, rounds := config.EffectClock(a.DurationSeconds, g.config.GetTPS())
+				if a.Kind == monster.TelegraphSlow {
+					foe.ApplySlow(config.HinderPercent(), frames, rounds)
+				}
+				if a.Kind == monster.TelegraphRoot {
+					foe.Root.Refresh(frames, rounds)
+				}
 			}
 		}
 	}
-	if a.SustainDamage > 0 {
+	if a.SustainPercent > 0 {
 		s.Remaining = status.DualClock{}
 		s.Remaining.Arm(a.DurationSeconds, g.config.GetTPS())
 	}
-	if a.Kind == "retreat" {
+	if a.Kind == monster.TelegraphRetreat {
 		g.moveTelegraphMonster(m, [2]int{-s.Direction[0], -s.Direction[1]}, 2)
 	}
 	g.armMonsterAttackAnimation(m)
-	g.AddCombatMessage(m.Name + " releases " + a.Name + "!")
+	g.AddCombatMessage(uitext.Text("combat.telegraph.release", m.Name, a.Name))
 }
 
-// Telegraph hits remain undodgeable, with the same absorption policy as the
-// authored hazard. Retain the attacker for reflection and hit attribution.
-// False means the ward blocked the whole impact, including its control rider.
-// Zero damage from ordinary resistance still permits control. The member loop
-// shares one ward decision and spends no charge when no member can take damage.
-func (g *MMGame) damageTelegraphParty(source *monster.Monster3D, name, school string, parts damagecalc.Parts) bool {
+// strikeTelegraphParty releases a telegraph on the party: one monster action,
+// each member taking its own hit with its own dodge, and the monster's on-hit
+// riders when the telegraph authors riders: true. A special is not a spell
+// (no absorption) nor a weapon shot (no ranged ward). False means the ward
+// blocked the whole impact, including its control rider; zero damage from
+// ordinary resistance or a dodge still permits control.
+func (g *MMGame) strikeTelegraphParty(source *monster.Monster3D, name, school string, parts damagecalc.Parts, riders bool) (unblocked bool) {
+	cs := g.combat
+	hit := monsterCharacterHit{Parts: parts, DamageType: school, NoRiders: !riders}
+	unblocked = true
+	cs.monsterActionScope(source, nil, func() bool {
+		cs.forEachDamageablePartyMember(func(_ int, c *character.MMCharacter) {
+			cs.monsterHitCharacter(source, c, name, hit)
+			unblocked = unblocked && !cs.magicWardBlockedEvent()
+		})
+		return true
+	})
+	return unblocked
+}
+
+// burnTelegraphFieldParty is a telegraph's lingering field pulsing on the
+// party: a hazard over time, undodgeable like the chamber fields. The member
+// loop shares one ward decision and spends no charge when no member can take
+// damage.
+func (g *MMGame) burnTelegraphFieldParty(source *monster.Monster3D, name, school string, parts damagecalc.Parts) {
 	defer g.beginProfileMonsterHit(source, name)()
-	blocked := false
 	g.combat.forEachDamageablePartyMember(func(i int, c *character.MMCharacter) {
 		if g.combat.magicWardBlocks(school, false, source != nil) {
-			blocked = true
 			return
 		}
 		dealt := g.combat.damagePartyMemberPartsFromSource(i, c, parts, school, false, source)
@@ -319,7 +339,6 @@ func (g *MMGame) damageTelegraphParty(source *monster.Monster3D, name, school st
 			})
 		}
 	})
-	return !blocked
 }
 
 func (g *MMGame) moveTelegraphMonster(m *monster.Monster3D, dir [2]int, distance int) {
@@ -346,8 +365,8 @@ func (g *MMGame) monsterFieldExposures(turn bool) []environmentExposure {
 	}
 	x, y := g.GetPlayerTilePosition()
 	for _, m := range g.world.Monsters {
-		a := telegraphDefinition(m)
-		if a == nil || a.SustainDamage <= 0 || !m.Telegraph.Remaining.Active() {
+		a := monsterTelegraph(m)
+		if a == nil || a.SustainPercent <= 0 || !m.Telegraph.Remaining.Active() {
 			continue
 		}
 		s := &m.Telegraph
@@ -358,10 +377,11 @@ func (g *MMGame) monsterFieldExposures(turn bool) []environmentExposure {
 		if !g.telegraphAllowed(m) {
 			continue
 		}
-		// A field is authored as normal damage per second, not a new weapon hit.
-		rate := m.OutgoingDamage(damagecalc.Parts{Normal: a.SustainDamage}).Normal
+		// A field is normal damage per second (a share of the attack), not a
+		// new weapon hit.
+		rate := m.OutgoingDamage(damagecalc.Parts{Normal: attackShare(m, a.SustainPercent)}).Normal
 		if s.TargetID == "" && m.TargetsParty() && slices.Contains(s.Tiles, [2]int{x, y}) {
-			out = append(out, environmentExposure{effect: config.EnvironmentEffect{Name: a.Name, School: a.School, Damage: rate}, seconds: elapsed, source: m})
+			out = append(out, environmentExposure{effect: config.EnvironmentEffect{Name: a.Name, School: a.School.String(), Damage: rate}, seconds: elapsed, source: m})
 		} else if s.TargetID != "" {
 			for _, foe := range g.world.Monsters {
 				ts := g.config.GetTileSize()
@@ -369,10 +389,11 @@ func (g *MMGame) monsterFieldExposures(turn bool) []environmentExposure {
 					continue
 				}
 				if damage := status.Accrue(&s.Carry, float64(rate)*elapsed, 1); damage > 0 {
-					g.combat.applyMonsterDamagePacket(foe, singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, a.School, 0), monsterDamageOptions{})
-					if !foe.IsAlive() {
-						g.combat.finishMonsterKill(foe)
-					}
+					// A field pulse is a hazard over time: no dodge, no riders.
+					g.combat.landMonsterOnMonster(m, foe, monsterOnMonsterHit{
+						packet: singleMonsterDamagePacket(damagecalc.Parts{Normal: damage}, a.School.String(), 0), source: a.Name,
+						kind: damageLogHit,
+					})
 				}
 			}
 		}

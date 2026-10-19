@@ -112,8 +112,8 @@ func buildEquipmentComparisonRows(item items.Item, original *character.MMCharact
 		appendDelta(&attack, hand.DisplayName()+" damage", oldDamage, afterCS.calculateWeaponDamagePreview(newWeapon, after).Total, "")
 		appendDelta(&attack, hand.DisplayName()+" critical chance", oldCrit, afterCS.CalculateWeaponCritChance(newWeapon, after), "%")
 		if oldOK && oldWeapon.Type == items.ItemWeapon {
-			oldRecovery := cooldownSeconds(beforeCS, beforeCS.WeaponCooldownFramesFor(before, oldWeapon.Name))
-			newRecovery := cooldownSeconds(afterCS, afterCS.WeaponCooldownFramesFor(after, newWeapon.Name))
+			oldRecovery := cooldownSeconds(beforeCS, beforeCS.WeaponCooldownFramesFor(before, oldWeapon))
+			newRecovery := cooldownSeconds(afterCS, afterCS.WeaponCooldownFramesFor(after, newWeapon))
 			if oldRecovery != newRecovery {
 				attack.Add("%s RT recovery: %s -> %s", hand.DisplayName(), oldRecovery, newRecovery)
 			}
@@ -187,12 +187,12 @@ func buildEquipmentComparisonRows(item items.Item, original *character.MMCharact
 
 func comparisonEffectLines(item items.Item) []string {
 	if item.Type == items.ItemWeapon {
-		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+		if def, _, ok := config.WeaponDefOf(item); ok {
 			return append(def.SpecialEffectLines(), character.WeaponCombatLines(def)...)
 		}
 		return nil
 	}
-	def, _, ok := config.GetItemDefinitionByName(item.Name)
+	def, _, ok := config.ItemDefOf(item)
 	if !ok || def == nil {
 		return nil
 	}

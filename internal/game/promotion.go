@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 )
 
@@ -20,15 +22,10 @@ import (
 // the promoted variant (by name, then by class) when one exists.
 func (g *MMGame) portraitSpriteName(c *character.MMCharacter) string {
 	base := strings.ToLower(c.Name)
-	var suffix string
-	switch c.Promotion {
-	case character.PromotionArchmage:
-		suffix = "_archmage"
-	case character.PromotionLich:
-		suffix = "_lich"
-	default:
+	if c.Promotion == character.PromotionNone {
 		return g.basePortraitSpriteName(c)
 	}
+	suffix := "_" + c.Promotion.Key()
 	if n := base + suffix; g.sprites.HasSprite(n) {
 		return n
 	}
@@ -77,32 +74,41 @@ func (g *MMGame) promotionSpriteExists(c *character.MMCharacter, suffix string) 
 		g.sprites.HasSprite(c.GetClassKey()+suffix)
 }
 
-func (g *MMGame) canPromoteArchmage(c *character.MMCharacter) bool {
-	return c != nil && c.Promotion == character.PromotionNone && g.promotionSpriteExists(c, "_archmage")
+// canPromote: an unpromoted member whose promoted art exists.
+func (g *MMGame) canPromote(kind character.Promotion, c *character.MMCharacter) bool {
+	return c != nil && kind != character.PromotionNone && c.Promotion == character.PromotionNone &&
+		g.promotionSpriteExists(c, "_"+kind.Key())
 }
 
-func (g *MMGame) canPromoteLich(c *character.MMCharacter) bool {
-	return c != nil && c.Promotion == character.PromotionNone && g.promotionSpriteExists(c, "_lich")
-}
-
-func (g *MMGame) eligibleArchmageIndices() []int {
+func (g *MMGame) eligiblePromotionIndices(kind character.Promotion) []int {
 	var out []int
 	for i, m := range g.party.Members {
-		if g.canPromoteArchmage(m) {
+		if g.canPromote(kind, m) {
 			out = append(out, i)
 		}
 	}
 	return out
 }
 
-func (g *MMGame) eligibleLichIndices() []int {
-	var out []int
-	for i, m := range g.party.Members {
-		if g.canPromoteLich(m) {
-			out = append(out, i)
-		}
+// questPromotion is the promotion a quest's claim grants, PromotionNone for a
+// plain purse.
+func questPromotion(rewards quests.QuestRewards) character.Promotion {
+	p, _ := character.PromotionByKey(rewards.Promotion)
+	return p
+}
+
+// promotionRefusal is the giver's reply when a promotion cannot be taken now,
+// "" when it can; giver is nil for the journal.
+func (g *MMGame) promotionRefusal(kind character.Promotion, giver *character.NPC, questID string) string {
+	switch {
+	case kind == character.PromotionNone:
+		return ""
+	case kind.RejectsUndead() && g.party.HasLich():
+		return npcQuestReply(giver, questID, func(m character.NPCQuestMessages) string { return m.RejectedUndead }, uitext.Text("dialog.promotion_rejects_undead"))
+	case len(g.eligiblePromotionIndices(kind)) == 0:
+		return npcQuestReply(giver, questID, func(m character.NPCQuestMessages) string { return m.Ineligible }, uitext.Text("dialog.promotion_ineligible"))
 	}
-	return out
+	return ""
 }
 
 // unlockSchool ensures the character has access to a magic school at Novice
@@ -124,7 +130,7 @@ func (g *MMGame) applyArchmagePromotion(charIndex int) {
 	c.Promotion = character.PromotionArchmage
 	g.profileAdd("promotion:archmage", 1)
 	unlockSchool(c, character.MagicSchoolLight)
-	g.AddCombatMessage(fmt.Sprintf("%s ascends to Archmage, master of Light!", c.Name))
+	g.AddCombatMessage(uitext.Text("combat.ascends_to_archmage_master_of_light", c.Name))
 	g.openPromotionSpellPicker(charIndex, character.MagicSchoolLight, "Archmage: Choose Light Spells")
 }
 
@@ -136,7 +142,7 @@ func (g *MMGame) applyLichPromotion(charIndex int) {
 	c.Promotion = character.PromotionLich
 	g.profileAdd("promotion:lich", 1)
 	unlockSchool(c, character.MagicSchoolDark)
-	g.AddCombatMessage(fmt.Sprintf("%s embraces undeath as a Lich, wielder of Dark!", c.Name))
+	g.AddCombatMessage(uitext.Text("combat.embraces_undeath_as_a_lich_wielder", c.Name))
 	g.openPromotionSpellPicker(charIndex, character.MagicSchoolDark, "Lich: Choose Dark Spells")
 }
 
@@ -151,7 +157,7 @@ func (g *MMGame) openPromotionSpellPicker(charIndex int, school character.MagicS
 
 	schoolSpells, err := school.AvailableSpellIDs()
 	if err != nil {
-		g.AddCombatMessage(fmt.Sprintf("No spells available for %s.", school.DisplayName()))
+		g.AddCombatMessage(uitext.Text("combat.no_spells_available_for", school.DisplayName()))
 		return
 	}
 	var options []levelUpChoiceOption
@@ -170,7 +176,7 @@ func (g *MMGame) openPromotionSpellPicker(charIndex int, school character.MagicS
 		})
 	}
 	if len(options) == 0 {
-		g.AddCombatMessage(fmt.Sprintf("%s already knows every spell of that school.", char.Name))
+		g.AddCombatMessage(uitext.Text("combat.already_knows_every_spell_of_that", char.Name))
 		return
 	}
 	maxSel := 2
@@ -193,12 +199,7 @@ func (g *MMGame) openPromotionSpellPicker(charIndex int, school character.MagicS
 // on confirm for the Lich path (-1 for the Archmage/quest path). Returns true if
 // a promotion was started (direct or via picker).
 func (g *MMGame) promoteEligibleMember(kind character.Promotion, itemIdx int) bool {
-	var indices []int
-	if kind == character.PromotionArchmage {
-		indices = g.eligibleArchmageIndices()
-	} else {
-		indices = g.eligibleLichIndices()
-	}
+	indices := g.eligiblePromotionIndices(kind)
 	if len(indices) == 0 {
 		return false
 	}
@@ -215,10 +216,21 @@ func (g *MMGame) promoteEligibleMember(kind character.Promotion, itemIdx int) bo
 // useLichPhylactery offers the Lich path to a compatible party member. If none
 // is eligible the phylactery is NOT consumed (so it isn't wasted).
 func (g *MMGame) useLichPhylactery(itemIdx int, owner ...*character.MMCharacter) {
-	g.promotionPickerItemOwner = g.party.Bag(owner...).Owner
-	if !g.promoteEligibleMember(character.PromotionLich, itemIdx) {
-		g.AddCombatMessage("No one in the party can bind their soul to the phylactery.")
+	if !g.lichPhylacteryUsable() {
+		return
 	}
+	g.promotionPickerItemOwner = g.party.Bag(owner...).Owner
+	g.promoteEligibleMember(character.PromotionLich, itemIdx)
+}
+
+// lichPhylacteryUsable reports a member who can take the Lich path; when no
+// one can, it says so and the phylactery stays wherever it is.
+func (g *MMGame) lichPhylacteryUsable() bool {
+	if len(g.eligiblePromotionIndices(character.PromotionLich)) > 0 {
+		return true
+	}
+	g.AddCombatMessage(uitext.Text("combat.no_one_in_the_party_can"))
+	return false
 }
 
 // applyPromotionKind applies the chosen promotion to charIndex and, for the Lich

@@ -495,7 +495,7 @@ type Monster3D struct {
 	// than inferring bosshood from the currently-authored special abilities.
 	Boss bool
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
-	InfernoCD status.DualClock // until the next AT-RANGE inferno roll (melee-moment rolls ignore it)
+	NovaRollCD status.DualClock // until the next AT-RANGE nova roll (attack-moment rolls ignore it)
 	// Trap volley (Abilities.TrapVolley) cadence state: the fresh volley
 	// replaces the old field.
 	TrapVolleyCD      status.DualClock // until the next volley
@@ -822,6 +822,17 @@ func (m *Monster3D) GetAttackDamage() int {
 		dmg = int(float64(dmg) * m.Abilities.Enrage.DamageMult)
 	}
 	return dmg
+}
+
+// AttackBand is the monster's current attack band, an enrage included: the
+// attack that every ability authored as a percent of it (party attacks,
+// telegraphs, the trap volley) takes its share of.
+func (m *Monster3D) AttackBand() (int, int) {
+	lo, hi := m.DamageMin, m.DamageMax
+	if mult := m.Abilities.Enrage.DamageMult; m.IsEnraged() && mult > 0 {
+		lo, hi = int(float64(lo)*mult), int(float64(hi)*mult)
+	}
+	return lo, hi
 }
 
 // IsEnraged reports whether the boss is at/below its enrage HP threshold. Derived
@@ -1158,7 +1169,7 @@ func (m *Monster3D) TickAbilityClocks(turn bool) {
 	if m == nil {
 		return
 	}
-	for _, c := range []*status.DualClock{&m.PounceCD, &m.PhaseShiftCD, &m.TrapVolleyCD, &m.SummonCD, &m.PushCD, &m.LaneCD, &m.InfernoCD} {
+	for _, c := range []*status.DualClock{&m.PounceCD, &m.PhaseShiftCD, &m.TrapVolleyCD, &m.SummonCD, &m.PushCD, &m.LaneCD, &m.NovaRollCD} {
 		c.Tick(turn)
 	}
 	if !turn {

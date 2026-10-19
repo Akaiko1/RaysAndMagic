@@ -228,15 +228,7 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 			return
 		}
 		_, wheel := pointerWheel()
-		delta := int(wheel * 40)
-		if delta == 0 && wheel != 0 {
-			if wheel > 0 {
-				delta = 1
-			} else {
-				delta = -1
-			}
-		}
-		next := max(0, min(ui.alchemyScroll[r.Key]-delta, limit))
+		next := max(0, min(ui.alchemyScroll[r.Key]+wheelScrollPixels(wheel, 40), limit))
 		if next != ui.alchemyScroll[r.Key] {
 			ui.alchemyScroll[r.Key] = next
 			ui.alchemyRevision++
@@ -299,7 +291,7 @@ func (ui *UISystem) drawAlchemyMaterials(screen *ebiten.Image, c *character.MMCh
 				ui.queueItemTooltip(lines, it, c, mx+16, my+8)
 			}
 			key, gi := cell.key, cell.group
-			ui.rareBookClick(layoutRect{hit.Min.X, hit.Min.Y, hit.Dx(), hit.Dy()}, true, func() { selected[gi][key] = !selected[gi][key]; ui.alchemyRevision++; g.rareBookMessage = "" })
+			ui.rareBookClick(layoutRectOf(hit), true, func() { selected[gi][key] = !selected[gi][key]; ui.alchemyRevision++; g.rareBookMessage = "" })
 		}
 	}
 	ui.drawScrollbar(screen, "alchemy:"+r.Key, a.track, offset, a.height, !ui.modalLayerOwnsInput(), func(v int) {

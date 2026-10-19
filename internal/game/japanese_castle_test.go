@@ -6,7 +6,6 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
-	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -362,10 +361,9 @@ func TestAshigaruPiercingShotHitsTwoLivingPartyMembers(t *testing.T) {
 		MaxHitPoints: 100,
 		DamageMin:    20,
 		DamageMax:    20,
-		Abilities:    monsterPkg.Abilities{PiercingShot: monsterPkg.PiercingShotAbility{Chance: 1, Targets: 2}},
 	}
 
-	if !cs.tryMonsterPiercingShot(ashigaru) {
+	if !castTestPartyAttack(cs, ashigaru, catalogPartyAttack("piercing_shot"), 20) {
 		t.Fatal("piercing shot should fire at 100% chance")
 	}
 
@@ -427,15 +425,15 @@ func TestNingyoAllyHealChoosesNearbyWoundedMonster(t *testing.T) {
 
 // Regression: every weapon's display name must resolve to its YAML key via the
 // real name index, not a naive lower+underscore transform - otherwise
-// flavor-named weapons (commas, "of the ...") fail CanEquipWeaponByName and are
+// flavor-named weapons (commas, "of the ...") fail CanEquipWeapon and are
 // unequippable. Bug: Nyra (thief, has dagger) couldn't equip "Kage-kunai, the
 // Twin Shadows" because the transform yielded "kage-kunai,_the_twin_shadows".
 func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t) // sets up the weapon bridge (name index)
 
 	for key, def := range config.GlobalWeapons.Weapons {
-		if got := items.GetWeaponKeyByName(def.Name); got != key {
-			t.Errorf("GetWeaponKeyByName(%q) = %q, want %q", def.Name, got, key)
+		if got := config.CatalogKey(testWeapon(def.Name)); got != key {
+			t.Errorf("keyless %q resolves to %q, want %q", def.Name, got, key)
 		}
 	}
 
@@ -451,7 +449,7 @@ func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	}
 	var daggerUser *character.MMCharacter
 	for _, m := range cs.game.party.Members {
-		if m != nil && m.CanEquipWeaponByName(basic.Name) {
+		if m != nil && m.CanEquipWeapon(testWeapon(basic.Name)) {
 			daggerUser = m
 			break
 		}
@@ -459,7 +457,7 @@ func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	if daggerUser == nil {
 		t.Fatal("no dagger-skilled party member found (expected the thief)")
 	}
-	if !daggerUser.CanEquipWeaponByName(kunai.Name) {
+	if !daggerUser.CanEquipWeapon(testWeapon(kunai.Name)) {
 		t.Errorf("a dagger user must be able to equip %q (fancy name -> kage_kunai)", kunai.Name)
 	}
 }

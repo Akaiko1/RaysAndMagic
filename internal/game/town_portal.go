@@ -169,10 +169,10 @@ func (g *MMGame) townPortalTeleport(dest string) {
 		return
 	}
 	if err := g.transitionToMap(request); err != nil {
-		g.AddCombatMessage("Town Portal failed: " + err.Error())
+		g.AddCombatMessage(uitext.Text("combat.town_portal_failed", err.Error()))
 		return
 	}
-	g.AddCombatMessage("The portal closes behind the party.")
+	g.AddCombatMessage(uitext.Text("combat.the_portal_closes_behind_the_party"))
 }
 
 // nearestWalkableNeighbor finds the closest walkable tile center adjacent to
@@ -316,11 +316,7 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 			hover := live && image.Pt(mx, my).In(hit)
 			ui.drawTownPortalRow(dst, r, d, d.mapKey == here, hover)
 			id := d.id
-			ui.onDisplayedInput(uiCommandClick, layoutRect{hit.Min.X, hit.Min.Y, hit.Dx(), hit.Dy()}, func() {
-				if live && g.consumeLeftClickIn(hit.Min.X, hit.Min.Y, hit.Max.X, hit.Max.Y) {
-					g.confirmTownPortal(id)
-				}
-			})
+			ui.onClick(layoutRectOf(hit), live, func() { g.confirmTownPortal(id) })
 		}
 	}
 	hint := townPortalHint

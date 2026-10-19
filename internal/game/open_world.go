@@ -1,8 +1,9 @@
 package game
 
 import (
-	"fmt"
+	"image"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
@@ -48,7 +49,7 @@ func (g *MMGame) syncOpenWorldRegion() {
 		g.gameLoop.ui.invalidateCompassTileLayer()
 	}
 	if mc := wm.MapConfigs[r.MapKey]; mc != nil && mc.Name != "" {
-		g.AddCombatMessage(fmt.Sprintf("You enter %s.", mc.Name))
+		g.AddCombatMessage(uitext.Text("combat.you_enter", mc.Name))
 	}
 }
 
@@ -79,15 +80,39 @@ func (g *MMGame) mapKeyAtWorldTile(w *world.World3D, tx, ty int) string {
 	return currentMapKey()
 }
 
+// mapTileBounds is the tiles of world w that mapKey owns: its region's
+// footprint on the unified world, the whole world otherwise.
+func mapTileBounds(w *world.World3D, mapKey string) image.Rectangle {
+	if wm := world.GlobalWorldManager; wm != nil {
+		if r := wm.OpenWorldRegionByKey(mapKey); r != nil {
+			return r.TileBounds()
+		}
+	}
+	return image.Rect(0, 0, w.Width, w.Height)
+}
+
+// regionKeyAtWorldTile is the map that owns a tile of world w: its region on
+// the unified world, "" for a corridor or the void (they belong to none), the
+// split map's own key otherwise. mapKeyAtWorldTile is where state is saved.
+func (g *MMGame) regionKeyAtWorldTile(w *world.World3D, tx, ty int) string {
+	if wm := world.GlobalWorldManager; wm != nil && wm.OpenWorld != nil && w == wm.OpenWorld {
+		if r := wm.OpenWorldRegionAtTile(tx, ty); r != nil {
+			return r.MapKey
+		}
+		return ""
+	}
+	return g.mapKeyAtWorldTile(w, tx, ty)
+}
+
 // monsterHomeMap is the map a monster of world w belongs to for target_map
 // quests: where it was created, wherever it has wandered since. A monster
-// with no recorded home belongs where it stands.
+// with no recorded home belongs to the region it stands in, if any.
 func (g *MMGame) monsterHomeMap(w *world.World3D, m *monster.Monster3D) string {
 	if m.HomeMap != "" {
 		return m.HomeMap
 	}
 	ts := g.config.GetTileSize()
-	return g.mapKeyAtWorldTile(w, TileIndex(m.X, ts), TileIndex(m.Y, ts))
+	return g.regionKeyAtWorldTile(w, TileIndex(m.X, ts), TileIndex(m.Y, ts))
 }
 
 // monsterIsFrom reports whether a monster of world w counts for mapKey's

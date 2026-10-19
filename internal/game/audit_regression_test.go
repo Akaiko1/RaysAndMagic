@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/arena"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -20,6 +19,8 @@ import (
 	"ugataima/internal/quests"
 	"ugataima/internal/stash"
 	"ugataima/internal/storage"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Audit case table:
@@ -383,7 +384,7 @@ func TestAuditDeadMeleeTarget(t *testing.T) {
 	m.HitPoints = 0
 	g.world.Monsters = []*monster.Monster3D{m}
 	beforeGold, beforeXP := g.party.Gold, g.totalExperienceEarned
-	g.combat.ApplyDamageToMonster(m, 100, "Ember Egg", false)
+	g.combat.ApplyDamageToMonster(m, 100, testWeapon("Ember Egg"), false)
 	if len(g.combatLogHistory) > 0 || len(g.deadMonsterIDs) > 0 || beforeGold != g.party.Gold || beforeXP != g.totalExperienceEarned {
 		t.Fatal("melee committed a second hit against a corpse")
 	}
@@ -500,6 +501,9 @@ func TestAuditArchmageRumorRetiresAcrossRosters(t *testing.T) {
 	for _, roster := range []string{"active", "reserve", "captive"} {
 		t.Run(roster, func(t *testing.T) {
 			g, _, _ := travelFixture(t)
+			g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
+				"archmage_trial": {Type: quests.QuestTypeKill, TargetCount: 1, Rewards: quests.QuestRewards{Promotion: "archmage"}},
+			}})
 			m := g.party.Members[0]
 			m.Promotion = character.PromotionArchmage
 			if roster != "active" {
@@ -578,7 +582,7 @@ func TestAuditDisintegratePreservesSplash(t *testing.T) {
 				def.DisintegrateChance = 1
 				switch entry {
 				case "melee":
-					cs.ApplyDamageToMonster(main, 20, def.Name, false)
+					cs.ApplyDamageToMonster(main, 20, testWeapon(def.Name), false)
 				case "arrow":
 					cs.applyProjectileDamage(&Arrow{Active: true, LifeTime: 1, Damage: 20, DisintegrateChance: 1, BowKey: "tonbogiri", Owner: ProjectileOwnerPlayer}, main, main.ID)
 				case "spell":
@@ -594,7 +598,7 @@ func TestAuditDisintegratePreservesSplash(t *testing.T) {
 				// splash victim (same defenses) takes the packet alone.
 				if kind == "boss" {
 					lost, splash := main.MaxHitPoints-main.HitPoints, near.MaxHitPoints-near.HitPoints
-					sear := main.MaxHitPoints * config.DisintegrateBossMaxHPPct / 100
+					sear := main.MaxHitPoints * config.InstakillSearMaxHPPct / 100
 					if lost != splash+sear {
 						t.Fatalf("primary lost %d, splash %d: want exactly +%d on the primary", lost, splash, sear)
 					}
@@ -604,34 +608,31 @@ func TestAuditDisintegratePreservesSplash(t *testing.T) {
 	}
 }
 
+// A trap is no weapon or spell hit: even with the Dark Elf binding forced to
+// proc, it never binds, and its damage and control land on every victim.
 func TestAuditTrapBinding(t *testing.T) {
 	for _, key := range []string{"bear_trap", "cleave_trap", "stasis_trap"} {
-		for _, immune := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/immune%v", key, immune), func(t *testing.T) {
-				cs := newTestCombatSystemWithConfig(t)
-				forceRacialProc(cs, t)
-				owner := cs.game.party.Members[0]
-				owner.Race = "dark_elf"
-				owner.EnsureRacialTraits(nil)
-				main := newRacialTarget("Primary", "beast")
-				if immune {
-					main.MonsterType = "undead"
-				}
-				near := newRacialTarget("Nearby", "beast")
-				near.X = float64(cs.game.config.GetTileSize())
-				cs.game.world.Monsters = []*monster.Monster3D{main, near}
-				cs.fireTrap(&PlacedTrap{Key: key, Owner: owner}, main)
-				if main.Bound == immune {
-					t.Fatal("trap bypassed racial binding eligibility")
-				}
-				if !immune && (main.HitPoints != main.MaxHitPoints || main.Stun.Turns != 0 || main.Root.Turns != 0) {
-					t.Fatal("binding also applied trap damage/control")
-				}
-				if key == "cleave_trap" && (!near.Bound || near.HitPoints != near.MaxHitPoints) {
-					t.Fatal("trap splash skipped binding")
-				}
-			})
-		}
+		t.Run(key, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			forceRacialProc(cs, t)
+			owner := cs.game.party.Members[0]
+			owner.Race = "dark_elf"
+			owner.EnsureRacialTraits(nil)
+			main := newRacialTarget("Primary", "beast")
+			near := newRacialTarget("Nearby", "beast")
+			near.X = float64(cs.game.config.GetTileSize())
+			cs.game.world.Monsters = []*monster.Monster3D{main, near}
+			cs.fireTrap(&PlacedTrap{Key: key, Owner: owner}, main)
+			if main.Bound || near.Bound {
+				t.Fatalf("a trap bound its victim: primary=%v nearby=%v", main.Bound, near.Bound)
+			}
+			if main.HitPoints == main.MaxHitPoints && main.Stun.Turns == 0 && main.Root.Turns == 0 {
+				t.Fatal("the trap did nothing to its primary victim")
+			}
+			if key == "cleave_trap" && near.HitPoints == near.MaxHitPoints {
+				t.Fatal("the trap splash skipped its nearby victim")
+			}
+		})
 	}
 }
 
@@ -808,7 +809,7 @@ func TestAuditArchmageTurnInPersistsConclusion(t *testing.T) {
 	g.sprites = graphics.NewSpriteManager()
 	hero := g.party.Members[sorcererIndex(t, g)]
 	g.party.Members = []*character.MMCharacter{hero}
-	g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{"archmage_trial": {Type: quests.QuestTypeKill, TargetCount: 1}}})
+	g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{"archmage_trial": {Type: quests.QuestTypeKill, TargetCount: 1, Rewards: quests.QuestRewards{Promotion: "archmage"}}}})
 	if err := g.questManager.ActivateQuest("archmage_trial"); err != nil {
 		t.Fatal(err)
 	}

@@ -2,9 +2,11 @@ package character
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"ugataima/internal/config"
+	"ugataima/internal/stats"
 )
 
 // HeroPitch is the party-creation pitch of this hero as keyword-markup
@@ -52,23 +54,37 @@ func (c *MMCharacter) pitchPoints(points []config.DescriptionPoint) string {
 // raceStatShifts lists a race's stat modifiers, gains first, each group in
 // sheet order ("+3 Might, +2 Endurance, -2 Intellect").
 func raceStatShifts(r config.RaceStats) string {
-	stats := []struct {
-		name  string
-		value int
-	}{
-		{"Might", r.Might}, {"Intellect", r.Intellect}, {"Personality", r.Personality}, {"Endurance", r.Endurance},
-		{"Accuracy", r.Accuracy}, {"Speed", r.Speed}, {"Luck", r.Luck},
-	}
 	var gains, losses []string
-	for _, s := range stats {
-		switch {
-		case s.value > 0:
-			gains = append(gains, fmt.Sprintf("%+d %s", s.value, s.name))
-		case s.value < 0:
-			losses = append(losses, fmt.Sprintf("%+d %s", s.value, s.name))
+	for _, n := range stats.Names {
+		switch v := r.Shifts.ValueByName(n); {
+		case v > 0:
+			gains = append(gains, fmt.Sprintf("%+d %s", v, stats.Title(n)))
+		case v < 0:
+			losses = append(losses, fmt.Sprintf("%+d %s", v, stats.Title(n)))
 		}
 	}
 	return strings.Join(append(gains, losses...), ", ")
+}
+
+// ValidateRaceSkills checks the skills a race grants: a known passive, and a
+// swap whose skill is in that class's kit.
+func ValidateRaceSkills(cfg *config.Config) error {
+	for key, race := range cfg.Characters.Races {
+		if race.PassiveSkill != "" {
+			if _, ok := SkillTypeFromKey(race.PassiveSkill); !ok {
+				return fmt.Errorf("characters.races.%s.passive_skill: unknown skill %q", key, race.PassiveSkill)
+			}
+		}
+		if s := race.Replaces; s != nil {
+			if _, ok := SkillTypeFromKey(s.With); !ok {
+				return fmt.Errorf("characters.races.%s.replaces.with: unknown skill %q", key, s.With)
+			}
+			if !slices.Contains(cfg.Characters.Classes[s.Class].Skills, s.Skill) {
+				return fmt.Errorf("characters.races.%s.replaces.skill: %q is not in the %s kit", key, s.Skill, s.Class)
+			}
+		}
+	}
+	return nil
 }
 
 // ValidateHeroPitches checks every class and race pitch point: its skill key

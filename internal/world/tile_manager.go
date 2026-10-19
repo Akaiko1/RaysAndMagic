@@ -5,8 +5,7 @@ import (
 	"os"
 	"strings"
 	"ugataima/internal/config"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // TileManager handles tile configuration and properties
@@ -228,7 +227,7 @@ func (tm *TileManager) LoadTileConfig(filename string) error {
 	}
 
 	var tileConfig config.TileConfig
-	err = yaml.Unmarshal(data, &tileConfig)
+	err = strictyaml.Decode(data, &tileConfig)
 	if err != nil {
 		return fmt.Errorf("failed to parse tile config: %w", err)
 	}
@@ -263,7 +262,7 @@ func (tm *TileManager) LoadSpecialTileConfig(filename string) error {
 	}
 
 	var specialTileConfig config.SpecialTileConfig
-	err = yaml.Unmarshal(data, &specialTileConfig)
+	err = strictyaml.Decode(data, &specialTileConfig)
 	if err != nil {
 		return fmt.Errorf("failed to parse special tile config: %w", err)
 	}

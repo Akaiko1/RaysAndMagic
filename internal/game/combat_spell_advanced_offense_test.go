@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -16,11 +15,13 @@ import (
 	"ugataima/internal/threading"
 	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestDestroyUndeadExecutionAndFallbackThroughInput(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, state := range []string{"execute", "immune execution", "damage", "resisted damage", "living", "behind living", "sealed", "warded", "bound", "out of range", "wall", "no mana"} {
+		for _, state := range []string{"execute", "immune execution", "boss execution", "damage", "resisted damage", "living", "behind living", "sealed", "warded", "bound", "out of range", "wall", "no mana"} {
 			t.Run(fmt.Sprintf("TB=%v/%s", tb, state), func(t *testing.T) {
 				g := advancedSupportGame(t, tb)
 				g.world = newTestWorldSized(g.config, 16, 16)
@@ -53,6 +54,10 @@ func TestDestroyUndeadExecutionAndFallbackThroughInput(t *testing.T) {
 					if state == "immune execution" {
 						m.Resistances[monster.DamageLight] = 100
 					}
+				case "boss execution":
+					// The spell lands with the sear in place of the kill.
+					m.Boss = true
+					wantLoss, wantPaid = 80+10000*config.InstakillSearMaxHPPct/100, true
 				case "damage", "resisted damage":
 					mechanic.InstantKillChance = 0
 					wantLoss, wantPaid = 80, true // 60 base + 60/3 Intellect at Novice.

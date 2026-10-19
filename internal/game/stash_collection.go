@@ -108,15 +108,7 @@ func CardAlbumKeys() []string { return collectionLists().cards }
 
 // legendaryStampKey is the showcase place an item fills, "" when it has none.
 func legendaryStampKey(it items.Item) string {
-	key := ""
-	if it.Type == items.ItemWeapon {
-		if _, k, ok := config.GetWeaponDefinitionByName(it.Name); ok {
-			key = k
-		}
-	} else if _, k, ok := config.GetItemDefinitionByName(it.Name); ok {
-		key = k
-	}
-	if key != "" && collectionLists().isStamp[key] {
+	if key := config.CatalogKey(it); key != "" && collectionLists().isStamp[key] {
 		return key
 	}
 	return ""

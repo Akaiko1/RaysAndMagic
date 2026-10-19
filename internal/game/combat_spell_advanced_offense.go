@@ -5,10 +5,10 @@ import (
 	"math"
 	"math/rand"
 	"slices"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/status"
 
 	"ugataima/internal/character"
-	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -67,18 +67,18 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 	area := areaReach{x: x, y: y, radius: radius}
 	changed := false
 	switch a.Kind {
-	case "acid_burst", "flying_fist":
+	case config.MechanicAcidBurst, config.MechanicFlyingFist:
 		return castNotHandled // Standard projectile path, with riders at impact.
-	case "shrapmetal":
+	case config.MechanicShrapmetal:
 		return cs.castShrapmetal(id, def, caster)
-	case "berserk", "destroy_undead":
+	case config.MechanicBerserk, config.MechanicDestroyUndead:
 		// Berserk takes the living, Destroy Undead the undead.
-		undead := a.Kind == "destroy_undead"
+		undead := a.Kind == config.MechanicDestroyUndead
 		m := cs.advancedSpellTarget(radius, a.ConeDegrees, func(m *monster.Monster3D) bool { return (m.MonsterType == monster.TypeUndead) == undead })
 		if m == nil {
 			return castNoEffect
 		}
-		if a.Kind == "berserk" {
+		if a.Kind == config.MechanicBerserk {
 			m.Berserk.ArmFrames(frames, cs.game.config.GetTPS())
 			m.WasAttacked = true
 			m.BeginPlayerEngagement()
@@ -87,23 +87,28 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 		} else {
 			cs.game.startMonsterSpellVisual(def, m)
 			// This is an undead-only execution, not Disintegrate (which undead
-			// resist). A successful roll replaces damage rather than adding to it.
-			if rand.Float64() < a.InstantKillChance {
+			// resist). A successful roll replaces damage rather than adding to
+			// it; a boss takes the spell with the sear instead.
+			switch {
+			case rand.Float64() >= a.InstantKillChance:
+				cs.advancedSpellDamage(id, def, caster, m, instakillNone)
+			case instakillOn(m) == instakillSear:
+				cs.game.logCombatLine(logToneGood, uitext.Text("combat.instakill.withstands", logSlot, logSlot), logMonsterName(m), logSchoolWord(a.DamageSchool, def.Name))
+				cs.advancedSpellDamage(id, def, caster, m, instakillSear)
+			default:
 				m.HitPoints = 0
 				cs.markMonsterHit(m)
-				cs.game.logCombat(logToneGood, "%s destroys %s!", logSchoolWord(a.DamageSchool, def.Name), logMonsterName(m))
+				cs.game.logCombatLine(logToneGood, uitext.Text("combat.instakill.destroys", logSlot, logSlot), logSchoolWord(a.DamageSchool, def.Name), logMonsterName(m))
 				cs.finishMonsterKillImmediately(m)
-			} else {
-				cs.advancedSpellDamage(id, def, caster, m)
 			}
 		}
 		return castCommitted
-	case "slow", "frozen_ground", "turn_undead", "mass_fear", "feeblemind":
+	case config.MechanicSlow, config.MechanicFrozenGround, config.MechanicTurnUndead, config.MechanicMassFear, config.MechanicFeeblemind:
 		cs.forEachAreaVictim(area, advancedSpellVictim, func(m *monster.Monster3D) {
-			if a.Kind == "frozen_ground" && !cs.inPartyCone(x, y, m.X, m.Y, a.ConeDegrees) {
+			if a.Kind == config.MechanicFrozenGround && !cs.inPartyCone(x, y, m.X, m.Y, a.ConeDegrees) {
 				return
 			}
-			if (a.Kind == "turn_undead" || a.Kind == "mass_fear") && (m.MonsterType == monster.TypeUndead) != (a.Kind == "turn_undead") {
+			if (a.Kind == config.MechanicTurnUndead || a.Kind == config.MechanicMassFear) && (m.MonsterType == monster.TypeUndead) != (a.Kind == config.MechanicTurnUndead) {
 				return
 			}
 			changed = true // An eligible target pays for the attempt even if it saves.
@@ -112,33 +117,33 @@ func (cs *CombatSystem) tryCastAdvancedOffense(id spells.SpellID, def spells.Spe
 				return
 			}
 			switch a.Kind {
-			case "slow":
+			case config.MechanicSlow:
 				m.ApplySlow(a.Power(tier), frames, turns)
-			case "frozen_ground":
+			case config.MechanicFrozenGround:
 				cs.applyMonsterRoot(m, turns)
-			case "turn_undead", "mass_fear":
+			case config.MechanicTurnUndead, config.MechanicMassFear:
 				m.ApplyFear(frames)
 				cs.game.releaseMonsterAttackPost(m)
-			case "feeblemind":
+			case config.MechanicFeeblemind:
 				m.Silence, m.SilenceImmunity = status.DualClock{}, status.DualClock{}
 				m.Silence.ArmFrames(frames, cs.game.config.GetTPS())
 				m.SilenceImmunity.Arm(a.ReapplyImmunitySeconds, cs.game.config.GetTPS())
 			}
-			if a.Kind != "frozen_ground" {
+			if a.Kind != config.MechanicFrozenGround {
 				cs.game.startMonsterSpellVisual(def, m)
 			}
 		})
-		if a.Kind == "frozen_ground" {
+		if a.Kind == config.MechanicFrozenGround {
 			changed = cs.freezeWaterCone(def) || changed
 		}
-	case "prismatic_light", "souldrinker":
+	case config.MechanicPrismaticLight, config.MechanicSouldrinker:
 		drained := 0
 		for victimIndex, m := range cs.advancedSpellTargets(area, a.MaxTargets) {
 			cs.spawnAreaTargetFlight(def, m, victimIndex)
-			drained += cs.advancedSpellDamage(id, def, caster, m)
+			drained += cs.advancedSpellDamage(id, def, caster, m, instakillNone)
 			changed = true
 		}
-		if a.Kind == "souldrinker" && drained > 0 {
+		if a.Kind == config.MechanicSouldrinker && drained > 0 {
 			cs.distributePartyHealing(drained * a.Power(tier) / 100)
 		}
 	default:
@@ -212,33 +217,18 @@ func (cs *CombatSystem) spawnAreaTargetFlight(def spells.SpellDefinition, target
 }
 
 // advancedSpellDamage resolves and reports one spell victim before kill
-// settlement. Its return value is HP lost; the log shows the resolved packet,
-// which can exceed HP lost on an overkill.
-func (cs *CombatSystem) advancedSpellDamage(id spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, m *monster.Monster3D) int {
-	if cs.tryDarkElfBindInstead(caster, m) {
-		return 0
-	}
+// settlement; instakillSear adds the instakill sear to the hit. Its return
+// value is HP lost; the log shows the resolved packet, which can exceed HP
+// lost on an overkill.
+func (cs *CombatSystem) advancedSpellDamage(id spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, m *monster.Monster3D, outcome instakillOutcome) int {
 	_, _, total := cs.CalculateSpellDamage(id, caster)
-	parts := cs.spellDamageParts(id, caster, total)
-	school := def.DamageType()
-	parts, _ = cs.spellPartsWithOutgoingBuff(parts, school)
-	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(caster, string(id)), nil, def.Name, false, true, false)
-	attack.Attacker = caster
+	attack := cs.partySpellAttack(caster, string(id), cs.spellDamageParts(id, caster, total), false)
+	if outcome == instakillSear {
+		attack = withInstakillSear(attack, m)
+	}
 	before := m.HitPoints
-	dealt := cs.applyPartyMonsterAttack(m, attack)
-	cs.markMonsterHit(m)
-	cs.spawnMonsterHitBurst(m, school)
-	cs.game.reportDamage(logToneGood, damageLog{
-		Source: logSchoolWord(school, def.Name),
-		Target: monsterLogTarget(m),
-		Amount: dealt.Total(),
-		School: school,
-	})
-	if !m.IsAlive() {
-		if cs.game.collisionSystem != nil {
-			cs.game.collisionSystem.UnregisterEntity(m.ID)
-		}
-		cs.finishMonsterKill(m)
+	if _, landed := cs.landPartyHit(m, partyBlow{caster: caster, attack: attack, name: def.Name, school: def.DamageType()}); !landed {
+		return 0
 	}
 	return max(0, before-max(0, m.HitPoints))
 }
@@ -256,9 +246,9 @@ func (cs *CombatSystem) applyAdvancedSpellImpact(p *MagicProjectile, m *monster.
 	tier := casterSpellMasteryTier(p.Attacker, def)
 	frames, rounds := config.EffectClock(def.DurationSeconds(tier), cs.game.config.GetTPS())
 	switch a.Kind {
-	case "acid_burst":
+	case config.MechanicAcidBurst:
 		m.ApplyArmorShred(a.Power(tier), frames, rounds)
-	case "flying_fist":
+	case config.MechanicFlyingFist:
 		cs.pushElementalTarget(m, float64(a.Power(tier)))
 	}
 }
@@ -277,27 +267,28 @@ func (cs *CombatSystem) castShrapmetal(id spells.SpellID, def spells.SpellDefini
 	}
 	a := def.Mechanic
 	x, y := cs.logicalCameraXY()
-	p, err := spells.NewCastingSystem(cs.game.config).CreateProjectile(id, x, y, cs.partyAttackAngle())
-	if err != nil {
-		return castRejected
-	}
 	count := a.Projectiles(casterSpellMasteryTier(caster, def))
 	budget := &spellVolleyHitBudget{limit: a.MaxHitsPerTarget, hits: make(map[*monster.Monster3D]int)}
-	speed := math.Hypot(p.VelX, p.VelY)
 	distance := physics.RangeTiles * cs.game.config.GetTileSize()
 	spread := a.ConeDegrees * math.Pi / 180
-	size := cs.game.config.ProjectileHitboxTiles(physics) * cs.game.config.GetTileSize()
 	_, _, total := cs.CalculateSpellDamage(id, caster)
 	parts := cs.spellDamageParts(id, caster, total)
 	for i := 0; i < count; i++ {
-		shotParts, crit := cs.rollSpellCritParts(id, caster, parts)
 		angle := cs.partyAttackAngle() + (rand.Float64()-.5)*spread
+		shot, err := cs.newSpellProjectile(id, "", x, y, angle)
+		if err != nil {
+			return castRejected
+		}
+		shotParts, crit := cs.rollSpellCritParts(id, caster, parts)
 		// No target assistance: physical boxes decide contact along each ray.
 		// The release-plane guard only excludes objects behind the fragment.
-		launch := projectileLaunch{valid: true, x: x, y: y, angle: angle, dx: math.Cos(angle), dy: math.Sin(angle), distance: distance, cone: math.Pi / 2}
-		shot := MagicProjectile{ID: cs.game.GenerateProjectileID(string(id)), Launch: launch, HitBudget: budget, Attacker: caster, X: x, Y: y, VelX: launch.dx * speed, VelY: launch.dy * speed, Damage: shotParts.Normal, TrueDamage: shotParts.True, Crit: crit, LifeTime: p.LifeTime, Active: true, SpellType: string(id), Size: p.Size, Owner: ProjectileOwnerPlayer, DisintegrateChance: cs.game.partyDisintegrateChance(def.DisintegrateChance)}
-		cs.game.magicProjectiles = append(cs.game.magicProjectiles, shot)
-		cs.game.collisionSystem.RegisterEntity(collision.NewEntity(shot.ID, shot.X, shot.Y, size, size, collision.CollisionTypeProjectile, false))
+		shot.Launch = projectileLaunch{valid: true, x: x, y: y, angle: angle, dx: math.Cos(angle), dy: math.Sin(angle), distance: distance, cone: math.Pi / 2}
+		shot.HitBudget, shot.Attacker, shot.Owner = budget, caster, ProjectileOwnerPlayer
+		shot.Damage, shot.TrueDamage, shot.Crit = shotParts.Normal, shotParts.True, crit
+		shot.DisintegrateChance = cs.game.partyDisintegrateChance(shot.DisintegrateChance)
+		if cs.launchSpellProjectile(shot) != nil {
+			return castRejected
+		}
 	}
 	return castCommitted
 }
@@ -307,14 +298,7 @@ func (cs *CombatSystem) nearestBerserkFoe(m *monster.Monster3D) *monster.Monster
 	if !cs.attackLineClear(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) {
 		best = math.Inf(1)
 	}
-	var foe *monster.Monster3D
-	for _, other := range cs.game.world.Monsters {
-		if !m.CanAttackActor(other) || !cs.attackLineClear(m.X, m.Y, other.X, other.Y) {
-			continue
-		}
-		if d := Distance(m.X, m.Y, other.X, other.Y); d < best {
-			best, foe = d, other
-		}
-	}
-	return foe
+	return cs.nearestSeenMonster(m.X, m.Y, nil, cs.game.world.Monsters, best, func(other *monster.Monster3D) bool {
+		return other != m && m.CanAttackActor(other)
+	})
 }

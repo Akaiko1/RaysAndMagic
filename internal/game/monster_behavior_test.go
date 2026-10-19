@@ -57,7 +57,7 @@ func TestTurnBased_MoveAfterActionGrantsExtraMonsterAction(t *testing.T) {
 		m.ActionsRemaining = 1
 	}
 
-	game.consumeSelectedCharAction()
+	game.commitHeroAction(game.selectedChar, 0)
 	if !game.turnBasedMode || game.partyActionsUsed != 1 {
 		t.Fatalf("test setup failed: turnBased=%v partyActionsUsed=%d", game.turnBasedMode, game.partyActionsUsed)
 	}
@@ -466,27 +466,27 @@ func TestDisintegrate_TypeImmunity(t *testing.T) {
 		}
 	}
 	// A certain proc: immune types shrug it off, a boss of any other type is
-	// seared instead of erased, anything else is killed. The boss flag decides,
-	// not the formless type.
+	// seared instead of erased, anything else is killed. The classification
+	// decides, not the formless type.
 	for _, tc := range []struct {
 		monsterType string
 		boss        bool
-		want        disintegrateOutcome
+		want        instakillOutcome
 	}{
-		{monster.TypeUndead, false, disintegrateNone},
-		{monster.TypeDragon, false, disintegrateNone},
-		{monster.TypeUndead, true, disintegrateNone},
-		{monster.TypeFormless, true, disintegrateSear},
-		{"beast", true, disintegrateSear},
-		{monster.TypeFormless, false, disintegrateKill},
-		{"", false, disintegrateKill},
+		{monster.TypeUndead, false, instakillNone},
+		{monster.TypeDragon, false, instakillNone},
+		{monster.TypeUndead, true, instakillNone},
+		{monster.TypeFormless, true, instakillSear},
+		{"beast", true, instakillSear},
+		{monster.TypeFormless, false, instakillKill},
+		{"", false, instakillKill},
 	} {
 		m := &monster.Monster3D{MonsterType: tc.monsterType, Boss: tc.boss, HitPoints: 10, MaxHitPoints: 10}
 		if got := rollMonsterDisintegrate(m, 1); got != tc.want {
 			t.Errorf("type %q boss=%v: outcome %v, want %v", tc.monsterType, tc.boss, got, tc.want)
 		}
 	}
-	if got := rollMonsterDisintegrate(&monster.Monster3D{HitPoints: 10, MaxHitPoints: 10}, 0); got != disintegrateNone {
+	if got := rollMonsterDisintegrate(&monster.Monster3D{HitPoints: 10, MaxHitPoints: 10}, 0); got != instakillNone {
 		t.Errorf("zero chance rolled %v", got)
 	}
 }

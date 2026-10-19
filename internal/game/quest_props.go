@@ -71,7 +71,7 @@ func (g *MMGame) syncQuestProps() {
 	}
 	for _, id := range sortedMapKeys(g.questManager.Definitions()) {
 		q := g.questManager.GetQuest(id)
-		if q == nil || q.RewardsClaimed || q.Status == quests.QuestStatusFailed {
+		if q == nil || q.RewardsClaimed {
 			continue
 		}
 		for _, prop := range g.activeQuestPropPlacements(id) {

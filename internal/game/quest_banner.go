@@ -64,9 +64,9 @@ func questBannerEventFor(q *quests.Quest, was questBannerSnapshot, known bool) (
 	switch {
 	case q.RewardsClaimed && !was.claimed:
 		return bannerQuestPaid, true
-	case q.Status == quests.QuestStatusCompleted && was.status != quests.QuestStatusCompleted:
+	case q.Status() == quests.QuestStatusCompleted && was.status != quests.QuestStatusCompleted:
 		return bannerQuestDone, true
-	case q.CurrentCount > was.peak && q.Status == quests.QuestStatusActive:
+	case q.CurrentCount > was.peak && q.Status() == quests.QuestStatusActive:
 		return bannerQuestProgress, true
 	default:
 		return bannerQuestTaken, false
@@ -80,9 +80,9 @@ func firstSightingBanner(q *quests.Quest) (screenBannerKind, bool) {
 	switch {
 	case q.RewardsClaimed:
 		return bannerQuestPaid, true
-	case q.Status == quests.QuestStatusCompleted:
+	case q.Status() == quests.QuestStatusCompleted:
 		return bannerQuestDone, true
-	case q.Status == quests.QuestStatusActive:
+	case q.Status() == quests.QuestStatusActive:
 		return bannerQuestTaken, true
 	default:
 		return bannerQuestTaken, false
@@ -112,7 +112,7 @@ func (g *MMGame) syncQuestBanners(announce bool) {
 		was, known := g.questBannerSeen[q.ID]
 		stamped++
 		g.questBannerSeen[q.ID] = questBannerSnapshot{
-			status:  q.Status,
+			status:  q.Status(),
 			peak:    max(was.peak, q.CurrentCount),
 			claimed: q.RewardsClaimed,
 			seenGen: gen,

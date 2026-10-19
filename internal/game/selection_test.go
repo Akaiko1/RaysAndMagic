@@ -117,7 +117,7 @@ func TestConsumeSelectedCharAction(t *testing.T) {
 			for i, m := range g.party.Members {
 				m.ActionsRemaining = tc.actions[i]
 			}
-			g.consumeSelectedCharAction()
+			g.commitHeroAction(g.selectedChar, 0)
 			if got := g.party.Members[0].ActionsRemaining; got != tc.wantActions {
 				t.Fatalf("ActionsRemaining=%d, want %d", got, tc.wantActions)
 			}

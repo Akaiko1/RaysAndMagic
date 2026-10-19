@@ -1,10 +1,11 @@
 package game
 
 import (
-	"github.com/hajimehoshi/ebiten/v2"
 	"testing"
 	"time"
 	"ugataima/internal/game/keytracker"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Drive the real game/preview entry points. Inspect several independent effect

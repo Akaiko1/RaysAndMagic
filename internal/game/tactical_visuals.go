@@ -91,7 +91,7 @@ func (r *Renderer) drawMonsterHeadBadges(screen *ebiten.Image, s UnifiedSpriteRe
 	}
 	// Hide the markers when their anchor is behind terrain, including a partly
 	// visible monster peeking from a doorway. The normal sprite pass owns FOV.
-	if s.screenX < 0 || s.screenX >= len(r.game.depthBuffer) || s.depthPerp >= r.game.depthBuffer[s.screenX] {
+	if !r.monsterAnchorVisible(s) {
 		return
 	}
 	radius := float32(min(14, max(9, s.spriteSize/12)))

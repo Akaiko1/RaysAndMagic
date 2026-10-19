@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/world"
@@ -73,7 +74,7 @@ func (g *MMGame) refreshDoors() {
 		return
 	}
 	if g.doorsClosed && !closed {
-		g.AddCombatMessage("The portcullises rise - the way is open!")
+		g.AddCombatMessage(uitext.Text("combat.the_portcullises_rise_the_way_is"))
 		g.playSound(soundDoorOpen)
 	}
 	g.doorsClosed = closed

@@ -10,6 +10,7 @@ ui.defeat_all_enemies: "Defeat all enemies"
 ui.all_enemies_defeated: "All enemies defeated"
 ui.claim_reward: "Claim Reward"
 ui.reward: "Reward: %s"
+ui.reward_rank: "the rank of %s"
 ui.scroll_details: "Scroll for details"
 ui.quantity_max: "Max"
 

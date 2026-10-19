@@ -47,7 +47,7 @@ func TestMeleeContactReciprocity(t *testing.T) {
 											m.HitPoints, m.MaxHitPoints = 1000, 1000
 											g.world.Monsters = []*monster.Monster3D{m}
 											g.camera.Angle = math.Atan2(m.Y-g.camera.Y, m.X-g.camera.X)
-											canHit := g.combat.monsterCanAttackParty(m, Distance(m.X, m.Y, g.camera.X, g.camera.Y), m.AttackRadius)
+											canHit := g.combat.partyInStrikeReach(m, false)
 											hits := g.combat.performMeleeHitDetection(weapon, 1, &config.MeleeAttackConfig{ArcType: 1}, false)
 											if canHit && hits != 1 {
 												t.Fatalf("delta=%d,%d party=%g,%g mob=%g,%g obstacle=%s: equal-range reply unavailable", dx, dy, px, py, mx, my, obstacle)
@@ -82,7 +82,7 @@ func TestMeleeLongReachRemainsAnExplicitDifference(t *testing.T) {
 		g.turnBasedMode = tb
 		m := monster.NewMonster3DFromConfig(12.5*ts, 10.5*ts, "dragon_green", g.config)
 		g.world.Monsters = []*monster.Monster3D{m}
-		if !g.combat.monsterCanAttackParty(m, 2*ts, m.GetAttackRangePixels()) {
+		if !g.combat.partyInStrikeReach(m, tb) {
 			t.Fatal("authored long melee reach lost")
 		}
 		if hits := g.combat.performMeleeHitDetection(items.CreateWeaponFromYAML("steel_axe"), 1, &config.MeleeAttackConfig{ArcType: 1}, false); hits != 0 {
@@ -90,6 +90,25 @@ func TestMeleeLongReachRemainsAnExplicitDifference(t *testing.T) {
 		}
 		if hits := g.combat.performMeleeHitDetection(items.CreateWeaponFromYAML("iron_spear"), 1, &config.MeleeAttackConfig{ArcType: 1}, false); hits != 1 {
 			t.Fatal("matching spear reach failed")
+		}
+	}
+	// The TB walk heads for the same reach: the dragon's goals include a tile
+	// two away, an ordinary melee monster's stay on the eight neighbours.
+	for _, tc := range []struct {
+		key     string
+		twoAway bool
+	}{{"dragon_green", true}, {"goblin", false}} {
+		m := monster.NewMonster3DFromConfig(20.5*ts, 10.5*ts, tc.key, g.config)
+		g.world.Monsters = nil
+		g.addMonsterToWorld(g.world, m)
+		far := false
+		for _, goal := range g.turnBasedMeleeGoalTiles(m, g.camera.X, g.camera.Y) {
+			if absInt(goal.X-10) > 1 || absInt(goal.Y-10) > 1 {
+				far = true
+			}
+		}
+		if far != tc.twoAway {
+			t.Errorf("%s: goals beyond the neighbours = %v, want %v", tc.key, far, tc.twoAway)
 		}
 	}
 }
@@ -149,7 +168,7 @@ func TestRangedOccupiedTileCannotAttack(t *testing.T) {
 	if !m.HasRangedAttack() {
 		t.Fatal("test requires ranged attacker")
 	}
-	if g.combat.monsterCanAttackParty(m, 3*ts, m.GetAttackRangePixels()) {
+	if g.combat.partyInStrikeReach(m, false) {
 		t.Fatal("ranged observer attacked from inside an object")
 	}
 }

@@ -5,9 +5,10 @@ import (
 	"image/color"
 	"slices"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/game"
 	"ugataima/internal/quests"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Reservations are derived editor annotations, never permanent map spawns.

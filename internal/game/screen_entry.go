@@ -182,10 +182,10 @@ func (g *MMGame) updateEntryMenu(pressed func(ebiten.Key) bool) {
 	}
 	if g.entryMenuMode == EntryMenuLoad {
 		if pressed(ebiten.KeyLeft) {
-			g.savePage = (g.savePage + savePageCount - 1) % savePageCount
+			g.flipSavePage(-1)
 		}
 		if pressed(ebiten.KeyRight) {
-			g.savePage = (g.savePage + 1) % savePageCount
+			g.flipSavePage(1)
 		}
 	}
 	if g.entryMenuMode == EntryMenuAchievements {
@@ -298,30 +298,14 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	if hovered >= 0 && !GetSaveRowSummary(g.savePage*saveRowsPerPage+hovered).Exists {
 		hovered = -1
 	}
-	ui.drawSaveList(screen, l, "Load Game", hovered, false, true)
-	for i, r := range l.rows {
-		row := g.savePage*saveRowsPerPage + i
-		ui.onDisplayedInput(uiCommandClick, r, func() {
-			if GetSaveRowSummary(row).Exists && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				if err := g.LoadGameFromFile(saveRowPath(row)); err != nil {
-					g.AddCombatMessage("Load failed")
-				} else {
-					g.entryMenuMode = EntryMenuRoot
-					g.appScreen = AppScreenInGame
-				}
-			}
-		})
-	}
-	for _, b := range []struct {
-		r    layoutRect
-		step int
-	}{{l.prev, savePageCount - 1}, {l.next, 1}} {
-		ui.onDisplayedInput(uiCommandClick, b.r, func() {
-			if g.consumeLeftClickIn(b.r.x, b.r.y, b.r.right(), b.r.bottom()) {
-				g.savePage = (g.savePage + b.step) % savePageCount
-			}
-		})
-	}
+	ui.drawSaveList(screen, l, "Load Game", hovered, false)
+	// An empty row on the title stays inert: no log is shown to explain it.
+	ui.saveListInput(l, func(i int) {
+		if row := g.savePage*saveRowsPerPage + i; GetSaveRowSummary(row).Exists && g.loadSaveRow(row) {
+			g.entryMenuMode = EntryMenuRoot
+			g.appScreen = AppScreenInGame
+		}
+	}, nil)
 	drawRightUIText(screen, clipUIText(entryLoadHint, l.title.right()-l.back.right()-16), l.title.right(), l.hintY, gameplayInk.muted)
 	ui.drawBackButton(screen, l.back.x, l.back.y, func() { g.entryMenuMode = EntryMenuRoot })
 	ui.drawSaveRowHoverTooltip(screen, l)
@@ -408,9 +392,5 @@ func (ui *UISystem) drawBackButton(screen *ebiten.Image, x, y int, onClick func(
 	mouseX, mouseY := uiCursorPosition()
 	hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuBackButtonW, y+menuBackButtonH)
 	ui.drawMenuButton(screen, "Back (Esc)", x, y, menuBackButtonW, menuBackButtonH, hover)
-	ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, (x + menuBackButtonW) - (x), (y + menuBackButtonH) - (y)}, func() {
-		if ui.game.consumeLeftClickIn(x, y, x+menuBackButtonW, y+menuBackButtonH) {
-			onClick()
-		}
-	})
+	ui.onClick(layoutRect{x, y, menuBackButtonW, menuBackButtonH}, true, onClick)
 }

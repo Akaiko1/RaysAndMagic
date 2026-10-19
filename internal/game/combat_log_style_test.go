@@ -337,7 +337,7 @@ func TestDamageReportsCaptureResolvedHits(t *testing.T) {
 	ally := spawnTestMonsterAt(g, 3, 1)
 	ally.Name, ally.Bound, ally.BoundClock = "Ghoul", true, framesClock(1000)
 	m.PerfectDodge = 100
-	g.combat.strikeMonsterPacketFor(ally, m, singleMonsterDamagePacket(damage.Parts{Normal: 40}, "fire", 0), nil, false, true, true)
+	g.combat.strikeMonsterPacketFor(ally, m, singleMonsterDamagePacket(damage.Parts{Normal: 40}, "fire", 0), nil, false, true, true, false)
 	var hits []combatLogEntry
 	for _, line := range g.combatLogHistory {
 		if strings.Contains(line.Text, "(HP:") {

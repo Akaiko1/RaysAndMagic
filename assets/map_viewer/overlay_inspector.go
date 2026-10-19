@@ -5,8 +5,9 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/game"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 var overlayText = color.RGBA{226, 232, 240, 255}

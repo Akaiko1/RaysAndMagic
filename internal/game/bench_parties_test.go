@@ -435,7 +435,7 @@ func checkBenchParty(t *testing.T, g *MMGame, p BenchParty, level int, gates map
 		}
 		var authored []string
 		for _, key := range build.Equipment {
-			it, _ := benchGear(key)
+			it, _ := items.FromKey(key)
 			authored = append(authored, it.Name)
 			available("gear", key)
 		}
@@ -490,7 +490,7 @@ func checkBenchParty(t *testing.T, g *MMGame, p BenchParty, level int, gates map
 	for _, m := range g.party.Members {
 		bags = append(bags, m.Inventory)
 		for _, q := range m.QuickSlots {
-			if q != nil && !benchShortcut(*q) {
+			if q != nil && !q.VirtualAction() {
 				bags = append(bags, []items.Item{*q})
 				if q.Count() != 1 {
 					t.Errorf("%s quick-slots %d %s; the stock stays in the shared bag", m.Name, q.Count(), q.Name)

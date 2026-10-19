@@ -5,8 +5,8 @@ import (
 	"os"
 	"sort"
 
-	"gopkg.in/yaml.v3"
 	"ugataima/internal/items"
+	"ugataima/internal/strictyaml"
 )
 
 type FlaskDefinition struct {
@@ -106,7 +106,7 @@ func LoadAlchemyConfig(filename string) (*AlchemyConfig, error) {
 		return nil, err
 	}
 	var c AlchemyConfig
-	if err = yaml.Unmarshal(data, &c); err != nil {
+	if err = strictyaml.Decode(data, &c); err != nil {
 		return nil, err
 	}
 	if err = validateAlchemyConfig(&c); err != nil {
@@ -180,7 +180,7 @@ func LoadAlchemySpawns(filename string) (*AlchemySpawnConfig, error) {
 		return nil, err
 	}
 	var c AlchemySpawnConfig
-	if err = yaml.Unmarshal(data, &c); err != nil {
+	if err = strictyaml.Decode(data, &c); err != nil {
 		return nil, err
 	}
 	if c.Respawn != "dawn" || len(c.Placement.TerrainTypes) == 0 {

@@ -91,7 +91,7 @@ func TestFishLifecycle(t *testing.T) {
 						g.collisionSystem.RegisterEntity(collision.NewEntity(shot.ID, m.X, m.Y, 8, 8, collision.CollisionTypeProjectile, false))
 						g.combat.CheckProjectileMonsterCollisions()
 					} else if outcome == "melee" {
-						g.combat.ApplyDamageToMonster(m, 100, "Iron Sword", false)
+						g.combat.ApplyDamageToMonster(m, 100, testWeapon("Iron Sword"), false)
 					}
 					if outcome == "arrow" || outcome == "melee" {
 						if m.IsAlive() {
@@ -274,7 +274,7 @@ func TestFishTravelAndReachableLoot(t *testing.T) {
 	g.world.Tiles[10][12], g.world.Tiles[10][13] = deep, deep
 	m := g.spawnLeapingFish("forest", "common_carp", [2]int{12, 10}, config.GlobalEcology.Fish, 1)
 	m.AdvanceFishLeap(.9)
-	g.combat.ApplyDamageToMonster(m, 100, "Iron Sword", false)
+	g.combat.ApplyDamageToMonster(m, 100, testWeapon("Iron Sword"), false)
 	if len(g.groundContainers) != 1 {
 		t.Fatal("missing deep-water scale")
 	}

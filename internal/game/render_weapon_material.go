@@ -213,7 +213,7 @@ func (r *Renderer) weaponFxHalo(dst *ebiten.Image, x, y, rx, ry, width float64, 
 
 // The stock categories show a compact weapon silhouette at the moving edge.
 // Bespoke weapons keep the more specific heads already authored in their FX.
-func (r *Renderer) drawWeaponHead(dst *ebiten.Image, kind string, x, y, angle, size, alpha float64) {
+func (r *Renderer) drawWeaponHead(dst *ebiten.Image, kind swingKind, x, y, angle, size, alpha float64) {
 	r.drawWeaponSilhouette(dst, kind, "", x, y, angle, size, alpha)
 }
 

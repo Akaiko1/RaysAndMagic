@@ -229,7 +229,7 @@ func (v *viewer) overlayBossFields(d *overlayDocument) []overlayField {
 	case "attacks":
 		lanes := []string{}
 		for _, e := range a.Effects {
-			if e.Kind == "lane" {
+			if e.Kind == config.EffectLane {
 				lanes = append(lanes, e.ID)
 			}
 		}

@@ -175,10 +175,7 @@ func (g *MMGame) settleStrandedMonsters() {
 				}
 			}
 			if !math.IsInf(best, 1) {
-				g.releaseMonsterAttackPost(m)
-				m.X, m.Y = bestX, bestY
-				m.ResetPathfinding()
-				g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+				g.relocateMonster(m, bestX, bestY)
 				break
 			}
 		}

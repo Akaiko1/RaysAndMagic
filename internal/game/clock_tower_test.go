@@ -30,8 +30,8 @@ func TestValidateNPCCommerce(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	_ = cs
 	weapon := ""
-	for _, w := range config.GlobalWeapons.Weapons {
-		weapon = w.Name
+	for key := range config.GlobalWeapons.Weapons {
+		weapon = key
 		break
 	}
 	good := map[string]*character.NPCData{
@@ -39,18 +39,18 @@ func TestValidateNPCCommerce(t *testing.T) {
 		"b": {Currency: "arena_points"},
 		"c": {Currency: "item:clock_hand"},
 		"d": {GridSpanTiles: 2, GridSpanDir: "e"},
-		"e": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion"}}, ShopDialogue: true, Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Action: "leave"}}}},
-		"f": {Inventory: []*character.NPCItem{{Type: "weapon", Name: weapon}}},
-		"g": {SellAvailable: true, Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion"}}},
+		"e": {Inventory: []*character.NPCItem{{Key: "health_potion"}}, ShopDialogue: true, Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Action: "leave"}}}},
+		"f": {Inventory: []*character.NPCItem{{Key: weapon}}},
+		"g": {SellAvailable: true, Inventory: []*character.NPCItem{{Key: "health_potion"}}},
 		// A coin shop may carry special offers and a barter tab beside its
 		// priced one; a herb may be bartered for herbs.
 		"h": {SellAvailable: true, Buys: map[string]int{"grave_orchid": 900}, Inventory: []*character.NPCItem{
-			{Type: "item", Name: "Health Potion", Cost: 10, Tab: "Shop"},
-			{Type: "item", Name: "Advanced Heat Draught", Tab: "Exchange", Barter: map[string]int{"solstice_thermal_core": 1, "solstice_furnace_ceramic": 2}},
-			{Type: "item", Name: "Dawnleaf", Tab: "Exchange", Barter: map[string]int{"bitterroot": 2}},
+			{Key: "health_potion", Cost: 10, Tab: "Shop"},
+			{Key: "solstice_fire_advanced_ward", Tab: "Exchange", Barter: map[string]int{"solstice_thermal_core": 1, "solstice_furnace_ceramic": 2}},
+			{Key: "dawnleaf", Tab: "Exchange", Barter: map[string]int{"bitterroot": 2}},
 		}},
 		// A wholly barter shop that buys nothing from the party.
-		"i": {Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"bitterroot": 2}}}},
+		"i": {Inventory: []*character.NPCItem{{Key: "dawnleaf", Barter: map[string]int{"bitterroot": 2}}}},
 	}
 	if err := ValidateNPCCommerce(good); err != nil {
 		t.Fatalf("valid set rejected: %v", err)
@@ -62,35 +62,35 @@ func TestValidateNPCCommerce(t *testing.T) {
 		{"x": {GridSpanTiles: 2}}, // missing dir
 		{"x": {GridSpanTiles: 5, GridSpanDir: "e"}},
 		{"x": {GridSpanTiles: 2, GridSpanDir: "e", NoSpin: true}},
-		{"x": {Inventory: []*character.NPCItem{{Type: "weapon", Name: "No Such Blade"}}}},
+		{"x": {Inventory: []*character.NPCItem{{Key: "no_such_blade"}}}},
 		// Only a gold-priced shop buys from the party: an item-priced bag is not
 		// party.Inventory, so its cells could not be sold from.
-		{"x": {SellAvailable: true, Currency: "item:clock_hand", Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Cost: 1}}}},
-		{"x": {SellAvailable: true, Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Cost: 1, CurrencyItem: "clock_hand"}}}},
+		{"x": {SellAvailable: true, Currency: "item:clock_hand", Inventory: []*character.NPCItem{{Key: "health_potion", Cost: 1}}}},
+		{"x": {SellAvailable: true, Inventory: []*character.NPCItem{{Key: "health_potion", Cost: 1, CurrencyItem: "clock_hand"}}}},
 		// Special offers belong to a coin shop that buys from the party.
 		{"x": {Buys: map[string]int{"grave_orchid": 900}}},
 		{"x": {SellAvailable: true, Currency: "arena_points", Buys: map[string]int{"grave_orchid": 900}}},
 		{"x": {SellAvailable: true, Buys: map[string]int{"no_such_item": 900}}},
 		{"x": {SellAvailable: true, Buys: map[string]int{"grave_orchid": 0}}},
 		// A barter is the whole price, in known goods, and fits one price line.
-		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Barter: map[string]int{"no_such_item": 1}}}}},
-		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Barter: map[string]int{"bitterroot": 0}}}}},
-		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Cost: 5, Barter: map[string]int{"bitterroot": 1}}}}},
-		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", CurrencyItem: "clock_hand", Barter: map[string]int{"bitterroot": 1}}}}},
-		{"x": {Currency: "arena_points", Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Barter: map[string]int{"bitterroot": 1}}}}},
-		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", Barter: map[string]int{"bitterroot": 1, "mooncap": 1, "dawnleaf": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Key: "health_potion", Barter: map[string]int{"no_such_item": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Key: "health_potion", Barter: map[string]int{"bitterroot": 0}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Key: "health_potion", Cost: 5, Barter: map[string]int{"bitterroot": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Key: "health_potion", CurrencyItem: "clock_hand", Barter: map[string]int{"bitterroot": 1}}}}},
+		{"x": {Currency: "arena_points", Inventory: []*character.NPCItem{{Key: "health_potion", Barter: map[string]int{"bitterroot": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Key: "health_potion", Barter: map[string]int{"bitterroot": 1, "mooncap": 1, "dawnleaf": 1}}}}},
 		// A tab trades wholly for goods or wholly for its price, and a shop that
 		// buys from the party keeps a priced shelf to sell at.
 		{"x": {Inventory: []*character.NPCItem{
-			{Type: "item", Name: "Health Potion", Cost: 10},
-			{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"bitterroot": 2}},
+			{Key: "health_potion", Cost: 10},
+			{Key: "dawnleaf", Barter: map[string]int{"bitterroot": 2}},
 		}}},
-		{"x": {StockWeaponsRarity: "common", StockWeaponsCost: 10, Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"bitterroot": 2}}}}},
-		{"x": {SellAvailable: true, Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"bitterroot": 2}}}}},
-		{"x": {SellAvailable: true, Buys: map[string]int{"grave_orchid": 900}, Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Tab: "Exchange", Barter: map[string]int{"bitterroot": 2}}}}},
+		{"x": {StockWeaponsRarity: "common", StockWeaponsCost: 10, Inventory: []*character.NPCItem{{Key: "dawnleaf", Barter: map[string]int{"bitterroot": 2}}}}},
+		{"x": {SellAvailable: true, Inventory: []*character.NPCItem{{Key: "dawnleaf", Barter: map[string]int{"bitterroot": 2}}}}},
+		{"x": {SellAvailable: true, Buys: map[string]int{"grave_orchid": 900}, Inventory: []*character.NPCItem{{Key: "dawnleaf", Tab: "Exchange", Barter: map[string]int{"bitterroot": 2}}}}},
 		// Herbs trade for herbs only: never for loot, never for coin.
-		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Barter: map[string]int{"solstice_thermal_core": 1}}}}},
-		{"x": {Inventory: []*character.NPCItem{{Type: "item", Name: "Dawnleaf", Cost: 10}}}},
+		{"x": {Inventory: []*character.NPCItem{{Key: "dawnleaf", Barter: map[string]int{"solstice_thermal_core": 1}}}}},
+		{"x": {Inventory: []*character.NPCItem{{Key: "dawnleaf", Cost: 10}}}},
 	}
 	for i, m := range bad {
 		if err := ValidateNPCCommerce(m); err == nil {
@@ -376,17 +376,16 @@ func TestClockTowerContentIntegrity(t *testing.T) {
 	}
 	weapons := 0
 	for _, entry := range data.Inventory {
-		if entry == nil || entry.Type != "weapon" {
+		if entry == nil {
+			continue
+		}
+		def, ok := config.GetWeaponDefinition(entry.Key)
+		if !ok {
 			continue
 		}
 		weapons++
-		def, _, ok := config.GetWeaponDefinitionByName(entry.Name)
-		if !ok {
-			t.Errorf("stock weapon %q missing", entry.Name)
-			continue
-		}
 		if !def.NoLoot {
-			t.Errorf("weapon %q must be no_loot (Clockmaker stock and the regal chest only)", entry.Name)
+			t.Errorf("weapon %q must be no_loot (Clockmaker stock and the regal chest only)", entry.Key)
 		}
 	}
 	if weapons == 0 {
@@ -444,7 +443,7 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 
 			// The set's bonus on top of every piece's own flat bonus.
 			want := struct{ might, intellect, personality, endurance, accuracy, speed, luck int }{
-				set.BonusMight, set.BonusIntellect, set.BonusPersonality, set.BonusEndurance, set.BonusAccuracy, set.BonusSpeed, set.BonusLuck,
+				set.StatBonus.Might, set.StatBonus.Intellect, set.StatBonus.Personality, set.StatBonus.Endurance, set.StatBonus.Accuracy, set.StatBonus.Speed, set.StatBonus.Luck,
 			}
 			for _, piece := range pieces {
 				if piece.ArmorCategory != category {
@@ -454,13 +453,13 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 					t.Fatalf("%s should occupy an unused set slot, ok=%v hadPrevious=%v", piece.Name, ok, hadPrevious)
 				}
 				def, _, _ := config.GetItemDefinitionByName(piece.Name)
-				want.might += def.BonusMight
-				want.intellect += def.BonusIntellect
-				want.personality += def.BonusPersonality
-				want.endurance += def.BonusEndurance
-				want.accuracy += def.BonusAccuracy
-				want.speed += def.BonusSpeed
-				want.luck += def.BonusLuck
+				want.might += def.StatBonus.Might
+				want.intellect += def.StatBonus.Intellect
+				want.personality += def.StatBonus.Personality
+				want.endurance += def.StatBonus.Endurance
+				want.accuracy += def.StatBonus.Accuracy
+				want.speed += def.StatBonus.Speed
+				want.luck += def.StatBonus.Luck
 			}
 
 			if got := len(ch.Equipment); got != len(pieces) {

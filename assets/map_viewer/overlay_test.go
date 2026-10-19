@@ -541,7 +541,7 @@ func TestOverlayReferencesAndValidation(t *testing.T) {
 	if err := overlayFloat("x", &f, "").apply("NaN"); err == nil {
 		t.Fatal("NaN accepted")
 	}
-	for _, kind := range []string{"trap", "occupation", "lane"} {
+	for _, kind := range []config.EffectKind{config.EffectTrap, config.EffectOccupation, config.EffectLane} {
 		d := v.overlayDoc()
 		v.overlay.documents = nil
 		d.state.Adventure = config.AdventureConfig{OpeningOwned: true, Element: "earth"}
@@ -553,7 +553,7 @@ func TestOverlayReferencesAndValidation(t *testing.T) {
 	}
 	// Every conversion leaves a savable effect: no field of the old kind the
 	// new one rejects and cannot show.
-	kinds := []string{"trap", "occupation", "lane", "transfer"}
+	kinds := []config.EffectKind{config.EffectTrap, config.EffectOccupation, config.EffectLane, config.EffectTransfer}
 	for _, from := range kinds {
 		for _, to := range kinds {
 			if from == to {

@@ -1,21 +1,12 @@
 package game
 
 import (
-	"fmt"
 	"strings"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
-
-// cannotReceiveOrdinaryHealing is the shared eligibility rule for effects that
-// restore HP without reviving. It deliberately does not decide whether an
-// incapacitated potion owner may redirect that potion to an eligible ally.
-func cannotReceiveOrdinaryHealing(ch *character.MMCharacter) bool {
-	return ch == nil || ch.HasCondition(character.ConditionUnconscious) ||
-		ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated)
-}
 
 // RevivablePartyIndices returns the indices of party members who can be
 // revived by a revival potion: currently Dead OR Unconscious, but NOT
@@ -58,16 +49,14 @@ func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
 		return false
 	}
 	ch := g.party.Members[targetIdx]
-	ch.RemoveCondition(character.ConditionUnconscious)
-	ch.RemoveCondition(character.ConditionDead)
 	if item.Attributes["full_heal"] > 0 {
-		ch.HitPoints = ch.MaxHitPoints
+		ch.Revive(ch.MaxHitPoints, false)
 		g.cleanseHealingRecipient(ch)
-	} else if ch.HitPoints <= 0 {
-		ch.HitPoints = 1
+	} else {
+		ch.Revive(1, false)
 	}
 	bag.Consume(itemIdx, 1)
-	g.AddCombatMessage(fmt.Sprintf("%s uses %s and is revived!", ch.Name, item.Name))
+	g.AddCombatMessage(uitext.Text("combat.uses_and_is_revived", ch.Name, item.Name))
 	return true
 }
 
@@ -79,10 +68,10 @@ func (g *MMGame) HealablePartyIndices() []int {
 	}
 	var idxs []int
 	for i, m := range g.party.Members {
-		if cannotReceiveOrdinaryHealing(m) {
+		if !m.IsLiving() {
 			continue
 		}
-		if m.HitPoints > 0 && g.healingPotionHasEffect(m) {
+		if g.healingPotionHasEffect(m) {
 			idxs = append(idxs, i)
 		}
 	}
@@ -91,8 +80,8 @@ func (g *MMGame) HealablePartyIndices() []int {
 
 // applyFlatHeal adds a heal_base(+Endurance/div) amount to the member at
 // charIdx, clamped to MaxHitPoints, firing the rising "+" VFX if it actually
-// raised HP. Refuses on Unconscious/Dead/Eradicated - heals never revive,
-// Eradicated needs the Resurrect spell. Shared by applyHealTo and any
+// raised HP. Refuses on a member who is not living (0 HP, Dead, Eradicated):
+// heals never revive. Shared by applyHealTo and any
 // consumable that carries a secondary heal (e.g. antivenom's minor heal) so
 // there is exactly one clamp/VFX/revive-guard implementation, not per-caller
 // copies that can drift.
@@ -101,7 +90,7 @@ func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
 		return
 	}
 	ch := g.party.Members[charIdx]
-	if cannotReceiveOrdinaryHealing(ch) {
+	if !ch.IsLiving() {
 		return
 	}
 	heal := character.ConsumableRestore(ch, base, div, false, g.party.PotionSupport(ch, base, div, false))
@@ -111,6 +100,7 @@ func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
 		ch.HitPoints = ch.MaxHitPoints
 	}
 	g.potionOverflow(ch, heal-(ch.HitPoints-before))
+	ch.RemoveCondition(character.ConditionUnconscious) // as healMember: a living member wakes
 	if ch.HitPoints > before {
 		g.TriggerPartyHeal(charIdx) // rising green "+" overlay
 	}
@@ -135,7 +125,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 		return false // slot now holds something else - inventory shifted under us
 	}
 	ch := g.party.Members[targetIdx]
-	if cannotReceiveOrdinaryHealing(ch) {
+	if !ch.IsLiving() {
 		return false // heals never revive - Eradicated needs the Resurrect spell
 	}
 	if !g.healingPotionHasEffect(ch) {
@@ -145,7 +135,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 	g.applyFlatHeal(targetIdx, base, div)
 	g.cleanseHealingRecipient(ch)
 	bag.Consume(itemIdx, 1)
-	g.logCombat(logToneGood, "%s uses %s and heals %s HP!", logHeroName(ch), logItemName(item), logHealed(ch.HitPoints-before))
+	g.logCombatLine(logToneGood, uitext.Text("combat.uses_and_heals_hp", logSlot, logSlot, logSlot), logHeroName(ch), logItemName(item), logHealed(ch.HitPoints-before))
 	return true
 }
 
@@ -233,7 +223,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 		targets := g.RevivablePartyIndices()
 		switch len(targets) {
 		case 0:
-			g.AddCombatMessage("No one in the party needs reviving.")
+			g.AddCombatMessage(uitext.Text("combat.no_one_in_the_party_needs"))
 			return false
 		case 1:
 			return g.applyReviveTo(itemIndex, targets[0])
@@ -256,13 +246,13 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 				g.cleanseHealingRecipient(ch)
 			}
 			bag.Consume(itemIndex, 1)
-			g.AddCombatMessage(fmt.Sprintf("%s drinks %s - the venom subsides.", ch.Name, item.Name))
+			g.AddCombatMessage(uitext.Text("combat.drinks_the_venom_subsides", ch.Name, item.Name))
 			return true
 		}
 		// Without poison, a restorative antidote follows ordinary healing below,
 		// including full-health rejection and incapacitated-owner redirection.
 		if item.Attributes["heal_base"] <= 0 {
-			g.AddCombatMessage(fmt.Sprintf("%s isn't poisoned.", ch.Name))
+			g.AddCombatMessage(uitext.Text("combat.isn_t_poisoned", ch.Name))
 			return false
 		}
 	}
@@ -271,18 +261,18 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 	if base, okBase := item.Attributes["heal_base"]; okBase {
 		div, okDiv := item.Attributes["heal_endurance_divisor"]
 		if !okDiv || base <= 0 || div <= 0 {
-			g.AddCombatMessage(fmt.Sprintf("%s is misconfigured (healing attributes)", item.Name))
+			g.AddCombatMessage(uitext.Text("combat.is_misconfigured_healing_attributes", item.Name))
 			return false
 		}
 		ch := g.party.Members[selectedChar]
 		// An owner who cannot receive ordinary healing cannot drink this potion for
 		// themselves (plain heals never revive), so route it to a valid wounded ally:
 		// 0 -> keep it, 1 -> heal them, N -> let the player choose (heal picker).
-		if cannotReceiveOrdinaryHealing(ch) {
+		if !ch.IsLiving() {
 			targets := g.HealablePartyIndices()
 			switch len(targets) {
 			case 0:
-				g.AddCombatMessage("No conscious party member needs healing.")
+				g.AddCombatMessage(uitext.Text("combat.no_conscious_party_member_needs_healing"))
 				return false
 			case 1:
 				return g.applyHealTo(itemIndex, targets[0])
@@ -294,7 +284,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 		}
 		if !g.healingPotionHasEffect(ch) {
 			// Nothing to heal: keep the potion instead of wasting it.
-			g.AddCombatMessage(fmt.Sprintf("%s is already at full health.", ch.Name))
+			g.AddCombatMessage(uitext.Text("combat.is_already_at_full_health", ch.Name))
 			return false
 		}
 		return g.applyHealTo(itemIndex, selectedChar)
@@ -302,10 +292,10 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 
 	// Timed consumable buffs keep their static mechanics in items.yaml. The
 	// item key is also the replace-on-recast and save identity.
-	if def, itemKey, ok := config.GetItemDefinitionByName(item.Name); ok && def.HasTimedBuff() {
+	if def, itemKey, ok := config.ItemDefOf(item); ok && def.HasTimedBuff() {
 		buff, valid := timedCombatBuffFromItem(itemKey, def, def.BuffDurationSeconds*g.config.GetTPS())
 		if !valid {
-			g.AddCombatMessage(fmt.Sprintf("%s is misconfigured (buff attributes)", item.Name))
+			g.AddCombatMessage(uitext.Text("combat.is_misconfigured_buff_attributes", item.Name))
 			return false
 		}
 		g.addCombatBuff(buff)
@@ -319,16 +309,16 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 	if base, okBase := item.Attributes["mana_base"]; okBase {
 		div, okDiv := item.Attributes["mana_personality_divisor"]
 		if !okDiv || base <= 0 || div <= 0 {
-			g.AddCombatMessage(fmt.Sprintf("%s is misconfigured (mana attributes)", item.Name))
+			g.AddCombatMessage(uitext.Text("combat.is_misconfigured_mana_attributes", item.Name))
 			return false
 		}
 		ch := g.party.Members[selectedChar]
 		if ch.HasCondition(character.ConditionUnconscious) || ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
-			g.AddCombatMessage(fmt.Sprintf("%s can't drink right now.", ch.Name))
+			g.AddCombatMessage(uitext.Text("combat.can_t_drink_right_now", ch.Name))
 			return false
 		}
 		if ch.SpellPoints >= ch.MaxSpellPoints {
-			g.AddCombatMessage(fmt.Sprintf("%s is already brimming with mana.", ch.Name))
+			g.AddCombatMessage(uitext.Text("combat.is_already_brimming_with_mana", ch.Name))
 			return false
 		}
 		restore := character.ConsumableRestore(ch, base, div, true, g.party.PotionSupport(ch, base, div, true))
@@ -338,7 +328,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 			ch.SpellPoints = ch.MaxSpellPoints
 		}
 		bag.Consume(itemIndex, 1)
-		g.logCombat(logToneGood, "%s drinks %s and recovers %s SP!", logHeroName(ch), logItemName(item), logRecoveredSP(ch.SpellPoints-before))
+		g.logCombatLine(logToneGood, uitext.Text("combat.drinks_and_recovers_sp", logSlot, logSlot, logSlot), logHeroName(ch), logItemName(item), logRecoveredSP(ch.SpellPoints-before))
 		return true
 	}
 
@@ -347,17 +337,17 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int, own
 		if dist > 0 {
 			if g.SummonRandomMonsterNearPlayer(float64(dist)) {
 				bag.Consume(itemIndex, 1)
-				g.AddCombatMessage("A ripple in the air answers your call.")
+				g.AddCombatMessage(uitext.Text("item.device_summon_success"))
 				return true
 			}
-			g.AddCombatMessage("The air resists; no space to summon.")
+			g.AddCombatMessage(uitext.Text("item.device_summon_failed"))
 			return false
 		}
-		g.AddCombatMessage(fmt.Sprintf("%s is misconfigured (summon distance)", item.Name))
+		g.AddCombatMessage(uitext.Text("combat.is_misconfigured_summon_distance", item.Name))
 		return false
 	}
 
 	// Unknown consumable behavior
-	g.AddCombatMessage("Nothing happens.")
+	g.AddCombatMessage(uitext.Text("dialog.nothing_happens"))
 	return false
 }

@@ -110,7 +110,7 @@ func TestRestrictedEquipmentAllEntryPoints(t *testing.T) {
 				g.party.Members = []*character.MMCharacter{c}
 				item := items.CreateItemFromYAML(key)
 				g.party.Inventory = []items.Item{item}
-				ui := &UISystem{game: g, lastClickedItem: -1}
+				ui := &UISystem{game: g}
 				def, _ := config.GetItemDefinition(key)
 				want := len(def.AllowedClasses) == 0 || slices.Contains(def.AllowedClasses, class.Key())
 				if ui.canSelectedCharacterEquipInventoryItem(item) != want {
@@ -160,7 +160,7 @@ func TestChainedActivationUsesCommonLifecycle(t *testing.T) {
 						t.Fatal(err)
 					}
 					g.questManager.MarkCompleted("prev")
-					got := g.claimQuestReward("prev")
+					got := g.claimQuestReward("prev", nil)
 					if got != (kind != "level") {
 						t.Fatal("claim violated activation preflight")
 					}

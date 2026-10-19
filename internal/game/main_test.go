@@ -6,7 +6,10 @@ import (
 	"os"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
+	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -142,4 +145,14 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Exit(g.code)
+}
+
+// testWeapon is a keyless weapon item, resolved by display name.
+func testWeapon(name string) items.Item { return items.Item{Name: name, Type: items.ItemWeapon} }
+
+// testStatBuff is a stat buff of id lasting frames, as a cast registers it.
+func testStatBuff(id spells.SpellID, frames int, bonuses character.StatBonuses) TimedStatBuff {
+	b := TimedStatBuff{SpellID: string(id), Bonuses: bonuses}
+	b.Clock.ArmFrames(frames, config.GetTargetTPS())
+	return b
 }

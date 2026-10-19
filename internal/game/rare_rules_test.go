@@ -248,7 +248,7 @@ func TestRareRulesTechniqueMovementAndPersistence(t *testing.T) {
 					m.BeginPlayerEngagement()
 					g.party.Members[1].HitPoints = 1
 					if attack == "before" {
-						g.consumeCharacterActionWithRTCooldown(1, 0)
+						g.commitHeroAction(1, 0)
 					}
 					if automatic {
 						c.RareClass.Automatic = map[string]bool{key: true}
@@ -264,7 +264,7 @@ func TestRareRulesTechniqueMovementAndPersistence(t *testing.T) {
 						t.Fatal("technique action was not recorded independently")
 					}
 					if attack == "after" {
-						g.consumeCharacterActionWithRTCooldown(1, 0)
+						g.commitHeroAction(1, 0)
 					}
 					wm := world.NewWorldManager(g.config)
 					wm.CurrentMapKey = currentMapKey()

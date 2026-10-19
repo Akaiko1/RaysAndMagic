@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"image"
 	"testing"
 
 	"ugataima/internal/items"
@@ -24,7 +23,6 @@ func TestWindowsCenteredOnEveryInterfaceFrame(t *testing.T) {
 			g.config.Display.ScreenWidth, g.config.Display.ScreenHeight = w, hh
 			frame := layoutRect{0, 0, w, hh}
 			viewport := layoutRect{0, 0, w, gameplayViewportBottomWithPartyHUD(hh)}
-			fromRect := func(r image.Rectangle) layoutRect { return layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()} }
 			settingsTitle := makeAudioSettingsPanelLayout(w, hh, true)
 			settingsEsc := makeAudioSettingsPanelLayout(w, hh, false)
 			stash, _ := computeStashLayout(w, hh)
@@ -47,7 +45,7 @@ func TestWindowsCenteredOnEveryInterfaceFrame(t *testing.T) {
 				{"camp", layoutCampConfirmation(w, hh).panel, frame},
 				{"profile", profilePanelRect(w, hh), frame},
 				{"stash", stash, frame},
-				{"stack split", fromRect(stackSplitPickerRect(w, hh)), frame},
+				{"stack split", layoutRectOf(stackSplitPickerRect(w, hh)), frame},
 				{"level-up choice", levelPanel, frame},
 				{"npc dialog", layoutRect{npc.x, npc.y, npc.w, npc.h}, frame},
 				{"map overlay", computeMapOverlayLayout(w, viewport.h).panel, viewport},

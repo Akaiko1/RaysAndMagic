@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
+	"ugataima/internal/spells"
 	"ugataima/internal/status"
 )
 
@@ -289,5 +291,36 @@ func TestAlchemyFiltersKeepRecipeIdentity(t *testing.T) {
 	}
 	if slices.Contains(g.visibleAlchemyRecipes(), i) {
 		t.Fatal("consumed recipe still brewable")
+	}
+}
+
+// A preparation lesson names the spell it teaches, never its catalog key,
+// and charges only for a spell the hero actually learns.
+func TestPreparationLessonNamesTheSpell(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	var hero *character.MMCharacter
+	var lesson spells.SpellID
+	for i, member := range g.party.Members {
+		for _, key := range slices.Sorted(maps.Keys(config.GlobalSpells.Spells)) {
+			if id := spells.SpellID(key); lesson == "" && member.HasSchoolOpenFor(id) && !member.KnowsSpell(id) {
+				hero, lesson, g.selectedChar = member, id, i
+			}
+		}
+	}
+	if lesson == "" {
+		t.Fatal("fixture: no hero has an open school with an unknown spell")
+	}
+	g.party.Gold = 100
+	ih := NewInputHandler(g)
+	for range 2 { // the second lesson is already known: no charge
+		ih.teachPreparationSpell(&character.NPCDialogueChoice{Spell: string(lesson), Cost: 10})
+	}
+	if !hero.KnowsSpell(lesson) || g.party.Gold != 90 {
+		t.Fatalf("knows=%v gold=%d, want the spell for 10 gold once", hero.KnowsSpell(lesson), g.party.Gold)
+	}
+	name := spellName(lesson)
+	if name == string(lesson) || countCombatLog(g, "learned "+name) != 1 || countCombatLog(g, string(lesson)) != 0 {
+		t.Fatalf("log must name %q, never the key %q: %v", name, lesson, g.combatLogHistory)
 	}
 }

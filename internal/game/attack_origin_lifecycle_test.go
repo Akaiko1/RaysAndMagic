@@ -36,9 +36,9 @@ func TestBossOriginKeepsLifecycle(t *testing.T) {
 						m.Abilities.Enrage.AtHP = 50
 						m.HitPoints = 20
 					case "inferno":
-						m.Abilities.Inferno.Chance = 1
-						m.Abilities.Inferno.RangeTiles = 10
-						m.Abilities.Inferno.Damage = 1
+						nova := catalogPartyAttack("inferno")
+						nova.RangeTiles = 10
+						armTestPartyAttack(m, nova, 1)
 					case "volley":
 						m.Abilities.TrapVolley.Count = 8
 						m.Abilities.TrapVolley.RadiusTiles = 3

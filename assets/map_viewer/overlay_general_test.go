@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +11,8 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/world"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestOverlayGeneralSceneRoundTrip(t *testing.T) {

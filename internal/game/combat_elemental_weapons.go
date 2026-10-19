@@ -26,7 +26,7 @@ func (cs *CombatSystem) applyElementalWeaponAbility(target *monster.Monster3D, d
 	if shot != nil {
 		damage = shot.ElementalAbilityDamage
 	}
-	if a.Kind == "backwash" {
+	if a.Kind == config.AbilityBackwash {
 		if shot == nil {
 			return
 		}
@@ -40,24 +40,24 @@ func (cs *CombatSystem) applyElementalWeaponAbility(target *monster.Monster3D, d
 		return
 	}
 	frames, turns := config.EffectClock(a.DurationSeconds, g.config.GetTPS())
-	mark := target.ElementalMarks[a.Kind]
+	mark := target.ElementalMarks[string(a.Kind)]
 	if mark.Frames <= 0 || mark.Turns <= 0 {
 		mark.Count = 0
 	}
 	mark.Count++
-	if a.Kind == "anchor" {
+	if a.Kind == config.AbilityAnchor {
 		mark.Count = min(mark.Count, a.MaxStacks)
-		target.SetElementalMark(a.Kind, mark, frames, turns)
+		target.SetElementalMark(string(a.Kind), mark, frames, turns)
 		cs.elementalWeaponBonus(target, damage*mark.Count, def.DamageType, "Stored Load")
 		return
 	}
 	if mark.Count < a.Hits {
-		target.SetElementalMark(a.Kind, mark, frames, turns)
+		target.SetElementalMark(string(a.Kind), mark, frames, turns)
 		return
 	}
-	delete(target.ElementalMarks, a.Kind)
+	delete(target.ElementalMarks, string(a.Kind))
 	label := "Pressure Vent"
-	if a.Kind == "crosswind" {
+	if a.Kind == config.AbilityCrosswind {
 		label = "Transfer"
 		cs.pushElementalTarget(target, a.RangeTiles)
 	}
@@ -170,10 +170,7 @@ func (cs *CombatSystem) pushElementalTarget(m *monster.Monster3D, tiles float64)
 		x, y, moved = nx, ny, moved+step
 	}
 	if x != m.X || y != m.Y {
-		g.releaseMonsterAttackPost(m)
-		m.X, m.Y = x, y
-		m.ResetPathfinding()
-		g.collisionSystem.UpdateEntity(m.ID, x, y)
+		g.relocateMonster(m, x, y)
 		g.refreshMonsterCollisionState(m)
 	}
 }

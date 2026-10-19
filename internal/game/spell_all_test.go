@@ -67,7 +67,7 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 			spBefore := caster.SpellPoints
 			mechanic := ""
 			if def.Mechanic != nil {
-				mechanic = def.Mechanic.Kind
+				mechanic = string(def.Mechanic.Kind)
 			}
 			switch mechanic {
 			case "destroy_undead", "turn_undead":
@@ -156,7 +156,7 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 						t.Fatal("personal spell effect missing")
 					}
 				case "haste", "shield", "preservation", "regeneration", "protection_from_magic", "celestial_armor", "pain_reflection":
-					if game.advancedBuff(mechanic) == nil {
+					if game.advancedBuff(config.MechanicKind(mechanic)) == nil {
 						t.Fatal("shared spell effect missing")
 					}
 				case "purify", "dispel_magic":

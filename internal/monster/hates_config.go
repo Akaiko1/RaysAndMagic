@@ -3,8 +3,7 @@ package monster
 import (
 	"fmt"
 	"os"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // HatesConfig is the schema of assets/hates.yaml: per monster key, the list of
@@ -29,7 +28,7 @@ func LoadHatesConfig(filename string) error {
 		return fmt.Errorf("failed to read hates config file: %w", err)
 	}
 	var cfg HatesConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return fmt.Errorf("failed to parse hates config YAML: %w", err)
 	}
 	if cfg.Hates == nil {

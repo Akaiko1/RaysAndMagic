@@ -6,8 +6,7 @@ import (
 	"sort"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // WorldManager handles multiple loaded maps and transitions between them
@@ -63,7 +62,7 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	}
 
 	var mapConfigs config.MapConfigs
-	err = yaml.Unmarshal(data, &mapConfigs)
+	err = strictyaml.Decode(data, &mapConfigs)
 	if err != nil {
 		return fmt.Errorf("failed to parse map configs: %w", err)
 	}

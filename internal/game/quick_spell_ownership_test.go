@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 )
@@ -86,7 +87,7 @@ func TestPlayerSpellEntriesRequireKnowledge(t *testing.T) {
 				case "targeted_heal":
 					caster.Equipment[items.SlotQuickAction] = item
 					g.party.Members[1].HitPoints = 1
-					if got := g.combat.CastEquippedHealOnTarget(1); got != known {
+					if got := g.combat.CastEquippedHeal(); got != known {
 						t.Fatalf("heal=%v, known=%v", got, known)
 					}
 				case "panel_binding":
@@ -134,5 +135,43 @@ func TestFreeCardSpellDoesNotRequireKnowledge(t *testing.T) {
 	}
 	if cs.game.magicProjectiles[0].Attacker != caster {
 		t.Fatal("projectile lost the actual caster")
+	}
+}
+
+// A quick-bar spell is the slot owner's action: their readiness gates it and
+// their action pays for it, whoever is selected.
+func TestQuickBarSpellChargesTheSlotOwner(t *testing.T) {
+	for _, tb := range []bool{false, true} {
+		t.Run(map[bool]string{false: "RT", true: "TB"}[tb], func(t *testing.T) {
+			g := newTestCombatSystemWithConfig(t).game
+			g.turnBasedMode, g.currentTurn = tb, 0
+			selected, owner := g.party.Members[0], g.party.Members[2]
+			for _, m := range []*character.MMCharacter{selected, owner} {
+				m.ActionsRemaining, m.RTCooldown = 2, 0
+			}
+			owner.LearnSpell("firebolt")
+			owner.SpellPoints = 100
+			spell, err := spells.CreateSpellItem("firebolt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner.QuickSlots[0] = &spell
+			g.selectedChar = 0
+
+			g.useQuickSlot(2, 0)
+
+			if owner.SpellPoints == 100 {
+				t.Fatal("the quick-bar spell was not cast (positive control)")
+			}
+			if selected.ActionsRemaining != 2 || selected.RTCooldown != 0 {
+				t.Fatalf("selected hero paid: actions %d, cooldown %d", selected.ActionsRemaining, selected.RTCooldown)
+			}
+			if tb && owner.ActionsRemaining != 1 {
+				t.Fatalf("slot owner actions = %d, want 1", owner.ActionsRemaining)
+			}
+			if owner.RTCooldown <= 0 {
+				t.Fatal("slot owner's recovery did not start")
+			}
+		})
 	}
 }

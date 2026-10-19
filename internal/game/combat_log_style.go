@@ -327,6 +327,14 @@ func (g *MMGame) logCombat(tone logTone, format string, args ...any) {
 	g.appendCombatLog(combatLogEntry{Text: text, Color: logPlain, Segments: segs, Tone: tone})
 }
 
+// logCombatLine logs a catalog line rendered with logSlot for each styled
+// part - uitext.Text("combat.x", logSlot, logSlot) - the parts filling the
+// slots in order. The key stays explicit at the call site for the catalog
+// audit.
+func (g *MMGame) logCombatLine(tone logTone, line string, parts ...any) {
+	g.logCombat(tone, styledFormat(line), parts...)
+}
+
 // logTurnDivider marks where a turn-based side starts acting. A divider with
 // nothing after it gives way to the next, so empty turns leave no trail.
 func (g *MMGame) logTurnDivider(label string) {

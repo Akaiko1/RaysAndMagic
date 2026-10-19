@@ -1,9 +1,9 @@
 package game
 
 import (
-	"fmt"
 	"math"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
@@ -107,46 +107,29 @@ func (cs *CombatSystem) tryCastPartyNova(def spells.SpellDefinition, caster *cha
 	}
 	cx, cy := cs.game.camera.X, cs.game.camera.Y
 	damageTypeStr := def.DamageType()
-	// The nova's packet goes through the SAME builder as projectiles, zones and
-	// mortars (spellDamageParts), so Strong Magic and any future packet-level
-	// modifier reach it - a direct CalculatePartyNovaDamage total would silently
-	// bypass them while the cast still pays their price.
-	monsterParts := cs.spellDamageParts(def.ID, caster, dmg)
-	monsterParts, _ = cs.spellPartsWithOutgoingBuff(monsterParts, damageTypeStr)
-	resistPierce := cs.spellResistPierce(caster, string(def.ID))
-	attack := cs.newPartyMonsterAttack(monsterParts.Normal, monsterParts.True, damageTypeStr, resistPierce, nil, def.Name, false, true, false)
+	// The nova's packet goes through the SAME builders as projectiles and
+	// mortars (spellDamageParts, partySpellAttack), so Strong Magic and any
+	// future packet-level modifier reach it - a direct CalculatePartyNovaDamage
+	// total would silently bypass them while the cast still pays their price.
+	attack := cs.partySpellAttack(caster, string(def.ID), cs.spellDamageParts(def.ID, caster, dmg), false)
 
-	cs.game.logCombat(logToneGood, "%s erupts around the party!", logSchoolWord(def.School, def.Name))
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.erupts_around_the_party", logSlot), logSchoolWord(def.School, def.Name))
 
 	// Monsters in range. A sealed (dormant) boss is invulnerable and inert -
 	// skip it so the nova neither damages nor wakes it. On the unified world
 	// "the map" is the party's REGION - MapWide must not burn the other four.
-	// It burns what stands there now, wherever the monster was born.
+	// It burns what stands there now, wherever the monster was born; a
+	// corridor counts to its side.
 	regionScoped := def.MapWide && cs.game.openWorldActive()
 	ts := float64(cs.game.config.GetTileSize())
 	hurts := func(m *monsterPkg.Monster3D) bool {
-		return partyAreaHurts(m) && (!regionScoped || cs.game.mapKeyAtTile(TileIndex(m.X, ts), TileIndex(m.Y, ts)) == currentMapKey())
+		return partyAreaHurts(m) && (!regionScoped || cs.game.mapKeyAtWorldTile(cs.game.world, TileIndex(m.X, ts), TileIndex(m.Y, ts)) == currentMapKey())
 	}
 	// A nova fills the ground around the party: walls do not shield from it.
 	nova := areaReach{x: cx, y: cy, radius: radius, throughWalls: true}
+	blow := partyBlow{caster: caster, attack: attack, name: def.Name, school: damageTypeStr, kind: damageLogIndirect}
 	cs.forEachAreaVictim(nova, hurts, func(m *monsterPkg.Monster3D) {
-		if cs.tryDarkElfBindInstead(caster, m) {
-			return
-		}
-		dealt := cs.applyPartyMonsterAttack(m, attack)
-		cs.markMonsterHit(m)
-		cs.spawnMonsterHitBurst(m, damageTypeStr)
-		cs.game.reportDamage(logToneGood, damageLog{
-			Source: logSchoolWord(damageTypeStr, def.Name),
-			Target: monsterLogTarget(m),
-			Amount: dealt.Total(),
-			School: damageTypeStr,
-			Kind:   damageLogIndirect,
-		})
-		if !m.IsAlive() {
-			cs.game.collisionSystem.UnregisterEntity(m.ID)
-			cs.finishMonsterKill(m)
-		}
+		cs.landPartyHit(m, blow)
 	})
 
 	// Ground-shaking novas topple what stands on the shaken ground.
@@ -206,17 +189,11 @@ func (cs *CombatSystem) tryCastRaiseDead(def spells.SpellDefinition, caster *cha
 		}
 	}
 	if target == nil {
-		cs.game.AddCombatMessage("There is no fallen ally to raise.")
+		cs.game.AddCombatMessage(uitext.Text("combat.there_is_no_fallen_ally_to_2"))
 		return castNoEffect
 	}
-	target.RemoveCondition(character.ConditionUnconscious)
-	target.RemoveCondition(character.ConditionDead)
-	hp := target.MaxHitPoints * def.ReviveHpPct / 100
-	if hp < 1 {
-		hp = 1
-	}
-	target.HitPoints = hp
-	cs.game.logCombat(logToneGood, "%s is raised to %s HP!", logHeroName(target), logHealed(hp))
+	target.Revive(target.MaxHitPoints*def.ReviveHpPct/100, false)
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.is_raised_to_hp", logSlot, logSlot), logHeroName(target), logHealed(target.HitPoints))
 	return castCommitted
 }
 
@@ -232,17 +209,14 @@ func (cs *CombatSystem) tryCastAwaken(def spells.SpellDefinition, caster *charac
 		if m == nil || !m.HasCondition(character.ConditionUnconscious) {
 			continue
 		}
-		m.RemoveCondition(character.ConditionUnconscious)
-		if m.HitPoints < 1 {
-			m.HitPoints = 1
-		}
+		m.Revive(1, false)
 		revived++
 	}
 	if revived == 0 {
-		cs.game.AddCombatMessage("No one is unconscious to awaken.")
+		cs.game.AddCombatMessage(uitext.Text("combat.no_one_is_unconscious_to_awaken"))
 		return castNoEffect
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("Awakening rouses %d fallen ally(s) back to 1 HP!", revived))
+	cs.game.AddCombatMessage(uitext.Text("combat.awakening_rouses_fallen_ally_s_back", revived))
 	return castCommitted
 }
 
@@ -268,18 +242,15 @@ func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *cha
 		}
 	}
 	if target == nil {
-		cs.game.AddCombatMessage("There is no fallen ally to resurrect.")
+		cs.game.AddCombatMessage(uitext.Text("combat.there_is_no_fallen_ally_to"))
 		return castNoEffect
 	}
-	target.RemoveCondition(character.ConditionUnconscious)
-	target.RemoveCondition(character.ConditionDead)
-	target.RemoveCondition(character.ConditionEradicated)
+	hp := 1
 	if def.FullHeal {
-		target.HitPoints = target.MaxHitPoints
-	} else if target.HitPoints <= 0 {
-		target.HitPoints = 1
+		hp = target.MaxHitPoints
 	}
-	cs.game.logCombat(logToneGood, "%s is %s!", logHeroName(target), logKeyword("heal", "restored to life"))
+	target.Revive(hp, true)
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.status.poisoned", logSlot, logSlot), logHeroName(target), logKeyword("heal", "restored to life"))
 	return castCommitted
 }
 
@@ -303,7 +274,7 @@ func (cs *CombatSystem) tryCastAoeStunBy(spellID spells.SpellID, def spells.Spel
 	if lead == "" {
 		lead = def.Name
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s - %d foe(s) stunned!", lead, stunned))
+	cs.game.AddCombatMessage(uitext.Text("combat.foe_s_stunned", lead, stunned))
 	cs.game.setBuffStatus(string(spellID), frames)
 	return true
 }
@@ -344,14 +315,13 @@ func scaledIncomingDamageReduction(def spells.SpellDefinition, caster *character
 // Power, Stone Skin). If the spell carries any party-buff field it activates the
 // buff for `duration` seconds and returns true. Shared by both cast paths.
 func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	if def.ResistBuffPct <= 0 && def.OutgoingDamageBonus <= 0 && def.IncomingDamageReduction <= 0 && def.ResistBuffSchoolPct <= 0 {
+	if !def.GrantsCombatBuff() {
 		return false
 	}
 	// Party-buff magnitudes may opt into mastery scaling with *_grandmaster
 	// caps; spells without a cap stay flat at their authored base value.
-	frames := cs.CalculateSpellDurationFrames(spellID, caster)
-	cs.game.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, ""))
-	cs.game.logCombat(logToneGood, "%s empowers the party!", logKeyword("buff", def.Name))
+	cs.grantSpellPartyBuff(spellID, def, caster, cs.CalculateSpellDurationFrames(spellID, caster), "")
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.empowers_the_party", logSlot), logKeyword("buff", def.Name))
 	return true
 }
 
@@ -369,14 +339,19 @@ func (cs *CombatSystem) spellStatBuffBonuses(spellID spells.SpellID, caster *cha
 	return character.UniformStatBonuses(cs.CalculateSpellStatBonus(spellID, caster))
 }
 
-// applyStatBuffSpell registers a stat-buff spell in the timed registry:
-// different spells stack, recasting the same one refreshes it.
-func (cs *CombatSystem) applyStatBuffSpell(spellID spells.SpellID, duration int, bonuses character.StatBonuses) {
-	cs.applyStatBuffSpellFromSource(spellID, "", duration, bonuses)
-}
-
-func (cs *CombatSystem) applyStatBuffSpellFromSource(spellID spells.SpellID, sourceID string, duration int, bonuses character.StatBonuses) {
-	buff := TimedStatBuff{SpellID: string(spellID), SourceID: sourceID, Bonuses: bonuses}
-	buff.Clock.ArmFrames(duration, cs.game.config.GetTPS())
-	cs.game.addStatBuff(buff)
+// grantSpellPartyBuff is the one path a buff spell's party payload takes, a
+// cast (sourceID "") and a system grant (Celestial Providence) alike: its
+// stat block into the stat registry, else its combat buff, at the caster's
+// mastery. Different spells stack; the same one refreshes. It returns the
+// stat block granted, empty for a combat buff.
+func (cs *CombatSystem) grantSpellPartyBuff(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter, frames int, sourceID string) character.StatBonuses {
+	if def.GrantsStatBuff() {
+		bonuses := cs.spellStatBuffBonuses(spellID, caster)
+		buff := TimedStatBuff{SpellID: string(spellID), SourceID: sourceID, Bonuses: bonuses}
+		buff.Clock.ArmFrames(frames, cs.game.config.GetTPS())
+		cs.game.addStatBuff(buff)
+		return bonuses
+	}
+	cs.game.addCombatBuff(timedCombatBuffFromSpell(spellID, def, caster, frames, sourceID))
+	return character.StatBonuses{}
 }

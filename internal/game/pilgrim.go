@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"github.com/hajimehoshi/ebiten/v2"
 	"maps"
 	"math"
 	"slices"
@@ -14,6 +13,8 @@ import (
 	"ugataima/internal/spells"
 	"ugataima/internal/status"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func (g *MMGame) techniqueRefusal(idx int, key string) string {
@@ -145,7 +146,7 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 	if d.IsStep() {
 		if !g.performSpatialStep(c, d, tier) {
 			if announce {
-				g.AddCombatMessage("No legal spatial destination.")
+				g.AddCombatMessage(uitext.Text("combat.no_legal_spatial_destination"))
 			}
 			return false
 		}
@@ -170,20 +171,24 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 	if automatic {
 		mode = " automatically"
 	}
-	g.AddCombatMessage(fmt.Sprintf("%s uses %s%s (%d SP).", c.Name, d.Name, mode, cost))
+	g.AddCombatMessage(uitext.Text("combat.uses_sp", c.Name, d.Name, mode, cost))
 	if !automatic && !d.IsStep() {
 		// Manual techniques spend the caster's action but never add a movement penalty.
 		if g.turnBasedMode && g.currentTurn == 0 && c.ActionsRemaining > 0 {
 			g.partyPenaltyFreeActionsUsed++
 		}
-		g.consumeCharacterActionWithRTCooldown(idx, cooldown)
+		g.commitHeroAction(idx, cooldown)
 	}
 	if !automatic {
 		g.actionInputStagger = rtActionStagger
 	}
 	return true
 }
-func (g *MMGame) consumeCharacterActionWithRTCooldown(idx, cooldown int) {
+
+// commitHeroAction ends hero idx's action: its real-time recovery starts
+// (never shortened) and, in TB, one action slot is spent - when it ran out,
+// selection moves on, and with no one left the party turn ends.
+func (g *MMGame) commitHeroAction(idx, cooldown int) {
 	if g.party == nil || idx < 0 || idx >= len(g.party.Members) {
 		return
 	}
@@ -353,10 +358,8 @@ func (g *MMGame) performSpatialStep(c *character.MMCharacter, d *config.Techniqu
 			return false
 		}
 		// Intermediate combat bodies may be crossed, but landing must be clear.
-		for _, m := range g.world.Monsters {
-			if m != nil && m.IsAlive() && TileIndex(m.X, ts) == TileIndex(x, ts) && TileIndex(m.Y, ts) == TileIndex(y, ts) {
-				return false
-			}
+		if livingMonsterOnTile(g.world, TileIndex(x, ts), TileIndex(y, ts), ts, nil) != nil {
+			return false
 		}
 		return g.canMovePartyTo(x, y)
 	}
@@ -485,15 +488,15 @@ func (g *MMGame) tryAutomaticSpell(index int) bool {
 // technique's kind each map onto the same predicates. These tables are the one
 // trigger per kind; validateAutocastTriggers keeps them in step with the kinds
 // config lets autocast.
-var spellAutocastTriggers = map[string]func(*MMGame, spells.SpellDefinition) bool{
-	"dispel_magic": func(g *MMGame, d spells.SpellDefinition) bool {
+var spellAutocastTriggers = map[config.MechanicKind]func(*MMGame, spells.SpellDefinition) bool{
+	config.MechanicDispelMagic: func(g *MMGame, d spells.SpellDefinition) bool {
 		return g.partyNeedsPurify() || g.hostileMagicNearby(d.Mechanic.RadiusTiles)
 	},
-	"celestial_armor": func(g *MMGame, d spells.SpellDefinition) bool {
+	config.MechanicCelestialArmor: func(g *MMGame, d spells.SpellDefinition) bool {
 		return g.advancedBuff(d.Mechanic.Kind) == nil && g.partyEngaged()
 	},
-	"purify": func(g *MMGame, _ spells.SpellDefinition) bool { return g.partyNeedsPurify() },
-	"haste":  func(g *MMGame, _ spells.SpellDefinition) bool { return g.partyUnderAttack() && g.partyNeedsHaste() },
+	config.MechanicPurify: func(g *MMGame, _ spells.SpellDefinition) bool { return g.partyNeedsPurify() },
+	config.MechanicHaste:  func(g *MMGame, _ spells.SpellDefinition) bool { return g.partyUnderAttack() && g.partyNeedsHaste() },
 }
 
 var techniqueAutocastTriggers = map[string]func(*MMGame, *config.TechniqueDefinition) bool{
@@ -506,6 +509,7 @@ var techniqueAutocastTriggers = map[string]func(*MMGame, *config.TechniqueDefini
 	},
 }
 
+// kindNames lists closed-set kinds as their authored names.
 // validateAutocastTriggers fails the boot on a kind config lets autocast with
 // no trigger (its AUTO toggle would never cast) or a trigger for a kind that
 // may not autocast.
@@ -515,7 +519,7 @@ func validateAutocastTriggers() error {
 		kinds    []string
 		triggers []string
 	}{
-		{"spell mechanic", config.AutocastMechanicKinds(), slices.Sorted(maps.Keys(spellAutocastTriggers))},
+		{"spell mechanic", config.KindNames(config.AutocastMechanicKinds()), config.KindNames(slices.Sorted(maps.Keys(spellAutocastTriggers)))},
 		{"technique", config.AutocastTechniqueKinds(), slices.Sorted(maps.Keys(techniqueAutocastTriggers))},
 	} {
 		if !slices.Equal(c.kinds, c.triggers) {

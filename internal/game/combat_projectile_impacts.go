@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"slices"
@@ -239,8 +238,9 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 				DisintegrateChance: mp.DisintegrateChance,
 				Spell:              true, // a MagicProjectile always flies a spells.yaml page
 				Projectile:         true,
+				Critical:           mp.Crit,
 			}
-			if mp.AoE {
+			if mp.AoeTiles > 0 {
 				cs.applyMonsterProjectileDamageAoE(mp.SourceMonster, mp.SourceName, hit)
 			} else {
 				cs.applyMonsterProjectileDamage(mp.SourceMonster, mp.SourceName, hit)
@@ -285,6 +285,7 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 				// Spell stays false: a dart flies a weapons.yaml entry, whatever
 				// element it carries.
 				Projectile: true,
+				Critical:   ar.Crit,
 			}
 			// An AoE-rider weapon (bow_of_hellfire) engulfs the WHOLE party once
 			// per volley - the champion rule: arc/AoE never multiply.
@@ -326,7 +327,7 @@ func (cs *CombatSystem) applyMonsterProjectileDamageAoE(src *monsterPkg.Monster3
 	if sourceName == "" {
 		sourceName = "Monster"
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s's blast engulfs the whole party!", sourceName))
+	cs.game.AddCombatMessage(uitext.Text("combat.s_blast_engulfs_the_whole_party", sourceName))
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.applyMonsterProjectileDamageToChar(src, member, sourceName, hit)
 	})
@@ -397,7 +398,7 @@ func (cs *CombatSystem) dodgePartyShot(m *monsterPkg.Monster3D, attack partyMons
 	}
 	landed = cs.applyDamageThroughDodge(m, attack, attack.Attacker, attackerName, weaponDef)
 	if !landed {
-		cs.game.logCombat(logToneNone, "%s dodges the %s!", logMonsterName(m), logSchoolWord(school, weaponName))
+		cs.game.logCombatLine(logToneNone, uitext.Text("combat.dodges_the", logSlot, logSlot), logMonsterName(m), logSchoolWord(school, weaponName))
 	}
 	return true, landed
 }
@@ -616,7 +617,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 	}
 
 	outcome := rollMonsterDisintegrate(monster, disintegrateChance)
-	if outcome == disintegrateKill {
+	if outcome == instakillKill {
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, attack.Packet.normalDamage())
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		cs.disintegratePartyTarget(monster, weaponDef, attacker, attack, aoeRadiusTiles,
@@ -632,7 +633,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 	// spam "hit for 0 damage" with a bogus "Critical!" (the spell can't crit).
 	// Bind/Charm are handled earlier; this is the Disintegrate case. A boss's
 	// sear is real damage and takes the ordinary hit path below.
-	if dealsNoDamage && outcome != disintegrateSear {
+	if dealsNoDamage && outcome != instakillSear {
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
 		cs.applyMonsterDamagePacket(
 			monster,
@@ -640,7 +641,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 			monsterDamageOptions{IgnoreArmor: true},
 		)
 		cs.markMonsterHit(monster)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s has no effect on %s.", weaponName, monster.Name))
+		cs.game.AddCombatMessage(uitext.Text("combat.has_no_effect_on", weaponName, monster.Name))
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		return
 	}
@@ -656,7 +657,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 	landed := attack
 	landed.PrimaryHit = true
 	primary := landed
-	if outcome == disintegrateSear {
+	if outcome == instakillSear {
 		primary = cs.searDisintegrated(monster, landed)
 	}
 	hit := cs.applyPartyMonsterAttack(monster, primary)
@@ -664,7 +665,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 	cs.markMonsterHit(monster)
 	cs.reportProjectileHit(monster, weaponName, damageTypeStr, hit)
 	shot, _ := projectile.(*Arrow)
-	executed := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, landed, shot, func() {
+	executed := cs.settlePartyHit(monster, weaponDef, attacker, attackerName, landed.resolvedAs(hit), shot, func() {
 		cs.applyAdvancedSpellImpact(spellShot, monster)
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
@@ -693,16 +694,22 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 	}
 }
 
-// spellProjectileAttack is the packet a party spell projectile delivers: its
-// launch damage and crit, the live outgoing buff, true damage and pierce. The
+// partySpellAttack is the packet a party spell lands: its rolled launch
+// damage and crit, the live outgoing buff, true damage and resist pierce.
+func (cs *CombatSystem) partySpellAttack(caster *character.MMCharacter, spellID string, launch damagecalc.Parts, crit bool) partyMonsterAttack {
+	def, _ := spells.GetSpellDefinitionByID(spells.SpellID(spellID))
+	school := def.DamageType()
+	parts, _ := cs.spellPartsWithOutgoingBuff(launch, school)
+	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(caster, spellID), nil, def.Name, false, true, false)
+	attack.Critical = crit
+	attack.Attacker = caster
+	return attack
+}
+
+// spellProjectileAttack is the packet a party spell projectile delivers; the
 // direct hit and every blast of the shot share it.
 func (cs *CombatSystem) spellProjectileAttack(mp *MagicProjectile) partyMonsterAttack {
-	def, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
-	school := def.DamageType()
-	parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}, school)
-	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(mp.Attacker, mp.SpellType), nil, def.Name, false, true, false)
-	attack.Critical = mp.Crit
-	attack.Attacker = mp.Attacker
+	attack := cs.partySpellAttack(mp.Attacker, mp.SpellType, damagecalc.Parts{Normal: mp.Damage, True: mp.TrueDamage}, mp.Crit)
 	attack.Projectile = true
 	attack.GrazesDodge = mp.GrazesDodge
 	return attack
@@ -837,15 +844,7 @@ func (cs *CombatSystem) nearestRicochetTarget(victim *monsterPkg.Monster3D, weap
 		return nil
 	}
 	maxDist := weaponDef.RicochetRangeTiles * float64(cs.game.config.GetTileSize())
-	var best *monsterPkg.Monster3D
-	bestDist := maxDist
-	for _, m := range cs.game.world.Monsters {
-		if isExcludedFromPartyAutoTarget(m) || m == victim || !m.IsAlive() {
-			continue
-		}
-		if d := Distance(victim.X, victim.Y, m.X, m.Y); d <= bestDist {
-			best, bestDist = m, d
-		}
-	}
-	return best
+	return cs.nearestSeenMonster(victim.X, victim.Y, nil, cs.game.world.Monsters, maxDist, func(m *monsterPkg.Monster3D) bool {
+		return m != victim && !isExcludedFromPartyAutoTarget(m)
+	})
 }

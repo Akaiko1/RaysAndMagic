@@ -1,12 +1,10 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"sort"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // Ecology is campaign content. Runtime populations and deliveries live in saves.
@@ -157,7 +155,5 @@ func CaravanTradePool() []string {
 }
 
 func decodeEcology(data []byte, c *EcologyConfig) error {
-	d := yaml.NewDecoder(bytes.NewReader(data))
-	d.KnownFields(true)
-	return d.Decode(c)
+	return strictyaml.Decode(data, c)
 }

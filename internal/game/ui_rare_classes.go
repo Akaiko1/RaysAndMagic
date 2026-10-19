@@ -217,11 +217,7 @@ func (ui *UISystem) rareBookButton(screen *ebiten.Image, r layoutRect, label str
 }
 func (ui *UISystem) rareBookClick(r layoutRect, enabled bool, action func()) {
 	if enabled && !ui.modalLayerOwnsInput() {
-		ui.onDisplayedInput(uiCommandClick, r, func() {
-			if ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				action()
-			}
-		})
+		ui.onClick(r, true, action)
 	}
 }
 func rareBookPanel(screen *ebiten.Image, r layoutRect) {

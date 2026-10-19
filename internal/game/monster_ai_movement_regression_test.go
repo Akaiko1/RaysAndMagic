@@ -143,8 +143,8 @@ func TestAISocialMovementRestrictions(t *testing.T) {
 // so a test of base movement or the base attack sees none of them preempt it.
 // On-hit riders (poison, ignite, stun, dispel) stay: they never replace an action.
 func disableRandomSpecials(m *monster.Monster3D) {
-	m.Abilities.Fireburst.Chance, m.Abilities.DragonBreath.Chance, m.Abilities.PiercingShot.Chance, m.Abilities.AllyHeal.Chance = 0, 0, 0, 0
-	m.Abilities.Inferno.Chance, m.Abilities.Teleport.Chance, m.Abilities.RootParty.Chance, m.Abilities.RearBlink.Chance = 0, 0, 0, 0
+	m.Abilities.PartyAttacks = nil
+	m.Abilities.AllyHeal.Chance, m.Abilities.Teleport.Chance, m.Abilities.RootParty.Chance, m.Abilities.RearBlink.Chance = 0, 0, 0, 0
 	m.Abilities.TrapVolley.Count = 0
 	m.Abilities.Summon.Chance, m.Abilities.Summon.FirstGuaranteed, m.Abilities.Summon.Monsters = 0, false, nil
 }

@@ -92,7 +92,7 @@ func TestBless_SwellsAndShrinksMaxima(t *testing.T) {
 	maxHPBefore, maxSPBefore := char.MaxHitPoints, char.MaxSpellPoints
 	endurMult := g.config.Characters.HitPoints.EnduranceMultiplier
 
-	cs.applyStatBuffSpell("bless", 600, character.UniformStatBonuses(10))
+	cs.game.addStatBuff(testStatBuff("bless", 600, character.UniformStatBonuses(10)))
 	if char.MaxHitPoints != maxHPBefore+10*endurMult {
 		t.Errorf("blessed MaxHP = %d, want %d", char.MaxHitPoints, maxHPBefore+10*endurMult)
 	}
@@ -122,7 +122,7 @@ func TestPerStatSpellBuff_AppliesOnlyAuthoredStats(t *testing.T) {
 	char := cs.game.party.Members[0]
 	baseMight, baseLuck := char.Might, char.Luck
 
-	cs.applyStatBuffSpell("test_might_buff", 600, character.StatBonusesFromMap(map[string]int{"might": 15}))
+	cs.game.addStatBuff(testStatBuff("test_might_buff", 600, character.StatBonusesFromMap(map[string]int{"might": 15})))
 	might, _, _, _, _, _, luck := char.GetEffectiveStats()
 	if might != baseMight+15 {
 		t.Errorf("might = %d, want %d", might, baseMight+15)
@@ -156,7 +156,7 @@ func TestTavernSwap_SyncsBuffBonuses(t *testing.T) {
 	g.party.Recruit(bench)
 	benchIdx := len(g.party.Reserve) - 1
 
-	cs.applyStatBuffSpell("bless", 600, character.UniformStatBonuses(10))
+	cs.game.addStatBuff(testStatBuff("bless", 600, character.UniformStatBonuses(10)))
 	outgoing := g.party.Members[0]
 	if !g.swapRosterMember(0, benchIdx) {
 		t.Fatal("swap failed")
@@ -185,8 +185,8 @@ func TestStatBuffs_StackAcrossSpellsAndGear(t *testing.T) {
 	if _, _, ok := char.EquipItem(ring); !ok {
 		t.Fatal("equip failed")
 	}
-	cs.applyStatBuffSpell("bless", 600, character.UniformStatBonuses(10))
-	cs.applyStatBuffSpell("war_chant", 600, character.StatBonusesFromMap(map[string]int{"might": 5}))
+	cs.game.addStatBuff(testStatBuff("bless", 600, character.UniformStatBonuses(10)))
+	cs.game.addStatBuff(testStatBuff("war_chant", 600, character.StatBonusesFromMap(map[string]int{"might": 5})))
 
 	might, _, _, _, _, _, _ := char.GetEffectiveStats()
 	if want := baseMight + 2 + 10 + 5; might != want {
@@ -194,7 +194,7 @@ func TestStatBuffs_StackAcrossSpellsAndGear(t *testing.T) {
 	}
 
 	// Recast bless: refresh, not double-stack.
-	cs.applyStatBuffSpell("bless", 900, character.UniformStatBonuses(10))
+	cs.game.addStatBuff(testStatBuff("bless", 900, character.UniformStatBonuses(10)))
 	might, _, _, _, _, _, _ = char.GetEffectiveStats()
 	if want := baseMight + 2 + 10 + 5; might != want {
 		t.Errorf("after bless recast might = %d, want %d (refresh, no double-stack)", might, want)

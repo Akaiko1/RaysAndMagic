@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"slices"
 	"sort"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -94,7 +95,7 @@ func (g *MMGame) harvestPlacementAllowed(region string, x, y int) bool {
 			}
 		}
 		for _, effect := range a.Effects {
-			if effect.Contains(x, y) || (effect.Kind == "transfer" && effect.Destination == [2]int{x, y}) {
+			if effect.Contains(x, y) || (effect.Kind == config.EffectTransfer && effect.Destination == [2]int{x, y}) {
 				return false
 			}
 		}
@@ -139,7 +140,7 @@ func (g *MMGame) advanceHarvestSearch(job *harvestSearch) bool {
 				}
 			}
 			for _, e := range a.Effects {
-				if e.Kind == "transfer" && e.TriggerLane == "" && e.Contains(p[0], p[1]) {
+				if e.Kind == config.EffectTransfer && e.TriggerLane == "" && e.Contains(p[0], p[1]) {
 					receivers = append(receivers, e.Destination)
 				}
 			}
@@ -406,7 +407,8 @@ func (g *MMGame) gatherAlchemyReagent(n *character.NPC) bool {
 	g.alchemy.Populations[n.HarvestOwner] = p
 	g.harvestRuntime.dirty = true
 	g.party.AddItem(item)
-	g.AddCombatMessage("Gathered " + item.Name + ".")
+	g.AddCombatMessage(uitext.Text("combat.gathered", item.Name))
+	g.announceLegendaryDrops([]items.Item{item})
 	n.Visited = true
 	g.focusedNPC = nil
 	return true

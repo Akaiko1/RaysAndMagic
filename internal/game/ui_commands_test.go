@@ -8,9 +8,10 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/threading"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func commandTestUI(t *testing.T) (*MMGame, *UISystem, *ebiten.Image) {
@@ -135,7 +136,7 @@ func TestDisplayedDragRejectsChangedSourceAfterAnotherDraw(t *testing.T) {
 			g.party.Inventory = []items.Item{it}
 			g.party.Members[0].Equipment[items.SlotMainHand] = it
 			g.party.Members[0].QuickSlots[0] = &it
-			g.dragSrc, g.dragItem, g.dragActive = kind, it, true
+			g.dragSrc, g.dragItem, g.drag.active = kind, it, true
 			g.dragInvIndex, g.dragEquipChar, g.dragQuickChar, g.dragQuickSlot = 0, 0, 0, 0
 			g.dragEquipSlot = items.SlotMainHand
 			ui.captureDisplayedDrags()
@@ -151,7 +152,7 @@ func TestDisplayedDragRejectsChangedSourceAfterAnotherDraw(t *testing.T) {
 			ui.quickInvDropZone(10, 10, 40, 40)
 			ui.endDisplayedInput()
 			before, _ := json.Marshal(g.party)
-			g.dragDropAt, g.dragCurX, g.dragCurY = 1, 20, 20
+			g.dragDropAt, g.drag.curX, g.drag.curY = 1, 20, 20
 			ui.dispatchDisplayedInput()
 			after, _ := json.Marshal(g.party)
 			if string(before) != string(after) || g.dragSrc != dragNone {

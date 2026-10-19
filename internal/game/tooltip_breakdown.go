@@ -66,7 +66,7 @@ func addWeaponCooldown(sec *ttSection, ch *character.MMCharacter, cs *CombatSyst
 		sec.AddDetail("Scales with wielder Speed - TB: 1 action")
 		return
 	}
-	cd := cs.weaponCooldownBreakdown(ch, def.Name)
+	cd := cs.weaponCooldownBreakdown(ch, def)
 	sec.Add("%s", cooldownLine(cs, cd.TotalFrames))
 	sec.AddDetail("Base weapon cooldown: %.2fs", character.CardSeconds(reference/tps))
 	atSpeed := math.Round(cd.BaseFrames * cd.WeaponMultiplier)

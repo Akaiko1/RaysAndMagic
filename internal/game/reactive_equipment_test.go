@@ -45,7 +45,7 @@ func TestApproachWeaponActions(t *testing.T) {
 				t.Fatal("committed attack did not cast zone")
 			}
 			z := g.persistentDamageZones[0]
-			if z.TickDamage != 19 || z.CasterName != ch.Name || ch.SpellPoints != sp {
+			if z.TickDamage != 19 || ch.SpellPoints != sp {
 				t.Fatalf("fixed 50 INT spell: %+v SP %d -> %d", z, sp, ch.SpellPoints)
 			}
 			// The same tile refreshes one existing field; it cannot stack copies.
@@ -54,18 +54,17 @@ func TestApproachWeaponActions(t *testing.T) {
 				t.Fatal("proc stacked same-tile zones")
 			}
 			// An automatic cast cannot weaken a stronger manual field. Include
-			// restoration: ownership and snapshot damage must survive loading.
+			// restoration: the snapshot damage must survive loading.
 			for _, restored := range []bool{false, true} {
 				strong := z
 				strong.TickDamage = 100
-				strong.CasterName = "Mage"
 				strong.FramesLeft = 2 * z.FramesLeft
 				g.persistentDamageZones = []PersistentDamageZone{strong}
 				if restored {
 					g.persistentDamageZones = restorePersistentDamageZones(buildPersistentDamageZoneSaves(g.persistentDamageZones), strong.MapKey)
 				}
 				g.combat.EquipmentMeleeAttack()
-				if len(g.persistentDamageZones) != 1 || g.persistentDamageZones[0].TickDamage != 100 || g.persistentDamageZones[0].CasterName != "Mage" {
+				if len(g.persistentDamageZones) != 1 || g.persistentDamageZones[0].TickDamage != 100 {
 					t.Fatalf("proc replaced a stronger field (restored=%v): %+v", restored, g.persistentDamageZones)
 				}
 			}
@@ -132,7 +131,7 @@ func TestReactiveCardsAndShellThroughCombat(t *testing.T) {
 						shot := &Arrow{ID: "reactive", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer, Attacker: ch, BowKey: key, Damage: 100, DamageType: "physical"}
 						g.combat.applyProjectileDamage(shot, m, shot.ID)
 					} else {
-						g.combat.ApplyDamageToMonster(m, 100, def.Name, false)
+						g.combat.ApplyDamageToMonster(m, 100, testWeapon(def.Name), false)
 					}
 				}
 				m.PerfectDodge = 100
@@ -258,7 +257,7 @@ func TestSunscarabConsecutiveAttacker(t *testing.T) {
 
 func TestReactiveProtectionAcrossHitDispatchers(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, kind := range []string{"ordinary", "telegraph", "fireburst", "inferno"} {
+		for _, kind := range []string{"ordinary", "telegraph", "telegraph field", "fireburst", "inferno"} {
 			t.Run(fmt.Sprintf("TB=%v/%s", tb, kind), func(t *testing.T) {
 				cs := newTestCombatSystemWithConfig(t)
 				g := cs.game
@@ -268,17 +267,17 @@ func TestReactiveProtectionAcrossHitDispatchers(t *testing.T) {
 				ch.HitPoints, ch.MaxHitPoints = 10000, 10000
 				g.cardSlots[0].key = "sunscarab_card"
 				ch.ReactiveCombat.Shell = 15
-				m := &monster.Monster3D{ID: "source", Name: "source", HitPoints: 1000, Abilities: monster.Abilities{Fireburst: monster.FireburstAbility{DamageMin: 100, DamageMax: 100}, Inferno: monster.InfernoAbility{Damage: 100}}}
+				m := &monster.Monster3D{ID: "source", Name: "source", HitPoints: 1000}
 				hit := func() {
 					switch kind {
 					case "ordinary":
 						cs.monsterHitCharacter(m, ch, m.Name, monsterCharacterHit{Parts: damagecalc.Parts{Normal: 100}, DamageType: "fire", IgnoresArmor: true})
 					case "telegraph":
-						g.damageTelegraphParty(m, m.Name, "fire", damagecalc.Parts{Normal: 100})
-					case "fireburst":
-						cs.applyMonsterFireburst(m)
-					case "inferno":
-						cs.applyMonsterInferno(m)
+						g.strikeTelegraphParty(m, m.Name, "fire", damagecalc.Parts{Normal: 100}, true)
+					case "telegraph field":
+						g.burnTelegraphFieldParty(m, m.Name, "fire", damagecalc.Parts{Normal: 100})
+					case "fireburst", "inferno": // party attacks by catalog key
+						castTestPartyAttack(cs, m, catalogPartyAttack(kind), 100)
 					}
 				}
 				step := cardDef("sunscarab_card").CardRepeatedHitReductionPct

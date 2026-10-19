@@ -109,7 +109,7 @@ func (fx rangedHeldAnimation) aim() float64 { return fx.angle - fx.sourceAngle }
 // cooldown are captured after a successful shot, never read from later
 // equipment or selection. It neither delays nor moves the gameplay projectile,
 // and a run without a renderer records nothing.
-func (cs *CombatSystem) presentRangedShot(hero *character.MMCharacter, def *config.WeaponDefinitionConfig, weaponName string, slot items.EquipSlot, launch projectileLaunch, charged bool) {
+func (cs *CombatSystem) presentRangedShot(hero *character.MMCharacter, def *config.WeaponDefinitionConfig, slot items.EquipSlot, launch projectileLaunch, charged bool) {
 	g := cs.game
 	if hero == nil || def == nil || def.Graphics == nil || g.gameLoop == nil || g.gameLoop.renderer == nil {
 		return
@@ -123,7 +123,7 @@ func (cs *CombatSystem) presentRangedShot(hero *character.MMCharacter, def *conf
 		hand = 1
 	}
 	timing := g.config.Graphics.RangedHeld
-	cooldown := cs.WeaponCooldownFramesFor(hero, weaponName)
+	cooldown := cs.weaponCooldownBreakdown(hero, def).TotalFrames
 	fx := rangedHeldAnimation{hero: hero, hand: hand, model: def.Graphics.HeldModel, duration: max(1, min(int(timing.MaxDurationSeconds*float64(g.config.GetTPS())), int(timing.CooldownFraction*float64(cooldown)))), angle: launch.angle, glow: def.Graphics.Color, charged: charged, sourceAngle: g.camera.Angle}
 	if asset.kind == heldBow {
 		fx.release = g.gameLoop.renderer.rangedReleaseRay(launch)

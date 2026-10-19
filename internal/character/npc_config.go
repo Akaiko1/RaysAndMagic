@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/strictyaml"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,7 +26,7 @@ func (nc *NPCConfig) UnmarshalYAML(node *yaml.Node) error {
 	var source struct {
 		NPCs map[string]yaml.Node `yaml:"npcs"`
 	}
-	if err := node.Decode(&source); err != nil {
+	if err := strictyaml.DecodeNode(node, &source); err != nil {
 		return err
 	}
 	var npcs map[string]*NPCData
@@ -34,7 +35,7 @@ func (nc *NPCConfig) UnmarshalYAML(node *yaml.Node) error {
 	}
 	for key, definition := range source.NPCs {
 		var npc *NPCData
-		if err := definition.Decode(&npc); err != nil {
+		if err := strictyaml.DecodeNode(&definition, &npc); err != nil {
 			return fmt.Errorf("NPC %q: %w", key, err)
 		}
 		npcs[key] = npc
@@ -136,7 +137,7 @@ type NPCDoorStatReq struct {
 	Value int    `yaml:"value"` // threshold the member must meet
 }
 
-// NPCSummon maps a held statuette (by item Name) to the monster a statue
+// NPCSummon maps a held statuette (an items.yaml key) to the monster a statue
 // summons when that statuette is offered, plus a short label for the choice.
 type NPCSummon struct {
 	Statuette      string `yaml:"statuette"`
@@ -350,8 +351,8 @@ type NPCSpell struct {
 
 // NPCItem represents an item that an NPC can sell
 type NPCItem struct {
-	Type     string `yaml:"type"`
-	Name     string `yaml:"name"`
+	// Key is the weapons.yaml or items.yaml key of the ware.
+	Key      string `yaml:"key"`
 	Cost     int    `yaml:"cost"`
 	Quantity int    `yaml:"quantity"`
 	// Tab groups this entry under a named shop tab (the Clockmaker's armor
@@ -380,14 +381,13 @@ func LoadNPCConfig(filename string) error {
 		return fmt.Errorf("failed to read NPC config file: %w", err)
 	}
 
-	var config NPCConfig
-	err = yaml.Unmarshal(data, &config)
-	if err != nil {
+	var cfg NPCConfig
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return fmt.Errorf("failed to parse NPC config: %w", err)
 	}
 
-	NPCConfigInstance = &config
-	return validateLoadedNPCConfig(&config)
+	NPCConfigInstance = &cfg
+	return validateLoadedNPCConfig(&cfg)
 }
 
 func validateLoadedNPCConfig(cfg *NPCConfig) error {
@@ -690,7 +690,7 @@ func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
 	}
 	stock := make([]*MerchantStockItem, 0, len(entries))
 	for _, entry := range entries {
-		if entry == nil || entry.Name == "" {
+		if entry == nil || entry.Key == "" {
 			continue
 		}
 		item, ok := createMerchantItem(entry)
@@ -750,7 +750,7 @@ func groupMerchantWeapons(stock []*MerchantStockItem) {
 		if m.Item.Type != items.ItemWeapon {
 			return "" // non-weapon: sorts before every weapon, keeps authored order
 		}
-		if def, _, ok := config.GetWeaponDefinitionByName(m.Item.Name); ok && def != nil {
+		if def, _, ok := config.WeaponDefOf(m.Item); ok && def != nil {
 			return def.Category
 		}
 		return "zzz" // unknown weapon def: park at the end
@@ -786,14 +786,20 @@ func buildRarityWeaponStock(rarity string, cost int) []*MerchantStockItem {
 	return stock
 }
 
-// GrantError is the one item-source rule for a stock entry: a barter may hand
-// out a gathering ingredient for gathering ingredients; everything else is an
-// ordinary grant.
-func (e *NPCItem) GrantError(itemKey string) error {
-	if len(e.Barter) > 0 {
-		return config.ValidateBarterGrant(itemKey, slices.Sorted(maps.Keys(e.Barter)))
+// SourceError is the one item-source rule for a stock entry: a known weapon,
+// or an item a barter may hand out (a gathering ingredient for gathering
+// ingredients) or an ordinary grant.
+func (e *NPCItem) SourceError() error {
+	if _, ok := config.GetWeaponDefinition(e.Key); ok {
+		return nil
 	}
-	return config.ValidateOrdinaryItemGrant(itemKey)
+	if _, ok := config.GetItemDefinition(e.Key); !ok {
+		return fmt.Errorf("unknown ware %q", e.Key)
+	}
+	if len(e.Barter) > 0 {
+		return config.ValidateBarterGrant(e.Key, slices.Sorted(maps.Keys(e.Barter)))
+	}
+	return config.ValidateOrdinaryItemGrant(e.Key)
 }
 
 func validateNPCItemSources(c *NPCConfig) error {
@@ -815,14 +821,14 @@ func validateNPCItemSources(c *NPCConfig) error {
 				}
 			}
 		}
+		// Wares resolve against the item and weapon catalogs, which the boot
+		// loads first; an NPC-only load (a map test) has nothing to check them by.
 		for _, entry := range npc.Inventory {
-			if entry == nil {
+			if entry == nil || config.GlobalItems == nil || config.GlobalWeapons == nil {
 				continue
 			}
-			if _, itemKey, ok := config.GetItemDefinitionByName(entry.Name); ok {
-				if err := entry.GrantError(itemKey); err != nil {
-					return fmt.Errorf("NPC %q stock: %w", key, err)
-				}
+			if err := entry.SourceError(); err != nil {
+				return fmt.Errorf("NPC %q stock: %w", key, err)
 			}
 		}
 	}
@@ -830,24 +836,9 @@ func validateNPCItemSources(c *NPCConfig) error {
 }
 
 func createMerchantItem(entry *NPCItem) (items.Item, bool) {
-	itemType := strings.ToLower(entry.Type)
-	switch itemType {
-	case "weapon":
-		key := items.GetWeaponKeyByName(entry.Name)
-		weapon, err := items.TryCreateWeaponFromYAML(key)
-		if err != nil {
-			return items.Item{}, false
-		}
-		return weapon, true
-	default:
-		_, key, ok := config.GetItemDefinitionByName(entry.Name)
-		if !ok || entry.GrantError(key) != nil {
-			return items.Item{}, false
-		}
-		item, err := items.TryCreateItemFromYAML(key)
-		if err != nil {
-			return items.Item{}, false
-		}
-		return item, true
+	if entry.SourceError() != nil {
+		return items.Item{}, false
 	}
+	it, err := items.FromKey(entry.Key)
+	return it, err == nil
 }

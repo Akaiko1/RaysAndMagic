@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	"ugataima/internal/stats"
 )
 
 func TestCharacterCreation(t *testing.T) {
@@ -11,20 +12,16 @@ func TestCharacterCreation(t *testing.T) {
 		Characters: config.CharacterConfig{
 			Classes: map[string]config.ClassStats{
 				"knight": {
-					Might: 18, Intellect: 10, Personality: 12, Endurance: 16,
-					Accuracy: 14, Speed: 13, Luck: 11,
+					Base: stats.StatBonuses{Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11},
 				},
 				"sorcerer": {
-					Might: 8, Intellect: 18, Personality: 16, Endurance: 10,
-					Accuracy: 12, Speed: 14, Luck: 13,
+					Base: stats.StatBonuses{Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13},
 				},
 				"cleric": {
-					Might: 12, Intellect: 14, Personality: 18, Endurance: 14,
-					Accuracy: 13, Speed: 12, Luck: 15,
+					Base: stats.StatBonuses{Might: 12, Intellect: 14, Personality: 18, Endurance: 14, Accuracy: 13, Speed: 12, Luck: 15},
 				},
 				"archer": {
-					Might: 14, Intellect: 12, Personality: 13, Endurance: 12,
-					Accuracy: 18, Speed: 16, Luck: 14,
+					Base: stats.StatBonuses{Might: 14, Intellect: 12, Personality: 13, Endurance: 12, Accuracy: 18, Speed: 16, Luck: 14},
 				},
 			},
 			HitPoints: config.HitPointsConfig{
@@ -138,11 +135,11 @@ func TestCharacterSkills(t *testing.T) {
 		Characters: config.CharacterConfig{
 			Classes: map[string]config.ClassStats{
 				"knight": {
-					Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11,
+					Base:   stats.StatBonuses{Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11},
 					Skills: []string{"sword", "chain", "shield", "bodybuilding"},
 				},
 				"sorcerer": {
-					Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13,
+					Base:   stats.StatBonuses{Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13},
 					Skills: []string{"dagger", "leather", "meditation"},
 					Magic:  []config.ClassMagicEntry{{School: "fire", Spells: []string{"firebolt"}}},
 				},

@@ -247,7 +247,7 @@ func (a *balanceArena) unseal(m *monster.Monster3D) {
 	if m.PassiveUntilQuest == "" || a.g.questManager == nil {
 		return
 	}
-	if q := a.g.questManager.GetQuest(m.PassiveUntilQuest); q == nil || q.Status != quests.QuestStatusCompleted {
+	if q := a.g.questManager.GetQuest(m.PassiveUntilQuest); q == nil || q.Status() != quests.QuestStatusCompleted {
 		_ = a.g.questManager.ActivateQuest(m.PassiveUntilQuest)
 		a.g.questManager.MarkCompleted(m.PassiveUntilQuest)
 	}
@@ -467,7 +467,7 @@ func (a *balanceArena) mostlyMelee() bool {
 		standing++
 		action := m.Equipment[items.SlotQuickAction]
 		_, spell := g.combat.smartOffensiveSpell(m)
-		weapon := lookupWeaponConfigByName(m.Equipment[items.SlotMainHand].Name)
+		weapon := lookupWeaponConfig(m.Equipment[items.SlotMainHand])
 		if spell || action.Type == items.ItemThrowable || action.Type == items.ItemTrap || (weapon != nil && weapon.IsRanged()) {
 			ranged++
 		}

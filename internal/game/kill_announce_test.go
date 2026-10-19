@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	damagecalc "ugataima/internal/damage"
+	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 )
 
@@ -24,17 +25,17 @@ func TestEveryKillIsAnnouncedOnceWithItsExperience(t *testing.T) {
 	}
 	strike := func(attacker *monsterPkg.Monster3D, dmg int) func(g *MMGame, m *monsterPkg.Monster3D) {
 		return func(g *MMGame, m *monsterPkg.Monster3D) {
-			g.combat.strikeMonsterPacketFor(attacker, m, singleMonsterDamagePacket(damagecalc.Parts{True: dmg}, "physical", 0), nil, false, true, false)
+			g.combat.strikeMonsterPacketFor(attacker, m, singleMonsterDamagePacket(damagecalc.Parts{True: dmg}, "physical", 0), nil, false, true, false, false)
 		}
 	}
 	summon := &monsterPkg.Monster3D{ID: "ally", Name: "Wolf", SummonedBy: spellSummonOwnerPrefix + "summon_wolf", HitPoints: 50, MaxHitPoints: 50}
 	hunter := &monsterPkg.Monster3D{ID: "hunter", Name: "Puma", Disposition: monsterPkg.DispositionWildlife, HitPoints: 50, MaxHitPoints: 50}
 	for name, tc := range map[string]row{
-		"weapon blow": {kill: func(g *MMGame, m *monsterPkg.Monster3D) { g.combat.ApplyDamageToMonster(m, 500, "", false) },
+		"weapon blow": {kill: func(g *MMGame, m *monsterPkg.Monster3D) { g.combat.ApplyDamageToMonster(m, 500, items.Item{}, false) },
 			blow: "hits Goblin for", want: "Goblin is slain! +480 XP (120 each)", tone: logToneGood, killed: true},
 		"blow it survives": {kill: func(g *MMGame, m *monsterPkg.Monster3D) {
 			m.HitPoints, m.MaxHitPoints = 10000, 10000
-			g.combat.ApplyDamageToMonster(m, 5, "", false)
+			g.combat.ApplyDamageToMonster(m, 5, items.Item{}, false)
 		}, blow: "hits Goblin for", want: ""},
 		"trap": {kill: func(g *MMGame, m *monsterPkg.Monster3D) {
 			g.combat.applyTrapDamage(m, 500, monsterPkg.DamagePhysical.String(), "Test Trap")
@@ -58,7 +59,7 @@ func TestEveryKillIsAnnouncedOnceWithItsExperience(t *testing.T) {
 			g.world.Monsters = append(g.world.Monsters, &s)
 			return &s
 		}, kill: func(g *MMGame, m *monsterPkg.Monster3D) {
-			g.combat.strikeMonsterPacketFor(g.world.Monsters[0], m, singleMonsterDamagePacket(damagecalc.Parts{True: 500}, "physical", 0), nil, false, true, false)
+			g.combat.strikeMonsterPacketFor(g.world.Monsters[0], m, singleMonsterDamagePacket(damagecalc.Parts{True: 500}, "physical", 0), nil, false, true, false, false)
 		}, blow: "Goblin strikes Wolf", want: "Wolf is slain!", tone: logToneBad, killed: true},
 		"finished twice": {kill: func(g *MMGame, m *monsterPkg.Monster3D) {
 			m.HitPoints = 0

@@ -4212,11 +4212,16 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	r.drawMonsterHeadBadges(screen, s, screenY, v)
 	r.drawAdditionalMonsterStatusFX(screen, s, screenY, v)
 	r.drawMonsterSpellVisuals(screen, s, screenY)
-	if s.monster.Stun.Active() {
-		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
-	}
-	if s.monster.PoisonedFramesRemaining > 0 {
-		r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
+	// Head-anchored glyphs hide behind terrain like the head badges, and each
+	// monster runs its own phase.
+	if r.monsterAnchorVisible(s) {
+		phase := float64(monsterFXSalt(s.monster.ID))
+		if s.monster.Stun.Active() {
+			r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize), phase)
+		}
+		if s.monster.PoisonedFramesRemaining > 0 {
+			r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize), int(phase))
+		}
 	}
 	if s.monster.BurnFramesRemaining > 0 {
 		r.drawMonsterBurnFlames(screen, s)
@@ -4226,10 +4231,10 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 // drawMonsterPoisonBubbles rises a column of small green bubbles past a
 // poisoned monster - the world-space sibling of the character HUD's
 // drawCardPoisonBubbles (ui_hud.go).
-func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY, spriteSize float64) {
+func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY, spriteSize float64, phase int) {
 	r.statusGlyphs.reset()
 	defer r.statusGlyphs.flush(screen)
-	f := int(r.game.frameCount)
+	f := int(r.game.frameCount) + phase
 	const n = 6
 	const period = 72
 	w := spriteSize * 0.5
@@ -4253,7 +4258,7 @@ func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY,
 func (r *Renderer) drawMonsterBurnFlames(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	tile := float64(r.game.config.GetTileSize())
 	maxDepth := monsterFlameMaxDepth(tile)
-	salt := monsterBurnSalt(s.monster.ID)
+	salt := monsterFXSalt(s.monster.ID)
 	rx, ry := -math.Sin(r.game.camera.Angle), math.Cos(r.game.camera.Angle)
 	for i := 0; i < monsterFlameColumns; i++ {
 		off := ((float64(i)+0.5)/float64(monsterFlameColumns) - 0.5) * tile * .5
@@ -4263,8 +4268,15 @@ func (r *Renderer) drawMonsterBurnFlames(screen *ebiten.Image, s UnifiedSpriteRe
 	}
 }
 
-// monsterBurnSalt derives a stable per-monster hash salt from its ID.
-func monsterBurnSalt(id string) int {
+// monsterAnchorVisible: the monster's screen column shows it in front of the
+// terrain - the gate for every glyph anchored on its sprite.
+func (r *Renderer) monsterAnchorVisible(s UnifiedSpriteRenderData) bool {
+	return s.screenX >= 0 && s.screenX < len(r.game.depthBuffer) && s.depthPerp < r.game.depthBuffer[s.screenX]
+}
+
+// monsterFXSalt derives a stable per-monster hash salt from its ID, so status
+// animations run out of step from one monster to the next.
+func monsterFXSalt(id string) int {
 	salt := 31
 	for i := 0; i < len(id); i++ {
 		salt = salt*17 + int(id[i])
@@ -4292,12 +4304,20 @@ func stunStarRingGeometry(proj paniniProjection, centerX, topY, spriteSize float
 // stunned monster - the world-space sibling of the character HUD's
 // drawCardStunStars (ui_hud.go), same visual, anchored over a monster sprite
 // instead of a portrait card.
-func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spriteSize float64) {
+func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spriteSize, phase float64) {
 	r.statusGlyphs.reset()
 	defer r.statusGlyphs.flush(screen)
-	f := float64(r.game.frameCount)
-	cx := centerX
-	cy, rx, ry := stunStarRingGeometry(worldProjectionOf(screen), cx, topY, spriteSize)
+	cy, rx, ry := stunStarRingGeometry(worldProjectionOf(screen), centerX, topY, spriteSize)
+	stunStarGlyphs(float64(r.game.frameCount)+phase, centerX, cy, rx, ry, spriteSize*0.02, spriteSize*0.03,
+		r.statusGlyphs.line, r.statusGlyphs.circle)
+}
+
+// stunStarGlyphs is the dazed ring the portrait card and the world share:
+// five four-point stars orbit the ellipse at time f, each twinkling on its
+// own phase with a faint diagonal sparkle. line and dot draw in the caller's
+// primitives.
+func stunStarGlyphs(f, cx, cy, rx, ry, armBase, armTwinkle float64,
+	line func(x0, y0, x1, y1, width float64, c color.RGBA), dot func(x, y, radius float64, c color.RGBA)) {
 	const n = 5
 	for k := 0; k < n; k++ {
 		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)
@@ -4305,22 +4325,21 @@ func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spr
 		sy := cy + math.Sin(ang)*ry
 		tw := 0.5 + 0.5*math.Sin(f*0.25+float64(k)*1.7) // twinkle
 		a := uint8(120 + 135*tw)
-		arm := spriteSize*0.02 + spriteSize*0.03*tw
+		arm := armBase + armTwinkle*tw
 		col := color.RGBA{255, 240, 120, a}
-		r.statusGlyphs.line(sx-arm, sy, sx+arm, sy, 1.5, col)
-		r.statusGlyphs.line(sx, sy-arm, sx, sy+arm, 1.5, col)
+		line(sx-arm, sy, sx+arm, sy, 1.5, col)
+		line(sx, sy-arm, sx, sy+arm, 1.5, col)
 		d := arm * 0.6
 		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
-		r.statusGlyphs.line(sx-d, sy-d, sx+d, sy+d, 1, spark)
-		r.statusGlyphs.line(sx-d, sy+d, sx+d, sy-d, 1, spark)
-		r.statusGlyphs.circle(sx, sy, 1.2, color.RGBA{255, 255, 230, a})
+		line(sx-d, sy-d, sx+d, sy+d, 1, spark)
+		line(sx-d, sy+d, sx+d, sy-d, 1, spark)
+		dot(sx, sy, 1.2, color.RGBA{255, 255, 230, a})
 	}
 }
 
 // drawUnifiedNPCSprite draws an NPC sprite from unified data
 func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	drawLeft := s.screenX - s.spriteSize/2
-	sprite, frameW, frameH := r.selectNPCIdleSpriteFrame(s.sprite, r.game.frameCount)
+	sprite, _, _ := r.selectNPCIdleSpriteFrame(s.sprite, r.game.frameCount)
 	// One source of truth for how this NPC renders (shared with the map editor).
 	cat := npcRenderCatOf(s.npc)
 	npcName := r.game.activityNPCSprite(s.npc)
@@ -4331,11 +4350,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	}
 
 	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
-	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
-	br := float32(brightness)
+	br := float32(r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance))
 
 	// Hover cue on clickable NPCs. Same hit-test as the click path, so
 	// wall-mounted standees highlight where they are actually drawn, not at
@@ -4519,39 +4534,27 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 	}
 
-	scaleX := float64(s.spriteSize) / float64(frameW)
-	scaleY := float64(s.spriteSize) / float64(frameH)
-
 	// Billboard: the flat silhouette edge glow matches the flat draw exactly.
 	// Drawn FIRST, so the opaque sprite covers the interior and only the rim
 	// protruding past the silhouette stays visible.
+	left, top := s.screenXF-s.sizeF/2, s.bottomF-s.sizeF
 	if hovered {
-		r.drawSpriteEdgeGlow(screen, sprite, drawLeft, s.screenY, scaleX, scaleY, s.spriteSize)
+		r.drawSpriteEdgeGlow(screen, sprite, left, top, s.sizeF)
 	}
-
-	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
-	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
-
-	opts.ColorScale.Scale(br, br, br, 1.0)
-	opts.Blend = ebiten.BlendSourceOver
-
-	worldDrawImage(screen, sprite, opts)
-	r.drawBillboardCrystalShimmer(screen, s.npc, sprite, float64(drawLeft), float64(s.screenY), float64(s.spriteSize))
+	r.drawTintedSpriteF(screen, sprite, left, top, s.sizeF, br, br, br, 1.0)
+	r.drawBillboardCrystalShimmer(screen, s.npc, sprite, left, top, s.sizeF)
 }
 
 // drawSpriteEdgeGlow outlines a billboard sprite with a soft warm halo: the
 // sprite's own silhouette re-drawn additively at eight small offsets, so the
 // glow hugs the edge instead of washing over the body.
-func (r *Renderer) drawSpriteEdgeGlow(screen, sprite *ebiten.Image, drawLeft, drawTop int, scaleX, scaleY float64, spriteSize int) {
-	off := spriteSize / 40
-	if off < 2 {
-		off = 2
-	}
-	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
-	opts.GeoM.Translate(float64(drawLeft), float64(drawTop))
+func (r *Renderer) drawSpriteEdgeGlow(screen, sprite *ebiten.Image, left, top, size float64) {
+	b := sprite.Bounds()
+	opts := r.scaledWorldSpriteOpts(size/float64(b.Dx()), size/float64(b.Dy()))
+	opts.GeoM.Translate(left, top)
 	opts.ColorScale.Scale(1.0, 0.85, 0.45, 0.10)
 	opts.Blend = additiveGlowBlend
-	graphics.DrawImageEdgeGlow(screen, sprite, opts, float64(off))
+	graphics.DrawImageEdgeGlow(screen, sprite, opts, math.Max(2, math.Floor(size/40)))
 }
 
 // animationFrames returns the cached per-frame SubImages of a w==h*4 sheet;

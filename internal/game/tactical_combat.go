@@ -69,7 +69,7 @@ func (g *MMGame) overwatchReady(ch *character.MMCharacter) bool {
 		return false
 	}
 	weapon, ok := ch.Equipment[items.SlotMainHand]
-	return ok && character.BallisticsWeapon(lookupWeaponConfigByName(weapon.Name)) && g.combat != nil && !g.combat.partyInsideSolidTerrain()
+	return ok && character.BallisticsWeapon(lookupWeaponConfig(weapon)) && g.combat != nil && !g.combat.partyInsideSolidTerrain()
 }
 
 // observeOverwatchMovement runs only after serial publication of an AI walk.
@@ -123,7 +123,7 @@ func (g *MMGame) tryOverwatchReaction(m *monster.Monster3D, chanceScale float64)
 		if !g.overwatchReady(ch) {
 			continue
 		}
-		def := lookupWeaponConfigByName(ch.Equipment[items.SlotMainHand].Name)
+		def := lookupWeaponConfig(ch.Equipment[items.SlotMainHand])
 		reach, _ := character.EffectiveWeaponFlight(def, ch)
 		x, y := g.combat.logicalCameraXY()
 		if Distance(x, y, m.X, m.Y) > reach*float64(g.config.GetTileSize()) || !g.combat.attackLineClear(x, y, m.X, m.Y) {

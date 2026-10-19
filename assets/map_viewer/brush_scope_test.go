@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gopkg.in/yaml.v3"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
+
+	"gopkg.in/yaml.v3"
 )
 
 func brushScopeViewer(t *testing.T) *viewer {

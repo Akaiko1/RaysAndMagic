@@ -52,7 +52,7 @@ func TestFlyingPartyAttackOrigins(t *testing.T) {
 					case "spell":
 						acted = g.combat.CastEquippedSpell()
 					case "heal":
-						acted = g.combat.CastEquippedHealOnTarget(1)
+						acted = g.combat.CastEquippedHeal()
 					case "mouse":
 						fp.press()
 						tick()

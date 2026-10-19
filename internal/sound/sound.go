@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"ugataima/internal/damage"
+	"ugataima/internal/strictyaml"
 
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/audio/vorbis"
-	"gopkg.in/yaml.v3"
 )
 
 // Catalog is the data-driven sound registry. Game code refers only to the
@@ -98,16 +98,13 @@ func LoadCatalog(path string) (_ *Catalog, err error) {
 		}
 	}()
 
-	f, err := os.Open(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open sound catalog: %w", err)
 	}
-	defer f.Close()
 
 	var catalog Catalog
-	decoder := yaml.NewDecoder(f)
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&catalog); err != nil {
+	if err := strictyaml.Decode(raw, &catalog); err != nil {
 		return nil, &CatalogContractError{err: fmt.Errorf("decode sound catalog: %w", err)}
 	}
 	if err := validateCatalog(&catalog); err != nil {

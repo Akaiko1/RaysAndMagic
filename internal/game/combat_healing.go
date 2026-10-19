@@ -1,10 +1,11 @@
 package game
 
 import (
-	"fmt"
 	"slices"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 )
@@ -36,8 +37,7 @@ func (cs *CombatSystem) healMember(idx, amount int) {
 func (cs *CombatSystem) healWholeParty(amount int) int {
 	healed := 0
 	for i, m := range cs.game.party.Members {
-		if m == nil || m.HitPoints <= 0 ||
-			m.HasCondition(character.ConditionDead) || m.HasCondition(character.ConditionEradicated) {
+		if !m.IsLiving() {
 			continue
 		}
 		cs.healMember(i, amount)
@@ -46,7 +46,9 @@ func (cs *CombatSystem) healWholeParty(amount int) int {
 	return healed
 }
 
-func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
+// CastEquippedHeal casts the slotted heal (F) on the pointed hero, else the
+// selected one (castKnownHealOn's fallback).
+func (cs *CombatSystem) CastEquippedHeal() bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Stunned characters cannot cast heals either.
@@ -68,9 +70,23 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	if err != nil {
 		return false
 	}
-	// SP gate, target resolution (self-only heals redirect to the caster),
-	// 0-HP refusal, cost and messages all live in the ONE heal cast path.
-	return cs.castKnownHealOn(spellID, def, targetIndex)
+	// SP gate, 0-HP refusal, cost and messages all live in the ONE heal cast path.
+	return cs.castKnownHealOn(spellID, def, cs.pointedHealTarget(def, cs.game.heroUnderCursor()))
+}
+
+// pointedHealTarget is the hero a heal cast by hand mends when one is pointed
+// at: the caster for a self-only heal, else hovered (the hero under the
+// cursor); -1 for none. Unpointed, F and C heal the selected hero and the
+// book and quick bar the most wounded; Space and a smart click always take
+// the most wounded (smartHealPlan).
+func (cs *CombatSystem) pointedHealTarget(def spells.SpellDefinition, hovered *character.MMCharacter) int {
+	if def.TargetSelf {
+		return cs.game.selectedChar
+	}
+	if i := cs.findCharacterIndex(hovered); hovered != nil && i >= 0 {
+		return i
+	}
+	return -1
 }
 
 // healReach is a heal's place in the triage chain: a heal that mends every
@@ -86,7 +102,7 @@ const (
 
 func healReachOf(def spells.SpellDefinition) healReach {
 	switch {
-	case def.Mechanic != nil && def.Mechanic.Kind == "shared_life":
+	case def.Mechanic != nil && def.Mechanic.Kind == config.MechanicSharedLife:
 		return healReachPool
 	case def.HealParty:
 		return healReachParty
@@ -144,17 +160,12 @@ func knownHealChain(caster *character.MMCharacter) []spells.SpellDefinition {
 	return chain
 }
 
-// healCastableNow: not under its personal reuse lockout, and payable.
-func (cs *CombatSystem) healCastableNow(caster *character.MMCharacter, def spells.SpellDefinition) bool {
-	return caster.SpellState.Reusable(string(def.ID)) && caster.SpellPoints >= caster.MeditatedSPCost(def.SpellPointsCost)
-}
-
 // bestKnownHealSpell returns the first heal of the caster's chain it can cast
 // now; a heal under its reuse lockout or past the purse hands over to the
 // next. False if none.
 func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spells.SpellID, bool) {
 	for _, def := range knownHealChain(caster) {
-		if cs.healCastableNow(caster, def) {
+		if cs.spellCastableNow(caster, def, caster.MeditatedSPCost(def.SpellPointsCost)) {
 			return def.ID, true
 		}
 	}
@@ -162,11 +173,10 @@ func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spell
 }
 
 // CastBestHealOnTarget casts the first castable heal of the selected
-// character's chain (see bestKnownHealSpell) - bound to the C key. Party heals hit everyone; self-only heals (e.g.
-// First Aid) ignore the requested target and heal the caster; other heals use
-// targetIndex (resolved from the mouse by the caller). Returns whether a heal
-// fired plus the spell used (for the real-time cooldown).
-func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.SpellID) {
+// character's chain (see bestKnownHealSpell) - bound to the C key - on
+// recipient, resolved at the key press (healRecipient). Returns whether a
+// heal fired plus the spell used (for the real-time cooldown).
+func (cs *CombatSystem) CastBestHealOnTarget(recipient *character.MMCharacter) (bool, spells.SpellID) {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 	if !caster.CanUseCombatAction() {
 		return false, ""
@@ -181,7 +191,7 @@ func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.Spel
 	if err != nil {
 		return false, ""
 	}
-	if cs.castKnownHealOn(spellID, def, targetIndex) {
+	if cs.castKnownHealOn(spellID, def, cs.pointedHealTarget(def, recipient)) {
 		return true, spellID
 	}
 	return false, ""
@@ -204,8 +214,7 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 		// Party heal: restore everyone, ignore the single target.
 		if def.HealParty {
 			n := cs.healWholeParty(healAmount)
-			cs.game.logCombat(logToneGood, "%s casts %s, healing %d allies for %s HP!",
-				logHeroName(caster), logKeyword("heal", def.Name), n, logHealed(healAmount))
+			cs.game.logCombatLine(logToneGood, uitext.Text("combat.casts_healing_allies_for_hp", logSlot, logSlot, n, logSlot), logHeroName(caster), logKeyword("heal", def.Name), logHealed(healAmount))
 			return castCommitted
 		}
 
@@ -218,15 +227,15 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 		}
 		target := cs.game.party.Members[targetIndex]
 		if !target.IsLiving() {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
+			cs.game.AddCombatMessage(uitext.Text("combat.cannot_be_healed_from_0_hp", target.Name))
 			return castRejected
 		}
 
 		cs.healMember(targetIndex, healAmount)
 		if targetIndex == cs.game.selectedChar {
-			cs.game.logCombat(logToneGood, "%s heals themselves for %s HP with %s!", logHeroName(caster), logHealed(healAmount), logKeyword("heal", def.Name))
+			cs.game.logCombatLine(logToneGood, uitext.Text("combat.heals_themselves_for_hp_with", logSlot, logSlot, logSlot), logHeroName(caster), logHealed(healAmount), logKeyword("heal", def.Name))
 		} else {
-			cs.game.logCombat(logToneGood, "%s heals %s for %s HP with %s!", logHeroName(caster), logHeroName(target), logHealed(healAmount), logKeyword("heal", def.Name))
+			cs.game.logCombatLine(logToneGood, uitext.Text("combat.heals_for_hp_with", logSlot, logSlot, logSlot, logSlot), logHeroName(caster), logHeroName(target), logHealed(healAmount), logKeyword("heal", def.Name))
 		}
 		return castCommitted
 	})

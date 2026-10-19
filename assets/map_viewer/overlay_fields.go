@@ -143,7 +143,7 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 	effects, controls, lanes := []string{}, []string{""}, []string{}
 	for _, e := range a.Effects {
 		effects = append(effects, e.ID)
-		if e.Kind == "lane" {
+		if e.Kind == config.EffectLane {
 			lanes = append(lanes, e.ID)
 		}
 	}
@@ -174,27 +174,27 @@ func (v *viewer) overlayFields(d *overlayDocument) []overlayField {
 			return nil
 		}
 		e := &a.Effects[p.selected]
-		fields = append(fields, overlayField{label: "ID", value: e.ID, help: "Renaming also updates links in this map.", apply: func(s string) error { return d.renameID("effect", p.selected, s) }}, overlayString("Name", &e.Name, "Shown in combat messages."), overlayField{label: "Behavior", value: e.Kind, help: "trap: hits once on entry. occupation: damages every second while standing in it. transfer: moves the party to a receiver tile. lane: a boss attack announced before it strikes.", choices: []string{"trap", "occupation", "transfer", "lane"}, apply: func(s string) error { return d.changeKind(p.selected, s) }})
+		fields = append(fields, overlayField{label: "ID", value: e.ID, help: "Renaming also updates links in this map.", apply: func(s string) error { return d.renameID("effect", p.selected, s) }}, overlayString("Name", &e.Name, "Shown in combat messages."), overlayField{label: "Behavior", value: string(e.Kind), help: "trap: hits once on entry. occupation: damages every second while standing in it. transfer: moves the party to a receiver tile. lane: a boss attack announced before it strikes.", choices: config.KindNames(config.EffectKinds), apply: func(s string) error { return d.changeKind(p.selected, config.EffectKind(s)) }})
 		fields = append(fields, overlayHeading("Area"))
 		box(&e.Rect)
 		fields = append(fields, overlayAction("Redraw area", "Drag a new rectangle on the map.", func() { p.tool = "redraw" }))
 		fields = append(fields, overlayHeading("Behavior"))
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			fields = append(fields, overlayInt("Receiver column", &e.Destination[0], "Destination must be walkable and outside the source."), overlayInt("Receiver row", &e.Destination[1], "Destination must be safe."), overlayAction("Pick receiver on map", "Click the destination tile.", func() { p.tool = "receiver" }), overlayString("Fires with lane", &e.TriggerLane, "Optional: wait until this boss lane fires.", append([]string{""}, lanes...)...), overlayString("Tile colour", &e.School, "Colours the transfer tiles by school. No damage.", "", "physical", "fire", "water", "earth", "air"))
 		} else {
 			fields = append(fields, overlayExclusiveInt("Damage", &e.Damage, &e.DamagePercent, "Per entry for traps, per strike for lanes, per second for occupation. Setting it clears the percent."), overlayExclusiveInt("Damage (% of boss attack)", &e.DamagePercent, &e.Damage, "Instead of Damage: a percent of the boss's attack at the visit's level, so it grows with the chamber."), overlayString("Damage school", &e.School, "Resistance used against the damage.", "physical", "fire", "water", "earth", "air"), overlayString("Second school", &e.SecondarySchool, "Optional: split the damage equally between two schools.", "", "physical", "fire", "water", "earth", "air"))
 		}
-		if e.Kind == "lane" {
+		if e.Kind == config.EffectLane {
 			fields = append(fields, overlayExclusiveInt("Lingering damage per second", &e.SustainDamage, &e.SustainPercent, "Damage per second on the struck tiles afterwards. 0: only the strike hurts."), overlayExclusiveInt("Lingering damage (% of boss attack)", &e.SustainPercent, &e.SustainDamage, "Instead of the flat lingering damage: a percent of the boss's attack per second."), overlayInt("Lingering time (seconds)", &e.DurationSeconds, "Lifetime of the lingering field: whole 3 s rounds, the same span in turn-based play."))
 		}
-		if e.Kind == "lane" || e.BossBelowPercent > 0 {
+		if e.Kind == config.EffectLane || e.BossBelowPercent > 0 {
 			help := "Time between the announcement and the strike, to leave the marked tiles."
-			if e.Kind != "lane" {
+			if e.Kind != config.EffectLane {
 				help = "Charge time after the boss falls below the HP threshold, before the effect starts."
 			}
 			fields = append(fields, overlayFloat("Warning (seconds)", &e.WarningSeconds, help), overlayInt("Warning (rounds)", &e.WarningRounds, "Turn-based warning. "+help))
 		}
-		if e.Kind == "trap" {
+		if e.Kind == config.EffectTrap {
 			fields = append(fields, overlayFloat("Rearm (seconds)", &e.RearmSeconds, "Delay before it can hit again on re-entry."), overlayInt("Rearm (rounds)", &e.RearmRounds, "Turn-based rearm delay."))
 		}
 		threshold := overlayInt("Starts at boss HP (%)", &e.BossBelowPercent, "0: always active. Otherwise it charges once the boss is at or below this HP, then starts after its warning.")

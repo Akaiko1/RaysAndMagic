@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"sort"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/arena"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -49,7 +50,7 @@ func (g *MMGame) creditArenaDuelWin(m *monster.Monster3D) {
 		if q.Completed {
 			continue
 		}
-		g.AddCombatMessage(fmt.Sprintf("The bout goes on your record. (%s)", q.GetProgressString()))
+		g.AddCombatMessage(uitext.Text("combat.the_bout_goes_on_your_record", q.GetProgressString()))
 	}
 	for _, q := range completed {
 		g.announceQuestCompletion(q)
@@ -198,13 +199,13 @@ func (cs *CombatSystem) applyChampionHandRiders(m *monster.Monster3D, ch *charac
 // championSwingDamage is the ONE champion hit formula: stamp the striking
 // weapon's riders, then roll damage through the character pipeline (weapon +
 // effective stats + crit). Every champion attack path funnels through it.
-func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.MMCharacter, weapon items.Item) (*config.WeaponDefinitionConfig, int) {
+func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.MMCharacter, weapon items.Item) (*config.WeaponDefinitionConfig, int, bool) {
 	// An empty hand is legal (the slot lookup yields a zero Item): swing
 	// unarmed with no weapon def instead of warning about weapon ''. A
 	// non-empty name that fails the lookup still warns - that IS a content bug.
 	var wd *config.WeaponDefinitionConfig
 	if weapon.Name != "" {
-		wd = lookupWeaponConfigByName(weapon.Name)
+		wd = lookupWeaponConfig(weapon)
 	}
 	cs.applyChampionHandRiders(m, ch, wd)
 	_, _, total := cs.CalculateWeaponDamage(weapon, ch)
@@ -214,7 +215,7 @@ func (cs *CombatSystem) championSwingDamage(m *monster.Monster3D, ch *character.
 	if total < 1 {
 		total = 1
 	}
-	return wd, total
+	return wd, total, crit
 }
 
 // championAlternatingStrike is the TURN-BASED melee entry: strict hand
@@ -245,8 +246,10 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 		return false
 	}
 	cs.game.playMonsterSound(soundMonsterMeleeSwing, m)
-	wd, dmg := cs.championSwingDamage(m, ch, championHandWeapon(ch, offHand))
-	return cs.applyChampionMeleeSwingToParty(m, wd, championMeleeHit(m, wd, dmg))
+	wd, dmg, crit := cs.championSwingDamage(m, ch, championHandWeapon(ch, offHand))
+	hit := championMeleeHit(m, wd, dmg)
+	hit.Critical = crit
+	return cs.applyChampionMeleeSwingToParty(m, wd, hit)
 }
 
 func championMeleeHit(m *monster.Monster3D, wd *config.WeaponDefinitionConfig, damage int) monsterCharacterHit {
@@ -276,7 +279,7 @@ func (cs *CombatSystem) applyChampionMeleeSwingToParty(m *monster.Monster3D, wd 
 		return false
 	}
 	if wd != nil && wd.AoeRadiusTiles > 0 {
-		cs.game.logCombat(logToneBad, "%s's %s engulfs the whole party!", logMonsterName(m), logAbility("sweep"))
+		cs.game.logCombatLine(logToneBad, uitext.Text("combat.s_engulfs_the_whole_party", logSlot, logSlot), logMonsterName(m), logAbility("sweep"))
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 			cs.monsterHitCharacter(m, member, m.Name, hit)
 		})
@@ -317,8 +320,9 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 	}
 	cs.game.playMonsterSound(soundMonsterMeleeSwing, m)
 	weapon := championHandWeapon(ch, offHand)
-	wd, dmg := cs.championSwingDamage(m, ch, weapon)
+	wd, dmg, crit := cs.championSwingDamage(m, ch, weapon)
 	hit := championMeleeHit(m, wd, dmg)
+	hit.Critical = crit
 	packet := singleMonsterDamagePacket(hit.Parts, hit.DamageType, 0)
 	ts := float64(cs.game.config.GetTileSize())
 	facing := math.Atan2(foe.Y-m.Y, foe.X-m.X)
@@ -329,7 +333,7 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 		// action) the party if it stands in the same blast.
 		blast := cs.pointBlast(m.X, m.Y, wd.AoeRadiusTiles)
 		cs.forEachAreaVictim(blast, func(o *monster.Monster3D) bool { return o.Bound }, func(o *monster.Monster3D) {
-			cs.strikeMonsterPacketFor(m, o, packet, wd, false, hit.GrazesDodge, false)
+			cs.strikeMonsterPacketFor(m, o, packet, wd, false, hit.GrazesDodge, false, hit.Critical)
 		})
 		partyCaught = cs.reachesParty(blast)
 	} else {
@@ -395,7 +399,8 @@ func (cs *CombatSystem) championOffHandCooldownFrames(m *monster.Monster3D, ch *
 // independent hand cooldowns it has against the party. A fixed crossfire
 // cadence would throttle Weapon Master to one main-hand swing per second and
 // silently disable his off hand against summons.
-func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) bool {
+// It reports whether it struck - a hand on cooldown spends nothing.
+func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) (struck bool) {
 	ch := cs.game.championTemplateFor(m)
 	if ch == nil {
 		return false
@@ -405,11 +410,11 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 			m.AttackCDFrames = m.AttackCooldownFrames()
 			cs.game.armMonsterAttackAnimation(m)
 			cs.performMonsterAttackAgainstMonster(m, foe, ProjectileOwnerMonsterAtActor)
+			return true
 		}
-		return true
+		return false
 	}
 
-	struck := false
 	if m.AttackCDFrames == 0 {
 		m.AttackCDFrames = m.AttackCooldownFrames()
 		if !cs.tryMonsterAttackSpecial(m, monsterAttackDestination{foe: foe}) {
@@ -425,25 +430,26 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) boo
 	if struck {
 		cs.game.armMonsterAttackAnimation(m)
 	}
-	return true
+	return struck
 }
 
 // monsterAttackDamage is the ONE damage source for every monster attack site
+// (and whether a champion's roll crit)
 // (projectiles, breath, piercing, monster-vs-monster; champion MELEE resolves
 // through championMeleeStrike instead, which also picks the hand). Champions
 // roll through championSwingDamage with their main hand (the ranged weapon);
 // plain monsters keep their authored damage band.
-func (cs *CombatSystem) monsterAttackDamage(m *monster.Monster3D) int {
+func (cs *CombatSystem) monsterAttackDamage(m *monster.Monster3D) (int, bool) {
 	// Weaken is NOT applied here: hitFromMonster owns it for every direct hit,
 	// while projectile constructors snapshot it when the shot is committed.
 	// Applying it here as well would double-dip.
 	if m != nil && m.IsChampion() && cs.game != nil {
 		if ch := cs.game.championTemplateFor(m); ch != nil {
-			_, total := cs.championSwingDamage(m, ch, championHandWeapon(ch, false))
-			return total
+			_, total, crit := cs.championSwingDamage(m, ch, championHandWeapon(ch, false))
+			return total, crit
 		}
 	}
-	return m.GetAttackDamage()
+	return m.GetAttackDamage(), false
 }
 
 // championRTDualStrike runs a melee champion's REAL-TIME attack moment with
@@ -453,13 +459,14 @@ func (cs *CombatSystem) monsterAttackDamage(m *monster.Monster3D) int {
 // (StateTimer==1, AttackCDFrames gate); the off hand fires whenever ITS
 // cooldown has elapsed while the champion is in contact, independent of the
 // state-machine tick - so a fast off-hand weapon genuinely swings faster.
-// Returns whether this call handled the champion's attack logic.
-func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bool) bool {
+// handled: this call owned the champion's attack moment (a champion
+// template exists); struck: a hand actually swung - only that spends the
+// attack (a jam's lock, the action's reactions).
+func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bool) (handled, struck bool) {
 	ch := cs.game.championTemplateFor(m)
 	if ch == nil {
-		return false
+		return false, false
 	}
-	struck := false
 	if attackTick && m.AttackCDFrames == 0 {
 		m.AttackCDFrames = m.AttackCooldownFrames()
 		if !cs.tryMonsterAttackSpecial(m, monsterAttackDestination{}) {
@@ -475,7 +482,7 @@ func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bo
 	if struck {
 		cs.game.armMonsterAttackAnimation(m)
 	}
-	return true
+	return true, struck
 }
 
 // stampChampionProjectileRiders re-arms a champion's on-hit riders from the
@@ -526,7 +533,7 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 	}
 
 	weapon := championHandWeapon(ch, false)
-	wd, _, found := config.GetWeaponDefinitionByName(weapon.Name)
+	wd, _, found := config.WeaponDefOf(weapon)
 	if found && wd != nil {
 		cs.applyChampionHandRiders(m, ch, wd) // main-hand defaults until the first swing re-arms
 		if wd.Range > 0 {
@@ -545,7 +552,7 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 	// Ranged champions loose their MAIN-HAND weapon as a projectile; range then
 	// comes from the weapon's own physics (GetAttackRangePixels), like the party.
 	if def := config.GetChampionDefinition(m.ChampionKey); def != nil && def.Ranged {
-		if _, key, ok := config.GetWeaponDefinitionByName(weapon.Name); ok {
+		if _, key, ok := config.WeaponDefOf(weapon); ok {
 			m.ProjectileWeapon = key
 			m.RangedAttackRange = 0
 		}
@@ -576,7 +583,7 @@ func (cs *CombatSystem) recordChampionVictory(m *monster.Monster3D) {
 		return
 	}
 	cs.game.awardArenaPoints(tier.ArenaPoints)
-	cs.game.logCombat(logToneReward, "The crowd roars: %s.", logColored(fmt.Sprintf("+%d arena points", tier.ArenaPoints), combatMessageGold))
+	cs.game.logCombatLine(logToneReward, uitext.Text("combat.the_crowd_roars", logSlot), logColored(fmt.Sprintf("+%d arena points", tier.ArenaPoints), combatMessageGold))
 
 	members := make([]arena.Member, 0, len(cs.game.party.Members))
 	for _, mem := range cs.game.party.Members {
@@ -585,7 +592,7 @@ func (cs *CombatSystem) recordChampionVictory(m *monster.Monster3D) {
 		}
 	}
 	if !arena.RecordVictory(cs.game.playthroughID, members, m.Name, tierName, tier.ArenaPoints, cs.game.dayNightDay) {
-		cs.game.AddCombatMessage("The board already honors this day's victory.")
+		cs.game.AddCombatMessage(uitext.Text("combat.the_board_already_honors_this_day"))
 	}
 	cs.game.arenaBoardStale = true
 	// A bout on the record is a bout for the quest: credited HERE, beside the
@@ -695,22 +702,22 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	g.closeConversation()
 
 	if g.livingChampion() != nil {
-		g.AddCombatMessage("A duel is already underway - finish it first!")
+		g.AddCombatMessage(uitext.Text("combat.a_duel_is_already_underway_finish"))
 		return
 	}
 	tier := config.GetChampionTier(choice.Tier)
 	if choice.Tier == "" || tier == nil {
-		g.AddCombatMessage("There is no duelling ground here.")
+		g.AddCombatMessage(uitext.Text("combat.there_is_no_duelling_ground_here"))
 		return
 	}
 	if g.arenaTierSpentToday(choice.Tier) {
-		g.AddCombatMessage("That challenge is spent for now - return after the next dawn or dusk.")
+		g.AddCombatMessage(uitext.Text("combat.that_challenge_is_spent_for_now"))
 		return
 	}
 
 	wm := world.GlobalWorldManager
 	if wm == nil {
-		g.AddCombatMessage("There is no duelling ground here.")
+		g.AddCombatMessage(uitext.Text("combat.there_is_no_duelling_ground_here"))
 		return
 	}
 	mc := wm.MapConfigs[wm.CurrentMapKey]
@@ -718,7 +725,7 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	if mc == nil || mc.Duel == nil || monsterKey == "" {
 		// Content bug (champion builds are validated at boot; the duel block is
 		// per-map and only checkable here) - surface it instead of a silent no-op.
-		g.AddCombatMessage("There is no duelling ground here.")
+		g.AddCombatMessage(uitext.Text("combat.there_is_no_duelling_ground_here"))
 		return
 	}
 
@@ -742,7 +749,7 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	m.WasAttacked = true // engage immediately: the duel starts now
 	m.BeginPlayerEngagement()
 	g.registerSpawnedMonster(m)
-	g.logCombat(logToneBad, "%s (%s) steps onto the sand. The portcullises slam down!", logMonsterName(m), choice.Tier)
+	g.logCombatLine(logToneBad, uitext.Text("combat.steps_onto_the_sand_the_portcullises", logSlot, choice.Tier), logMonsterName(m))
 }
 
 // championSpellPool resolves a champion's castable pool: every non-utility
@@ -874,7 +881,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 	case def.IncomingDamageReduction > 0:
 		frames, rounds := config.EffectClock(cs.CalculateSpellDurationSeconds(spellID, ch), cs.game.config.GetTPS())
 		m.ApplySoak(scaledIncomingDamageReduction(def, ch), frames, rounds)
-		cs.game.logCombat(logToneBad, "%s's skin hardens to %s!", logMonsterName(m), logKeyword("defense", "stone"))
+		cs.game.logCombatLine(logToneBad, uitext.Text("combat.s_skin_hardens_to", logSlot, logSlot), logMonsterName(m), logKeyword("defense", "stone"))
 
 	case def.StunRadiusTiles > 0:
 		if target.foe == nil && !m.IsPartyControlled() {
@@ -897,7 +904,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			return
 		}
 		if Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) > radius {
-			cs.game.logCombat(logToneNone, "The shockwave dissipates short of the party.")
+			cs.game.logCombatLine(logToneNone, uitext.Text("combat.the_shockwave_dissipates_short_of_the"))
 			return
 		}
 		stunned := 0
@@ -907,20 +914,21 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			}
 		})
 		if stunned == 0 {
-			cs.game.logCombat(logToneGood, "The party resists the shockwave's %s!", logKeyword("control", "stun"))
+			cs.game.logCombatLine(logToneGood, uitext.Text("combat.the_party_resists_the_shockwave_s", logSlot), logKeyword("control", "stun"))
 			return
 		}
-		cs.game.logCombat(logToneBad, "The shockwave %s %d hero(es)!", logKeyword("control", "stuns"), stunned)
+		cs.game.logCombatLine(logToneBad, uitext.Text("combat.the_shockwave_hero_es", logSlot, stunned), logKeyword("control", "stuns"))
 
 	default:
 		_, _, total := cs.CalculateSpellDamage(spellID, ch)
 		parts := cs.spellDamageParts(spellID, ch, total)
+		crit := false
 		if chance := cs.game.bossMechanicValue(m, "critical_chance", -1); chance >= 0 {
-			if rand.Intn(100) < chance {
+			if crit = rand.Intn(100) < chance; crit {
 				parts = spellCriticalParts(parts)
 			}
 		} else {
-			parts, _ = cs.rollSpellCritParts(spellID, ch, parts)
+			parts, crit = cs.rollSpellCritParts(spellID, ch, parts)
 		}
 		// Champion spells use the spell's own damage packet. Weapon mastery true
 		// damage and the dodge graze belong only to weapon strikes.
@@ -933,6 +941,7 @@ func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MM
 			owner,
 			parts,
 			false,
+			crit,
 		)
 	}
 }

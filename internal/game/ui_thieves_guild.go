@@ -92,7 +92,6 @@ func (ui *UISystem) drawGuildMiniature(dst *ebiten.Image, name string, r layoutR
 }
 
 func (ui *UISystem) drawGuildButton(dst *ebiten.Image, r layoutRect, label string, enabled bool, action func()) {
-	g := ui.game
 	live := ui.topModalLayer() == modalLayerDialog
 	mx, my := uiCursorPosition()
 	ui.drawButtonFrame(dst, r.x, r.y, r.w, r.h, live && enabled && isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom()))
@@ -100,11 +99,7 @@ func (ui *UISystem) drawGuildButton(dst *ebiten.Image, r layoutRect, label strin
 	if !enabled {
 		drawFilledRect(dst, r.x+1, r.y+1, r.w-2, r.h-2, color.RGBA{0, 0, 0, 100})
 	}
-	ui.onDisplayedInput(uiCommandClick, r, func() {
-		if live && enabled && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			action()
-		}
-	})
+	ui.onClick(r, live && enabled, action)
 }
 
 func (ui *UISystem) drawThievesGuildDialog(dst *ebiten.Image, panel layoutRect) {
@@ -149,16 +144,8 @@ func (ui *UISystem) drawThievesGuildDialog(dst *ebiten.Image, panel layoutRect) 
 				return
 			}
 			_, wheel := pointerWheel()
-			delta := int(wheel * 48)
-			if delta == 0 && wheel != 0 {
-				if wheel > 0 {
-					delta = 1
-				} else {
-					delta = -1
-				}
-			}
-			if delta != 0 {
-				g.setGuildScroll(offset - delta)
+			if delta := wheelScrollPixels(wheel, 48); delta != 0 {
+				g.setGuildScroll(offset + delta)
 			}
 		})
 	}

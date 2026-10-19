@@ -218,7 +218,6 @@ func (r *Renderer) collectPropModels() {
 			continue
 		}
 		brightness := r.calculateBrightnessWithTorchLight(npc.X, npc.Y, dist)
-		brightness = math.Max(g.config.Graphics.BrightnessMin, brightness)
 		if dist <= InteractionDistance && g.worldClickAllowed() {
 			x, y := g.worldCursorPosition()
 			if g.propModelHitTest(npc, x, y) {

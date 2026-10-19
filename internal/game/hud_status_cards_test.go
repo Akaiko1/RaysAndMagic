@@ -269,3 +269,23 @@ func TestBuffStatusCardFollowsTheCastersMastery(t *testing.T) {
 		}
 	}
 }
+
+// A monster's dispel names what it strips the way the status rail does: a
+// draught by its item name, not its key.
+func TestMonsterDispelNamesNonSpellBuffs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	def, _ := config.GetItemDefinition("flame_ward_draught")
+	g.party.Inventory = []items.Item{items.CreateItemFromYAML("flame_ward_draught")}
+	if !g.UseConsumableFromInventory(0, 0) {
+		t.Fatal("draught not consumed")
+	}
+	hero := g.party.Members[0]
+	hero.Luck = 0
+	m := mkTestMonster("Dispeller", 100)
+	m.Abilities.Dispel.Chance = 1
+	cs.monsterHitCharacter(m, hero, m.Name, hitFromMonster(m, 1, "physical", false, 0, true, false))
+	if countCombatLog(g, "rips "+def.Name+" from the party") != 1 {
+		t.Fatalf("dispel did not name the draught %q: %v", def.Name, g.combatLogHistory)
+	}
+}

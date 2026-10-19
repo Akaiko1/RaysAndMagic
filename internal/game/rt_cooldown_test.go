@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // helper: a character with a fixed effective Speed (no stat bonus, no gear).
@@ -195,7 +196,7 @@ func TestRTSpellBookCommitArmsPersonalCooldown(t *testing.T) {
 	game.selectedChar = 0
 	game.turnBasedMode = false
 
-	game.consumeSelectedCharActionWithRTCooldown(37)
+	game.commitHeroAction(game.selectedChar, 37)
 
 	if caster.RTCooldown != 37 {
 		t.Fatalf("RT UI cast cooldown = %d, want 37", caster.RTCooldown)

@@ -11,8 +11,8 @@ import (
 func staleConversation(npc *character.NPC) dialogState {
 	choice := &character.NPCDialogueChoice{Text: "Old service"}
 	return dialogState{
-		dialogActive: true, dialogNPC: npc, dialogLastClickTime: 123,
-		dialogLastClickedIdx: 3, dialogLastClickZone: "old",
+		dialogActive: true, dialogNPC: npc,
+		dialogClicks:        doubleClickTracker[dialogClickKey]{at: 123, target: dialogClickKey{"old", 3}},
 		dialogSelectedSpell: 2, selectedCharIdx: 2, skillTrainerPage: 3,
 		selectedSpellKey: "old", selectedChoice: 2, dialogNodePath: []*character.NPCDialogueChoice{choice},
 		dialogTab: 1, pendingBuffService: choice, pendingTavernAction: choice,
@@ -29,10 +29,10 @@ func TestConversationLifetimeEntryPoints(t *testing.T) {
 			npc := &character.NPC{Name: "First", Type: character.NPCTypeMerchant}
 			g.dialogState = staleConversation(npc)
 			ih := NewInputHandler(g)
-			want := dialogState{dialogLastClickedIdx: -1}
+			want := dialogState{}
 			switch entry {
 			case "leave":
-				dialogActions["leave"](ih, npc, nil)
+				dialogActions["leave"].run(ih, npc, nil)
 			case "escape", "trainer_escape":
 				if entry == "trainer_escape" {
 					want = g.dialogState

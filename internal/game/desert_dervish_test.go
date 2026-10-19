@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 )
 
 // Spawn cases cross RT/TB, current/remote map, below/exact/retained level,
@@ -128,7 +129,7 @@ func TestDervishFixedQuotaAcrossPacks(t *testing.T) {
 					t.Fatalf("kill %d: %+v", n, q)
 				}
 				if n == (quota+1)/2 {
-					g.refreshRepeatableQuests("night")
+					g.refreshRepeatableQuests(quests.RepeatNightly)
 					if g.questManager.GetQuest(q.ID) != q {
 						t.Fatal("night lost unfinished progress")
 					}

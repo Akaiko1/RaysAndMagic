@@ -77,10 +77,8 @@ func (g *MMGame) beaconRequest(b character.SpellBeacon) (mapTransition, error) {
 	if tx < 0 || ty < 0 || tx >= w.Width || ty >= w.Height || w.IsTileBlockingTerrainAt(tx, ty) {
 		return bad()
 	}
-	for _, m := range w.Monsters {
-		if m != nil && m.IsAlive() && TileIndex(m.X, ts) == tx && TileIndex(m.Y, ts) == ty {
-			return bad()
-		}
+	if livingMonsterOnTile(w, tx, ty, ts, nil) != nil {
+		return bad()
 	}
 	for _, n := range w.NPCs {
 		if n != nil && g.npcIsDoor(n) && !g.npcDoorOpen(n) && TileIndex(n.X, ts) == tx && TileIndex(n.Y, ts) == ty {

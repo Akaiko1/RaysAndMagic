@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"ugataima/internal/collision"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -100,6 +101,12 @@ func TestRicochetAutoTargetFollowsAutoTargetPolicy(t *testing.T) {
 	if got := cs.nearestRicochetTarget(victim, def); got != nil {
 		t.Fatalf("ricochet selected excluded actor %v", got.Name)
 	}
+	// Sight: a closed door between the victim and the enemy stops the bounce.
+	cs.game.world.Monsters = []*monsterPkg.Monster3D{victim, enemy}
+	cs.game.collisionSystem.RegisterEntity(collision.NewSightBlockingEntity("ricochet-door", 1.5*ts, enemy.Y, 16, 48, collision.CollisionTypeNPC, true))
+	if got := cs.nearestRicochetTarget(victim, def); got != nil {
+		t.Fatalf("ricochet passed a closed door to %v", got.Name)
+	}
 }
 
 func TestRicochetRequiresLandedProjectileHit(t *testing.T) {
@@ -175,7 +182,7 @@ func TestWeaponKillResolverRunsClutchburstForEveryWeaponKillPath(t *testing.T) {
 		bystander.X, bystander.Y = 11*ts, 10*ts
 		g.world.Monsters = []*monsterPkg.Monster3D{primary, bystander}
 
-		cs.ApplyDamageToMonster(primary, 100, weaponDef.Name, false)
+		cs.ApplyDamageToMonster(primary, 100, testWeapon(weaponDef.Name), false)
 
 		if primary.IsAlive() {
 			t.Fatal("mastery true damage did not kill the dodging target")
@@ -242,7 +249,7 @@ func TestWeakenScalesWholeOutgoingPacketOnce(t *testing.T) {
 		{name: "melee_packet", pct: 25, normal: 100, trueDmg: 40, carriesTrue: true,
 			fire: func(t *testing.T, cs *CombatSystem, m *monsterPkg.Monster3D, normal int) func() damagecalc.Parts {
 				m.DamageMin, m.DamageMax = normal, normal
-				roll := cs.monsterAttackDamage(m)
+				roll, _ := cs.monsterAttackDamage(m)
 				if roll != normal {
 					t.Fatalf("monsterAttackDamage applied weaken (%d); hitFromMonster owns it", roll)
 				}
@@ -268,17 +275,15 @@ func TestWeakenScalesWholeOutgoingPacketOnce(t *testing.T) {
 			}},
 		{name: "inferno", pct: 50, normal: 40, trueDmg: 20, carriesTrue: true, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.Abilities.Inferno.Damage = 40
-				cs.applyMonsterInferno(m)
+				castTestPartyAttack(cs, m, catalogPartyAttack("inferno"), 40)
 			})},
 		{name: "fireburst", pct: 50, normal: 40, trueDmg: 20, carriesTrue: true, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax = 40, 40
-				cs.applyMonsterFireburst(m)
+				castTestPartyAttack(cs, m, catalogPartyAttack("fireburst"), 40)
 			})},
 		{name: "trap_field", pct: 50, normal: 40, trueDmg: 20, partyHP: true,
 			fire: partyHit(func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-				m.Abilities.TrapVolley.Damage = 40
+				armTestTrapVolley(m, 40)
 				cs.game.detonateBossFireTrap(m)
 			})},
 	} {
@@ -388,7 +393,7 @@ func TestWeaponDamagePreviewIncludesAuthoredTrueDamageWithoutBearer(t *testing.T
 	if !strings.Contains(tooltip, wantLine) {
 		t.Fatalf("shop tooltip omits authored true damage:\n%s", tooltip)
 	}
-	editor := GetItemTooltipRows(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, true).String()
+	editor := GetItemTooltipRows(items.CreateWeaponFromYAML(config.CatalogKey(testWeapon(def.Name))), nil, nil, true).String()
 	if !strings.Contains(editor, wantLine) {
 		t.Fatalf("editor card omits authored true damage:\n%s", editor)
 	}
@@ -456,7 +461,7 @@ func TestNewMechanicsAppearInSharedFormatters(t *testing.T) {
 	}
 
 	mon := monsterPkg.MonsterDefinition{
-		Abilities: monsterPkg.Abilities{TrapVolley: monsterPkg.TrapVolleyAbility{Count: 20, RadiusTiles: 15, IntervalSeconds: 10, IntervalTurns: 3, Damage: 40}},
+		Abilities: monsterPkg.Abilities{TrapVolley: monsterPkg.TrapVolleyAbility{Count: 20, RadiusTiles: 15, IntervalSeconds: 10, IntervalTurns: 3, DamagePercent: 48}},
 	}
 	var lines []string
 	for _, l := range mon.CombatEffectLines() {

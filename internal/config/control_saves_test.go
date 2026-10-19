@@ -18,8 +18,8 @@ func TestControlSaveCurveAndValidation(t *testing.T) {
 	// The test's own rule: the curve floor (20) sits above min_percent (10)
 	// so the two clamps read apart. Expected chances are hand-computed.
 	rule := ControlSaveConfig{
-		Mechanics:             []string{"turn_undead", "mass_fear", "feeblemind"},
-		DiminishingMechanics:  []string{"turn_undead", "mass_fear"},
+		Mechanics:             []MechanicKind{"turn_undead", "mass_fear", "feeblemind"},
+		DiminishingMechanics:  []MechanicKind{"turn_undead", "mass_fear"},
 		Curve:                 []ControlSavePoint{{-4, 20}, {0, 40}, {10, 70}},
 		MinPercent:            10,
 		MaxPercent:            80,
@@ -61,10 +61,10 @@ func TestControlSaveCurveAndValidation(t *testing.T) {
 		{"nan", func(c *ControlSaveConfig) { c.ResistanceWeight = math.NaN() }},
 		{"infinity", func(c *ControlSaveConfig) { c.MasteryPenaltyPercent = math.Inf(1) }},
 		{"invalid_cap", func(c *ControlSaveConfig) { c.MaxPercent = 101 }},
-		{"unknown_mechanic", func(c *ControlSaveConfig) { c.Mechanics = []string{"typo"} }},
-		{"duplicate_mechanic", func(c *ControlSaveConfig) { c.Mechanics = []string{"mass_fear", "mass_fear"} }},
-		{"silence_dr", func(c *ControlSaveConfig) { c.DiminishingMechanics = []string{"feeblemind"} }},
-		{"duplicate_dr", func(c *ControlSaveConfig) { c.DiminishingMechanics = []string{"mass_fear", "mass_fear"} }},
+		{"unknown_mechanic", func(c *ControlSaveConfig) { c.Mechanics = []MechanicKind{"typo"} }},
+		{"duplicate_mechanic", func(c *ControlSaveConfig) { c.Mechanics = []MechanicKind{"mass_fear", "mass_fear"} }},
+		{"silence_dr", func(c *ControlSaveConfig) { c.DiminishingMechanics = []MechanicKind{"feeblemind"} }},
+		{"duplicate_dr", func(c *ControlSaveConfig) { c.DiminishingMechanics = []MechanicKind{"mass_fear", "mass_fear"} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var data map[string]any

@@ -34,6 +34,14 @@ func (p monsterDamagePacket) primarySchool() string {
 	return p.Components[0].School.String()
 }
 
+func (p monsterDamagePacket) total() int {
+	total := 0
+	for _, component := range p.Components {
+		total += component.Parts.Total()
+	}
+	return total
+}
+
 func (p monsterDamagePacket) normalDamage() int {
 	total := 0
 	for _, component := range p.Components {
@@ -320,6 +328,50 @@ type partyMonsterHit struct {
 	SourceNormal int // pre-mitigation amount used to size impact effects
 }
 
+// partyBlow is one party blow as an area effect lands it on each victim:
+// whose it is (a caster may bind as a Dark Elf; nil for traps, zones and
+// riders), the packet, and the damage line's words.
+type partyBlow struct {
+	caster *character.MMCharacter
+	attack partyMonsterAttack
+	name   string // the effect's name, worded with its school
+	school string
+	kind   damageLogKind
+}
+
+// landPartyHit is the per-victim step of every party area effect: the Dark
+// Elf bind instead, the packet, the hit mark and school burst, the damage
+// line, and an immediate kill finish. False when the bind took the blow.
+func (cs *CombatSystem) landPartyHit(target *monsterPkg.Monster3D, b partyBlow) (partyMonsterHit, bool) {
+	if b.caster != nil && cs.tryDarkElfBindInstead(b.caster, target) {
+		return partyMonsterHit{}, false
+	}
+	hit := cs.applyPartyMonsterAttack(target, b.attack)
+	cs.markMonsterHit(target)
+	cs.spawnMonsterHitBurst(target, b.school)
+	cs.game.reportDamage(logToneGood, damageLog{
+		Source:   logSchoolWord(b.school, b.name),
+		Target:   monsterLogTarget(target),
+		Amount:   hit.Total(),
+		School:   b.school,
+		Kind:     b.kind,
+		Critical: hit.Critical,
+	})
+	if !target.IsAlive() {
+		cs.finishMonsterKillImmediately(target)
+	}
+	return hit, true
+}
+
+// resolvedAs is the attack as one target's hit resolved it: a designation
+// mark that upgraded the hit swaps in the critical packet, with no new roll.
+func (a partyMonsterAttack) resolvedAs(hit partyMonsterHit) partyMonsterAttack {
+	if hit.Critical && !a.Critical {
+		a.Packet, a.Critical = a.CriticalPacket, true
+	}
+	return a
+}
+
 func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, attack partyMonsterAttack) partyMonsterHit {
 	if target == nil || isPurePartySummon(target) {
 		return partyMonsterHit{}
@@ -368,7 +420,7 @@ type weaponDamagePreview struct {
 }
 
 func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *character.MMCharacter) weaponDamagePreview {
-	def := lookupWeaponConfigByName(item.Name)
+	def := lookupWeaponConfig(item)
 	if def == nil {
 		return weaponDamagePreview{}
 	}
@@ -409,7 +461,7 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 		if party {
 			parts = cs.game.elementalDamageBuff(parts, weaponDamageTypeStr(def))
 		}
-		damage = parts.Normal + personalSpellDamageBonus(parts.Normal+parts.True+preview.True, personalSpellPower(char, "fire_aura"))
+		damage = parts.Normal + personalSpellDamageBonus(parts.Normal+parts.True+preview.True, personalSpellPower(char, config.MechanicFireAura))
 		if !isRanged {
 			damage = cs.weaponMeleeDamageAfterArmor(damage, party)
 		}

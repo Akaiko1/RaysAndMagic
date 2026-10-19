@@ -7,6 +7,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
 	"ugataima/internal/status"
 	"ugataima/internal/storage"
@@ -49,17 +50,13 @@ func contractMonsterFrame(g *MMGame, gl *GameLoop) {
 	gl.runMonsterFrame()
 }
 
+// contractTelegraphDefinition gives m's own telegraph round contract numbers:
+// an attack of 100, so the strike and the field (shares of it) are 100 too.
 func contractTelegraphDefinition(t *testing.T, m *monster.Monster3D) {
 	t.Helper()
-	def := monster.MonsterConfig.Monsters[m.Key]
-	original := def
-	attack := *def.Abilities.Telegraph
-	attack.DamagePercent = 100
-	attack.SustainDamage = 100
-	attack.DurationSeconds = 6
-	def.Abilities.Telegraph = &attack
-	monster.MonsterConfig.Monsters[m.Key] = def
-	t.Cleanup(func() { monster.MonsterConfig.Monsters[m.Key] = original })
+	m.DamageMin, m.DamageMax = 100, 100
+	a := monsterTelegraph(m)
+	a.DamagePercent, a.SustainPercent, a.DurationSeconds = 100, 100, 6
 }
 
 func TestTelegraphOwnedDamageContract(t *testing.T) {
@@ -76,7 +73,7 @@ func TestTelegraphOwnedDamageContract(t *testing.T) {
 							contractTelegraphDefinition(t, m)
 							m.TrueDamage = 20
 							if !field {
-								telegraphDefinition(m).SustainDamage = 0
+								monsterTelegraph(m).SustainPercent = 0
 							}
 							var foe *monster.Monster3D
 							if actor {
@@ -200,6 +197,7 @@ func TestTelegraphTurnPositionAndPasses(t *testing.T) {
 			t.Run(fmt.Sprintf("transfer%v/restored%v", transfer, restored), func(t *testing.T) {
 				g, gl, m := telegraphContractGame(t, true)
 				m.Key = "solstice_gale_elemental"
+				m.Abilities = monster.MonsterConfig.Monsters[m.Key].Abilities.Clone()
 				contractMonsterFrame(g, gl)
 				if transfer {
 					m.Telegraph.Warning = status.DualClock{}
@@ -327,6 +325,7 @@ func TestTelegraphFieldOverlapAttribution(t *testing.T) {
 					other = spawnSpecialsMonster(g, m.Key, 8, 7)
 					other.HitPoints, other.MaxHitPoints = 10000, 10000
 					other.Resistances = nil
+					contractTelegraphDefinition(t, other)
 					other.Telegraph = m.Telegraph.Clone()
 					if kind == "owner changes" {
 						other.Telegraph.Remaining = status.DualClock{}
@@ -421,8 +420,8 @@ func TestTelegraphChargeObservesMovementOnce(t *testing.T) {
 // their riders; exhausting the ward restores both damage and control.
 func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
 	for _, tb := range []bool{false, true} {
-		for _, kind := range []string{"root", "slow", "push"} {
-			for _, school := range []string{"water", "physical"} {
+		for _, kind := range []monster.TelegraphKind{monster.TelegraphRoot, monster.TelegraphSlow, monster.TelegraphPush} {
+			for _, school := range []damagecalc.Type{damagecalc.Water, damagecalc.Physical} {
 				t.Run(fmt.Sprintf("TB=%v/%s/%s", tb, kind, school), func(t *testing.T) {
 					g, gl, m := telegraphContractGame(t, tb)
 					g.gameLoop = gl
@@ -447,11 +446,11 @@ func TestTelegraphWardBlocksWholeImpact(t *testing.T) {
 						if hasControl() {
 							t.Fatal("ward leaked control")
 						}
-						if g.advancedBuff("protection_from_magic") != nil {
+						if g.advancedBuff(config.MechanicProtectionFromMagic) != nil {
 							t.Fatal("shared impact did not exhaust its one charge")
 						}
 						g.resolveMonsterTelegraph(m, a)
-					} else if b := g.advancedBuff("protection_from_magic"); b == nil || b.Charges != 1 {
+					} else if b := g.advancedBuff(config.MechanicProtectionFromMagic); b == nil || b.Charges != 1 {
 						t.Fatal("physical non-spell impact spent a magic ward charge")
 					}
 					if !hasControl() {

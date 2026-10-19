@@ -50,13 +50,13 @@ var bossKitAbilities = []bossKitAbility{
 	{
 		name: "traps",
 		has:  func(m *monsterPkg.Monster3D) bool { return m.Abilities.TrapVolley.Count > 0 },
-		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.Abilities.Inferno.Chance = 0 },
+		prep: func(m *monsterPkg.Monster3D) { noSummons(m); setPartyAttackChance(m, "inferno", 0) },
 		want: "seeds the ground with smouldering eggs",
 	},
 	{
 		name: "adds",
 		has:  func(m *monsterPkg.Monster3D) bool { return len(m.Abilities.Summon.Monsters) > 0 },
-		prep: func(m *monsterPkg.Monster3D) { m.Abilities.Summon.Chance = 1.0; m.Abilities.Inferno.Chance = 0 },
+		prep: func(m *monsterPkg.Monster3D) { m.Abilities.Summon.Chance = 1.0; setPartyAttackChance(m, "inferno", 0) },
 		want: "raises the war-banner",
 	},
 	{
@@ -64,15 +64,15 @@ var bossKitAbilities = []bossKitAbility{
 		has:  func(m *monsterPkg.Monster3D) bool { return m.Abilities.Enrage.AtHP > 0 },
 		prep: func(m *monsterPkg.Monster3D) {
 			noSummons(m)
-			m.Abilities.Inferno.Chance = 0
+			setPartyAttackChance(m, "inferno", 0)
 			m.HitPoints = m.Abilities.Enrage.AtHP
 		},
 		want: "flies into a furious rage",
 	},
 	{
 		name: "inferno",
-		has:  func(m *monsterPkg.Monster3D) bool { return m.Abilities.Inferno.Chance > 0 },
-		prep: func(m *monsterPkg.Monster3D) { noSummons(m); m.Abilities.Inferno.Chance = 1.0 },
+		has:  func(m *monsterPkg.Monster3D) bool { return (monsterPartyAttack(m, "inferno") != nil) },
+		prep: func(m *monsterPkg.Monster3D) { noSummons(m); setPartyAttackChance(m, "inferno", 1.0) },
 		want: "Inferno scorches",
 	},
 	{
@@ -82,7 +82,7 @@ var bossKitAbilities = []bossKitAbility{
 		},
 		prep: func(m *monsterPkg.Monster3D) {
 			noSummons(m)
-			m.Abilities.Inferno.Chance = 0
+			setPartyAttackChance(m, "inferno", 0)
 			m.Abilities.Teleport.Chance = 1.0
 			m.HitPoints = m.Abilities.Teleport.AtHP
 		},
@@ -157,8 +157,8 @@ func TestBossWithDeadCachedFoeWaitsForRetargetRT(t *testing.T) {
 	boss, ally := spawnSummonsBossScenario(t, g, "golden_thief_bug", func(m *monsterPkg.Monster3D) {
 		aggro(m)
 		noSummons(m)
-		m.Abilities.Inferno.Chance = 1
-		m.InfernoCD = status.DualClock{}
+		setPartyAttackChance(m, "inferno", 1)
+		m.NovaRollCD = status.DualClock{}
 	})
 	ally.HitPoints = 0 // killed by an earlier actor after target selection
 	if boss.AIFoe != ally {

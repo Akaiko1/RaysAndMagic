@@ -2,13 +2,16 @@ package monster
 
 import (
 	"fmt"
-
+	"math"
 	"reflect"
+	"slices"
 	"strings"
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Abilities are a monster's authored combat abilities: the monsters.yaml
@@ -18,26 +21,71 @@ import (
 // AbilityKinds: adding an ability means a field here, a row there and its
 // combat consumer.
 type Abilities struct {
-	Telegraph    *TelegraphedAttack  `yaml:"telegraph,omitempty"`
-	RootParty    TimedStatusAbility  `yaml:"root_party,omitempty"`
-	RearBlink    RearBlinkAbility    `yaml:"rear_blink,omitempty"`
-	TrapVolley   TrapVolleyAbility   `yaml:"trap_volley,omitempty"`
-	Pounce       PounceAbility       `yaml:"pounce,omitempty"`
-	PhaseShift   PhaseShiftAbility   `yaml:"phase_shift,omitempty"`
-	Poison       DoTAbility          `yaml:"poison,omitempty"`
-	Ignite       DoTAbility          `yaml:"ignite,omitempty"`
-	Stun         TimedStatusAbility  `yaml:"stun,omitempty"`
-	Dispel       ChanceAbility       `yaml:"dispel,omitempty"`
-	MeltArmor    ChanceAbility       `yaml:"melt_armor,omitempty"`
-	Fireburst    FireburstAbility    `yaml:"fireburst,omitempty"`
-	DragonBreath DragonBreathAbility `yaml:"dragon_breath,omitempty"`
-	PiercingShot PiercingShotAbility `yaml:"piercing_shot,omitempty"`
-	AllyHeal     AllyHealAbility     `yaml:"ally_heal,omitempty"`
-	Inferno      InfernoAbility      `yaml:"inferno,omitempty"`
-	Teleport     TeleportAbility     `yaml:"teleport,omitempty"`
-	Summon       SummonAbility       `yaml:"summon,omitempty"`
-	Push         PushAbility         `yaml:"push,omitempty"`
-	Enrage       EnrageAbility       `yaml:"enrage,omitempty"`
+	Telegraph    *TelegraphedAttack `yaml:"telegraph,omitempty"`
+	RootParty    TimedStatusAbility `yaml:"root_party,omitempty"`
+	RearBlink    RearBlinkAbility   `yaml:"rear_blink,omitempty"`
+	TrapVolley   TrapVolleyAbility  `yaml:"trap_volley,omitempty"`
+	Pounce       PounceAbility      `yaml:"pounce,omitempty"`
+	PhaseShift   PhaseShiftAbility  `yaml:"phase_shift,omitempty"`
+	Poison       DoTAbility         `yaml:"poison,omitempty"`
+	Ignite       DoTAbility         `yaml:"ignite,omitempty"`
+	Stun         TimedStatusAbility `yaml:"stun,omitempty"`
+	Dispel       ChanceAbility      `yaml:"dispel,omitempty"`
+	MeltArmor    ChanceAbility      `yaml:"melt_armor,omitempty"`
+	PartyAttacks []PartyAttack      `yaml:"party_attacks,omitempty"`
+	AllyHeal     AllyHealAbility    `yaml:"ally_heal,omitempty"`
+	Teleport     TeleportAbility    `yaml:"teleport,omitempty"`
+	Summon       SummonAbility      `yaml:"summon,omitempty"`
+	Push         PushAbility        `yaml:"push,omitempty"`
+	Enrage       EnrageAbility      `yaml:"enrage,omitempty"`
+}
+
+// Clone is a copy that shares no slice or pointer with a.
+func (a Abilities) Clone() Abilities {
+	a.Summon.Monsters = slices.Clone(a.Summon.Monsters)
+	a.PartyAttacks = slices.Clone(a.PartyAttacks)
+	if a.Telegraph != nil {
+		t := *a.Telegraph
+		a.Telegraph = &t
+	}
+	return a
+}
+
+// MaxAttackPercent caps an ability's damage authored as a percent of its
+// monster's attack (a telegraph, a party attack).
+const MaxAttackPercent = 200
+
+// Riders is an area ability's authored `riders: true|false`: whether the
+// monster's on-hit riders (poison, ignite, stun, dispel, melt armor) ride
+// each member it strikes. Required, so no area attack carries them by an
+// unwritten rule.
+type Riders struct{ Set, On bool }
+
+// CarryRiders is an authored Riders value.
+func CarryRiders(on bool) Riders { return Riders{Set: true, On: on} }
+
+func (r *Riders) UnmarshalYAML(node *yaml.Node) error {
+	var on bool
+	if err := node.Decode(&on); err != nil {
+		return fmt.Errorf("riders must be true or false: %w", err)
+	}
+	*r = CarryRiders(on)
+	return nil
+}
+
+func (r Riders) MarshalYAML() (any, error) { return r.On, nil }
+
+// Carried reports riders: true.
+func (r Riders) Carried() bool { return r.On }
+
+// Authored reports the field was written.
+func (r Riders) Authored() bool { return r.Set }
+
+// ScaleDamageBand is an authored damage band moved by ratio: at least 1, the
+// top never below the bottom.
+func ScaleDamageBand(lo, hi int, ratio float64) (int, int) {
+	lo = max(1, int(math.Round(float64(lo)*ratio)))
+	return lo, max(lo, int(math.Round(float64(hi)*ratio)))
 }
 
 // ChanceAbility is a bare on-hit roll (dispel, melt_armor).
@@ -70,7 +118,8 @@ type TrapVolleyAbility struct {
 	RadiusTiles     float64 `yaml:"radius_tiles"`
 	IntervalSeconds float64 `yaml:"interval_seconds"` // RT cadence
 	IntervalTurns   int     `yaml:"interval_turns"`   // TB cadence
-	Damage          int     `yaml:"damage"`
+	DamagePercent   int     `yaml:"damage_percent"`   // each trap's hit, percent of the attack
+	Riders          Riders  `yaml:"riders"`
 }
 
 // PounceAbility: from within range (beyond melee) the monster leaps to melee
@@ -90,37 +139,11 @@ type PhaseShiftAbility struct {
 	CooldownSeconds int `yaml:"cooldown_seconds"` // whole rounds, the same span in both modes
 }
 
-// FireburstAbility: a fire blast instead of the normal attack.
-type FireburstAbility struct {
-	Chance    float64 `yaml:"chance"`
-	DamageMin int     `yaml:"damage_min"`
-	DamageMax int     `yaml:"damage_max"`
-}
-
-// DragonBreathAbility: the attack hits every living party member in a school.
-type DragonBreathAbility struct {
-	Chance     float64 `yaml:"chance"`
-	DamageType string  `yaml:"damage_type"`
-}
-
-// PiercingShotAbility: an armor-piercing shot at several party members.
-type PiercingShotAbility struct {
-	Chance  float64 `yaml:"chance"`
-	Targets int     `yaml:"targets"`
-}
-
 // AllyHealAbility: heals itself or a nearby ally instead of attacking.
 type AllyHealAbility struct {
 	Chance      float64 `yaml:"chance"`
 	Amount      int     `yaml:"amount"`
 	RadiusTiles float64 `yaml:"radius_tiles"`
-}
-
-// InfernoAbility: a boss's party-wide fire nova.
-type InfernoAbility struct {
-	Chance     float64 `yaml:"chance"`      // per action
-	Damage     int     `yaml:"damage"`      // fire damage, pre-mitigation
-	RangeTiles float64 `yaml:"range_tiles"` // the nova's reach; melee reach can still replace a hit with it
 }
 
 // TeleportAbility: at or below AtHP the boss may blink to a random tile.
@@ -224,13 +247,13 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 			present: set(a.TrapVolley),
 			problems: func() []string {
 				t := a.TrapVolley
-				return need(t.Count > 0 && t.RadiusTiles > 0 && t.Damage > 0 && t.IntervalSeconds > 0 && t.IntervalTurns > 0,
-					"trap_volley needs positive count, radius_tiles, damage, interval_seconds and interval_turns")
+				return need(t.Count > 0 && t.RadiusTiles > 0 && t.DamagePercent > 0 && t.DamagePercent <= MaxAttackPercent && t.IntervalSeconds > 0 && t.IntervalTurns > 0 && t.Riders.Authored(),
+					"trap_volley needs positive count, radius_tiles, interval_seconds, interval_turns, damage_percent in 1..200 and riders: true or false")
 			},
 			lines: func() []EffectLine {
 				t := a.TrapVolley
 				return schoolLine(damagecalc.Fire.String(), uitext.Text("monster.ability.trap_volley",
-					t.Count, float64(t.Damage), t.RadiusTiles, t.IntervalSeconds, t.IntervalTurns))
+					t.Count, t.DamagePercent, t.RadiusTiles, t.IntervalSeconds, t.IntervalTurns))
 			},
 		},
 		{
@@ -293,36 +316,26 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 			},
 		},
 		{
-			kind: "fireburst", present: set(a.Fireburst),
+			// Each entry is checked on its own; a nova needs boss: true.
+			kind: "party_attacks", present: len(a.PartyAttacks) > 0,
 			problems: func() []string {
-				return append(chance("fireburst", a.Fireburst.Chance),
-					need(a.Fireburst.DamageMin > 0 && a.Fireburst.DamageMax >= a.Fireburst.DamageMin, "fireburst needs damage_min/damage_max (max >= min > 0)")...)
-			},
-			lines: func() []EffectLine {
-				return schoolLine(damagecalc.Fire.String(), uitext.Text("monster.ability.fireburst", a.Fireburst.Chance*100, a.Fireburst.DamageMin, a.Fireburst.DamageMax))
-			},
-		},
-		{
-			kind: "dragon_breath", present: set(a.DragonBreath),
-			problems: func() []string {
-				problems := chance("dragon_breath", a.DragonBreath.Chance)
-				if _, err := ParseDamageType(strings.ToLower(strings.TrimSpace(a.DragonBreath.DamageType))); err != nil {
-					problems = append(problems, fmt.Sprintf("dragon_breath needs a known damage_type, got %q", a.DragonBreath.DamageType))
+				var out []string
+				seen := map[string]bool{}
+				for _, attack := range a.PartyAttacks {
+					if seen[attack.Key] {
+						out = append(out, fmt.Sprintf("party_attacks lists %q twice", attack.Key))
+					}
+					seen[attack.Key] = true
+					out = append(out, attack.problems(d.Boss)...)
 				}
-				return problems
+				return out
 			},
 			lines: func() []EffectLine {
-				school := normalizeEffectSchool(a.DragonBreath.DamageType)
-				return schoolLine(school, uitext.Text("monster.ability.dragon_breath", a.DragonBreath.Chance*100, school))
-			},
-		},
-		{
-			kind: "piercing_shot", present: set(a.PiercingShot),
-			problems: func() []string {
-				return append(chance("piercing_shot", a.PiercingShot.Chance), need(a.PiercingShot.Targets > 0, "piercing_shot needs targets")...)
-			},
-			lines: func() []EffectLine {
-				return line(uitext.Text("monster.ability.piercing_shot", a.PiercingShot.Chance*100, a.PiercingShot.Targets))
+				out := make([]EffectLine, 0, len(a.PartyAttacks))
+				for _, attack := range a.PartyAttacks {
+					out = append(out, attack.line())
+				}
+				return out
 			},
 		},
 		{
@@ -333,18 +346,6 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 			},
 			lines: func() []EffectLine {
 				return line(uitext.Text("monster.ability.ally_heal", a.AllyHeal.Chance*100, a.AllyHeal.Amount, a.AllyHeal.RadiusTiles))
-			},
-		},
-		{
-			// A nova with no authored reach would silently become map-wide in TB
-			// (it used to): the radius is explicit content, like every range.
-			kind: "inferno", bossOnly: true, present: set(a.Inferno),
-			problems: func() []string {
-				return append(chance("inferno", a.Inferno.Chance),
-					need(a.Inferno.Damage > 0 && a.Inferno.RangeTiles > 0, "inferno needs damage and range_tiles")...)
-			},
-			lines: func() []EffectLine {
-				return line(uitext.Text("monster.ability.inferno", a.Inferno.Chance*100, a.Inferno.Damage, a.Inferno.RangeTiles))
 			},
 		},
 		{

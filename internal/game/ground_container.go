@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"sort"
 	"strings"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -609,9 +610,9 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	// the multi-part "Opened chest: ..." form.
 	switch {
 	case c.Kind == ContainerKindLootBag && len(c.Items) == 0 && c.Gold > 0:
-		g.AddCombatMessage(fmt.Sprintf("Picked up %d gold.", c.Gold))
+		g.AddCombatMessage(uitext.Text("combat.picked_up_gold", c.Gold))
 	case c.Kind == ContainerKindLootBag && len(c.Items) == 1 && c.Gold <= 0:
-		g.AddColoredCombatMessage(fmt.Sprintf("Picked up %s.", c.Items[0].Name), lootMessageColor(c.Items))
+		g.AddColoredCombatMessage(uitext.Text("combat.picked_up", c.Items[0].Name), lootMessageColor(c.Items))
 	default:
 		parts := make([]string, 0, len(c.Items)+1)
 		if c.Gold > 0 {

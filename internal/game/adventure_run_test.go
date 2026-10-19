@@ -108,7 +108,7 @@ func TestChamberExperienceBudget(t *testing.T) {
 				t.Fatal(err)
 			}
 			g.questManager.MarkCompleted("chamber_reward")
-			if !g.claimQuestReward("chamber_reward") {
+			if !g.claimQuestReward("chamber_reward", nil) {
 				t.Fatal("quest reward could not be claimed")
 			}
 		} else {

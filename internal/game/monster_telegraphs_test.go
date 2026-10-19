@@ -46,7 +46,7 @@ func TestSolsticeSlowActionFloorAndRecovery(t *testing.T) {
 func TestSolsticeTelegraphCrossfire(t *testing.T) {
 	for _, key := range []string{"ember_elemental", "tide_elemental", "jade_elemental", "transfer_automaton"} {
 		for _, tb := range []bool{false, true} {
-			for _, outcome := range []string{"hit", "escaped", "allegiance-changed", "caster-bound"} {
+			for _, outcome := range []string{"hit", "dodged", "escaped", "allegiance-changed", "caster-bound"} {
 				t.Run(fmt.Sprintf("%s/TB%v/%s", key, tb, outcome), func(t *testing.T) {
 					g, gl := newSpecialsTestGame(t)
 					g.gameLoop, g.turnBasedMode = gl, tb
@@ -68,7 +68,11 @@ func TestSolsticeTelegraphCrossfire(t *testing.T) {
 					if m.Telegraph.TargetID != foe.ID || !m.Telegraph.Warning.Active() {
 						t.Fatal("crossfire warning did not lock its actor")
 					}
+					// The caster's own on-hit rider rides its telegraph too.
+					m.Abilities.Ignite.Chance, m.Abilities.Ignite.DurationSeconds = 1, 3
 					switch outcome {
+					case "dodged":
+						foe.PerfectDodge = 100
 					case "escaped":
 						foe.X, foe.Y = 6.5*64, 9.5*64
 					case "allegiance-changed":
@@ -80,6 +84,17 @@ func TestSolsticeTelegraphCrossfire(t *testing.T) {
 					expireTelegraphWarning(g, m, tb)
 					if (foe.HitPoints < 10000) != (outcome == "hit") {
 						t.Fatalf("foe HP=%d", foe.HitPoints)
+					}
+					if burning := foe.BurnFramesRemaining > 0; burning != (outcome == "hit") {
+						t.Fatalf("foe burning=%v: the caster's rider follows the struck hit", burning)
+					}
+					// A slow or root lane binds whoever stood in it, a dodger too.
+					reached := outcome == "hit" || outcome == "dodged"
+					if key == "tide_elemental" && (foe.ActiveSlowPct() > 0) != reached {
+						t.Fatalf("foe slowed=%v, want %v", foe.ActiveSlowPct() > 0, reached)
+					}
+					if key == "jade_elemental" && foe.Root.Active() != reached {
+						t.Fatalf("foe rooted=%v, want %v", foe.Root.Active(), reached)
 					}
 					if partyHPSum(g) != before {
 						t.Fatal("actor cast retargeted the party")
@@ -127,7 +142,7 @@ func TestSolsticeForcedArrival(t *testing.T) {
 					if hazard == "lane-idle" || hazard == "lane-warning" || hazard == "lane-live" {
 						kind = "lane"
 					}
-					a.Effects = append(a.Effects, config.EnvironmentEffect{ID: "hazard", Kind: kind, Rect: [4]int{5, 6, 5, 6}, Destination: [2]int{4, 6}, School: "fire", Damage: 5})
+					a.Effects = append(a.Effects, config.EnvironmentEffect{ID: "hazard", Kind: config.EffectKind(kind), Rect: [4]int{5, 6, 5, 6}, Destination: [2]int{4, 6}, School: "fire", Damage: 5})
 					if hazard == "disabled" {
 						v.effectState("hazard").Disarmed = true
 					}
@@ -180,7 +195,7 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 					}
 					m := spawnSpecialsMonster(g, "solstice_"+key, 8, 6)
 					m.HitPoints = m.MaxHitPoints / 5
-					a := telegraphDefinition(m)
+					a := monsterTelegraph(m)
 					if a == nil {
 						t.Fatal("authored special missing")
 					}
@@ -199,7 +214,7 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 					} else {
 						g.combat.HandleMonsterInteractions()
 					}
-					if m.Telegraph.Warning != telegraphDefinition(m).WarningClock(g.config.GetTPS()) || len(m.Telegraph.Tiles) == 0 {
+					if m.Telegraph.Warning != monsterTelegraph(m).WarningClock(g.config.GetTPS()) || len(m.Telegraph.Tiles) == 0 {
 						t.Fatalf("scheduler did not announce: %+v", m.Telegraph)
 					}
 					if partyHPSum(g) != before {
@@ -303,7 +318,7 @@ func TestSolsticeTelegraphWallAndFactionGates(t *testing.T) {
 				case "dead":
 					m.HitPoints = 0
 				case "cooldown":
-					m.Telegraph.Cooldown = telegraphDefinition(m).CooldownClock(g.config.GetTPS())
+					m.Telegraph.Cooldown = monsterTelegraph(m).CooldownClock(g.config.GetTPS())
 				}
 				g.refreshMonsterAIState()
 				if tb {

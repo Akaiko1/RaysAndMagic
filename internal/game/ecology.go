@@ -100,12 +100,7 @@ func (g *MMGame) ecologyCollision(w *world.World3D) *collision.CollisionSystem {
 }
 func (g *MMGame) addEcologyActor(w *world.World3D, m *monster.Monster3D) {
 	m.QuestProgressIgnored = true
-	g.stampMonsterHome(w, m)
-	if w == g.world {
-		g.registerSpawnedMonster(m)
-	} else {
-		w.Monsters = append(w.Monsters, m)
-	}
+	g.addMonsterToWorld(w, m)
 }
 
 // Replenishment is edge-triggered and persisted even when every animal dies.
@@ -146,16 +141,8 @@ func (g *MMGame) replenishWildlife() {
 		for _, npc := range w.NPCs {
 			occupied[[2]int{int(npc.X / tile), int(npc.Y / tile)}] = true
 		}
-		minX, minY, maxX, maxY := 0, 0, w.Width, w.Height
-		wm := world.GlobalWorldManager
-		if wm.IsOpenWorldRegion(p.Map) {
-			for _, r := range wm.OpenWorldRegions {
-				if r.MapKey == p.Map {
-					minX, minY, maxX, maxY = r.OffsetX, r.OffsetY, r.OffsetX+r.Width, r.OffsetY+r.Height
-					break
-				}
-			}
-		}
+		bounds := mapTileBounds(w, p.Map)
+		minX, minY, maxX, maxY := bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Max.Y
 		var free [][2]int
 		for y := minY; y < maxY; y++ {
 			for x := minX; x < maxX; x++ {
@@ -356,8 +343,7 @@ func (g *MMGame) unlockCaravan() {
 	if c == nil || g.ecology.Unlocked || g.questManager == nil {
 		return
 	}
-	q := g.questManager.GetQuest(c.Caravan.UnlockQuest)
-	if q != nil && (q.RewardsClaimed || q.ClaimedAtDay > 0) {
+	if g.questManager.Concluded(c.Caravan.UnlockQuest) {
 		g.ecology.Unlocked = true
 		g.syncCaravanStock()
 	}
@@ -544,16 +530,8 @@ func (g *MMGame) setWildlifeBounds(m *monster.Monster3D) {
 		if w == nil {
 			return
 		}
-		b := [4]int{0, 0, w.Width, w.Height}
-		wm := world.GlobalWorldManager
-		if wm.IsOpenWorldRegion(p.Map) {
-			for _, r := range wm.OpenWorldRegions {
-				if r.MapKey == p.Map {
-					b = [4]int{r.OffsetX, r.OffsetY, r.OffsetX + r.Width, r.OffsetY + r.Height}
-					break
-				}
-			}
-		}
+		bounds := mapTileBounds(w, p.Map)
+		b := [4]int{bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Max.Y}
 		if m.AmbientBounds == nil {
 			m.AmbientBounds = new([4]int)
 		}

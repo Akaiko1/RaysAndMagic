@@ -376,13 +376,9 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.tabbedMenuInputCooldown = 0
 	g.collapsedSpellSchools = make(map[character.MagicSchoolID]bool)
 	g.buffStatuses = make(map[string]*BuffStatus)
-	g.lastBookClickTime = 0
-	g.lastClickedBookEntry = -1
-	g.lastClickedBookGroup = -1
-	g.lastSchoolClickTime = 0
-	g.lastSchoolClickedIdx = -1
-	g.dialogLastClickTime = 0
-	g.dialogLastClickedIdx = -1
+	g.bookClicks.reset()
+	g.schoolClicks.reset()
+	g.dialogClicks.reset()
 
 	// Reset dialog/menu states
 	g.closeConversation()
@@ -561,12 +557,12 @@ func (ih *InputHandler) saveVictoryScore() {
 
 	scores, err := highscore.Load()
 	if err != nil {
-		ih.game.AddCombatMessage("Could not read high scores: " + err.Error())
+		ih.game.AddCombatMessage(uitext.Text("combat.could_not_read_high_scores", err.Error()))
 		return
 	}
 	rank := highscore.Add(scores, entry)
 	if err := highscore.Save(scores); err != nil {
-		ih.game.AddCombatMessage("Could not save high scores: " + err.Error())
+		ih.game.AddCombatMessage(uitext.Text("combat.could_not_save_high_scores", err.Error()))
 		return
 	}
 	if rank >= 0 { // the High Scores screen opens on the run just recorded
@@ -633,9 +629,9 @@ func (ih *InputHandler) handleMainMenuInput() {
 			ih.activateMainMenuSelection()
 		}
 	case MenuSaveSelect:
-		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, true, ih.doSaveToSelectedRow)
+		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, true, ih.game.saveToSelectedRow)
 	case MenuLoadSelect:
-		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, false, ih.doLoadFromSelectedRow)
+		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, false, ih.game.loadSelectedRow)
 	case MenuSettings:
 		ih.game.updateAudioSettingsKeys(ih.keys.Consume)
 	}
@@ -659,7 +655,7 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h int, allowR
 		activate()
 	}
 	if allowRename && ih.keys.Consume(ebiten.KeyR) {
-		ih.openSaveRename(ih.game.selectedSaveRow())
+		ih.game.openSaveRename(ih.game.selectedSaveRow())
 	}
 }
 
@@ -678,38 +674,23 @@ func (ih *InputHandler) handleQuickSaveKeys() bool {
 
 // openSaveRename opens the rename dialog for a manual save row, rejecting the
 // load-only slots and empty slots with a message.
-func (ih *InputHandler) openSaveRename(row int) {
+func (g *MMGame) openSaveRename(row int) {
 	if saveRowIsLoadOnly(row) {
-		ih.game.AddCombatMessage("The " + saveRowLabel(row) + " slot cannot be renamed")
+		g.AddCombatMessage(uitext.Text("combat.the_slot_cannot_be_renamed", saveRowLabel(row)))
 		return
 	}
 	sum := GetSaveRowSummary(row)
 	if !sum.Exists {
-		ih.game.AddCombatMessage("No save in slot to rename")
+		g.AddCombatMessage(uitext.Text("combat.no_save_in_slot_to_rename"))
 		return
 	}
-	ih.game.saveRenameOpen = true
-	ih.game.saveRenameSlot = row
-	ih.game.saveRenameInput = sum.Name
-}
-
-// handleSaveRowRename opens rename on a right-clicked row in the Save menu.
-// Returns true if a row was clicked (caller should stop further input this frame).
-func (ih *InputHandler) handleSaveRowRename(l saveListLayout) bool {
-	for i, r := range l.rows {
-		if !ih.game.consumeRightClickIn(r.x, r.y, r.right(), r.bottom()) {
-			continue
-		}
-		ih.game.slotSelection = i
-		ih.openSaveRename(ih.game.savePage*saveRowsPerPage + i)
-		return true
-	}
-	return false
+	g.saveRenameOpen = true
+	g.saveRenameSlot = row
+	g.saveRenameInput = sum.Name
 }
 
 // navigateSavePage handles nav in the save/load menus: Up/Down moves the cursor
-// within the current page and Left/Right keys flip between pages. Buffered
-// pager clicks use navigateSavePageMouse and the same wrapping rule.
+// within the current page and Left/Right keys flip between pages.
 func (ih *InputHandler) navigateSavePage() {
 	g := ih.game
 	if ih.keys.Consume(ebiten.KeyUp) && g.slotSelection > 0 {
@@ -718,47 +699,51 @@ func (ih *InputHandler) navigateSavePage() {
 	if ih.keys.Consume(ebiten.KeyDown) && g.slotSelection < saveRowsPerPage-1 {
 		g.slotSelection++
 	}
-	// Pages wrap in both directions: Prev on the first page jumps to the last.
 	if ih.keys.Consume(ebiten.KeyLeft) {
-		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
+		g.flipSavePage(-1)
 	}
 	if ih.keys.Consume(ebiten.KeyRight) {
-		g.savePage = (g.savePage + 1) % savePageCount
+		g.flipSavePage(1)
 	}
 }
 
-// doSaveToSelectedRow writes the manual slot under the cursor. The load-only
+// saveToSelectedRow writes the manual slot under the cursor. The load-only
 // slots refuse a manual write.
-func (ih *InputHandler) doSaveToSelectedRow() {
-	g := ih.game
+func (g *MMGame) saveToSelectedRow() {
 	row := g.selectedSaveRow()
 	if saveRowIsLoadOnly(row) {
-		g.AddCombatMessage(saveRowLabel(row) + " is written automatically - pick another slot")
+		g.AddCombatMessage(uitext.Text("combat.is_written_automatically_pick_another_slot", saveRowLabel(row)))
 		return
 	}
 	if err := g.SaveGameToFile(saveRowPath(row)); err != nil {
-		g.AddCombatMessage("Save failed")
+		g.AddCombatMessage(uitext.Text("combat.save_failed"))
 	} else {
-		g.AddCombatMessage("Saved to " + saveRowLabel(row))
+		g.AddCombatMessage(uitext.Text("combat.saved_to", saveRowLabel(row)))
 		g.mainMenuMode = MenuMain
 	}
 }
 
-// doLoadFromSelectedRow loads the slot under the cursor (Autosave and Quicksave included).
-func (ih *InputHandler) doLoadFromSelectedRow() {
-	g := ih.game
+// loadSelectedRow loads the slot under the cursor (Autosave and Quicksave included).
+func (g *MMGame) loadSelectedRow() {
 	row := g.selectedSaveRow()
-	if sum := GetSaveRowSummary(row); !sum.Exists {
-		g.AddCombatMessage("No save in that slot")
-		return
-	}
-	if err := g.LoadGameFromFile(saveRowPath(row)); err != nil {
-		g.AddCombatMessage("Load failed")
-	} else {
-		g.AddCombatMessage("Loaded " + saveRowLabel(row))
+	if g.loadSaveRow(row) {
+		g.AddCombatMessage(uitext.Text("combat.loaded", saveRowLabel(row)))
 		g.closeMainMenu()
 		g.mainMenuMode = MenuMain
 	}
+}
+
+// loadSaveRow loads one save row, reporting an empty slot or a failed read.
+func (g *MMGame) loadSaveRow(row int) bool {
+	if !GetSaveRowSummary(row).Exists {
+		g.AddCombatMessage(uitext.Text("combat.no_save_in_that_slot"))
+		return false
+	}
+	if err := g.LoadGameFromFile(saveRowPath(row)); err != nil {
+		g.AddCombatMessage(uitext.Text("combat.load_failed"))
+		return false
+	}
+	return true
 }
 
 func (ih *InputHandler) handleSaveRenameInput() {
@@ -769,9 +754,9 @@ func (ih *InputHandler) handleSaveRenameInput() {
 	if ih.keys.Consume(ebiten.KeyEnter) {
 		name := strings.TrimSpace(ih.game.saveRenameInput)
 		if err := RenameSaveSlot(ih.game.saveRenameSlot, name); err != nil {
-			ih.game.AddCombatMessage("Rename failed")
+			ih.game.AddCombatMessage(uitext.Text("combat.rename_failed"))
 		} else {
-			ih.game.AddCombatMessage("Save renamed")
+			ih.game.AddCombatMessage(uitext.Text("combat.save_renamed"))
 		}
 		ih.game.closeSaveRename()
 	}
@@ -1005,7 +990,7 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 		return true
 	}
 	// Capture the requested patient before actor selection can move off a KO.
-	healRecipient := -1
+	var healRecipient *character.MMCharacter
 	if kind == rtActHeal {
 		healRecipient = ih.healRecipient()
 	}
@@ -1133,8 +1118,7 @@ func (ih *InputHandler) announceCastShortfall(idx int) {
 	}
 	cost := m.MeditatedSPCost(slottedSPCost(slot))
 	if m.SpellPoints < cost {
-		ih.game.AddCombatMessage(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
-			m.Name, slot.Name, m.SpellPoints, cost))
+		ih.game.AddCombatMessage(uitext.Text("combat.s_fizzles_not_enough_sp", m.Name, slot.Name, m.SpellPoints, cost))
 	}
 }
 
@@ -1156,8 +1140,7 @@ func (ih *InputHandler) useSlottedActionResolved(sel *character.MMCharacter) (bo
 	spellID := spells.SpellID(slot.SpellEffect)
 	fired := false
 	if slot.SpellEffect == items.SpellEffectHealSelf || slot.SpellEffect == items.SpellEffectHealOther {
-		mouseX, mouseY := uiCursorPosition()
-		fired = cs.CastEquippedHealOnTarget(ih.resolveHealTarget(slot, mouseX, mouseY))
+		fired = cs.CastEquippedHeal()
 	} else {
 		fired = cs.CastEquippedSpell()
 	}
@@ -1178,19 +1161,9 @@ func (ih *InputHandler) useSlottedAction(sel *character.MMCharacter) {
 	}
 }
 
-// healRecipient is the party member under the mouse, else the selected one.
-// Resolve it before an action chain hands the cast to another healer.
-func (ih *InputHandler) healRecipient() int {
-	mouseX, mouseY := uiCursorPosition()
-	if idx := ih.getPartyMemberUnderMouse(mouseX, mouseY); idx >= 0 {
-		return idx
-	}
-	return ih.game.selectedChar
-}
-
-// castBestHeal casts the selected character's strongest known heal (C key) on
-// the recipient resolved when the key was pressed. No-op if they know none.
-func (ih *InputHandler) castBestHeal(sel *character.MMCharacter, recipient int) {
+// castBestHeal casts the selected character's strongest known heal (C key)
+// on the recipient resolved at the press. No-op if they know none.
+func (ih *InputHandler) castBestHeal(sel, recipient *character.MMCharacter) {
 	if cast, spellID := ih.game.combat.CastBestHealOnTarget(recipient); cast {
 		ih.commitRTAction(rtActHeal, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
@@ -1377,7 +1350,7 @@ func (ih *InputHandler) checkTeleporter() {
 	// same-world jump, not a map switch.
 	if targetMapKey != "" && world.GlobalWorldManager != nil && !world.GlobalWorldManager.SameWorldKey(targetMapKey, world.GlobalWorldManager.CurrentMapKey) {
 		if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, pose: MapPose{X: newX, Y: newY, Angle: AngleNorth}}); err != nil {
-			ih.game.AddCombatMessage("Teleport failed: " + err.Error())
+			ih.game.AddCombatMessage(uitext.Text("combat.teleport_failed", err.Error()))
 			return
 		}
 	} else {
@@ -1474,7 +1447,7 @@ func (ih *InputHandler) checkDeepWater() {
 		// Teleport to center of water map. The game owns arrival and autosave.
 		centerX, centerY := TileCenterFromTile(25, 25, tileSize)
 		if err := ih.game.transitionToMap(mapTransition{mapKey: underwaterMapKey, arrival: mapArrivalUnderwater, pose: MapPose{X: centerX, Y: centerY, Angle: ih.game.camera.Angle}}); err != nil {
-			ih.game.AddCombatMessage("Cannot enter the depths: " + err.Error())
+			ih.game.AddCombatMessage(uitext.Text("combat.cannot_enter_the_depths", err.Error()))
 			return
 		}
 
@@ -1556,7 +1529,7 @@ func (ih *InputHandler) handleWorldMouseInput() {
 				if inRange {
 					ih.openNPCInteraction(npc)
 				} else {
-					ih.game.AddCombatMessage(fmt.Sprintf("%s is too far away.", npc.Name))
+					ih.game.AddCombatMessage(uitext.Text("combat.is_too_far_away", npc.Name))
 				}
 				return
 			}
@@ -1612,15 +1585,15 @@ func (g *MMGame) worldClickAllowed() bool {
 	return !g.menuOpen && topModalLayerFor(g, stackSplitOpen) == modalLayerNone
 }
 
-// getPartyMemberUnderMouse returns the index of the party member under the mouse cursor
-// Returns -1 if no party member is under the cursor
-func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
-	if !ih.game.showPartyStats {
+// partyMemberAt is the party member whose card is at (mouseX, mouseY), -1 off
+// the cards.
+func (g *MMGame) partyMemberAt(mouseX, mouseY int) int {
+	if !g.showPartyStats {
 		return -1
 	}
 
 	// Calculate party UI layout (same as UI system)
-	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ih.game)
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(g)
 
 	// Check if mouse is in party UI area
 	if mouseY < startY || mouseY >= startY+portraitHeight {
@@ -1632,18 +1605,36 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 
 	// Determine which character portrait the mouse is over
 	charIndex := (mouseX - baseLeft) / portraitWidth
-	if charIndex >= 0 && charIndex < len(ih.game.party.Members) {
+	if charIndex >= 0 && charIndex < len(g.party.Members) {
 		return charIndex
 	}
 
 	return -1
 }
 
+// healRecipient is the hero C heals: the one under the cursor, else the one
+// selected at the press - resolved before an action chain hands the cast to
+// another healer.
+func (ih *InputHandler) healRecipient() *character.MMCharacter {
+	if h := ih.game.heroUnderCursor(); h != nil {
+		return h
+	}
+	return ih.game.party.Members[ih.game.selectedChar]
+}
+
+// heroUnderCursor is the hero whose card the cursor is on, nil off the cards.
+func (g *MMGame) heroUnderCursor() *character.MMCharacter {
+	if i := g.partyMemberAt(uiCursorPosition()); i >= 0 {
+		return g.party.Members[i]
+	}
+	return nil
+}
+
 // partyPortraitClickTarget is the hero a selection or focus click lands on.
 // A hero's level-up chips are their own controls and keep those clicks;
 // pointing at a card for a heal or an ally spell still means the whole card.
 func (ih *InputHandler) partyPortraitClickTarget(mouseX, mouseY int) int {
-	charIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+	charIndex := ih.game.partyMemberAt(mouseX, mouseY)
 	if charIndex < 0 {
 		return -1
 	}
@@ -1663,7 +1654,7 @@ func (ih *InputHandler) partyPortraitClickTarget(mouseX, mouseY int) int {
 func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 	g := ih.game
 	if !g.menuOpen {
-		ih.openTabbedMenu(tab) // resets the spellbook highlight itself
+		ih.openTabbedMenu(tab)
 		return
 	}
 	if g.currentTab == tab {
@@ -1671,20 +1662,22 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 		g.actionInputStagger = g.config.UI.InputStaggerFrames
 		return
 	}
-	g.currentTab = tab
-	if tab == TabSpellbook {
-		g.selectedSpell = -1 // clear highlight until the user picks one
+	g.showMenuTab(tab)
+}
+
+// showMenuTab opens the hub on tab. Entering the spellbook (from another tab
+// or a closed hub) clears the spell highlight until the user picks one.
+func (g *MMGame) showMenuTab(tab MenuTab) {
+	if tab == TabSpellbook && (!g.menuOpen || g.currentTab != TabSpellbook) {
+		g.selectedSpell = -1
 	}
+	g.currentTab = tab
+	g.menuOpen = true
 }
 
 // openTabbedMenu opens the tabbed menu with the specified tab
 func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
-	ih.game.menuOpen = true
-	ih.game.currentTab = tab
-	if tab == TabSpellbook {
-		// No spell highlighted until the user clicks or navigates.
-		ih.game.selectedSpell = -1
-	}
+	ih.game.showMenuTab(tab)
 	ih.game.tabbedMenuInputCooldown = ih.game.config.UI.InputStaggerFrames
 }
 
@@ -1792,7 +1785,7 @@ func (ih *InputHandler) useSelectedBookEntryFromHub() bool {
 	if !used {
 		return false
 	}
-	g.consumeSelectedCharActionWithRTCooldown(cooldown)
+	g.commitHeroAction(g.selectedChar, cooldown)
 	return true
 }
 
@@ -1823,7 +1816,7 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
 	// giver" - other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
 	if npc.RejectsLich && ih.game.party.HasLich() {
-		ih.game.AddCombatMessage("The tower's wards flare against the undead - it will not answer a Lich.")
+		ih.game.AddCombatMessage(uitext.Text("combat.the_tower_s_wards_flare_against"))
 		return
 	}
 	// Immediate-use world objects: no dialog opens - interacting IS the effect.
@@ -1846,7 +1839,7 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	if kind == dialogKindTavern {
 		ih.game.stashInvPage = 0
 		if !ih.game.ensureStashLoaded() {
-			ih.game.AddCombatMessage("Could not load the shared stash.")
+			ih.game.AddCombatMessage(uitext.Text("combat.could_not_load_the_shared_stash"))
 		}
 	}
 
@@ -2017,7 +2010,7 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	}
 
 	// Check if character has enough gold
-	if ih.game.party.Gold < spellData.Cost {
+	if !ih.game.canAfford(spellData.Cost) {
 		ih.game.AddCombatMessage(ih.npcShopLine(
 			func(d *character.NPCDialogue) string { return d.InsufficientGold }, vars,
 			uitext.Text("dialog.need_gold_to_learn", spellData.Cost, spellData.Name)))
@@ -2032,22 +2025,15 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 
 	// Teach FIRST, charge after: a spell that fails to resolve must not eat
 	// the gold (and must not leave an empty school behind).
-	if !ih.addSpellToCharacter(selectedChar, ih.game.selectedSpellKey) {
+	if !selectedChar.LearnSpell(spells.SpellID(ih.game.selectedSpellKey)) {
 		ih.game.AddCombatMessage(uitext.Text("dialog.cannot_be_taught_right_now", spellData.Name))
 		return
 	}
-	ih.game.party.Gold -= spellData.Cost
+	ih.game.spendGold(spellData.Cost)
 
 	ih.game.AddCombatMessage(ih.npcShopLine(
 		func(d *character.NPCDialogue) string { return d.Success }, vars,
 		uitext.Text("dialog.learned", selectedChar.Name, spellData.Name)))
-}
-
-// addSpellToCharacter teaches the row by its catalog KEY (the spell id), the same
-// identity the gate reads. Reports whether the spellbook changed - false for an
-// already-known page, and the caller must not charge for it.
-func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellKey string) bool {
-	return char.LearnSpell(spells.SpellID(spellKey))
 }
 
 // handleDialogMouseInput handles mouse input in dialog mode
@@ -2095,7 +2081,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 				if ih.dialogDoubleClick("card_inv", inv) {
 					if !ih.game.placeCardFromInventory(inv) {
-						ih.game.AddCombatMessage("The collection is full (8 cards).")
+						ih.game.AddCombatMessage(uitext.Text("combat.the_collection_is_full_8_cards"))
 					}
 					ih.resetDialogDoubleClick()
 				}
@@ -2272,14 +2258,7 @@ func (ih *InputHandler) dialogDoubleClick(zone string, index int) bool {
 // (buff service): first click selects, a second on the same zone+index within
 // the window acts.
 func (g *MMGame) dialogDoubleClick(zone string, index int) bool {
-	currentTime := time.Now().UnixMilli()
-	doubleClick := g.dialogLastClickZone == zone &&
-		g.dialogLastClickedIdx == index &&
-		withinDoubleClickWindow(currentTime, g.dialogLastClickTime)
-	g.dialogLastClickTime = currentTime
-	g.dialogLastClickedIdx = index
-	g.dialogLastClickZone = zone
-	return doubleClick
+	return g.dialogClicks.click(dialogClickKey{zone, index}, time.Now().UnixMilli())
 }
 
 // resetDialogDoubleClick clears the tracker after a completed action, so a
@@ -2306,9 +2285,7 @@ func (g *MMGame) consumeDoubleClickIn(zone string, index int, x1, y1, x2, y2 int
 // the chain - otherwise click-item -> flip page -> click same index could pair as
 // a double-click buy/sell despite the navigation in between.
 func (g *MMGame) resetDialogClickTracker() {
-	g.dialogLastClickTime = 0
-	g.dialogLastClickedIdx = -1
-	g.dialogLastClickZone = ""
+	g.dialogClicks.reset()
 }
 
 // toggleTurnBasedMode switches between real-time and turn-based modes
@@ -2390,7 +2367,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	// Selected character can attack/spell if they're still selectable this
 	// round (alive + conscious + has an action slot). Same key scheme as
 	// real-time (R/Space/F/C); turn-based gates on action slots (not frame
-	// cooldowns) and consumes a slot per action via consumeSelectedCharAction.
+	// cooldowns) and consumes a slot per action via commitHeroAction.
 	if ih.game.actionInputStagger != 0 {
 		return
 	}
@@ -2424,7 +2401,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	if kind == rtActSlotted && ih.game.canSelectChar(ih.game.selectedChar) && !ih.game.actionCapable(ih.game.selectedChar, rtActSlotted) {
 		ih.announceCastShortfall(ih.game.selectedChar)
 	}
-	healRecipient := -1
+	var healRecipient *character.MMCharacter
 	if kind == rtActHeal {
 		healRecipient = ih.healRecipient()
 	}
@@ -2444,19 +2421,19 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	switch kind {
 	case rtActWeapon:
 		if ih.game.combat.EquipmentMeleeAttack() {
-			ih.game.consumeSelectedCharWeaponAction()
+			ih.game.commitWeaponAction()
 		}
 		ih.game.actionInputStagger = ih.actionCooldown(15)
 	case rtActSmart:
 		ih.performTurnBasedSmartAttack()
 	case rtActSlotted:
 		if fired, recovery := ih.useSlottedActionResolved(selected); fired {
-			ih.game.consumeSelectedCharActionWithRTCooldown(recovery)
+			ih.game.commitHeroAction(ih.game.selectedChar, recovery)
 		}
 		ih.game.actionInputStagger = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
 	case rtActHeal:
 		if cast, spellID := ih.game.combat.CastBestHealOnTarget(healRecipient); cast {
-			ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
+			ih.game.commitHeroAction(ih.game.selectedChar, ih.game.combat.SpellCooldownFrames(selected, spellID))
 		}
 		ih.game.actionInputStagger = ih.actionCooldown(15)
 	}
@@ -2583,17 +2560,6 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 	ih.game.viewTurnFramesLeft = ih.game.turnViewFrames()
 }
 
-func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) int {
-	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
-	if targetCharIndex >= 0 && spell.SpellEffect == items.SpellEffectHealOther {
-		return targetCharIndex
-	}
-	if targetCharIndex == ih.game.selectedChar {
-		return targetCharIndex
-	}
-	return ih.game.selectedChar
-}
-
 // handleArenaGladiatorInput drives the tabbed shop+talk dialog: Tab cycles
 // Talk/shop tabs/Board; the Talk tab runs the normal encounter choices, shop
 // tabs' grid clicks are handled by the shared merchant mouse path, the Board
@@ -2707,16 +2673,14 @@ func (ih *InputHandler) purchaseSelectedTraining() {
 		return
 	}
 	option := options[ih.game.dialogSelectedSpell]
-	if ih.game.party.Gold < option.Cost {
+	if !ih.game.canAfford(option.Cost) {
 		ih.game.AddCombatMessage(uitext.Text("dialog.need_gold_to_train", option.Cost, option.Label))
 		return
 	}
 
 	trained := false
 	if option.IsMagic {
-		if skill := selectedChar.MagicSchools[option.School]; skill != nil {
-			trained = skill.IncreaseMastery()
-		}
+		trained = upgradeMagicMastery(selectedChar, option.School)
 	} else {
 		// trainSkill bumps mastery AND refreshes derived stats (Bodybuilding -> Max HP).
 		trained = ih.game.trainSkill(selectedChar, option.SkillType)
@@ -2726,7 +2690,7 @@ func (ih *InputHandler) purchaseSelectedTraining() {
 		return
 	}
 
-	ih.game.party.Gold -= option.Cost
+	ih.game.spendGold(option.Cost)
 	ih.game.AddCombatMessage(uitext.Text("dialog.trained_to_for_gold", selectedChar.Name, option.Label, option.Next.String(), option.Cost))
 }
 
@@ -2797,8 +2761,8 @@ func (ih *InputHandler) executeEncounterChoice() {
 	// The action NAME is the dispatch key (dialogActions), and a `prop:` block
 	// travels with the reserved prop action - validated both ways at load, so the
 	// row that draws is the row that runs.
-	if run := dialogActions[choice.Action]; run != nil {
-		run(ih, npc, choice)
+	if action, ok := dialogActions[choice.Action]; ok {
+		action.run(ih, npc, choice)
 		return
 	}
 	// Unknown action - only a runtime-built row can get here (authored ones are
@@ -2844,17 +2808,10 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	if questID == "" || quests.GlobalQuestManager == nil {
 		return
 	}
-	// The Archmage's Trial is special: it has promotion prerequisites (no lich in
-	// the party, an eligible promotable member) and its own Lich-King flavor. Those
-	// checks/messages must NOT leak onto ordinary quests (e.g. the Dragon Cliffs
-	// kill quests), which just activate generically.
-	if questID == "archmage_trial" {
-		if g.party.HasLich() {
-			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.RejectedUndead }, uitext.Text("dialog.promotion_rejects_undead")))
-			return
-		}
-		if len(g.eligibleArchmageIndices()) == 0 {
-			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.Ineligible }, uitext.Text("dialog.promotion_ineligible")))
+	// A promotion quest is refused while no one can take the rank.
+	if def := quests.GlobalQuestManager.Definitions()[questID]; def != nil {
+		if reply := g.promotionRefusal(questPromotion(def.Rewards), npc, questID); reply != "" {
+			g.AddCombatMessage(reply)
 			return
 		}
 	}
@@ -2876,10 +2833,9 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 
 }
 
-// handleTurnInQuest turns a completed quest in at the NPC. The Archmage's Trial
-// is special (promotes a member instead of paying gold/XP); every other quest
-// claims its reward on the spot. Either way the NPC concludes (Visited) so it
-// stops re-offering.
+// handleTurnInQuest turns a completed quest in at the NPC: the reward (a
+// promotion included) is claimed on the spot and the NPC concludes (Visited)
+// so it stops re-offering.
 func (ih *InputHandler) handleTurnInQuest(questID string) {
 	g := ih.game
 	npc := g.dialogNPC // capture before clearing - we conclude it on success
@@ -2888,35 +2844,12 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 		return
 	}
 
-	if questID == "archmage_trial" {
-		if g.party.HasLich() {
-			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.RejectedUndead }, uitext.Text("dialog.promotion_rejects_undead")))
-			return
-		}
-		quest := g.questManager.GetQuest(questID)
-		if quest == nil || !quest.Completed || quest.RewardsClaimed {
-			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.NotCompleted }, uitext.Text("dialog.that_task_isn_t_finished_yet_return")))
-			return
-		}
-		if !g.promoteEligibleMember(character.PromotionArchmage, -1) {
-			g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.Ineligible }, uitext.Text("dialog.promotion_ineligible")))
-			return
-		}
-		g.recordProfileQuestResolution(quest)
-		_, _ = g.questManager.ClaimRewards(questID) // retain completion for saves and rumors
-		if npc != nil {
-			npc.Visited = true
-		}
-		return
-	}
-
-	// Generic turn-in: must be done, then pay out and conclude the NPC.
 	quest := g.questManager.GetQuest(questID)
 	if quest == nil || !quest.Completed {
 		g.AddCombatMessage(npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.NotCompleted }, uitext.Text("dialog.that_task_isn_t_finished_yet_return")))
 		return
 	}
-	if g.claimQuestReward(questID) {
+	if g.claimQuestReward(questID, npc) {
 		g.concludeGiverAfterPayout(npc, questID)
 	}
 }
@@ -2954,11 +2887,11 @@ func (ih *InputHandler) handleQuestPropInteract(questID string, words *character
 		}
 		return
 	}
-	q := g.questManager.GetQuest(questID)
-	if q == nil || q.Status != quests.QuestStatusActive {
+	if !g.questManager.Underway(questID) {
 		g.AddCombatMessage(words.NotYet)
 		return
 	}
+	q := g.questManager.GetQuest(questID)
 	// Credit FIRST, consume after. The prop is one-shot and often
 	// hide_when_visited, so spending it on a bump the manager refused would
 	// delete the only way to finish the errand. The credit is addressed to THIS
@@ -2976,9 +2909,6 @@ func (ih *InputHandler) handleQuestPropInteract(questID string, words *character
 	}
 	if words.LootTable != "" {
 		loot, gold := rollWeightedLootTable(words.LootTable)
-		for _, it := range loot {
-			g.party.AddItem(it)
-		}
 		if gold > 0 {
 			g.awardGold(gold)
 		}
@@ -2989,9 +2919,13 @@ func (ih *InputHandler) handleQuestPropInteract(questID string, words *character
 		for _, it := range loot {
 			parts = append(parts, it.Name)
 		}
+		for _, it := range loot {
+			g.party.AddItem(it)
+		}
 		if len(parts) > 0 && words.LootLine != "" {
 			g.AddCombatMessage(fmt.Sprintf(words.LootLine, strings.Join(parts, ", ")))
 		}
+		g.announceLegendaryDrops(loot)
 	}
 	g.AddCombatMessage(fmt.Sprintf("%s (%s)", words.Took, q.GetProgressString()))
 	for _, cq := range completed {
@@ -3009,11 +2943,10 @@ func paidServiceResponse(choice *character.NPCDialogueChoice) string {
 // dead stay dead), then closes the dialog - the night passes.
 func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 	g := ih.game
-	if g.party.Gold < choice.Cost {
+	if !g.spendGold(choice.Cost) {
 		g.AddCombatMessage(uitext.Text("dialog.service_cannot_afford", choice.Cost))
 		return
 	}
-	g.party.Gold -= choice.Cost
 	g.restParty()
 	g.closeConversation()
 	g.AddCombatMessage(paidServiceResponse(choice))
@@ -3028,11 +2961,10 @@ func (ih *InputHandler) handlePaidWait(choice *character.NPCDialogueChoice, nigh
 		g.AddCombatMessage(uitext.Text("dialog.time_is_already_passing"))
 		return
 	}
-	if g.party.Gold < choice.Cost {
+	if !g.spendGold(choice.Cost) {
 		g.AddCombatMessage(uitext.Text("dialog.service_cannot_afford", choice.Cost))
 		return
 	}
-	g.party.Gold -= choice.Cost
 	g.advanceDayNightToPhase(night)
 	g.closeConversation()
 	g.AddCombatMessage(paidServiceResponse(choice))
@@ -3042,11 +2974,10 @@ func (ih *InputHandler) handlePaidWait(choice *character.NPCDialogueChoice, nigh
 // player can stock up or rest afterwards.
 func (ih *InputHandler) handleBuyFood(choice *character.NPCDialogueChoice) {
 	g := ih.game
-	if g.party.Gold < choice.Cost {
+	if !g.spendGold(choice.Cost) {
 		g.AddCombatMessage(uitext.Text("dialog.rations_cost_gold_you_cannot_afford_them", choice.Cost))
 		return
 	}
-	g.party.Gold -= choice.Cost
 	g.party.Food += choice.Amount
 	g.AddCombatMessage(uitext.Text("dialog.bought_rations_for_gold_food", choice.Amount, choice.Cost, g.party.Food))
 }
@@ -3088,7 +3019,7 @@ func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 			buffServiceLabel(choice.Buff)))
 		return
 	}
-	if g.party.Gold < choice.Cost {
+	if !g.canAfford(choice.Cost) {
 		g.AddCombatMessage(uitext.Text("dialog.that_casting_costs_gold_your_purse_is", choice.Cost))
 		return
 	}
@@ -3100,7 +3031,7 @@ func (ih *InputHandler) handleCastBuff(choice *character.NPCDialogueChoice) {
 	if g.dialogNPC != nil && g.dialogNPC.Name != "" {
 		casterName = g.dialogNPC.Name
 	}
-	g.party.Gold -= choice.Cost
+	g.spendGold(choice.Cost)
 	g.closeConversation()
 	g.AddCombatMessage(uitext.Text("dialog.casts_over_the_party_for_gold",
 		casterName, buffServiceLabel(choice.Buff), buffServiceDurationLabel(choice.DurationSeconds), choice.Cost))
@@ -3127,7 +3058,7 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 				})
 				continue
 			}
-			if ih.game.party.CountItemsByName(s.Statuette) > 0 {
+			if ih.game.party.CountItemsByName(config.ItemName(s.Statuette)) > 0 {
 				choices = append(choices, &character.NPCDialogueChoice{
 					Text:               uitext.Text("dialog.offer_the_dragon_statuette", s.Label),
 					Action:             "summon_dragon",
@@ -3152,7 +3083,7 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 	s := npc.Summons[summonIdx]
 	// Re-find carried stock now: a statuette may have moved between bags since
 	// the dialog opened. The same shared-first payment rule serves item barter.
-	if !g.partyHoldsQuest(s.QuestID) || !g.party.RemoveItemsByName(s.Statuette, 1) {
+	if !g.partyHoldsQuest(s.QuestID) || !g.party.RemoveItemsByName(config.ItemName(s.Statuette), 1) {
 		return
 	}
 
@@ -3177,7 +3108,7 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 func (ih *InputHandler) enterEncounterMapAt(targetMapKey string, tile *[2]int) {
 	ih.game.closeConversation()
 	if err := ih.game.transitionToMap(mapTransition{mapKey: targetMapKey, arrival: mapArrivalEntrance, arrivalTile: tile}); err != nil {
-		ih.game.AddCombatMessage("You cannot enter from here.")
+		ih.game.AddCombatMessage(uitext.Text("combat.you_cannot_enter_from_here"))
 	}
 }
 

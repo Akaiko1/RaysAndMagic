@@ -39,7 +39,7 @@ func TestChampionBuilds(t *testing.T) {
 		t.Errorf("archer has %d unspent stat points, auto-distribution must spend all", arch.FreeStatPoints)
 	}
 	base := cs.game.config.Characters.Classes["archer"]
-	baseSum := base.Might + base.Intellect + base.Personality + base.Endurance + base.Accuracy + base.Speed + base.Luck
+	baseSum := base.Base.Might + base.Base.Intellect + base.Base.Personality + base.Base.Endurance + base.Base.Accuracy + base.Base.Speed + base.Base.Luck
 	sum := arch.Might + arch.Intellect + arch.Personality + arch.Endurance + arch.Accuracy + arch.Speed + arch.Luck
 	leveled := (tier.Level - 1) * StatPointsPerLevel
 	if want := baseSum + leveled; sum != want {
@@ -219,6 +219,38 @@ func TestChampionMeleeArc(t *testing.T) {
 	}
 }
 
+// A champion's real-time attack moment spends its attack only when a hand
+// swings: with both hands cooling it spends nothing, so a Cogfang jam
+// already landed this cycle holds (one jam per attack); a swing clears it.
+func TestChampionAttackSpentOnlyWhenAHandSwings(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		cs := newTestCombatSystemWithConfig(t)
+		primeTestChampions(t, cs.game)
+		fillTestParty(t, cs.game)
+		ts := float64(cs.game.config.GetTileSize())
+		m := monsterPkg.NewMonster3DFromConfig(cs.game.camera.X+ts, cs.game.camera.Y, "weapon_master", cs.game.config)
+		cs.game.registerSpawnedMonster(m)
+		m.BeginPlayerEngagement()
+		cs.game.mirrorChampionStats(m)
+		m.StateTimer, m.AttackCDFrames, m.OffHandCDFrames = 1, 600, 600
+		if ready {
+			m.AttackCDFrames, m.OffHandCDFrames = 0, 0
+		}
+		cs.jamMonster(m, 2)
+		cd := m.AttackCDFrames
+		spent := cs.commitMonsterAttack(m, monsterAttackDestination{}, monsterAttackRealtime)
+		if spent != ready || m.Jammed == ready {
+			t.Fatalf("ready=%v: spent=%v jammed=%v", ready, spent, m.Jammed)
+		}
+		if !ready {
+			cs.jamMonster(m, 2)
+			if m.AttackCDFrames != cd {
+				t.Fatalf("a second jam in the same cycle moved the cooldown %d -> %d", cd, m.AttackCDFrames)
+			}
+		}
+	}
+}
+
 // TestChampionRTDualStreams: real-time dual wield runs two INDEPENDENT hand
 // cooldowns (party parity) - the off hand fires on its own weapon's cadence
 // even when the main hand's attack tick is absent or its cooldown is running.
@@ -234,7 +266,7 @@ func TestChampionRTDualStreams(t *testing.T) {
 
 	// Attack tick with both hands ready: both streams strike, both CDs arm to
 	// their own weapon's formula values.
-	if !cs.championRTDualStrike(m, true) {
+	if handled, _ := cs.championRTDualStrike(m, true); !handled {
 		t.Fatal("dual strike not handled")
 	}
 	if want := m.AttackCooldownFrames(); want <= 0 || m.AttackCDFrames != want {
@@ -262,7 +294,7 @@ func TestChampionRTDualStreams(t *testing.T) {
 	}
 	mainBefore := m.AttackCDFrames
 	m.OffHandCDFrames = 0
-	if !cs.championRTDualStrike(m, false) {
+	if handled, _ := cs.championRTDualStrike(m, false); !handled {
 		t.Fatal("dual strike not handled")
 	}
 	if m.AttackCDFrames != mainBefore {
@@ -350,7 +382,7 @@ func TestChampionAttackDamage(t *testing.T) {
 
 	crits := 0
 	for i := 0; i < 200; i++ {
-		dmg := cs.monsterAttackDamage(m)
+		dmg, _ := cs.monsterAttackDamage(m)
 		if dmg < base || dmg > base*CritDamageMultiplier {
 			t.Fatalf("champion damage %d outside [%d, %d]", dmg, base, base*CritDamageMultiplier)
 		}
@@ -510,7 +542,7 @@ func checkArenaShop(t *testing.T, npc *character.NPC, data *character.NPCData) {
 	}
 	authored := map[string]*character.NPCItem{}
 	for _, entry := range data.Inventory {
-		authored[entry.Name] = entry
+		authored[entry.Key] = entry
 	}
 	if want := len(data.Inventory) + len(rack); len(npc.MerchantStock) != want {
 		t.Fatalf("stock size = %d, want %d authored entries + %d %s weapons",
@@ -525,7 +557,7 @@ func checkArenaShop(t *testing.T, npc *character.NPC, data *character.NPCData) {
 		if def, _, ok := config.GetWeaponDefinitionByName(entry.Item.Name); ok && def != nil && def.Rarity == "unique" {
 			soldUniques[entry.Item.Name] = true
 		}
-		if src, ok := authored[entry.Item.Name]; ok {
+		if src, ok := authored[config.CatalogKey(entry.Item)]; ok {
 			if entry.Cost != src.Cost {
 				t.Fatalf("%s costs %d, want authored %d", entry.Item.Name, entry.Cost, src.Cost)
 			}

@@ -25,30 +25,40 @@ func (s StatScaledDamage) Text() string {
 	return fmt.Sprintf("%d + %s/%d", s.Damage, s.ScalingStat, s.StatDivisor)
 }
 
+// ElementalAbilityKind is the closed set of elemental weapon abilities.
+type ElementalAbilityKind string
+
+const (
+	AbilityPressure  ElementalAbilityKind = "pressure"
+	AbilityBackwash  ElementalAbilityKind = "backwash"
+	AbilityAnchor    ElementalAbilityKind = "anchor"
+	AbilityCrosswind ElementalAbilityKind = "crosswind"
+)
+
 // ElementalWeaponAbility authors a direct-hit signature. Marks are shared by
 // the party; secondary damage never triggers another weapon rider.
 type ElementalWeaponAbility struct {
 	StatScaledDamage `yaml:",inline"`
-	Kind             string  `yaml:"kind"`
-	DurationSeconds  int     `yaml:"duration_seconds"`
-	Hits             int     `yaml:"hits,omitempty"`
-	RangeTiles       float64 `yaml:"range_tiles,omitempty"`
-	MaxStacks        int     `yaml:"max_stacks,omitempty"`
-	HitsPerTarget    int     `yaml:"hits_per_target,omitempty"`
+	Kind             ElementalAbilityKind `yaml:"kind"`
+	DurationSeconds  int                  `yaml:"duration_seconds"`
+	Hits             int                  `yaml:"hits,omitempty"`
+	RangeTiles       float64              `yaml:"range_tiles,omitempty"`
+	MaxStacks        int                  `yaml:"max_stacks,omitempty"`
+	HitsPerTarget    int                  `yaml:"hits_per_target,omitempty"`
 }
 
 func (a *ElementalWeaponAbility) validate(w *WeaponDefinitionConfig) error {
 	if a == nil {
 		return nil
 	}
-	school := map[string]string{"pressure": "fire", "backwash": "water", "anchor": "earth", "crosswind": "air"}[a.Kind]
+	school := map[ElementalAbilityKind]string{AbilityPressure: "fire", AbilityBackwash: "water", AbilityAnchor: "earth", AbilityCrosswind: "air"}[a.Kind]
 	if school == "" || w.DamageType != school {
 		return fmt.Errorf("elemental ability %q requires its matching damage school", a.Kind)
 	}
 	if a.Damage <= 0 || math.IsNaN(a.RangeTiles) || math.IsInf(a.RangeTiles, 0) {
 		return fmt.Errorf("elemental ability requires positive damage and finite range")
 	}
-	if a.Kind == "backwash" {
+	if a.Kind == AbilityBackwash {
 		if a.DurationSeconds != 0 || a.HitsPerTarget < 1 || a.HitsPerTarget > 10 {
 			return fmt.Errorf("backwash requires hits_per_target (1..10) and no mark duration")
 		}
@@ -57,25 +67,25 @@ func (a *ElementalWeaponAbility) validate(w *WeaponDefinitionConfig) error {
 	} else if err := ValidateEffectSeconds("mark duration_seconds", a.DurationSeconds); err != nil {
 		return err
 	}
-	counted := a.Kind == "pressure" || a.Kind == "crosswind"
+	counted := a.Kind == AbilityPressure || a.Kind == AbilityCrosswind
 	if (counted && (a.Hits < 2 || a.Hits > 10)) || (!counted && a.Hits != 0) {
 		return fmt.Errorf("only pressure and crosswind author hits (2..10)")
 	}
-	if (a.Kind == "anchor" && (a.MaxStacks < 1 || a.MaxStacks > 10)) || (a.Kind != "anchor" && a.MaxStacks != 0) {
+	if (a.Kind == AbilityAnchor && (a.MaxStacks < 1 || a.MaxStacks > 10)) || (a.Kind != AbilityAnchor && a.MaxStacks != 0) {
 		return fmt.Errorf("only anchor authors max_stacks (1..10)")
 	}
-	if a.Kind == "backwash" || a.Kind == "crosswind" {
+	if a.Kind == AbilityBackwash || a.Kind == AbilityCrosswind {
 		if a.RangeTiles <= 0 || a.RangeTiles > 6 {
 			return fmt.Errorf("backwash and crosswind require range_tiles in (0,6]")
 		}
 	} else if a.RangeTiles != 0 {
 		return fmt.Errorf("only backwash and crosswind author range_tiles")
 	}
-	scalingStat := map[string]string{"pressure": "Speed", "backwash": "Intellect"}[a.Kind]
+	scalingStat := map[ElementalAbilityKind]string{AbilityPressure: "Speed", AbilityBackwash: "Intellect"}[a.Kind]
 	if a.ScalingStat != scalingStat || (scalingStat != "" && a.StatDivisor <= 0) || (scalingStat == "" && a.StatDivisor != 0) {
 		return fmt.Errorf("%s requires scaling_stat %q and a positive divisor only when scaling", a.Kind, scalingStat)
 	}
-	if a.Kind == "backwash" {
+	if a.Kind == AbilityBackwash {
 		if w.Physics == nil || w.ProjectileSchool != school {
 			return fmt.Errorf("backwash requires a water projectile weapon")
 		}
@@ -91,13 +101,13 @@ func (a *ElementalWeaponAbility) Lines() []string {
 	}
 	var effect string
 	switch a.Kind {
-	case "pressure":
+	case AbilityPressure:
 		effect = uitext.Text("weapon.pressure_vent", a.Hits, a.Text())
-	case "backwash":
+	case AbilityBackwash:
 		return []string{uitext.Text("weapon.backwash", a.Text(), NumberText(a.RangeTiles), a.HitsPerTarget)}
-	case "anchor":
+	case AbilityAnchor:
 		effect = uitext.Text("weapon.stored_load", a.Damage, a.MaxStacks)
-	case "crosswind":
+	case AbilityCrosswind:
 		effect = uitext.Text("weapon.transfer", a.Hits, a.Damage, NumberText(a.RangeTiles))
 	}
 	return []string{effect, uitext.Text("weapon.marks_shared", DurationText(a.DurationSeconds))}

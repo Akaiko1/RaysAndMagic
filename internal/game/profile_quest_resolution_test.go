@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -15,7 +16,7 @@ import (
 // snapshots are silent; retries are no-ops; reactivated repeatables count anew.
 // Profile reopening checks persistence independently of the game's save slot.
 func TestProfileQuestResolutionPaths(t *testing.T) {
-	for _, source := range []string{"journal", "npc", "encounter", "auto kill", "auto census", "auto prop", "auto arena", "archmage", "archmage picker"} {
+	for _, source := range []string{"journal", "npc", "encounter", "auto kill", "auto census", "auto prop", "auto arena", "archmage", "archmage picker", "archmage journal"} {
 		for _, restored := range []bool{false, true} {
 			for _, tb := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/restored=%v/TB=%v", source, restored, tb), func(t *testing.T) {
@@ -28,7 +29,7 @@ func TestProfileQuestResolutionPaths(t *testing.T) {
 					def := &quests.QuestDefinition{Name: "Test Resolution", Type: quests.QuestTypeInteract,
 						TargetMonster: "test_target", TargetCount: 1}
 					needsClaim := source == "journal" || source == "npc"
-					promotion := source == "archmage" || source == "archmage picker"
+					promotion := strings.HasPrefix(source, "archmage")
 					if needsClaim || source == "encounter" {
 						def.Rewards = quests.QuestRewards{Gold: 100, Experience: 200, ArenaPoints: 3}
 					}
@@ -52,6 +53,7 @@ func TestProfileQuestResolutionPaths(t *testing.T) {
 					}
 					if promotion {
 						id = "archmage_trial"
+						def.Rewards.Promotion = "archmage"
 						hero := g.party.Members[sorcererIndex(t, g)]
 						g.party.Members = []*character.MMCharacter{hero}
 						if source == "archmage picker" {
@@ -59,7 +61,7 @@ func TestProfileQuestResolutionPaths(t *testing.T) {
 							g.party.Members = append(g.party.Members, &second)
 						}
 						t.Chdir("../..") // Promotion eligibility uses shipped portrait assets.
-						if !g.canPromoteArchmage(hero) {
+						if !g.canPromote(character.PromotionArchmage, hero) {
 							t.Fatal("fixture lacks an eligible Archmage portrait")
 						}
 					}
@@ -90,8 +92,8 @@ func TestProfileQuestResolutionPaths(t *testing.T) {
 					}
 					action := func() {
 						switch source {
-						case "journal":
-							h.ui.claimQuestReward(id)
+						case "journal", "archmage journal":
+							h.ui.game.claimQuestReward(id, nil)
 						case "npc", "archmage", "archmage picker":
 							h.loop.inputHandler.handleTurnInQuest(id)
 						case "encounter":
@@ -127,8 +129,8 @@ func TestProfileQuestResolutionPaths(t *testing.T) {
 					action()
 					action()
 					assertCount(1)
-					if source == "archmage" && g.party.Members[0].Promotion != character.PromotionArchmage {
-						t.Fatal("turn-in did not promote the hero")
+					if (source == "archmage" || source == "archmage journal") && g.party.Members[0].Promotion != character.PromotionArchmage {
+						t.Fatal("claim did not promote the hero")
 					}
 					if source == "archmage picker" && !g.promotionPickerOpen {
 						t.Fatal("turn-in did not open the promotion picker")
@@ -167,34 +169,43 @@ func TestProfileQuestResolutionPaths(t *testing.T) {
 	}
 }
 
+// A refused promotion leaves the quest unclaimed at the tower and in the
+// journal alike, so the rank can still be taken later.
 func TestProfileRejectedArchmageTurnIn(t *testing.T) {
-	for _, reason := range []string{"incomplete", "ineligible", "lich"} {
-		t.Run(reason, func(t *testing.T) {
-			h := newDisplayedModalHarness(t, 1024, 768)
-			g := h.g
-			path := attachStatisticsProfile(t, g)
-			g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
-				"archmage_trial": {Name: "Trial", Type: quests.QuestTypeInteract},
-			}})
-			if err := g.questManager.ActivateQuest("archmage_trial"); err != nil {
-				t.Fatal(err)
-			}
-			if reason != "incomplete" {
-				g.questManager.MarkCompleted("archmage_trial")
-			}
-			for _, hero := range g.party.Members {
-				hero.Promotion = character.PromotionArchmage
-				if reason == "lich" {
-					hero.Promotion = character.PromotionLich
+	for _, entry := range []string{"tower", "journal"} {
+		for _, reason := range []string{"incomplete", "ineligible", "lich"} {
+			t.Run(entry+"/"+reason, func(t *testing.T) {
+				h := newDisplayedModalHarness(t, 1024, 768)
+				g := h.g
+				path := attachStatisticsProfile(t, g)
+				g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{
+					"archmage_trial": {Name: "Trial", Type: quests.QuestTypeInteract, Rewards: quests.QuestRewards{Promotion: "archmage"}},
+				}})
+				if err := g.questManager.ActivateQuest("archmage_trial"); err != nil {
+					t.Fatal(err)
 				}
-			}
-			for i := 0; i < 2; i++ {
-				h.loop.inputHandler.handleTurnInQuest("archmage_trial")
-			}
-			if g.questManager.GetQuest("archmage_trial") == nil || g.playerProfile.Data.Counters["quest_rewards"] != 0 || len(g.playerProfile.Data.Top("quest_rewards")) != 0 {
-				t.Fatal("rejected promotion consumed or counted the quest")
-			}
-			assertProfileMetricsPersist(t, g.playerProfile, path)
-		})
+				if reason != "incomplete" {
+					g.questManager.MarkCompleted("archmage_trial")
+				}
+				for _, hero := range g.party.Members {
+					hero.Promotion = character.PromotionArchmage
+					if reason == "lich" {
+						hero.Promotion = character.PromotionLich
+					}
+				}
+				for i := 0; i < 2; i++ {
+					if entry == "tower" {
+						h.loop.inputHandler.handleTurnInQuest("archmage_trial")
+					} else {
+						g.claimQuestReward("archmage_trial", nil)
+					}
+				}
+				q := g.questManager.GetQuest("archmage_trial")
+				if q == nil || q.RewardsClaimed || g.playerProfile.Data.Counters["quest_rewards"] != 0 || len(g.playerProfile.Data.Top("quest_rewards")) != 0 {
+					t.Fatal("rejected promotion consumed or counted the quest")
+				}
+				assertProfileMetricsPersist(t, g.playerProfile, path)
+			})
+		}
 	}
 }

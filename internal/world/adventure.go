@@ -35,7 +35,7 @@ func validateAdventureWorld(key string, w *World3D, a *config.AdventureConfig) e
 		if !inBounds(e.Rect[0], e.Rect[1]) || !inBounds(e.Rect[2], e.Rect[3]) {
 			return fail("effect outside map: " + e.ID)
 		}
-		if e.Kind != "transfer" {
+		if e.Kind != config.EffectTransfer {
 			continue
 		}
 		x, y := e.Destination[0], e.Destination[1]

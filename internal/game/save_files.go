@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/highscore"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
@@ -78,24 +79,24 @@ func (g *MMGame) autosaveErr() error {
 // quicksave writes the Quicksave slot (F5).
 func (g *MMGame) quicksave() {
 	if err := g.SaveGameToFile(saveRowPath(quicksaveRow)); err != nil {
-		g.AddCombatMessage("Quicksave failed")
+		g.AddCombatMessage(uitext.Text("combat.quicksave_failed"))
 		return
 	}
-	g.AddCombatMessage("Quicksaved (Shift+F4 to load)")
+	g.AddCombatMessage(uitext.Text("combat.quicksaved_shift_f4_to_load"))
 }
 
 // quickload loads the Quicksave slot (Shift+F4).
 func (g *MMGame) quickload() {
 	if !GetSaveRowSummary(quicksaveRow).Exists {
-		g.AddCombatMessage("No quicksave yet - press F5 to make one")
+		g.AddCombatMessage(uitext.Text("combat.no_quicksave_yet_press_f5_to"))
 		return
 	}
 	if err := g.LoadGameFromFile(saveRowPath(quicksaveRow)); err != nil {
-		g.AddCombatMessage("Quickload failed")
+		g.AddCombatMessage(uitext.Text("combat.quickload_failed"))
 		return
 	}
 	g.menuOpen = false
-	g.AddCombatMessage("Quickloaded")
+	g.AddCombatMessage(uitext.Text("combat.quickloaded"))
 }
 
 // SaveSummary is lightweight info used for menu display

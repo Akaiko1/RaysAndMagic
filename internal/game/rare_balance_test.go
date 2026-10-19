@@ -180,7 +180,7 @@ func TestRareSpatialMonsterPasses(t *testing.T) {
 					}
 					paid := func() {
 						if paidKind == "weapon" {
-							g.consumeSelectedCharWeaponAction()
+							g.commitWeaponAction()
 						} else if !g.useTechnique(0, "phase_veil", false, false) {
 							t.Fatal("paid action rejected")
 						}
@@ -210,7 +210,7 @@ func TestRareSpatialMonsterPasses(t *testing.T) {
 		}
 	}
 	g, _ := rareClassGame(t, character.ClassWayfarer, true)
-	g.consumeSelectedCharWeaponAction()
+	g.commitWeaponAction()
 	g.endPartyTurnAfterMovement()
 	g.monsterTurnState.startPasses()
 	if g.turnBasedMonsterPassesLeft != 2 {

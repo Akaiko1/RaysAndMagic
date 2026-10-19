@@ -9,9 +9,8 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/strictyaml"
 	"ugataima/internal/world"
-
-	"gopkg.in/yaml.v3"
 )
 
 // A document is isolated from the Maps brush and runtime catalogs until Save.
@@ -117,15 +116,16 @@ func (d *overlayDocument) uniqueID(prefix string) string {
 		}
 	}
 }
-func (d *overlayDocument) addEffect(kind string, box [4]int) int {
+
+func (d *overlayDocument) addEffect(kind config.EffectKind, box [4]int) int {
 	d.checkpoint()
-	e := config.EnvironmentEffect{ID: d.uniqueID(kind), Name: map[string]string{"trap": "Pressure plate", "occupation": "Hazardous ground", "transfer": "Transfer", "lane": "Attack lane"}[kind], Kind: kind, Rect: box, School: "earth", Damage: 25}
+	e := config.EnvironmentEffect{ID: d.uniqueID(string(kind)), Name: map[config.EffectKind]string{config.EffectTrap: "Pressure plate", config.EffectOccupation: "Hazardous ground", config.EffectTransfer: "Transfer", config.EffectLane: "Attack lane"}[kind], Kind: kind, Rect: box, School: "earth", Damage: 25}
 	switch kind {
-	case "trap":
+	case config.EffectTrap:
 		e.RearmSeconds, e.RearmRounds = 6, 2
-	case "lane":
+	case config.EffectLane:
 		e.WarningSeconds, e.WarningRounds, e.DurationSeconds = 1.25, 1, 6
-	case "transfer":
+	case config.EffectTransfer:
 		e.Damage, e.DamagePercent = 0, 0
 		e.School = ""
 		e.Destination = [2]int{min(d.state.Data.Width-1, box[2]+1), box[1]}
@@ -144,7 +144,7 @@ func (d *overlayDocument) npc(key string) *character.NPCData {
 	// spell names) that must never be written back into npcs.yaml.
 	if d.authoredNPCs == nil {
 		var cfg character.NPCConfig
-		if err := yaml.Unmarshal(d.npcBase, &cfg); err == nil && cfg.NPCs != nil {
+		if err := strictyaml.Decode(d.npcBase, &cfg); err == nil && cfg.NPCs != nil {
 			d.authoredNPCs = cfg.NPCs
 		} else {
 			d.authoredNPCs = map[string]*character.NPCData{}
@@ -426,13 +426,13 @@ func (v *viewer) validateOverlay(d *overlayDocument) error {
 		if e.SustainDamage < 0 || e.DamagePercent < 0 || e.SustainPercent < 0 || e.WarningRounds < 0 || e.DurationSeconds < 0 || e.RearmRounds < 0 {
 			return fmt.Errorf("%s: values cannot be negative", e.Name)
 		}
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			x, y := e.Destination[0], e.Destination[1]
 			if !walkable(x, y) {
 				return fmt.Errorf("%s: receiver must be walkable", e.Name)
 			}
 			for _, other := range a.Effects {
-				if other.Contains(x, y) && other.Kind != "lane" {
+				if other.Contains(x, y) && other.Kind != config.EffectLane {
 					return fmt.Errorf("%s: receiver overlaps %s", e.Name, other.Name)
 				}
 			}
@@ -499,23 +499,23 @@ func (v *viewer) validateOverlay(d *overlayDocument) error {
 	return nil
 }
 
-func (d *overlayDocument) changeKind(index int, kind string) error {
+func (d *overlayDocument) changeKind(index int, kind config.EffectKind) error {
 	e := &d.state.Adventure.Effects[index]
 	if e.Kind == kind {
 		return nil
 	}
-	if !slices.Contains([]string{"trap", "occupation", "transfer", "lane"}, kind) {
+	if !slices.Contains(config.EffectKinds, kind) {
 		return fmt.Errorf("Unknown behavior")
 	}
 	// Reject dangling lane/disarm references before converting the entity.
-	if e.Kind == "lane" || e.Kind == "trap" {
+	if e.Kind == config.EffectLane || e.Kind == config.EffectTrap {
 		probe := &overlayDocument{state: d.state.clone(), originalNPCs: d.originalNPCs}
 		if err := probe.deleteEffect(index); err != nil {
 			return err
 		}
 	}
 	e.Kind = kind
-	if kind != "lane" {
+	if kind != config.EffectLane {
 		// Lingering damage and its time belong to lanes.
 		e.SustainDamage, e.SustainPercent, e.DurationSeconds = 0, 0, 0
 	}
@@ -529,11 +529,11 @@ func (d *overlayDocument) changeKind(index int, kind string) error {
 		}
 	}
 	switch kind {
-	case "trap":
+	case config.EffectTrap:
 		e.RearmSeconds, e.RearmRounds = 6, 2
-	case "lane":
+	case config.EffectLane:
 		e.WarningSeconds, e.WarningRounds, e.DurationSeconds = 1.25, 1, 6
-	case "transfer":
+	case config.EffectTransfer:
 		e.Damage, e.SustainDamage, e.DamagePercent, e.SustainPercent = 0, 0, 0, 0
 		e.School, e.SecondarySchool = "", ""
 		e.Destination = [2]int{min(d.state.Data.Width-1, e.Rect[2]+1), e.Rect[1]}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/status"
 
 	"ugataima/internal/character"
@@ -882,15 +883,13 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if hover {
 				ui.queueTooltip([]string{fmt.Sprintf("%d stat points ready", member.FreeStatPoints), "Click to assign"}, mouseX+12, mouseY+8)
 			}
-			ui.onDisplayedInput(uiCommandClick, chip, func() {
-				if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(chip.x, chip.y, chip.right(), chip.bottom()) {
-					ui.game.statPopupOpen = true
-					// Open the popup for THIS character. Don't touch selectedChar:
-					// in turn-based mode it tracks whose turn it is, and hijacking it
-					// made the popup show the active char instead of the clicked one.
-					ui.game.statPopupCharIdx = i
-					ui.justOpenedStatPopup = true
-				}
+			ui.onGatedClick(chip, func() bool { return !ui.partyCardClicksBlocked() }, func() {
+				ui.game.statPopupOpen = true
+				// Open the popup for THIS character. Don't touch selectedChar:
+				// in turn-based mode it tracks whose turn it is, and hijacking it
+				// made the popup show the active char instead of the clicked one.
+				ui.game.statPopupCharIdx = i
+				ui.justOpenedStatPopup = true
 			})
 		}
 		if levelUp.skill.w > 0 {
@@ -900,11 +899,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if hover {
 				ui.queueTooltip([]string{"Skill choice ready", "Click to choose"}, mouseX+12, mouseY+8)
 			}
-			ui.onDisplayedInput(uiCommandClick, chip, func() {
-				if !ui.partyCardClicksBlocked() && ui.game.consumeLeftClickIn(chip.x, chip.y, chip.right(), chip.bottom()) {
-					ui.game.openLevelUpChoiceForChar(i)
-				}
-			})
+			ui.onGatedClick(chip, func() bool { return !ui.partyCardClicksBlocked() }, func() { ui.game.openLevelUpChoiceForChar(i) })
 		}
 
 		// The state band: in TB whether this hero has acted (a dual wielder's
@@ -1137,27 +1132,15 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 // member's portrait head - the classic "seeing stars" daze. Each star orbits,
 // pulses in size/alpha on its own phase, and carries a faint diagonal sparkle.
 func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int) {
-	f := float64(ui.cardAnimClock())
 	cx := float64(x) + float64(w)*0.5
 	cy := float64(startY) + float64(h)*0.30 // ring around the upper portrait (head)
-	rx, ry := float64(w)*0.42, float64(h)*0.20
-	const n = 5
-	for k := 0; k < n; k++ {
-		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)
-		sx := float32(cx + math.Cos(ang)*rx)
-		sy := float32(cy + math.Sin(ang)*ry)
-		tw := 0.5 + 0.5*math.Sin(f*0.25+float64(k)*1.7) // twinkle
-		a := uint8(120 + 135*tw)
-		arm := float32(2.5 + 3.5*tw)
-		col := color.RGBA{255, 240, 120, a}
-		uiStrokeLine(screen, sx-arm, sy, sx+arm, sy, 1.5, col, true)
-		uiStrokeLine(screen, sx, sy-arm, sx, sy+arm, 1.5, col, true)
-		d := arm * 0.6
-		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
-		uiStrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
-		uiStrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
-		uiFillCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
-	}
+	stunStarGlyphs(float64(ui.cardAnimClock()), cx, cy, float64(w)*0.42, float64(h)*0.20, 2.5, 3.5,
+		func(x0, y0, x1, y1, width float64, c color.RGBA) {
+			uiStrokeLine(screen, float32(x0), float32(y0), float32(x1), float32(y1), float32(width), c, true)
+		},
+		func(px, py, radius float64, c color.RGBA) {
+			uiFillCircle(screen, float32(px), float32(py), float32(radius), c, true)
+		})
 }
 
 // drawPartyProgressionBadgeShadow lifts a badge off the portrait beneath it.
@@ -1398,30 +1381,11 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 
 // handleBuffIconClick dispels a party buff on a double-click of its status icon.
 func (ui *UISystem) handleBuffIconClick(x, y, width, height int, id string) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x, y, width, height}, func() { ui.handleBuffIconClick(x, y, width, height, id) })
-		return
-	}
-
-	// Check for mouse click (only process on first press, not while held)
-	if !ui.hudClicksBlocked() && ui.game.consumeLeftClickIn(x, y, x+width, y+height) {
-		currentTime := ui.game.mouseLeftClickAt
-
-		// Check for a fast double-click on the same icon.
-		doubleClick := withinDoubleClickWindow(currentTime, ui.game.lastBuffIconClickTime) &&
-			ui.game.lastClickedBuffIcon == id
-		if doubleClick {
-			// Double-click detected - dispel the buff
+	ui.onGatedClick(layoutRect{x, y, width, height}, func() bool { return !ui.hudClicksBlocked() }, func() {
+		if ui.game.buffIconClicks.click(id, ui.game.mouseLeftClickAt) {
 			ui.dispelBuff(id)
-			// Reset click tracking
-			ui.game.lastBuffIconClickTime = 0
-			ui.game.lastClickedBuffIcon = ""
-		} else {
-			// Single click - record for potential double-click
-			ui.game.lastBuffIconClickTime = currentTime
-			ui.game.lastClickedBuffIcon = id
 		}
-	}
+	})
 }
 
 // dispelBuff ends an active party buff the way it would expire naturally.
@@ -1435,18 +1399,18 @@ func (ui *UISystem) dispelBuff(id string) {
 		}
 		if *b.active {
 			*b.clock = status.DualClock{}
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", buffSourceName(id)))
+			ui.game.AddCombatMessage(uitext.Text("combat.dispelled", buffSourceName(id)))
 		}
 		return
 	}
 	// Registry buffs (stat AND combat) dispel by source id.
 	if _, ok := ui.game.statBuffByID(id); ok {
 		if ui.game.removeStatBuff(id) {
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", buffSourceName(id)))
+			ui.game.AddCombatMessage(uitext.Text("combat.dispelled", buffSourceName(id)))
 		}
 	} else if _, ok := ui.game.combatBuffByID(id); ok {
 		if ui.game.removeCombatBuff(id) {
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", buffSourceName(id)))
+			ui.game.AddCombatMessage(uitext.Text("combat.dispelled", buffSourceName(id)))
 		}
 	}
 }

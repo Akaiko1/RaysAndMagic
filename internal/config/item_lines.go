@@ -7,6 +7,7 @@ import (
 	uitext "ugataima/assets/text"
 
 	damagecalc "ugataima/internal/damage"
+	"ugataima/internal/stats"
 )
 
 // Presentation lines for items - the ONE formatter behind the in-game item
@@ -33,22 +34,15 @@ func (d *ItemDefinitionConfig) StatBonusLines() []string {
 
 // FlatStatBonusLines excludes formulas that a live card resolves for its bearer.
 func (d *ItemDefinitionConfig) FlatStatBonusLines() []string {
+	return statBonusLines(d.StatBonus.Stats())
+}
+
+// statBonusLines is "Might +2" per non-zero stat, in sheet order.
+func statBonusLines(b stats.StatBonuses) []string {
 	var parts []string
-	flat := []struct {
-		label string
-		val   int
-	}{
-		{"Might", d.BonusMight},
-		{"Intellect", d.BonusIntellect},
-		{"Personality", d.BonusPersonality},
-		{"Endurance", d.BonusEndurance},
-		{"Accuracy", d.BonusAccuracy},
-		{"Speed", d.BonusSpeed},
-		{"Luck", d.BonusLuck},
-	}
-	for _, b := range flat {
-		if b.val != 0 {
-			parts = append(parts, fmt.Sprintf("%s %+d", b.label, b.val))
+	for _, n := range stats.Names {
+		if v := b.ValueByName(n); v != 0 {
+			parts = append(parts, fmt.Sprintf("%s %+d", stats.Title(n), v))
 		}
 	}
 	return parts
@@ -337,17 +331,10 @@ func EquipmentSetLines(setKey string) []string {
 	}
 	lines := []string{uitext.Text("item.set_pieces", set.Name, set.RequiredPieceCount())}
 	var parts []string
-	for _, b := range []struct {
-		label string
-		val   int
-	}{
-		{"Armor Class", set.BonusArmorClass}, {"Might", set.BonusMight}, {"Intellect", set.BonusIntellect}, {"Personality", set.BonusPersonality},
-		{"Endurance", set.BonusEndurance}, {"Accuracy", set.BonusAccuracy}, {"Speed", set.BonusSpeed}, {"Luck", set.BonusLuck},
-	} {
-		if b.val != 0 {
-			parts = append(parts, fmt.Sprintf("%s %+d", b.label, b.val))
-		}
+	if set.BonusArmorClass != 0 {
+		parts = append(parts, fmt.Sprintf("Armor Class %+d", set.BonusArmorClass))
 	}
+	parts = append(parts, statBonusLines(set.StatBonus.Stats())...)
 	if set.StunDurationPct != 0 {
 		parts = append(parts, uitext.Text("item.stuns_suffered_duration", 100+set.StunDurationPct, ScaledRoundsText(set.StunDurationPct)))
 	}
@@ -397,12 +384,9 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	if d.CardBonusActions != 0 {
 		p = append(p, uitext.Text("item.party_action_turn", d.CardBonusActions))
 	}
-	for _, s := range []struct{ key, label string }{
-		{"might", "Might"}, {"intellect", "Intellect"}, {"personality", "Personality"},
-		{"endurance", "Endurance"}, {"accuracy", "Accuracy"}, {"speed", "Speed"}, {"luck", "Luck"},
-	} {
-		if v := d.CardStatBonuses[s.key]; v != 0 {
-			p = append(p, fmt.Sprintf("%+d %s", v, s.label))
+	for _, n := range stats.Names {
+		if v := d.CardStatBonuses[n]; v != 0 {
+			p = append(p, fmt.Sprintf("%+d %s", v, stats.Title(n)))
 		}
 	}
 	if d.CardRangedDmgPct != 0 {
@@ -434,7 +418,7 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, line)
 	}
 	if d.CardDisintegratePct != 0 {
-		p = append(p, uitext.Text("item.on_direct_hit_disintegrate_undead_and_dragons", d.CardDisintegratePct, DisintegrateBossMaxHPPct))
+		p = append(p, uitext.Text("item.on_direct_hit_disintegrate_undead_and_dragons", d.CardDisintegratePct, InstakillSearMaxHPPct))
 	}
 	if d.CardRegenPct != 0 {
 		p = append(p, uitext.Text("item.regenerate_max_hp_per_regeneration_tick", d.CardRegenPct, RegenerationIntervalSeconds(), RegenerationRounds))

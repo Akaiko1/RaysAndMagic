@@ -371,7 +371,7 @@ func TestServiceGateValidation(t *testing.T) {
 			npc: &character.NPCData{
 				Type: character.NPCTypeSkillTrainer, RequiresQuest: "no_such_quest",
 			},
-			wantErr: "unknown requires_quest",
+			wantErr: `requires_quest: unknown quest`,
 		},
 		{
 			name: "dialogue-less giver has nothing to gate",
@@ -466,14 +466,14 @@ func TestServiceGateValidation(t *testing.T) {
 		{
 			name: "stock gate quest nobody gives",
 			npc: &character.NPCData{Type: character.NPCTypeMerchant, Inventory: []*character.NPCItem{
-				{Type: "item", Name: "Health Potion", RequiresQuest: "archive_missing_volumes"},
+				{Key: "health_potion", RequiresQuest: "archive_missing_volumes"},
 			}},
 			wantErr: "could never appear",
 		},
 		{
 			name: "stock gate quest a placed giver hands out",
 			npc: &character.NPCData{Type: character.NPCTypeMerchant, Inventory: []*character.NPCItem{
-				{Type: "item", Name: "Health Potion", RequiresQuest: "pit_standing"},
+				{Key: "health_potion", RequiresQuest: "pit_standing"},
 			}},
 		},
 	}
@@ -917,7 +917,7 @@ func TestServicesAreReachable(t *testing.T) {
 	previous := character.NPCConfigInstance
 	t.Cleanup(func() { character.NPCConfigInstance = previous })
 	rows := map[string]*character.NPCSpell{"heal": {Name: "Heal", Cost: 100}}
-	stock := []*character.NPCItem{{Type: "item", Name: "Health Potion"}}
+	stock := []*character.NPCItem{{Key: "health_potion"}}
 	talk := &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Text: "Ask", Action: "info", Response: "Yes."}}}
 	rest := &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Text: "Rest", Action: "tavern_rest", Cost: 25}}}
 	for _, tc := range []struct {
@@ -963,7 +963,7 @@ func TestServicesAreReachable(t *testing.T) {
 // hand out the very errand that opens it.
 func TestConversationActionsAreNeverGated(t *testing.T) {
 	for _, action := range []string{"info", "leave", "give_quest", "turn_in_quest", "back", "open_door"} {
-		if gatedServiceActions[action] {
+		if dialogActions[action].service {
 			t.Errorf("%q is not a service - a gate must not hide it", action)
 		}
 	}
@@ -2078,15 +2078,6 @@ func TestDialogueActionsMustBeDispatched(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "tavern_resr") {
 		t.Fatalf("a typo'd action was accepted: %v", err)
 	}
-	// Every action the gate withholds must be dispatched too - a paid row the
-	// switch does not know takes the money nowhere.
-	character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{}}
-	gatedServiceActions["polish_boots"] = true
-	t.Cleanup(func() { delete(gatedServiceActions, "polish_boots") })
-	if err := g.validateDialogueActionsAreDispatched(); err == nil ||
-		!strings.Contains(err.Error(), "polish_boots") {
-		t.Fatalf("an undispatched service action was accepted: %v", err)
-	}
 }
 
 // A CODE tag is not credited by assertion. The arena bout advances pit_standing
@@ -2154,5 +2145,56 @@ func TestArenaTagNeedsADuelArenaInTheWorld(t *testing.T) {
 	wm.LoadedMaps = nil
 	if err := ValidateInteractTagProducers(qm); err != nil {
 		t.Fatalf("catalog-only world was treated as a trustworthy empty placement census: %v", err)
+	}
+}
+
+// An authored arrival the travel would refuse fails the boot instead of the
+// moment the party takes the lift; the shipped ones pass in both world modes.
+func TestNPCArrivalTilesValidatedAtBoot(t *testing.T) {
+	g := newTestCombatSystemWithConfig(t).game
+	cfg := loadTestConfig(t)
+	t.Chdir("../..")
+	oldTiles, oldNPC := world.GlobalTileManager, character.NPCConfigInstance
+	t.Cleanup(func() { world.GlobalTileManager, character.NPCConfigInstance = oldTiles, oldNPC })
+	for _, merged := range []bool{false, true} {
+		cfg.World.OpenWorld = &merged
+		world.GlobalTileManager = world.NewTileManager(cfg.Graphics.SizeClasses)
+		if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		if err := character.LoadNPCConfig("assets/npcs.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		wm := world.NewWorldManager(cfg)
+		if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		if merged {
+			ow, err := config.LoadOpenWorldConfig("assets/open_world.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wm.SetOpenWorldConfig(ow)
+		}
+		if err := wm.LoadAllMaps(); err != nil {
+			t.Fatal(err)
+		}
+		setTestWorldManager(t, wm)
+		if err := g.validateNPCArrivalTiles(); err != nil {
+			t.Fatalf("merged=%v: shipped arrival tiles rejected: %v", merged, err)
+		}
+		shipped := character.NPCConfigInstance
+		for _, tile := range [][2]int{{-1, 3}, {100000, 3}} {
+			character.NPCConfigInstance = &character.NPCConfig{NPCs: map[string]*character.NPCData{"lift": {Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{
+				{Text: "Ride", Action: "enter_map", Map: "solstice_vestibule", ArrivalTile: &tile},
+			}}}}}
+			if err := g.validateNPCArrivalTiles(); err == nil {
+				t.Errorf("merged=%v: arrival %v accepted", merged, tile)
+			}
+		}
+		character.NPCConfigInstance = shipped
 	}
 }

@@ -7,12 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
+
+	"gopkg.in/yaml.v3"
 )
 
 func overlayInfo(label, value, help string) overlayField {
@@ -282,7 +283,7 @@ func (v *viewer) overlayChoiceFields(d *overlayDocument) []overlayField {
 			}
 		} else {
 			for _, x := range d.state.Adventure.Effects {
-				if x.Kind == "trap" {
+				if x.Kind == config.EffectTrap {
 					targets = append(targets, x.ID)
 				}
 			}

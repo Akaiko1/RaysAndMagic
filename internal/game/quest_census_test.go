@@ -7,6 +7,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 )
 
 func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
@@ -129,7 +130,7 @@ func TestRepeatableKillQuotaStartsFresh(t *testing.T) {
 	if _, err := g.questManager.ClaimRewards(q.ID); err != nil {
 		t.Fatal(err)
 	}
-	g.refreshRepeatableQuests("night")
+	g.refreshRepeatableQuests(quests.RepeatNightly)
 	add(quota + 3)
 	ih.handleGiveQuest(q.ID)
 	q = g.questManager.GetQuest(q.ID)

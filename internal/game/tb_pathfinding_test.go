@@ -603,7 +603,7 @@ func spendPartyBuffRoundForTBTest(t *testing.T, g *MMGame) {
 	g.ensureSelectedCharCanAct()
 	for spent := 0; g.currentTurn == 0 && spent < 32; spent++ {
 		beforeTurn := g.currentTurn
-		g.consumeSelectedCharAction()
+		g.commitHeroAction(g.selectedChar, 0)
 		if g.currentTurn == beforeTurn && g.partyAllExhausted() {
 			t.Fatal("party exhausted without ending turn")
 		}

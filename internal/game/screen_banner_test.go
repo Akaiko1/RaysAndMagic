@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/world"
 )
 
@@ -1239,5 +1242,54 @@ func TestNoHardcodedTickRateFallbacks(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		t.Fatalf("hardcoded tick rates (use config.DefaultTPS):\n%s", strings.Join(offenders, "\n"))
+	}
+}
+
+// Loot handed straight to the party - a crate's, a quest purse paid at a
+// turn-in or by an encounter's auto-claim - names a legendary as it arrives,
+// like a ground container.
+func TestLegendaryLootHandedToThePartyIsAnnounced(t *testing.T) {
+	relic := items.Item{Name: "Relic", Type: items.ItemTrinket, Rarity: "legendary"}
+	for _, route := range []string{"crate", "quest purse"} {
+		t.Run(route, func(t *testing.T) {
+			g := bannerGame(t)
+			switch route {
+			case "crate":
+				g.grantCrateLoot(&character.NPC{Name: "Crate"}, []items.Item{relic}, 0, 0)
+			case "quest purse":
+				g.payQuestRewards(&quests.QuestRewards{}, []items.Item{relic})
+			}
+			g.tickScreenBanners()
+			if b := g.currentScreenBanner(); b == nil || b.kind != bannerLegendaryDrop || !strings.Contains(b.text, relic.Name) {
+				t.Fatalf("banner = %+v, want the legendary banner naming %q", b, relic.Name)
+			}
+		})
+	}
+}
+
+// An encounter quest's auto-claim pays its reward items and its pool roll,
+// like a turn-in does.
+func TestEncounterQuestPaysItsRewardItems(t *testing.T) {
+	g := bannerGame(t)
+	id := "encounter_items"
+	def := &quests.QuestDefinition{Name: "Test Encounter", Type: quests.QuestTypeEncounter,
+		Rewards: quests.QuestRewards{Gold: 10, Items: []string{"health_potion"}, ItemPool: []string{"mirage_salt"}}}
+	g.questManager = quests.NewQuestManager(&quests.QuestConfig{Quests: map[string]*quests.QuestDefinition{id: def}})
+	previous := quests.GlobalQuestManager
+	quests.GlobalQuestManager = g.questManager
+	t.Cleanup(func() { quests.GlobalQuestManager = previous })
+	if err := g.questManager.ActivateQuest(id); err != nil {
+		t.Fatal(err)
+	}
+	g.party.Inventory = nil
+	(&GameLoop{game: g}).awardEncounterRewards(&monster.EncounterRewards{QuestID: id})
+	var got []string
+	for _, it := range g.party.Inventory {
+		got = append(got, it.Name)
+	}
+	potion, _ := config.GetItemDefinition("health_potion")
+	salt, _ := config.GetItemDefinition("mirage_salt")
+	if !slices.Contains(got, potion.Name) || !slices.Contains(got, salt.Name) {
+		t.Fatalf("inventory after the auto-claim = %v, want %q and %q", got, potion.Name, salt.Name)
 	}
 }

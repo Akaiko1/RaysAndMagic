@@ -1,8 +1,8 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -15,8 +15,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/stats"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // cooldownMultLine renders a cooldown multiplier as a +/-% line ("Spell cooldown
@@ -35,9 +34,9 @@ func cooldownMultLine(label string, mult float64) string {
 // RT and seconds/CombatRoundSeconds turns in TB (CombatRounds, RoundFrames).
 const CombatRoundSeconds = 3
 
-// DisintegrateBossMaxHPPct replaces the disintegrate kill on a boss: the proc
-// adds this share of the boss's max HP to the hit as true damage instead.
-const DisintegrateBossMaxHPPct = 20
+// InstakillSearMaxHPPct replaces an instakill on a boss: the hit adds this
+// share of its max HP as true damage instead.
+const InstakillSearMaxHPPct = 20
 
 // Armor mitigation - a PERCENTAGE model with diminishing returns, for party and
 // monster armor alike:
@@ -161,7 +160,7 @@ func (w *WeaponDefinitionConfig) effectLines(includeStructured bool) []string {
 		lines = append(lines, uitext.Text("weapon.stun_chance", w.StunChance*100, DurationText(w.StunSeconds)))
 	}
 	if w.DisintegrateChance > 0 {
-		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100, DisintegrateBossMaxHPPct))
+		lines = append(lines, uitext.Text("weapon.disintegrate_chance_undead_and_dragons_immune", w.DisintegrateChance*100, InstakillSearMaxHPPct))
 	}
 	if includeStructured && w.AoeRadiusTiles > 0 {
 		lines = append(lines, uitext.Text("weapon.aoe_radius_tiles_splashes_all_nearby_monsters", w.AoeRadiusTiles))
@@ -646,6 +645,9 @@ type CharacterConfig struct {
 	HitPoints    HitPointsConfig       `yaml:"hit_points"`
 	SpellPoints  SpellPointsConfig     `yaml:"spell_points"`
 	Classes      map[string]ClassStats `yaml:"classes"`
+	// ProvidencePool is the party buff spells Celestial Providence draws from
+	// at each dawn and dusk, cast at Master.
+	ProvidencePool []string `yaml:"providence_pool"`
 	// Races holds additive stat modifiers applied on top of class base stats
 	// (the classic roster is human = no modifiers).
 	Races         map[string]RaceStats `yaml:"races,omitempty"`
@@ -673,13 +675,32 @@ type RaceStats struct {
 	Name string `yaml:"name"`
 	// Description points follow the race's stat shifts in a hero's pitch.
 	Description []DescriptionPoint `yaml:"description,omitempty"`
-	Might       int                `yaml:"might,omitempty"`
-	Intellect   int                `yaml:"intellect,omitempty"`
-	Personality int                `yaml:"personality,omitempty"`
-	Endurance   int                `yaml:"endurance,omitempty"`
-	Accuracy    int                `yaml:"accuracy,omitempty"`
-	Speed       int                `yaml:"speed,omitempty"`
-	Luck        int                `yaml:"luck,omitempty"`
+	// Shifts are the race's additive stat modifiers, authored as <stat>: N.
+	Shifts stats.StatBonuses `yaml:",inline"`
+	// PassiveSkill is the race's own skill, held at Novice (halfling_guile).
+	PassiveSkill string `yaml:"passive_skill,omitempty"`
+	// Replaces swaps one class's kit skill for a racial one, keeping its
+	// mastery (the half-orc Knight's Orcish Fury).
+	Replaces *RaceSkillSwap `yaml:"replaces,omitempty"`
+	// CardRarity frames the hero card; empty is common. A class's own
+	// card_rarity wins.
+	CardRarity string `yaml:"card_rarity,omitempty"`
+}
+
+// RaceSkillSwap: a hero of Class trades kit skill Skill for With.
+type RaceSkillSwap struct {
+	Class string `yaml:"class"`
+	Skill string `yaml:"skill"`
+	With  string `yaml:"with"`
+}
+
+// validCardRarity is the closed set of hero card frames.
+func validCardRarity(r string) bool {
+	switch r {
+	case "", "common", "uncommon", "rare", "legendary":
+		return true
+	}
+	return false
 }
 
 type HitPointsConfig struct {
@@ -705,13 +726,8 @@ type ClassStats struct {
 	// Description is the party-creation pitch: what the class does and why
 	// to pick it, with {kind:text} keyword markup (keyword_markup.go).
 	Description []DescriptionPoint `yaml:"description"`
-	Might       int                `yaml:"might"`
-	Intellect   int                `yaml:"intellect"`
-	Personality int                `yaml:"personality"`
-	Endurance   int                `yaml:"endurance"`
-	Accuracy    int                `yaml:"accuracy"`
-	Speed       int                `yaml:"speed"`
-	Luck        int                `yaml:"luck"`
+	// Base are the class's starting stats, authored as <stat>: N.
+	Base stats.StatBonuses `yaml:",inline"`
 	// Starting kit (skills/magic/equipment), data-driven - used to live as
 	// per-class Go setup functions.
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
@@ -1885,7 +1901,7 @@ func LoadConfig(filename string) (*Config, error) {
 		LifetimeSeconds:         7,
 		MaxActive:               96,
 	}
-	err = yaml.Unmarshal(data, &config)
+	err = strictyaml.Decode(data, &config)
 	if err != nil {
 		return nil, err
 	}
@@ -1900,6 +1916,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if config.MonsterAI.TurnStepSpeed <= 0 {
 		return nil, fmt.Errorf("monster_ai.turn_step_speed must be positive")
+	}
+	if f := config.MonsterAI.AttackEnterRangeFraction; !(f > 0 && f <= 1) {
+		return nil, fmt.Errorf("monster_ai.attack_enter_range_fraction must be in (0,1]")
 	}
 	if config.UI.InputStaggerFrames <= 0 {
 		return nil, fmt.Errorf("ui.input_stagger_frames must be positive")
@@ -1935,14 +1954,20 @@ func LoadConfig(filename string) (*Config, error) {
 		if err := validateDescription("characters.races."+key, race.Description, false); err != nil {
 			return nil, err
 		}
+		if !validCardRarity(race.CardRarity) {
+			return nil, fmt.Errorf("characters.races.%s.card_rarity: unknown rarity %q", key, race.CardRarity)
+		}
+		if s := race.Replaces; s != nil {
+			if _, ok := config.Characters.Classes[s.Class]; !ok || s.Skill == "" || s.With == "" {
+				return nil, fmt.Errorf("characters.races.%s.replaces needs a known class, skill and with", key)
+			}
+		}
 	}
 	for key, class := range config.Characters.Classes {
 		if err := validateClassProgression(key, class); err != nil {
 			return nil, err
 		}
-		switch class.CardRarity {
-		case "", "common", "uncommon", "rare", "legendary":
-		default:
+		if !validCardRarity(class.CardRarity) {
 			return nil, fmt.Errorf("characters.classes.%s.card_rarity: unknown rarity %q", key, class.CardRarity)
 		}
 		if err := validateDescription("characters.classes."+key, class.Description, true); err != nil {
@@ -2074,9 +2099,7 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	}
 
 	var spellConfig SpellSystemConfig
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	err = decoder.Decode(&spellConfig)
+	err = strictyaml.Decode(data, &spellConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -2157,7 +2180,7 @@ func validateSpellGraphics(def *SpellDefinitionConfig, all map[string]*SpellDefi
 	if rays.SizeScale <= 0 || math.IsNaN(rays.SizeScale) || math.IsInf(rays.SizeScale, 0) {
 		return fmt.Errorf("target_flights.size_scale must be finite and positive")
 	}
-	if def.Mechanic == nil || (def.Mechanic.Kind != "prismatic_light" && def.Mechanic.Kind != "souldrinker") {
+	if def.Mechanic == nil || (def.Mechanic.Kind != MechanicPrismaticLight && def.Mechanic.Kind != MechanicSouldrinker) {
 		return fmt.Errorf("target_flights requires an instant area damage mechanic")
 	}
 	source := all[rays.Projectile]
@@ -2315,6 +2338,10 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		if isBuff && !def.IsUtility {
 			return fmt.Errorf("spell '%s': a buff must be a utility spell", id)
 		}
+		if def.GrantsStatBuff() && def.GrantsCombatBuff() {
+			// One cast grants one party buff: a stat block or a combat buff.
+			return fmt.Errorf("spell '%s': a party buff grants stat bonuses or a combat buff (resist, damage), not both", id)
+		}
 		switch {
 		case category == SpellCategoryBuff && def.CooldownSeconds != 0:
 			// Buffs return a zero RT cooldown before this field is read, so an
@@ -2334,7 +2361,7 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 				return fmt.Errorf("spell '%s': stat_bonus/stat_bonus_grandmaster and stat_bonuses are mutually exclusive", id)
 			}
 			for key := range def.StatBonuses {
-				if !IsStatName(key) {
+				if !stats.IsName(key) {
 					return fmt.Errorf("spell '%s': unknown stat %q in stat_bonuses", id, key)
 				}
 			}
@@ -2370,7 +2397,7 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	}
 
 	var weaponConfig WeaponSystemConfig
-	err = yaml.Unmarshal(data, &weaponConfig)
+	err = strictyaml.Decode(data, &weaponConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -2384,25 +2411,20 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	// Pre-compute display-name index so GetWeaponDefinitionByName is O(1).
 	weaponDefsByName := make(map[string]*WeaponDefinitionConfig, len(weaponConfig.Weapons))
 	weaponKeysByName := make(map[string]string, len(weaponConfig.Weapons))
+	renamed := make([]Renamed, 0, len(weaponConfig.Weapons))
 	for key, def := range weaponConfig.Weapons {
-		if prev, dup := weaponKeysByName[def.Name]; dup {
-			return nil, fmt.Errorf("weapons %q and %q share display name %q - display names must be unique", prev, key, def.Name)
-		}
+		renamed = append(renamed, Renamed{Key: key, Name: def.Name, LegacyNames: def.LegacyNames})
 		weaponDefsByName[def.Name] = def
 		weaponKeysByName[def.Name] = key
 	}
 	// Former names resolve to the same weapon so saved copies refresh to it.
-	for key, def := range weaponConfig.Weapons {
-		for _, name := range def.LegacyNames {
-			if name == "" || strings.TrimSpace(name) != name {
-				return nil, fmt.Errorf("weapon %q: legacy_names contains an empty or untrimmed name %q", key, name)
-			}
-			if prev, dup := weaponKeysByName[name]; dup {
-				return nil, fmt.Errorf("weapon %q: legacy name %q conflicts with weapon %q", key, name, prev)
-			}
-			weaponDefsByName[name] = def
-			weaponKeysByName[name] = key
-		}
+	legacyNames, err := ValidateRenames("weapon", renamed, true)
+	if err != nil {
+		return nil, err
+	}
+	for name, key := range legacyNames {
+		weaponDefsByName[name] = weaponConfig.Weapons[key]
+		weaponKeysByName[name] = key
 	}
 
 	// Publish the catalog and its indexes together only after all validation
@@ -2420,19 +2442,11 @@ var (
 	weaponKeyByName map[string]string
 )
 
-// StatNames is THE canonical, ordered list of the seven character stats
-// (lowercase - the YAML key convention), DERIVED from the StatBonuses struct
-// in internal/stats. Adding a stat = adding one struct field there.
-var StatNames = stats.Names
-
-// IsStatName reports whether s is a canonical lowercase stat name.
-func IsStatName(s string) bool { return stats.IsName(s) }
-
 // validWeaponBonusStats: weapons.yaml authors Title-case stat names
 // ("Might"); derived from the canonical list at init.
 var validWeaponBonusStats = func() map[string]bool {
-	m := make(map[string]bool, len(StatNames))
-	for _, n := range StatNames {
+	m := make(map[string]bool, len(stats.Names))
+	for _, n := range stats.Names {
 		m[stats.Title(n)] = true
 	}
 	return m
@@ -2742,6 +2756,22 @@ type ItemSystemConfig struct {
 	Sets map[string]*ItemSetConfig `yaml:"item_sets,omitempty"`
 }
 
+// ItemStatBonuses is the authored bonus_<stat> block of an item or a set: the
+// fields of stats.StatBonuses under their item keys, so Stats() is a plain
+// conversion the compiler keeps in step with the canonical list.
+type ItemStatBonuses struct {
+	Might       int `yaml:"bonus_might,omitempty"`
+	Intellect   int `yaml:"bonus_intellect,omitempty"`
+	Personality int `yaml:"bonus_personality,omitempty"`
+	Endurance   int `yaml:"bonus_endurance,omitempty"`
+	Accuracy    int `yaml:"bonus_accuracy,omitempty"`
+	Speed       int `yaml:"bonus_speed,omitempty"`
+	Luck        int `yaml:"bonus_luck,omitempty"`
+}
+
+// Stats reads the block as the one stat value.
+func (b ItemStatBonuses) Stats() stats.StatBonuses { return stats.StatBonuses(b) }
+
 // ItemSetConfig is one equipment set. A count-based set activates once
 // PiecesRequired equipped pieces carry its set key. RequiredPieces, when set,
 // names the exact YAML keys needed for a mixed weapon-and-armor set.
@@ -2752,14 +2782,8 @@ type ItemSetConfig struct {
 	RequiredPieces  []string `yaml:"required_pieces,omitempty"`
 	// StunDurationPct shifts stun durations suffered by the wearer (e.g. -50
 	// halves them - the padded set's quilting).
-	StunDurationPct  int `yaml:"stun_duration_pct,omitempty"`
-	BonusMight       int `yaml:"bonus_might,omitempty"`
-	BonusIntellect   int `yaml:"bonus_intellect,omitempty"`
-	BonusPersonality int `yaml:"bonus_personality,omitempty"`
-	BonusEndurance   int `yaml:"bonus_endurance,omitempty"`
-	BonusAccuracy    int `yaml:"bonus_accuracy,omitempty"`
-	BonusSpeed       int `yaml:"bonus_speed,omitempty"`
-	BonusLuck        int `yaml:"bonus_luck,omitempty"`
+	StunDurationPct int             `yaml:"stun_duration_pct,omitempty"`
+	StatBonus       ItemStatBonuses `yaml:",inline"`
 	// BonusCritChance adds flat percentage points to every critical-hit roll:
 	// weapon attacks and damage spells alike.
 	BonusCritChance int `yaml:"bonus_crit_chance,omitempty"`
@@ -2803,6 +2827,8 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
+	// Key is the entry's items.yaml key, stamped at load.
+	Key                string           `yaml:"-"`
 	UseAction          string           `yaml:"use_action,omitempty"`
 	UseSpell           string           `yaml:"use_spell,omitempty"`
 	UseJumpExtraTiles  int              `yaml:"use_jump_extra_tiles,omitempty"`
@@ -2836,17 +2862,11 @@ type ItemDefinitionConfig struct {
 	Discardable   bool   `yaml:"discardable,omitempty"`   // quest item the player may still throw away
 	Set           string `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
 	// Optional numeric stats to un-hardcode item effects
-	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
-	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
-	IntellectScalingDivisor   int `yaml:"intellect_scaling_divisor,omitempty"`
-	PersonalityScalingDivisor int `yaml:"personality_scaling_divisor,omitempty"`
-	BonusMight                int `yaml:"bonus_might,omitempty"`
-	BonusIntellect            int `yaml:"bonus_intellect,omitempty"`
-	BonusPersonality          int `yaml:"bonus_personality,omitempty"`
-	BonusEndurance            int `yaml:"bonus_endurance,omitempty"`
-	BonusAccuracy             int `yaml:"bonus_accuracy,omitempty"`
-	BonusSpeed                int `yaml:"bonus_speed,omitempty"`
-	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
+	ArmorClassBase            int             `yaml:"armor_class_base,omitempty"`
+	EnduranceScalingDivisor   int             `yaml:"endurance_scaling_divisor,omitempty"`
+	IntellectScalingDivisor   int             `yaml:"intellect_scaling_divisor,omitempty"`
+	PersonalityScalingDivisor int             `yaml:"personality_scaling_divisor,omitempty"`
+	StatBonus                 ItemStatBonuses `yaml:",inline"`
 	// RewindCooldownSeconds: in a fight the wearer's HP returns to what it was
 	// a round ago when that was higher, at most once per this many seconds
 	// (whole rounds; Chrono Cape).
@@ -2977,18 +2997,47 @@ func (d *ItemDefinitionConfig) HasTimedBuff() bool {
 		(d.ResistBuffSchoolPct > 0 || d.BuffArmorClass > 0 || d.BuffDodgePct > 0 || d.DamageBuffPct > 0 || d.BuffHPRegenPct > 0 || d.BuffManaRegenPct > 0)
 }
 
+// validateCatalogsDisjoint keeps items.yaml and weapons.yaml apart: one key
+// or display name names one entry, so an item's key (and a keyless item's
+// name) can never resolve into the other catalog.
+func validateCatalogsDisjoint(itemCfg *ItemSystemConfig, weapons *WeaponSystemConfig) error {
+	if weapons == nil {
+		return nil
+	}
+	weaponByName := make(map[string]string, len(weapons.Weapons))
+	for key, w := range weapons.Weapons {
+		weaponByName[w.Name] = key
+		for _, old := range w.LegacyNames {
+			weaponByName[old] = key
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(itemCfg.Items)) {
+		def := itemCfg.Items[key]
+		if _, clash := weapons.Weapons[key]; clash {
+			return fmt.Errorf("item key %q is also a weapon key", key)
+		}
+		for _, name := range append([]string{def.Name}, def.LegacyNames...) {
+			if weapon, clash := weaponByName[name]; clash {
+				return fmt.Errorf("item %q and weapon %q share the name %q", key, weapon, name)
+			}
+		}
+	}
+	return nil
+}
+
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 	var itemCfg ItemSystemConfig
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&itemCfg); err != nil {
+	if err := strictyaml.Decode(data, &itemCfg); err != nil {
 		return nil, err
 	}
 	if err := resolveBrewedItems(&itemCfg); err != nil {
+		return nil, err
+	}
+	if err := validateCatalogsDisjoint(&itemCfg, GlobalWeapons); err != nil {
 		return nil, err
 	}
 	// Validate per-type required attributes for single source of truth
@@ -3009,39 +3058,23 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	// index (a duplicate would clobber map-order-nondeterministically).
 	itemDefsByName := make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
 	itemKeysByName := make(map[string]string, len(itemCfg.Items))
+	renamed := make([]Renamed, 0, len(itemCfg.Items))
 	for key, def := range itemCfg.Items {
+		def.Key = key
 		def.usageDefaults = &itemCfg.TooltipUsageDefaults
-		if prev, dup := itemKeysByName[def.Name]; dup {
-			return nil, fmt.Errorf("items %q and %q share display name %q - display names must be unique", prev, key, def.Name)
-		}
+		renamed = append(renamed, Renamed{Key: key, Name: def.Name, LegacyNames: def.LegacyNames, LegacyKeys: def.LegacyKeys})
 		itemDefsByName[def.Name] = def
 		itemKeysByName[def.Name] = key
 	}
-	claimedKeys := make(map[string]string)
-	for key, def := range itemCfg.Items {
-		for _, old := range def.LegacyKeys {
-			if _, live := itemCfg.Items[old]; live || old == "" {
-				return nil, fmt.Errorf("item %q: legacy key %q is empty or still a live item", key, old)
-			}
-			if prev, dup := claimedKeys[old]; dup {
-				return nil, fmt.Errorf("items %q and %q both claim legacy key %q", prev, key, old)
-			}
-			claimedKeys[old] = key
-		}
-	}
 	// Historical names share the same index so saved items and merchant stock
 	// resolve to one canonical definition. Never allow an ambiguous migration.
-	for key, def := range itemCfg.Items {
-		for _, name := range def.LegacyNames {
-			if name == "" || strings.TrimSpace(name) != name {
-				return nil, fmt.Errorf("item %q: legacy_names contains an empty or untrimmed name %q", key, name)
-			}
-			if prev, dup := itemKeysByName[name]; dup {
-				return nil, fmt.Errorf("item %q: legacy name %q conflicts with item %q", key, name, prev)
-			}
-			itemDefsByName[name] = def
-			itemKeysByName[name] = key
-		}
+	legacyNames, err := ValidateRenames("item", renamed, true)
+	if err != nil {
+		return nil, err
+	}
+	for name, key := range legacyNames {
+		itemDefsByName[name] = itemCfg.Items[key]
+		itemKeysByName[name] = key
 	}
 
 	// Keep the catalog and lookup index in sync on every successful reload.
@@ -3315,6 +3348,58 @@ func CanonicalItemKey(key string) string {
 		}
 	}
 	return key
+}
+
+// ItemDefOf is the items.yaml entry behind an item: by its key (legacy_keys
+// included), or by display name for a keyless item (a fixture, a save before
+// keys) or a key the catalog no longer has.
+func ItemDefOf(it items.Item) (*ItemDefinitionConfig, string, bool) {
+	if it.Key == "" {
+		return GetItemDefinitionByName(it.Name)
+	}
+	key := it.Key
+	def, ok := GetItemDefinition(key)
+	if !ok {
+		key = CanonicalItemKey(key)
+		def, ok = GetItemDefinition(key)
+	}
+	if !ok { // a key renamed without legacy_keys: the name still finds it
+		return GetItemDefinitionByName(it.Name)
+	}
+	return def, key, ok
+}
+
+// ItemName is an items.yaml entry's display name, "" for an unknown key.
+func ItemName(key string) string {
+	if def, ok := GetItemDefinition(key); ok {
+		return def.Name
+	}
+	return ""
+}
+
+// CatalogKey is an item's catalog key - weapons.yaml for a weapon, items.yaml
+// otherwise - or "" for a shortcut or an unknown item.
+func CatalogKey(it items.Item) string {
+	if it.Type == items.ItemWeapon {
+		if _, key, ok := WeaponDefOf(it); ok {
+			return key
+		}
+		return ""
+	}
+	if _, key, ok := ItemDefOf(it); ok {
+		return key
+	}
+	return ""
+}
+
+// WeaponDefOf is the weapons.yaml entry behind an item: by its key, or by
+// display name (legacy_names included) for a keyless item or a key the
+// catalog no longer has.
+func WeaponDefOf(it items.Item) (*WeaponDefinitionConfig, string, bool) {
+	if def, ok := GetWeaponDefinition(it.Key); ok && it.Key != "" {
+		return def, it.Key, true
+	}
+	return GetWeaponDefinitionByName(it.Name)
 }
 
 func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) {
@@ -3592,9 +3677,7 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	}
 	// Strict: a field this file no longer reads fails the load, never drops silently.
 	var loots LootTablesConfig
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&loots); err != nil {
+	if err := strictyaml.Decode(data, &loots); err != nil {
 		return nil, err
 	}
 	if err := expandMonsterLootGroups(&loots); err != nil {

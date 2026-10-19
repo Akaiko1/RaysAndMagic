@@ -50,7 +50,7 @@ func TestCreateNPCFromConfig_MerchantStock(t *testing.T) {
 	// The shop row carries the authored row's price and quantity.
 	var authored *NPCItem
 	for _, row := range NPCConfigInstance.NPCs["merchant_general"].Inventory {
-		if row != nil && row.Name == "Health Potion" {
+		if row != nil && row.Key == "health_potion" {
 			authored = row
 		}
 	}
@@ -59,7 +59,7 @@ func TestCreateNPCFromConfig_MerchantStock(t *testing.T) {
 	}
 	foundPotion := false
 	for _, entry := range npc.MerchantStock {
-		if entry.Item.Name == authored.Name {
+		if entry.Item.Key == authored.Key {
 			foundPotion = true
 			if entry.Cost != authored.Cost || entry.Quantity != authored.Quantity {
 				t.Fatalf("Health Potion stock = cost %d qty %d, want the authored %d/%d", entry.Cost, entry.Quantity, authored.Cost, authored.Quantity)

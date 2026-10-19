@@ -408,7 +408,7 @@ func TestJump_EndsTheTurnLikeMovementInTB(t *testing.T) {
 	// Every production cast path commits the action after castResolvedSpell
 	// returns. Jump already ended the party phase, so that generic commit must
 	// not end the round a second time and accelerate SP/card regeneration.
-	g.consumeSelectedCharActionWithRTCooldown(cs.SpellCooldownFrames(g.party.Members[0], spells.SpellID("jump")))
+	g.commitHeroAction(g.selectedChar, cs.SpellCooldownFrames(g.party.Members[0], spells.SpellID("jump")))
 	if g.partyInCombat() {
 		t.Fatal("fixture: a fight changes the SP period")
 	}

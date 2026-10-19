@@ -11,8 +11,9 @@ import (
 	"ugataima/internal/items"
 	"ugataima/internal/threading"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/status"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // firstPartyStatChipClick aims at the first card's stat chip, laid out as if

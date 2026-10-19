@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestLoadingQueuesCombatBeforeFinishingRenderWork(t *testing.T) {

@@ -75,13 +75,13 @@ func TestRareBalanceFlowingStaffGuaranteedCritical(t *testing.T) {
 						weapon = items.CreateWeaponFromYAML("iron_sword")
 					}
 					c.Equipment[items.SlotMainHand] = weapon
-					def := lookupWeaponConfigByName(weapon.Name)
+					def := lookupWeaponConfig(weapon)
 					original := *def
 					t.Cleanup(func() { *def = original })
 					def.CritChance = 0
 					if route == "melee" {
 						def.Range = 1
-						def.Melee = lookupWeaponConfigByName("Iron Sword").Melee
+						def.Melee = lookupWeaponConfig(testWeapon("Iron Sword")).Melee
 					}
 					if route == "empty" {
 						c.RareClass.FlowCharges = 0

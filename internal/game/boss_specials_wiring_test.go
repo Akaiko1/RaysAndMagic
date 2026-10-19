@@ -122,7 +122,7 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 			name: "gtb-inferno", key: "golden_thief_bug", tileX: 3,
 			prep: func(m *monsterPkg.Monster3D) {
 				aggro(m)
-				m.Abilities.Inferno.Chance = 1.0
+				setPartyAttackChance(m, "inferno", 1.0)
 				m.Abilities.Teleport.Chance = 0
 			},
 			want: "Inferno scorches",
@@ -131,7 +131,7 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 			name: "gtb-lowhp-blink", key: "golden_thief_bug", tileX: 3,
 			prep: func(m *monsterPkg.Monster3D) {
 				aggro(m)
-				m.Abilities.Inferno.Chance = 0
+				setPartyAttackChance(m, "inferno", 0)
 				m.Abilities.Teleport.Chance = 1.0
 				m.HitPoints = m.Abilities.Teleport.AtHP // at the low-HP threshold
 			},
@@ -180,20 +180,20 @@ func TestMonsterSpecialAbilityWiring(t *testing.T) {
 			want: "raises the war-banner",
 		},
 		{
-			// Fireburst lives in the shared attack wrapper (tryMonsterAoeAttack),
+			// Fireburst rolls at the attack (party_attacks trigger attack),
 			// not in updateBoss - the summon kit must be off or it eats the attack.
 			name: "gorilla-titan-fireburst", key: "gorilla_titan", tileX: 3,
 			prep: func(m *monsterPkg.Monster3D) {
 				m.BossAggro = true
 				noSummons(m)
-				m.Abilities.Fireburst.Chance = 1.0
+				setPartyAttackChance(m, "fireburst", 1.0)
 			},
-			want: "casts Fireburst",
+			want: "unleashes Fireburst",
 		},
 		{
 			name: "dragon-breath", key: "dragon_gold", tileX: 5, // in range 4, on the row
-			prep: func(m *monsterPkg.Monster3D) { m.Abilities.DragonBreath.Chance = 1.0 },
-			want: "breathes",
+			prep: func(m *monsterPkg.Monster3D) { setPartyAttackChance(m, "dragon_breath", 1.0) },
+			want: "Dragon Breath",
 		},
 	}
 
@@ -225,7 +225,7 @@ func TestRealTimeBossSpecialUsesNormalAttackCadence(t *testing.T) {
 	boss := spawnSpecialsMonster(g, "golden_thief_bug", 3, 2)
 	aggro(boss)
 	noSummons(boss)
-	boss.Abilities.Inferno.Chance = 1
+	setPartyAttackChance(boss, "inferno", 1)
 	boss.Abilities.Teleport.Chance = 0
 	boss.State = monsterPkg.StateAttacking
 	boss.StateTimer = 1

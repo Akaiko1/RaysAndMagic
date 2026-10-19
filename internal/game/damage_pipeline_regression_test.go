@@ -113,7 +113,7 @@ func TestPartyConversionKeepsModifiersAndOneSoakInAoe(t *testing.T) {
 	near.SoakDamage, near.Soak.Frames = 10, 1
 	g.world.Monsters = []*monsterPkg.Monster3D{center, near}
 
-	cs.ApplyDamageToMonster(center, 100, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(center, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	// 80 physical + 20 dark; +20% applies to both => 96 + 24. One hit pays
 	// Stone Skin once: 120 - 10 = 110 for primary and splash alike.
 	for _, target := range []*monsterPkg.Monster3D{center, near} {

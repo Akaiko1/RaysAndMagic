@@ -1,6 +1,7 @@
 package game
 
 import (
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -87,7 +88,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	var parts damagecalc.Parts
 	var dmgTypeStr, spellFx, sourceName string
 	var disintegrateChance, aoeRadiusTiles float64
-	var grazesDodge bool
+	var grazesDodge, crit bool
 	var weaponDef *config.WeaponDefinitionConfig
 	var srcMonster *monsterPkg.Monster3D
 	var owner ProjectileOwner
@@ -97,6 +98,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 			return
 		}
 		shot.Active = false
+		crit = shot.Crit
 		parts = damagecalc.Parts{Normal: shot.Damage, True: shot.TrueDamage}
 		sourceName, spellFx = shot.SourceName, shot.SpellType
 		disintegrateChance = shot.DisintegrateChance
@@ -111,6 +113,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 			return
 		}
 		shot.Active = false
+		crit = shot.Crit
 		parts = damagecalc.Parts{Normal: shot.Damage, True: shot.TrueDamage}
 		sourceName = shot.SourceName
 		disintegrateChance = shot.DisintegrateChance
@@ -147,79 +150,17 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx, visualAnchorFor(target))
 	}
 
-	// kill finalizes a slain crossfire target through the same kill choke point as
-	// a party hit, so a bound summon can earn champion rewards for the party too.
-	kill := func() {
-		cs.finishActorKill(srcMonster, target)
-	}
-
 	// The projectile already snapshotted source-side modifiers when fired.
+	// A dodged bolt cannot trigger riders or AoE, matching a party projectile
+	// that misses its primary target; a boss takes the disintegrate sear on
+	// this hit only, never on the splash.
 	packet := singleMonsterDamagePacket(parts, dmgTypeStr, 0)
-
-	// Crossfire uses the target's real Perfect Dodge too. What gets through
-	// (throughDodge) lands; the avoided projectile cannot trigger riders or AoE,
-	// matching a party projectile that misses its primary target.
-	if cs.monsterPerfectDodges(target) {
-		through := packet.throughDodge(grazesDodge)
-		actual := cs.applyMonsterDamagePacket(target, through, cs.monsterWeaponDamageOptions(weaponDef, target, true)).Total()
-		if actual > 0 {
-			cs.game.playMonsterSound(soundMonsterHit, target)
-			target.HitTintFrames = MonsterHitFlashFrames
-			cs.game.reportActorDamage(srcMonster, target, damageLog{
-				Source: logMonsterAs(srcMonster, sourceName),
-				Target: monsterLogTarget(target),
-				Amount: actual,
-				School: through.loggedSchool(),
-				Kind:   damageLogDodge,
-			})
-			if !target.IsAlive() {
-				kill()
-			}
-		} else {
-			cs.game.addActorCombatMessage(srcMonster, target, "%s dodges %s's bolt!", logMonsterName(target), logMonsterAs(srcMonster, sourceName))
-		}
+	if cs.landMonsterOnMonster(srcMonster, target, monsterOnMonsterHit{
+		packet: packet, source: sourceName, opts: cs.monsterWeaponDamageOptions(weaponDef, target, true),
+		canDodge: true, grazesDodge: grazesDodge, disintegrate: disintegrateChance, spellID: spellFx,
+		kind: damageLogBolt, evades: uitext.Text("combat.noun.bolt"), riders: true, critical: crit,
+	}) != monsterHitStruck {
 		return
-	}
-
-	// Disintegrate rider: the bound mob's projectile keeps its instakill chance;
-	// a boss takes the sear on this hit only, never on the splash.
-	primary, seared := packet, false
-	switch rollMonsterDisintegrate(target, disintegrateChance) {
-	case disintegrateKill:
-		target.HitPoints = 0
-		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.addActorCombatMessage(srcMonster, target, "%s's bolt disintegrates %s!", logMonsterAs(srcMonster, sourceName), logMonsterName(target))
-		kill()
-		return
-	case disintegrateSear:
-		cs.game.addActorCombatMessage(srcMonster, target, "%s withstands disintegration!", logMonsterName(target))
-		primary, seared = packet.withTrue(disintegrateSearDamage(target)), true
-	}
-
-	if parts.Total() > 0 || seared {
-		actual := cs.applyMonsterDamagePacket(
-			target,
-			primary,
-			cs.monsterWeaponDamageOptions(weaponDef, target, true),
-		).Total()
-		if actual > 0 {
-			cs.game.playMonsterSound(soundMonsterHit, target)
-		}
-		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.reportActorDamage(srcMonster, target, damageLog{
-			Source: logMonsterAs(srcMonster, sourceName),
-			Target: monsterLogTarget(target),
-			Amount: actual,
-			School: packet.primarySchool(),
-			Kind:   damageLogBolt,
-		})
-	}
-	// The bolt's on-hit statuses land on a monster like on a hero.
-	if target.IsAlive() {
-		cs.applyMonsterHitRiders(srcMonster, spellFx, monsterHitTarget{cs, srcMonster, target}, true)
-	}
-	if !target.IsAlive() {
-		kill()
 	}
 	// AoE rider: crossfire may splash only the direct target's faction. Reusing
 	// the player AoE path here would hit the firing champion and its own ordinary
@@ -268,6 +209,6 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(
 	// An explosion cannot be Perfect-Dodged, but still uses the victim's armor,
 	// resistance and one shared soak.
 	cs.forEachAreaVictim(cs.pointBlast(center.X, center.Y, radiusTiles), hurts, func(candidate *monsterPkg.Monster3D) {
-		cs.strikeMonsterPacketFor(source, candidate, packet, weaponDef, true, false, false)
+		cs.strikeMonsterPacketFor(source, candidate, packet, weaponDef, true, false, false, false)
 	}, center, source)
 }

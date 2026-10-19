@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -43,11 +44,12 @@ func (cs *CombatSystem) phaseShiftEligible(m *monster.Monster3D) bool {
 	default:
 		return false
 	}
-	px, py := cs.logicalCameraXY()
 	if cs.game.turnBasedMode {
+		// Grid reach alone: a walker in attack transit still counts as in reach.
+		px, py := cs.logicalCameraXY()
 		return !cs.monsterAttackPointInReachTB(m, px, py)
 	}
-	return !cs.monsterCanAttackParty(m, Distance(m.X, m.Y, px, py), m.GetAttackRangePixels())
+	return !cs.partyInStrikeReach(m, false)
 }
 
 // phaseShiftWalk is the monster's own pursuit in the active mode: the attack
@@ -58,12 +60,7 @@ func (cs *CombatSystem) phaseShiftWalk(m *monster.Monster3D, px, py float64) ([]
 	if !g.turnBasedMode {
 		return m.PursuitRoute(g.collisionSystem, px, py)
 	}
-	var goals []monster.TileCoord
-	if m.HasRangedAttack() {
-		goals = g.turnBasedRangedGoalTiles(m)
-	} else if goals = g.turnBasedMeleeGoalTiles(m, px, py); len(goals) == 0 {
-		goals = g.turnBasedBlockedMeleeApproachGoalTiles(m, px, py)
-	}
+	goals := g.turnBasedApproachGoals(m, px, py)
 	return goals, m.PathTilesToAny(g.collisionSystem, goals, g.attackTargetTile(m))
 }
 
@@ -345,7 +342,7 @@ func (cs *CombatSystem) executePhaseShift(m *monster.Monster3D, landing monster.
 	m.ArmPhaseShiftCooldown(g.config.GetTPS())
 	m.PhasePlan = monster.PhaseShiftPlan{}
 	g.refreshMonsterCollisionState(m)
-	g.logCombat(logToneBad, "%s %s toward the party!", logMonsterName(m), logAbility("phase-shifts"))
+	g.logCombatLine(logToneBad, uitext.Text("combat.toward_the_party", logSlot, logSlot), logMonsterName(m), logAbility("phase-shifts"))
 }
 
 // tryPhaseShiftTB plans from the monster's tile at its turn and blinks when it

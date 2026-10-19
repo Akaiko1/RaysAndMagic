@@ -5,7 +5,6 @@ import (
 	"math"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/game/keytracker"
@@ -14,6 +13,8 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/threading"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePointer, *monster.Monster3D, func()) {

@@ -5,8 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // QuestType represents the type of quest objective
@@ -31,7 +30,6 @@ type QuestStatus string
 const (
 	QuestStatusActive    QuestStatus = "active"
 	QuestStatusCompleted QuestStatus = "completed"
-	QuestStatusFailed    QuestStatus = "failed"
 )
 
 // QuestRewards defines the rewards for completing a quest
@@ -44,6 +42,9 @@ type QuestRewards struct {
 	// random. A repeatable errand pays a different draught each night without
 	// needing a full loot table.
 	ItemPool []string `yaml:"item_pool,omitempty"`
+	// Promotion is a promotion key (archmage): the claim raises one eligible
+	// member, and the quest is refused while no one can take it.
+	Promotion string `yaml:"promotion,omitempty"`
 }
 
 // QuestTileChange swaps one map tile when its quest completes (e.g. a bridge
@@ -163,7 +164,6 @@ type Quest struct {
 	Activity     ActivityState
 	ID           string
 	Definition   *QuestDefinition
-	Status       QuestStatus
 	CurrentCount int // Current progress towards target
 	// DynamicTarget is the effective per-run quota. DynamicTargetSet also
 	// represents a resolved zero; legacy positive snapshots remain valid.
@@ -174,9 +174,16 @@ type Quest struct {
 	ClaimedAtDay     float64 // elapsed calendar day at claim; zero means legacy/unknown
 }
 
+// Status is the journal state, the saved form of Completed.
+func (q *Quest) Status() QuestStatus {
+	if q.Completed {
+		return QuestStatusCompleted
+	}
+	return QuestStatusActive
+}
+
 func (q *Quest) complete(autoClaim bool) {
 	q.Completed = true
-	q.Status = QuestStatusCompleted
 	if autoClaim || (q.Definition != nil && q.Definition.AutoClaim) {
 		q.RewardsClaimed = true
 	}
@@ -216,14 +223,14 @@ func LoadQuestConfig(filepath string) (*QuestConfig, error) {
 		return nil, fmt.Errorf("failed to read quest config: %w", err)
 	}
 
-	var config QuestConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	var cfg QuestConfig
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse quest config: %w", err)
 	}
-	if err := validateQuestConfig(&config); err != nil {
+	if err := validateQuestConfig(&cfg); err != nil {
 		return nil, err
 	}
-	return &config, nil
+	return &cfg, nil
 }
 
 // ArenaDuelTag is the interact tag a won champion duel credits - the one tag
@@ -330,7 +337,7 @@ func validateQuestConfig(config *QuestConfig) error {
 		if err := validateActivity(id, def, config); err != nil {
 			return err
 		}
-		if def.AutoClaim && (len(def.Rewards.Items) > 0 || len(def.Rewards.ItemPool) > 0 || def.NextQuest != "" || def.Rewards.Gold != 0 || def.Rewards.Experience != 0 || def.Rewards.ArenaPoints != 0) {
+		if def.AutoClaim && (len(def.Rewards.Items) > 0 || len(def.Rewards.ItemPool) > 0 || def.Rewards.Promotion != "" || def.NextQuest != "" || def.Rewards.Gold != 0 || def.Rewards.Experience != 0 || def.Rewards.ArenaPoints != 0) {
 			return fmt.Errorf("quest %q: auto_claim is reserved for rewardless objective quests", id)
 		}
 		if !def.Victory {
@@ -355,20 +362,23 @@ func NewQuestManager(config *QuestConfig) *QuestManager {
 	}
 }
 
+// newQuest is the one constructor of a journal entry: fresh progress and the
+// activity's rolled state.
+func newQuest(id string, def *QuestDefinition) *Quest {
+	return &Quest{ID: id, Definition: def, Activity: newActivityState(def.Activity)}
+}
+
 // InitializeStartingQuests activates all quests marked as starting quests
 func (qm *QuestManager) InitializeStartingQuests() {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
+	qm.addStartingQuests()
+}
 
+func (qm *QuestManager) addStartingQuests() {
 	for id, def := range qm.config.Quests {
 		if def.IsStartingQuest {
-			qm.activeQuests[id] = &Quest{
-				ID:           id,
-				Definition:   def,
-				Status:       QuestStatusActive,
-				CurrentCount: 0,
-				Completed:    false,
-			}
+			qm.activeQuests[id] = newQuest(id, def)
 		}
 	}
 }
@@ -377,19 +387,8 @@ func (qm *QuestManager) InitializeStartingQuests() {
 func (qm *QuestManager) Reset() {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
-
 	qm.activeQuests = make(map[string]*Quest)
-	for id, def := range qm.config.Quests {
-		if def.IsStartingQuest {
-			qm.activeQuests[id] = &Quest{
-				ID:           id,
-				Definition:   def,
-				Status:       QuestStatusActive,
-				CurrentCount: 0,
-				Completed:    false,
-			}
-		}
-	}
+	qm.addStartingQuests()
 }
 
 // ActivateQuest activates a quest by ID
@@ -406,14 +405,7 @@ func (qm *QuestManager) ActivateQuest(questID string) error {
 		return fmt.Errorf("quest already active: %s", questID)
 	}
 
-	qm.activeQuests[questID] = &Quest{
-		Activity:     newActivityState(def.Activity),
-		ID:           questID,
-		Definition:   def,
-		Status:       QuestStatusActive,
-		CurrentCount: 0,
-		Completed:    false,
-	}
+	qm.activeQuests[questID] = newQuest(questID, def)
 
 	return nil
 }
@@ -505,7 +497,7 @@ func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey, sourc
 	defer qm.mu.Unlock()
 
 	for _, quest := range qm.activeQuests {
-		if quest.Status != QuestStatusActive || quest.Definition.Type != qType {
+		if quest.Completed || quest.Definition.Type != qType {
 			continue
 		}
 		if quest.Definition.Activity != nil {
@@ -541,7 +533,7 @@ func (qm *QuestManager) VictoryCompleted() bool {
 	qm.mu.RLock()
 	defer qm.mu.RUnlock()
 	for _, quest := range qm.activeQuests {
-		if quest.Definition != nil && quest.Definition.Victory && quest.Status == QuestStatusCompleted {
+		if quest.Definition != nil && quest.Definition.Victory && quest.Completed {
 			return true
 		}
 	}
@@ -583,7 +575,7 @@ func (qm *QuestManager) GetActiveQuests() []*Quest {
 
 	quests := make([]*Quest, 0, len(qm.activeQuests))
 	for _, quest := range qm.activeQuests {
-		if quest.Status == QuestStatusActive {
+		if !quest.Completed {
 			quests = append(quests, quest)
 		}
 	}
@@ -625,8 +617,43 @@ func (qm *QuestManager) Definitions() map[string]*QuestDefinition {
 	return qm.config.Quests
 }
 
+// Gate milestones. A repeatable quest leaves the journal when it refreshes,
+// so content gates never point at one (validated at load).
+
+// Taken: the quest is in the journal, in any state.
+func (qm *QuestManager) Taken(id string) bool {
+	return qm.GetQuest(id) != nil
+}
+
+// ObjectiveMet: the quest's objective is done, paid or not.
+func (qm *QuestManager) ObjectiveMet(id string) bool {
+	q := qm.GetQuest(id)
+	return q != nil && q.Completed
+}
+
+// Underway: taken, objective not yet done.
+func (qm *QuestManager) Underway(id string) bool {
+	q := qm.GetQuest(id)
+	return q != nil && !q.Completed
+}
+
+// AwaitingClaim: done, reward not yet taken.
+func (qm *QuestManager) AwaitingClaim(id string) bool {
+	q := qm.GetQuest(id)
+	return q != nil && q.Completed && !q.RewardsClaimed
+}
+
+// Concluded: done and paid out.
+func (qm *QuestManager) Concluded(id string) bool {
+	q := qm.GetQuest(id)
+	return q != nil && q.Completed && q.RewardsClaimed
+}
+
 // GetQuest returns a specific quest by ID
 func (qm *QuestManager) GetQuest(questID string) *Quest {
+	if qm == nil {
+		return nil
+	}
 	qm.mu.RLock()
 	defer qm.mu.RUnlock()
 	return qm.activeQuests[questID]
@@ -692,13 +719,7 @@ func (qm *QuestManager) CreateEncounterQuest(questID, name, description string, 
 		},
 	}
 
-	qm.activeQuests[questID] = &Quest{
-		ID:           questID,
-		Definition:   def,
-		Status:       QuestStatusActive,
-		CurrentCount: 0,
-		Completed:    false,
-	}
+	qm.activeQuests[questID] = newQuest(questID, def)
 
 	return questID
 }
@@ -746,17 +767,13 @@ func (qm *QuestManager) RestoreQuestProgress(questID string, status QuestStatus,
 	if !exists {
 		// Quest might not be activated yet, try to activate it first
 		if def, ok := qm.config.Quests[questID]; ok {
-			quest = &Quest{
-				ID:         questID,
-				Definition: def,
-			}
+			quest = newQuest(questID, def)
 			qm.activeQuests[questID] = quest
 		} else {
 			return // Quest definition not found
 		}
 	}
 
-	quest.Status = status
 	quest.CurrentCount = currentCount
 	quest.DynamicTarget = dynamicTarget
 	quest.DynamicTargetSet = dynamicTarget > 0

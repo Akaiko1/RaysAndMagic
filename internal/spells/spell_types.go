@@ -247,6 +247,17 @@ func (d SpellDefinition) IsBuff() bool {
 	return d.Category == config.SpellCategoryBuff || d.Category == config.SpellCategoryCombatBuff
 }
 
+// GrantsStatBuff: the spell raises the party's stats (Bless).
+func (d SpellDefinition) GrantsStatBuff() bool {
+	return d.StatBonus > 0 || len(d.StatBonuses) > 0
+}
+
+// GrantsCombatBuff: the spell grants a party combat buff - resistance,
+// outgoing or incoming damage (Day of the Gods, Hour of Power, Stone Skin).
+func (d SpellDefinition) GrantsCombatBuff() bool {
+	return d.ResistBuffPct > 0 || d.ResistBuffSchoolPct > 0 || d.OutgoingDamageBonus > 0 || d.IncomingDamageReduction > 0
+}
+
 // HasAutocast reports a mechanic the caster may set to cast itself.
 func (d SpellDefinition) HasAutocast() bool {
 	return d.Mechanic != nil && d.Mechanic.Autocast
@@ -341,7 +352,7 @@ func (d SpellDefinition) effectLinesAtMastery(view effectView, tier int) []strin
 		out = append(out, uitext.Text("spell.teleports_the_party_tiles_straight_ahead_refused", d.JumpTiles))
 	}
 	if d.DisintegrateChance > 0 {
-		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100, config.DisintegrateBossMaxHPPct))
+		out = append(out, uitext.Text("spell.disintegrate_chance_to_instantly_kill_on_hit", d.DisintegrateChance*100, config.InstakillSearMaxHPPct))
 	}
 	if d.StunChance > 0 {
 		line := uitext.Text("spell.stun_chance_on_hit", d.StunChance*100)
@@ -496,7 +507,7 @@ func OutgoingDamageTarget(damageType string) string {
 // PerStatBonusLines states a per-stat party bonus map in canonical stat order.
 func PerStatBonusLines(bonuses map[string]int) []string {
 	var out []string
-	for _, key := range config.StatNames {
+	for _, key := range stats.Names {
 		if v := bonuses[key]; v != 0 {
 			out = append(out, uitext.Text("spell.whole_party", v, strings.ToUpper(key[:1])+key[1:]))
 		}

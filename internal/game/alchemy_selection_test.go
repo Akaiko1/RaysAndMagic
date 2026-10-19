@@ -9,10 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestAlchemyCheckedMaterialsTransaction(t *testing.T) {

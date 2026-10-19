@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -437,10 +438,10 @@ func (g *MMGame) announceQuestCompletionWithMessage(q *quests.Quest, message str
 	}
 	name := logColored(q.Definition.Name, combatMessageGold)
 	if q.RewardsClaimed {
-		g.logCombat(logToneReward, "Quest '%s' completed!", name)
+		g.logCombatLine(logToneReward, uitext.Text("combat.quest_completed", logSlot), name)
 		return
 	}
-	g.logCombat(logToneReward, "Quest '%s' completed! Open Quests (J) to claim reward.", name)
+	g.logCombatLine(logToneReward, uitext.Text("combat.quest_completed_open_quests_j_to", logSlot), name)
 }
 
 // spawnQuestCompletionMonsters places each completed quest's on_complete_spawns
@@ -502,7 +503,7 @@ func (g *MMGame) spawnQuestCompletionMonsters(arrival bool) {
 			} else {
 				// Collision registers when the map is entered (switchToMap
 				// re-registers the destination world's monsters).
-				w.Monsters = append(w.Monsters, m)
+				g.addMonsterToWorld(w, m)
 			}
 			g.questSpawnsDone[key] = true
 		}
@@ -558,11 +559,9 @@ func (g *MMGame) flushPendingQuestSpawns() {
 		return
 	}
 	for _, sp := range g.pendingQuestSpawns {
+		g.addMonsterToWorld(sp.world, sp.monster)
 		if sp.world == g.world {
-			g.registerSpawnedMonster(sp.monster)
-			g.AddCombatMessage(fmt.Sprintf("%s has appeared!", sp.monster.Name))
-		} else if sp.world != nil {
-			sp.world.Monsters = append(sp.world.Monsters, sp.monster)
+			g.AddCombatMessage(uitext.Text("combat.has_appeared", sp.monster.Name))
 		}
 	}
 	g.pendingQuestSpawns = nil
@@ -873,6 +872,21 @@ func interactTagProducers(catalog map[string]*character.NPCData) map[string]inte
 	return tags
 }
 
+// questGateError is the rule for a quest a content gate waits on: a known
+// quest, never a repeatable one - a repeatable quest leaves the journal when
+// it refreshes, which would close the gate again. Only a gate that latches
+// (the caravan unlock) may wait on one.
+func questGateError(qm *quests.QuestManager, id string) error {
+	def := qm.Definitions()[id]
+	switch {
+	case def == nil:
+		return fmt.Errorf("unknown quest %q", id)
+	case def.Repeatable != "":
+		return fmt.Errorf("quest %q is repeatable and cannot gate", id)
+	}
+	return nil
+}
+
 // validateQuestWorldReferences fails fast on every cross-catalog reference
 // used by quest-driven world behavior.
 func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
@@ -928,6 +942,11 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 				}
 			}
 		}
+		if key := def.Rewards.Promotion; key != "" {
+			if _, ok := character.PromotionByKey(key); !ok {
+				return fmt.Errorf("quest %q rewards.promotion: unknown promotion %q", id, key)
+			}
+		}
 		for _, source := range []struct {
 			field string
 			keys  []string
@@ -980,8 +999,8 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 			// A service gate has to be OPENABLE, not merely well-spelled. Three
 			// ways it can be authored into a permanent lock, all rejected here.
 			if npc.RequiresQuest != "" {
-				if qm.Definitions()[npc.RequiresQuest] == nil {
-					return fmt.Errorf("NPC %q references unknown requires_quest %q", npcKey, npc.RequiresQuest)
+				if err := questGateError(qm, npc.RequiresQuest); err != nil {
+					return fmt.Errorf("NPC %q requires_quest: %w", npcKey, err)
 				}
 				hasService, err := g.npcDataHasGatedService(npcKey)
 				if err != nil {
@@ -1012,15 +1031,15 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 				if it == nil || it.RequiresQuest == "" {
 					continue
 				}
-				if qm.Definitions()[it.RequiresQuest] == nil {
-					return fmt.Errorf("NPC %q stock %q references unknown requires_quest %q", npcKey, it.Name, it.RequiresQuest)
+				if err := questGateError(qm, it.RequiresQuest); err != nil {
+					return fmt.Errorf("NPC %q stock %q requires_quest: %w", npcKey, it.Key, err)
 				}
 				if obtainable == nil {
 					obtainable = obtainableQuests(qm, catalog, placed)
 				}
 				if !obtainable[it.RequiresQuest] {
 					return fmt.Errorf("NPC %q stock %q gates on quest %q that no PLACED NPC gives and that does not start active - the entry could never appear",
-						npcKey, it.Name, it.RequiresQuest)
+						npcKey, it.Key, it.RequiresQuest)
 				}
 			}
 			if npc.Dialogue != nil {
@@ -1106,8 +1125,10 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 						}
 					}
 				}
-				if choice.RequiresQuest != "" && qm.Definitions()[choice.RequiresQuest] == nil {
-					return fmt.Errorf("NPC %q dialogue choice references unknown requires_quest %q", npcKey, choice.RequiresQuest)
+				if choice.RequiresQuest != "" {
+					if err := questGateError(qm, choice.RequiresQuest); err != nil {
+						return fmt.Errorf("NPC %q dialogue choice requires_quest: %w", npcKey, err)
+					}
 				}
 				if choice.QuestStep != "" {
 					if qm.Definitions()[choice.QuestStep] == nil {
@@ -1125,7 +1146,7 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 				if summon == nil {
 					return fmt.Errorf("NPC %q summons[%d] has empty definition", npcKey, i)
 				}
-				if _, _, ok := config.GetItemDefinitionByName(summon.Statuette); !ok {
+				if _, ok := config.GetItemDefinition(summon.Statuette); !ok {
 					return fmt.Errorf("NPC %q summons[%d] references unknown statuette %q", npcKey, i, summon.Statuette)
 				}
 				if monster.MonsterConfig != nil {
@@ -1144,8 +1165,19 @@ func (g *MMGame) validateQuestWorldReferences(qm *quests.QuestManager) error {
 	}
 	if monster.MonsterConfig != nil {
 		for monsterKey, def := range monster.MonsterConfig.Monsters {
-			if def.PassiveUntilQuest != "" && qm.Definitions()[def.PassiveUntilQuest] == nil {
-				return fmt.Errorf("monster %q references unknown passive_until_quest %q", monsterKey, def.PassiveUntilQuest)
+			if def.PassiveUntilQuest != "" {
+				if err := questGateError(qm, def.PassiveUntilQuest); err != nil {
+					return fmt.Errorf("monster %q passive_until_quest: %w", monsterKey, err)
+				}
+			}
+		}
+	}
+	if wm != nil {
+		for _, key := range sortedMapKeys(wm.MapConfigs) {
+			if mc := wm.MapConfigs[key]; mc != nil && mc.Adventure != nil && mc.Adventure.Schedule != nil {
+				if err := questGateError(qm, mc.Adventure.Schedule.RequiresQuest); err != nil {
+					return fmt.Errorf("map %q adventure schedule requires_quest: %w", key, err)
+				}
 			}
 		}
 	}

@@ -93,7 +93,7 @@ func TestSolsticeConnectionPlayable(t *testing.T) {
 					ih.openNPCInteraction(receiver)
 					for _, choice := range receiver.DialogueData.Choices {
 						if choice.Action == "prop" {
-							dialogActions[choice.Action](ih, receiver, choice)
+							dialogActions[choice.Action].run(ih, receiver, choice)
 						}
 					}
 					q = g.questManager.GetQuest("solstice_connection")
@@ -108,7 +108,7 @@ func TestSolsticeConnectionPlayable(t *testing.T) {
 					if !q.Completed {
 						t.Fatal("completion lost on load")
 					}
-					(&UISystem{game: g}).claimQuestReward("solstice_connection")
+					g.claimQuestReward("solstice_connection", nil)
 					g.currentTurn = 0
 					g.spatialReuse = status.DualClock{}
 					g.party.Members[0].SpellPoints = 0

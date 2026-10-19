@@ -5,11 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/stats"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Every shipped build's gear passes the boot check, and the check rejects a
@@ -180,7 +181,7 @@ func TestAutoButtonsSpendByChosenBuild(t *testing.T) {
 	statsOf := func(m *character.MMCharacter) []int {
 		var v []int
 		for _, name := range stats.Names {
-			v = append(v, *autoStatField(m, name))
+			v = append(v, *m.BaseStatField(name))
 		}
 		return v
 	}

@@ -2,9 +2,11 @@ package world
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"sort"
 	"ugataima/internal/config"
+	"ugataima/internal/mathutil"
 )
 
 // OpenWorldKey is the world identity of the unified world in contexts that
@@ -28,6 +30,35 @@ type OpenWorldRegion struct {
 	// stitched holds the LOCAL cells the stitch rewrote: carved opening layers
 	// and removed travel devices or gates. They differ from the source map.
 	stitched map[[2]int]struct{}
+}
+
+// Region grid cells: a region's index, the void, or a corridor cell. A
+// corridor is part of the world (walkable, flyable) but belongs to no region;
+// it still carries the region its look and save anchor come from (the nearer
+// side it joins): corridorCell(i) = -2 - i.
+const openWorldVoidCell int16 = -1
+
+func corridorCell(region int16) int16 { return -2 - region }
+
+// cellLookRegion is the region a cell takes its biome, map config and save
+// anchor from: its owner, or a corridor's side; -1 for the void.
+func cellLookRegion(cell int16) int16 {
+	if cell >= openWorldVoidCell {
+		return cell
+	}
+	return -2 - cell
+}
+
+// TileBounds is the region's placed footprint in unified tiles (half-open):
+// the one definition of the tiles a region owns.
+func (r *OpenWorldRegion) TileBounds() image.Rectangle {
+	return image.Rect(r.OffsetX, r.OffsetY, r.OffsetX+r.Width, r.OffsetY+r.Height)
+}
+
+// PixelBounds is TileBounds in world pixels.
+func (r *OpenWorldRegion) PixelBounds(tileSize float64) (minX, minY, maxX, maxY float64) {
+	b := r.TileBounds()
+	return float64(b.Min.X) * tileSize, float64(b.Min.Y) * tileSize, float64(b.Max.X) * tileSize, float64(b.Max.Y) * tileSize
 }
 
 // --- Placement orientation transforms ---------------------------------------
@@ -279,8 +310,8 @@ func (wm *WorldManager) OpenWorldRegionByKey(mapKey string) *OpenWorldRegion {
 	return nil
 }
 
-// OpenWorldRegionAtTile resolves a unified-world tile to its region. Corridor
-// cells are attributed to their nearest connected region; void returns nil.
+// OpenWorldRegionAtTile is the region that owns a unified-world tile. A
+// corridor between regions and the void belong to none: nil.
 func (wm *WorldManager) OpenWorldRegionAtTile(tx, ty int) *OpenWorldRegion {
 	if wm.OpenWorld == nil || ty < 0 || ty >= len(wm.openWorldRegionGrid) || tx < 0 || tx >= len(wm.openWorldRegionGrid[ty]) {
 		return nil
@@ -292,20 +323,47 @@ func (wm *WorldManager) OpenWorldRegionAtTile(tx, ty int) *OpenWorldRegion {
 	return &wm.OpenWorldRegions[idx]
 }
 
-// MapKeyAt names the map a tile of w belongs to: its region on the unified
-// world (void snaps to the nearest region), the split map's own key
-// otherwise (the current one when several keys share w). "" when w is not a
-// loaded world.
+// openWorldLookRegionAtTile is the region a tile looks like: its owner, or a
+// corridor's side region; nil for the void.
+func (wm *WorldManager) openWorldLookRegionAtTile(tx, ty int) *OpenWorldRegion {
+	if wm.OpenWorld == nil || ty < 0 || ty >= len(wm.openWorldRegionGrid) || tx < 0 || tx >= len(wm.openWorldRegionGrid[ty]) {
+		return nil
+	}
+	if idx := cellLookRegion(wm.openWorldRegionGrid[ty][tx]); idx >= 0 {
+		return &wm.OpenWorldRegions[idx]
+	}
+	return nil
+}
+
+// openWorldAnchorRegionAtTile is the region a position there is saved under:
+// its look region, else the nearest region for the void.
+func (wm *WorldManager) openWorldAnchorRegionAtTile(tx, ty int) *OpenWorldRegion {
+	if r := wm.openWorldLookRegionAtTile(tx, ty); r != nil {
+		return r
+	}
+	return wm.nearestOpenWorldRegion(tx, ty)
+}
+
+// OpenWorldTileInWorld reports a unified-world tile the world is made of: a
+// region's or a corridor's, not the void between them.
+func (wm *WorldManager) OpenWorldTileInWorld(tx, ty int) bool {
+	if wm.OpenWorld == nil || ty < 0 || ty >= len(wm.openWorldRegionGrid) || tx < 0 || tx >= len(wm.openWorldRegionGrid[ty]) {
+		return false
+	}
+	return wm.openWorldRegionGrid[ty][tx] != openWorldVoidCell
+}
+
+// MapKeyAt names the map a tile of w is saved under: its region on the
+// unified world - a corridor tile goes to its side region and a void tile to
+// the nearest one, since saves store map-local tiles - and the split map's
+// own key otherwise (the current one when several keys share w). "" when w is
+// not a loaded world. Ownership is OpenWorldRegionAtTile.
 func (wm *WorldManager) MapKeyAt(w *World3D, tx, ty int) string {
 	if w == nil {
 		return ""
 	}
 	if w == wm.OpenWorld {
-		r := wm.OpenWorldRegionAtTile(tx, ty)
-		if r == nil {
-			r = wm.nearestOpenWorldRegion(tx, ty)
-		}
-		if r != nil {
+		if r := wm.openWorldAnchorRegionAtTile(tx, ty); r != nil {
 			return r.MapKey
 		}
 		return ""
@@ -444,35 +502,45 @@ func (wm *WorldManager) LocalizeWorldPos(x, y float64) (string, float64, float64
 	}
 	ts := wm.config.GetTileSize()
 	tx, ty := int(x/ts), int(y/ts)
-	r := wm.OpenWorldRegionAtTile(tx, ty)
+	r := wm.openWorldAnchorRegionAtTile(tx, ty)
 	if r == nil {
-		r = wm.nearestOpenWorldRegion(tx, ty)
-		if r == nil {
-			return "", x, y, false
-		}
+		return "", x, y, false
 	}
-	lx, ly := wm.LocalizeRegionWorldPos(r.MapKey, x, y)
-	// Clamp to the map's LOCAL interior (inside the border ring): a corridor
-	// or carved-border position must localize to a tile that exists and is
-	// inside the source map's walls.
+	lx, ly := wm.LocalizeKeyedWorldPos(r.MapKey, x, y)
+	return r.MapKey, lx, ly, true
+}
+
+// LocalizeKeyedWorldPos converts a unified-world point into mapKey's local
+// space, snapped to the map's LOCAL interior (inside the border ring): a
+// corridor or carved-border position must localize to a tile that exists and
+// is inside the source map's walls. It is the save side of ProjectWorldPos for
+// a record that keeps its own map key (a return pose, the underwater exit).
+func (wm *WorldManager) LocalizeKeyedWorldPos(mapKey string, x, y float64) (float64, float64) {
+	lx, ly := wm.LocalizeRegionWorldPos(mapKey, x, y)
+	r := wm.OpenWorldRegionByKey(mapKey)
+	if r == nil {
+		return lx, ly
+	}
+	ts := wm.config.GetTileSize()
 	ltx, lty := int(lx/ts), int(ly/ts)
 	ctx, cty := clampInt(ltx, 1, r.LocalWidth-2), clampInt(lty, 1, r.LocalHeight-2)
 	if ctx != ltx || cty != lty {
 		lx = (float64(ctx) + 0.5) * ts
 		ly = (float64(cty) + 0.5) * ts
 	}
-	return r.MapKey, lx, ly, true
+	return lx, ly
 }
 
-// nearestOpenWorldRegion picks the region whose rect is closest to a tile
-// (void-cell fallback; corridors are pre-attributed in the region grid).
+// nearestOpenWorldRegion picks the region whose footprint is closest to a
+// tile owned by none (a corridor or the void): the save anchor.
 func (wm *WorldManager) nearestOpenWorldRegion(tx, ty int) *OpenWorldRegion {
 	var best *OpenWorldRegion
 	bestDist := -1
 	for i := range wm.OpenWorldRegions {
 		r := &wm.OpenWorldRegions[i]
-		dx := rectAxisDist(tx, r.OffsetX, r.OffsetX+r.Width-1)
-		dy := rectAxisDist(ty, r.OffsetY, r.OffsetY+r.Height-1)
+		b := r.TileBounds()
+		dx := rectAxisDist(tx, b.Min.X, b.Max.X-1)
+		dy := rectAxisDist(ty, b.Min.Y, b.Max.Y-1)
 		d := dx*dx + dy*dy
 		if bestDist < 0 || d < bestDist {
 			bestDist = d
@@ -513,10 +581,10 @@ func (wm *WorldManager) OpenWorldRegionStart(mapKey string) (float64, float64, b
 	return (float64(r.StartX) + 0.5) * ts, (float64(r.StartY) + 0.5) * ts, true
 }
 
-// BiomeAtTile resolves the biome for a unified-world tile via its region
-// (corridor cells inherit their nearest region). Empty string for void/off.
+// BiomeAtTile resolves the biome for a unified-world tile via its look region
+// (a corridor cell takes its side's). Empty string for void/off.
 func (wm *WorldManager) BiomeAtTile(tx, ty int) string {
-	r := wm.OpenWorldRegionAtTile(tx, ty)
+	r := wm.openWorldLookRegionAtTile(tx, ty)
 	if r == nil {
 		return ""
 	}
@@ -526,9 +594,10 @@ func (wm *WorldManager) BiomeAtTile(tx, ty int) string {
 	return ""
 }
 
-// MapConfigAtTile resolves the map config for a unified-world tile's region.
+// MapConfigAtTile resolves the map config for a unified-world tile's look
+// region (a corridor cell takes its side's).
 func (wm *WorldManager) MapConfigAtTile(tx, ty int) *config.MapConfig {
-	r := wm.OpenWorldRegionAtTile(tx, ty)
+	r := wm.openWorldLookRegionAtTile(tx, ty)
 	if r == nil {
 		return nil
 	}
@@ -629,7 +698,7 @@ func (wm *WorldManager) buildOpenWorld() error {
 		regionGrid[y] = make([]int16, totalW)
 		for x := 0; x < totalW; x++ {
 			merged.Tiles[y][x] = voidTile
-			regionGrid[y][x] = -1
+			regionGrid[y][x] = openWorldVoidCell
 		}
 	}
 
@@ -773,7 +842,7 @@ func (wm *WorldManager) buildOpenWorld() error {
 		if tileY < 0 || tileY >= len(regionGrid) || tileX < 0 || tileX >= len(regionGrid[tileY]) {
 			return true
 		}
-		return regionGrid[tileY][tileX] < 0
+		return regionGrid[tileY][tileX] == openWorldVoidCell
 	}
 
 	wm.OpenWorld = merged
@@ -925,6 +994,7 @@ func carveOpenWorldConnection(merged *World3D, regionGrid [][]int16, regionIdx m
 
 	fromS := owPlaceSide(from, &conn.From, conn.Width)
 	toS := owPlaceSide(to, &conn.To, conn.Width)
+	fromIdx, toIdx := int16(regionIdx[conn.From.Map]), int16(regionIdx[conn.To.Map])
 
 	// Carve the two openings (each side's biome floor), verify the terrain
 	// just behind each opening is walkable so the passage cannot dead-end.
@@ -941,8 +1011,6 @@ func carveOpenWorldConnection(merged *World3D, regionGrid [][]int16, regionIdx m
 			}
 		}
 	}
-
-	fromIdx, toIdx := int16(regionIdx[conn.From.Map]), int16(regionIdx[conn.To.Map])
 
 	// Straight corridor only for opposing placed edges with aligned spans and
 	// the canonical gap; anything else is auto-routed.
@@ -966,8 +1034,8 @@ func carveOpenWorldConnection(merged *World3D, regionGrid [][]int16, regionIdx m
 			gapLo, gapHi = lo+1, hi-1
 		}
 		if aligned && gapHi-gapLo+1 == owc.Corridor.Length {
-			// Pave the straight corridor; each cell joins its nearest side's
-			// region so biome rendering and save localization stay sensible.
+			// Pave the straight corridor: no region owns it; each cell looks
+			// like (and saves under) its nearer side's region.
 			fromNear := fy0
 			if vertical {
 				fromNear = fx0
@@ -981,15 +1049,11 @@ func carveOpenWorldConnection(merged *World3D, regionGrid [][]int16, regionIdx m
 						gx, gy = fx0+i, g
 					}
 					merged.Tiles[gy][gx] = corridorFloor
-					idx := toIdx
-					distFrom := g - fromNear
-					if distFrom < 0 {
-						distFrom = -distFrom
+					side := toIdx
+					if mathutil.IntAbs(g-fromNear)*2 <= owc.Corridor.Length {
+						side = fromIdx
 					}
-					if distFrom*2 <= owc.Corridor.Length {
-						idx = fromIdx
-					}
-					regionGrid[gy][gx] = idx
+					regionGrid[gy][gx] = corridorCell(side)
 				}
 			}
 			return nil
@@ -1053,18 +1117,18 @@ func routeBentCorridor(merged *World3D, regionGrid [][]int16,
 		if x < 0 || x >= merged.Width || y < 0 || y >= merged.Height {
 			return fmt.Errorf("routed corridor leaves the world grid at (%d,%d) - adjust placements", x, y)
 		}
-		if regionGrid[y][x] != -1 {
+		if regionGrid[y][x] != openWorldVoidCell {
 			return fmt.Errorf("routed corridor cell (%d,%d) crosses a placed map - adjust placements", x, y)
 		}
 		merged.Tiles[y][x] = corridorFloor
-		// Attribute to the nearer of the two connected regions.
+		// Looks like the nearer of the two connected regions.
 		df := rectAxisDist(x, fromS.p.off.X, fromS.p.off.X+fromS.pw-1) + rectAxisDist(y, fromS.p.off.Y, fromS.p.off.Y+fromS.ph-1)
 		dt := rectAxisDist(x, toS.p.off.X, toS.p.off.X+toS.pw-1) + rectAxisDist(y, toS.p.off.Y, toS.p.off.Y+toS.ph-1)
+		side := toIdx
 		if df <= dt {
-			regionGrid[y][x] = fromIdx
-		} else {
-			regionGrid[y][x] = toIdx
+			side = fromIdx
 		}
+		regionGrid[y][x] = corridorCell(side)
 	}
 	return nil
 }

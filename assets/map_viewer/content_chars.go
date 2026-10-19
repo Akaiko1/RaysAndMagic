@@ -173,8 +173,9 @@ func buildCharacterDetails(cfg *config.Config, cols int) []charDetail {
 				if !ok || it.Name == "" {
 					continue
 				}
-				kind, itemKey := cardItem, itemKeyByName(it.Name)
-				if weaponKey := weaponKeyByName(it.Name); weaponKey != "" {
+				_, itemKey, _ := config.ItemDefOf(it)
+				kind := cardItem
+				if _, weaponKey, ok := config.WeaponDefOf(it); ok {
 					kind, itemKey = cardWeapon, weaponKey
 				}
 				equipRows = append(equipRows, panelRow{
@@ -193,20 +194,6 @@ func buildCharacterDetails(cfg *config.Config, cols int) []charDetail {
 		}
 	}
 	return out
-}
-
-func itemKeyByName(name string) string {
-	if _, key, ok := config.GetItemDefinitionByName(name); ok {
-		return key
-	}
-	return ""
-}
-
-func weaponKeyByName(name string) string {
-	if _, key, ok := config.GetWeaponDefinitionByName(name); ok {
-		return key
-	}
-	return ""
 }
 
 func rowHeight(r panelRow) int {

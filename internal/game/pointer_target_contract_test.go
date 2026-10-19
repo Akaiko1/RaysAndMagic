@@ -30,7 +30,7 @@ func TestPointerMeleeKeepsSelectedTarget(t *testing.T) {
 					front := monster.NewMonster3DFromConfig(target.X, g.camera.Y, "goblin", g.config)
 					front.HitPoints, front.MaxHitPoints, front.PerfectDodge = 100000, 100000, 0
 					g.world.Monsters = append(g.world.Monsters, front)
-					def := lookupWeaponConfigByName(items.CreateWeaponFromYAML("iron_spear").Name)
+					def := lookupWeaponConfig(items.CreateWeaponFromYAML("iron_spear"))
 					before := def.Melee.ArcType
 					t.Cleanup(func() { def.Melee.ArcType = before })
 					def.Melee.ArcType = arc

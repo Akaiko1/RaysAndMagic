@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/highscore"
 	"ugataima/internal/items"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/stats"
 
@@ -104,10 +105,8 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	if autoHover {
 		ui.queueTooltip([]string{"Spend every point by this build", "Builds: Settings > Gameplay"}, mouseX+12, mouseY+8)
 	}
-	ui.onDisplayedInput(uiCommandClick, auto, func() {
-		if interactive && g.consumeLeftClickIn(auto.x, auto.y, auto.right(), auto.bottom()) {
-			g.autoDistributeMemberStatPoints(member)
-		}
+	ui.onClick(auto, interactive, func() {
+		g.autoDistributeMemberStatPoints(member)
 	})
 	drawFilledRect(screen, popup.x+16, popup.y+statPopupRowsRule, popup.w-32, 1, gameplayInk.edge)
 
@@ -118,7 +117,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 		ghostInk = color.RGBA{lerpByte(ghostInk.R, 0, 0.25), lerpByte(ghostInk.G, 0, 0.25), lerpByte(ghostInk.B, 0, 0.25), 255}
 	}
 	for i, key := range stats.Names {
-		stat := autoStatField(member, key)
+		stat := member.BaseStatField(key)
 		row := statPopupRowRect(popup, i)
 		plus := statPlusButtonRect(popup, i)
 		textY := row.y + (row.h-uiTextCharHeight)/2
@@ -186,25 +185,14 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 // autoStatPlan is AUTO's share of a hero's remaining points per stat,
 // memoized until the hero, their stats or the build change.
 func (ui *UISystem) autoStatPlan(member *character.MMCharacter, build config.AutoStatsConfig) stats.StatBonuses {
-	key := statPlanKey{member: member, base: baseStatBonuses(member), free: member.FreeStatPoints,
+	key := statPlanKey{member: member, base: member.BaseStats(), free: member.FreeStatPoints,
 		speed: build.Speed, endurance: build.Endurance, primary: build.Primary, secondary: build.Secondary}
 	if ui.statPlan.key != key {
 		c := *member
 		spendAutoStatPoints(&c, build)
-		after, before := baseStatBonuses(&c), key.base
-		ui.statPlan = statPlanMemo{key, stats.StatBonuses{
-			Might: after.Might - before.Might, Intellect: after.Intellect - before.Intellect,
-			Personality: after.Personality - before.Personality, Endurance: after.Endurance - before.Endurance,
-			Accuracy: after.Accuracy - before.Accuracy, Speed: after.Speed - before.Speed, Luck: after.Luck - before.Luck,
-		}}
+		ui.statPlan = statPlanMemo{key, c.BaseStats().Sub(key.base)}
 	}
 	return ui.statPlan.plan
-}
-
-// baseStatBonuses is a hero's unmodified stats as one comparable value.
-func baseStatBonuses(m *character.MMCharacter) stats.StatBonuses {
-	return stats.StatBonuses{Might: m.Might, Intellect: m.Intellect, Personality: m.Personality,
-		Endurance: m.Endurance, Accuracy: m.Accuracy, Speed: m.Speed, Luck: m.Luck}
 }
 
 type statPlanKey struct {
@@ -292,12 +280,7 @@ func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt st
 			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
 		}
 		drawUIText(screen, rowLabel(idx), popupX+24, y+6)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{popupX + 16, y - 2, (popupX + popupW - 16) - (popupX + 16), (y - 2 + rowH) - (y - 2)}, func() {
-			if interactive && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-				onPick(idx)
-				return
-			}
-		})
+		ui.onClick(layoutRect{popupX + 16, y - 2, popupW - 32, rowH}, interactive, func() { onPick(idx) })
 	}
 
 	if onCancel == nil {
@@ -448,11 +431,7 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 			drawFilledRect(screen, leftX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
 		drawUIText(screen, label(m), leftX+6, y+6)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{leftX, y - 2, (leftX + colW) - (leftX), (y - 2 + rowH) - (y - 2)}, func() {
-			if interactive && g.consumeLeftClickIn(leftX, y-2, leftX+colW, y-2+rowH) {
-				g.rosterSelectedActive = i
-			}
-		})
+		ui.onClick(layoutRect{leftX, y - 2, colW, rowH}, interactive, func() { g.rosterSelectedActive = i })
 	}
 
 	// Shared by the tavern tab and standalone roster: every recruit is reachable.
@@ -475,10 +454,8 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 			r     layoutRect
 			delta int
 		}{{up, -1}, {down, 1}} {
-			ui.onDisplayedInput(uiCommandClick, button.r, func() {
-				if interactive && g.consumeLeftClickIn(button.r.x, button.r.y, button.r.right(), button.r.bottom()) {
-					g.rosterScroll = min(maxScroll, max(0, start+button.delta))
-				}
+			ui.onClick(button.r, interactive, func() {
+				g.rosterScroll = min(maxScroll, max(0, start+button.delta))
 			})
 		}
 	}
@@ -494,12 +471,10 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 			drawFilledRect(screen, rightX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
 		drawUIText(screen, label(m), rightX+6, y+6)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{rightX, y - 2, (rightX + colW) - (rightX), (y - 2 + rowH) - (y - 2)}, func() {
-			if interactive && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
-				if g.rosterSelectedActive >= 0 {
-					g.requestRosterSwap(g.rosterSelectedActive, j)
-					g.rosterSelectedActive = -1
-				}
+		ui.onClick(layoutRect{rightX, y - 2, colW, rowH}, interactive, func() {
+			if g.rosterSelectedActive >= 0 {
+				g.requestRosterSwap(g.rosterSelectedActive, j)
+				g.rosterSelectedActive = -1
 			}
 		})
 	}
@@ -515,14 +490,8 @@ func (ui *UISystem) drawRosterManager(screen *ebiten.Image, area layoutRect, int
 func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
 	g := ui.game
 	kind := g.promotionPickerKind
-	var targets []int
-	title := "Who Becomes the Archmage?"
-	if kind == character.PromotionArchmage {
-		targets = g.eligibleArchmageIndices()
-	} else {
-		targets = g.eligibleLichIndices()
-		title = "Who Becomes the Lich?"
-	}
+	targets := g.eligiblePromotionIndices(kind)
+	title := "Who Becomes the " + kind.Title() + "?"
 	if len(targets) == 0 {
 		g.promotionPickerOpen = false
 		return
@@ -953,11 +922,7 @@ func (ui *UISystem) drawFolderTabs(screen *ebiten.Image, labels []string, enable
 		tabX, tabY, tabW, tabH := r.x, r.y, r.w, r.h
 		ui.drawDialogTab(screen, layoutRect{tabX, tabY, tabW, tabH}, ui.game.dialogTab == i)
 		drawCenteredUIText(screen, label, tabX, tabY, tabW, tabH)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, (tabX + tabW) - (tabX), (tabY + tabH) - (tabY)}, func() {
-			if interactive && ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
-				ui.game.switchDialogTab(i)
-			}
-		})
+		ui.onClick(layoutRect{tabX, tabY, tabW, tabH}, interactive, func() { ui.game.switchDialogTab(i) })
 	}
 }
 
@@ -1073,7 +1038,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		// Cost under the icon, in its own line of the cell.
 		costX, costY, costW, costH := spellTraderPriceRect(x, y)
 		drawCenteredTextWithShadow(screen, clipUIText(uitext.Text("dialog.gold_price_short", npcSpell.Cost), costW), costX, costY, costW, costH,
-			purchasePriceColor(canLearn && !alreadyKnows && ui.game.party.Gold >= npcSpell.Cost))
+			purchasePriceColor(canLearn && !alreadyKnows && ui.game.canAfford(npcSpell.Cost)))
 
 		// Dim overlay if known.
 		if alreadyKnows {
@@ -1380,24 +1345,6 @@ func (ui *UISystem) drawBarterPriceLine(screen *ebiten.Image, costs []character.
 	}
 }
 
-// merchantStockPriceText is the price line under a stock cell in the entry's
-// effective currency: haggled gold, an item count (plus compacted coins), or
-// flat arena points.
-func (g *MMGame) merchantStockPriceText(npc *character.NPC, entry *character.MerchantStockItem) string {
-	currency := entry.EffectiveCurrency(npc.Currency)
-	if _, ok := character.CurrencyItemKey(currency); ok {
-		if entry.GoldCost > 0 {
-			// Two currencies on one narrow line: compact the coins.
-			return uitext.Text("dialog.stack_additional_cost", entry.Cost, compactCoinAmount(entry.GoldCost))
-		}
-		return fmt.Sprintf("x%d", entry.Cost)
-	}
-	if currency == character.CurrencyArenaPoints {
-		return uitext.Text("dialog.arena_price_short", entry.Cost)
-	}
-	return uitext.Text("dialog.gold_price_short", g.merchantBuyPrice(entry.Cost))
-}
-
 // drawMerchantDialog draws an icon-based buy/sell UI: a paginated stock grid on
 // the left, the party's inventory grid on the right, with a full item card on
 // hover. Click geometry is shared with the input handler via merchantGridLayout
@@ -1444,7 +1391,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// The bag header doubles as the drag-to-buy hint at a shop that pays no
 	// coin: a separate line under it would sit on the first row of icons.
 	drawUIText(screen, clipUIText(merchantBagHeaderLabel(ui.game.dialogNPC, ui.game.merchantSellsHere()), merchantGridW), rightX, gridTop-72)
-	categoryInteractive := merchantInteractive && !ui.game.stashDragActive && !ui.game.stashDragPickedUp
+	categoryInteractive := merchantInteractive && !ui.game.stashDrag.active && !ui.game.stashDragPickedUp
 	ui.drawItemCategoryTabs(screen, leftX, gridTop-48, merchantGridW, ui.game.merchantBuyCategory, categoryInteractive,
 		func(tab int) { ui.game.setMerchantCategory(true, tab) })
 	ui.drawItemCategoryTabs(screen, rightX, gridTop-48, merchantGridW, ui.game.merchantSellCategory, categoryInteractive,
@@ -1492,17 +1439,15 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			ui.drawInventoryItemIcon(screen, displayItem, x, y, w, h, 4, !soldOut)
 			px, py, pw, ph := merchantPriceRect(x, y, w, h)
-			if len(entry.Barter) > 0 && !soldOut && !ui.game.dialogNPC.FreeGoods {
+			quote := ui.game.quoteMerchantEntry(entry)
+			if quote.kind == priceBarter && !soldOut {
 				ui.drawBarterPriceLine(screen, entry.Barter, px, py, pw, ph)
 				continue
 			}
 			priceColor := purchasePriceColor(ui.game.merchantMaxUnits(entry) > 0)
-			priceText := ui.game.merchantStockPriceText(ui.game.dialogNPC, entry)
-			if soldOut {
+			priceText := quote.shelfLabel()
+			if soldOut && quote.kind != priceReward {
 				priceText = uitext.Text("dialog.sold_out")
-			}
-			if ui.game.dialogNPC.FreeGoods {
-				priceText = uitext.Text("caravan.take")
 			}
 			drawCenteredTextWithShadow(screen, merchantPriceLabel(priceText), px, py, pw, ph, priceColor)
 		}
@@ -1575,9 +1520,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			bagGrid := image.Rect(rightX, gridTop, rightX+merchantGridW, pagerY)
 			src, ok := decodeStashFrom(ui.game.stashDragFrom)
 			switch {
-			case ok && src.kind == stashKindBag && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, stockGrid):
+			case ok && src.kind == stashKindBag && ptInRect(ui.game.stashDrag.curX, ui.game.stashDrag.curY, stockGrid):
 				ui.beginMerchantSellPicker(src.idx, ui.game.stashDragSplitQuantity)
-			case ok && src.kind == stashKindShop && ptInRect(ui.game.stashDragCurX, ui.game.stashDragCurY, bagGrid):
+			case ok && src.kind == stashKindShop && ptInRect(ui.game.stashDrag.curX, ui.game.stashDrag.curY, bagGrid):
 				ui.beginMerchantBuyPicker(src.idx)
 			}
 			ui.game.clearStashDrag()
@@ -1830,12 +1775,7 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 		by := startY + i*(btnH+gap)
 		hover := isMouseHoveringBox(mx, my, bx, by, bx+btnW, by+btnH)
 		ui.drawMenuButton(screen, b.label, bx, by, btnW, btnH, hover)
-		ui.onDisplayedInput(uiCommandClick, layoutRect{bx, by, (bx + btnW) - (bx), (by + btnH) - (by)}, func() {
-			if ui.topModalLayer() == modalLayerGameOver && g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
-				b.action()
-				return
-			}
-		})
+		ui.onGatedClick(layoutRect{bx, by, btnW, btnH}, func() bool { return ui.topModalLayer() == modalLayerGameOver }, b.action)
 	}
 }
 
@@ -1954,28 +1894,21 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 		ui.drawJournalEntry(screen, quest, row, copy)
 	}
 
-	ui.drawQuestPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, layout.totalPages)
+	ui.drawPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, &ui.questPage, layout.totalPages, !ui.modalLayerOwnsInput())
 }
 
-// drawQuestPager draws "Page X/Y" plus prev/next buttons under the quest list
-// and handles their clicks. No-op when every quest fits on one page.
-func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages int) {
-	if totalPages <= 1 {
-		return
+// questPurseSummary is a claim's purse in words: currencies and XP, then the
+// rank a promotion grants. Items are announced as they land.
+func questPurseSummary(r quests.QuestRewards) string {
+	p := questPromotion(r)
+	if p == character.PromotionNone {
+		return questRewardSummary(r.Gold, r.ArenaPoints, r.Experience)
 	}
-	interactive := !ui.modalLayerOwnsInput()
-	ui.drawPagerButton(screen, x, y, "<", interactive && ui.questPage > 0, func() {
-		ui.questPage--
-	})
-	ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", interactive && ui.questPage < totalPages-1, func() {
-		ui.questPage++
-	})
-	drawCenteredUIText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, pagerBtnH-2)
-}
-
-// claimQuestReward claims the reward for a completed quest (UI journal entry).
-func (ui *UISystem) claimQuestReward(questID string) {
-	ui.game.claimQuestReward(questID)
+	rank := uitext.Text("ui.reward_rank", p.Title())
+	if r.Gold == 0 && r.ArenaPoints == 0 && r.Experience == 0 {
+		return rank
+	}
+	return questRewardSummary(r.Gold, r.ArenaPoints, r.Experience) + " / " + rank
 }
 
 // questRewardSummary is the shared UI/log wording for quest currencies and XP.
@@ -1997,79 +1930,100 @@ func questRewardSummary(gold, arenaPoints, experience int) string {
 }
 
 // claimQuestReward claims a completed quest's reward and marks it claimed.
-// This is the single source of truth for the quest journal (J) and NPC turn-in.
-func (g *MMGame) claimQuestReward(questID string) bool {
+// This is the single source of truth for the quest journal (J, giver nil) and
+// NPC turn-in; a promotion nobody can take refuses before anything commits.
+func (g *MMGame) claimQuestReward(questID string, giver *character.NPC) bool {
 	if g.questManager == nil {
 		return false
 	}
-	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" && g.questManager.GetQuest(q.Definition.NextQuest) == nil {
-		if err := g.canActivateQuest(q.Definition.NextQuest); err != nil {
-			g.AddCombatMessage("Cannot start next chapter: " + err.Error())
+	if q := g.questManager.GetQuest(questID); q != nil {
+		if reply := g.promotionRefusal(questPromotion(q.Definition.Rewards), giver, questID); reply != "" {
+			g.AddCombatMessage(reply)
 			return false
 		}
 	}
-	var poolItem *items.Item
-	var guaranteed []items.Item
-	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
-		for _, key := range quest.Definition.Rewards.Items {
-			item, err := items.TryCreateItemFromYAML(key)
-			if err != nil {
-				g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err))
-				return false
-			}
-			guaranteed = append(guaranteed, item)
-		}
-		item, ok, err := rollQuestPoolItem(quest.Definition.Rewards.ItemPool)
-		if err != nil {
-			g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
+	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" && g.questManager.GetQuest(q.Definition.NextQuest) == nil {
+		if err := g.canActivateQuest(q.Definition.NextQuest); err != nil {
+			g.AddCombatMessage(uitext.Text("combat.cannot_start_next_chapter", err.Error()))
 			return false
 		}
-		if ok {
-			poolItem = &item
+	}
+	var loot []items.Item
+	if quest := g.questManager.GetQuest(questID); quest != nil && quest.Definition != nil {
+		var err error
+		if loot, err = questItemRewards(quest.Definition.Rewards); err != nil {
+			g.AddCombatMessage(uitext.Text("combat.cannot_claim_reward", err))
+			return false
 		}
 	}
 	rewards, err := g.questManager.ClaimRewards(questID, g.currentQuestDay())
 	if err != nil {
-		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
+		g.AddCombatMessage(uitext.Text("combat.cannot_claim_reward", err.Error()))
 		return false
 	}
 	g.syncQuestProps()
 	g.recordProfileQuestResolution(g.questManager.GetQuest(questID))
 	g.unlockCaravan()
+	if quest := g.questManager.GetQuest(questID); quest != nil {
+		g.AddCombatMessage(uitext.Text("combat.quest_completed_received", quest.Definition.Name, questPurseSummary(*rewards)))
+	}
+	g.payQuestRewards(rewards, loot)
+	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" {
+		if g.questManager.GetQuest(q.Definition.NextQuest) == nil {
+			if err := g.activateQuest(q.Definition.NextQuest); err != nil {
+				g.AddCombatMessage(uitext.Text("combat.next_chapter", err.Error()))
+			} else {
+				next := g.questManager.GetQuest(q.Definition.NextQuest)
+				g.AddCombatMessage(uitext.Text("combat.next_chapter_read_the_journal_for", next.Definition.Name))
+			}
+		}
+	}
+	return true
+}
+
+// questItemRewards materializes a quest's reward items before the claim
+// commits: every items key and ONE roll of item_pool. A broken content key
+// therefore leaves the reward unclaimed and safe to retry.
+func questItemRewards(rewards quests.QuestRewards) ([]items.Item, error) {
+	var loot []items.Item
+	for _, key := range rewards.Items {
+		item, err := items.TryCreateItemFromYAML(key)
+		if err != nil {
+			return nil, err
+		}
+		loot = append(loot, item)
+	}
+	item, ok, err := rollQuestPoolItem(rewards.ItemPool)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		loot = append(loot, item)
+	}
+	return loot, nil
+}
+
+// payQuestRewards hands a claimed quest's purse to the party, for a turn-in
+// and an encounter's auto-claim alike: gold, arena points, shared XP (Learning
+// and bench training apply), the materialized items and a promotion.
+func (g *MMGame) payQuestRewards(rewards *quests.QuestRewards, loot []items.Item) {
+	if p := questPromotion(*rewards); p != character.PromotionNone {
+		g.promoteEligibleMember(p, -1)
+	}
 	if rewards.Gold > 0 {
 		g.awardGold(rewards.Gold)
 	}
 	if rewards.ArenaPoints > 0 {
 		g.awardArenaPoints(rewards.ArenaPoints)
 	}
-	// Single XP source so Learning bonuses and bench training apply (active party,
-	// reserve, and captives all share quest XP).
 	if rewards.Experience > 0 {
 		g.grantSharedXP(rewards.Experience)
 	}
-	if quest := g.questManager.GetQuest(questID); quest != nil {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %s!",
-			quest.Definition.Name, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience)))
-	}
-	for _, item := range guaranteed {
+	for _, item := range loot {
 		g.party.AddItem(item)
-		g.AddCombatMessage("You receive " + item.Name + ".")
+		g.AddCombatMessage(uitext.Text("combat.you_receive", item.Name))
 	}
-	if q := g.questManager.GetQuest(questID); q != nil && q.Definition.NextQuest != "" {
-		if g.questManager.GetQuest(q.Definition.NextQuest) == nil {
-			if err := g.activateQuest(q.Definition.NextQuest); err != nil {
-				g.AddCombatMessage("Next chapter: " + err.Error())
-			} else {
-				next := g.questManager.GetQuest(q.Definition.NextQuest)
-				g.AddCombatMessage("Next chapter: " + next.Definition.Name + ". Read the journal for directions.")
-			}
-		}
-	}
-	if poolItem != nil {
-		g.party.AddItem(*poolItem)
-		g.AddCombatMessage(fmt.Sprintf("You receive %s.", poolItem.Name))
-	}
-	return true
+	g.announceLegendaryDrops(loot)
 }
 
 // rollQuestPoolItem materializes ONE item before the quest manager commits the

@@ -33,44 +33,56 @@ type meleeTrailProfile struct {
 	angular                bool
 }
 
-func meleeTrailShape(kind string, screenH float64, crit bool) meleeTrailProfile {
+func meleeTrailShape(kind swingKind, screenH float64, crit bool) meleeTrailProfile {
 	if crit {
 		screenH *= 1.2
 	}
 	switch kind {
-	case "stab":
+	case swingStab:
 		return meleeTrailProfile{.42, screenH * .009, .24, .32, false}
-	case "smash":
+	case swingSmash:
 		return meleeTrailProfile{.95, screenH * .055, .14, .12, false}
-	case "chop":
+	case swingChop:
 		return meleeTrailProfile{.85, screenH * .038, .26, .09, true}
-	case "lunge":
+	case swingLunge:
 		return meleeTrailProfile{.65, screenH * .016, .22, .24, false}
 	default:
 		return meleeTrailProfile{.52, screenH * .015, .18, .18, false}
 	}
 }
 
+// swingKind is a melee swing's FX flavor.
+type swingKind string
+
+const (
+	swingSlash swingKind = "slash"
+	swingChop  swingKind = "chop"
+	swingSmash swingKind = "smash"
+	swingPunch swingKind = "punch"
+	swingStab  swingKind = "stab"
+	swingLunge swingKind = "lunge"
+)
+
 // meleeFxKind maps a weapon category to its swing flavor so every weapon type
 // gets a distinct effect (sword crescent, axe chop, mace smash, dagger stab,
 // spear lunge).
-func meleeFxKind(def *config.WeaponDefinitionConfig) string {
+func meleeFxKind(def *config.WeaponDefinitionConfig) swingKind {
 	if def == nil {
-		return "slash"
+		return swingSlash
 	}
 	switch strings.ToLower(def.Category) {
 	case "axe":
-		return "chop"
+		return swingChop
 	case "mace", "hammer", "club", "flail":
-		return "smash"
+		return swingSmash
 	case "martial_arts":
-		return "punch"
+		return swingPunch
 	case "dagger", "knife":
-		return "stab"
+		return swingStab
 	case "spear", "rapier", "halberd", "pike":
-		return "lunge"
+		return swingLunge
 	default: // sword and anything else
-		return "slash"
+		return swingSlash
 	}
 }
 
@@ -134,7 +146,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 		r.drawSignatureSilhouette(screen, s, cx, cy, screenH)
 		return
 	}
-	if s.Kind == "punch" {
+	if s.Kind == swingPunch {
 		r.drawGauntletStrike(screen, s, cx, cy, screenH)
 		return
 	}
@@ -155,10 +167,10 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	}
 	var path func(float64) (float64, float64)
 	var thick, length float64
-	if s.Kind == "stab" || s.Kind == "lunge" {
+	if s.Kind == swingStab || s.Kind == swingLunge {
 		reach := h * .20
 		thick = h * .028
-		if s.Kind == "lunge" {
+		if s.Kind == swingLunge {
 			reach = h * .38
 			thick = h * .022
 		}
@@ -169,10 +181,10 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 		px, py, R, start, end := cx, cy+reach*.95, reach*1.7, -math.Pi/2-.6, -math.Pi/2+.6
 		thick = h * .047
 		switch s.Kind {
-		case "chop":
+		case swingChop:
 			px, py, R, start, end = cx-reach*.15, cy-reach*.1, reach*1.25, -1.35, .85
 			thick = h * .065
-		case "smash":
+		case swingSmash:
 			px, py, R, start, end = cx, cy-reach*.2, reach*1.1, -math.Pi/2-.3, math.Pi/2
 			thick = h * .07
 		}
@@ -189,12 +201,12 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	}, lead, progress)
 	tipX, tipY := path(lead)
 	angle := tangentAt(path, lead)
-	if s.Kind == "slash" || s.Kind == "chop" {
+	if s.Kind == swingSlash || s.Kind == swingChop {
 		angle -= math.Pi / 2
 	}
 	if progress < .65 {
 		headSize := h * .065
-		if s.Kind == "stab" {
+		if s.Kind == swingStab {
 			headSize *= .62
 		}
 		r.drawWeaponHead(screen, s.Kind, tipX, tipY, angle, headSize, fade)
@@ -203,10 +215,10 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 		u := (progress - meleeSweepFrac) / (1 - meleeSweepFrac)
 		count := 9
 		shardScale := 1.0
-		if s.Kind == "stab" {
+		if s.Kind == swingStab {
 			count, shardScale = 5, .48
 		}
-		if s.Kind == "smash" || s.Kind == "chop" {
+		if s.Kind == swingSmash || s.Kind == swingChop {
 			count = 15
 		}
 		if s.Crit {
@@ -218,7 +230,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 			x, y := tipX+math.Cos(a)*speed*u, tipY+math.Sin(a)*speed*u+h*.18*u*u
 			r.drawWeaponShard(screen, x, y, h*shardScale*(.01+.009*auraHash(seed, k, 33, 0)), mixColor(col, edge, auraHash(seed, k, 34, 0)), .8*math.Sqrt(fade), u, seed+k*37, false)
 		}
-		if s.Kind == "smash" {
+		if s.Kind == swingSmash {
 			r.arenaImpactCloud(screen, tipX, tipY, u, h*.25, .45, col, fade)
 		}
 	}

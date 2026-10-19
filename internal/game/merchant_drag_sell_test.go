@@ -42,14 +42,14 @@ func merchantDragGame(t *testing.T) (*MMGame, *UISystem) {
 func dropBagStackOnStockGrid(g *MMGame, ui *UISystem, idx int, onStock bool) {
 	dlg := npcDialogLayout(g)
 	leftX, _, gridTop, _ := merchantGridLayout(dlg.x, dlg.y)
-	g.stashDragActive = true
+	g.stashDrag.active = true
 	g.stashDragDrop = true
 	g.stashDragFrom = stashDragInvBase + idx
 	g.stashDragItem = g.party.Inventory[idx]
 	if onStock {
-		g.stashDragCurX, g.stashDragCurY = leftX+4, gridTop+4
+		g.stashDrag.curX, g.stashDrag.curY = leftX+4, gridTop+4
 	} else {
-		g.stashDragCurX, g.stashDragCurY = dlg.x+2, dlg.y+2 // title bar: no drop zone
+		g.stashDrag.curX, g.stashDrag.curY = dlg.x+2, dlg.y+2 // title bar: no drop zone
 	}
 	screen := ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 	ui.drawMerchantDialog(screen, dlg.x, dlg.y, dlg.w, dlg.h)
@@ -65,7 +65,7 @@ func TestDragStackToMerchantOpensSellPickerWithFullStack(t *testing.T) {
 	if ui.stackSplitPicker.quantity != 5 {
 		t.Fatalf("default quantity = %d, want the FULL stack (5)", ui.stackSplitPicker.quantity)
 	}
-	if g.stashDragActive || g.stashDragDrop {
+	if g.stashDrag.active || g.stashDragDrop {
 		t.Fatal("the resolved drop left drag state behind")
 	}
 
@@ -89,7 +89,7 @@ func TestDragReleasedOffTheStockGridJustCancels(t *testing.T) {
 	if ui.stackSplitPicker.open {
 		t.Fatal("a drop outside the stock grid opened the sell picker")
 	}
-	if g.stashDragActive || g.stashDragDrop {
+	if g.stashDrag.active || g.stashDragDrop {
 		t.Fatal("a cancelled drop left drag state behind")
 	}
 	if len(g.party.Inventory) != 1 || g.party.Gold != 0 {
@@ -387,14 +387,14 @@ func merchantBuyGame(t *testing.T, currency string, entry *character.MerchantSto
 func dragShelfItemToBag(g *MMGame, ui *UISystem, idx int, onBag bool) {
 	dlg := npcDialogLayout(g)
 	_, rightX, gridTop, _ := merchantGridLayout(dlg.x, dlg.y)
-	g.stashDragActive = true
+	g.stashDrag.active = true
 	g.stashDragDrop = true
 	g.stashDragFrom = stashShopDragBase + idx
 	g.stashDragItem = g.merchantVisibleStock()[idx].Item
 	if onBag {
-		g.stashDragCurX, g.stashDragCurY = rightX+4, gridTop+4
+		g.stashDrag.curX, g.stashDrag.curY = rightX+4, gridTop+4
 	} else {
-		g.stashDragCurX, g.stashDragCurY = dlg.x+2, dlg.y+2
+		g.stashDrag.curX, g.stashDrag.curY = dlg.x+2, dlg.y+2
 	}
 	ui.drawMerchantDialog(ebiten.NewImage(g.config.GetScreenWidth(), g.config.GetScreenHeight()), dlg.x, dlg.y, dlg.w, dlg.h)
 }
@@ -667,7 +667,7 @@ func TestDragStartDoesNotTradeOnTheClickThatBeginsIt(t *testing.T) {
 	if g.party.Inventory[0].Count() != 5 {
 		t.Fatalf("the press that begins a drag sold a unit: %d left", g.party.Inventory[0].Count())
 	}
-	fp.moveTo(cellX-60, cellY) // well past quickDragThreshold
+	fp.moveTo(cellX-60, cellY) // well past dragDeadZone
 	fp.hold()
 	frame()
 	fp.release()

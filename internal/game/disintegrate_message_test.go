@@ -111,7 +111,7 @@ func TestDisintegrate_SearsBoss(t *testing.T) {
 
 			want := 1000
 			if proc {
-				want -= 1000 * config.DisintegrateBossMaxHPPct / 100 // a fifth of max HP
+				want -= 1000 * config.InstakillSearMaxHPPct / 100 // a fifth of max HP
 			}
 			if !mob.IsAlive() || mob.HitPoints != want {
 				t.Fatalf("HP=%d alive=%v, want %d alive", mob.HitPoints, mob.IsAlive(), want)

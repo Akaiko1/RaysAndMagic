@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -16,6 +15,8 @@ import (
 	"ugataima/internal/playerprofile"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // loadShippedAchievements installs the shipped catalog until the test ends.

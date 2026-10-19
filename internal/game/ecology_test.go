@@ -528,6 +528,51 @@ func TestEcologyRemoteMovementAndCombat(t *testing.T) {
 	}
 }
 
+// A remote world runs the party world's turn: a raider whose caravan target
+// died earlier in the pass waits instead of walking to the corpse, and the
+// world's telegraph clocks run.
+func TestRemoteEcologyTakesTheFullTurn(t *testing.T) {
+	g, wm, tile := ecologyTestGame(t)
+	w := g.world
+	g.ecology.Unlocked = true
+	g.spawnCaravan()
+	_, caravan := g.ecologyActor()
+	caravan.PerfectDodge = 0
+	killer := monster.NewMonster3DFromConfig(caravan.X+tile, caravan.Y, "bandit", g.config)
+	walker := monster.NewMonster3DFromConfig(caravan.X+4*tile, caravan.Y, "bandit", g.config)
+	for _, m := range []*monster.Monster3D{killer, walker} {
+		m.ProjectileWeapon, m.RangedAttackRange = "", 0
+		m.DamageMin, m.DamageMax = 50, 50
+	}
+	caster := monster.NewMonster3DFromConfig(caravan.X, caravan.Y+6*tile, "solstice_kiln_automaton", g.config)
+	caster.Telegraph.Cooldown = roundClock()
+	cooldown := caster.Telegraph.Cooldown.Turns
+	w.Monsters = append(w.Monsters, killer, walker, caster)
+	g.world = newTestWorldSized(g.config, 30, 30)
+	wm.LoadedMaps["other"] = g.world
+	wm.CurrentMapKey = "other"
+	g.turnBasedMode = true
+	g.frameCount++
+	g.simulateRemoteEcology(true, true) // the shared retarget points both raiders at the caravan
+	walker.AIFoe, killer.AIFoe = caravan, caravan
+	caravan.HitPoints = 1 // the first raider's blow kills it
+	if !caravan.IsAlive() || !remoteEcologyActor(walker) {
+		t.Fatalf("fixture: caravan alive=%v, walker acts=%v before the pass", caravan.IsAlive(), remoteEcologyActor(walker))
+	}
+	x := walker.X
+	g.frameCount++
+	g.simulateRemoteEcology(true, true)
+	if caravan.IsAlive() {
+		t.Fatal("fixture: the adjacent raider did not kill the caravan")
+	}
+	if walker.X != x {
+		t.Fatalf("the raider walked toward the caravan's corpse: %.0f -> %.0f", x, walker.X)
+	}
+	if caster.Telegraph.Cooldown.Turns >= cooldown {
+		t.Fatalf("the remote telegraph cooldown did not run: %d turns left", caster.Telegraph.Cooldown.Turns)
+	}
+}
+
 // Trade goods are priced, non-legendary trinkets that are not door keys and
 // that some monster table or the boss loot drops (chance > 0); each listed once.
 func TestCaravanEligibleGoods(t *testing.T) {

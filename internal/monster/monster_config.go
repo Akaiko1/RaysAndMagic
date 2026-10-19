@@ -1,7 +1,6 @@
 package monster
 
 import (
-	"bytes"
 	"fmt"
 	"math/rand"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	"ugataima/internal/config"
+	"ugataima/internal/strictyaml"
 
 	"gopkg.in/yaml.v3"
 )
@@ -78,6 +78,9 @@ type MonsterDefinition struct {
 	// Boss is the explicit content classification. It drives boss AI, rewards,
 	// and exclusions from ambient systems; boss-only mechanics below require it.
 	Boss bool `yaml:"boss,omitempty"`
+	// Elite classifies a strong ordinary monster (no rule reads it: an
+	// instakill still erases it). A boss is not also elite.
+	Elite bool `yaml:"elite,omitempty"`
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All optional.
 	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete the boss does not attack: it evades (if evade_radius_tiles set) or just holds dormant; turns aggressive once complete
 	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // >0 = evasive boss: blink when the party is within this many tiles (needs boss_cooldown_seconds). Omit for a dormant boss that just holds.
@@ -130,29 +133,8 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	var conflicts []string
 
 	// A former key or name must never shadow a live monster or belong to two.
-	claimed, claimedNames, liveNames := make(map[string]string), make(map[string]string), make(map[string]bool)
-	for _, def := range config.Monsters {
-		liveNames[def.Name] = true
-	}
-	for key, def := range config.Monsters {
-		for _, old := range def.LegacyKeys {
-			if _, live := config.Monsters[old]; live || old == "" {
-				return fmt.Errorf("monster %q: legacy key %q is empty or still a live monster", key, old)
-			}
-			if prev, dup := claimed[old]; dup {
-				return fmt.Errorf("monsters %q and %q both claim legacy key %q", prev, key, old)
-			}
-			claimed[old] = key
-		}
-		for _, old := range def.LegacyNames {
-			if old == "" || liveNames[old] {
-				return fmt.Errorf("monster %q: legacy name %q is empty or still a live monster's name", key, old)
-			}
-			if prev, dup := claimedNames[old]; dup {
-				return fmt.Errorf("monsters %q and %q both claim legacy name %q", prev, key, old)
-			}
-			claimedNames[old] = key
-		}
+	if err := validateMonsterRenames(config); err != nil {
+		return err
 	}
 
 	// Creature types gate immunities and revenge rallies by exact comparison,
@@ -236,6 +218,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.DeprecatedMeleeDamageType != "" {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed melee_damage_type - ordinary melee is physical; elemental attacks come from biome rules", key))
 		}
+		if monster.Elite && monster.Boss {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' is both boss and elite", key))
+		}
 		if monster.requiresBossClassification() && !monster.Boss {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' authors boss-only behavior but lacks boss: true", key))
 		}
@@ -244,9 +229,11 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		for _, problem := range monster.abilityProblems() {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' ability %s", key, problem))
 		}
-		breath := &monster.Abilities.DragonBreath
-		if damageType, err := ParseDamageType(strings.ToLower(strings.TrimSpace(breath.DamageType))); err == nil && breath.DamageType != "" {
-			breath.DamageType = damageType.String()
+		for i := range monster.Abilities.PartyAttacks {
+			attack := &monster.Abilities.PartyAttacks[i]
+			if school, err := ParseDamageType(attack.School.String()); err == nil {
+				attack.School = school
+			}
 		}
 		if monster.Resistances != nil {
 			resistances := make(map[string]int, len(monster.Resistances))
@@ -312,6 +299,17 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	}
 
 	return nil
+}
+
+// validateMonsterRenames applies the catalogs' one rename rule; monster
+// display names may repeat (several "Dragon"s).
+func validateMonsterRenames(c *MonsterYAMLConfig) error {
+	renamed := make([]config.Renamed, 0, len(c.Monsters))
+	for key, def := range c.Monsters {
+		renamed = append(renamed, config.Renamed{Key: key, Name: def.Name, LegacyNames: def.LegacyNames, LegacyKeys: def.LegacyKeys})
+	}
+	_, err := config.ValidateRenames("monster", renamed, false)
+	return err
 }
 
 // requiresBossClassification lists the boss behaviours whose scheduling and AI
@@ -414,9 +412,7 @@ func LoadMonsterConfig(filename string) (*MonsterYAMLConfig, error) {
 	// Strict: an unknown field (a typo, or a key an ability rework moved) fails
 	// the load instead of silently switching the mechanic off.
 	var config MonsterYAMLConfig
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&config); err != nil {
+	if err := strictyaml.Decode(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse monster config YAML: %w", err)
 	}
 
@@ -544,9 +540,8 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.RangedAttackRange = def.RangedAttackRange * tileSize
 	}
 	// The monster owns its copy: a champion stamps its striking weapon's riders
-	// onto it before each hit.
-	m.Abilities = def.Abilities
-	m.Abilities.Summon.Monsters = slices.Clone(def.Abilities.Summon.Monsters)
+	// onto it before each hit, auto-level scales its damage.
+	m.Abilities = def.Abilities.Clone()
 	m.Boss = def.Boss
 	m.PassiveUntilQuest = def.PassiveUntilQuest
 	m.EvadeRadiusTiles = def.EvadeRadiusTiles

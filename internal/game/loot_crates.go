@@ -44,7 +44,7 @@ func (g *MMGame) partyTrapAvoidChancePct() (int, *character.MMCharacter) {
 // Tier behavior is fully data-driven from loots.yaml `crates:` (by NPC key).
 func (g *MMGame) useLootCrate(npc *character.NPC) {
 	if npc.Visited {
-		g.AddCombatMessage(fmt.Sprintf("The %s is empty.", npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.the_is_empty", npc.Name))
 		return
 	}
 	crate := config.GetCrateConfig(npc.Key)
@@ -55,11 +55,11 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 	// click reaches here directly - without this a campfire is a free mid-fight
 	// full rest. Checked BEFORE Visited so the attempt doesn't waste the crate.
 	if g.interactionBlockedByCombat() {
-		g.AddCombatMessage(fmt.Sprintf("No time to search the %s mid-fight!", npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.no_time_to_search_the_mid", npc.Name))
 		return
 	}
 	if !g.canReachWorldReward(npc.X, npc.Y) {
-		g.AddCombatMessage(fmt.Sprintf("You can't reach the %s from here.", npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.you_can_t_reach_the_from", npc.Name))
 		return
 	}
 	npc.Visited = true // consumed even if the trap fires - the lid is open
@@ -101,11 +101,11 @@ func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig
 	}
 	if crate.FreeRest {
 		g.restParty()
-		g.AddCombatMessage("The party rests by the warm fire - fully recovered!")
+		g.AddCombatMessage(uitext.Text("combat.the_party_rests_by_the_warm"))
 	}
 	if crate.BonusStat != "" && crate.BonusAmount != 0 {
 		if crate.BonusChancePct > 0 && rand.Intn(100) >= crate.BonusChancePct {
-			g.AddCombatMessage(fmt.Sprintf("The %s turns out to be empty.", npc.Name))
+			g.AddCombatMessage(uitext.Text("combat.the_turns_out_to_be_empty", npc.Name))
 			return
 		}
 		// The draught goes to the SELECTED character - whoever the player has
@@ -119,7 +119,7 @@ func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig
 		// Irreversible gain: grant the max-pool delta to CURRENT HP/SP too,
 		// same as spending a stat point (not the reversible keep-current path).
 		m.RecalculateMaxStatsGrantingGain(g.config)
-		g.AddCombatMessage(fmt.Sprintf("%s feels changed forever: %s, permanently!", m.Name, bonus.Summary()))
+		g.AddCombatMessage(uitext.Text("combat.feels_changed_forever_permanently", m.Name, bonus.Summary()))
 	}
 }
 
@@ -127,11 +127,11 @@ func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig
 // hand defuses it (40/60/80/100% by mastery tier).
 func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) {
 	if chance, hand := g.partyTrapAvoidChancePct(); chance > 0 && rand.Intn(100) < chance {
-		g.AddCombatMessage(fmt.Sprintf("%s disarms the trap on the %s.", hand.Name, npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.disarms_the_trap_on_the", hand.Name, npc.Name))
 		return
 	}
 	if crate.TrapIgnite {
-		g.AddColoredCombatMessage(fmt.Sprintf("The %s spews a gout of flame!", npc.Name), combatMessageOrange)
+		g.AddColoredCombatMessage(uitext.Text("combat.the_spews_a_gout_of_flame", npc.Name), combatMessageOrange)
 		igniteSeconds := crate.TrapIgniteSeconds
 		if igniteSeconds <= 0 {
 			igniteSeconds = config.DefaultTrapIgniteSeconds
@@ -148,7 +148,7 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 		damageType = crate.TrapDamageTypes[rand.Intn(len(crate.TrapDamageTypes))]
 	}
 	damageLabel := strings.ToUpper(damageType[:1]) + damageType[1:]
-	g.AddColoredCombatMessage(fmt.Sprintf("The %s detonates a hidden %s charge!", npc.Name, damageLabel), combatMessageOrange)
+	g.AddColoredCombatMessage(uitext.Text("combat.the_detonates_a_hidden_charge", npc.Name, damageLabel), combatMessageOrange)
 	g.combat.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
 		dealt := g.combat.damagePartyMemberElement(idx, member, crate.TrapDamage, damageType, false) // a crate trap is no spell
 		g.reportDamage(logToneBad, damageLog{
@@ -408,26 +408,27 @@ func rollCatalogItem(itemType string, tiers config.RarityRange) (items.Item, boo
 // grantCrateLoot hands the rolled loot straight to the party.
 func (g *MMGame) grantCrateLoot(npc *character.NPC, loot []items.Item, gold, arenaPoints int) {
 	if len(loot) == 0 && gold <= 0 && arenaPoints <= 0 {
-		g.AddCombatMessage(fmt.Sprintf("The %s holds nothing but dust.", npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.the_holds_nothing_but_dust", npc.Name))
 		return
 	}
 	crate := config.GetCrateConfig(npc.Key)
 	g.recordProfileLootSource(loot, crate != nil && crate.TreasureChest)
 	for _, it := range loot {
-		g.party.AddItem(it)
 		label := it.Name
 		if n := it.Count(); n > 1 {
 			label = fmt.Sprintf("%s x%d", it.Name, n) // the merchant's stack wording
 		}
-		g.AddColoredCombatMessage(fmt.Sprintf("Found %s!", label), lootMessageColor([]items.Item{it}))
+		g.party.AddItem(it)
+		g.AddColoredCombatMessage(uitext.Text("combat.found_item", label), lootMessageColor([]items.Item{it}))
 	}
+	g.announceLegendaryDrops(loot)
 	if gold > 0 {
 		g.awardGold(gold)
-		g.AddCombatMessage(fmt.Sprintf("Found %d gold!", gold))
+		g.AddCombatMessage(uitext.Text("combat.found_gold", gold))
 	}
 	if arenaPoints > 0 {
 		g.awardArenaPoints(arenaPoints)
-		g.AddCombatMessage(fmt.Sprintf("Found %d arena points!", arenaPoints))
+		g.AddCombatMessage(uitext.Text("combat.found_arena_points", arenaPoints))
 	}
 }
 
@@ -435,7 +436,7 @@ func (g *MMGame) grantCrateLoot(npc *character.NPC, loot []items.Item, gold, are
 // school open who doesn't know it. NOT consumed when nobody can learn.
 func (g *MMGame) useSpellLectern(npc *character.NPC) {
 	if npc.Visited {
-		g.AddCombatMessage("The lectern's pages are blank - its spell has been claimed.")
+		g.AddCombatMessage(uitext.Text("combat.the_lectern_s_pages_are_blank"))
 		return
 	}
 	lectern := npc.Lectern
@@ -443,7 +444,7 @@ func (g *MMGame) useSpellLectern(npc *character.NPC) {
 		return
 	}
 	if !g.canReachWorldReward(npc.X, npc.Y) {
-		g.AddCombatMessage(fmt.Sprintf("You can't reach the %s from here.", npc.Name))
+		g.AddCombatMessage(uitext.Text("combat.you_can_t_reach_the_from", npc.Name))
 		return
 	}
 	candidates := lectern.Pool
@@ -465,11 +466,11 @@ func (g *MMGame) useSpellLectern(npc *character.NPC) {
 			}
 			member.LearnSpell(spellID)
 			npc.Visited = true
-			g.AddColoredCombatMessage(fmt.Sprintf("%s learns %s from the ancient tome!", member.Name, def.Name), combatMessageYellow)
+			g.AddColoredCombatMessage(uitext.Text("combat.learns_from_the_ancient_tome", member.Name, def.Name), combatMessageYellow)
 			return
 		}
 	}
-	g.AddCombatMessage("The script swims before every eye - no one here can grasp this spell.")
+	g.AddCombatMessage(uitext.Text("combat.the_script_swims_before_every_eye"))
 }
 
 // nonKillLoot is a loot table without its kill_only trophies, also inside

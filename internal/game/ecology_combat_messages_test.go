@@ -69,7 +69,7 @@ func TestEcologyCombatMessagePolicy(t *testing.T) {
 						case "melee":
 							source.DamageMin, source.DamageMax = 20, 20
 							if outcome == "true_dodge" {
-								cs.strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 20, True: 3}, "physical", 0), nil, false, false, true)
+								cs.strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{Normal: 20, True: 3}, "physical", 0), nil, false, false, true, false)
 							} else {
 								cs.monsterStrikeMonster(source, target)
 							}
@@ -156,7 +156,7 @@ func TestCaravanAlertCooldownSharedAcrossMapsAndAttackers(t *testing.T) {
 	target.HitPoints = 10000
 	source := monster.NewMonster3DFromConfig(400, 500, "bandit", cfg)
 	hit := func(g *MMGame) {
-		NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)
+		NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false, false)
 	}
 	config.GlobalEcology.Caravan.AttackAlertCooldownSeconds = 37
 	before := time.Now()
@@ -405,6 +405,6 @@ func TestCaravanAlertNewGameReset(t *testing.T) {
 	target := monster.NewMonster3DFromConfig(500, 500, "desert_caravan", cfg)
 	source := monster.NewMonster3DFromConfig(400, 500, "bandit", cfg)
 	g.combatLogHistory = nil
-	NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false)
+	NewCombatSystem(g).strikeMonsterPacketFor(source, target, singleMonsterDamagePacket(damagecalc.Parts{True: 1}, "physical", 0), nil, false, true, false, false)
 	assertCaravanAlerts(t, g, 1)
 }

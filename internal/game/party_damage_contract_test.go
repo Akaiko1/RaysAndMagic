@@ -8,7 +8,9 @@ import (
 	"ugataima/internal/status"
 
 	"ugataima/internal/character"
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -85,7 +87,7 @@ func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 									t.Fatal("impact modified the launch payload")
 								}
 							} else {
-								g.combat.ApplyDamageToMonster(primary, normal, def.Name, critical)
+								g.combat.ApplyDamageToMonster(primary, normal, testWeapon(def.Name), critical)
 							}
 							for i, victim := range []*monsterPkg.Monster3D{primary, secondary} {
 								if i == 0 && lethal {
@@ -145,7 +147,7 @@ func TestDesignationConversionAndRestoredMark(t *testing.T) {
 				} else {
 					ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("idol_breakers_maul")
 					g.cardSlots[1].key = "orc_card" // 12 flat melee true
-					g.combat.ApplyDamageToMonster(primary, 101, def.Name, false)
+					g.combat.ApplyDamageToMonster(primary, 101, testWeapon(def.Name), false)
 				}
 				// Ordinary: 108 -> 87 physical + 21 dark -> 97, minus 5 soak, plus 12 true.
 				// Marked: 209 -> 168 physical + 41 dark -> 188, minus 5 soak, plus 12 true.
@@ -220,6 +222,70 @@ func TestAuthoredSpellVictimBonusContract(t *testing.T) {
 					if got := 10000 - victim.HitPoints; got != want {
 						t.Fatalf("%s took %d, want %d; bonus must be per victim and normal only", victim.Name, got, want)
 					}
+				}
+			})
+		}
+	}
+}
+
+// A spell's rolled crit reaches the victim's log line whichever way the
+// spell lands: a direct projectile hit or a mortar bloom.
+func TestSpellCritReachesTheLog(t *testing.T) {
+	for _, delivery := range []string{"projectile", "mortar"} {
+		for _, crit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/crit=%v", delivery, crit), func(t *testing.T) {
+				g, _, ch, tile := sniperFixture(t, false)
+				primary, _ := partyDamageTargets(g, tile)
+				switch delivery {
+				case "projectile":
+					shot := &MagicProjectile{ID: "crit-shot", Active: true, LifeTime: 60, Damage: 50, SpellType: "fireball", Attacker: ch, Crit: crit}
+					g.combat.applyProjectileDamage(shot, primary, shot.ID)
+				case "mortar":
+					def, _ := spells.GetSpellDefinitionByID("stone_blossom")
+					g.combat.detonateMortar(pendingMortar{SpellID: "stone_blossom", X: primary.X, Y: primary.Y, RadiusTiles: def.AoeRadiusTiles,
+						Damage: 50, School: def.School, Caster: ch, Crit: crit})
+				}
+				if primary.HitPoints == primary.MaxHitPoints {
+					t.Fatal("fixture: the spell did not land")
+				}
+				if got := countCombatLog(g, "Critical!") > 0; got != crit {
+					t.Fatalf("log shows a crit=%v, want %v", got, crit)
+				}
+			})
+		}
+	}
+}
+
+// A monster's crit - a champion's weapon or spell roll, a boss's
+// critical_chance - names itself in its hit line like a party crit, on a hero
+// and on a monster, struck directly or by a bolt; a dodged blow says nothing.
+func TestMonsterCritReachesTheLog(t *testing.T) {
+	for _, route := range []string{"direct", "bolt", "on a monster", "dodged"} {
+		for _, crit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/crit=%v", route, crit), func(t *testing.T) {
+				g, _, ch, tile := sniperFixture(t, false)
+				ch.HitPoints, ch.MaxHitPoints, ch.Luck = 10000, 10000, 0
+				src := mkTestMonster("Critter", 1000)
+				hit := monsterCharacterHit{Parts: damagecalc.Parts{Normal: 20}, DamageType: "physical", Melee: true, Critical: crit}
+				switch route {
+				case "direct":
+					g.combat.monsterHitCharacter(src, ch, src.Name, hit)
+				case "dodged":
+					ch.Luck = 100 * LuckToDodgeDivisor
+					g.combat.monsterHitCharacter(src, ch, src.Name, hit)
+				case "bolt":
+					shot := MagicProjectile{ID: "crit-bolt", X: g.camera.X, Y: g.camera.Y, Damage: 20, LifeTime: 10, Active: true,
+						SpellType: "firebolt", Owner: ProjectileOwnerMonster, SourceName: src.Name, SourceMonster: src, Crit: crit}
+					g.magicProjectiles = append(g.magicProjectiles, shot)
+					g.collisionSystem.RegisterEntity(collision.NewEntity(shot.ID, shot.X, shot.Y, 8, 8, collision.CollisionTypeProjectile, false))
+					g.combat.CheckProjectilePlayerCollisions()
+				case "on a monster":
+					victim, _ := partyDamageTargets(g, tile)
+					victim.Bound = true
+					g.combat.strikeMonsterPacketFor(src, victim, singleMonsterDamagePacket(damagecalc.Parts{Normal: 20}, "physical", 0), nil, false, false, false, crit)
+				}
+				if got := countCombatLog(g, "Critical!") > 0; got != (crit && route != "dodged") {
+					t.Fatalf("log shows a crit=%v: %v", got, g.combatLogHistory)
 				}
 			})
 		}
@@ -392,7 +458,7 @@ func TestAuthoredSingleTargetWeaponsUseDesignation(t *testing.T) {
 					Damage: 100, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), ElementalAbilityDamage: firstHitBonus}
 				g.combat.applyProjectileDamage(shot, primary, shot.ID)
 			} else {
-				g.combat.ApplyDamageToMonster(primary, 100, def.Name, false)
+				g.combat.ApplyDamageToMonster(primary, 100, testWeapon(def.Name), false)
 			}
 			if got := before - primary.HitPoints; got != 200+trueDamage+firstHitBonus {
 				t.Fatalf("marked primary took %d, want %d", got, 200+trueDamage+firstHitBonus)

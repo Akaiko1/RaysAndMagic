@@ -188,8 +188,7 @@ func (g *MMGame) enterAdventureSchedule(source string) error {
 		return fmt.Errorf("Use the receiving threshold to enter.")
 	}
 	s := a.Schedule
-	q := g.questManager.GetQuest(s.RequiresQuest)
-	if q == nil || !q.RewardsClaimed {
+	if !g.questManager.Concluded(s.RequiresQuest) {
 		return fmt.Errorf("Restore the receiving anchor and report back first.")
 	}
 	if !g.canPrepareSpell(s.RequiresSpell) && !g.canPrepareAdventureTechnique(s.AlternativeTechnique) && !g.canPrepareJumpDevice(s.RequiresSpell) {
@@ -369,12 +368,11 @@ func AdventureScaledStats(s config.AdventureScalingConfig, d monster.MonsterDefi
 	}
 }
 
-// adventureDamageRange is the authored attack scaled to an adventure level.
+// adventureDamageRange is the authored attack moved to an adventure level by
+// its side's hit curve; abilities authored as a percent of the attack follow.
 func adventureDamageRange(s config.AdventureScalingConfig, d monster.MonsterDefinition, boss bool, level int) (int, int) {
 	hit := s.Side(boss).Hit
-	ratio := hit.At(level) / hit.At(d.Level)
-	lo := max(1, int(math.Round(float64(d.DamageMin)*ratio)))
-	return lo, max(lo, int(math.Round(float64(d.DamageMax)*ratio)))
+	return monster.ScaleDamageBand(d.DamageMin, d.DamageMax, hit.At(level)/hit.At(d.Level))
 }
 
 // adventureArmorClass is the authored armor scaled to an adventure level.

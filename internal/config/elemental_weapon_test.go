@@ -43,9 +43,9 @@ func TestElementalWeaponAuthoringRejectsIncompleteRules(t *testing.T) {
 }
 
 func TestElementalWeaponSpecializedContracts(t *testing.T) {
-	for _, kind := range []string{"backwash", "anchor", "crosswind"} {
+	for _, kind := range []ElementalAbilityKind{AbilityBackwash, AbilityAnchor, AbilityCrosswind} {
 		for _, invalid := range []string{"valid", "missing_budget", "wrong_range", "irrelevant_scaling", "wrong_duration"} {
-			t.Run(kind+"/"+invalid, func(t *testing.T) {
+			t.Run(string(kind)+"/"+invalid, func(t *testing.T) {
 				w := validMechanicTestWeapon()
 				w.Melee, w.Physics = &MeleeAttackConfig{}, nil
 				a := &ElementalWeaponAbility{Kind: kind, StatScaledDamage: StatScaledDamage{Damage: 12}, DurationSeconds: 6}

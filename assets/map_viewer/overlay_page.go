@@ -207,7 +207,7 @@ func (v *viewer) overlayWidgets(d *overlayDocument) []overlayWidget {
 		if v.overlay.section == "effect" && v.overlay.selected >= 0 && v.overlay.selected < len(a.Effects) {
 			e := a.Effects[v.overlay.selected]
 			d.checkpoint()
-			e.ID = d.uniqueID(e.Kind)
+			e.ID = d.uniqueID(string(e.Kind))
 			e.Name += " copy"
 			a.Effects = append(a.Effects, e)
 			v.overlaySelect("effect", len(a.Effects)-1)
@@ -243,7 +243,7 @@ func (v *viewer) overlayAddPhase(d *overlayDocument) {
 	}
 	lanes := []string{}
 	for _, e := range a.Effects {
-		if e.Kind == "lane" {
+		if e.Kind == config.EffectLane {
 			lanes = append(lanes, e.ID)
 			break
 		}
@@ -709,10 +709,10 @@ func (v *viewer) overlayFinishDrag(d *overlayDocument) {
 		}
 		v.overlaySelect("arena", 0)
 	default:
-		kind := p.tool
+		kind := config.EffectKind(p.tool)
 		i := d.addEffect(kind, r)
 		v.overlaySelect("effect", i)
-		if kind == "transfer" {
+		if kind == config.EffectTransfer {
 			p.tool = "receiver"
 		}
 	}
@@ -755,14 +755,14 @@ func (v *viewer) drawOverlayPage(screen *ebiten.Image) {
 	}
 	for i, e := range d.state.Adventure.Effects {
 		c := color.RGBA{241, 181, 89, 255}
-		if e.Kind == "lane" {
+		if e.Kind == config.EffectLane {
 			c = color.RGBA{241, 112, 122, 255}
 		}
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			c = color.RGBA{94, 195, 240, 255}
 		}
 		drawBox(e.Rect, c, p.section == "effect" && p.selected == i)
-		if e.Kind == "transfer" {
+		if e.Kind == config.EffectTransfer {
 			sx, sy := l.originX+e.Rect[0]*l.tileSize+l.tileSize/2, l.originY+e.Rect[1]*l.tileSize+l.tileSize/2
 			dx, dy := l.originX+e.Destination[0]*l.tileSize+l.tileSize/2, l.originY+e.Destination[1]*l.tileSize+l.tileSize/2
 			vector.StrokeLine(clip, float32(sx), float32(sy), float32(dx), float32(dy), 1, c, false)
@@ -916,7 +916,7 @@ func (v *viewer) overlayReceiverError(d *overlayDocument, tile [2]int) error {
 		return fmt.Errorf("Receiver must be on walkable ground")
 	}
 	for _, e := range d.state.Adventure.Effects {
-		if e.Kind != "lane" && e.Contains(x, y) {
+		if e.Kind != config.EffectLane && e.Contains(x, y) {
 			return fmt.Errorf("Receiver overlaps %s", e.Name)
 		}
 	}

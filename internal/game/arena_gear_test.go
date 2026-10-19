@@ -206,11 +206,11 @@ func TestScepterPersonalityGate(t *testing.T) {
 	delete(knight.Skills, character.SkillStaff)
 	def, _ := config.GetWeaponDefinition("lanista_scepter")
 	knight.Personality = def.EquipPersonalityMin
-	if !knight.CanEquipWeaponByName("Lanista's Scepter") {
+	if !knight.CanEquipWeapon(testWeapon("Lanista's Scepter")) {
 		t.Fatal("Personality at threshold must equip the scepter")
 	}
 	knight.Personality = def.EquipPersonalityMin - 1
-	if knight.CanEquipWeaponByName("Lanista's Scepter") {
+	if knight.CanEquipWeapon(testWeapon("Lanista's Scepter")) {
 		t.Fatal("below threshold must refuse without the staff skill")
 	}
 }
@@ -272,14 +272,14 @@ func TestArmorSetBonuses(t *testing.T) {
 	}
 
 	ringmail, pieces := kit("ringmail")
-	if ringmail.BonusEndurance == 0 {
+	if ringmail.StatBonus.Endurance == 0 {
 		t.Fatal("ringmail set no longer authors bonus_endurance")
 	}
 	equip(pieces[:len(pieces)-1])
 	base := ch.GetEffectiveEndurance()
 	completing, _ := config.GetItemDefinition(pieces[len(pieces)-1])
 	equip(pieces)
-	if got, want := ch.GetEffectiveEndurance(), base+completing.BonusEndurance+ringmail.BonusEndurance; got != want {
+	if got, want := ch.GetEffectiveEndurance(), base+completing.StatBonus.Endurance+ringmail.StatBonus.Endurance; got != want {
 		t.Fatalf("ringmail set endurance = %d, want %d", got, want)
 	}
 }

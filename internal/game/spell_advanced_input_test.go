@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Pending casts hand the view to their picker without committing. Refusals
@@ -272,7 +273,7 @@ func TestAutocastCheckboxOwnsPhysicalGesture(t *testing.T) {
 				t.Fatalf("checkbox failed ownership: on=%v selection=%d drag=%v", c.SpellState.Automatic[string(id)], g.selectedSpell, g.dragSrc)
 			}
 			fp.hold()
-			fp.moveTo(box.x+quickDragThreshold+20, box.y)
+			fp.moveTo(box.x+dragDeadZone+20, box.y)
 			h.pointerStep()
 			if g.dragSrc != dragNone {
 				t.Fatal("checkbox press became a spell drag")
@@ -292,9 +293,9 @@ func TestAutocastCheckboxOwnsPhysicalGesture(t *testing.T) {
 			fp.press()
 			h.pointerStep()
 			fp.hold()
-			fp.moveTo(x+bl.cardW/2+quickDragThreshold+20, y+bl.iconSize/2)
+			fp.moveTo(x+bl.cardW/2+dragDeadZone+20, y+bl.iconSize/2)
 			h.pointerStep()
-			if g.dragSrc != dragFromSpell || !g.dragActive {
+			if g.dragSrc != dragFromSpell || !g.drag.active {
 				t.Fatal("excluding checkbox disabled ordinary spell dragging")
 			}
 		})

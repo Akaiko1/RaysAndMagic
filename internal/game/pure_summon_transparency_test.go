@@ -56,8 +56,8 @@ func TestPureSummonIsWalkableAndIgnoredByPartyMelee(t *testing.T) {
 	}
 
 	pureHP, boundHP := pure.HitPoints, bound.HitPoints
-	game.combat.ApplyDamageToMonster(pure, 100, "Iron Sword", false)
-	game.combat.ApplyDamageToMonster(bound, 100, "Iron Sword", false)
+	game.combat.ApplyDamageToMonster(pure, 100, testWeapon("Iron Sword"), false)
+	game.combat.ApplyDamageToMonster(bound, 100, testWeapon("Iron Sword"), false)
 	assertPureIgnoredAndBoundHit(t, pure, bound, pureHP, boundHP)
 }
 

@@ -320,10 +320,10 @@ func TestEquipmentComparisonMechanicsAndContext(t *testing.T) {
 	}
 	copy, copyCS = equipmentComparisonContext(cs, ch)
 	cs.game.partyHinder = PartyHinderState{}
-	free := cs.WeaponCooldownFramesFor(ch, bow.Name)
+	free := cs.WeaponCooldownFramesFor(ch, testWeapon(bow.Name))
 	cs.game.partyHinder = hinder
-	if live := cs.WeaponCooldownFramesFor(ch, bow.Name); live == free || copyCS.WeaponCooldownFramesFor(copy, bow.Name) != live {
-		t.Errorf("preview recovery %d, live %d, unhindered %d", copyCS.WeaponCooldownFramesFor(copy, bow.Name), live, free)
+	if live := cs.WeaponCooldownFramesFor(ch, testWeapon(bow.Name)); live == free || copyCS.WeaponCooldownFramesFor(copy, testWeapon(bow.Name)) != live {
+		t.Errorf("preview recovery %d, live %d, unhindered %d", copyCS.WeaponCooldownFramesFor(copy, testWeapon(bow.Name)), live, free)
 	}
 	cs.game.dayNightIsNight, cs.game.partyHinder = false, PartyHinderState{}
 	ch.Skills = nil

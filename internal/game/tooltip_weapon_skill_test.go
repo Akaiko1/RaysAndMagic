@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
 
@@ -21,7 +22,7 @@ func TestWeaponCardsExcludeBallisticsDescription(t *testing.T) {
 	}
 	for _, key := range []string{"hunting_bow", "surveyors_rifle", "iron_sword"} {
 		weapon := items.CreateWeaponFromYAML(key)
-		def := lookupWeaponConfigByName(weapon.Name)
+		def := lookupWeaponConfig(weapon)
 		for _, full := range []bool{false, true} {
 			for _, context := range []string{"editor", "shop", "archer", "sniper"} {
 				tiers := 1
@@ -45,7 +46,7 @@ func TestWeaponCardsExcludeBallisticsDescription(t *testing.T) {
 						}
 						var card string
 						if context == "editor" {
-							card = GetItemTooltipRows(items.CreateWeaponFromYAML(items.GetWeaponKeyByName(def.Name)), nil, nil, full).String()
+							card = GetItemTooltipRows(items.CreateWeaponFromYAML(config.CatalogKey(testWeapon(def.Name))), nil, nil, full).String()
 						} else {
 							card = GetItemTooltipRows(weapon, bearer, g.combat, full).String()
 						}

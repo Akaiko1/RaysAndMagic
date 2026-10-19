@@ -799,17 +799,17 @@ npcs:
     stock_refresh_weeks: 1
     buys: {grave_orchid: 900}
     inventory:
-      - {type: item, name: "Translocator", cost: 25000, quantity: 1, tab: "Shop"}
-      - {type: item, name: "Heat Draught", cost: 500, quantity: 4, tab: "Shop"}
-      - {type: item, name: "Flow Draught", cost: 500, quantity: 4, tab: "Shop"}
-      - {type: item, name: "Anchor Draught", cost: 500, quantity: 4, tab: "Shop"}
-      - {type: item, name: "Vector Draught", cost: 500, quantity: 4, tab: "Shop"}
-      - {type: item, name: "Mana Potion", cost: 70, quantity: 2, tab: "Shop"}
-      - {type: item, name: "Advanced Heat Draught", quantity: -1, tab: "Exchange", requires_quest: solstice_records, barter: {solstice_thermal_core: 1, solstice_furnace_ceramic: 2}}
-      - {type: item, name: "Advanced Flow Draught", quantity: -1, tab: "Exchange", requires_quest: solstice_records, barter: {solstice_flow_core: 1, solstice_circulation_membrane: 2}}
-      - {type: item, name: "Advanced Anchor Draught", quantity: -1, tab: "Exchange", requires_quest: solstice_records, barter: {solstice_anchor_core: 1, solstice_petrified_conductor: 2}}
-      - {type: item, name: "Advanced Vector Draught", quantity: -1, tab: "Exchange", requires_quest: solstice_records, barter: {solstice_vector_core: 1, solstice_resonance_coil: 2}}
-      - {type: item, name: "Dawnleaf", quantity: -1, tab: "Exchange", barter: {bitterroot: 2}}
+      - {key: translocator, cost: 25000, quantity: 1, tab: "Shop"}
+      - {key: solstice_fire_ward, cost: 500, quantity: 4, tab: "Shop"}
+      - {key: solstice_water_ward, cost: 500, quantity: 4, tab: "Shop"}
+      - {key: solstice_earth_ward, cost: 500, quantity: 4, tab: "Shop"}
+      - {key: solstice_air_ward, cost: 500, quantity: 4, tab: "Shop"}
+      - {key: mana_potion, cost: 70, quantity: 2, tab: "Shop"}
+      - {key: solstice_fire_advanced_ward, quantity: -1, tab: "Exchange", requires_quest: solstice_records, barter: {solstice_thermal_core: 1, solstice_furnace_ceramic: 2}}
+      - {key: solstice_water_advanced_ward, quantity: -1, tab: "Exchange", requires_quest: solstice_records, barter: {solstice_flow_core: 1, solstice_circulation_membrane: 2}}
+      - {key: solstice_earth_advanced_ward, quantity: -1, tab: "Exchange", requires_quest: solstice_records, barter: {solstice_anchor_core: 1, solstice_petrified_conductor: 2}}
+      - {key: solstice_air_advanced_ward, quantity: -1, tab: "Exchange", requires_quest: solstice_records, barter: {solstice_vector_core: 1, solstice_resonance_coil: 2}}
+      - {key: dawnleaf, quantity: -1, tab: "Exchange", barter: {bitterroot: 2}}
     dialogue:
       quest_greeting: "Recover the expedition instrument and pages for Velna first. Until then these supplies belong to the missing surveyors."
       greeting: "I counted the supplies twice. The expedition is still missing. If you go after them, bring back the measuring wheel; it cost more than their tents."
@@ -1030,12 +1030,10 @@ npcs:
     dialogue:
       greeting: "Aelwen's supplies. Potions, provisions, the things you remember halfway into a dungeon. Have a look before you set off."
     inventory:
-      - type: "potion"
-        name: "Health Potion"
+      - key: health_potion
         cost: 50
         quantity: 10
-      - type: "weapon"
-        name: "Iron Sword"
+      - key: iron_sword
         cost: 200
         quantity: 3
 
@@ -1128,7 +1126,7 @@ npcs:
         - text: "Leave"
           action: "leave"
     summons:
-      - statuette: "Black Dragon Statuette"
+      - statuette: black_dragon_statuette
         monster: "elder_dragon"
         label: "Black"
         quest_id: "dragon_slayer"
@@ -1151,7 +1149,7 @@ npcs:
         - text: "Leave"
           action: "leave"
     summons:
-      - statuette: "Red Dragon Statuette"
+      - statuette: red_dragon_statuette
         monster: "elder_dragon_red"
         label: "Red"
         quest_id: "dragon_slayer"
@@ -1174,7 +1172,7 @@ npcs:
         - text: "Leave"
           action: "leave"
     summons:
-      - statuette: "Green Dragon Statuette"
+      - statuette: green_dragon_statuette
         monster: "elder_dragon_green"
         label: "Green"
         quest_id: "dragon_slayer"
@@ -1197,7 +1195,7 @@ npcs:
         - text: "Leave"
           action: "leave"
     summons:
-      - statuette: "Gold Dragon Statuette"
+      - statuette: gold_dragon_statuette
         monster: "elder_dragon_gold"
         label: "Gold"
         quest_id: "dragon_slayer"
@@ -2318,24 +2316,19 @@ npcs:
     # Stock is one class-appropriate upgrade above the starter loadout -
     # nothing here matches an item the party already carries at L1.
     inventory:
-      - type: "weapon"
-        name: "Silver Sword"
+      - key: silver_sword
         cost: 800
         quantity: 2
-      - type: "weapon"
-        name: "Steel Mace"
+      - key: steel_mace
         cost: 550
         quantity: 2
-      - type: "weapon"
-        name: "Battle Staff"
+      - key: battle_staff
         cost: 400
         quantity: 2
-      - type: "weapon"
-        name: "Elven Bow"
+      - key: elven_bow
         cost: 750
         quantity: 1
-      - type: "weapon"
-        name: "Throwing Knife"
+      - key: throwing_knife
         cost: 200
         quantity: 3
 
@@ -2353,16 +2346,13 @@ npcs:
     dialogue:
       greeting: "Welcome to Harbor Remedies. Wrenna, apothecary. Tell me what you need, and keep the stoppers in until you need it."
     inventory:
-      - type: "potion"
-        name: "Health Potion"
+      - key: health_potion
         cost: 50
         quantity: 20
-      - type: "potion"
-        name: "Mana Potion"
+      - key: mana_potion
         cost: 60
         quantity: 20
-      - type: "potion"
-        name: "Revival Potion"
+      - key: revival_potion
         cost: 500
         quantity: 10
 
@@ -2458,14 +2448,14 @@ npcs:
     dialogue:
       greeting: "Captain Aewen, pinewood patrol. These bows are from our stores. Check the string and take your time choosing; you'll be the one carrying it."
     inventory:
-      - { type: "weapon", name: "Long Bow",       cost: 1200, quantity: 2, tab: "Bows" }
-      - { type: "weapon", name: "Elven Bow",      cost: 750,  quantity: 3, tab: "Bows" }
-      - { type: "weapon", name: "Hunting Bow",    cost: 400,  quantity: 3, tab: "Bows" }
-      - { type: "item",   name: "Leather Armor",  cost: 90,   quantity: 4, tab: "Scout Kit" }
-      - { type: "item",   name: "Leather Helmet", cost: 60,   quantity: 4, tab: "Scout Kit" }
-      - { type: "item",   name: "Leather Pants",  cost: 70,   quantity: 4, tab: "Scout Kit" }
-      - { type: "item",   name: "Elven Shield",   cost: 1200, quantity: 2, tab: "Scout Kit" }
-      - { type: "item", name: "Accuracy Talisman", cost: 1800, quantity: 1, tab: "Scout Kit" }
+      - { key: long_bow,       cost: 1200, quantity: 2, tab: "Bows" }
+      - { key: elven_bow,      cost: 750,  quantity: 3, tab: "Bows" }
+      - { key: hunting_bow,    cost: 400,  quantity: 3, tab: "Bows" }
+      - { key: leather_armor,  cost: 90,   quantity: 4, tab: "Scout Kit" }
+      - { key: leather_helmet, cost: 60,   quantity: 4, tab: "Scout Kit" }
+      - { key: leather_pants,  cost: 70,   quantity: 4, tab: "Scout Kit" }
+      - { key: elven_shield,   cost: 1200, quantity: 2, tab: "Scout Kit" }
+      - { key: accuracy_talisman, cost: 1800, quantity: 1, tab: "Scout Kit" }
 
   elf_city_apothecary:
     shop_display: merchant_display_supplies
@@ -2481,11 +2471,11 @@ npcs:
     dialogue:
       greeting: "Nerith. Wipe your boots; that's my physic garden behind you. Going into the glen? Take antivenom. The things in the peat have had a good breeding year."
     inventory:
-      - { type: "potion", name: "Health Potion",  cost: 50,  quantity: 20 }
-      - { type: "potion", name: "Mana Potion",    cost: 60,  quantity: 20 }
-      - { type: "potion", name: "Antivenom",      cost: 45,  quantity: 20 }
-      - { type: "potion", name: "Revival Potion", cost: 500, quantity: 10 }
-      - { type: "item",   name: "Dead Branch",    cost: 240, quantity: 5 }
+      - { key: health_potion,  cost: 50,  quantity: 20 }
+      - { key: mana_potion,    cost: 60,  quantity: 20 }
+      - { key: antivenom,      cost: 45,  quantity: 20 }
+      - { key: revival_potion, cost: 500, quantity: 10 }
+      - { key: dead_branch,    cost: 240, quantity: 5 }
 
   elf_city_archive:
     biomes: ["elf_city"]
@@ -2618,19 +2608,19 @@ npcs:
     dialogue:
       greeting: "Come under the awning. Zaira of the Long Road. Mail, plate, potions, road gear. Everything survived the journey here; now let's see what will get you through yours."
     inventory:
-      - { type: "item", name: "Chain Armor",     cost: 260,  quantity: 3, tab: "Chain" }
-      - { type: "item", name: "Chain Coif",      cost: 170,  quantity: 3, tab: "Chain" }
-      - { type: "item", name: "Chain Leggings",  cost: 180,  quantity: 3, tab: "Chain" }
-      - { type: "item", name: "Iron Armor",      cost: 380,  quantity: 2, tab: "Plate" }
-      - { type: "item", name: "Iron Helmet",     cost: 280,  quantity: 2, tab: "Plate" }
-      - { type: "item", name: "Iron Greaves",    cost: 300,  quantity: 2, tab: "Plate" }
-      - { type: "item", name: "Belt of Strength", cost: 900,  quantity: 1, tab: "Road" }
-      - { type: "item", name: "Belt of Speed",    cost: 1900, quantity: 1, tab: "Road" }
-      - { type: "item", name: "Magic Ring",       cost: 600,  quantity: 2, tab: "Road" }
-      - { type: "potion", name: "Health Potion",  cost: 60,   quantity: 15, tab: "Road" }
-      - { type: "potion", name: "Mana Potion",    cost: 70,   quantity: 15, tab: "Road" }
-      - { type: "item", name: "Ordinary Key",     cost: 500,  quantity: -1, tab: "Road" }
-      - { type: "item", name: "Inlaid Key",       cost: 2500, quantity: -1, tab: "Road" }
+      - { key: chain_armor,     cost: 260,  quantity: 3, tab: "Chain" }
+      - { key: chain_helmet,      cost: 170,  quantity: 3, tab: "Chain" }
+      - { key: chain_pants,  cost: 180,  quantity: 3, tab: "Chain" }
+      - { key: iron_armor,      cost: 380,  quantity: 2, tab: "Plate" }
+      - { key: iron_helmet,     cost: 280,  quantity: 2, tab: "Plate" }
+      - { key: iron_pants,    cost: 300,  quantity: 2, tab: "Plate" }
+      - { key: belt_of_strength, cost: 900,  quantity: 1, tab: "Road" }
+      - { key: belt_of_speed,    cost: 1900, quantity: 1, tab: "Road" }
+      - { key: magic_ring,       cost: 600,  quantity: 2, tab: "Road" }
+      - { key: health_potion,  cost: 60,   quantity: 15, tab: "Road" }
+      - { key: mana_potion,    cost: 70,   quantity: 15, tab: "Road" }
+      - { key: ordinary_key,     cost: 500,  quantity: -1, tab: "Road" }
+      - { key: inlaid_key,       cost: 2500, quantity: -1, tab: "Road" }
 
   nomad_city_trainer:
     biomes: ["nomad_city"]
@@ -2845,115 +2835,88 @@ npcs:
     stock_weapons_rarity: "uncommon"
     stock_weapons_cost: 750
     inventory: &arena_shop # quantity -1 = unlimited stock (never sells out)
-      - type: "potion"
-        name: "Health Potion"
+      - key: health_potion
         cost: 250
         quantity: -1
-      - type: "potion"
-        name: "Mana Potion"
+      - key: mana_potion
         cost: 250
         quantity: -1
-      - type: "potion"
-        name: "Sake Flask"
+      - key: sake_flask
         cost: 250
         quantity: -1
-      - type: "potion"
-        name: "Antivenom"
+      - key: antivenom
         cost: 250
         quantity: -1
-      - type: "potion"
-        name: "Revival Potion"
+      - key: revival_potion
         cost: 1000
         quantity: -1
       # Pit Fighter's Quilt (padded set) - 1500 ap per piece
-      - type: "item"
-        name: "Padded Cap"
+      - key: padded_cap
         cost: 1500
         quantity: -1
-      - type: "item"
-        name: "Padded Vest"
+      - key: padded_vest
         cost: 1500
         quantity: -1
-      - type: "item"
-        name: "Padded Armguard"
+      - key: padded_greaves
         cost: 1500
         quantity: -1
-      - type: "item"
-        name: "Padded Gloves"
+      - key: padded_gloves
         cost: 1500
         quantity: -1
-      - type: "item"
-        name: "Padded Boots"
+      - key: padded_boots
         cost: 1500
         quantity: -1
       # Coliseum Ringmail (ringmail set) - 2500 ap per piece
-      - type: "item"
-        name: "Ringmail Coif"
+      - key: ringmail_coif
         cost: 2500
         quantity: -1
-      - type: "item"
-        name: "Ringmail Hauberk"
+      - key: ringmail_hauberk
         cost: 2500
         quantity: -1
-      - type: "item"
-        name: "Ringmail Vambraces"
+      - key: ringmail_vambraces
         cost: 2500
         quantity: -1
-      - type: "item"
-        name: "Ringmail Gloves"
+      - key: ringmail_gloves
         cost: 2500
         quantity: -1
-      - type: "item"
-        name: "Ringmail Boots"
+      - key: ringmail_boots
         cost: 2500
         quantity: -1
       # Arena unique weapons (emerald tier) - 5000 ap, THREE copies each
-      - type: "weapon"
-        name: "Gladius"
+      - key: gladius
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Pit Labrys"
+      - key: arena_labrys
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Morningstar"
+      - key: morningstar
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Hasta"
+      - key: hasta
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Retiarius Trident"
+      - key: trident
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Parrying Dagger"
+      - key: parry_dagger
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Lion-Crest Warhammer"
+      - key: lion_warhammer
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Skirmisher Recurve"
+      - key: arena_shortbow
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Arena Arbalest"
+      - key: arbalest
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Lanista's Scepter"
+      - key: lanista_scepter
         cost: 5000
         quantity: 3
-      - type: "weapon"
-        name: "Bronze Cesti"
+      - key: bronze_cesti
         cost: 5000
         quantity: 3
-      - type: "item"
-        name: "Parma"
+      - key: parma_shield
         cost: 5000
         quantity: 3
     dialogue:
@@ -3459,32 +3422,32 @@ npcs:
       greeting: "Odile puts down her tools. 'Those monsters upstairs are made from my mechanisms. Bring me their CLOCK HANDS. I'll trade you weapons and armor for the parts. Keep your coins; I need my clock back.'"
     inventory:
       # Leather: the scout's rig (speed and luck)
-      - { type: "item", name: "Cogleather Helm",      cost: 6,  quantity: -1, tab: "Leather" }
-      - { type: "item", name: "Cogleather Jacket",    cost: 10, quantity: -1, tab: "Leather" }
-      - { type: "item", name: "Cogleather Pauldrons", cost: 7,  quantity: -1, tab: "Leather" }
-      - { type: "item", name: "Cogleather Gloves",    cost: 6,  quantity: -1, tab: "Leather" }
-      - { type: "item", name: "Cogleather Boots",     cost: 7,  quantity: -1, tab: "Leather" }
+      - { key: cogleather_helm,      cost: 6,  quantity: -1, tab: "Leather" }
+      - { key: cogleather_jacket,    cost: 10, quantity: -1, tab: "Leather" }
+      - { key: cogleather_pauldrons, cost: 7,  quantity: -1, tab: "Leather" }
+      - { key: cogleather_gloves,    cost: 6,  quantity: -1, tab: "Leather" }
+      - { key: cogleather_boots,     cost: 7,  quantity: -1, tab: "Leather" }
       # Chain: the priest's regalia (personality and stamina) - clerics and paladins
-      - { type: "item", name: "Chainwork Helm",      cost: 9,  quantity: -1, tab: "Chainmail" }
-      - { type: "item", name: "Chainwork Hauberk",   cost: 13, quantity: -1, tab: "Chainmail" }
-      - { type: "item", name: "Chainwork Pauldrons", cost: 10, quantity: -1, tab: "Chainmail" }
-      - { type: "item", name: "Chainwork Gauntlets", cost: 9,  quantity: -1, tab: "Chainmail" }
-      - { type: "item", name: "Chainwork Greaves",   cost: 10, quantity: -1, tab: "Chainmail" }
+      - { key: chainwork_helm,      cost: 9,  quantity: -1, tab: "Chainmail" }
+      - { key: chainwork_hauberk,   cost: 13, quantity: -1, tab: "Chainmail" }
+      - { key: chainwork_pauldrons, cost: 10, quantity: -1, tab: "Chainmail" }
+      - { key: chainwork_gauntlets, cost: 9,  quantity: -1, tab: "Chainmail" }
+      - { key: chainwork_greaves,   cost: 10, quantity: -1, tab: "Chainmail" }
       # Plate: the juggernaut's bulwark (might; locked gears while the party holds)
-      - { type: "item", name: "Clockplate Helm",      cost: 12, quantity: -1, tab: "Plate" }
-      - { type: "item", name: "Clockplate Cuirass",   cost: 17, quantity: -1, tab: "Plate" }
-      - { type: "item", name: "Clockplate Pauldrons", cost: 13, quantity: -1, tab: "Plate" }
-      - { type: "item", name: "Clockplate Gauntlets", cost: 12, quantity: -1, tab: "Plate" }
-      - { type: "item", name: "Clockplate Greaves",   cost: 13, quantity: -1, tab: "Plate" }
+      - { key: clockplate_helm,      cost: 12, quantity: -1, tab: "Plate" }
+      - { key: clockplate_cuirass,   cost: 17, quantity: -1, tab: "Plate" }
+      - { key: clockplate_pauldrons, cost: 13, quantity: -1, tab: "Plate" }
+      - { key: clockplate_gauntlets, cost: 12, quantity: -1, tab: "Plate" }
+      - { key: clockplate_greaves,   cost: 13, quantity: -1, tab: "Plate" }
       # Arms and extras
-      - { type: "weapon", name: "Cogfang Blade",    cost: 16, quantity: -1, tab: "Arms&Stuff" }
-      - { type: "weapon", name: "Chime Maul",       cost: 18, quantity: -1, tab: "Arms&Stuff" }
-      - { type: "weapon", name: "Minute Hand",      cost: 16, quantity: -1, tab: "Arms&Stuff" }
-      - { type: "weapon", name: "Mainspring Pike",  cost: 16, quantity: -1, tab: "Arms&Stuff" }
-      - { type: "weapon", name: "Escapement Staff", cost: 16, quantity: -1, tab: "Arms&Stuff" }
-      - { type: "weapon", name: "Clockwork Pistol", cost: 18, quantity: -1, tab: "Arms&Stuff" }
-      - { type: "item",   name: "Chrono Cape",      cost: 11, quantity: -1, tab: "Arms&Stuff" }
-      - { type: "item",   name: "Clock Oil",        cost: 2,  quantity: -1, tab: "Arms&Stuff" }
+      - { key: cogfang_blade,    cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { key: chime_maul,       cost: 18, quantity: -1, tab: "Arms&Stuff" }
+      - { key: minute_hand,      cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { key: mainspring_pike,  cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { key: escapement_staff, cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { key: clockwork_pistol, cost: 18, quantity: -1, tab: "Arms&Stuff" }
+      - { key: chrono_cape,      cost: 11, quantity: -1, tab: "Arms&Stuff" }
+      - { key: clock_oil,        cost: 2,  quantity: -1, tab: "Arms&Stuff" }
 
   # Tower chests (loot crates on floors 2/3; rules in loots.yaml).
   chest_gearwood:
@@ -3538,21 +3501,21 @@ npcs:
       greeting: "Maruna tests a scale against her file. 'Good plate, this. Bring me red, green, gold, or black dragon scales and 20000 gold, and I can forge you a weapon. Show me what you've brought.'"
     inventory:
       # Red scale pieces (2 red scale + 20000g)
-      - { type: "weapon", name: "Drakefang, the Broodmother's Tooth",  cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
-      - { type: "weapon", name: "Ember Egg",                           cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
-      - { type: "weapon", name: "Scalebreaker, the Sundering Roar",    cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
-      - { type: "weapon", name: "Wyrmspine Wing",                      cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
-      - { type: "weapon", name: "Nest Arbalest",                       cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { key: drakefang_blade,  cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { key: ember_egg_mace,                           cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { key: scalebreaker_maul,    cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { key: wyrmspine_bow,                      cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
+      - { key: nest_arbalest,                       cost: 2, gold_cost: 20000, currency_item: "red_dragon_scale",   quantity: -1, tab: "Red" }
       # Green scale pieces (5 green scales + 20000g)
-      - { type: "weapon", name: "Hatchling Fang",                      cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
-      - { type: "weapon", name: "Tarn Trident",                        cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
-      - { type: "weapon", name: "Verdant Eye",                         cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
-      - { type: "weapon", name: "Broodspike",                          cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
+      - { key: hatchling_fang,                      cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
+      - { key: tarn_trident,                        cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
+      - { key: verdant_eye_scepter,                         cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
+      - { key: broodspike,                          cost: 5, gold_cost: 20000, currency_item: "green_dragon_scale", quantity: -1, tab: "Green" }
       # Gold scale pieces (5 gold scales + 20000g)
-      - { type: "weapon", name: "Wyrmcleaver, the Closing Jaws",       cost: 5, gold_cost: 20000, currency_item: "gold_dragon_scale",  quantity: -1, tab: "Gold" }
-      - { type: "item",   name: "Drakehide Gauntlets",                 cost: 5, gold_cost: 20000, currency_item: "gold_dragon_scale",  quantity: -1, tab: "Gold" }
+      - { key: wyrmcleaver,       cost: 5, gold_cost: 20000, currency_item: "gold_dragon_scale",  quantity: -1, tab: "Gold" }
+      - { key: drakehide_gauntlets,                 cost: 5, gold_cost: 20000, currency_item: "gold_dragon_scale",  quantity: -1, tab: "Gold" }
       # The black piece (4 black scale + 20000g - the Brood Mother's own flank)
-      - { type: "item",   name: "Broodscale Aegis",                    cost: 3, gold_cost: 20000, currency_item: "black_dragon_scale", quantity: -1, tab: "Black" }
+      - { key: broodscale_aegis,                    cost: 3, gold_cost: 20000, currency_item: "black_dragon_scale", quantity: -1, tab: "Black" }
 
   # ================= OPENING QUEST GIVERS (2026-07-30) =================
   # The first errands now have faces. A new party used to boot with a full

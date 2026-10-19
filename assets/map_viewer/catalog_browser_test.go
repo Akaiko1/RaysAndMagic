@@ -291,7 +291,7 @@ func TestFailedMapKeepsOnlyVisibleRecoveryControls(t *testing.T) {
 func TestMobAbilityInspectorIncludesTelegraphAndEncounter(t *testing.T) {
 	old := mobsPage
 	t.Cleanup(func() { mobsPage = old })
-	d := monster.MonsterDefinition{Name: "Sentinel", Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Name: "Ground slam", Kind: "strike", School: "earth", Shape: "burst", Range: 3, WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3, DamagePercent: 150, DurationSeconds: 6, SustainDamage: 7, BelowHPPercent: 60}}}
+	d := monster.MonsterDefinition{Name: "Sentinel", Abilities: monster.Abilities{Telegraph: &monster.TelegraphedAttack{Name: "Ground slam", Kind: "strike", School: "earth", Shape: "burst", Range: 3, WarningSeconds: 2, WarningRounds: 1, CooldownSeconds: 6, CooldownRounds: 3, DamagePercent: 150, DurationSeconds: 6, SustainPercent: 7, BelowHPPercent: 60}}}
 	v := &viewer{monsterCfg: &monster.MonsterYAMLConfig{Monsters: map[string]monster.MonsterDefinition{"sentinel": d}}, maps: []mapInfo{{Key: "test_arena", Config: &config.MapConfig{Adventure: &config.AdventureConfig{Boss: &config.AdventureBoss{Monster: "sentinel", CooldownSeconds: 9, Lanes: []string{"north"}}}}}}}
 	mobsPage.keys = []string{"sentinel"}
 	mobsPage.selIdx = 0
@@ -302,7 +302,7 @@ func TestMobAbilityInspectorIncludesTelegraphAndEncounter(t *testing.T) {
 		text.WriteString(r.text)
 		text.WriteByte(' ')
 	}
-	for _, want := range []string{"Ground slam", "Warning:", "2s / 1 rounds", "6s / 3 rounds", "150%", "sustained damage: 7", "60% HP", "ENCOUNTER: test_arena", "north"} {
+	for _, want := range []string{"Ground slam", "Warning:", "2s / 1 rounds", "6s / 3 rounds", "150%", "sustained damage: 7% of attack", "60% HP", "ENCOUNTER: test_arena", "north"} {
 		if !strings.Contains(text.String(), want) {
 			t.Fatalf("missing ability/encounter information %q in %s", want, text.String())
 		}

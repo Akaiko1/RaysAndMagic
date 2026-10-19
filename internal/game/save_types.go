@@ -393,9 +393,9 @@ type MonsterSave struct {
 	Jammed              bool                                   `json:"jammed,omitempty"`         // a jam already landed this attack cycle
 	HourMarks           int                                    `json:"hour_marks,omitempty"`     // Minute Hand hits toward the hour strike
 	BossCD              *status.DualClock                      `json:"boss_blink_cd,omitempty"`
-	InfernoCD           *status.DualClock                      `json:"inferno_roll_cd,omitempty"`
-	LegacyBossCD        int                                    `json:"boss_cd,omitempty"`    // frames, read into BossCD
-	LegacyInfernoCD     int                                    `json:"inferno_cd,omitempty"` // frames, read into InfernoCD
+	NovaRollCD          *status.DualClock                      `json:"inferno_roll_cd,omitempty"` // key kept from the inferno-only days
+	LegacyBossCD        int                                    `json:"boss_cd,omitempty"`         // frames, read into BossCD
+	LegacyInfernoCD     int                                    `json:"inferno_cd,omitempty"`      // frames, read into NovaRollCD
 	BossHurtPending     bool                                   `json:"boss_hurt_pending,omitempty"`
 	BossLastHP          int                                    `json:"boss_last_hp,omitempty"`
 	SummonFirstDone     bool                                   `json:"summon_first_done,omitempty"`
@@ -487,7 +487,8 @@ type TreasureChestRewardSave struct {
 // coordinates fall back to name matching on restore.
 type NPCSave struct {
 	MapKey         string                      `json:"map_key"`
-	Name           string                      `json:"name"`
+	Key            string                      `json:"key,omitempty"` // npcs.yaml key: the identity, with the spot
+	Name           string                      `json:"name"`          // identity of saves from before Key
 	X              float64                     `json:"x,omitempty"`
 	Y              float64                     `json:"y,omitempty"`
 	Visited        bool                        `json:"visited"`
@@ -506,6 +507,8 @@ type NPCSave struct {
 
 // NPCStockSave is one merchant stock line in a save.
 type NPCStockSave struct {
-	Name     string `json:"name"`
+	Key string `json:"key,omitempty"`
+	// Name identifies the ware in saves from before keys.
+	Name     string `json:"name,omitempty"`
 	Quantity int    `json:"quantity"`
 }

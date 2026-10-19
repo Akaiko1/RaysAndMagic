@@ -75,7 +75,7 @@ func (cs *CombatSystem) triggerWildfire(victim *monsterPkg.Monster3D) {
 			hit := cs.applyPartyMonsterAttack(m, attack)
 			cs.reportIndirectHit(m, hit.Total(), card.Name, school)
 			if m.IsAlive() {
-				m.ApplyBurn(card.CardWildfireBurnSeconds * cs.game.config.GetTPS())
+				cs.afflictMonster(m, monsterBurn, card.CardWildfireBurnSeconds*cs.game.config.GetTPS(), logToneGood, false)
 			} else {
 				cs.finishMonsterKillImmediately(m)
 			}

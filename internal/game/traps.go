@@ -3,12 +3,14 @@ package game
 import (
 	"fmt"
 	"math"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/status"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/world"
 )
 
 // Trap mechanics (thief trap book). A placed trap is a one-shot tile device:
@@ -203,7 +205,7 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 	}
 	trap.Life.Arm(def.LifetimeSeconds, cs.game.config.GetTPS())
 	cs.game.traps = append(cs.game.traps, trap)
-	cs.game.logCombat(logToneGood, "%s arms a %s!", logHeroName(caster), logAbility(def.Name))
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.arms_a", logSlot, logSlot), logHeroName(caster), logAbility(def.Name))
 	// A trap thrown under a monster's feet fires immediately (TB has no
 	// per-frame sweep; in RT the next frame's sweep would catch it anyway).
 	cs.sweepTrapTriggers()
@@ -273,14 +275,20 @@ func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
 	return best
 }
 
-// monsterOnTile returns a living monster occupying the tile, or nil.
+// monsterOnTile returns a living monster a trap can catch on the tile, or nil.
 func (cs *CombatSystem) monsterOnTile(tileX, tileY int) *monsterPkg.Monster3D {
-	ts := float64(cs.game.config.GetTileSize())
-	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || isPurePartySummon(m) {
-			continue
-		}
-		if TileIndex(m.X, ts) == tileX && TileIndex(m.Y, ts) == tileY {
+	return livingMonsterOnTile(cs.game.world, tileX, tileY, float64(cs.game.config.GetTileSize()),
+		func(m *monsterPkg.Monster3D) bool { return !isPurePartySummon(m) })
+}
+
+// livingMonsterOnTile is the first living monster of w standing on tile
+// (tx, ty) that accept takes (nil takes any).
+func livingMonsterOnTile(w *world.World3D, tx, ty int, ts float64, accept func(*monsterPkg.Monster3D) bool) *monsterPkg.Monster3D {
+	if w == nil {
+		return nil
+	}
+	for _, m := range w.Monsters {
+		if m != nil && m.IsAlive() && TileIndex(m.X, ts) == tx && TileIndex(m.Y, ts) == ty && (accept == nil || accept(m)) {
 			return m
 		}
 	}
@@ -340,34 +348,19 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	if !ok {
 		return
 	}
-	cs.game.logCombat(logToneGood, "%s springs under %s!", logAbility(def.Name), logMonsterName(victim))
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.springs_under", logSlot, logSlot), logAbility(def.Name), logMonsterName(victim))
 	cs.game.startTrapBurst(*t)
 
-	boundVictim := false
 	if dmg := trapDamage(def, t.Owner); dmg > 0 {
 		if def.AoeRadiusTiles > 0 {
 			cs.forEachAreaVictim(cs.pointBlast(t.X, t.Y, def.AoeRadiusTiles), partyAreaHurts, func(m *monsterPkg.Monster3D) {
-				if cs.tryDarkElfBindInstead(t.Owner, m) {
-					boundVictim = boundVictim || m == victim
-					return
-				}
 				cs.applyTrapDamage(m, dmg, def.Element, def.Name)
 			})
 		} else {
-			if cs.tryDarkElfBindInstead(t.Owner, victim) {
-				boundVictim = true
-			} else {
-				cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
-			}
+			cs.applyTrapDamage(victim, dmg, def.Element, def.Name)
 		}
 	}
 
-	if boundVictim {
-		return
-	}
-	if def.DamageBase <= 0 && cs.tryDarkElfBindInstead(t.Owner, victim) {
-		return
-	}
 	// A sealed / idol-warded boss is immune to indirect damage (gated inside
 	// applyTrapDamage) - and to its control riders too. Skip stun/root for it.
 	if victim.IsDamageInvulnerable() {

@@ -636,7 +636,7 @@ func (r *Renderer) drawAdditionalMonsterStatusFX(screen *ebiten.Image, s Unified
 	width := min(size*.64, (bottom-top)*1.1)
 	c := statusCanvas{dst: screen, x: float64(s.screenX) - width/2, y: top, w: width, h: bottom - top,
 		world:   &r.statusGlyphs,
-		clock:   float64(r.game.frameCount) + float64(monsterBurnSalt(s.monster.ID)),
+		clock:   float64(r.game.frameCount) + float64(monsterFXSalt(s.monster.ID)),
 		visible: func(x, w float64) bool { return r.statusFxSpanVisible(depth, x, w) }}
 	c.draw(v)
 }

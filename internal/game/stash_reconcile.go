@@ -90,40 +90,10 @@ func (g *MMGame) stampPartyInstanceIDs() bool {
 		return false
 	}
 	changed := false
-	for i := range g.party.Inventory {
-		if items.EnsureInstanceID(&g.party.Inventory[i]) {
+	for it := range g.party.OwnedItems() {
+		if items.EnsureInstanceID(it) {
 			changed = true
 		}
-	}
-	stampMember := func(m *character.MMCharacter) {
-		if m == nil {
-			return
-		}
-		for i := range m.Inventory {
-			if items.EnsureInstanceID(&m.Inventory[i]) {
-				changed = true
-			}
-		}
-		for slot, it := range m.Equipment {
-			if items.EnsureInstanceID(&it) {
-				m.Equipment[slot] = it
-				changed = true
-			}
-		}
-		for i := range m.QuickSlots {
-			if items.EnsureInstanceID(m.QuickSlots[i]) {
-				changed = true
-			}
-		}
-	}
-	for _, m := range g.party.Members {
-		stampMember(m)
-	}
-	for _, m := range g.party.Reserve {
-		stampMember(m)
-	}
-	for _, m := range g.party.Captive {
-		stampMember(m)
 	}
 	return changed
 }
@@ -176,51 +146,11 @@ func reconcilePartyItemsAgainstStash(party *character.Party, cards *[MaxCardSlot
 		return it, kept
 	}
 
-	// Strip the bag: a slice deletes by rebuilding in place around the removed.
-	bag := party.Inventory[:0]
-	for _, it := range party.Inventory {
-		if kept, ok := afterDedup(it); ok {
-			bag = append(bag, kept)
-		}
-	}
-	party.Inventory = bag
-
-	stripMember := func(m *character.MMCharacter) {
-		if m == nil {
-			return
-		}
-		keptBag := m.Inventory[:0]
-		for _, it := range m.Inventory {
-			if kept, ok := afterDedup(it); ok {
-				keptBag = append(keptBag, kept)
-			}
-		}
-		m.Inventory = keptBag
-		for slot, it := range m.Equipment {
-			if _, kept := afterDedup(it); !kept {
-				delete(m.Equipment, slot)
-			}
-		}
-		for i, qs := range m.QuickSlots {
-			if qs == nil {
-				continue
-			}
-			if kept, ok := afterDedup(*qs); ok {
-				*m.QuickSlots[i] = kept
-			} else {
-				m.QuickSlots[i] = nil
-			}
-		}
-	}
-	for _, m := range party.Members {
-		stripMember(m)
-	}
-	for _, m := range party.Reserve {
-		stripMember(m)
-	}
-	for _, m := range party.Captive {
-		stripMember(m)
-	}
+	party.RetainOwnedItems(func(it *items.Item) bool {
+		kept, ok := afterDedup(*it)
+		*it = kept
+		return ok
+	})
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		if _, kept := afterDedup(cards[slot].item); !kept {
 			cards[slot] = cardSlot{}

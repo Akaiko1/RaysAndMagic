@@ -28,33 +28,11 @@ func autoClassStats(class character.CharacterClass, configs ...*config.Config) c
 	}
 	panic(fmt.Sprintf("class %q: auto_stats not loaded", class.Key()))
 }
-func autoStatField(m *character.MMCharacter, key string) *int {
-	if m == nil {
-		return nil
-	}
-	switch key {
-	case "might":
-		return &m.Might
-	case "intellect":
-		return &m.Intellect
-	case "personality":
-		return &m.Personality
-	case "endurance":
-		return &m.Endurance
-	case "accuracy":
-		return &m.Accuracy
-	case "speed":
-		return &m.Speed
-	case "luck":
-		return &m.Luck
-	}
-	return nil
-}
 func primaryDamageStat(m *character.MMCharacter, cfg ...*config.Config) *int {
 	if m == nil {
 		return nil
 	}
-	return autoStatField(m, autoClassStats(m.Class, cfg...).Primary)
+	return m.BaseStatField(autoClassStats(m.Class, cfg...).Primary)
 }
 
 // autoDistributeStatPoints spends only base-stat points, by build. Skill and
@@ -94,7 +72,7 @@ func spendAutoStatPoints(member *character.MMCharacter, build config.AutoStatsCo
 func nextAutoStat(m *character.MMCharacter, build config.AutoStatsConfig) *int {
 	total := 0
 	for _, name := range stats.Names {
-		total += *autoStatField(m, name)
+		total += *m.BaseStatField(name)
 	}
 	below := func(stat *int, cap int) bool { return stat != nil && *stat < cap }
 	pair := func(a *int, aCap int, b *int, bCap int) *int {
@@ -109,8 +87,8 @@ func nextAutoStat(m *character.MMCharacter, build config.AutoStatsConfig) *int {
 		}
 		return nil
 	}
-	primary := autoStatField(m, build.Primary)
-	secondary := autoStatField(m, build.Secondary)
+	primary := m.BaseStatField(build.Primary)
+	secondary := m.BaseStatField(build.Secondary)
 
 	// 1) Speed to its flat target.
 	if below(&m.Speed, build.Speed) {
@@ -132,7 +110,7 @@ func nextAutoStat(m *character.MMCharacter, build config.AutoStatsConfig) *int {
 	// 5) Safety net so AUTO never strands points: the lowest stat below 99.
 	var low *int
 	for _, name := range stats.Names {
-		if stat := autoStatField(m, name); below(stat, MaxStatValue) && (low == nil || *stat < *low) {
+		if stat := m.BaseStatField(name); below(stat, MaxStatValue) && (low == nil || *stat < *low) {
 			low = stat
 		}
 	}

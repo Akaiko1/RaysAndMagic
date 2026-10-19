@@ -111,7 +111,7 @@ func (ui *UISystem) setInventoryTab(tab int, owner ...*character.MMCharacter) {
 	if !selectCategory(selected, page, tab) {
 		return
 	}
-	ui.lastClickedItem = -1
+	ui.bagClicks.reset()
 	ui.inventoryContextOpen = false
 	ui.inventoryContextIndex = -1
 }
@@ -161,10 +161,6 @@ func (ui *UISystem) drawItemCategoryTabs(screen *ebiten.Image, x, y, w, selected
 			drawRectBorder(screen, r.x, r.y, r.w, r.h, 1, color.RGBA{213, 178, 110, 255})
 			ui.queueTooltip([]string{inventoryTabs[i].label}, mx+12, my+12)
 		}
-		ui.onDisplayedInput(uiCommandNavigation, r, func() {
-			if clickable && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				selectTab(i)
-			}
-		})
+		ui.onClick(r, clickable, func() { selectTab(i) })
 	}
 }

@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"ugataima/internal/config"
+	"ugataima/internal/strictyaml"
 )
 
 func overlayMechanicsWrite(d *overlayDocument, maps *config.MapConfigs) (overlayWrite, error) {
@@ -15,7 +15,7 @@ func overlayMechanicsWrite(d *overlayDocument, maps *config.MapConfigs) (overlay
 	read := func(raw []byte) (*config.BossMechanicsConfig, error) {
 		c := &config.BossMechanicsConfig{}
 		if len(raw) > 0 {
-			if err := yaml.Unmarshal(raw, c); err != nil {
+			if err := strictyaml.Decode(raw, c); err != nil {
 				return nil, err
 			}
 		}
@@ -46,7 +46,7 @@ func overlayMechanicsWrite(d *overlayDocument, maps *config.MapConfigs) (overlay
 		return overlayWrite{}, err
 	}
 	var cfg config.BossMechanicsConfig
-	if err = yaml.Unmarshal(next, &cfg); err != nil {
+	if err = strictyaml.Decode(next, &cfg); err != nil {
 		return overlayWrite{}, err
 	}
 	refs := map[string]*config.MapConfig{}

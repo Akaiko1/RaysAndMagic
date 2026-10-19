@@ -8,8 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // StatusDefinition is one row of assets/statuses.yaml: a status's names, what
@@ -107,9 +106,7 @@ func LoadStatuses(path string) error {
 	var file struct {
 		Statuses map[string]*StatusDefinition `yaml:"statuses"`
 	}
-	dec := yaml.NewDecoder(strings.NewReader(string(b)))
-	dec.KnownFields(true)
-	if err := dec.Decode(&file); err != nil {
+	if err := strictyaml.Decode(b, &file); err != nil {
 		return fmt.Errorf("statuses: %w", err)
 	}
 	if len(file.Statuses) != len(statusRules) {

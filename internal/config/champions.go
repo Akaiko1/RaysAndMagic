@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
-
-	"gopkg.in/yaml.v3"
+	"ugataima/internal/strictyaml"
 )
 
 // ChampionTier is one rung of the shared arena difficulty ladder: the character
@@ -121,7 +120,7 @@ func LoadChampionConfig(filename string) (*ChampionSystemConfig, error) {
 		return nil, fmt.Errorf("read champion config: %w", err)
 	}
 	var cfg ChampionSystemConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse champion config: %w", err)
 	}
 	if err := validateChampionConfig(&cfg); err != nil {

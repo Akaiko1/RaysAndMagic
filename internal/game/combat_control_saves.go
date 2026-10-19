@@ -4,6 +4,7 @@ import (
 	"math/rand"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
@@ -12,7 +13,7 @@ import (
 // A zero duration is a paid resisted attempt, not a refundable lack of targets.
 func (cs *CombatSystem) spellControlDuration(def spells.SpellDefinition, caster *character.MMCharacter, m *monster.Monster3D, turns, frames int) (int, int) {
 	rule := cs.game.config.StatusEffects.ControlSaves
-	if def.Mechanic.Kind == "feeblemind" && (m.IsSilenced() || m.SilenceImmunity.Active()) {
+	if def.Mechanic.Kind == config.MechanicFeeblemind && (m.IsSilenced() || m.SilenceImmunity.Active()) {
 		cs.game.logCombat(logToneNone, rule.ResistedMessage, logMonsterName(m), logSchoolWord(def.School, def.Name))
 		return 0, 0
 	}

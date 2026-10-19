@@ -98,11 +98,11 @@ func TestPointBlastsStopAtWalls(t *testing.T) {
 						g.combat.applyProjectileDamage(ar, struck, ar.ID)
 					case "melee_splash":
 						def := equip("idol_breakers_maul")
-						g.combat.ApplyDamageToMonster(struck, 30, def.Name, false)
+						g.combat.ApplyDamageToMonster(struck, 30, testWeapon(def.Name), false)
 					case "death_burst":
 						def := equip("ember_egg_mace")
 						struck.HitPoints = 10
-						g.combat.ApplyDamageToMonster(struck, 30, def.Name, false)
+						g.combat.ApplyDamageToMonster(struck, 30, testWeapon(def.Name), false)
 					case "flask":
 						shoot(cx+0.05*ts, ts/4, 50)
 					case "trap":
@@ -325,7 +325,7 @@ func TestProjectileContactStopsAtCover(t *testing.T) {
 				splash.PerfectDodge = 0
 				g.world.Monsters = []*monsterPkg.Monster3D{m, splash}
 				splashHP := splash.HitPoints
-				p := MagicProjectile{ID: "wide-fireball", X: x, Y: y, Damage: 10, LifeTime: 30, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, AoeTiles: 2, AoE: true}
+				p := MagicProjectile{ID: "wide-fireball", X: x, Y: y, Damage: 10, LifeTime: 30, Active: true, SpellType: "fireball", Owner: ProjectileOwnerPlayer, AoeTiles: 2}
 				if partyTarget {
 					g.camera.X, g.camera.Y = m.X, m.Y
 					g.collisionSystem.UpdateEntity("player", m.X, m.Y)

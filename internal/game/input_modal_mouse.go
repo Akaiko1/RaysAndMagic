@@ -7,55 +7,16 @@ import "ugataima/internal/character"
 // and wheel handlers never invoke these adapters.
 func (ih *InputHandler) handleMainMenuMouseInput() {
 	g := ih.game
+	if g.mainMenuMode != MenuMain { // the save lists register their own clicks
+		return
+	}
 	panel := mainMenuPanelRect(g.config.GetScreenWidth(), g.config.GetScreenHeight(), g.mainMenuMode)
 	px, py, panelW, panelH := panel.x, panel.y, panel.w, panel.h
-	switch g.mainMenuMode {
-	case MenuMain:
-		x, y, ok := g.leftClickPosition()
-		if ok && g.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			ih.mainMenuHoverSelect(x, y, len(mainMenuOptions), panelW, panelH, mainMenuListTopY, mainMenuRowPitch)
-			ih.activateMainMenuSelection()
-		}
-	case MenuSaveSelect:
-		ih.handleSaveLoadMouseInput(escSaveListLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight()), true, ih.doSaveToSelectedRow)
-	case MenuLoadSelect:
-		ih.handleSaveLoadMouseInput(escSaveListLayout(g.config.GetScreenWidth(), g.config.GetScreenHeight()), false, ih.doLoadFromSelectedRow)
+	x, y, ok := g.leftClickPosition()
+	if ok && g.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
+		ih.mainMenuHoverSelect(x, y, len(mainMenuOptions), panelW, panelH, mainMenuListTopY, mainMenuRowPitch)
+		ih.activateMainMenuSelection()
 	}
-}
-
-func (ih *InputHandler) handleSaveLoadMouseInput(l saveListLayout, allowRename bool, activate func()) bool {
-	g := ih.game
-	if g.saveRenameOpen {
-		return false
-	}
-	if ih.navigateSavePageMouse(l) {
-		return true
-	}
-	// Rename exists only on the Save surface, never on Load or Autosave.
-	if allowRename && ih.handleSaveRowRename(l) {
-		return true
-	}
-	for i, r := range l.rows {
-		if g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			g.slotSelection = i
-			activate()
-			return true
-		}
-	}
-	return false
-}
-
-func (ih *InputHandler) navigateSavePageMouse(l saveListLayout) bool {
-	g := ih.game
-	switch {
-	case g.consumeLeftClickIn(l.prev.x, l.prev.y, l.prev.right(), l.prev.bottom()):
-		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
-	case g.consumeLeftClickIn(l.next.x, l.next.y, l.next.right(), l.next.bottom()):
-		g.savePage = (g.savePage + 1) % savePageCount
-	default:
-		return false
-	}
-	return true
 }
 
 func (ih *InputHandler) handleLevelUpChoiceMouseInput() {

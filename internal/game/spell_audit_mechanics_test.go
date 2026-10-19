@@ -157,16 +157,16 @@ func containsSlot(fallen []fallenMember, slot int) bool {
 	return false
 }
 
-// A heal cast from the spellbook has no pointer target: Heal Other lands on the
-// most wounded ally that can be healed (the caster when nobody is hurt), while
-// First Aid stays on the caster. The quick-slot F path keeps its pointer-else-
-// selected-hero rule (Control Tips).
+// A heal cast by hand lands on the hero under the pointer; unpointed, F and C
+// heal the selected hero and the book the most wounded ally that can be
+// healed (the caster when nobody is hurt); First Aid stays on the caster
+// (Control Tips).
 func TestBookHealTargets(t *testing.T) {
 	for _, tc := range []struct {
 		name, spell string
 		hp          [4]int // percent of max; 0 = knocked out
-		pointer     int    // F path only: card under the pointer (-1 none)
-		entry       string // "book" or "f"
+		pointer     int    // card under the pointer (-1 none)
+		entry       string // "book", "f", "c" or "space"
 		want        int
 	}{
 		{"heal_other/book/most wounded ally", "heal_other", [4]int{80, 30, 100, 60}, -1, "book", 1},
@@ -174,6 +174,11 @@ func TestBookHealTargets(t *testing.T) {
 		{"heal_other/book/only the caster hurt", "heal_other", [4]int{40, 100, 100, 100}, -1, "book", 0},
 		{"heal_other/f/no pointer heals the selected hero", "heal_other", [4]int{80, 30, 100, 100}, -1, "f", 0},
 		{"heal_other/f/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "f", 2},
+		{"heal_other/c/no pointer heals the selected hero", "heal_other", [4]int{80, 30, 100, 100}, -1, "c", 0},
+		{"heal_other/c/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "c", 2},
+		{"heal_other/book/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "book", 2},
+		{"heal_other/book/pointer on a knocked-out card heals the most wounded", "heal_other", [4]int{80, 0, 50, 100}, 1, "book", 2},
+		{"heal_other/space/pointer ignored", "heal_other", [4]int{80, 30, 90, 100}, 2, "space", 1},
 		{"heal/book/self only", "heal", [4]int{80, 30, 100, 100}, -1, "book", 0},
 		{"heal/f/self only", "heal", [4]int{80, 30, 100, 100}, 1, "f", 0},
 	} {
@@ -193,22 +198,32 @@ func TestBookHealTargets(t *testing.T) {
 				before[i] = m.HitPoints
 			}
 			def, _ := spells.GetSpellDefinitionByID(spells.SpellID(tc.spell))
+			prev := rawCursorPosition
+			defer func() { rawCursorPosition = prev }()
+			x, y := -1, -1
+			if tc.pointer >= 0 {
+				w, h, left, top := partyPortraitLayout(g)
+				x, y = left+tc.pointer*w+w/2, top+h/2
+			}
+			rawCursorPosition = func() (int, int) { return x, y }
 			switch tc.entry {
 			case "book":
 				if !cs.castPlayerSpell(def.ID, def, g.party.Members[0], true) {
 					t.Fatal("book cast refused")
 				}
 			case "f":
-				prev := rawCursorPosition
-				defer func() { rawCursorPosition = prev }()
-				x, y := -1, -1
-				if tc.pointer >= 0 {
-					w, h, left, top := partyPortraitLayout(g)
-					x, y = left+tc.pointer*w+w/2, top+h/2
-				}
-				rawCursorPosition = func() (int, int) { return x, y }
 				if fired, _ := NewInputHandler(g).useSlottedActionResolved(g.party.Members[0]); !fired {
 					t.Fatal("F cast refused")
+				}
+			case "c":
+				g.party.Members[0].LearnSpell(def.ID)
+				if cast, _ := cs.CastBestHealOnTarget(g.heroUnderCursor()); !cast {
+					t.Fatal("C cast refused")
+				}
+			case "space":
+				g.party.Members[0].LearnSpell(def.ID)
+				if cs.SmartAttack().Spell == "" {
+					t.Fatal("Space did not heal")
 				}
 			}
 			for i, m := range g.party.Members {
@@ -375,5 +390,63 @@ func TestCooldownShowsQuickeningOnlyWhileActive(t *testing.T) {
 				t.Fatalf("an unclamped cooldown shows the limit stage:\n%s", card)
 			}
 		})
+	}
+}
+
+// One heal rule: a living member (HP above 0) is healed and wakes, by spell
+// or potion alike; 0 HP is never healed, only revived. A revive raises HP
+// and never lowers it.
+func TestHealAndReviveAgree(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		hp          int
+		unconscious bool
+		wantHealed  bool
+	}{
+		{"wounded", 20, false, true},
+		{"stray unconscious above 0", 20, true, true},
+		{"knocked out at 0", 0, true, false},
+	} {
+		for _, via := range []string{"spell", "potion"} {
+			t.Run(tc.name+"/"+via, func(t *testing.T) {
+				cs := newTestCombatSystemWithConfig(t)
+				g := cs.game
+				m := g.party.Members[1]
+				m.MaxHitPoints, m.HitPoints = 100, tc.hp
+				if tc.unconscious {
+					m.AddCondition(character.ConditionUnconscious)
+				}
+				switch via {
+				case "spell":
+					cs.healWholeParty(10)
+				case "potion":
+					g.applyFlatHeal(1, 10, 1000)
+				}
+				healed := m.HitPoints > tc.hp
+				if healed != tc.wantHealed {
+					t.Fatalf("healed=%v (HP %d), want %v", healed, m.HitPoints, tc.wantHealed)
+				}
+				if healed && m.HasCondition(character.ConditionUnconscious) {
+					t.Fatal("a healed member stayed unconscious")
+				}
+			})
+		}
+	}
+
+	def, err := spells.GetSpellDefinitionByID("raise_dead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := newTestCombatSystemWithConfig(t)
+	m := cs.game.party.Members[1]
+	m.MaxHitPoints = 100
+	m.HitPoints = max(2, def.ReviveHpPct+10) // above the raise threshold
+	m.AddCondition(character.ConditionUnconscious)
+	before := m.HitPoints
+	caster := cs.game.party.Members[0]
+	caster.SpellPoints = 100
+	cs.castSpell(spellCastRequest{ID: def.ID, Definition: def, Caster: caster, Cost: def.SpellPointsCost})
+	if m.HitPoints < before || m.HasCondition(character.ConditionUnconscious) {
+		t.Fatalf("Raise Dead left HP %d (was %d), unconscious=%v", m.HitPoints, before, m.HasCondition(character.ConditionUnconscious))
 	}
 }

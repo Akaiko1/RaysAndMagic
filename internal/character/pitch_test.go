@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	"ugataima/internal/stats"
 )
 
 func pitchTestConfig(t *testing.T) *config.Config {
@@ -60,7 +61,7 @@ func TestHeroPitchMatchesTheKit(t *testing.T) {
 		if race := cfg.Characters.Races[c.Race]; c.Race != "" && c.Race != "human" {
 			if len(pitch) < 2 || !strings.HasPrefix(pitch[len(pitch)-1], race.Name+": ") {
 				t.Errorf("%s %s: no race paragraph in %q", c.Race, c.Class.Key(), pitch)
-			} else if race.Might != 0 && !strings.Contains(pitch[len(pitch)-1], "Might") {
+			} else if race.Shifts.Might != 0 && !strings.Contains(pitch[len(pitch)-1], "Might") {
 				t.Errorf("%s %s: race paragraph misses its Might shift", c.Race, c.Class.Key())
 			}
 		}
@@ -89,7 +90,7 @@ func TestHeroPitchMatchesTheKit(t *testing.T) {
 
 // raceStatShifts lists gains before losses, each group in sheet order.
 func TestRaceStatShiftsOrder(t *testing.T) {
-	got := raceStatShifts(config.RaceStats{Might: 3, Intellect: -2, Personality: -2, Endurance: 2, Speed: -1, Luck: 1})
+	got := raceStatShifts(config.RaceStats{Shifts: stats.StatBonuses{Might: 3, Intellect: -2, Personality: -2, Endurance: 2, Speed: -1, Luck: 1}})
 	if want := "+3 Might, +2 Endurance, +1 Luck, -2 Intellect, -2 Personality, -1 Speed"; got != want {
 		t.Errorf("raceStatShifts = %q, want %q", got, want)
 	}
@@ -176,6 +177,9 @@ func TestHeroPitchRacialCases(t *testing.T) {
 func TestValidateHeroPitches(t *testing.T) {
 	cfg := pitchTestConfig(t)
 	if err := ValidateHeroPitches(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRaceSkills(cfg); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {

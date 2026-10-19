@@ -2,31 +2,22 @@ package game
 
 import (
 	"fmt"
-	"image/color"
 	"strings"
 	"testing"
+	"ugataima/internal/character"
 )
 
-func TestWrapTooltipLinesAccountsForIconOffset(t *testing.T) {
-	lines := []string{"one two three four five"}
-	colors := []color.Color{color.White}
-	x := 700
-	screenW := 900
-
-	withoutIcon, withoutColors := wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(false))
-	if len(withoutIcon) != 1 {
-		t.Fatalf("without icon: got %d wrapped lines, want 1", len(withoutIcon))
+// A line that just fits a tooltip column wraps once the icon takes its share
+// of the width.
+func TestTooltipLayoutAccountsForIconOffset(t *testing.T) {
+	line := "one two three four five"
+	rows := character.PlainCardRows([]string{line})
+	width := uiTextWidth(line) + 12
+	if got := len(tooltipLayoutRows(rows, false, width, 16).rows); got != 1 {
+		t.Fatalf("without icon: %d rows, want 1", got)
 	}
-	if len(withoutColors) != len(withoutIcon) {
-		t.Fatalf("without icon: got %d colors for %d lines", len(withoutColors), len(withoutIcon))
-	}
-
-	withIcon, withColors := wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(true))
-	if len(withIcon) <= 1 {
-		t.Fatalf("with icon: got %d wrapped lines, want more than 1", len(withIcon))
-	}
-	if len(withColors) != len(withIcon) {
-		t.Fatalf("with icon: got %d colors for %d lines", len(withColors), len(withIcon))
+	if got := len(tooltipLayoutRows(rows, true, width, 16).rows); got <= 1 {
+		t.Fatalf("with icon: %d rows, want the line wrapped", got)
 	}
 }
 
@@ -52,11 +43,11 @@ func TestSingleTooltipStaysInViewport(t *testing.T) {
 	}
 }
 
-func TestWrapTooltipLinesSplitsOversizedToken(t *testing.T) {
-	lines, _ := wrapTooltipLines([]string{"averylongunbrokentooltiptoken"}, nil, 0, 140, 0)
-	for _, line := range lines {
-		if width := uiTextWidth(line); width > 128 {
-			t.Errorf("tooltip line width = %d, want <= 128: %q", width, line)
+func TestTooltipLayoutSplitsOversizedToken(t *testing.T) {
+	layout := tooltipLayoutRows(character.PlainCardRows([]string{"averylongunbrokentooltiptoken"}), false, 140, 16)
+	for _, row := range layout.rows {
+		if width := uiTextWidth(row.text); width > 128 {
+			t.Errorf("tooltip line width = %d, want <= 128: %q", width, row.text)
 		}
 	}
 }

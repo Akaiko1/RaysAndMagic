@@ -798,7 +798,7 @@ func TestRareCraftedSourceProductionGuards(t *testing.T) {
 				switch source {
 				case "merchant":
 					p := filepath.Join(t.TempDir(), "npcs.yaml")
-					body := fmt.Sprintf("npcs:\n  test:\n    name: Trader\n    type: merchant\n    render_category: standee\n    inventory:\n      - {name: %q, type: consumable, cost: 1, quantity: 1}\n", d.Name)
+					body := fmt.Sprintf("npcs:\n  test:\n    name: Trader\n    type: merchant\n    render_category: standee\n    inventory:\n      - {key: %s, cost: 1, quantity: 1}\n", key)
 					if err = os.WriteFile(p, []byte(body), 0600); err != nil {
 						t.Fatal(err)
 					}
@@ -982,7 +982,7 @@ func TestRareFlowChargeActualAttack(t *testing.T) {
 				c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
 			}
 			if action == "pixie_replacement" {
-				wd := lookupWeaponConfigByName("Oak Staff")
+				wd := lookupWeaponConfig(testWeapon("Oak Staff"))
 				oldRange := wd.Range
 				wd.Range = 3
 				t.Cleanup(func() { wd.Range = oldRange })
@@ -996,7 +996,7 @@ func TestRareFlowChargeActualAttack(t *testing.T) {
 				c.ApplyCharStun(120, 2)
 			}
 			if action == "projectile_cap" {
-				wd := lookupWeaponConfigByName("Oak Staff")
+				wd := lookupWeaponConfig(testWeapon("Oak Staff"))
 				oldCap := wd.MaxProjectiles
 				wd.MaxProjectiles = 1
 				t.Cleanup(func() { wd.MaxProjectiles = oldCap })

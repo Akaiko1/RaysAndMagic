@@ -29,7 +29,6 @@ func (ui *UISystem) advancedMagicPanel(screen *ebiten.Image, width, height int, 
 }
 
 func (ui *UISystem) advancedMagicButton(screen *ebiten.Image, r layoutRect, label string, enabled bool, action func()) {
-	g := ui.game
 	live := ui.topModalLayer() == modalLayerTownPortal
 	mx, my := uiCursorPosition()
 	ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, live && enabled && isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom()))
@@ -38,11 +37,7 @@ func (ui *UISystem) advancedMagicButton(screen *ebiten.Image, r layoutRect, labe
 		ink = beaconInk.muted
 	}
 	drawCenteredTextWithShadow(screen, label, r.x, r.y, r.w, r.h, ink)
-	ui.onDisplayedInput(uiCommandClick, r, func() {
-		if live && enabled && g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			action()
-		}
-	})
+	ui.onClick(r, live && enabled, action)
 }
 
 func (ui *UISystem) drawBeaconPicker(screen *ebiten.Image) {
@@ -162,7 +157,7 @@ func (ui *UISystem) drawIdentifyMonster(screen *ebiten.Image) {
 		}
 		_, wheel := pointerWheel()
 		if wheel != 0 {
-			setScroll(offset - int(wheel*40))
+			setScroll(offset + wheelScrollPixels(wheel, 40))
 		}
 	})
 	ui.advancedMagicButton(screen, layoutRect{p.x + (p.w-112)/2, p.bottom() - 44, 112, 28}, uitext.Text("advanced.identify_close"), true, g.cancelTownPortalPicker)

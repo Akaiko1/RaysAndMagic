@@ -109,7 +109,7 @@ func TestClockTowerWeaponsReadTheTargetsState(t *testing.T) {
 	cs, hero := clockworkHero(t, false)
 	hit := func(weapon string, m *monsterPkg.Monster3D) int {
 		before := m.HitPoints
-		cs.ApplyDamageToMonster(m, 100, weapon, false)
+		cs.ApplyDamageToMonster(m, 100, testWeapon(weapon), false)
 		return before - m.HitPoints
 	}
 	for _, tc := range []struct {
@@ -155,8 +155,8 @@ func TestChimeMaulTollRingsARoundLater(t *testing.T) {
 			g := cs.game
 			bell, doomed := mkTestMonster("Bell", 10000), mkTestMonster("Doomed", 10000)
 			g.world.Monsters = []*monsterPkg.Monster3D{bell, doomed}
-			cs.ApplyDamageToMonster(bell, 100, "Chime Maul", false)
-			cs.ApplyDamageToMonster(doomed, 100, "Chime Maul", false)
+			cs.ApplyDamageToMonster(bell, 100, testWeapon("Chime Maul"), false)
+			cs.ApplyDamageToMonster(doomed, 100, testWeapon("Chime Maul"), false)
 			doomed.HitPoints = 0
 			if !tb {
 				passFrames(g, g.combatRoundFrames()-1)
@@ -172,7 +172,7 @@ func TestChimeMaulTollRingsARoundLater(t *testing.T) {
 				t.Fatal("a dead target took the toll")
 			}
 
-			cs.ApplyDamageToMonster(bell, 100, "Chime Maul", false)
+			cs.ApplyDamageToMonster(bell, 100, testWeapon("Chime Maul"), false)
 			g.clearTransientCombatState()
 			passRounds(g, 1)
 			if taken := 10000 - bell.HitPoints; taken != 250 {
@@ -180,6 +180,27 @@ func TestChimeMaulTollRingsARoundLater(t *testing.T) {
 			}
 		})
 	}
+	// A designation mark that upgrades the hit to a critical: the toll echoes
+	// the critical the hit landed, with no second roll.
+	t.Run("designated critical", func(t *testing.T) {
+		cs, hero := clockworkHero(t, false)
+		g := cs.game
+		hero.Skills[character.SkillDesignateTarget] = &character.Skill{}
+		g.combat.designationRoll = func(int) int { return 0 }
+		bell := mkTestMonster("Bell", 10000)
+		bell.ID = "bell" // a mark names its target by ID
+		g.world.Monsters = []*monsterPkg.Monster3D{bell}
+		g.designateTarget(hero, bell)
+		cs.ApplyDamageToMonster(bell, 100, testWeapon("Chime Maul"), false)
+		primary := 10000 - bell.HitPoints
+		if primary <= 100 {
+			t.Fatalf("fixture: the marked hit dealt %d, want a critical over 100", primary)
+		}
+		passRounds(g, 1)
+		if echo := 10000 - bell.HitPoints - primary; echo != primary/2 {
+			t.Fatalf("the toll rang %d after a %d critical, want %d", echo, primary, primary/2)
+		}
+	})
 	t.Run("boss sear", func(t *testing.T) {
 		cs, _ := clockworkHero(t, false)
 		g := cs.game
@@ -190,8 +211,8 @@ func TestChimeMaulTollRingsARoundLater(t *testing.T) {
 		boss := mkTestMonster("Boss", 10000)
 		boss.Boss = true
 		g.world.Monsters = []*monsterPkg.Monster3D{boss}
-		cs.ApplyDamageToMonster(boss, 100, "Chime Maul", false)
-		sear := 10000 * config.DisintegrateBossMaxHPPct / 100
+		cs.ApplyDamageToMonster(boss, 100, testWeapon("Chime Maul"), false)
+		sear := 10000 * config.InstakillSearMaxHPPct / 100
 		if taken := 10000 - boss.HitPoints; taken != 100+sear {
 			t.Fatalf("the seared hit took %d, want 100 + %d", taken, sear)
 		}
@@ -210,10 +231,10 @@ func TestChimeMaulTollRingsARoundLater(t *testing.T) {
 func TestCogfangJamDelaysTheNextAttack(t *testing.T) {
 	cs, _ := clockworkHero(t, false)
 	g := cs.game
-	jam := lookupWeaponConfigByName("Cogfang Blade").JamSeconds * g.config.GetTPS()
+	jam := lookupWeaponConfig(testWeapon("Cogfang Blade")).JamSeconds * g.config.GetTPS()
 	m := mkTestMonster("Gears", 100000)
-	cs.ApplyDamageToMonster(m, 10, "Cogfang Blade", false)
-	cs.ApplyDamageToMonster(m, 10, "Cogfang Blade", false)
+	cs.ApplyDamageToMonster(m, 10, testWeapon("Cogfang Blade"), false)
+	cs.ApplyDamageToMonster(m, 10, testWeapon("Cogfang Blade"), false)
 	if m.AttackCDFrames != jam {
 		t.Fatalf("two hits in one attack cycle delayed the attack %d frames, want one jam of %d", m.AttackCDFrames, jam)
 	}
@@ -227,8 +248,8 @@ func TestCogfangJamDelaysTheNextAttack(t *testing.T) {
 	g.collisionSystem.UpdateEntity(foe.ID, foe.X, foe.Y)
 	lost := 0
 	for cycle := 1; cycle <= 3; cycle++ {
-		cs.ApplyDamageToMonster(foe, 10, "Cogfang Blade", false)
-		cs.ApplyDamageToMonster(foe, 10, "Cogfang Blade", false) // the same cycle jams once
+		cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false)
+		cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false) // the same cycle jams once
 		foe.AttackCDFrames = 0
 		before := countCombatLog(g, "attack is lost")
 		if !cs.commitMonsterAttack(foe, monsterAttackDestination{}, monsterAttackTurn) {
@@ -403,16 +424,17 @@ func TestChronoCapeRewindsARound(t *testing.T) {
 // offensive spell known, the heal swings back nothing.
 func TestChainworkPendulumCastsAfterAHeal(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		tb        bool
-		fight     bool
-		knowsBolt bool
-		wantCast  bool
+		name     string
+		tb       bool
+		fight    bool
+		knows    string
+		wantCast bool
 	}{
-		{"in a fight", false, true, true, true},
-		{"in a TB fight", true, true, true, true},
-		{"out of a fight", false, false, true, false},
-		{"nothing offensive known", false, true, false, false},
+		{"in a fight", false, true, "firebolt", true},
+		{"in a TB fight", true, true, "firebolt", true},
+		{"out of a fight", false, false, "firebolt", false},
+		{"nothing offensive known", false, true, "", false},
+		{"only an open-sky spell, underground", false, true, "earthquake", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cs, hero := clockworkHero(t, tc.tb)
@@ -422,8 +444,11 @@ func TestChainworkPendulumCastsAfterAHeal(t *testing.T) {
 				t.Fatal("fixture: the Chainwork set is not complete")
 			}
 			hero.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{}
-			if tc.knowsBolt && !hero.LearnSpell("firebolt") {
-				t.Fatal("fixture: could not learn Firebolt")
+			if tc.knows != "" && !hero.LearnSpell(spells.SpellID(tc.knows)) {
+				t.Fatalf("fixture: could not learn %s", tc.knows)
+			}
+			if g.currentMapHasOpenSky() {
+				t.Fatal("fixture: the test map has an open sky")
 			}
 			if tc.fight {
 				startFight(t, g)
@@ -433,7 +458,7 @@ func TestChainworkPendulumCastsAfterAHeal(t *testing.T) {
 			cs.executeSpellCast(spellCastRequest{ID: heal.ID, Definition: heal, Caster: hero}, func() spellCastOutcome { return castCommitted })
 			g.magicProjectiles = nil
 			passRounds(g, 1)
-			cast := len(g.magicProjectiles) > 0
+			cast := countCombatLog(g, "pendulum swings back") > 0
 			if cast != tc.wantCast || hero.SpellPoints != 100 {
 				t.Fatalf("free spell cast = %v (want %v), SP %d (want 100)", cast, tc.wantCast, hero.SpellPoints)
 			}
@@ -600,5 +625,28 @@ func TestFormerMaceLoadsAsTheStaff(t *testing.T) {
 	}
 	if n := countCombatLog(g, "Escapement Staff no longer fits"); n != 1 || len(g.loadNotices) != 0 {
 		t.Fatalf("logged the notice %d times, %d left pending", n, len(g.loadNotices))
+	}
+}
+
+// A spell the world refuses here (Earthquake needs the open sky) is never
+// Space's pick: Space falls through to the weapon instead of fizzling.
+func TestSmartAttackSkipsASpellTheWorldRefuses(t *testing.T) {
+	for _, spell := range []spells.SpellID{"firebolt", "earthquake"} {
+		t.Run(string(spell), func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			member := cs.game.party.Members[0]
+			item, err := spells.CreateSpellItem(spell)
+			if err != nil {
+				t.Fatal(err)
+			}
+			member.Equipment[items.SlotQuickAction] = item
+			member.SpellPoints, member.MaxSpellPoints = 99, 99
+			if cs.game.currentMapHasOpenSky() {
+				t.Fatal("fixture: the test map has an open sky")
+			}
+			if _, picked := cs.smartOffensiveSpell(member); picked != (spell == "firebolt") {
+				t.Fatalf("Space picks %s underground = %v", spell, picked)
+			}
+		})
 	}
 }

@@ -101,8 +101,12 @@ func TestControlTipsScrollByWheel(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	step(-1)
+	step(-0.01) // a trackpad's fractional delta
 	if g.controlTipsScroll <= 0 {
+		t.Fatal("a trackpad delta did not scroll the tips")
+	}
+	step(-1)
+	if g.controlTipsScroll <= 1 {
 		t.Fatal("the wheel did not scroll the tips")
 	}
 	for range 200 {
@@ -122,5 +126,20 @@ func TestControlTipsScrollByWheel(t *testing.T) {
 	(&InputHandler{game: g}).activateMainMenuSelection()
 	if g.controlTipsScroll != 0 {
 		t.Fatal("reopened tips kept the old scroll")
+	}
+}
+
+// A pixel list scrolls a full step per wheel notch and at least one pixel for
+// any trackpad delta, in the wheel's direction.
+func TestWheelScrollPixelsKeepsTrackpadDeltas(t *testing.T) {
+	for _, tc := range []struct {
+		wheel float64
+		want  int
+	}{
+		{0, 0}, {-1, 40}, {1, -40}, {-2.5, 100}, {-0.01, 1}, {0.01, -1}, {-0.1, 4},
+	} {
+		if got := wheelScrollPixels(tc.wheel, 40); got != tc.want {
+			t.Errorf("wheel %v: %d, want %d", tc.wheel, got, tc.want)
+		}
 	}
 }

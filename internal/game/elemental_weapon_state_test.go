@@ -73,7 +73,7 @@ func TestTransferStrikeDisplacement(t *testing.T) {
 				x := m.X
 				for i := 1; i <= def.ElementalAbility.Hits; i++ {
 					before := m.HitPoints
-					cs.ApplyDamageToMonster(m, 100, def.Name, false)
+					cs.ApplyDamageToMonster(m, 100, testWeapon(def.Name), false)
 					want := 100
 					if i == def.ElementalAbility.Hits {
 						want += def.ElementalAbility.Damage
@@ -121,12 +121,12 @@ func TestElementalStacksSaveAndResume(t *testing.T) {
 				m.HitPoints, m.MaxHitPoints, m.ArmorClass, m.PerfectDodge, m.Resistances = 10000, 10000, 0, 0, nil
 				g.world.Monsters = []*monster.Monster3D{m}
 				for range 2 {
-					g.combat.ApplyDamageToMonster(m, 100, def.Name, false)
+					g.combat.ApplyDamageToMonster(m, 100, testWeapon(def.Name), false)
 				}
 				for range g.config.GetTPS() {
 					m.TickElementalMarks(false)
 				}
-				before := m.ElementalMarks[def.ElementalAbility.Kind]
+				before := m.ElementalMarks[string(def.ElementalAbility.Kind)]
 				if before.Count != 2 {
 					t.Fatalf("fixture did not charge: %+v", before)
 				}
@@ -138,12 +138,12 @@ func TestElementalStacksSaveAndResume(t *testing.T) {
 				if _, exists := m.ElementalMarks["backwash"]; exists {
 					t.Fatal("obsolete backwash mark restored")
 				}
-				if got := m.ElementalMarks[def.ElementalAbility.Kind]; got != before {
+				if got := m.ElementalMarks[string(def.ElementalAbility.Kind)]; got != before {
 					t.Fatalf("saved remainder=%+v want=%+v", got, before)
 				}
 				m.ArmorClass, m.PerfectDodge, m.Resistances = 0, 0, nil
 				hp := m.HitPoints
-				g.combat.ApplyDamageToMonster(m, 100, def.Name, false)
+				g.combat.ApplyDamageToMonster(m, 100, testWeapon(def.Name), false)
 				want := 100 + def.ElementalAbility.Damage
 				switch def.ElementalAbility.Kind {
 				case "anchor":

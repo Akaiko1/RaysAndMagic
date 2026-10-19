@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"math"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -415,7 +414,7 @@ func (ui *UISystem) drawBuildSettings(screen *ebiten.Image, px, py int) {
 			_, wheel := pointerWheel()
 			wx, wy := pointerPosition()
 			if wheel != 0 && isMouseHoveringBox(wx, wy, area.x, area.y, area.right(), area.bottom()) {
-				g.buildsRosterScroll = max(0, min(g.buildsRosterScroll-int(math.Copysign(max(1, math.Abs(wheel*36)), wheel)), limit))
+				g.buildsRosterScroll = max(0, min(g.buildsRosterScroll+wheelScrollPixels(wheel, 36), limit))
 			}
 		})
 	}
@@ -461,7 +460,7 @@ func (ui *UISystem) drawBuildSettings(screen *ebiten.Image, px, py int) {
 				ink = gameplayInk.text
 			}
 			drawUITextColored(dst, clipUIText(build.Name, r.w-20), r.x+12, buildY, ink)
-			ui.settingsClick(layoutRect{hit.Min.X, hit.Min.Y, hit.Dx(), hit.Dy()}, func() {
+			ui.settingsClick(layoutRectOf(hit), func() {
 				g.selectBuildsClass(i)
 				g.audioSettingsSelection = gameplayRowPage + 1 + i
 			})

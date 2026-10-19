@@ -174,7 +174,7 @@ func (g *MMGame) tickRewind(ch *character.MMCharacter, turn bool, tps int, inFig
 	if restored := min(st.RewindHP, ch.MaxHitPoints) - ch.HitPoints; restored > 0 && !st.RewindCD.Active() {
 		ch.HitPoints += restored
 		st.RewindCD.Arm(cooldown, tps)
-		g.logCombat(logToneGood, "%s's cape rewinds a round: %s HP", logHeroText(ch.Name), logHealed(restored))
+		g.logCombatLine(logToneGood, uitext.Text("combat.s_cape_rewinds_a_round_hp", logSlot, logSlot), logHeroText(ch.Name), logHealed(restored))
 	}
 	st.RewindHP = ch.HitPoints
 }
@@ -189,7 +189,8 @@ func (g *MMGame) armPendulum(caster *character.MMCharacter, def spells.SpellDefi
 }
 
 // castPendulumSpell casts one random offensive spell the hero knows, free of
-// SP, through the shared free-cast path; spells under reuse are skipped.
+// SP, through the shared free-cast path; spells it cannot cast now (reuse,
+// the open sky) are skipped.
 func (cs *CombatSystem) castPendulumSpell(ch *character.MMCharacter) {
 	if !ch.CanUseCombatAction() {
 		return
@@ -197,7 +198,7 @@ func (cs *CombatSystem) castPendulumSpell(ch *character.MMCharacter) {
 	var pool []spells.SpellDefinition
 	for _, school := range slices.Sorted(maps.Keys(ch.MagicSchools)) {
 		for _, id := range ch.MagicSchools[school].KnownSpells {
-			if def, err := spells.GetSpellDefinitionByID(id); err == nil && def.IsOffensive() && ch.SpellState.Reusable(string(id)) {
+			if def, err := spells.GetSpellDefinitionByID(id); err == nil && def.IsOffensive() && cs.spellCastableNow(ch, def, 0) {
 				pool = append(pool, def)
 			}
 		}
@@ -206,7 +207,7 @@ func (cs *CombatSystem) castPendulumSpell(ch *character.MMCharacter) {
 		return
 	}
 	def := pool[rand.Intn(len(pool))]
-	cs.game.logCombat(logToneGood, "%s's pendulum swings back: %s!", logHeroText(ch.Name), logSchoolWord(def.School, def.Name))
+	cs.game.logCombatLine(logToneGood, uitext.Text("combat.s_pendulum_swings_back", logSlot, logSlot), logHeroText(ch.Name), logSchoolWord(def.School, def.Name))
 	cs.castResolvedSpell(def.ID, def, ch, 0, false, false)
 }
 

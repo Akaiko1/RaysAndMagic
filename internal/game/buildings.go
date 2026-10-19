@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -226,23 +227,15 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 			// the authoring typo instead.
 			for _, it := range npc.Inventory {
 				if it != nil && it.Cost <= 0 {
-					return fmt.Errorf("NPC %q sells %q for cost %d - item-currency stock needs cost > 0", key, it.Name, it.Cost)
+					return fmt.Errorf("NPC %q sells %q for cost %d - item-currency stock needs cost > 0", key, it.Key, it.Cost)
 				}
 			}
 		}
 		for _, entry := range npc.Inventory {
-			if entry != nil && entry.Type == "weapon" && config.GlobalWeapons != nil && !weaponNamed(entry.Name) {
-				// The shop looks weapons up by display name and would drop a typo silently.
-				return fmt.Errorf("NPC %q stocks unknown weapon %q", key, entry.Name)
-			}
-			if entry == nil || entry.Type == "weapon" {
+			if entry == nil {
 				continue
 			}
-			_, itemKey, found := config.GetItemDefinitionByName(entry.Name)
-			if !found {
-				itemKey = entry.Name
-			}
-			if err := entry.GrantError(itemKey); err != nil {
+			if err := entry.SourceError(); err != nil {
 				return fmt.Errorf("NPC %q stock: %w", key, err)
 			}
 		}
@@ -255,7 +248,7 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 			}
 			for _, it := range npc.Inventory {
 				if it != nil && it.CurrencyItem != "" {
-					return fmt.Errorf("NPC %q has sell_available but prices %q in an item; only gold-priced shops buy from the party", key, it.Name)
+					return fmt.Errorf("NPC %q has sell_available but prices %q in an item; only gold-priced shops buy from the party", key, it.Key)
 				}
 			}
 		}
@@ -264,18 +257,18 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 		for _, it := range npc.Inventory {
 			if it == nil || it.CurrencyItem == "" {
 				if it != nil && it.GoldCost != 0 {
-					return fmt.Errorf("NPC %q entry %q has gold_cost without currency_item", key, it.Name)
+					return fmt.Errorf("NPC %q entry %q has gold_cost without currency_item", key, it.Key)
 				}
 				continue
 			}
 			if _, found := config.GetItemDefinition(it.CurrencyItem); !found {
-				return fmt.Errorf("NPC %q entry %q prices in unknown item %q", key, it.Name, it.CurrencyItem)
+				return fmt.Errorf("NPC %q entry %q prices in unknown item %q", key, it.Key, it.CurrencyItem)
 			}
 			if it.Cost <= 0 {
-				return fmt.Errorf("NPC %q entry %q needs cost > 0 for currency_item pricing", key, it.Name)
+				return fmt.Errorf("NPC %q entry %q needs cost > 0 for currency_item pricing", key, it.Key)
 			}
 			if it.GoldCost < 0 {
-				return fmt.Errorf("NPC %q entry %q has negative gold_cost", key, it.Name)
+				return fmt.Errorf("NPC %q entry %q has negative gold_cost", key, it.Key)
 			}
 		}
 		// A special offer is part of the sale service: only a coin shop pays it.
@@ -294,14 +287,14 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 				continue
 			}
 			if npc.Currency != "" || it.CurrencyItem != "" || it.GoldCost != 0 || it.Cost != 0 {
-				return fmt.Errorf("NPC %q entry %q mixes barter with another price", key, it.Name)
+				return fmt.Errorf("NPC %q entry %q mixes barter with another price", key, it.Key)
 			}
 			if len(it.Barter) > merchantBarterGoodsMax {
-				return fmt.Errorf("NPC %q entry %q barters %d goods; a price line shows at most %d", key, it.Name, len(it.Barter), merchantBarterGoodsMax)
+				return fmt.Errorf("NPC %q entry %q barters %d goods; a price line shows at most %d", key, it.Key, len(it.Barter), merchantBarterGoodsMax)
 			}
 			for itemKey, n := range it.Barter {
 				if _, found := config.GetItemDefinition(itemKey); !found || n <= 0 {
-					return fmt.Errorf("NPC %q entry %q barters %d of %q - needs a known item key and a positive count", key, it.Name, n, itemKey)
+					return fmt.Errorf("NPC %q entry %q barters %d of %q - needs a known item key and a positive count", key, it.Key, n, itemKey)
 				}
 			}
 		}
@@ -447,7 +440,7 @@ func (g *MMGame) rallyAggroedAlarms() {
 			woken++
 		}
 		if woken > 0 {
-			g.AddCombatMessage(fmt.Sprintf("%s rings out - %d horrors answer the bell!", m.Name, woken))
+			g.AddCombatMessage(uitext.Text("combat.rings_out_horrors_answer_the_bell", m.Name, woken))
 		}
 	}
 }
@@ -472,7 +465,7 @@ func (g *MMGame) maybeRespawnMapMonsters() {
 	g.respawnAuthoredMonsters(g.world)
 	g.world.LastRespawnDay = g.currentCalendarDay()
 	if !unstamped {
-		g.AddCombatMessage("The tower mechanism grinds - its horrors are wound anew.")
+		g.AddCombatMessage(uitext.Text("combat.the_tower_mechanism_grinds_its_horrors"))
 	}
 }
 
@@ -628,13 +621,4 @@ type merchantStockView struct {
 	tabs          []string
 	tab, category int
 	view          []*character.MerchantStockItem
-}
-
-func weaponNamed(name string) bool {
-	for _, w := range config.GlobalWeapons.Weapons {
-		if w != nil && w.Name == name {
-			return true
-		}
-	}
-	return false
 }

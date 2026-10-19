@@ -173,7 +173,7 @@ func tangentAt(path func(float64) (float64, float64), t float64) float64 {
 // A rigid camera-space model turns around its authored striking point. The
 // tip stays on the stroke path while the shaft, bevels and fittings turn in
 // depth. That preserves the exact contact/ribbon anchor through perspective.
-func (r *Renderer) drawWeaponBody(dst *ebiten.Image, x, y, angle, size, alpha float64, kind string, body meleeBody) {
+func (r *Renderer) drawWeaponBody(dst *ebiten.Image, x, y, angle, size, alpha float64, kind swingKind, body meleeBody) {
 	r.weaponMaterialState.bodyHandled = true
 	if size <= 0 || alpha <= 0 || body.family() == familyGauntlet || r.ensureWeaponMaterialShaders() != nil {
 		return
@@ -186,11 +186,11 @@ func (r *Renderer) drawWeaponBody(dst *ebiten.Image, x, y, angle, size, alpha fl
 	sweep := math.Min(1, progress/meleeSweepFrac)
 	lead := 1 - (1-sweep)*(1-sweep)
 	pitch, roll := .10+.64*math.Sin(lead*math.Pi), -.62+1.24*lead
-	if kind == "stab" || kind == "lunge" {
+	if kind == swingStab || kind == swingLunge {
 		pitch = .70 + .28*math.Sin(lead*math.Pi)
 		roll = -.18 + .36*lead
 	}
-	if kind == "smash" {
+	if kind == swingSmash {
 		pitch = .18 + .50*lead
 		roll = -.3 + .60*lead
 	}

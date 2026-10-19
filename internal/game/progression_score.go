@@ -44,6 +44,21 @@ func (g *MMGame) highScoreParty() []highscore.Hero {
 	return heroes
 }
 
+// canAfford reports a purse holding cost gold.
+func (g *MMGame) canAfford(cost int) bool {
+	return g.party != nil && cost >= 0 && g.party.Gold >= cost
+}
+
+// spendGold pays cost from the purse; false, paying nothing, when it is
+// short. The counterpart of awardGold.
+func (g *MMGame) spendGold(cost int) bool {
+	if !g.canAfford(cost) {
+		return false
+	}
+	g.party.Gold -= cost
+	return true
+}
+
 func (g *MMGame) awardGold(amount int) {
 	if amount <= 0 || g.party == nil {
 		return

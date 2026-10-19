@@ -206,6 +206,6 @@ func (ui *UISystem) drawControlTips(screen *ebiten.Image, panel layoutRect) {
 		if wheel == 0 || !isMouseHoveringBox(mx, my, l.body.x, l.body.y, l.body.right(), l.body.bottom()) {
 			return
 		}
-		g.controlTipsScroll = min(l.maxScroll(), max(0, g.controlTipsScroll-int(wheel*3*controlTipsLineH)))
+		g.controlTipsScroll = min(l.maxScroll(), max(0, g.controlTipsScroll+wheelScrollPixels(wheel, 3*controlTipsLineH)))
 	})
 }

@@ -1,10 +1,10 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 
 	"ugataima/internal/monster"
@@ -140,7 +140,7 @@ func (g *MMGame) rallyAuthoredBandHit(target *monster.Monster3D) {
 func (cs *CombatSystem) tryMonsterPartyAbilities(m *monster.Monster3D, cadence monsterAttackCadence) {
 	if m.Abilities.RootParty.Chance > 0 && rand.Float64() < m.Abilities.RootParty.Chance {
 		cs.game.rootParty(config.CombatRounds(m.Abilities.RootParty.Seconds))
-		cs.game.AddCombatMessage(fmt.Sprintf("%s roots the party in place!", m.Name))
+		cs.game.AddCombatMessage(uitext.Text("combat.roots_the_party_in_place", m.Name))
 	}
 	if m.Abilities.RearBlink.Chance > 0 && !cs.game.monsterMovementHeld(m) && rand.Float64() < m.Abilities.RearBlink.Chance {
 		cs.blinkBehindParty(m, cadence)
@@ -185,18 +185,27 @@ func (cs *CombatSystem) blinkBehindParty(m *monster.Monster3D, cadence monsterAt
 			continue
 		}
 		cs.settleBlink(m, oldX, oldY)
-		g.AddCombatMessage(fmt.Sprintf("%s slips behind the party!", m.Name))
+		g.AddCombatMessage(uitext.Text("combat.slips_behind_the_party", m.Name))
 		return true
 	}
 	return false
 }
 
-// relocateMonster teleports a monster to a spot its caller already checked: it
-// leaves its attack post and moves its collision box.
+// relocateMonster is a monster's displacement - a blink, a shove, a pull -
+// to a spot its caller already checked: it leaves its attack post, then
+// moves (placeMonster).
 func (g *MMGame) relocateMonster(m *monster.Monster3D, x, y float64) {
 	g.releaseMonsterAttackPost(m)
+	g.placeMonster(m, x, y)
+}
+
+// placeMonster moves a monster to a checked spot keeping its fight state (a
+// scatter off a shared tile, an ejection from the party's tile): its
+// collision box follows and its stale route drops.
+func (g *MMGame) placeMonster(m *monster.Monster3D, x, y float64) {
 	m.X, m.Y = x, y
 	g.collisionSystem.UpdateEntity(m.ID, x, y)
+	m.ResetPathfinding()
 }
 
 // settleBlink finishes a blink (Rear Blink, Phase Shift): a fresh route, the

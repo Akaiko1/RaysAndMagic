@@ -124,7 +124,7 @@ func (m *Monster3D) stepAmbientPath(checker CollisionChecker, goal TileCoord, tu
 	if !turn {
 		return m.followPathToTile(checker, goal.X, goal.Y)
 	}
-	x, y, ok := m.NextPathStepTileToAny(checker, []TileCoord{goal}, nil)
+	x, y, ok := m.NextPathStepToTile(checker, goal.X, goal.Y)
 	if !ok {
 		return false
 	}

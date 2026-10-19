@@ -59,13 +59,13 @@ func (ui *UISystem) spellAutocastControl(screen *ebiten.Image, c *character.MMCh
 		}
 		var trigger string
 		switch d.Mechanic.Kind {
-		case "dispel_magic":
+		case config.MechanicDispelMagic:
 			trigger = uitext.Text("advanced.auto_dispel_magic", d.Mechanic.RadiusTiles)
-		case "haste":
+		case config.MechanicHaste:
 			trigger = uitext.Text("advanced.auto_haste")
-		case "purify":
+		case config.MechanicPurify:
 			trigger = uitext.Text("advanced.auto_purify")
-		case "celestial_armor":
+		case config.MechanicCelestialArmor:
 			trigger = uitext.Text("advanced.auto_celestial_armor")
 		}
 		ui.queueTooltip([]string{d.Name, state, trigger, ui.game.automaticCastCostText()}, mx+12, my+8)

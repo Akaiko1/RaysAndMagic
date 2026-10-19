@@ -79,7 +79,7 @@ func itemCardKey(it items.Item) string {
 	if it.Type != items.ItemCard {
 		return ""
 	}
-	if _, key, ok := config.GetItemDefinitionByName(it.Name); ok && cardDef(key) != nil {
+	if _, key, ok := config.ItemDefOf(it); ok && cardDef(key) != nil {
 		return key
 	}
 	return ""
@@ -88,8 +88,8 @@ func itemCardKey(it items.Item) string {
 // cardSlot is one collection slot: the resolved card key (gameplay truth,
 // read on hot combat/frame paths) plus the physical card item whose
 // InstanceID survives into saves for stash reconciliation. The key is
-// resolved ONCE when placing or restoring a slot - never re-derived from the item's
-// name at read time (GetItemDefinitionByName is a linear scan).
+// resolved ONCE when placing or restoring a slot - never re-derived at read
+// time on those hot paths.
 type cardSlot struct {
 	key  string
 	item items.Item

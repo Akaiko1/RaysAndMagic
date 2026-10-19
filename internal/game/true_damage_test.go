@@ -112,13 +112,13 @@ func TestPartyCardTrueDamage_DodgeResistanceAndMeleeMultiplier(t *testing.T) {
 	g.cardSlots[1].key = "masked_serpent_dancer_card" // +% normal melee
 	trueDmg := cardItemDef(t, "samurai_card").CardMeleeTrueDmg
 	meleePct := cardItemDef(t, "masked_serpent_dancer_card").CardMeleeDmgPct
-	maul := lookupWeaponConfigByName("Idol-Breaker, the Warlord's Maul")
+	maul := lookupWeaponConfig(testWeapon("Idol-Breaker, the Warlord's Maul"))
 	if maul == nil || maul.TrueDamagePct != 0 {
 		t.Fatal("fixture weapon missing or carries its own true damage")
 	}
 
 	target := mkTestMonster("Target", 1000)
-	cs.ApplyDamageToMonster(target, 100, maul.Name, false)
+	cs.ApplyDamageToMonster(target, 100, testWeapon(maul.Name), false)
 	if got, want := 1000-target.HitPoints, 100*(100+meleePct)/100+trueDmg; got != want {
 		t.Fatalf("100 normal with +%d%% normal and +%d true dealt %d, want %d", meleePct, trueDmg, got, want)
 	}
@@ -127,7 +127,7 @@ func TestPartyCardTrueDamage_DodgeResistanceAndMeleeMultiplier(t *testing.T) {
 	dodger := mkTestMonster("Dodger", 100)
 	dodger.PerfectDodge = 100
 	dodger.Resistances[monsterPkg.DamagePhysical] = 50
-	cs.ApplyDamageToMonster(dodger, 100, maul.Name, false)
+	cs.ApplyDamageToMonster(dodger, 100, testWeapon(maul.Name), false)
 	if got, want := 100-dodger.HitPoints, trueDmg*(100-50)/100; got != want {
 		t.Fatalf("card true through dodge dealt %d, want %d after physical resistance", got, want)
 	}
@@ -143,14 +143,14 @@ func TestBroodspikeTurnsAShareOfEachHitIntoTrueDamage(t *testing.T) {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 	isolateTrueDamageMember(attacker, 0)
 	cs.game.cardSlots = [MaxCardSlots]cardSlot{}
-	brood, plain := lookupWeaponConfigByName("Broodspike"), lookupWeaponConfigByName("Tarn Trident")
+	brood, plain := lookupWeaponConfig(testWeapon("Broodspike")), lookupWeaponConfig(testWeapon("Tarn Trident"))
 	if brood == nil || plain == nil || brood.TrueDamagePct != 33 || plain.TrueDamagePct != 0 {
 		t.Fatal("fixture: Broodspike must cut 33% and the control spear nothing")
 	}
 	hit := func(weapon string, normal int, setup func(*monsterPkg.Monster3D)) int {
 		m := mkTestMonster("Target", 10000)
 		setup(m)
-		cs.ApplyDamageToMonster(m, normal, weapon, false)
+		cs.ApplyDamageToMonster(m, normal, testWeapon(weapon), false)
 		return 10000 - m.HitPoints
 	}
 	// A flat +60 outgoing buff joins the hit before the cut: a third of 360.
@@ -159,7 +159,7 @@ func TestBroodspikeTurnsAShareOfEachHitIntoTrueDamage(t *testing.T) {
 		defer func() { cs.game.combatBuffs = nil }()
 		m := mkTestMonster("Target", 10000)
 		m.PerfectDodge = 100
-		cs.ApplyDamageToMonster(m, 300, brood.Name, false)
+		cs.ApplyDamageToMonster(m, 300, testWeapon(brood.Name), false)
 		return 10000 - m.HitPoints
 	}
 	bare := func(*monsterPkg.Monster3D) {}
@@ -198,7 +198,7 @@ func TestPartyWeaponMasteryTrueDamage_InheritsWeaponElement(t *testing.T) {
 	isolateTrueDamageMember(attacker, 0)
 	attacker.Skills[character.SkillMace] = &character.Skill{Mastery: character.MasteryGrandMaster}
 	cs.game.cardSlots = [MaxCardSlots]cardSlot{}
-	weapon := lookupWeaponConfigByName("Holy Mace")
+	weapon := lookupWeaponConfig(testWeapon("Holy Mace"))
 	if weapon == nil {
 		t.Fatal("Holy Mace definition missing")
 	}
@@ -211,7 +211,7 @@ func TestPartyWeaponMasteryTrueDamage_InheritsWeaponElement(t *testing.T) {
 	target.Resistances[monsterPkg.DamagePhysical] = 100
 	target.Resistances[monsterPkg.DamageLight] = 50
 
-	cs.ApplyDamageToMonster(target, 0, "Holy Mace", false)
+	cs.ApplyDamageToMonster(target, 0, testWeapon("Holy Mace"), false)
 
 	// Holy Mace makes the mastery true damage Light: physical immunity is
 	// irrelevant and 50% Light resistance halves it (rounded down).
@@ -238,7 +238,7 @@ func TestPartyTrueDamage_ReachesWeaponAoeVictims(t *testing.T) {
 	near.SoakDamage, near.Soak.Frames = 999, 1
 	g.world.Monsters = []*monsterPkg.Monster3D{center, near}
 
-	cs.ApplyDamageToMonster(center, 0, "Idol-Breaker, the Warlord's Maul", false)
+	cs.ApplyDamageToMonster(center, 0, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	if got, want := 1000-near.HitPoints, trueDmg*(100-50)/100; got != want {
 		t.Fatalf("AoE victim took %d, want %d resistance-reduced true damage through soak", got, want)
 	}
@@ -281,10 +281,9 @@ func TestMonsterSpecialAoe_CarriesAuthoredTrueDamage(t *testing.T) {
 	attacker := &monsterPkg.Monster3D{
 		Name:       "Burst Caster",
 		TrueDamage: 20,
-		Abilities:  monsterPkg.Abilities{Fireburst: monsterPkg.FireburstAbility{DamageMin: 10, DamageMax: 10}},
 	}
 
-	cs.applyMonsterFireburst(attacker)
+	castTestPartyAttack(cs, attacker, catalogPartyAttack("fireburst"), 10)
 	if got := 200 - member.HitPoints; got != 10 {
 		t.Fatalf("Fireburst dealt %d, want only 10 resistance-reduced true through flat ward", got)
 	}
@@ -354,7 +353,7 @@ func TestGrandmasterHitGrazesThroughPerfectDodge(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				cs := newTestCombatSystemWithConfig(t)
-				sword := lookupWeaponConfigByName(items.CreateWeaponFromYAML("iron_sword").Name)
+				sword := lookupWeaponConfig(items.CreateWeaponFromYAML("iron_sword"))
 				if sword == nil {
 					t.Fatal("iron_sword config missing")
 				}
@@ -364,7 +363,7 @@ func TestGrandmasterHitGrazesThroughPerfectDodge(t *testing.T) {
 				cs.game.cardSlots = [MaxCardSlots]cardSlot{}
 				target := mkTestMonster("Dodger", 1000)
 				target.PerfectDodge = 100
-				cs.ApplyDamageToMonster(target, normal, sword.Name, false)
+				cs.ApplyDamageToMonster(target, normal, testWeapon(sword.Name), false)
 				want := tc.tiers * MasteryWeaponTrueDamagePerTier
 				if tc.grazes {
 					want += graze

@@ -39,8 +39,7 @@ func PotionFamily(def *ItemDefinitionConfig) string {
 	if def.BrewedFrom != "" {
 		return def.BrewedFrom
 	}
-	_, key, _ := GetItemDefinitionByName(def.Name)
-	return key
+	return def.Key
 }
 func AutomaticPotionChoices(mana bool) []PotionChoice {
 	var result []PotionChoice

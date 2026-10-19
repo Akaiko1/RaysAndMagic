@@ -51,7 +51,7 @@ func TestTooltipOrderedWeaponResults(t *testing.T) {
 						if full && def.Physics != nil && !strings.Contains(card, fmt.Sprintf("Projectile Speed: %.1f tiles/s", flight)) {
 							t.Fatal(card)
 						}
-						frames := cs.WeaponCooldownFramesFor(ch, item.Name)
+						frames := cs.WeaponCooldownFramesFor(ch, testWeapon(item.Name))
 						var seconds float64
 						for _, line := range strings.Split(card, "\n") {
 							if strings.HasPrefix(line, "RT Cooldown:") {

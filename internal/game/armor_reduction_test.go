@@ -519,16 +519,14 @@ func TestMeltArmor_MeleeAndProjectilesMelt(t *testing.T) {
 		{"spell projectile", true, func(cs *CombatSystem, m *monsterPkg.Monster3D) { project(cs, m, true) }},
 		{"weapon projectile", true, func(cs *CombatSystem, m *monsterPkg.Monster3D) { project(cs, m, false) }},
 		{"dragon breath", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-			m.Abilities.DragonBreath.Chance, m.Abilities.DragonBreath.DamageType = 1, "fire"
+			armTestPartyAttack(m, catalogPartyAttack("dragon_breath"), damage)
 			cs.applyMonsterMeleeDamage(m)
 		}},
 		{"inferno", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-			m.Abilities.Inferno.Damage = damage
-			cs.applyMonsterInferno(m)
+			castTestPartyAttack(cs, m, catalogPartyAttack("inferno"), damage)
 		}},
 		{"fireburst", false, func(cs *CombatSystem, m *monsterPkg.Monster3D) {
-			m.Abilities.Fireburst.DamageMin, m.Abilities.Fireburst.DamageMax = damage, damage
-			cs.applyMonsterFireburst(m)
+			castTestPartyAttack(cs, m, catalogPartyAttack("fireburst"), damage)
 		}},
 	}
 	newCombat := newTestCombatFactory(t)
@@ -544,7 +542,7 @@ func TestMeltArmor_MeleeAndProjectilesMelt(t *testing.T) {
 				}
 				hero.Luck = 0
 				hero.MaxHitPoints, hero.HitPoints = hp, hp
-				attacker := &monsterPkg.Monster3D{ID: "melt_attacker", Name: "Attacker", DamageMin: damage, DamageMax: damage}
+				attacker := &monsterPkg.Monster3D{ID: "melt_attacker", Name: "Attacker", HitPoints: hp, MaxHitPoints: hp, DamageMin: damage, DamageMax: damage}
 				if melter {
 					attacker.Abilities.MeltArmor.Chance = 1
 				}
@@ -616,7 +614,7 @@ func TestMeltedArmorMeetsPhysicalHitsLikeElementalOnes(t *testing.T) {
 	t.Run("a melting monster melts an ally's armor", func(t *testing.T) {
 		attacker := &monsterPkg.Monster3D{ID: "melter", Name: "Melter", HitPoints: 100, MaxHitPoints: 100, Abilities: monsterPkg.Abilities{MeltArmor: monsterPkg.ChanceAbility{Chance: 1}}}
 		ally := mkTestMonster("Ally", 1000)
-		cs.strikeMonsterPacketFor(attacker, ally, singleMonsterDamagePacket(damagecalc.Parts{Normal: 10}, "physical", 0), nil, false, false, false)
+		cs.strikeMonsterPacketFor(attacker, ally, singleMonsterDamagePacket(damagecalc.Parts{Normal: 10}, "physical", 0), nil, false, false, false, false)
 		if !ally.ArmorMelted() {
 			t.Fatal("the struck ally's armor is whole")
 		}

@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"math"
 	"strings"
-	"time"
 
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
@@ -13,6 +12,7 @@ import (
 	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/stats"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -52,7 +52,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 		// While dragging an equippable item, glow every slot it can go into - from
 		// the bag, or from another paperdoll slot (a ring to its other finger). The
 		// source slot itself never glows.
-		if ui.game.dragActive && equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) &&
+		if ui.game.drag.active && equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) &&
 			(ui.game.dragSrc == dragFromInventory ||
 				(ui.game.dragSrc == dragFromEquip && ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot != slotInfo.slot)) {
 			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{90, 220, 100, 240})
@@ -63,7 +63,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 		ui.equipSlotDropZone(slotInfo.slot, x, y, w, h) // drop inventory item here to equip
 		if equipped {
 			// Hide the icon while its own slot (on this same character) is dragged off.
-			dragging := ui.game.dragActive && ui.game.dragSrc == dragFromEquip &&
+			dragging := ui.game.drag.active && ui.game.dragSrc == dragFromEquip &&
 				ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot == slotInfo.slot
 			if !dragging {
 				// The complete authored icon square belongs on top of the paperdoll.
@@ -112,17 +112,16 @@ func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, tota
 	mouseX, mouseY := uiCursorPosition()
 
 	drawBtn := func(r layoutRect, label string, enabled bool, step int) {
-		ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()))
+		// Hover lights only on the live layer, as the click does.
+		ui.drawButtonFrame(screen, r.x, r.y, r.w, r.h, enabled && clickable && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom()))
 		if !enabled {
 			drawFilledRect(screen, r.x+2, r.y+2, r.w-4, r.h-4, color.RGBA{0, 0, 0, 100})
 		}
 		drawCenteredUIText(screen, label, r.x, r.y+2, r.w, r.h-2)
-		ui.onDisplayedInput(uiCommandNavigation, r, func() {
-			if enabled && clickable && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				*page = max(0, min(totalPages-1, *page+step))
-				for _, change := range onChange {
-					change()
-				}
+		ui.onClick(r, enabled && clickable, func() {
+			*page = max(0, min(totalPages-1, *page+step))
+			for _, change := range onChange {
+				change()
 			}
 		})
 	}
@@ -331,14 +330,14 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	if ui.inventoryInputBlocked() {
 		return
 	}
-	ui.onDisplayedInput(uiCommandNavigation, layoutRect{}, func() {
+	ui.onDisplayedInput(uiCommandClick, layoutRect{}, func() {
 		switch {
 		case ui.game.consumeLeftClickIn(x, y, x+menuW, y+24):
 			if !itemDiscardable(item) {
-				ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
+				ui.game.AddCombatMessage(uitext.Text("combat.cannot_discard", item.Name))
 			} else {
 				bag.Consume(idx, 1)
-				ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
+				ui.game.AddCombatMessage(uitext.Text("combat.discarded", item.Name))
 			}
 			ui.inventoryContextOpen = false
 		case ui.game.consumeLeftClickIn(x, y+(len(labels)-1)*24, x+menuW, y+len(labels)*24):
@@ -422,26 +421,14 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		drawUITextColored(screen, line, profileX, profileY+(len(profileLines)+i)*16, textColor)
 	}
 
-	effMight, effInt, effPers, effEnd, effAcc, effSpeed, effLuck := member.GetEffectiveStats()
-	stats := []struct {
-		name      string
-		base, eff int
-	}{
-		{"Might", member.Might, effMight},
-		{"Intellect", member.Intellect, effInt},
-		{"Personality", member.Personality, effPers},
-		{"Endurance", member.Endurance, effEnd},
-		{"Accuracy", member.Accuracy, effAcc},
-		{"Speed", member.Speed, effSpeed},
-		{"Luck", member.Luck, effLuck},
-	}
-	attributeRowH := min(sectionRowH, (layout.attributes.h-sectionBodyY-8)/len(stats))
-	for i, stat := range stats {
+	base, eff := member.BaseStats(), member.EffectiveStatBlock()
+	attributeRowH := min(sectionRowH, (layout.attributes.h-sectionBodyY-8)/len(stats.Names))
+	for i, name := range stats.Names {
 		x := layout.attributes.x + sectionTextInset
 		y := layout.attributes.y + sectionBodyY + i*attributeRowH
-		line := fmt.Sprintf("%s: %d", stat.name, stat.eff)
+		line := fmt.Sprintf("%s: %d", stats.Title(name), *eff.At(i))
 		drawUITextColored(screen, clipUIText(line, layout.attributes.w-2*sectionTextInset), x, y, textColor)
-		if delta := stat.eff - stat.base; delta != 0 {
+		if delta := *eff.At(i) - *base.At(i); delta != 0 {
 			clr := color.RGBA{130, 210, 130, 255}
 			if delta < 0 {
 				clr = color.RGBA{215, 120, 110, 255}
@@ -449,7 +436,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			drawUITextColored(screen, fmt.Sprintf(" (%+d)", delta), x+uiTextWidth(line), y, clr)
 		}
 		if len(tooltip) == 0 && isMouseHoveringBox(mouseX, mouseY, x, y, layout.attributes.right()-sectionTextInset, y+sectionRowH) {
-			tooltip = statTooltipRows(stat.name)
+			tooltip = statTooltipRows(name)
 			tooltipX, tooltipY = mouseX+16, mouseY+8
 		}
 	}
@@ -606,22 +593,6 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 
 const pagerBtnW, pagerBtnH = 30, 18
 
-// drawPagerButton renders one prev/next button and registers its Update action.
-// Shared by the quest and character list pagers.
-func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label string, enabled bool, onClick func()) {
-	mouseX, mouseY := uiCursorPosition()
-	ui.drawButtonFrame(screen, bx, y, pagerBtnW, pagerBtnH, enabled && isMouseHoveringBox(mouseX, mouseY, bx, y, bx+pagerBtnW, y+pagerBtnH))
-	if !enabled {
-		drawFilledRect(screen, bx+2, y+2, pagerBtnW-4, pagerBtnH-4, color.RGBA{0, 0, 0, 100})
-	}
-	drawCenteredUIText(screen, label, bx, y+2, pagerBtnW, pagerBtnH-2)
-	ui.onDisplayedInput(uiCommandNavigation, layoutRect{bx, y, pagerBtnW, pagerBtnH}, func() {
-		if enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH) {
-			onClick()
-		}
-	})
-}
-
 // drawSpellbookContent draws the spellbook tab content. The parchment spread
 // contains spell cards only; identity, navigation, controls and quick slots
 // live in the surrounding fullscreen hub.
@@ -708,7 +679,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 				// which runs before queued click handlers consume the same gesture.
 				if def.HasAutocast() {
 					box := spellAutocastRect(cardX, cardY, bl.cardW, bl.iconSize)
-					if isMouseHoveringBox(ui.game.dragStartX, ui.game.dragStartY, box.x, box.y, box.right(), box.bottom()) {
+					if isMouseHoveringBox(ui.game.drag.startX, ui.game.drag.startY, box.x, box.y, box.right(), box.bottom()) {
 						return
 					}
 				}
@@ -828,112 +799,32 @@ func spellInitials(name string) string {
 
 // handleInventoryItemClick handles double-click to equip items from inventory
 func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int, owner ...*character.MMCharacter) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x1, y1, (x2) - (x1), (y2) - (y1)}, func() { ui.handleInventoryItemClick(itemIndex, x1, y1, x2, y2, owner...) })
-		return
-	}
-
-	if ui.inventoryInputBlocked() {
-		return
-	}
-	// Check for mouse click
-	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
-		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
-
-		// Only a fast second click acts; a pause leaves this as selection.
-		doubleClick := itemIndex == ui.lastClickedItem && ui.lastClickedBagOwner == ui.game.party.Bag(owner...).Owner &&
-			withinDoubleClickWindow(currentTime.UnixMilli(), ui.lastClickTime.UnixMilli())
-		if doubleClick {
-			// Double-click detected - try to equip or use the item
-			item := ui.game.party.Bag(owner...).Items()[itemIndex]
-			currentChar := ui.game.party.Members[ui.game.selectedChar]
-
-			if item.Type == items.ItemQuest {
-				if itemOpensMap(&item) {
-					ui.game.mapOverlayOpen = true
-					return
-				}
-				if item.Attributes["promotes_lich"] > 0 {
-					ui.game.useLichPhylactery(itemIndex, ui.game.party.Bag(owner...).Owner)
-					return
-				}
-			}
-
-			if item.Type == items.ItemDevice {
-				ui.game.useDeviceFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
-			} else if item.Type == items.ItemConsumable {
-				// Use consumable item
-				ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner)
-			} else if item.Type == items.ItemWeapon || item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
-				if ui.game.equipPartyItemFromInventory(itemIndex, ui.game.selectedChar, ui.game.party.Bag(owner...).Owner) {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!", currentChar.Name, item.Name))
-				} else {
-					verb := "use"
-					if item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
-						verb = "wear"
-					}
-					ui.game.AddCombatMessage(fmt.Sprintf("%s cannot %s %s!", currentChar.Name, verb, item.Name))
-				}
-			}
-			// Spells (ItemBattleSpell/ItemUtilitySpell) are spellbook-owned;
-			// they shouldn't appear in inventory, so we don't equip from here.
-
-			// Consume the double-click: reset to a sentinel so a third rapid
-			// click starts a fresh pair instead of re-triggering. Equipping
-			// shifts the next item into this index, so without this a burst of
-			// clicks equips a whole cascade of items.
-			ui.lastClickedItem = -1
-			ui.lastClickTime = time.Time{}
-			return
+	ui.onGatedClick(layoutRect{x1, y1, x2 - x1, y2 - y1}, func() bool { return !ui.inventoryInputBlocked() }, func() {
+		// Only a fast second click acts; a pause leaves this as selection. The
+		// pair resets, or a burst of clicks would equip the whole cascade of
+		// items that shifts into this index.
+		bagOwner := ui.game.party.Bag(owner...).Owner
+		if ui.bagClicks.click(bagClickKey{itemIndex, bagOwner}, ui.game.mouseLeftClickAt) {
+			ui.game.useBagItem(itemIndex, bagOwner)
 		}
-
-		ui.lastClickedItem = itemIndex
-		ui.lastClickedBagOwner = ui.game.party.Bag(owner...).Owner
-		ui.lastClickTime = currentTime
-	}
-
-	// Mouse state is updated once per frame in updateMouseState().
+	})
 }
 
 // handleEquippedItemClick handles double-click to unequip items from equipment slots
 func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2 int) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{x1, y1, (x2) - (x1), (y2) - (y1)}, func() { ui.handleEquippedItemClick(slot, x1, y1, x2, y2) })
-		return
-	}
-
-	if ui.inventoryInputBlocked() {
-		return
-	}
-	// Check for mouse click
-	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
-		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
-
+	ui.onGatedClick(layoutRect{x1, y1, x2 - x1, y2 - y1}, func() bool { return !ui.inventoryInputBlocked() }, func() {
 		// Only a fast second click acts; a pause leaves this as selection.
-		doubleClick := slot == ui.lastClickedSlot &&
-			withinDoubleClickWindow(currentTime.UnixMilli(), ui.lastEquipClickTime.UnixMilli())
-		if doubleClick {
-			// Double-click detected - try to unequip the item
-			currentChar := ui.game.party.Members[ui.game.selectedChar]
-			if item, exists := currentChar.Equipment[slot]; exists {
-				itemName := item.Name
-				if ui.game.unequipPartyItemToInventory(slot, ui.game.selectedChar, currentChar) {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s unequipped %s!",
-						currentChar.Name, itemName))
-				} else {
-					ui.game.AddCombatMessage("Cannot unequip this item!")
-				}
-			}
-			// Consume the double-click so a third rapid click doesn't re-fire.
-			// -1 is not a real slot, so the next click can't pair with it.
-			ui.lastClickedSlot = items.EquipSlot(-1)
-			ui.lastEquipClickTime = time.Time{}
+		if !ui.equipClicks.click(slot, ui.game.mouseLeftClickAt) {
 			return
 		}
-
-		ui.lastClickedSlot = slot
-		ui.lastEquipClickTime = currentTime
-	}
-
-	// Mouse state is updated once per frame in updateMouseState().
+		currentChar := ui.game.party.Members[ui.game.selectedChar]
+		if item, exists := currentChar.Equipment[slot]; exists {
+			itemName := item.Name
+			if ui.game.unequipPartyItemToInventory(slot, ui.game.selectedChar, currentChar) {
+				ui.game.AddCombatMessage(uitext.Text("combat.unequipped", currentChar.Name, itemName))
+			} else {
+				ui.game.AddCombatMessage(uitext.Text("combat.cannot_unequip_this_item"))
+			}
+		}
+	})
 }

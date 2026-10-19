@@ -71,27 +71,20 @@ func TestElementalCommitClocksAndInvalidActions(t *testing.T) {
 }
 
 func TestElementalSpecialsAndChampionsStayExcluded(t *testing.T) {
-	for _, special := range []string{"breath", "fireburst", "piercing", "inferno"} {
-		t.Run(special, func(t *testing.T) {
+	for _, special := range catalogPartyAttacks(t) {
+		t.Run(special.Key, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
 			elementalTestBiome(t, cs, "earth")
 			cs.elementalAttackRoll = func() float64 { t.Fatal("special action rolled melee proc"); return 0 }
 			m := mkTestMonster("Special", 1000)
 			m.DamageMin, m.DamageMax = 10, 10
-			switch special {
-			case "breath":
-				m.Abilities.DragonBreath.Chance = 1
-				m.Abilities.DragonBreath.DamageType = "fire"
+			// An attack-trigger entry rides the melee path; a nova is a boss
+			// action and is cast directly.
+			if special.Trigger == monster.PartyAttackOnAttack {
+				armTestPartyAttack(m, special, 10)
 				cs.applyMonsterMeleeDamage(m)
-			case "fireburst":
-				m.Abilities.Fireburst.Chance = 1
-				cs.applyMonsterMeleeDamage(m)
-			case "piercing":
-				m.Abilities.PiercingShot.Chance = 1
-				cs.applyMonsterMeleeDamage(m)
-			case "inferno":
-				m.Abilities.Inferno.Damage = 20
-				cs.applyMonsterInferno(m)
+			} else {
+				castTestPartyAttack(cs, m, special, 20)
 			}
 			if len(cs.game.elementalAttackEffects) > 0 {
 				t.Fatal("special action acquired elemental FX")

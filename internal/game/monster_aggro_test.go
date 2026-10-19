@@ -113,7 +113,7 @@ func TestPursuitTemporaryRetaliation(t *testing.T) {
 				m.SpawnX += 2 * ts
 				g.registerSpawnedMonster(m)
 				g.turnBasedMode = tb
-				g.combat.ApplyDamageToMonster(m, 1, "Test", false)
+				g.combat.ApplyDamageToMonster(m, 1, testWeapon("Test"), false)
 				if !m.TargetsParty() || m.Retaliation.Frames != int(.1*float64(cfg.GetTPS())) || m.Retaliation.RadiusTiles != 20+cfg.MonsterAI.Pursuit.RetaliationMarginTiles {
 					t.Fatal("party hit did not grant authored temporary retaliation from its actual range")
 				}
@@ -160,13 +160,13 @@ func TestPursuitTemporaryRetaliation(t *testing.T) {
 				}
 				m.AttackCDFrames, m.OffHandCDFrames, m.PounceCD.Frames, m.PounceCD.Turns, m.PounceCD.Rate = 2, 3, 4, 2, 2
 				m.PhaseShiftCD.Frames, m.PhaseShiftCD.Turns, m.PhaseShiftCD.Rate = 4, 2, 2
-				m.BossCD, m.InfernoCD = framesClock(2), framesClock(2)
+				m.BossCD, m.NovaRollCD = framesClock(2), framesClock(2)
 				m.TrapVolleyCD.Frames, m.TrapVolleyCD.Turns, m.TrapVolleyCD.Rate = 4, 2, 2
 				g.combat.HandleMonsterInteractions()
 				if m.AttackCDFrames != 1 || m.OffHandCDFrames != 2 || m.PounceCD.Frames != 3 || m.PhaseShiftCD.Frames != 3 {
 					t.Fatal("calm monster froze its attack recovery")
 				}
-				if boss && (m.BossCD.Frames != 1 || m.InfernoCD.Frames != 1 || m.TrapVolleyCD.Frames != 3 || len(g.bossFireTraps) != 0) {
+				if boss && (m.BossCD.Frames != 1 || m.NovaRollCD.Frames != 1 || m.TrapVolleyCD.Frames != 3 || len(g.bossFireTraps) != 0) {
 					t.Fatal("calm boss recovery must tick without releasing an action")
 				}
 			})
@@ -246,7 +246,7 @@ func TestPursuitRegionExitAndReentry(t *testing.T) {
 	if !normal.PartyOutsideHome() {
 		t.Fatal("scope query retained a cached party biome")
 	}
-	g.combat.ApplyDamageToMonster(normal, 1, "Test", false)
+	g.combat.ApplyDamageToMonster(normal, 1, testWeapon("Test"), false)
 	if !normal.TargetsParty() {
 		t.Fatal("cross-biome party attack received no retaliation")
 	}
@@ -258,7 +258,7 @@ func TestPursuitRegionExitAndReentry(t *testing.T) {
 		t.Fatal("cross-biome retaliation outlived its timer")
 	}
 	// A separate physical world never inherits the temporary region exception.
-	g.combat.ApplyDamageToMonster(normal, 1, "Test", false)
+	g.combat.ApplyDamageToMonster(normal, 1, testWeapon("Test"), false)
 	originalWorld := g.world
 	g.world = newTestWorldSized(cfg, 8, 8)
 	if normal.TargetsParty() {
@@ -307,7 +307,7 @@ func TestPursuitSaveMemoryAndLegacyMigration(t *testing.T) {
 				m.SpawnX += 2 * ts
 				m.EndPlayerEngagement()
 				if state != "returning" {
-					g.combat.ApplyDamageToMonster(m, 1, "Test", false)
+					g.combat.ApplyDamageToMonster(m, 1, testWeapon("Test"), false)
 					m.TickRetaliation(false)
 				}
 				frames, hp, pending := m.Retaliation.Frames, m.HitPoints, m.BandHitPending

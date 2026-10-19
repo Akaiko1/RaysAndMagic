@@ -5,10 +5,11 @@ import (
 	"math"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestPartyPortraitLayoutSpansViewportAndStaysProportional(t *testing.T) {

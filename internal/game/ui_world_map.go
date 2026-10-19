@@ -74,7 +74,7 @@ func atlasHasTile(w *world.World3D, x, y int) bool {
 		return false
 	}
 	wm := world.GlobalWorldManager
-	return wm == nil || wm.OpenWorld != w || wm.OpenWorldRegionAtTile(x, y) != nil
+	return wm == nil || wm.OpenWorld != w || wm.OpenWorldTileInWorld(x, y)
 }
 
 func atlasTerrainHash(w *world.World3D) uint64 {
@@ -221,7 +221,7 @@ func (ui *UISystem) atlasBounds() image.Rectangle {
 	full := image.Rect(0, 0, w.Width, w.Height)
 	for _, r := range atlasRegions(w) {
 		if r.MapKey == ui.atlas.region {
-			return image.Rect(r.OffsetX-2, r.OffsetY-2, r.OffsetX+r.Width+2, r.OffsetY+r.Height+2).Intersect(full)
+			return r.TileBounds().Inset(-2).Intersect(full)
 		}
 	}
 	ui.atlas.region = ""
@@ -265,7 +265,7 @@ func (g *MMGame) partyCarriesMap() bool {
 // openWorldMap is the N key: the atlas opens while the party carries a map.
 func (g *MMGame) openWorldMap() {
 	if !g.partyCarriesMap() {
-		g.AddCombatMessage("The party carries no map.")
+		g.AddCombatMessage(uitext.Text("combat.the_party_carries_no_map"))
 		return
 	}
 	g.mapOverlayOpen = true
@@ -435,11 +435,9 @@ func (ui *UISystem) atlasButton(screen *ebiten.Image, r layoutRect, label string
 	hover := isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom())
 	ui.drawAtlasButtonFace(screen, r, hover, selected)
 	drawCenteredTextWithShadow(screen, label, r.x+14, r.y, r.w-28, r.h, atlasGold)
-	ui.onDisplayedInput(uiCommandNavigation, r, func() {
-		if ui.topModalLayer() == modalLayerMap && ui.game.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-			action()
-			ui.dropQueuedClicks()
-		}
+	ui.onGatedClick(r, func() bool { return ui.topModalLayer() == modalLayerMap }, func() {
+		action()
+		ui.dropQueuedClicks()
 	})
 }
 

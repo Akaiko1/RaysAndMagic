@@ -1,10 +1,11 @@
 package main
 
 import (
-	"gopkg.in/yaml.v3"
 	"os"
 	"testing"
 	"ugataima/internal/character"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestCulvertGatePaletteScope(t *testing.T) {

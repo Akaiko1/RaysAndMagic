@@ -107,10 +107,8 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 		hover := isMouseHoveringBox(mx, my, r.x, r.y, r.right(), r.bottom())
 		ui.drawHighScoreRow(screen, r, i, e, i == chosen, hover)
 		index := i
-		ui.onDisplayedInput(uiCommandClick, r, func() {
-			if g.consumeLeftClickIn(r.x, r.y, r.right(), r.bottom()) {
-				g.highScoreSelection = index
-			}
+		ui.onClick(r, true, func() {
+			g.highScoreSelection = index
 		})
 	}
 	ui.drawHighScoreDetail(screen, l.detail, chosen, board.Entries[chosen])

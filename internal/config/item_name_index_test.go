@@ -110,3 +110,30 @@ func TestItemLegacyNames(t *testing.T) {
 		})
 	}
 }
+
+// One key or display name names one entry across items.yaml and weapons.yaml.
+func TestCatalogsDisjoint(t *testing.T) {
+	weapons := &WeaponSystemConfig{Weapons: map[string]*WeaponDefinitionConfig{
+		"iron_sword": {Name: "Iron Sword", LegacyNames: []string{"Old Sword"}},
+	}}
+	for _, tc := range []struct {
+		name    string
+		item    ItemDefinitionConfig
+		key     string
+		wantErr string
+	}{
+		{"distinct", ItemDefinitionConfig{Name: "Potion"}, "potion", ""},
+		{"shared key", ItemDefinitionConfig{Name: "Potion"}, "iron_sword", "also a weapon key"},
+		{"shared name", ItemDefinitionConfig{Name: "Iron Sword"}, "potion", "share the name"},
+		{"weapon's former name", ItemDefinitionConfig{Name: "Old Sword"}, "potion", "share the name"},
+		{"item's former name", ItemDefinitionConfig{Name: "Potion", LegacyNames: []string{"Iron Sword"}}, "potion", "share the name"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def := tc.item
+			err := validateCatalogsDisjoint(&ItemSystemConfig{Items: map[string]*ItemDefinitionConfig{tc.key: &def}}, weapons)
+			if (err == nil) != (tc.wantErr == "") || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("validateCatalogsDisjoint = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}

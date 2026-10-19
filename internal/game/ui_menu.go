@@ -3,11 +3,9 @@ package game
 import (
 	"fmt"
 	"image/color"
-	"time"
 	uitext "ugataima/assets/text"
 
 	"ugataima/internal/character"
-	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -88,7 +86,14 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		if saving {
 			heading, hint = "Save Game", saveMenuHint
 		}
-		ui.drawSaveList(screen, l, heading, ui.game.slotSelection, saving, !ui.game.saveRenameOpen)
+		ui.drawSaveList(screen, l, heading, ui.game.slotSelection, saving)
+		g := ui.game
+		if saving {
+			ui.saveListInput(l, func(i int) { g.slotSelection = i; g.saveToSelectedRow() },
+				func(i int) { g.slotSelection = i; g.openSaveRename(g.savePage*saveRowsPerPage + i) })
+		} else {
+			ui.saveListInput(l, func(i int) { g.slotSelection = i; g.loadSelectedRow() }, nil)
+		}
 		drawUITextColored(screen, clipUIText(hint, l.title.w), l.title.x, l.hintY, gameplayInk.muted)
 		if ui.game.saveRenameOpen {
 			ui.drawSaveRenameDialog(screen)
@@ -166,14 +171,15 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 
 		// A modal above the hub owns the click queue; tabs must not consume one of
 		// its buttons through the overlay (topModalLayer).
-		if !ui.modalLayerOwnsInput() {
-			ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
-		}
+		tab := tabInfo.tab
+		ui.onClick(tabRect, !ui.modalLayerOwnsInput(), func() {
+			if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
+				ui.spellPage = 0
+			}
+			ui.game.showMenuTab(tab)
+		})
 	}
-	// Handle mouse clicks on close button
-	if !ui.modalLayerOwnsInput() {
-		ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
-	}
+	ui.onClick(layout.close, !ui.modalLayerOwnsInput(), func() { ui.game.menuOpen = false })
 
 	ui.drawCloseButtonVisual(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 
@@ -231,35 +237,6 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, content layoutRect) {
 	}
 }
 
-// handleTabClick checks if mouse clicked on a tab and switches to it
-func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab MenuTab) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{tabX, tabY, tabWidth, tabHeight}, func() { ui.handleTabClick(tabX, tabY, tabWidth, tabHeight, tab) })
-		return
-	}
-
-	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
-		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
-			// Entering the spellbook fresh: no spell highlighted until user picks one.
-			ui.game.selectedSpell = -1
-			ui.spellPage = 0
-		}
-		ui.game.currentTab = tab
-	}
-}
-
-// handleCloseButtonClick checks if mouse clicked on the close button and closes the menu
-func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, buttonHeight int) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, layoutRect{buttonX, buttonY, buttonWidth, buttonHeight}, func() { ui.handleCloseButtonClick(buttonX, buttonY, buttonWidth, buttonHeight) })
-		return
-	}
-
-	if ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
-		ui.game.menuOpen = false
-	}
-}
-
 // dispatchCharacterHubWorldAction closes the hub before a world-facing action
 // observes game state. Refused actions restore the hub unless a follow-up modal
 // took ownership (target selection is not yet a committed action). The return
@@ -279,18 +256,8 @@ func (g *MMGame) dispatchCharacterHubWorldAction(action func() bool) bool {
 
 // handleSpellbookSchoolClick checks if mouse clicked on a magic school and selects it
 func (ui *UISystem) handleSpellbookSchoolClick(bounds layoutRect, schoolIndex int, school character.MagicSchoolID) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, bounds, func() { ui.handleSpellbookSchoolClick(bounds, schoolIndex, school) })
-		return
-	}
-
-	if ui.modalLayerOwnsInput() {
-		return
-	}
-	if ui.game.consumeLeftClickIn(bounds.x, bounds.y, bounds.right(), bounds.bottom()) {
-		currentTime := ui.game.mouseLeftClickAt
-		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex &&
-			withinDoubleClickWindow(currentTime, ui.game.lastSchoolClickTime)
+	ui.onGatedClick(bounds, func() bool { return !ui.modalLayerOwnsInput() }, func() {
+		doubleClick := ui.game.schoolClicks.click(schoolIndex, ui.game.mouseLeftClickAt)
 
 		ui.game.selectedSchool = schoolIndex
 		// Don't auto-select a spell - wait for the user to click one.
@@ -299,14 +266,8 @@ func (ui *UISystem) handleSpellbookSchoolClick(bounds layoutRect, schoolIndex in
 
 		if doubleClick {
 			ui.game.collapsedSpellSchools[school] = !ui.game.collapsedSpellSchools[school]
-			ui.game.lastSchoolClickTime = 0
-			ui.game.lastSchoolClickedIdx = -1
-			return
 		}
-
-		ui.game.lastSchoolClickTime = currentTime
-		ui.game.lastSchoolClickedIdx = schoolIndex
-	}
+	})
 }
 
 // syncCharacterHubClickContext prevents one screen's first click from pairing
@@ -325,37 +286,22 @@ func (ui *UISystem) syncCharacterHubClickContext() {
 	ui.hubInteractionOpen = true
 	ui.hubInteractionChar = ui.game.selectedChar
 	ui.hubInteractionTab = ui.game.currentTab
-	ui.lastClickTime = time.Time{}
-	ui.lastClickedItem = -1
-	ui.lastEquipClickTime = time.Time{}
-	ui.lastClickedSlot = items.EquipSlot(-1)
-	ui.game.lastBookClickTime = 0
-	ui.game.lastClickedBookEntry = -1
-	ui.game.lastClickedBookGroup = -1
-	ui.game.lastSchoolClickTime = 0
-	ui.game.lastSchoolClickedIdx = -1
+	ui.bagClicks.reset()
+	ui.equipClicks.reset()
+	ui.game.bookClicks.reset()
+	ui.game.schoolClicks.reset()
 }
 
 // Both books bind a double-click to the quick action. The callback only
 // supplies the book's selection and equipment rules; gesture ownership is shared.
 func (ui *UISystem) handleBookEntryClick(bounds layoutRect, group, index int, selectEntry, equipEntry func()) {
-	if ui.displayedInput.building {
-		ui.onDisplayedInput(uiCommandClick, bounds, func() { ui.handleBookEntryClick(bounds, group, index, selectEntry, equipEntry) })
-		return
-	}
-	if ui.modalLayerOwnsInput() || !ui.game.consumeLeftClickIn(bounds.x, bounds.y, bounds.right(), bounds.bottom()) {
-		return
-	}
-	g := ui.game
-	now := g.mouseLeftClickAt
-	doubleClick := g.lastClickedBookEntry == index && g.lastClickedBookGroup == group && withinDoubleClickWindow(now, g.lastBookClickTime)
-	selectEntry()
-	if doubleClick {
-		equipEntry()
-		g.lastBookClickTime, g.lastClickedBookEntry, g.lastClickedBookGroup = 0, -1, -1
-		return
-	}
-	g.lastBookClickTime, g.lastClickedBookEntry, g.lastClickedBookGroup = now, index, group
+	ui.onGatedClick(bounds, func() bool { return !ui.modalLayerOwnsInput() }, func() {
+		doubleClick := ui.game.bookClicks.click(bookClickKey{group, index}, ui.game.mouseLeftClickAt)
+		selectEntry()
+		if doubleClick {
+			equipEntry()
+		}
+	})
 }
 
 func (ui *UISystem) handleSpellbookSpellClick(x, y, w, h, schoolIndex, spellIndex int) {

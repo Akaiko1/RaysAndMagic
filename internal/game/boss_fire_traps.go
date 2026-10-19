@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
@@ -84,10 +85,15 @@ func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D) {
 		return
 	}
 	m.ArmTrapVolleyCooldown(cs.game.config.GetTPS())
-	cs.game.sowBossTrapField(m)
-	if len(cs.game.bossFireTraps) > 0 {
-		cs.game.observeOverwatchAttack(m)
-	}
+	// Sowing the field is the attack Overwatch answers; a trap that later
+	// erupts under the party is not a new action.
+	cs.monsterActionScope(m, nil, func() bool {
+		cs.game.sowBossTrapField(m)
+		if len(cs.game.bossFireTraps) > 0 {
+			cs.recordMonsterPartyAttack(m)
+		}
+		return true
+	})
 }
 
 // sowBossTrapField replaces the field with a fresh volley around the boss.
@@ -125,7 +131,7 @@ func (g *MMGame) sowBossTrapField(m *monsterPkg.Monster3D) {
 	}
 	g.bossFireTraps = field
 	g.bossFireTrapsOwner = m.ID
-	g.logCombat(logToneBad, "%s seeds the ground with %s!", logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "smouldering eggs"))
+	g.logCombatLine(logToneBad, uitext.Text("combat.seeds_the_ground_with", logSlot, logSlot), logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "smouldering eggs"))
 }
 
 // checkBossFireTraps runs every frame in both modes: clears an orphaned field
@@ -159,14 +165,15 @@ func (g *MMGame) detonateBossFireTrap(owner *monsterPkg.Monster3D) {
 	if cs == nil {
 		return
 	}
-	g.logCombat(logToneBad, "The ground erupts in %s!", logSchoolWord(monsterPkg.DamageFire.String(), "brood-fire"))
+	g.logCombatLine(logToneBad, uitext.Text("combat.the_ground_erupts_in", logSlot), logSchoolWord(monsterPkg.DamageFire.String(), "brood-fire"))
 	g.CreateSpellHitEffect(g.camera.X, g.camera.Y, "fire", 26, 9, nil)
 	g.addScreenShake(3, 5)
-	// The field carries authored trap damage only, not the owner's true_damage.
+	// A trap carries its share of the owner's attack, not the owner's true_damage.
 	hit := monsterCharacterHit{
-		Parts:      owner.OutgoingDamage(damagecalc.Parts{Normal: owner.Abilities.TrapVolley.Damage}),
+		Parts:      owner.OutgoingDamage(damagecalc.Parts{Normal: attackShare(owner, owner.Abilities.TrapVolley.DamagePercent)}),
 		DamageType: monsterPkg.DamageFire.String(),
 		Hazard:     true,
+		NoRiders:   !owner.Abilities.TrapVolley.Riders.Carried(),
 	}
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(owner, member, "Brood-fire trap", hit)

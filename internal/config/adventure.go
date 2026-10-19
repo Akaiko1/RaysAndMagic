@@ -25,17 +25,41 @@ type AdventureSchedule struct {
 	RequiresSpell        string      `yaml:"requires_spell"`
 	Days                 [][2]string `yaml:"days"`
 }
+
+// EffectKind is the closed set of chamber environment effects.
+type EffectKind string
+
+const (
+	EffectOccupation EffectKind = "occupation"
+	EffectTrap       EffectKind = "trap"
+	EffectTransfer   EffectKind = "transfer"
+	EffectLane       EffectKind = "lane"
+)
+
+// KindNames is a closed set of typed kinds as plain strings (editor choices,
+// messages that list a set).
+func KindNames[K ~string](kinds []K) []string {
+	out := make([]string, len(kinds))
+	for i, k := range kinds {
+		out[i] = string(k)
+	}
+	return out
+}
+
+// EffectKinds lists every effect kind, in the editor's order.
+var EffectKinds = []EffectKind{EffectTrap, EffectOccupation, EffectTransfer, EffectLane}
+
 type EnvironmentEffect struct {
-	RequiresControl string `yaml:"requires_control,omitempty"`
-	TriggerLane     string `yaml:"trigger_lane,omitempty"`
-	ID              string `yaml:"id"`
-	Kind            string `yaml:"kind"` // occupation, trap, transfer, or lane
-	Name            string `yaml:"name"`
-	Rect            [4]int `yaml:"rect"` // inclusive x0,y0,x1,y1
-	School          string `yaml:"school,omitempty"`
-	SecondarySchool string `yaml:"secondary_school,omitempty"`
-	Damage          int    `yaml:"damage,omitempty"`
-	SustainDamage   int    `yaml:"sustain_damage,omitempty"`
+	RequiresControl string     `yaml:"requires_control,omitempty"`
+	TriggerLane     string     `yaml:"trigger_lane,omitempty"`
+	ID              string     `yaml:"id"`
+	Kind            EffectKind `yaml:"kind"`
+	Name            string     `yaml:"name"`
+	Rect            [4]int     `yaml:"rect"` // inclusive x0,y0,x1,y1
+	School          string     `yaml:"school,omitempty"`
+	SecondarySchool string     `yaml:"secondary_school,omitempty"`
+	Damage          int        `yaml:"damage,omitempty"`
+	SustainDamage   int        `yaml:"sustain_damage,omitempty"`
 	// DamagePercent and SustainPercent author the damage as a percent of the
 	// map boss's attack at the visit's level, so it grows with the chamber;
 	// each replaces its flat counterpart.
@@ -232,10 +256,10 @@ func (c *MapConfigs) ValidateAdventures() error {
 				return fail("invalid or duplicate effect " + e.ID)
 			}
 			ids[e.ID] = true
-			if e.Kind != "occupation" && e.Kind != "trap" && e.Kind != "transfer" && e.Kind != "lane" {
-				return fail("unknown effect kind " + e.Kind)
+			if !slices.Contains(EffectKinds, e.Kind) {
+				return fail("unknown effect kind " + string(e.Kind))
 			}
-			if e.Kind != "transfer" && ((e.Damage > 0) == (e.DamagePercent > 0) || !validSchool(e.School)) {
+			if e.Kind != EffectTransfer && ((e.Damage > 0) == (e.DamagePercent > 0) || !validSchool(e.School)) {
 				return fail("damage needs exactly one of damage or damage_percent, and a known school")
 			}
 			if e.Damage < 0 || e.DamagePercent < 0 || e.SustainDamage < 0 || e.SustainPercent < 0 || (e.SustainDamage > 0 && e.SustainPercent > 0) {
@@ -244,29 +268,29 @@ func (c *MapConfigs) ValidateAdventures() error {
 			if (e.DamagePercent > 0 || e.SustainPercent > 0) && a.Boss == nil {
 				return fail("percent damage on " + e.ID + " needs a map boss")
 			}
-			if e.Kind != "lane" && (e.SustainDamage > 0 || e.SustainPercent > 0) {
+			if e.Kind != EffectLane && (e.SustainDamage > 0 || e.SustainPercent > 0) {
 				return fail("lingering damage on " + e.ID + " is for lanes only")
 			}
-			if e.Kind == "transfer" && (e.Damage > 0 || e.DamagePercent > 0) {
+			if e.Kind == EffectTransfer && (e.Damage > 0 || e.DamagePercent > 0) {
 				return fail("transfer " + e.ID + " deals no damage")
 			}
 			if e.SecondarySchool != "" && !validSchool(e.SecondarySchool) {
 				return fail("unknown secondary school")
 			}
-			if e.Kind == "transfer" && (e.Destination[0] < 0 || e.Destination[1] < 0 || e.Contains(e.Destination[0], e.Destination[1])) {
+			if e.Kind == EffectTransfer && (e.Destination[0] < 0 || e.Destination[1] < 0 || e.Contains(e.Destination[0], e.Destination[1])) {
 				return fail("invalid receiver")
 			}
-			if e.Kind == "lane" && (e.WarningSeconds <= 0 || e.WarningRounds < 1) {
+			if e.Kind == EffectLane && (e.WarningSeconds <= 0 || e.WarningRounds < 1) {
 				return fail("lanes require RT and TB warning")
 			}
-			if e.Kind == "lane" {
+			if e.Kind == EffectLane {
 				if err := ValidateEffectSeconds("lane "+e.ID+" duration_seconds", e.DurationSeconds); err != nil {
 					return fail(err.Error())
 				}
 			} else if e.DurationSeconds != 0 {
 				return fail("duration_seconds is for lanes only")
 			}
-			if e.Kind == "trap" && (e.RearmSeconds <= 0 || e.RearmRounds < 1) {
+			if e.Kind == EffectTrap && (e.RearmSeconds <= 0 || e.RearmRounds < 1) {
 				return fail("traps require RT and TB rearm")
 			}
 			for _, n := range []float64{e.WarningSeconds, e.RearmSeconds} {
@@ -306,7 +330,7 @@ func (c *MapConfigs) ValidateAdventures() error {
 			}
 			if e.TriggerLane != "" {
 				lane := a.Effect(e.TriggerLane)
-				if e.Kind != "transfer" || lane == nil || lane.Kind != "lane" {
+				if e.Kind != EffectTransfer || lane == nil || lane.Kind != EffectLane {
 					return fail("transfer requires a known trigger lane")
 				}
 			}
@@ -326,7 +350,7 @@ func (c *MapConfigs) ValidateAdventures() error {
 					}
 					for _, id := range pattern {
 						e := a.Effect(id)
-						if e == nil || e.Kind != "lane" || seen[id] {
+						if e == nil || e.Kind != EffectLane || seen[id] {
 							return fail("invalid or duplicate boss phase lane")
 						}
 						seen[id] = true
@@ -350,7 +374,7 @@ func (c *MapConfigs) ValidateAdventures() error {
 			}
 			for _, id := range b.Lanes {
 				e := a.Effect(id)
-				if e == nil || e.Kind != "lane" {
+				if e == nil || e.Kind != EffectLane {
 					return fail("boss names invalid lane")
 				}
 			}

@@ -6,7 +6,7 @@ import (
 )
 
 func TestTelegraphedAttackValidation(t *testing.T) {
-	good := TelegraphedAttack{Name: "Wave", Kind: "slow", School: "water", Shape: "cone", Range: 5, CooldownSeconds: 9, CooldownRounds: 3, WarningSeconds: 1.25, WarningRounds: 1, DamagePercent: 90, DurationSeconds: 9}
+	good := TelegraphedAttack{Name: "Wave", Kind: "slow", School: "water", Shape: "cone", Range: 5, CooldownSeconds: 9, CooldownRounds: 3, WarningSeconds: 1.25, WarningRounds: 1, DamagePercent: 90, DurationSeconds: 9, Riders: CarryRiders(false)}
 	if err := good.validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +43,10 @@ func TestTelegraphedAttackValidation(t *testing.T) {
 		{"root-without-duration", func(a *TelegraphedAttack) { a.Kind, a.DurationSeconds = "root", 0 }},
 		{"damage", func(a *TelegraphedAttack) { a.DamagePercent = 201 }},
 		{"threshold", func(a *TelegraphedAttack) { a.BelowHPPercent = 101 }},
-		{"sustain-duration", func(a *TelegraphedAttack) { a.Kind, a.DurationSeconds, a.SustainDamage = "strike", 0, 8 }},
+		{"sustain-duration", func(a *TelegraphedAttack) { a.Kind, a.DurationSeconds, a.SustainPercent = "strike", 0, 17 }},
 		{"shield-duration", func(a *TelegraphedAttack) { a.Kind, a.DurationSeconds = "shield", 0 }},
+		{"damage-without-riders", func(a *TelegraphedAttack) { a.Riders = Riders{} }},
+		{"riders-without-damage", func(a *TelegraphedAttack) { a.DamagePercent = 0 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := good

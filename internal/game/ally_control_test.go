@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -158,7 +159,7 @@ func TestAllyMatrix_PartyDamageTransparency(t *testing.T) {
 			g, _ := summonTileWorld(t)
 			m := tc.spawn(t, g)
 			hp := m.HitPoints
-			g.combat.ApplyDamageToMonster(m, 50, "", false)
+			g.combat.ApplyDamageToMonster(m, 50, items.Item{}, false)
 			if tc.pure && m.HitPoints != hp {
 				t.Errorf("pure summon took %d party damage", hp-m.HitPoints)
 			}

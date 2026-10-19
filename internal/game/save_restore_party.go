@@ -16,7 +16,7 @@ func (g *MMGame) restoreSavedParty(save *GameSave) {
 		ui.inventoryContextOpen, ui.inventoryContextOwner = false, nil
 		ui.inventoryPage, ui.personalInventoryPage = 0, 0
 		ui.inventoryTab, ui.personalInventoryTab = inventoryTabAll, inventoryTabAll
-		ui.lastClickedItem, ui.lastClickedBagOwner = -1, nil
+		ui.bagClicks.reset()
 	}
 	g.pickerInventoryOwner, g.promotionPickerItemOwner, g.dragInvOwner = nil, nil, nil
 	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, ArenaPoints: save.Party.ArenaPoints, Inventory: save.Party.Inventory}

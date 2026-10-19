@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"testing"
-	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
@@ -187,19 +186,13 @@ func TestCharacterHubContextChangeBreaksDoubleClickChains(t *testing.T) {
 	g.currentTab = TabInventory
 	ui.syncCharacterHubClickContext()
 
-	ui.lastClickedItem = 3
-	ui.lastClickTime = time.UnixMilli(1000)
-	ui.lastClickedSlot = items.SlotMainHand
-	ui.lastEquipClickTime = time.UnixMilli(1000)
-	g.lastClickedBookEntry = 1
-	g.lastClickedBookGroup = 0
-	g.lastBookClickTime = 1000
+	ui.bagClicks.click(bagClickKey{index: 3}, 1000)
+	ui.equipClicks.click(items.SlotMainHand, 1000)
+	g.bookClicks.click(bookClickKey{0, 1}, 1000)
 
 	g.selectedChar = 1
 	ui.syncCharacterHubClickContext()
-	if ui.lastClickedItem != -1 || !ui.lastClickTime.IsZero() ||
-		ui.lastClickedSlot != items.EquipSlot(-1) || !ui.lastEquipClickTime.IsZero() ||
-		g.lastClickedBookEntry != -1 || g.lastClickedBookGroup != -1 || g.lastBookClickTime != 0 {
+	if ui.bagClicks.pending() || ui.equipClicks.pending() || g.bookClicks.pending() {
 		t.Fatal("character switch preserved a double-click chain from the previous character")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/stats"
 	"ugataima/internal/world"
 )
 
@@ -124,12 +125,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Local canon: unified-world containers persist as (region key +
 			// map-local coords), resolved by POSITION (a bag can drop across a
 			// region seam from the key it was tagged with).
-			cMapKey, cX, cY := c.MapKey, c.X, c.Y
-			if wm != nil && wm.IsOpenWorldRegion(cMapKey) {
-				if key, lx, ly, ok := wm.LocalizeWorldPos(cX, cY); ok {
-					cMapKey, cX, cY = key, lx, ly
-				}
-			}
+			cMapKey, cX, cY := savedPos(wm, wm != nil && wm.IsOpenWorldRegion(c.MapKey), c.MapKey, c.X, c.Y)
 			entry := GroundContainerSave{
 				Kind:      int(c.Kind),
 				ID:        c.ID,
@@ -237,7 +233,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				Jammed:                  mon.Jammed,
 				HourMarks:               mon.HourMarks,
 				BossCD:                  mon.BossCD.Saved(),
-				InfernoCD:               mon.InfernoCD.Saved(),
+				NovaRollCD:              mon.NovaRollCD.Saved(),
 				BossHurtPending:         mon.BossHurtPending,
 				BossLastHP:              mon.BossLastHP,
 				SummonFirstDone:         mon.SummonFirstDone,
@@ -349,21 +345,16 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				if npc.QuestPropOwner != "" || npc.HarvestOwner != "" {
 					continue // derived from saved activity state, not NPC visited flags
 				}
-				key, x, y := mapKey, npc.X, npc.Y
-				if localize {
-					if k, lx, ly, ok := wm.LocalizeWorldPos(npc.X, npc.Y); ok {
-						key, x, y = k, lx, ly
-					}
-				}
+				key, x, y := savedPos(wm, localize, mapKey, npc.X, npc.Y)
 				ns := NPCSave{
-					MapKey: key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited,
+					MapKey: key, Key: npc.Key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited,
 					DoorAttempts: npc.DoorAttempts, DoorLockBroken: npc.DoorLockBroken,
 					DoorOpenedBy: npc.DoorOpenedBy,
 				}
 				if len(npc.MerchantStock) > 0 {
 					ns.Stock = make([]NPCStockSave, len(npc.MerchantStock))
 					for i, entry := range npc.MerchantStock {
-						ns.Stock[i] = NPCStockSave{Name: entry.Item.Name, Quantity: entry.Quantity}
+						ns.Stock[i] = NPCStockSave{Key: config.CatalogKey(entry.Item), Quantity: entry.Quantity}
 					}
 				}
 				nstates = append(nstates, ns)
@@ -384,7 +375,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			questSaves = append(questSaves, QuestSave{
 				ID:               quest.ID,
 				Activity:         quest.Activity.Clone(),
-				Status:           string(quest.Status),
+				Status:           string(quest.Status()),
 				CurrentCount:     quest.CurrentCount,
 				DynamicTarget:    quest.DynamicTarget,
 				DynamicTargetSet: quest.DynamicTargetSet,
@@ -431,12 +422,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// map-local coords). The save format never records the merged grid, so
 	// saves survive layout changes, new maps, and flag flips in both
 	// directions. Corridor positions snap to the nearest region interior.
-	saveMapKey, savePX, savePY, saveAngle := wm.CurrentMapKey, g.camera.X, g.camera.Y, g.camera.Angle
+	saveMapKey, savePX, savePY := savedPos(wm, g.openWorldActive(), wm.CurrentMapKey, g.camera.X, g.camera.Y)
+	saveAngle := g.camera.Angle
 	if g.openWorldActive() {
-		if key, lx, ly, ok := wm.LocalizeWorldPos(savePX, savePY); ok {
-			saveMapKey, savePX, savePY = key, lx, ly
-			saveAngle = wm.LocalizeAngle(key, saveAngle)
-		}
+		saveAngle = wm.LocalizeAngle(saveMapKey, saveAngle)
 	}
 	g.ensurePersistentDamageZoneFieldIDs()
 	persistentDamageZoneSaves := buildPersistentDamageZoneSaves(g.persistentDamageZones)
@@ -448,37 +437,29 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		tileSize := g.config.GetTileSize()
 		for i := range persistentDamageZoneSaves {
 			z := &persistentDamageZoneSaves[i]
-			if wm.IsOpenWorldRegion(z.MapKey) {
-				if key, lx, ly, ok := wm.LocalizeWorldPos(z.X, z.Y); ok {
-					z.MapKey, z.X, z.Y = key, lx, ly
-				}
-			}
+			z.MapKey, z.X, z.Y = savedPos(wm, wm.IsOpenWorldRegion(z.MapKey), z.MapKey, z.X, z.Y)
 		}
 		for i := range trapSaves {
 			t := &trapSaves[i]
 			if wm.IsOpenWorldRegion(t.MapKey) {
-				if key, lx, ly, ok := wm.LocalizeWorldPos(t.X, t.Y); ok {
-					t.MapKey, t.X, t.Y = key, lx, ly
-					t.TileX, t.TileY = TileIndex(lx, tileSize), TileIndex(ly, tileSize)
-				}
+				t.MapKey, t.X, t.Y = savedPos(wm, true, t.MapKey, t.X, t.Y)
+				t.TileX, t.TileY = TileIndex(t.X, tileSize), TileIndex(t.Y, tileSize)
 			}
 		}
 		if len(g.mapReturnPoses) > 0 {
 			returnPoses = make(map[string]MapPose, len(g.mapReturnPoses))
 			for key, pose := range g.mapReturnPoses {
 				if wm.IsOpenWorldRegion(key) {
-					if _, lx, ly, ok := wm.LocalizeWorldPos(pose.X, pose.Y); ok {
-						pose.X, pose.Y = lx, ly
-						pose.Angle = wm.LocalizeAngle(key, pose.Angle)
-					}
+					// The pose keeps its key: localize into that region, as the
+					// restore projects it back out of it.
+					pose.X, pose.Y = wm.LocalizeKeyedWorldPos(key, pose.X, pose.Y)
+					pose.Angle = wm.LocalizeAngle(key, pose.Angle)
 				}
 				returnPoses[key] = pose
 			}
 		}
 		if wm.IsOpenWorldRegion(g.underwaterReturnMap) {
-			if _, lx, ly, ok := wm.LocalizeWorldPos(uwX, uwY); ok {
-				uwX, uwY = lx, ly
-			}
+			uwX, uwY = wm.LocalizeKeyedWorldPos(g.underwaterReturnMap, uwX, uwY)
 		}
 	}
 
@@ -577,7 +558,7 @@ func statBonusesToMap(b character.StatBonuses) map[string]int {
 		return nil
 	}
 	m := map[string]int{}
-	for _, key := range config.StatNames {
+	for _, key := range stats.Names {
 		if v := b.ValueByName(key); v != 0 {
 			m[key] = v
 		}

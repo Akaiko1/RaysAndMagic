@@ -12,6 +12,7 @@ func TestValidateSpellAuthoring_Category(t *testing.T) {
 		utility   bool
 		duration  int
 		stat      int
+		resist    int
 		wantError bool
 	}{
 		{name: "default"},
@@ -22,9 +23,11 @@ func TestValidateSpellAuthoring_Category(t *testing.T) {
 		{name: "instant utility cannot be a buff", category: "buff", utility: true, wantError: true},
 		{name: "timed effect needs a category", utility: true, duration: 3, stat: 5, wantError: true},
 		{name: "instant utility cannot carry a lifetime", utility: true, duration: 3, wantError: true},
+		{name: "combat buff alone", category: "buff", utility: true, duration: 3, resist: 10},
+		{name: "stat and combat buff at once", category: "buff", utility: true, duration: 3, stat: 5, resist: 10, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			def := &SpellDefinitionConfig{Category: tc.category, IsUtility: tc.utility, StatBonus: tc.stat}
+			def := &SpellDefinitionConfig{Category: tc.category, IsUtility: tc.utility, StatBonus: tc.stat, ResistBuffPct: tc.resist}
 			if tc.duration > 0 {
 				def.DurationByMastery = []int{tc.duration, tc.duration, tc.duration, tc.duration}
 			}

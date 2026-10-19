@@ -67,7 +67,7 @@ func TestEditorBossMechanicsRuntimeAndSave(t *testing.T) {
 			}{{"initial", "", 20, 100, true}, {"first switch", "first", 10, 100, true}, {"all switches", "second", 10, 0, false}} {
 				t.Run(stage.name, func(t *testing.T) {
 					if stage.control != "" {
-						dialogActions["adventure_control"](&InputHandler{game: g}, nil, &character.NPCDialogueChoice{Control: stage.control})
+						dialogActions["adventure_control"].run(&InputHandler{game: g}, nil, &character.NPCDialogueChoice{Control: stage.control})
 					}
 					for _, reload := range []bool{false, true} {
 						if reload {
@@ -199,7 +199,7 @@ func TestEditorArmorControlsSurviveLoadAndRespawn(t *testing.T) {
 				control string
 				armor   int
 			}{{"brace", tc.armor * 75 / 100}, {"release", 20}} {
-				dialogActions["adventure_control"](&InputHandler{game: g}, nil, &character.NPCDialogueChoice{Control: stage.control})
+				dialogActions["adventure_control"].run(&InputHandler{game: g}, nil, &character.NPCDialogueChoice{Control: stage.control})
 				boss.HitPoints = 123
 				for reload := 0; reload < 2; reload++ {
 					if boss.ArmorClass != stage.armor || boss.HitPoints != 123 {
@@ -312,7 +312,7 @@ func TestEditorSceneProjectionThroughRuntime(t *testing.T) {
 					defer func() { g.world.Tiles[y][x] = oldTile }()
 					g.adventureVisit(key)
 					g.adventure.Visits[key] = &AdventureVisit{}
-					dialogActions["adventure_control"](&InputHandler{game: g}, nil, &character.NPCDialogueChoice{Control: "edit"})
+					dialogActions["adventure_control"].run(&InputHandler{game: g}, nil, &character.NPCDialogueChoice{Control: "edit"})
 					empty, _ := world.GlobalTileManager.GetTileTypeFromKey("empty")
 					if g.world.Tiles[y][x] != empty || !g.adventureVisit(key).Controls["edit"] {
 						t.Fatal("control edited the wrong region tile")

@@ -14,7 +14,7 @@ func evenAutoTotal(t *testing.T, m *character.MMCharacter, roleKey map[string]st
 	t.Helper()
 	total := 0
 	for _, key := range stats.Names {
-		total += *autoStatField(m, key)
+		total += *m.BaseStatField(key)
 	}
 	if total%2 == 0 {
 		return
@@ -25,7 +25,7 @@ func evenAutoTotal(t *testing.T, m *character.MMCharacter, roleKey map[string]st
 			used = used || role == key
 		}
 		if !used {
-			*autoStatField(m, key)++
+			*m.BaseStatField(key)++
 			return
 		}
 	}
@@ -36,7 +36,7 @@ func evenAutoTotal(t *testing.T, m *character.MMCharacter, roleKey map[string]st
 // only authored differences.
 func setAutoBaseline(m *character.MMCharacter) {
 	for _, key := range stats.Names {
-		*autoStatField(m, key) = 10
+		*m.BaseStatField(key) = 10
 	}
 }
 
@@ -103,13 +103,13 @@ func TestAutoDistributeStatPointsPhaseTable(t *testing.T) {
 					// Secondary last: an aliased Speed secondary takes its own start.
 					for _, role := range []string{"speed", "endurance", "primary", "secondary"} {
 						if v, ok := row.start[role]; ok && roleKey[role] != "" {
-							*autoStatField(m, roleKey[role]) = v
+							*m.BaseStatField(roleKey[role]) = v
 						}
 					}
 					evenAutoTotal(t, m, roleKey)
 					want := map[string]int{}
 					for _, key := range stats.Names {
-						want[key] = *autoStatField(m, key)
+						want[key] = *m.BaseStatField(key)
 					}
 					for role, g := range row.gain {
 						want[roleKey[role]] += g
@@ -125,7 +125,7 @@ func TestAutoDistributeStatPointsPhaseTable(t *testing.T) {
 						t.Fatalf("spent/free = %d/%d, want %d/0", spent, m.FreeStatPoints, row.points)
 					}
 					for _, key := range stats.Names {
-						if got := *autoStatField(m, key); got != want[key] {
+						if got := *m.BaseStatField(key); got != want[key] {
 							t.Errorf("%s = %d, want %d", key, got, want[key])
 						}
 					}
@@ -164,7 +164,7 @@ func TestAutoDistributeSaturatesPrioritiesAndNeverStrandsPoints(t *testing.T) {
 					if key == "" {
 						continue
 					}
-					if got := *autoStatField(m, key); got != MaxStatValue {
+					if got := *m.BaseStatField(key); got != MaxStatValue {
 						t.Errorf("%s = %d, want %d", key, got, MaxStatValue)
 					}
 				}
@@ -209,7 +209,7 @@ func TestAutoDistributePartyFollowsEachClassesBuild(t *testing.T) {
 			}
 			for _, pair := range [][2]*character.MMCharacter{{thief, wantThief}, {knight, wantKnight}} {
 				for _, key := range stats.Names {
-					if got, want := *autoStatField(pair[0], key), *autoStatField(pair[1], key); got != want {
+					if got, want := *pair[0].BaseStatField(key), *pair[1].BaseStatField(key); got != want {
 						t.Errorf("%s %s = %d, want %d", pair[0].Name, key, got, want)
 					}
 				}
@@ -232,7 +232,7 @@ func TestAutoAllocationIgnoresBatchSize(t *testing.T) {
 			points -= step
 			autoDistributeStatPoints(m, a, cfg)
 		}
-		return baseStatBonuses(m)
+		return m.BaseStats()
 	}
 	for _, class := range character.PlayableClasses {
 		for _, build := range classAutoBuilds(class, cfg) {
@@ -240,7 +240,7 @@ func TestAutoAllocationIgnoresBatchSize(t *testing.T) {
 				a := build.AutoStatsConfig
 				for _, level := range autoBuildPreviewLevels {
 					points := (level - 1) * StatPointsPerLevel
-					forecast := baseStatBonuses(autoBuildHero(class, a, level, cfg))
+					forecast := autoBuildHero(class, a, level, cfg).BaseStats()
 					if perLevel := spendIn(class, a, points, StatPointsPerLevel); perLevel != forecast {
 						t.Fatalf("L%d forecast %+v, AUTO every level %+v", level, forecast, perLevel)
 					}

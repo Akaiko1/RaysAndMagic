@@ -301,7 +301,7 @@ func (p *MobPreview) ChampionTierSheets(monsterKey string) []ChampionTierSheet {
 			sheet.Hands = append(sheet.Hands, ChampionHandSheet{Weapon: weapon, Damage: max(1, damage), CritChance: crit, CooldownFrames: cooldown})
 		}
 		for _, key := range def.Equipment[tier] {
-			if it, _, err := character.ChampionGearItem(key); err == nil {
+			if it, err := items.FromKey(key); err == nil {
 				sheet.Loadout = append(sheet.Loadout, it)
 			}
 		}

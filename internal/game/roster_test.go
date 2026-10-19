@@ -236,7 +236,7 @@ func TestClassSkillListGatesWeaponEquip(t *testing.T) {
 				continue
 			}
 			want := trained[skill]
-			if got := member.CanEquipWeaponByName(def.Name); got != want {
+			if got := member.CanEquipWeapon(testWeapon(def.Name)); got != want {
 				t.Errorf("%s equips %s (%s) = %v, want %v", classKey, weaponKey, def.Category, got, want)
 			}
 			if want {

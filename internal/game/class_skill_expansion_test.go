@@ -134,7 +134,7 @@ func TestBlasterRequiresAndUsesBlasterMastery(t *testing.T) {
 	// with or without the Blaster skill. The skill only pays mastery bonuses
 	// (asserted below).
 	for _, member := range []*character.MMCharacter{archer, thief, sorcerer} {
-		if !member.CanEquipWeaponByName("Alien Blaster") {
+		if !member.CanEquipWeapon(testWeapon("Alien Blaster")) {
 			t.Errorf("%s cannot equip a Blaster - blasters need no training", member.Class)
 		}
 	}
@@ -341,7 +341,7 @@ func TestAnimalBondingBearCopiesDruidStatsAndIsPureSummon(t *testing.T) {
 	wantArmor := game.combat.CalculateTotalArmorClass(druid) * character.AnimalBondingStatPct(2) / 100
 	weapon := druid.Equipment[items.SlotMainHand]
 	_, _, attack := game.combat.CalculateWeaponDamage(weapon, druid)
-	if def := lookupWeaponConfigByName(weapon.Name); def != nil {
+	if def := lookupWeaponConfig(weapon); def != nil {
 		trueDamage, _ := game.combat.weaponMasteryStrike(druid, def)
 		attack += trueDamage
 	}

@@ -69,10 +69,10 @@ const (
 
 // drawSaveList draws the heading, the current page's rows (focused marks the
 // cursor row, -1 for none) and the pager, lit under the pointer only while
-// live (a dialog over the list owns the pointer). saving greys out the
-// load-only rows.
-func (ui *UISystem) drawSaveList(screen *ebiten.Image, l saveListLayout, heading string, focused int, saving, live bool) {
+// the rename dialog is shut. saving greys out the load-only rows.
+func (ui *UISystem) drawSaveList(screen *ebiten.Image, l saveListLayout, heading string, focused int, saving bool) {
 	g := ui.game
+	live := !g.saveRenameOpen
 	drawScaledMetalCenteredText(screen, heading, l.title.x+l.title.w/2, l.title.y+l.title.h/2, 2, rarityGold)
 	for i, r := range l.rows {
 		row := g.savePage*saveRowsPerPage + i
@@ -86,6 +86,27 @@ func (ui *UISystem) drawSaveList(screen *ebiten.Image, l saveListLayout, heading
 		ui.drawMenuButton(screen, b.label, b.r.x, b.r.y, b.r.w, b.r.h, live && isMouseHoveringBox(mx, my, b.r.x, b.r.y, b.r.right(), b.r.bottom()))
 	}
 	drawCenteredTextWithShadow(screen, fmt.Sprintf("Page %d of %d", g.savePage+1, savePageCount), l.page.x, l.page.y, l.page.w, l.page.h, gameplayInk.muted)
+}
+
+// saveListInput registers the list's clicks for both the ESC and title lists:
+// the pager flips pages, a left click picks row i of the page and a right
+// click renames it where rename is offered (nil elsewhere). The rename dialog,
+// once open, owns the pointer.
+func (ui *UISystem) saveListInput(l saveListLayout, pick, rename func(i int)) {
+	g := ui.game
+	live := func() bool { return !g.saveRenameOpen }
+	ui.onGatedClick(l.prev, live, func() { g.flipSavePage(-1) })
+	ui.onGatedClick(l.next, live, func() { g.flipSavePage(1) })
+	for i, r := range l.rows {
+		ui.onGatedClick(r, live, func() { pick(i) })
+		if rename != nil {
+			ui.onDisplayedInput(uiCommandClick, r, func() {
+				if live() && g.consumeRightClickIn(r.x, r.y, r.right(), r.bottom()) {
+					rename(i)
+				}
+			})
+		}
+	}
 }
 
 // drawSaveListRow is one slot as a two-line entry: slot, save name (or its

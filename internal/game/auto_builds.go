@@ -77,7 +77,7 @@ func (g *MMGame) autoBuildPreviews(class character.CharacterClass) []autoBuildPr
 		for i, level := range autoBuildPreviewLevels {
 			ch := autoBuildHero(class, b.AutoStatsConfig, level, g.config)
 			for _, name := range stats.Names {
-				p.stats[i] = append(p.stats[i], *autoStatField(ch, name))
+				p.stats[i] = append(p.stats[i], *ch.BaseStatField(name))
 			}
 			p.hp[i], p.sp[i] = ch.MaxHitPoints, ch.MaxSpellPoints
 		}
@@ -135,7 +135,7 @@ func validateAutoBuildGear(cfg *config.Config) {
 				case !ok:
 					fail("is not a weapon, armor or accessory")
 				case weapon != nil:
-					if !hero.CanEquipWeaponByName(it.Name) {
+					if !hero.CanEquipWeapon(it) {
 						fail("cannot be wielded by the class")
 					}
 					if stat := strings.ToLower(weapon.BonusStat); stat == "" || stat != b.Primary && stat != b.Secondary {

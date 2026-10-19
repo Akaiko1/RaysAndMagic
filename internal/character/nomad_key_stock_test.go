@@ -26,16 +26,16 @@ func TestNomadCaravanStocksDoorKeysOnRoadTab(t *testing.T) {
 		t.Fatal("nomad_city_caravan is missing")
 	}
 
-	want := map[string]bool{"Ordinary Key": true, "Inlaid Key": true}
+	want := map[string]bool{"ordinary_key": true, "inlaid_key": true}
 	for _, entry := range merchant.Inventory {
-		if !want[entry.Name] {
+		if !want[entry.Key] {
 			continue
 		}
 		// Unlimited (-1) and priced, on the Road tab.
-		if entry.Type != "item" || entry.Cost <= 0 || entry.Quantity != -1 || entry.Tab != "Road" {
-			t.Errorf("%s stock = type %q, cost %d, quantity %d, tab %q", entry.Name, entry.Type, entry.Cost, entry.Quantity, entry.Tab)
+		if entry.Cost <= 0 || entry.Quantity != -1 || entry.Tab != "Road" {
+			t.Errorf("%s stock = cost %d, quantity %d, tab %q", entry.Key, entry.Cost, entry.Quantity, entry.Tab)
 		}
-		delete(want, entry.Name)
+		delete(want, entry.Key)
 	}
 	for name := range want {
 		t.Errorf("nomad caravan does not stock %s", name)

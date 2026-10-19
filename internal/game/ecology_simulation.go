@@ -54,30 +54,33 @@ func (g *MMGame) simulateRemoteEcology(turn, tickStatuses bool) {
 		v.refreshMonsterAIState()
 		v.gameLoop.reconcileMonsterAttackPosts()
 		if !turn {
+			v.tickMonsterTelegraphs(false)
 			v.moveRemoteEcologyRealtime()
 		}
+		if turn && tickStatuses {
+			// As on the party's world: statuses and telegraphs resolve before
+			// anyone acts; extra passes reuse the latched results.
+			for _, m := range w.Monsters {
+				if !remoteEcologyActor(m) {
+					continue
+				}
+				if v.tickMonsterTurnStatuses(m, true) {
+					v.turnBasedMonsterStunned[m] = true
+				}
+				if !m.IsAlive() {
+					v.combat.finishMonsterKill(m)
+				}
+			}
+			v.tickMonsterTelegraphs(true)
+		}
+		tileSize := float64(g.config.GetTileSize())
 		for _, m := range w.Monsters {
 			if !remoteEcologyActor(m) {
 				continue
 			}
 			if turn {
-				if v.turnBasedMonsterStunned[m] || v.tickMonsterTurnStatuses(m, tickStatuses) {
-					v.turnBasedMonsterStunned[m] = true
-					continue
-				}
-				if !m.IsAlive() {
-					v.combat.finishMonsterKill(m)
-					continue
-				}
-				if m.CurrentAIBehavior() == monster.AIBehaviorAmbient {
-					m.UpdateAmbient(v.collisionSystem, m.AITargetX, m.AITargetY, true, v.ambientStepPerception(m))
-				} else if m.IsBoss() && v.combat.runBossSpecials(m, true, true) {
-					v.combat.armMonsterRTAttackCooldowns(m)
-				} else if !v.combat.commitMonsterAttack(m, monsterAttackDestination{foe: m.AIFoe}, monsterAttackTurn) {
-					v.gameLoop.monsterMoveTurnBased(m)
-				}
+				v.gameLoop.takeMonsterTurnTB(m, tileSize, tickStatuses)
 			} else {
-
 				v.combat.handleMonsterInteraction(m)
 			}
 			v.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)

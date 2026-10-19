@@ -71,7 +71,7 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 			// can't make this flaky.
 			maxSwing := 0
 			for i := 0; i < 40; i++ {
-				if d := cs.monsterAttackDamage(champ); d > maxSwing {
+				if d, _ := cs.monsterAttackDamage(champ); d > maxSwing {
 					maxSwing = d
 				}
 			}

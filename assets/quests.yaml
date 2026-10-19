@@ -215,6 +215,7 @@ quests:
     rewards:
       gold: 0
       experience: 0
+      promotion: "archmage"
 
   dragon_cliffs_troll_cull:
     name: "Cliffwatch Troll Cull"

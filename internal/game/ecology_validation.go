@@ -70,6 +70,7 @@ func ValidateEcologyContent(cfg *config.Config, qm *quests.QuestManager) error {
 	if character.NPCConfigInstance == nil || character.NPCConfigInstance.NPCs[c.Caravan.Merchant] == nil {
 		return fmt.Errorf("ecology merchant %q is missing", c.Caravan.Merchant)
 	}
+	// The unlock latches (ecology.Unlocked), so a repeatable quest may open it.
 	if qm == nil || qm.Definitions()[c.Caravan.UnlockQuest] == nil {
 		return fmt.Errorf("ecology unlock quest %q is missing", c.Caravan.UnlockQuest)
 	}

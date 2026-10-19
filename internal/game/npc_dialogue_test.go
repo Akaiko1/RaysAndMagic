@@ -60,6 +60,9 @@ func TestQuestActionUsesNPCReplies(t *testing.T) {
 			definitions := map[string]*quests.QuestDefinition{
 				questID: {Name: "Trial", Type: quests.QuestTypeInteract, TargetCount: 1, MinPartyLevel: tc.minLevel},
 			}
+			if questID == "archmage_trial" {
+				definitions[questID].Rewards.Promotion = "archmage"
+			}
 			if tc.unknown {
 				delete(definitions, questID)
 			}
@@ -68,7 +71,7 @@ func TestQuestActionUsesNPCReplies(t *testing.T) {
 			for _, hero := range g.party.Members {
 				hero.Promotion = tc.promotion
 			}
-			if questID == "archmage_trial" && tc.promotion == character.PromotionNone && len(g.eligibleArchmageIndices()) == 0 {
+			if questID == "archmage_trial" && tc.promotion == character.PromotionNone && len(g.eligiblePromotionIndices(character.PromotionArchmage)) == 0 {
 				t.Fatal("fixture needs an eligible hero")
 			}
 			if tc.active {
@@ -90,7 +93,7 @@ func TestQuestActionUsesNPCReplies(t *testing.T) {
 				g.questManager = nil
 			}
 			g.dialogActive = true
-			dialogActions[tc.action](&InputHandler{game: g}, g.dialogNPC, &character.NPCDialogueChoice{Action: tc.action, QuestID: questID})
+			dialogActions[tc.action].run(&InputHandler{game: g}, g.dialogNPC, &character.NPCDialogueChoice{Action: tc.action, QuestID: questID})
 			if g.dialogActive || !slices.Contains(g.GetCombatMessages(), tc.want) {
 				t.Fatalf("dialogue open=%v, messages=%v, want authored %q", g.dialogActive, g.GetCombatMessages(), tc.want)
 			}
@@ -183,7 +186,7 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 	want(npcStateCompleted, "well done", "turn_in_quest", "leave")
 
 	// 4) Turned in (reward claimed) -> concluded: farewell, no actionable choices.
-	if !g.claimQuestReward(qid) {
+	if !g.claimQuestReward(qid, nil) {
 		t.Fatalf("claim failed")
 	}
 	want(npcStateConcluded, "farewell")
@@ -237,7 +240,7 @@ func TestDialogueBranching_InfoDescendsBackAndStateFilters(t *testing.T) {
 	if !g.dialogActive || g.dialogNPC == nil {
 		t.Fatal("info must not close the dialog")
 	}
-	if q := g.questManager.GetQuest(qid); q != nil && q.Status == quests.QuestStatusActive {
+	if q := g.questManager.GetQuest(qid); q != nil && q.Status() == quests.QuestStatusActive {
 		t.Fatal("info must not activate the quest")
 	}
 	if len(g.dialogNodePath) != 1 {

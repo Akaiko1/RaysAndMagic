@@ -112,7 +112,7 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	// stays until the phase boundary, while ownership is now ordinary.
 	game.celestialBuffSpellID = "bless"
 	game.persistentDamageZones = []PersistentDamageZone{{
-		SpellID: "hot_steam", CasterName: game.party.Members[0].Name, FieldID: 77, MapKey: "forest", FramesLeft: 42,
+		SpellID: "hot_steam", FieldID: 77, MapKey: "forest", FramesLeft: 42,
 		IntervalFrames: 360, TickDamage: 3,
 	}}
 	game.waterBreathingActive = true
@@ -217,8 +217,7 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if status, ok := loaded.buffStatuses["hot_steam"]; !ok || status.Duration != 42 {
 		t.Fatalf("utility hot_steam icon missing right after TB load (ok=%v)", ok)
 	}
-	if len(loaded.persistentDamageZones) != 1 || loaded.persistentDamageZones[0].FieldID != 77 ||
-		loaded.persistentDamageZones[0].CasterName != game.party.Members[0].Name || loaded.nextPersistentDamageZoneFieldID != 77 {
+	if len(loaded.persistentDamageZones) != 1 || loaded.persistentDamageZones[0].FieldID != 77 || loaded.nextPersistentDamageZoneFieldID != 77 {
 		t.Fatalf("steam-zone field identity was not restored: zones=%+v next=%d", loaded.persistentDamageZones, loaded.nextPersistentDamageZoneFieldID)
 	}
 
@@ -262,7 +261,7 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	mob.Soak.Frames = 361
 	mob.Soak.Turns = 4
 	mob.Soak.Rate = 120
-	mob.InfernoCD = framesClock(240)                                       // ranged-nova cooldown: a reload must not refresh it
+	mob.NovaRollCD = framesClock(240)                                      // ranged-nova cooldown: a reload must not refresh it
 	mob.TurnBasedSwingCarry = 0.25                                         // banked TB swing fraction: save/load per turn must not reset it
 	mob.TurnBasedStepCarry = -0.25                                         // banked TB step fraction, same contract
 	mob.Jammed = true                                                      // this attack cycle's jam has landed: a reload must not allow another
@@ -317,9 +316,9 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	if loaded.openerCooldown != game.openerCooldown || loaded.partyMoveClock != game.partyMoveClock {
 		t.Errorf("clocks after reload: opener %+v, move %+v; want %+v, %+v", loaded.openerCooldown, loaded.partyMoveClock, game.openerCooldown, game.partyMoveClock)
 	}
-	if loadedMob.InfernoCD != framesClock(240) {
+	if loadedMob.NovaRollCD != framesClock(240) {
 		t.Errorf("inferno cadence = %+v after reload, want 240 frames (a reload must not hand the boss a fresh nova roll)",
-			loadedMob.InfernoCD)
+			loadedMob.NovaRollCD)
 	}
 	if loadedMob.Stun.Rate != 120 || loadedMob.Root.Rate != 120 ||
 		loadedMob.ArmorShred.Rate != 120 || loadedMob.PounceCD.Rate != 240 || loadedMob.Soak.Rate != 120 {
@@ -630,11 +629,10 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	if err := qm.ActivateQuest(summon.QuestID); err != nil {
 		t.Fatal(err)
 	}
-	_, statuetteKey, ok := config.GetItemDefinitionByName(summon.Statuette)
-	if !ok {
+	if _, ok := config.GetItemDefinition(summon.Statuette); !ok {
 		t.Fatalf("statuette %q is not an item", summon.Statuette)
 	}
-	g.party.AddItem(items.CreateItemFromYAML(statuetteKey))
+	g.party.AddItem(items.CreateItemFromYAML(summon.Statuette))
 
 	g.updateFocusedNPC()
 	if g.focusedNPC != statue {
@@ -1155,39 +1153,36 @@ func TestSaveLoad_PersistsMasteryScaledSummonStats(t *testing.T) {
 func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
 	cfg := loadTestConfig(t)
 	type specials struct {
-		pierceChance        float64
-		pierceTargets       int
-		healChance          float64
-		healAmount          int
-		healRadius          float64
-		hasPierce, hasHeals bool
+		partyAttacks []monster.PartyAttack
+		healChance   float64
+		healAmount   int
+		healRadius   float64
 	}
 	read := func(m *monster.Monster3D) specials {
-		return specials{m.Abilities.PiercingShot.Chance, m.Abilities.PiercingShot.Targets, m.Abilities.AllyHeal.Chance, m.Abilities.AllyHeal.Amount, m.AllyHealRadiusPixels(),
-			m.Abilities.PiercingShot.Chance > 0, m.Abilities.AllyHeal.Chance > 0}
+		return specials{m.Abilities.PartyAttacks, m.Abilities.AllyHeal.Chance, m.Abilities.AllyHeal.Amount, m.AllyHealRadiusPixels()}
 	}
 	wSave := newTestWorld(cfg)
 	want := map[string]specials{}
 	pierce, heal := 0, 0
 	for _, key := range sortedMapKeys(monster.MonsterConfig.Monsters) {
 		def := monster.MonsterConfig.Monsters[key]
-		if def.Abilities.PiercingShot.Chance <= 0 && def.Abilities.AllyHeal.Chance <= 0 {
+		if len(def.Abilities.PartyAttacks) == 0 && def.Abilities.AllyHeal.Chance <= 0 {
 			continue
 		}
 		m := monster.NewMonster3DFromConfig(64+float64(len(want))*32, 64, key, cfg)
 		want[key] = read(m)
-		if def.Abilities.PiercingShot.Chance > 0 {
+		if len(def.Abilities.PartyAttacks) > 0 {
 			pierce++
 		}
 		if def.Abilities.AllyHeal.Chance > 0 {
 			heal++
 		}
-		m.Abilities.PiercingShot = monster.PiercingShotAbility{}
+		m.Abilities.PartyAttacks = nil
 		m.Abilities.AllyHeal = monster.AllyHealAbility{}
 		wSave.Monsters = append(wSave.Monsters, m)
 	}
 	if pierce == 0 || heal == 0 {
-		t.Fatalf("shipped monsters carry %d piercing-shot and %d ally-heal specials, want both kinds", pierce, heal)
+		t.Fatalf("shipped monsters carry %d party-attack and %d ally-heal specials, want both kinds", pierce, heal)
 	}
 
 	wmSave := world.NewWorldManager(cfg)
@@ -1210,7 +1205,7 @@ func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if got := read(m); got != w {
+		if got := read(m); !reflect.DeepEqual(got, w) {
 			t.Errorf("%s specials after load = %+v, want the YAML %+v", m.Key, got, w)
 		}
 		delete(want, m.Key)
@@ -1555,5 +1550,40 @@ func TestSaveLoad_RenamedKeysMigrate(t *testing.T) {
 	}
 	if gLoad.cardSlots[0].key != "jellyfish_card" {
 		t.Fatalf("old-key card slot = %q, want jellyfish_card", gLoad.cardSlots[0].key)
+	}
+}
+
+// A saved NPC is found again by its npcs.yaml key and spot, so renaming it in
+// content keeps its state; a save from before keys were saved still matches
+// by name; another NPC on the same spot is not taken for it.
+func TestNPCStateFollowsKeyAcrossARename(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		save      NPCSave
+		renamed   bool
+		wantState bool
+	}{
+		{"keyed save, renamed in content", NPCSave{Key: "old_well", Name: "Old Well"}, true, true},
+		{"keyed save, another key on the spot", NPCSave{Key: "other_npc", Name: "Old Well"}, false, false},
+		{"legacy save by name", NPCSave{Name: "Old Well"}, false, true},
+		{"legacy save, renamed in content", NPCSave{Name: "Old Well"}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			w := newTestWorld(cfg)
+			npc := &character.NPC{Key: "old_well", Name: "Old Well", X: 96, Y: 160}
+			if tc.renamed {
+				npc.Name = "Mossy Well"
+			}
+			w.NPCs = []*character.NPC{npc}
+			g := newTestGame(cfg, w)
+			wm := &world.WorldManager{LoadedMaps: map[string]*world.World3D{"forest": w}}
+			ns := tc.save
+			ns.MapKey, ns.X, ns.Y, ns.Visited = "forest", npc.X, npc.Y, true
+			g.restoreSavedNPCs(wm, &GameSave{NPCStates: []NPCSave{ns}})
+			if npc.Visited != tc.wantState {
+				t.Fatalf("visited=%v, want %v", npc.Visited, tc.wantState)
+			}
+		})
 	}
 }

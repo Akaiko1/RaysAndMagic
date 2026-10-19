@@ -56,8 +56,8 @@ func probeUngatedNPC(npcKey string) (*character.NPC, error) {
 
 // npcDataHasGatedService reports whether an authored NPC owns a service
 // requires_quest can withhold. It asks the two things the gate itself acts on -
-// isGatedService (the kind dispatch's own downgrade rule) and
-// gatedServiceActions - so anything the runtime withholds is accepted here. The
+// isGatedService (the kind dispatch's own downgrade rule) and the service
+// dialogue actions - so anything the runtime withholds is accepted here. The
 // probe clears the gate (the question is what the NPC would be with the shop
 // open) and returns a build failure rather than reporting it as "owns no
 // service".
@@ -76,7 +76,7 @@ func (g *MMGame) npcDataHasGatedService(npcKey string) (bool, error) {
 	// At any depth - that is where the choice filter strips them.
 	gated := false
 	_ = npc.DialogueData.WalkChoices(func(c *character.NPCDialogueChoice) error {
-		if gatedServiceActions[c.Action] {
+		if dialogActions[c.Action].service {
 			gated = true
 		}
 		return nil
@@ -190,7 +190,7 @@ func (g *MMGame) validateDialogueActionsAreDispatched() error {
 					npcKey, c.Text, c.Action)
 				return nil
 			}
-			if dialogActions[c.Action] == nil {
+			if _, ok := dialogActions[c.Action]; !ok {
 				offender = fmt.Errorf("NPC %q dialogue row %q declares action %q, which nothing dispatches - the row would draw and do nothing",
 					npcKey, c.Text, c.Action)
 			}
@@ -198,11 +198,6 @@ func (g *MMGame) validateDialogueActionsAreDispatched() error {
 		})
 		if offender != nil {
 			return offender
-		}
-	}
-	for action := range gatedServiceActions {
-		if dialogActions[action] == nil {
-			return fmt.Errorf("service action %q is withheld by the requires_quest gate but nothing dispatches it", action)
 		}
 	}
 	return nil
@@ -215,7 +210,7 @@ func (g *MMGame) validateDialogueActionsAreDispatched() error {
 //
 // Two shapes are legitimate and must keep passing:
 //   - a SERVICE row the kind draws itself: the tavern reads its rest/food/roster/
-//     stash rows by action (gatedServiceActions is that same set);
+//     stash rows by action (they are service actions);
 //   - a row that lives only BEHIND the gate: while requires_quest is unpaid the
 //     dispatch downgrades to dialogKindChoices, which draws everything. Nadira's
 //     errand is authored exactly this way, and her rows stop being reachable at
@@ -248,7 +243,7 @@ func (g *MMGame) validateDialogueRowsAreDrawable() error {
 				if offender != nil || c == nil {
 					continue
 				}
-				if gatedServiceActions[c.Action] {
+				if dialogActions[c.Action].service {
 					// Fixed taverns consume these four ROOT rows directly. No other
 					// fixed-layout kind, and no nested row, has such a surface.
 					if !(kind == dialogKindTavern && atRoot && tavernDrawsAction(c.Action)) {

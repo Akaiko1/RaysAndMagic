@@ -491,11 +491,7 @@ func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w
 // action. canClick=false leaves the visual present without consuming input.
 func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool, onClick func()) {
 	ui.drawCloseButtonVisual(screen, x, y, size, size)
-	ui.onDisplayedInput(uiCommandNavigation, layoutRect{x, y, size, size}, func() {
-		if canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size) {
-			onClick()
-		}
-	})
+	ui.onClick(layoutRect{x, y, size, size}, canClick, onClick)
 }
 
 // Close buttons share ONE look: grey at rest, red under the cursor. Red at rest
@@ -727,43 +723,6 @@ func drawMetalPlate(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 	}
 }
 
-// wrapTooltipLines wraps lines that overflow the right screen edge given the
-// tooltip's x position. Returns the wrapped lines plus a parallel colors slice
-// (each wrapped fragment inherits the original line's color, or nil if no
-// colors were provided). Minimum wrap width is 16 columns so we don't produce
-// pathological single-char columns when x is very close to the right edge.
-func wrapTooltipLines(lines []string, colors []color.Color, x, screenW, textOffsetPx int) ([]string, []color.Color) {
-	availablePx := max(screenW-x-12-textOffsetPx, 16*uiTextCharWidth) // 6px padding each side
-
-	needsWrap := false
-	for _, line := range lines {
-		if uiTextWidth(line) > availablePx {
-			needsWrap = true
-			break
-		}
-	}
-	if !needsWrap {
-		return lines, colors
-	}
-
-	hasColors := len(colors) == len(lines) && len(colors) > 0
-	wrapped := make([]string, 0, len(lines))
-	var wrappedColors []color.Color
-	if hasColors {
-		wrappedColors = make([]color.Color, 0, len(lines))
-	}
-	for i, line := range lines {
-		fragments := wrapUIText(line, availablePx)
-		wrapped = append(wrapped, fragments...)
-		if hasColors {
-			for range fragments {
-				wrappedColors = append(wrappedColors, colors[i])
-			}
-		}
-	}
-	return wrapped, wrappedColors
-}
-
 func tooltipTextOffset(hasIcon bool) int {
 	if hasIcon {
 		return tooltipIconSize + tooltipIconGap
@@ -934,11 +893,7 @@ func itemTooltipIconName(item items.Item) string {
 	case items.ItemThrowable:
 		return "icon_item_" + item.Flask
 	case items.ItemWeapon:
-		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
-		if !ok {
-			key = items.GetWeaponKeyByName(item.Name)
-		}
-		if key != "" {
+		if _, key, ok := config.WeaponDefOf(item); ok {
 			return "icon_weapon_" + key
 		}
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
@@ -950,7 +905,7 @@ func itemTooltipIconName(item items.Item) string {
 			return def.Icon
 		}
 	}
-	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	_, key, ok := config.ItemDefOf(item)
 	if ok && key != "" {
 		return "icon_item_" + key
 	}
@@ -1343,7 +1298,7 @@ func itemRarity(item items.Item) string {
 		return item.Rarity
 	}
 	if item.Type == items.ItemWeapon {
-		if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok && def != nil && def.Rarity != "" {
+		if def, _, ok := config.WeaponDefOf(item); ok && def != nil && def.Rarity != "" {
 			return def.Rarity
 		}
 	}

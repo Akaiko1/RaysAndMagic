@@ -4,11 +4,13 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"slices"
 	"ugataima/internal/character"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+	"ugataima/internal/spells"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func focusModeTestGame(t *testing.T) *MMGame {
@@ -253,7 +255,8 @@ func TestFocusModeClearsWhenLeavingGameplay(t *testing.T) {
 // Pointing at a hero's card means that hero everywhere a card is a target -
 // C/F heals, Heal Other, the ally-spell target - even over its level-up
 // chip; only a selection click yields the chip to its own control. Off the
-// cards the targets fall back to the selected hero or the caster.
+// cards the targets fall back to the selected hero or the caster. An ally
+// spell's paused picker takes the same whole card.
 func TestPointingAtACardMeansItsWholeCard(t *testing.T) {
 	g := focusModeTestGame(t)
 	g.showPartyStats = true
@@ -270,8 +273,7 @@ func TestPointingAtACardMeansItsWholeCard(t *testing.T) {
 		t.Fatal("hero 1 shows no stat chip (positive control)")
 	}
 	pw, ph, left, top := partyPortraitLayout(g)
-	healOther := items.Item{Name: "Heal Other scroll", SpellEffect: items.SpellEffectHealOther}
-	caster := g.party.Members[0]
+	healOther, _ := spells.GetSpellDefinitionByID("heal_other")
 	for _, tc := range []struct {
 		name         string
 		x, y         int
@@ -283,20 +285,11 @@ func TestPointingAtACardMeansItsWholeCard(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rawCursorPosition = func() (int, int) { return tc.x, tc.y }
-			wantHeal, wantSpell := tc.target, caster
-			if tc.target < 0 {
-				wantHeal = g.selectedChar
-			} else {
-				wantSpell = g.party.Members[tc.target]
+			if got := g.combat.pointedHealTarget(healOther, g.heroUnderCursor()); got != tc.target {
+				t.Errorf("a hand heal (F, C, quick bar, book) points at %d, want %d", got, tc.target)
 			}
-			if got := ih.healRecipient(); got != wantHeal {
-				t.Errorf("C/F heal lands on %d, want %d", got, wantHeal)
-			}
-			if got := ih.resolveHealTarget(healOther, tc.x, tc.y); got != wantHeal {
-				t.Errorf("Heal Other lands on %d, want %d", got, wantHeal)
-			}
-			if got := g.combat.personalSpellTarget(caster); got != wantSpell {
-				t.Errorf("an ally spell lands on %s, want %s", got.Name, wantSpell.Name)
+			if got := g.partyMemberAt(tc.x, tc.y); got != tc.target {
+				t.Errorf("the ally-spell picker takes %d, want %d", got, tc.target)
 			}
 			if got := ih.partyPortraitClickTarget(tc.x, tc.y); got != tc.pick {
 				t.Errorf("a selection click picks %d, want %d", got, tc.pick)

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"testing"
 
 	monsterPkg "ugataima/internal/monster"
@@ -216,6 +217,40 @@ func TestPounceRequiresActivePartyTargetAndLineOfSight(t *testing.T) {
 					mode, puma.PounceCD.Frames, puma.PounceCD.Turns)
 			}
 		})
+	}
+}
+
+// A pounce reaches the same tiles in both modes: range_tiles grid steps
+// (|dx|+|dy|). Two tiles across and two down is 2.8 tiles as the crow flies
+// but four steps on the grid - beyond a 3-tile leap in RT as in TB.
+func TestPounceReachIsTheSameGridInBothModes(t *testing.T) {
+	for _, turnBased := range []bool{false, true} {
+		for _, tc := range []struct {
+			dx, dy int
+			leaps  bool
+		}{{3, 0, true}, {2, 1, true}, {2, 2, false}, {4, 0, false}} {
+			t.Run(fmt.Sprintf("TB=%v/%d,%d", turnBased, tc.dx, tc.dy), func(t *testing.T) {
+				game, gl, tileSize := tbBehaviorGame(t, 16, 16)
+				game.turnBasedMode = turnBased
+				placePlayerAtTile(game, 5, 5, tileSize)
+				puma := monsterPkg.NewMonster3DFromConfig(float64(5+tc.dx)*tileSize+tileSize/2, float64(5+tc.dy)*tileSize+tileSize/2, "puma", game.config)
+				puma.Abilities.Pounce.RangeTiles = 3
+				puma.WasAttacked = true
+				puma.BeginPlayerEngagement()
+				puma.State = monsterPkg.StatePursuing
+				game.world.Monsters = []*monsterPkg.Monster3D{puma}
+				game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+				if turnBased {
+					game.refreshMonsterAIState()
+					runOneMonsterTurn(game, gl)
+				} else {
+					game.combat.HandleMonsterInteractions()
+				}
+				if leapt := puma.PounceCD.Frames > 0 || puma.PounceCD.Turns > 0; leapt != tc.leaps {
+					t.Fatalf("pounced=%v, want %v", leapt, tc.leaps)
+				}
+			})
+		}
 	}
 }
 

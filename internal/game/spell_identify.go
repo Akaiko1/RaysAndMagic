@@ -140,7 +140,7 @@ func (ih *InputHandler) handleAllySpellInput() {
 	x, y, clicked := g.leftClickPosition()
 	if clicked {
 		g.consumeLeftClick()
-		g.confirmAllySpell(ih.getPartyMemberUnderMouse(x, y))
+		g.confirmAllySpell(ih.game.partyMemberAt(x, y))
 	}
 }
 

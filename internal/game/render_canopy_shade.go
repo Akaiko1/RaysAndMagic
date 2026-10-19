@@ -65,8 +65,9 @@ func (r *Renderer) buildCanopyShadeCache() {
 					continue
 				}
 				minAmbient, radiusTiles, startDensity, fullDensity := canopyShadeParams(mc.CanopyShade)
+				b := region.TileBounds()
 				r.applyCanopyShadeFactors(w, factors, minAmbient, radiusTiles, startDensity, fullDensity,
-					region.OffsetX, region.OffsetY, region.OffsetX+region.Width, region.OffsetY+region.Height)
+					b.Min.X, b.Min.Y, b.Max.X, b.Max.Y)
 			}
 		} else if mc := wm.GetCurrentMapConfig(); mc != nil && mc.CanopyShade != nil {
 			minAmbient, radiusTiles, startDensity, fullDensity := canopyShadeParams(mc.CanopyShade)

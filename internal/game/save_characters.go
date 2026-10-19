@@ -16,10 +16,10 @@ func normalizeItemFromConfig(item *items.Item) {
 		return
 	}
 	// Weapons refresh from weapons.yaml (name/rarity/stat rebalances reach saved
-	// slots), keyed by display name. Type-gated so a non-weapon that happens to
-	// share a name can't be force-converted into a weapon.
+	// slots), by key - or by display name for a save before keys, which stamps
+	// the key. Type-gated so a non-weapon can't be force-converted into a weapon.
 	if item.Type == items.ItemWeapon {
-		if def, key, ok := config.GetWeaponDefinitionByName(item.Name); ok && key != "" {
+		if def, key, ok := config.WeaponDefOf(*item); ok && key != "" {
 			if template, err := items.TryCreateWeaponFromYAML(key); err == nil {
 				instanceID := item.InstanceID
 				signature := item.Signature
@@ -58,7 +58,7 @@ func normalizeItemFromConfig(item *items.Item) {
 	default:
 		return
 	}
-	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	_, key, ok := config.ItemDefOf(*item)
 	if !ok || key == "" {
 		return
 	}
@@ -68,6 +68,7 @@ func normalizeItemFromConfig(item *items.Item) {
 	}
 	// Adopt the def's current type, so cards saved before they became their own
 	// type (was "trinket") migrate to items.ItemCard on load.
+	item.Key = template.Key
 	item.Type = template.Type
 	item.Name = template.Name
 	// The YAML definition is the single source of an item's attributes: ADOPT

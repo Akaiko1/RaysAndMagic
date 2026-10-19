@@ -224,7 +224,7 @@ func TestTurnBasedActionsCarryRTCadenceAcrossModeSwitch(t *testing.T) {
 		member.ActionsRemaining = 1
 		want := game.combat.WeaponCooldownFrames(member)
 
-		game.consumeSelectedCharWeaponAction()
+		game.commitWeaponAction()
 		if member.RTCooldown != want {
 			t.Fatalf("TB main-hand cooldown = %d, want %d", member.RTCooldown, want)
 		}
@@ -241,7 +241,7 @@ func TestTurnBasedActionsCarryRTCadenceAcrossModeSwitch(t *testing.T) {
 		member.ActionsRemaining = 1
 		member.RTCooldown = 53
 
-		game.consumeSelectedCharActionWithRTCooldown(37)
+		game.commitHeroAction(game.selectedChar, 37)
 		if member.RTCooldown != 53 {
 			t.Fatalf("TB spell action shortened carried RT cooldown to %d, want 53", member.RTCooldown)
 		}
@@ -255,7 +255,7 @@ func TestTurnBasedActionsCarryRTCadenceAcrossModeSwitch(t *testing.T) {
 		member.NextTBAttackOffHand = true
 		want := game.combat.OffHandWeaponCooldownFrames(member)
 
-		game.consumeSelectedCharWeaponAction()
+		game.commitWeaponAction()
 		if member.RTCooldown != 0 || member.OffHandRTCooldown != want {
 			t.Fatalf("TB off-hand cooldowns = main:%d off:%d, want 0/%d", member.RTCooldown, member.OffHandRTCooldown, want)
 		}
@@ -325,7 +325,7 @@ func TestTurnBasedBossSpecialCarriesRTCadenceAcrossModeSwitch(t *testing.T) {
 	boss := spawnSpecialsMonster(game, "golden_thief_bug", 3, 2)
 	aggro(boss)
 	noSummons(boss)
-	boss.Abilities.Inferno.Chance = 1
+	setPartyAttackChance(boss, "inferno", 1)
 	boss.Abilities.Teleport.Chance = 0
 
 	runTBMonsterTurns(game, gl, 1)

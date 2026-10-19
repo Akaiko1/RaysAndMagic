@@ -3,9 +3,11 @@ package monster
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/status"
 )
 
@@ -15,20 +17,55 @@ import (
 // DurationSeconds, whole rounds, the same span in both modes. Runtime keeps
 // them on DualClocks (TelegraphState).
 type TelegraphedAttack struct {
-	Name            string  `yaml:"name"`
-	Kind            string  `yaml:"kind"`
-	School          string  `yaml:"school"`
-	Shape           string  `yaml:"shape"`
-	Range           int     `yaml:"range"`
-	CooldownSeconds float64 `yaml:"cooldown_seconds"`
-	CooldownRounds  int     `yaml:"cooldown_rounds"`
-	WarningSeconds  float64 `yaml:"warning_seconds"`
-	WarningRounds   int     `yaml:"warning_rounds"`
-	DurationSeconds int     `yaml:"duration_seconds,omitempty"`
-	DamagePercent   int     `yaml:"damage_percent"`
-	SustainDamage   int     `yaml:"sustain_damage,omitempty"`
-	BelowHPPercent  int     `yaml:"below_hp_percent,omitempty"`
+	Name            string          `yaml:"name"`
+	Kind            TelegraphKind   `yaml:"kind"`
+	School          damagecalc.Type `yaml:"school"`
+	Shape           TelegraphShape  `yaml:"shape"`
+	Range           int             `yaml:"range"`
+	CooldownSeconds float64         `yaml:"cooldown_seconds"`
+	CooldownRounds  int             `yaml:"cooldown_rounds"`
+	WarningSeconds  float64         `yaml:"warning_seconds"`
+	WarningRounds   int             `yaml:"warning_rounds"`
+	DurationSeconds int             `yaml:"duration_seconds,omitempty"`
+	DamagePercent   int             `yaml:"damage_percent"`
+	SustainPercent  int             `yaml:"sustain_percent,omitempty"` // a lingering field's damage per second, percent of the attack
+	Riders          Riders          `yaml:"riders,omitempty"`          // required on a damaging telegraph
+	BelowHPPercent  int             `yaml:"below_hp_percent,omitempty"`
 }
+
+// TelegraphKind is what a telegraph does on release.
+type TelegraphKind string
+
+const (
+	TelegraphStrike  TelegraphKind = "strike"
+	TelegraphCharge  TelegraphKind = "charge"  // rushes along its lane, then strikes
+	TelegraphSlow    TelegraphKind = "slow"    // a landed hit slows
+	TelegraphRoot    TelegraphKind = "root"    // a landed hit roots
+	TelegraphShield  TelegraphKind = "shield"  // shields an ally instead of striking
+	TelegraphPush    TelegraphKind = "push"    // a landed hit shoves the party along its direction
+	TelegraphRetreat TelegraphKind = "retreat" // strikes, then steps back
+)
+
+var telegraphKinds = []TelegraphKind{TelegraphStrike, TelegraphCharge, TelegraphSlow, TelegraphRoot, TelegraphShield, TelegraphPush, TelegraphRetreat}
+
+// Hinders reports a kind whose landed hit slows or roots.
+func (k TelegraphKind) Hinders() bool { return k == TelegraphSlow || k == TelegraphRoot }
+
+// TelegraphShape is the footprint of marked tiles.
+type TelegraphShape string
+
+const (
+	TelegraphLane   TelegraphShape = "lane"
+	TelegraphBurst  TelegraphShape = "burst"
+	TelegraphCone   TelegraphShape = "cone"
+	TelegraphTarget TelegraphShape = "target"
+)
+
+var telegraphShapes = []TelegraphShape{TelegraphLane, TelegraphBurst, TelegraphCone, TelegraphTarget}
+
+// telegraphSchools are the elements a telegraph may carry; silence stops
+// every telegraph for that reason.
+var telegraphSchools = []damagecalc.Type{damagecalc.Fire, damagecalc.Water, damagecalc.Earth, damagecalc.Air}
 
 // TelegraphShieldAbsorption is the flat per-hit soak granted to an ally by a
 // shield telegraph. Preview descriptions and combat use the same staged stats.
@@ -40,22 +77,16 @@ func (a *TelegraphedAttack) validate() error {
 	if a == nil {
 		return nil
 	}
-	switch a.Kind {
-	case "strike", "charge", "slow", "root", "shield", "push", "retreat":
-	default:
+	if !slices.Contains(telegraphKinds, a.Kind) {
 		return fmt.Errorf("unknown telegraphed attack kind %q", a.Kind)
 	}
-	switch a.Shape {
-	case "lane", "burst", "cone", "target":
-	default:
+	if !slices.Contains(telegraphShapes, a.Shape) {
 		return fmt.Errorf("unknown telegraphed attack shape %q", a.Shape)
 	}
-	switch a.School {
-	case "fire", "water", "earth", "air":
-	default:
+	if !slices.Contains(telegraphSchools, a.School) {
 		return fmt.Errorf("invalid telegraphed school %q", a.School)
 	}
-	if a.Name == "" || a.Range < 1 || a.Range > 8 || a.CooldownRounds < 1 || a.WarningRounds < 1 || a.DamagePercent < 0 || a.DamagePercent > 200 || a.BelowHPPercent < 0 || a.BelowHPPercent > 100 || a.SustainDamage < 0 {
+	if a.Name == "" || a.Range < 1 || a.Range > 8 || a.CooldownRounds < 1 || a.WarningRounds < 1 || a.DamagePercent < 0 || a.DamagePercent > MaxAttackPercent || a.BelowHPPercent < 0 || a.BelowHPPercent > 100 || a.SustainPercent < 0 || a.SustainPercent > MaxAttackPercent {
 		return fmt.Errorf("invalid telegraphed attack bounds")
 	}
 	for _, v := range []float64{a.CooldownSeconds, a.WarningSeconds} {
@@ -66,12 +97,15 @@ func (a *TelegraphedAttack) validate() error {
 	if a.DurationSeconds < 0 {
 		return fmt.Errorf("invalid telegraphed duration")
 	}
-	if (a.Kind == "shield" || a.Kind == "slow" || a.Kind == "root" || a.SustainDamage > 0) && a.DurationSeconds <= 0 {
+	if (a.DamagePercent > 0) != a.Riders.Authored() {
+		return fmt.Errorf("a damaging telegraph needs riders: true or false (a shield has none)")
+	}
+	if (a.Kind == TelegraphShield || a.Kind.Hinders() || a.SustainPercent > 0) && a.DurationSeconds <= 0 {
 		return fmt.Errorf("shield, slow, root and sustained fields need duration_seconds")
 	}
 	if a.DurationSeconds > 0 {
 		check := config.ValidateEffectSeconds
-		if a.Kind == "slow" {
+		if a.Kind == TelegraphSlow {
 			check = config.ValidateSlowSeconds
 		}
 		if err := check("telegraph duration_seconds", a.DurationSeconds); err != nil {
@@ -130,20 +164,20 @@ func (s *TelegraphState) MigrateLegacy(a *TelegraphedAttack, tps int) {
 // lines describes the telegraph as an ability; d supplies the attack that a
 // shield variant converts into absorption.
 func (a *TelegraphedAttack) lines(d MonsterDefinition) []EffectLine {
-	school := normalizeEffectSchool(a.School)
+	school := a.School.String()
 	var out []EffectLine
 	add := func(text string) { out = append(out, EffectLine{Text: text, School: school}) }
 	add(uitext.Text("monster.telegraph", a.Name, a.Kind, a.Shape, a.Range))
 	add(uitext.Text("monster.telegraph_timing", config.NumberText(a.WarningSeconds), a.WarningRounds, config.NumberText(a.CooldownSeconds), a.CooldownRounds))
-	if a.Kind == "shield" {
+	if a.Kind == TelegraphShield {
 		add(uitext.Text("monster.telegraph_shield", TelegraphShieldAbsorption(d.DamageMin, d.DamageMax)))
 	} else if a.DamagePercent > 0 {
 		add(uitext.Text("monster.telegraph_damage", a.DamagePercent))
 	}
 	if a.DurationSeconds > 0 {
 		text := uitext.Text("monster.telegraph_duration", config.DurationText(a.DurationSeconds))
-		if a.Kind != "shield" && a.SustainDamage > 0 {
-			text += uitext.Text("monster.telegraph_sustain", a.SustainDamage)
+		if a.Kind != TelegraphShield && a.SustainPercent > 0 {
+			text += uitext.Text("monster.telegraph_sustain", a.SustainPercent)
 		}
 		add(text)
 	}

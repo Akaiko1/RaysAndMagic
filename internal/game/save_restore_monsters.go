@@ -174,7 +174,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.RestoreDoTTickTimers(ms.PoisonTickTimer, ms.BurnTickTimer)
 				m.TrapVolleyCD = savedClock(ms.TrapVolleyCD, status.DualClock{Frames: ms.TrapVolleyCDFrames, Turns: ms.TrapVolleyTurnCD, Rate: ms.TrapVolleyCDRate})
 				m.Telegraph = ms.Telegraph.Clone()
-				m.Telegraph.MigrateLegacy(telegraphDefinition(m), config.GlobalConfig.GetTPS())
+				m.Telegraph.MigrateLegacy(monsterTelegraph(m), config.GlobalConfig.GetTPS())
 				m.SlowPct = ms.SlowPct
 				m.Slow = savedClock(ms.Slow, status.DualClock{Frames: ms.SlowFrames, Turns: ms.SlowTurns, Rate: ms.SlowRate})
 				if (!save.TurnBased && m.Slow.Frames <= 0) ||
@@ -205,7 +205,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.Jammed = ms.Jammed
 				m.HourMarks = ms.HourMarks
 				m.BossCD = restoreClock(ms.BossCD, ms.LegacyBossCD)
-				m.InfernoCD = restoreClock(ms.InfernoCD, ms.LegacyInfernoCD)
+				m.NovaRollCD = restoreClock(ms.NovaRollCD, ms.LegacyInfernoCD)
 				m.BossHurtPending = ms.BossHurtPending
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone

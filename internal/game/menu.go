@@ -94,6 +94,11 @@ func (g *MMGame) selectedSaveRow() int {
 	return g.savePage*saveRowsPerPage + g.slotSelection
 }
 
+// flipSavePage turns the save list one page either way, wrapping at both ends.
+func (g *MMGame) flipSavePage(step int) {
+	g.savePage = (g.savePage + step + savePageCount) % savePageCount
+}
+
 // saveRowLabel is the slot's display name ("Autosave", "Quicksave" or "Slot N").
 func saveRowLabel(row int) string {
 	switch row {

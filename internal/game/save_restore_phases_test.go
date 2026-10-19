@@ -49,7 +49,7 @@ func TestFileRestoreReplacesTimelineInDependencyOrder(t *testing.T) {
 				if err := g.LoadGameFromFile(path); err != nil {
 					t.Fatal(err)
 				}
-				if !reflect.DeepEqual(g.dialogState, dialogState{dialogLastClickedIdx: -1}) || !reflect.DeepEqual(g.menuState, menuState{saveRenameSlot: -1, audioSliderDrag: -1}) {
+				if !reflect.DeepEqual(g.dialogState, dialogState{}) || !reflect.DeepEqual(g.menuState, menuState{saveRenameSlot: -1, audioSliderDrag: -1}) {
 					t.Fatal("file load retained the previous UI owners")
 				}
 				if !g.waterBreathingActive || g.waterBreathingClock.Frames != 123 || len(g.statBuffs) != 1 || g.statBuffs[0].Clock.Frames != 91 || g.buffStatuses["bless"] == nil {

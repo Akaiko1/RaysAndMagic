@@ -138,7 +138,7 @@ func (L collectionLayout) pocketRect(i int) layoutRect {
 // openCollectionScreen shows the clerk's collections; the chest stays at the tavern.
 func (g *MMGame) openCollectionScreen() bool {
 	if !g.ensureStashLoaded() {
-		g.AddCombatMessage("Could not open the stash.")
+		g.AddCombatMessage(uitext.Text("combat.could_not_open_the_stash"))
 		return false
 	}
 	g.collectionScreenOpen = true
@@ -163,9 +163,9 @@ func (ui *UISystem) collectionTemplate(key string) items.Item {
 	if ui.collectionTemplates == nil {
 		ui.collectionTemplates = map[string]items.Item{}
 	}
-	it, err := items.TryCreateWeaponFromYAML(key)
+	it, err := items.FromKey(key)
 	if err != nil {
-		it = items.CreateItemFromYAML(key)
+		panic(err.Error()) // collection keys come from the catalog
 	}
 	ui.collectionTemplates[key] = it
 	return it
@@ -188,8 +188,8 @@ func (ui *UISystem) drawCollectionScreen(screen *ebiten.Image) {
 		tab := L.tabs[i]
 		ui.drawButtonFrame(screen, tab.x, tab.y, tab.w, tab.h, g.collectionTab == i)
 		drawCenteredUIText(screen, label, tab.x, tab.y, tab.w, tab.h)
-		ui.onDisplayedInput(uiCommandNavigation, tab, func() {
-			if interactive && g.consumeLeftClickIn(tab.x, tab.y, tab.right(), tab.bottom()) && g.collectionTab != i {
+		ui.onClick(tab, interactive, func() {
+			if g.collectionTab != i {
 				g.setCollectionTab(i)
 			}
 		})

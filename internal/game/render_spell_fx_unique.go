@@ -48,11 +48,11 @@ func validateProjectileFxStyles() {
 			continue
 		}
 		if style := def.Graphics.WorldFx; style != "" {
-			kind := ""
+			var kind config.MechanicKind
 			if def.Mechanic != nil {
 				kind = def.Mechanic.Kind
 			}
-			if entry, ok := spellWorldStyles[style]; !ok || entry.mechanic != kind {
+			if entry, ok := spellWorldStyles[style]; !ok || entry.mechanic != string(kind) {
 				panic(fmt.Sprintf("spell %q: world_fx %q is incompatible with mechanic %q", key, style, kind))
 			}
 		}

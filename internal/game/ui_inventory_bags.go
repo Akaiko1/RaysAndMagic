@@ -2,11 +2,11 @@ package game
 
 import (
 	"image/color"
-	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/character"
 	"ugataima/internal/items"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // Both bags are always visible. Each has its own page and wheel target; every
@@ -27,7 +27,7 @@ func (ui *UISystem) drawInventoryBagGrid(screen *ebiten.Image, owner *character.
 		hover := isMouseHoveringBox(mx, my, x, y, x+w, y+h)
 		if idx < 0 || idx >= len(bag.Items()) {
 			if !ui.inventoryContextOpen {
-				if g.dragActive && hover {
+				if g.drag.active && hover {
 					drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				}
 				ui.inventoryEmptyDropZone(x, y, w, h, owner)
@@ -46,7 +46,7 @@ func (ui *UISystem) drawInventoryBagGrid(screen *ebiten.Image, owner *character.
 			}
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, border)
 		}
-		dragging := g.dragActive && g.dragSrc == dragFromInventory && g.dragInvOwner == owner && g.dragInvIndex == idx && g.dragSplitQuantity == 0
+		dragging := g.drag.active && g.dragSrc == dragFromInventory && g.dragInvOwner == owner && g.dragInvIndex == idx && g.dragSplitQuantity == 0
 		if !dragging {
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, max(1, w/16), canEquip)
 		}
@@ -80,7 +80,7 @@ func (ui *UISystem) drawInventoryBagGrid(screen *ebiten.Image, owner *character.
 	}
 	ui.quickInvDropZone(grid.x, grid.y, grid.w, grid.h, owner)
 	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
-	resetClick := func() { ui.lastClickedItem = -1; ui.lastClickTime = time.Time{} }
+	resetClick := ui.bagClicks.reset
 	ui.drawPager(screen, pager.x, pager.y, pager.w, page, totalPages, clickable, resetClick)
 	ui.onDisplayedInput(uiCommandPointer, grid, func() {
 		mx, my := pointerPosition()

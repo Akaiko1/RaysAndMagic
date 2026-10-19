@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/spells"
@@ -306,22 +307,22 @@ func (g *MMGame) closeLevelUpChoice() {
 func (g *MMGame) applyLevelUpOption(char *character.MMCharacter, option levelUpChoiceOption) {
 	switch option.choice.Type {
 	case "spell":
-		if addSpellByID(char, option.spellID) {
-			g.AddCombatMessage(fmt.Sprintf("%s learned %s!", char.Name, spellName(option.spellID)))
+		if char.LearnSpell(option.spellID) {
+			g.AddCombatMessage(uitext.Text("dialog.learned", char.Name, spellName(option.spellID)))
 		} else {
-			g.AddCombatMessage(fmt.Sprintf("%s already knows %s.", char.Name, spellName(option.spellID)))
+			g.AddCombatMessage(uitext.Text("combat.already_knows", char.Name, spellName(option.spellID)))
 		}
 	case "weapon_mastery", "armor_mastery":
 		if g.trainSkill(char, option.skillType) {
-			g.AddCombatMessage(fmt.Sprintf("%s's %s Mastery increased!", char.Name, option.skillType.String()))
+			g.AddCombatMessage(uitext.Text("combat.s_mastery_increased", char.Name, option.skillType.String()))
 		} else {
-			g.AddCombatMessage(fmt.Sprintf("%s's %s Mastery is already at maximum.", char.Name, option.skillType.String()))
+			g.AddCombatMessage(uitext.Text("combat.s_mastery_is_already_at_maximum", char.Name, option.skillType.String()))
 		}
 	case "magic_mastery":
 		if upgradeMagicMastery(char, option.school) {
-			g.AddCombatMessage(fmt.Sprintf("%s's %s Magic Mastery increased!", char.Name, option.school.DisplayName()))
+			g.AddCombatMessage(uitext.Text("combat.s_magic_mastery_increased", char.Name, option.school.DisplayName()))
 		} else {
-			g.AddCombatMessage(fmt.Sprintf("%s's %s Magic Mastery is already at maximum.", char.Name, option.school.DisplayName()))
+			g.AddCombatMessage(uitext.Text("combat.s_magic_mastery_is_already_at", char.Name, option.school.DisplayName()))
 		}
 	}
 }
@@ -642,10 +643,6 @@ func magicMasteryOptionLabel(char *character.MMCharacter, school character.Magic
 func skillTypeFromKey(key string) (character.SkillType, bool) {
 	skill, ok := character.SkillTypeFromKey(strings.ToLower(strings.TrimSpace(key)))
 	return skill, ok && skill.UsesMastery()
-}
-
-func addSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {
-	return char.LearnSpell(spellID)
 }
 
 func characterKnowsSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {

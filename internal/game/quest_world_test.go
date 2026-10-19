@@ -105,7 +105,7 @@ func TestQuestWorldReferencesRejectBrokenQuestLinks(t *testing.T) {
 		{
 			name: "unknown summon quest",
 			npcs: &character.NPCConfig{NPCs: map[string]*character.NPCData{"test_statue": {
-				Summons: []*character.NPCSummon{{Statuette: "Black Dragon Statuette", Monster: "elder_dragon", QuestID: "missing_quest"}},
+				Summons: []*character.NPCSummon{{Statuette: "black_dragon_statuette", Monster: "elder_dragon", QuestID: "missing_quest"}},
 			}}},
 			quests: map[string]*quests.QuestDefinition{},
 			want:   []string{`unknown quest "missing_quest"`},
@@ -120,7 +120,13 @@ func TestQuestWorldReferencesRejectBrokenQuestLinks(t *testing.T) {
 			name:   "unknown nested requirement",
 			npcs:   nested(&character.NPCDialogueChoice{Action: "info", RequiresQuest: "missing_quest"}),
 			quests: known(),
-			want:   []string{`unknown requires_quest "missing_quest"`},
+			want:   []string{`requires_quest: unknown quest "missing_quest"`},
+		},
+		{
+			name:   "repeatable quest as a gate",
+			npcs:   nested(&character.NPCDialogueChoice{Action: "info", RequiresQuest: "nightly"}),
+			quests: map[string]*quests.QuestDefinition{"nightly": {Name: "Nightly", Repeatable: quests.RepeatNightly}},
+			want:   []string{`requires_quest: quest "nightly" is repeatable and cannot gate`},
 		},
 		{
 			name: "turn-in beside the giver's own delivery",
@@ -133,9 +139,9 @@ func TestQuestWorldReferencesRejectBrokenQuestLinks(t *testing.T) {
 		},
 		{
 			name:   "unknown stock requirement",
-			npcs:   &character.NPCConfig{NPCs: map[string]*character.NPCData{"test_shop": {Inventory: []*character.NPCItem{{Type: "item", Name: "Health Potion", RequiresQuest: "missing_quest"}}}}},
+			npcs:   &character.NPCConfig{NPCs: map[string]*character.NPCData{"test_shop": {Inventory: []*character.NPCItem{{Key: "health_potion", RequiresQuest: "missing_quest"}}}}},
 			quests: known(),
-			want:   []string{`stock "Health Potion" references unknown requires_quest "missing_quest"`},
+			want:   []string{`stock "health_potion" requires_quest: unknown quest "missing_quest"`},
 		},
 		{
 			name:   "unknown quest step",
@@ -222,7 +228,7 @@ func TestQuestRewardItemFailureLeavesClaimRetryable(t *testing.T) {
 	qm.MarkCompleted("bad_reward")
 	g.questManager = qm
 
-	if g.claimQuestReward("bad_reward") {
+	if g.claimQuestReward("bad_reward", nil) {
 		t.Fatal("claim with an invalid item key succeeded")
 	}
 	if quest := qm.GetQuest("bad_reward"); quest == nil || quest.RewardsClaimed {

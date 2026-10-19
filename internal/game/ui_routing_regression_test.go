@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/game/keytracker"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestDisplayedCombatLogCapturesOnlyItsInputFrame(t *testing.T) {
@@ -38,7 +39,7 @@ func TestDisplayedCombatLogCapturesOnlyItsInputFrame(t *testing.T) {
 			}
 			if kind == "double" || kind == "expired" {
 				if kind == "expired" {
-					g.lastCombatLogClick = time.Now().UnixMilli() - doubleClickWindowMs - 1
+					g.combatLogClicks.click(struct{}{}, time.Now().UnixMilli()-doubleClickWindowMs-1)
 				}
 				fp.press()
 				h.pointerStep()
@@ -128,7 +129,7 @@ func TestTitlePointerCannotArmCoveredInventoryDrag(t *testing.T) {
 	presentInputScreen(h)
 	fp.press()
 	updateInputScreen(h)
-	if g.dragArmed || g.dragActive || g.stashDragArmed || g.stashDragActive {
+	if g.drag.armed || g.drag.active || g.stashDrag.armed || g.stashDrag.active {
 		t.Fatal("title input reached hidden gameplay drag recognizers")
 	}
 }

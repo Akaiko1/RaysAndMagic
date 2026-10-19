@@ -19,11 +19,7 @@ func (ui *UISystem) drawDialogueNavigation(screen *ebiten.Image, layout dialogue
 		mx, my := pointerPosition()
 		hover := isMouseHoveringBox(mx, my, rect.x, rect.y, rect.right(), rect.bottom())
 		ui.drawMenuButton(screen, label, rect.x, rect.y, rect.w, rect.h, hover)
-		ui.onDisplayedInput(uiCommandNavigation, rect, func() {
-			if interactive && ui.game.consumeLeftClickIn(rect.x, rect.y, rect.right(), rect.bottom()) {
-				action()
-			}
-		})
+		ui.onClick(rect, interactive, action)
 	}
 	if ui.game.currentDialogNode() != nil {
 		draw(layout.backButton, uitext.Text("dialog.back"), ui.game.backConversation)

@@ -7,7 +7,7 @@ import "ugataima/internal/config"
 func (c *MMCharacter) PersonalInventoryRegenPct() int {
 	best := 0
 	for _, it := range c.Inventory {
-		if def, _, ok := config.GetItemDefinitionByName(it.Name); ok {
+		if def, _, ok := config.ItemDefOf(it); ok {
 			best = max(best, def.PersonalInventoryRegenPct)
 		}
 	}
@@ -19,7 +19,7 @@ func (c *MMCharacter) PersonalInventoryRegenPct() int {
 func (c *MMCharacter) WeaponBaseDamageBonus() int {
 	bonus := c.BonusWeaponBaseDamage
 	for _, it := range c.Equipment {
-		if def, _, ok := config.GetItemDefinitionByName(it.Name); ok {
+		if def, _, ok := config.ItemDefOf(it); ok {
 			bonus += def.WeaponBaseDamageBonus
 		}
 	}

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"image"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/quests"
 )
@@ -9,6 +10,8 @@ type layoutRect struct{ x, y, w, h int }
 
 func (r layoutRect) right() int  { return r.x + r.w }
 func (r layoutRect) bottom() int { return r.y + r.h }
+
+func layoutRectOf(r image.Rectangle) layoutRect { return layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()} }
 
 const (
 	// These are minimum logical dimensions, not the runtime panel size. The

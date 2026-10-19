@@ -6,11 +6,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"ugataima/internal/collision"
 	"ugataima/internal/game/keytracker"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestCombatOverlaySettings(t *testing.T) {

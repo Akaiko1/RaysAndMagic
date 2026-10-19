@@ -1,16 +1,12 @@
 package game
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 
-	"ugataima/internal/character"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/collision"
-	damagecalc "ugataima/internal/damage"
 	monsterPkg "ugataima/internal/monster"
-	"ugataima/internal/quests"
-	"ugataima/internal/world"
 )
 
 // Boss behaviour is explicitly authored with boss: true in monsters.yaml.
@@ -32,11 +28,7 @@ func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 	if m == nil || !m.IsBoss() || m.QuestProgressIgnored || m.PassiveUntilQuest == "" {
 		return false
 	}
-	if cs.game.questManager == nil {
-		return true // no quest manager -> treat as not-yet-done (stay evasive)
-	}
-	q := cs.game.questManager.GetQuest(m.PassiveUntilQuest)
-	return q == nil || q.Status != quests.QuestStatusCompleted
+	return !cs.game.questManager.ObjectiveMet(m.PassiveUntilQuest)
 }
 
 // runBossSpecials is the ONE boss rider for every combat path: RT and TB, party
@@ -74,15 +66,13 @@ func (cs *CombatSystem) bossActionTick(m *monsterPkg.Monster3D) bool {
 	}
 	// Same reach gate as the normal attack: an adjacent melee boss is in contact
 	// at >1 tile of pixel distance.
-	dist := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y)
-	return m.State == monsterPkg.StateAttacking && m.StateTimer == 1 &&
-		cs.monsterCanAttackParty(m, dist, m.GetAttackRangePixels())
+	return m.State == monsterPkg.StateAttacking && m.StateTimer == 1 && cs.partyInStrikeReach(m, false)
 }
 
 // updateBoss runs the boss's special behaviour. BossCD gates the evasive blink.
 // `attackTick` marks the once-per-attack moment when an aggressive boss may
-// blink (low HP) or cast Inferno; between attacks the nova may roll AT RANGE
-// once InfernoCD has run out. Returns true when it handled the monster's action
+// blink (low HP) or cast a nova; between attacks a nova may roll AT RANGE
+// once NovaRollCD has run out. Returns true when it handled the monster's action
 // this tick (caller skips the normal attack); false lets the normal
 // melee/ranged attack proceed (which can melt armor: abilities.melt_armor).
 func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, attackTick bool) bool {
@@ -109,7 +99,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, attackTick bool) boo
 				tps := cs.game.config.GetTPS()
 				m.BossCD.ArmFrames(int(math.Round(m.BossCooldownSecs*float64(tps))), tps)
 				m.BossHurtPending = false
-				cs.game.AddCombatMessage(fmt.Sprintf("%s skitters away into the dark!", m.Name))
+				cs.game.AddCombatMessage(uitext.Text("combat.skitters_away_into_the_dark", m.Name))
 			}
 		}
 		return true
@@ -119,7 +109,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, attackTick bool) boo
 	// GetAttackDamage/AttackCooldownFrames, so it is save-safe.
 	if m.Abilities.Enrage.AtHP > 0 && !m.Enraged && m.IsEnraged() {
 		m.Enraged = true
-		cs.game.logCombat(logToneBad, "%s flies into a %s!", logMonsterName(m), logKeyword("damage", "furious rage"))
+		cs.game.logCombatLine(logToneBad, uitext.Text("combat.flies_into_a", logSlot, logSlot), logMonsterName(m), logKeyword("damage", "furious rage"))
 	}
 	// A rolled summon fires on the melee attack moment OR when the boss TAKES
 	// DAMAGE while able to act. The hurt-provoke is the RT anti-kite: a boss being
@@ -137,23 +127,21 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, attackTick bool) boo
 		return true
 	}
 
-	// The low-HP blink still fires only at the melee attack moment. Inferno is a
-	// RANGED nova (abilities.inferno.range_tiles) and may also roll from a distance, so it
-	// is handled after this gate.
+	// The low-HP blink still fires only at the melee attack moment. A nova
+	// (party_attacks trigger nova) may also roll from its reach between attacks.
 	if !attackTick {
-		return cs.tryBossRangedInferno(m)
+		return cs.tryBossRangedNova(m)
 	}
 	if m.Abilities.Teleport.AtHP > 0 && m.HitPoints <= m.Abilities.Teleport.AtHP && rand.Float64() < m.Abilities.Teleport.Chance {
 		if cs.blinkMonsterRandom(m) {
-			cs.game.logCombat(logToneBad, "%s %s in a golden flash!", logMonsterName(m), logAbility("blinks away"))
+			cs.game.logCombatLine(logToneBad, uitext.Text("combat.in_a_golden_flash", logSlot, logSlot), logMonsterName(m), logAbility("blinks away"))
 			return true
 		}
 	}
-	// Melee moment: the nova can replace the normal hit, as long as the party is
-	// inside its authored reach (always true at melee range for a sane radius).
-	if m.Abilities.Inferno.Chance > 0 && cs.bossInfernoInRange(m) && rand.Float64() < m.Abilities.Inferno.Chance {
-		cs.applyMonsterInferno(m)
-		cs.armBossInfernoRoll(m)
+	// Attack moment: a nova can replace the normal hit while the party is
+	// inside its authored reach.
+	if cs.tryMonsterPartyAttack(m, monsterPkg.PartyAttackNova) {
+		cs.armBossNovaRoll(m)
 		return true
 	}
 	return false // proceed to the normal attack (it may melt armor: abilities.melt_armor)
@@ -183,45 +171,6 @@ func (cs *CombatSystem) tryBossTimedSummon(m *monsterPkg.Monster3D) bool {
 // summonsFull reports a boss at its live summon cap.
 func (cs *CombatSystem) summonsFull(m *monsterPkg.Monster3D) bool {
 	return m.Abilities.Summon.Max > 0 && cs.countLiveSummons(m) >= m.Abilities.Summon.Max
-}
-
-// bossInfernoInRange reports whether the party is inside the nova's authored
-// radius. A boss with an inferno chance but no radius cannot reach the party at all
-// (load validation rejects that combination, so this is a belt-and-suspenders
-// guard against hand-built test monsters).
-func (cs *CombatSystem) bossInfernoInRange(m *monsterPkg.Monster3D) bool {
-	if m.Abilities.Inferno.RangeTiles <= 0 || cs.attackOriginBlocked(m.X, m.Y) {
-		return false
-	}
-	reach := m.Abilities.Inferno.RangeTiles * float64(cs.game.config.GetTileSize())
-	return Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= reach
-}
-
-// armBossInfernoRoll starts the gap between AT-RANGE nova rolls. It is a
-// timing policy (not per-boss content), and it is armed after every cast so a
-// melee nova cannot be followed instantly by a ranged one.
-func (cs *CombatSystem) armBossInfernoRoll(m *monsterPkg.Monster3D) {
-	m.InfernoCD.Arm(BossInfernoRangedRollSeconds, cs.game.config.GetTPS())
-}
-
-// tryBossRangedInferno rolls the nova from OUTSIDE melee reach: the party must be
-// within abilities.inferno.range_tiles and InfernoCD must have run out. Returns true
-// when the nova fired and consumed the boss's action this tick.
-func (cs *CombatSystem) tryBossRangedInferno(m *monsterPkg.Monster3D) bool {
-	if m.Abilities.Inferno.Chance <= 0 || cs.bossDisabled(m) {
-		return false
-	}
-	if m.InfernoCD.Active() || !cs.bossInfernoInRange(m) {
-		return false
-	}
-	// The cooldown is armed by the ATTEMPT, not only by a hit, so a failed roll
-	// cannot be retried every frame.
-	cs.armBossInfernoRoll(m)
-	if rand.Float64() >= m.Abilities.Inferno.Chance {
-		return false
-	}
-	cs.applyMonsterInferno(m)
-	return true
 }
 
 // summonBossAdds rallies the boss's adds (war-banner): up to SummonCount monsters
@@ -279,7 +228,7 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 	if spawned == 0 {
 		return false
 	}
-	cs.game.logCombat(logToneBad, "%s raises the %s - retainers rush to its side!", logMonsterName(m), logAbility("war-banner"))
+	cs.game.logCombatLine(logToneBad, uitext.Text("combat.raises_the_retainers_rush_to_its", logSlot, logSlot), logMonsterName(m), logAbility("war-banner"))
 	return true
 }
 
@@ -289,44 +238,12 @@ func (cs *CombatSystem) findNearestSummonTile(targetX, targetY float64, maxRadiu
 
 // findNearestSummonTileWithin also keeps the tile centre inside bounds.
 func (cs *CombatSystem) findNearestSummonTileWithin(targetX, targetY float64, maxRadius int, bounds collision.MovementBounds) (float64, float64, bool) {
-	w := cs.game.GetCurrentWorld()
-	if w == nil || world.GlobalTileManager == nil {
-		return 0, 0, false
-	}
 	tile := float64(cs.game.config.GetTileSize())
-	targetTX := TileIndex(targetX, tile)
-	targetTY := TileIndex(targetY, tile)
-
-	for radius := 0; radius < maxRadius; radius++ {
-		for dx := -radius; dx <= radius; dx++ {
-			for dy := -radius; dy <= radius; dy++ {
-				adx, ady := dx, dy
-				if adx < 0 {
-					adx = -adx
-				}
-				if ady < 0 {
-					ady = -ady
-				}
-				if adx != radius && ady != radius {
-					continue
-				}
-				tx := targetTX + dx
-				ty := targetTY + dy
-				if tx < 0 || tx >= w.Width || ty < 0 || ty >= w.Height {
-					continue
-				}
-				if !world.GlobalTileManager.IsWalkable(w.Tiles[ty][tx]) {
-					continue
-				}
-				x, y := TileCenterFromTile(tx, ty, tile)
-				if !bounds.Allows(collision.NewBoundingBox(x, y, 0, 0)) || cs.summonSpawnOccupied(x, y) {
-					continue
-				}
-				return x, y, true
-			}
-		}
-	}
-	return 0, 0, false
+	x, y := cs.game.findNearestWalkableTileWithMaxRadius(targetX, targetY, maxRadius, func(tx, ty int) bool {
+		x, y := TileCenterFromTile(tx, ty, tile)
+		return bounds.Allows(collision.NewBoundingBox(x, y, 0, 0)) && !cs.summonSpawnOccupied(x, y)
+	})
+	return x, y, x >= 0
 }
 
 func (cs *CombatSystem) summonSpawnOccupied(x, y float64) bool {
@@ -402,40 +319,10 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 			continue
 		}
 		if cs.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, cx, cy, m.WalkableTileOverrides, m.Flying) {
-			cs.game.releaseMonsterAttackPost(m)
-			m.X, m.Y = cx, cy
-			cs.game.collisionSystem.UpdateEntity(m.ID, cx, cy)
-			m.ResetPathfinding() // drop stale waypoints from the old position
+			cs.game.relocateMonster(m, cx, cy)
 			cs.game.spawnBlinkLightColumn(fromX, fromY)
 			return true
 		}
 	}
 	return false
-}
-
-// applyMonsterInferno scorches the whole party with fire (flat, mitigated).
-func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
-	defer cs.game.observeOverwatchAttack(m)
-	defer cs.game.beginProfileMonsterHit(m, m.Name)()
-	cs.game.logCombat(logToneBad, "%s erupts in a %s!", logMonsterName(m), logSchoolWord(monsterPkg.DamageFire.String(), "wave of fire"))
-	cs.game.playMonsterSchoolSound(monsterPkg.DamageFire.String(), true, m)
-	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		parts := cs.monsterOutgoingDamage(m, damagecalc.Parts{Normal: m.Abilities.Inferno.Damage, True: m.TrueDamage})
-		dealt := cs.damagePartyMemberPartsFromSource(
-			idx,
-			member,
-			parts,
-			monsterPkg.DamageFire.String(),
-			true, // boss Inferno is a cast - absorbable
-			m,
-		)
-		cs.game.reportDamage(logToneBad, damageLog{
-			Source: logSchoolWord(monsterPkg.DamageFire.String(), "Inferno"),
-			Target: heroLogTarget(member),
-			Amount: dealt,
-			School: monsterPkg.DamageFire.String(),
-			Kind:   damageLogScorch,
-		})
-		cs.game.TriggerPartyFlame(idx)
-	})
 }

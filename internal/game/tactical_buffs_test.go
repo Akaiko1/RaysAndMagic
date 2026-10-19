@@ -52,7 +52,7 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 					// swing; zeroing only m.StunCharChance cannot pin them.
 					template := g.championTemplateFor(m)
 					for _, slot := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
-						weapon := lookupWeaponConfigByName(template.Equipment[slot].Name)
+						weapon := lookupWeaponConfig(template.Equipment[slot])
 						original := *weapon
 						t.Cleanup(func() { *weapon = original })
 						weapon.StunChance = 0
@@ -105,8 +105,7 @@ func TestOverwatchAttackActionWiring(t *testing.T) {
 				}
 				switch kind {
 				case "inferno":
-					m.Abilities.Inferno.Damage = 1
-					g.combat.applyMonsterInferno(m)
+					castTestPartyAttack(g.combat, m, catalogPartyAttack("inferno"), 1)
 				case "volley":
 					m.Abilities.TrapVolley.Count = 4
 					m.Abilities.TrapVolley.RadiusTiles = 2
@@ -186,7 +185,7 @@ func TestBallisticsCriticalChanceAndTooltip(t *testing.T) {
 				ch.Skills[character.SkillBallistics] = skill
 				skill.Mastery = character.SkillMastery(tier)
 				want := 0
-				if character.BallisticsWeapon(lookupWeaponConfigByName(weapon.Name)) {
+				if character.BallisticsWeapon(lookupWeaponConfig(weapon)) {
 					want = character.BallisticsCritPct(tier)
 				}
 				if got := g.combat.CalculateWeaponCritChance(weapon, ch); got != min(100, before+want) {
