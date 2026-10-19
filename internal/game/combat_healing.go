@@ -46,8 +46,7 @@ func (cs *CombatSystem) healWholeParty(amount int) int {
 	return healed
 }
 
-// CastEquippedHeal casts the slotted heal (F) on the pointed hero, else the
-// selected one (castKnownHealOn's fallback).
+// CastEquippedHeal casts the slotted heal (F) on handHealTarget's hero.
 func (cs *CombatSystem) CastEquippedHeal() bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
@@ -70,23 +69,29 @@ func (cs *CombatSystem) CastEquippedHeal() bool {
 	if err != nil {
 		return false
 	}
-	// SP gate, 0-HP refusal, cost and messages all live in the ONE heal cast path.
-	return cs.castKnownHealOn(spellID, def, cs.pointedHealTarget(def, cs.game.heroUnderCursor()))
+	return cs.castHandHeal(spellID, def)
 }
 
-// pointedHealTarget is the hero a heal cast by hand mends when one is pointed
-// at: the caster for a self-only heal, else hovered (the hero under the
-// cursor); -1 for none. Unpointed, F and C heal the selected hero and the
-// book and quick bar the most wounded; Space and a smart click always take
-// the most wounded (smartHealPlan).
-func (cs *CombatSystem) pointedHealTarget(def spells.SpellDefinition, hovered *character.MMCharacter) int {
+// castHandHeal casts a known heal by hand (F, C) on handHealTarget's hero.
+// With nobody to heal it refuses before paying anything, like Space. The SP
+// gate, 0-HP refusal, cost and messages live in castKnownHealOn.
+func (cs *CombatSystem) castHandHeal(spellID spells.SpellID, def spells.SpellDefinition) bool {
+	target := cs.handHealTarget(def, cs.game.heroUnderCursor())
+	return target >= 0 && cs.castKnownHealOn(spellID, def, target)
+}
+
+// handHealTarget is the hero a heal cast by hand (F, C, the quick bar, the
+// book) mends: the caster for a self-only heal, else hovered (the hero under
+// the cursor), else the most wounded living hero; -1 when the heal has nobody
+// hurt to mend. Space and a smart click ignore the cursor (smartHealPlan).
+func (cs *CombatSystem) handHealTarget(def spells.SpellDefinition, hovered *character.MMCharacter) int {
 	if def.TargetSelf {
-		return cs.game.selectedChar
+		return cs.mostWoundedHealTarget(def, 1)
 	}
 	if i := cs.findCharacterIndex(hovered); hovered != nil && i >= 0 {
 		return i
 	}
-	return -1
+	return cs.mostWoundedHealTarget(def, 1)
 }
 
 // healReach is a heal's place in the triage chain: a heal that mends every
@@ -172,11 +177,11 @@ func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spell
 	return "", false
 }
 
-// CastBestHealOnTarget casts the first castable heal of the selected
-// character's chain (see bestKnownHealSpell) - bound to the C key - on
-// recipient, resolved at the key press (healRecipient). Returns whether a
-// heal fired plus the spell used (for the real-time cooldown).
-func (cs *CombatSystem) CastBestHealOnTarget(recipient *character.MMCharacter) (bool, spells.SpellID) {
+// CastBestHeal casts the first castable heal of the selected character's
+// chain (see bestKnownHealSpell) - bound to the C key - on handHealTarget's
+// hero. Returns whether a heal fired plus the spell used (for the real-time
+// cooldown).
+func (cs *CombatSystem) CastBestHeal() (bool, spells.SpellID) {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 	if !caster.CanUseCombatAction() {
 		return false, ""
@@ -191,7 +196,7 @@ func (cs *CombatSystem) CastBestHealOnTarget(recipient *character.MMCharacter) (
 	if err != nil {
 		return false, ""
 	}
-	if cs.castKnownHealOn(spellID, def, cs.pointedHealTarget(def, recipient)) {
+	if cs.castHandHeal(spellID, def) {
 		return true, spellID
 	}
 	return false, ""
@@ -199,8 +204,8 @@ func (cs *CombatSystem) CastBestHealOnTarget(recipient *character.MMCharacter) (
 
 // castKnownHealOn pays for and casts a known (book) heal on a resolved party
 // target. Party heals restore everyone; self-only heals always land on the
-// caster; an out-of-range target falls back to the caster. Callers resolve def
-// once and pass it in.
+// caster; an out-of-range target refuses. Callers resolve def once and pass
+// it in.
 func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.SpellDefinition, targetIndex int) bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 	req := spellCastRequest{ID: spellID, Definition: def, Caster: caster,
@@ -223,7 +228,7 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 			targetIndex = cs.game.selectedChar
 		}
 		if targetIndex < 0 || targetIndex >= len(cs.game.party.Members) {
-			targetIndex = cs.game.selectedChar
+			return castRejected
 		}
 		target := cs.game.party.Members[targetIndex]
 		if !target.IsLiving() {

@@ -84,7 +84,7 @@ spell.binds_an_undead_target_for_s_it: "Binds an undead target for %ds (it fight
 spell.bound_undead_still_takes_party_hits: "Your attacks and area spells still hit it; it turns hostile when the bind ends and crumbles if you leave the map"
 spell.burns_every_monster_on_the_map_for: "Burns EVERY monster on the map for %d-%d damage by mastery%s"
 spell.by_mastery_hp_and_damage: "; by mastery %d-%d HP and %d-%d damage"
-spell.heals_the_ally_you_point_at: "Heals the ally you point at, else the selected hero; from the spellbook, the most wounded ally; never an ally at 0 HP"
+spell.heals_the_ally_you_point_at: "Heals the ally you point at, else the most wounded ally; never an ally at 0 HP"
 spell.disintegrate_chance_to_instantly_kill_on_hit: "Disintegrate: %.0f%% chance to instantly kill on hit (undead and dragons immune; bosses take %d%% of max HP as true damage)"
 spell.engulfs_everything_within_tiles_for_damage: "Engulfs everything within %.1f tiles for %d damage%s"
 spell.engulfs_everything_within_tiles_for_damage_by: "Engulfs everything within %.1f tiles for %d-%d damage by mastery%s"

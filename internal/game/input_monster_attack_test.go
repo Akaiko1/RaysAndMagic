@@ -1040,37 +1040,76 @@ func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 	}
 }
 
-// RT/TB: an injured member without a heal is selected and the cursor is off
-// the portraits. C hands the cast to the healer, who heals the selected member
-// rather than themselves.
-func TestHealHandoffKeepsSelectedRecipient(t *testing.T) {
-	for _, unconscious := range []bool{false, true} {
-		for _, tb := range []bool{false, true} {
-			t.Run(fmt.Sprintf("TB=%v/KO=%v", tb, unconscious), func(t *testing.T) {
-				g, ih, fp, _, tick := mouseCombatHarness(t, tb)
-				fp.moveTo(5, 5)
-				g.showPartyStats = false
-				for _, ch := range g.party.Members {
-					ch.MagicSchools = nil
-				}
-				patient, healer := g.party.Members[0], g.party.Members[1]
-				patient.HitPoints = 1
-				if unconscious {
-					patient.AddCondition(character.ConditionUnconscious)
-				}
-				healer.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{
-					character.MagicSchoolBody: {Mastery: character.MasteryNovice, KnownSpells: []spells.SpellID{"heal_other"}},
-				}
-				healer.MaxSpellPoints, healer.SpellPoints = 50, 50
-				g.selectedChar = 0
-				pressed := true
-				ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == ebiten.KeyC })
-				tick()
-				pressed = false
-				if patient.HitPoints <= 1 || healer.SpellPoints >= 50 {
-					t.Fatalf("patient hp=%d healer sp=%d: the handoff did not heal the selected member", patient.HitPoints, healer.SpellPoints)
-				}
-			})
+// RT/TB: a wounded member without a heal is selected and C hands the cast to
+// the healer. Off the cards it heals the most wounded living member, never
+// the selected one or a member knocked out at 0 HP (that takes a revive); on
+// a card it heals that hero, and on a knocked-out card it refuses and keeps
+// the SP.
+func TestHealHandoffHealsTheHandHealTarget(t *testing.T) {
+	const off, healerCard, koCard = -1, 1, 2
+	for _, pointer := range []int{off, healerCard, koCard} {
+		for _, ko := range []bool{false, true} {
+			if pointer == koCard && !ko {
+				continue
+			}
+			for _, tb := range []bool{false, true} {
+				t.Run(fmt.Sprintf("TB=%v/KO=%v/pointer=%d", tb, ko, pointer), func(t *testing.T) {
+					g, ih, fp, _, tick := mouseCombatHarness(t, tb)
+					fp.moveTo(5, 5)
+					g.showPartyStats = true
+					for _, ch := range g.party.Members {
+						ch.MagicSchools = nil
+					}
+					m := g.party.Members
+					m[0].HitPoints = m[0].MaxHitPoints * 6 / 10 // selected, no heal
+					m[1].HitPoints = m[1].MaxHitPoints * 9 / 10 // the healer
+					m[2].HitPoints = 1                          // the most wounded
+					m[3].HitPoints = m[3].MaxHitPoints * 3 / 10
+					want := 2
+					if ko {
+						m[2].HitPoints = 0
+						m[2].AddCondition(character.ConditionUnconscious)
+						want = 3
+					}
+					healer := m[1]
+					healer.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{
+						character.MagicSchoolBody: {Mastery: character.MasteryNovice, KnownSpells: []spells.SpellID{"heal_other"}},
+					}
+					healer.MaxSpellPoints, healer.SpellPoints = 50, 50
+					x, y := 5, 5
+					if pointer != off {
+						w, h, left, top := partyPortraitLayout(g)
+						x, y = left+pointer*w+w/2, top+h/2
+						want = pointer
+					}
+					refused := pointer == koCard
+					if refused {
+						want = -1
+					}
+					// The heal reads the UI cursor, the HUD the pointer seam: one mouse.
+					fp.moveTo(x, y)
+					prev := rawCursorPosition
+					t.Cleanup(func() { rawCursorPosition = prev })
+					rawCursorPosition = func() (int, int) { return x, y }
+					before := make([]int, len(m))
+					for i, h := range m {
+						before[i] = h.HitPoints
+					}
+					g.selectedChar = 0
+					pressed := true
+					ih.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return pressed && k == ebiten.KeyC })
+					tick()
+					pressed = false
+					if spent := healer.SpellPoints < 50; spent == refused {
+						t.Fatalf("healer SP %d: refused=%v", healer.SpellPoints, refused)
+					}
+					for i, h := range m {
+						if healed := h.HitPoints > before[i]; healed != (i == want) {
+							t.Fatalf("member %d healed=%v (hp %v -> %d), want only member %d", i, healed, before, h.HitPoints, want)
+						}
+					}
+				})
+			}
 		}
 	}
 }

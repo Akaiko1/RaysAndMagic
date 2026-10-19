@@ -222,7 +222,7 @@ func TestSpellCardsStateAuditedMechanics(t *testing.T) {
 		}},
 		{id: "awaken", want: []string{"With no one unconscious, the SP is kept", "Wakes all unconscious allies"}},
 		{id: "heal", want: []string{"Personality ("}},
-		{id: "heal_other", want: []string{"Heals the ally you point at, else the selected hero; from the spellbook, the most wounded ally"}, mustNot: []string{"Can target any party member"}},
+		{id: "heal_other", want: []string{"Heals the ally you point at, else the most wounded ally; never an ally at 0 HP"}, mustNot: []string{"Can target any party member"}},
 		{id: "mass_heal", want: []string{"Skips allies at 0 HP"}},
 		{id: "town_portal", want: []string{"nothing is spent until you choose one"}},
 		{id: "fly", want: []string{"Inside a wall or tree nobody can attack or cast", "Ends at once on a map without open sky", "No RT cooldown - TB: 1 action", " TB turns", "Only under an open sky"}},

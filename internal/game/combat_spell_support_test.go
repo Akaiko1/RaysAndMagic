@@ -784,7 +784,7 @@ func TestHealTriageChain(t *testing.T) {
 				id = g.combat.SmartAttack().Spell
 				cast = id != ""
 			} else {
-				cast, id = g.combat.CastBestHealOnTarget(g.party.Members[1])
+				cast, id = g.combat.CastBestHeal()
 			}
 			if cast != (tc.want != "") || string(id) != tc.want {
 				t.Fatalf("triage cast=%v %q, want %q", cast, id, tc.want)
@@ -805,7 +805,7 @@ func TestMassHealReuseHandsTriageOver(t *testing.T) {
 	for _, want := range []string{"mass_heal", "heal_other"} {
 		g.party.Members[1].HitPoints = g.party.Members[1].MaxHitPoints / 2
 		caster.RTCooldown, caster.ActionsRemaining = 0, 1
-		if cast, id := g.combat.CastBestHealOnTarget(g.party.Members[1]); !cast || string(id) != want {
+		if cast, id := g.combat.CastBestHeal(); !cast || string(id) != want {
 			t.Fatalf("triage cast=%v %q, want %q", cast, id, want)
 		}
 	}

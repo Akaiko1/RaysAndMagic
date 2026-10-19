@@ -157,30 +157,38 @@ func containsSlot(fallen []fallenMember, slot int) bool {
 	return false
 }
 
-// A heal cast by hand lands on the hero under the pointer; unpointed, F and C
-// heal the selected hero and the book the most wounded ally that can be
-// healed (the caster when nobody is hurt); First Aid stays on the caster
-// (Control Tips).
+// A heal cast by hand (F, C, the book) lands on the hero under the pointer;
+// unpointed, on the most wounded ally that can be healed. With nobody for the
+// heal to mend, F and C cast nothing and spend nothing (want -1); First Aid
+// stays on the caster (Control Tips). C's handoff to another healer:
+// TestHealHandoffHealsTheHandHealTarget.
 func TestBookHealTargets(t *testing.T) {
 	for _, tc := range []struct {
 		name, spell string
 		hp          [4]int // percent of max; 0 = knocked out
 		pointer     int    // card under the pointer (-1 none)
 		entry       string // "book", "f", "c" or "space"
-		want        int
+		want        int // the one member healed; -1: F/C refuse and keep the SP
 	}{
 		{"heal_other/book/most wounded ally", "heal_other", [4]int{80, 30, 100, 60}, -1, "book", 1},
 		{"heal_other/book/skips 0 HP", "heal_other", [4]int{100, 0, 100, 50}, -1, "book", 3},
 		{"heal_other/book/only the caster hurt", "heal_other", [4]int{40, 100, 100, 100}, -1, "book", 0},
-		{"heal_other/f/no pointer heals the selected hero", "heal_other", [4]int{80, 30, 100, 100}, -1, "f", 0},
+		{"heal_other/f/no pointer heals the most wounded", "heal_other", [4]int{80, 30, 100, 100}, -1, "f", 1},
+		{"heal_other/f/no pointer skips 0 HP", "heal_other", [4]int{100, 0, 100, 50}, -1, "f", 3},
 		{"heal_other/f/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "f", 2},
-		{"heal_other/c/no pointer heals the selected hero", "heal_other", [4]int{80, 30, 100, 100}, -1, "c", 0},
+		{"heal_other/c/no pointer heals the most wounded", "heal_other", [4]int{80, 30, 100, 100}, -1, "c", 1},
+		{"heal_other/c/only the caster hurt", "heal_other", [4]int{40, 100, 100, 100}, -1, "c", 0},
 		{"heal_other/c/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "c", 2},
+		{"heal_other/f/nobody hurt casts nothing", "heal_other", [4]int{100, 100, 100, 100}, -1, "f", -1},
+		{"heal_other/c/nobody hurt casts nothing", "heal_other", [4]int{100, 100, 100, 100}, -1, "c", -1},
+		{"mass_heal/c/one hurt", "mass_heal", [4]int{100, 50, 100, 100}, -1, "c", 1},
+		{"mass_heal/c/nobody hurt casts nothing", "mass_heal", [4]int{100, 100, 100, 100}, -1, "c", -1},
 		{"heal_other/book/pointer wins", "heal_other", [4]int{80, 30, 90, 100}, 2, "book", 2},
 		{"heal_other/book/pointer on a knocked-out card heals the most wounded", "heal_other", [4]int{80, 0, 50, 100}, 1, "book", 2},
 		{"heal_other/space/pointer ignored", "heal_other", [4]int{80, 30, 90, 100}, 2, "space", 1},
 		{"heal/book/self only", "heal", [4]int{80, 30, 100, 100}, -1, "book", 0},
 		{"heal/f/self only", "heal", [4]int{80, 30, 100, 100}, 1, "f", 0},
+		{"heal/f/self only at full HP casts nothing", "heal", [4]int{100, 30, 100, 100}, -1, "f", -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cs := newTestCombatSystemWithConfig(t)
@@ -206,20 +214,27 @@ func TestBookHealTargets(t *testing.T) {
 				x, y = left+tc.pointer*w+w/2, top+h/2
 			}
 			rawCursorPosition = func() (int, int) { return x, y }
+			sp := g.party.Members[0].SpellPoints
+			handCast := func(key string, cast bool) {
+				if cast != (tc.want >= 0) {
+					t.Fatalf("%s cast=%v, want %v", key, cast, tc.want >= 0)
+				}
+				if tc.want < 0 && g.party.Members[0].SpellPoints != sp {
+					t.Fatalf("%s refused but spent SP: %d -> %d", key, sp, g.party.Members[0].SpellPoints)
+				}
+			}
 			switch tc.entry {
 			case "book":
 				if !cs.castPlayerSpell(def.ID, def, g.party.Members[0], true) {
 					t.Fatal("book cast refused")
 				}
 			case "f":
-				if fired, _ := NewInputHandler(g).useSlottedActionResolved(g.party.Members[0]); !fired {
-					t.Fatal("F cast refused")
-				}
+				fired, _ := NewInputHandler(g).useSlottedActionResolved(g.party.Members[0])
+				handCast("F", fired)
 			case "c":
 				g.party.Members[0].LearnSpell(def.ID)
-				if cast, _ := cs.CastBestHealOnTarget(g.heroUnderCursor()); !cast {
-					t.Fatal("C cast refused")
-				}
+				cast, _ := cs.CastBestHeal()
+				handCast("C", cast)
 			case "space":
 				g.party.Members[0].LearnSpell(def.ID)
 				if cs.SmartAttack().Spell == "" {

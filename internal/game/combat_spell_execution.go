@@ -190,14 +190,11 @@ func (cs *CombatSystem) applySpellEffect(spellID spells.SpellID, spellDef spells
 				// Mass Heal: restore every party member.
 				cs.healWholeParty(totalHeal)
 			} else {
-				// The quick bar and the book: the living hero under the cursor,
-				// else the most wounded, else the caster; a self-only heal stays
-				// on the caster.
-				target := cs.pointedHealTarget(spellDef, cs.castHovered)
+				// The quick bar and the book: handHealTarget, skipping a hero
+				// at 0 HP for the most wounded, else the caster; a self-only
+				// heal stays on the caster.
+				target := cs.handHealTarget(spellDef, cs.castHovered)
 				if target >= 0 && !cs.game.party.Members[target].IsLiving() {
-					target = -1
-				}
-				if target < 0 {
 					target = cs.mostWoundedHealTarget(spellDef, 1)
 				}
 				if spellDef.TargetSelf || target < 0 {

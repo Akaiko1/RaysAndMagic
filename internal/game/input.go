@@ -989,11 +989,6 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 	if kind == rtActSlotted && freshCast && ih.tryExplicitSlottedStep() {
 		return true
 	}
-	// Capture the requested patient before actor selection can move off a KO.
-	var healRecipient *character.MMCharacter
-	if kind == rtActHeal {
-		healRecipient = ih.healRecipient()
-	}
 	// Off a corpse first, then onto a member who can actually do THIS action:
 	// holding F only visits casters, C only healers, R only the armed.
 	ih.game.ensureSelectedCanActRT()
@@ -1061,7 +1056,7 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 	case rtActSlotted:
 		ih.useSlottedAction(sel)
 	case rtActHeal:
-		ih.castBestHeal(sel, healRecipient)
+		ih.castBestHeal(sel)
 	}
 	return true
 }
@@ -1123,8 +1118,9 @@ func (ih *InputHandler) announceCastShortfall(idx int) {
 }
 
 // useSlottedActionResolved performs the slotted spell or trap the F key
-// triggers in both modes: a heal spell aims at the mouse-picked party member, a
-// trap arms with its refusals announced, anything else casts directly. Reports
+// triggers in both modes: a heal lands on handHealTarget's hero (the pointed
+// card, else the most wounded; nobody hurt casts nothing), a trap arms with
+// its refusals announced, anything else casts directly. Reports
 // whether it fired and its RT recovery, measured after it landed. The caller
 // commits the result per mode (RT cooldown vs TB action slot).
 func (ih *InputHandler) useSlottedActionResolved(sel *character.MMCharacter) (bool, int) {
@@ -1161,10 +1157,10 @@ func (ih *InputHandler) useSlottedAction(sel *character.MMCharacter) {
 	}
 }
 
-// castBestHeal casts the selected character's strongest known heal (C key)
-// on the recipient resolved at the press. No-op if they know none.
-func (ih *InputHandler) castBestHeal(sel, recipient *character.MMCharacter) {
-	if cast, spellID := ih.game.combat.CastBestHealOnTarget(recipient); cast {
+// castBestHeal casts the selected character's strongest known heal (C key).
+// No-op if they know none.
+func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
+	if cast, spellID := ih.game.combat.CastBestHeal(); cast {
 		ih.commitRTAction(rtActHeal, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
 }
@@ -1610,16 +1606,6 @@ func (g *MMGame) partyMemberAt(mouseX, mouseY int) int {
 	}
 
 	return -1
-}
-
-// healRecipient is the hero C heals: the one under the cursor, else the one
-// selected at the press - resolved before an action chain hands the cast to
-// another healer.
-func (ih *InputHandler) healRecipient() *character.MMCharacter {
-	if h := ih.game.heroUnderCursor(); h != nil {
-		return h
-	}
-	return ih.game.party.Members[ih.game.selectedChar]
 }
 
 // heroUnderCursor is the hero whose card the cursor is on, nil off the cards.
@@ -2401,10 +2387,6 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	if kind == rtActSlotted && ih.game.canSelectChar(ih.game.selectedChar) && !ih.game.actionCapable(ih.game.selectedChar, rtActSlotted) {
 		ih.announceCastShortfall(ih.game.selectedChar)
 	}
-	var healRecipient *character.MMCharacter
-	if kind == rtActHeal {
-		healRecipient = ih.healRecipient()
-	}
 	if !ih.game.ensureTBActor(kind) {
 		if kind == rtActSmart || kind == rtActWeapon {
 			ih.game.passTBAttackRequest()
@@ -2432,7 +2414,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 		ih.game.actionInputStagger = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
 	case rtActHeal:
-		if cast, spellID := ih.game.combat.CastBestHealOnTarget(healRecipient); cast {
+		if cast, spellID := ih.game.combat.CastBestHeal(); cast {
 			ih.game.commitHeroAction(ih.game.selectedChar, ih.game.combat.SpellCooldownFrames(selected, spellID))
 		}
 		ih.game.actionInputStagger = ih.actionCooldown(15)

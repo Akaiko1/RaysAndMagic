@@ -255,8 +255,8 @@ func TestFocusModeClearsWhenLeavingGameplay(t *testing.T) {
 // Pointing at a hero's card means that hero everywhere a card is a target -
 // C/F heals, Heal Other, the ally-spell target - even over its level-up
 // chip; only a selection click yields the chip to its own control. Off the
-// cards the targets fall back to the selected hero or the caster. An ally
-// spell's paused picker takes the same whole card.
+// cards a hand heal takes the most wounded, none here as nobody is hurt. An
+// ally spell's paused picker takes the same whole card.
 func TestPointingAtACardMeansItsWholeCard(t *testing.T) {
 	g := focusModeTestGame(t)
 	g.showPartyStats = true
@@ -285,7 +285,7 @@ func TestPointingAtACardMeansItsWholeCard(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rawCursorPosition = func() (int, int) { return tc.x, tc.y }
-			if got := g.combat.pointedHealTarget(healOther, g.heroUnderCursor()); got != tc.target {
+			if got := g.combat.handHealTarget(healOther, g.heroUnderCursor()); got != tc.target {
 				t.Errorf("a hand heal (F, C, quick bar, book) points at %d, want %d", got, tc.target)
 			}
 			if got := g.partyMemberAt(tc.x, tc.y); got != tc.target {
