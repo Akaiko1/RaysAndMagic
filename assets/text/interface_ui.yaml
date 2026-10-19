@@ -103,3 +103,8 @@ collection.take_hint: "Double-click to take it to your bag."
 collection.not_collected: "Not yet in the collection."
 collection.already_filed: "That legendary is already on display."
 collection.page_full: "That binder pocket already holds %d cards."
+
+# Hero screens: the AUTO build chosen in Settings.
+build.label: "Build:"
+build.card_title: "%s build"
+build.main_stats: "MAIN STATS"

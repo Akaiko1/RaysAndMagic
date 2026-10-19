@@ -624,11 +624,7 @@ func (ui *UISystem) drawLevelUpOption(screen *ebiten.Image, r layoutRect, option
 			{text: option.masteryNext, color: skillBadgeStyle.tint},
 		}
 	}
-	detailW := 0
-	for _, seg := range detail {
-		detailW += uiTextWidth(seg.text)
-	}
-	if detailW > 0 {
+	if detailW := coloredTextWidth(detail); detailW > 0 {
 		drawColoredTextSegments(screen, right-detailW, textY, detail)
 		right -= detailW + 12
 	}

@@ -30,8 +30,33 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 		drawScaledMetalCenteredText(screen, text, r.x+r.w/2, r.y+r.h/2, float64(layout.textScale), tint)
 		ui.offerClippedTextTooltip([]string{label}, text != label, r.x, r.y, r.w, r.h)
 	}
-	for i, title := range []string{currentChar.Name, "Personal bag", "Shared bag"} {
-		drawLabel(title, layout.headings[i], rarityGold)
+	// The hero heading carries the build AUTO follows on the name's baseline,
+	// in heading text when the whole line fits, else in native text; with no
+	// room at all the heading is the name alone. The room keeps drawLabel's
+	// margin for the outline.
+	build := ui.game.autoBuildFor(currentChar.Class)
+	h, scale := layout.headings[0], layout.textScale
+	const buildGap = 12
+	nameW := uiTextWidth(currentChar.Name) * scale
+	room := h.w - 8 - 4*scale - nameW
+	labelScale := scale
+	buildLabel := autoBuildLabel(build, room-buildGap*scale, scale)
+	if len(buildLabel) < 2 && scale > 1 {
+		labelScale, buildLabel = 1, autoBuildLabel(build, room-buildGap, 1)
+	}
+	var buildBox layoutRect
+	if buildLabel != nil {
+		gap, labelW := buildGap*labelScale, coloredTextWidth(buildLabel)*labelScale
+		x, top := h.x+(h.w-nameW-gap-labelW)/2, h.y+(h.h-uiTextCharHeight*scale)/2
+		drawScaledTextSegments(screen, []coloredTextSegment{{currentChar.Name, rarityGold}}, x, top, scale)
+		baseline := activeUIFont().baseline
+		buildBox = layoutRect{x + nameW + gap, top + baseline*(scale-labelScale), labelW, uiTextCharHeight * labelScale}
+		drawScaledTextSegments(screen, buildLabel, buildBox.x, buildBox.y, labelScale)
+	} else {
+		drawLabel(currentChar.Name, h, rarityGold)
+	}
+	for i, title := range []string{"Personal bag", "Shared bag"} {
+		drawLabel(title, layout.headings[i+1], rarityGold)
 	}
 	for i, label := range []string{fmt.Sprintf("Gold %d", ui.game.party.Gold), fmt.Sprintf("Food %d", ui.game.party.Food)} {
 		drawLabel(label, layout.resources[i], color.RGBA{255, 255, 255, 255})
@@ -95,6 +120,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	if len(tooltip) > 0 && tooltipHasItem {
 		lines := ui.appendCardArtHintRows(tooltip, itemCardKey(tooltipItem))
 		ui.queueItemTooltip(lines, tooltipItem, currentChar, tooltipX, tooltipY)
+	} else if isMouseHoveringBox(mouseX, mouseY, buildBox.x, buildBox.y, buildBox.right(), buildBox.bottom()) {
+		ui.queueCardTooltip(autoBuildTooltipRows(build), nil, nil, nil, "", mouseX+16, mouseY+8)
 	}
 
 	ui.drawInventoryContextMenu(screen)
@@ -386,7 +413,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		drawUITextColored(screen, title, r.x+sectionTextInset, r.y+sectionTitleY, headingColor)
 	}
 	drawSection(layout.profile, "PROFILE")
-	drawSection(layout.attributes, "ATTRIBUTES")
+	const attributesTitle = "ATTRIBUTES"
+	drawSection(layout.attributes, attributesTitle)
 	drawSection(layout.magic, "MAGIC SCHOOLS")
 	drawSection(layout.skills, "SKILLS")
 	drawSection(layout.combat, "COMBAT AND RESISTANCES")
@@ -439,6 +467,17 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 			tooltip = statTooltipRows(name)
 			tooltipX, tooltipY = mouseX+16, mouseY+8
 		}
+	}
+	// The build AUTO follows, right of the section title in the room it leaves.
+	build := ui.game.autoBuildFor(member.Class)
+	titleRight := layout.attributes.x + sectionTextInset + uiTextWidth(attributesTitle) + sectionTextInset
+	buildLabel := autoBuildLabel(build, layout.attributes.right()-sectionTextInset-titleRight, 1)
+	buildW := coloredTextWidth(buildLabel)
+	buildX, buildY := layout.attributes.right()-sectionTextInset-buildW, layout.attributes.y+sectionTitleY
+	drawColoredTextSegments(screen, buildX, buildY, buildLabel)
+	if len(tooltip) == 0 && buildW > 0 && isMouseHoveringBox(mouseX, mouseY, buildX, buildY, buildX+buildW, buildY+sectionRowH) {
+		tooltip = autoBuildTooltipRows(build)
+		tooltipX, tooltipY = mouseX+16, mouseY+8
 	}
 
 	type schoolLine struct {

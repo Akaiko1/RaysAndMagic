@@ -34,15 +34,16 @@ const (
 // room on the left for glyphs that start before their pen (serifs,
 // underscores) and on the right and bottom for the shadow.
 type uiGlyphAtlas struct {
-	sheet   *image.RGBA // the drawn cells, kept for tests and tooling
-	cells   map[rune]image.Rectangle
-	advance map[rune]int
-	ascii   [128]int // advance of the common runes, looked up per character
-	pad     int      // cell columns left of the pen
-	column  float64  // average advance over English prose
-	image   *ebiten.Image
-	glyphs  map[rune]*ebiten.Image
-	missing rune // drawn for a rune no script covers
+	sheet    *image.RGBA // the drawn cells, kept for tests and tooling
+	cells    map[rune]image.Rectangle
+	advance  map[rune]int
+	ascii    [128]int // advance of the common runes, looked up per character
+	pad      int      // cell columns left of the pen
+	baseline int      // rows from the top of a line down to where its text stands
+	column   float64  // average advance over English prose
+	image    *ebiten.Image
+	glyphs   map[rune]*ebiten.Image
+	missing  rune // drawn for a rune no script covers
 }
 
 // uiGlyphs is the built-in classic font.
@@ -123,6 +124,7 @@ func buildUIGlyphAtlas(scripts []uiScript) (*uiGlyphAtlas, error) {
 		atlas.ascii[r] = atlas.advanceOf(rune(r))
 	}
 	atlas.column = float64(atlas.width(uiColumnSample)) / float64(len(uiColumnSample))
+	atlas.baseline = atlas.inkBottom('H')
 	if _, ok := atlas.cells[atlas.missing]; !ok {
 		return nil, fmt.Errorf("no script covers the fallback glyph %q", atlas.missing)
 	}
@@ -258,6 +260,20 @@ func buildProportionalAtlas(scripts []uiScript, advance map[rune]int) (*uiGlyphA
 		}
 	}
 	return &uiGlyphAtlas{sheet: sheet, cells: cells, pad: pad, glyphs: map[rune]*ebiten.Image{}, missing: '?'}, nil
+}
+
+// inkBottom is the row under the lowest glyph ink (not shadow) of r, from
+// the top of its cell.
+func (a *uiGlyphAtlas) inkBottom(r rune) int {
+	cell := a.cells[r]
+	for y := cell.Max.Y - 1; y >= cell.Min.Y; y-- {
+		for x := cell.Min.X; x < cell.Max.X; x++ {
+			if c := a.sheet.RGBAAt(x, y); c.R >= 0x80 && c.A >= 0x80 {
+				return y + 1 - cell.Min.Y
+			}
+		}
+	}
+	return uiTextCharHeight
 }
 
 // uiColumnSample is the prose a font's average advance is taken over.

@@ -39,6 +39,29 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
+// coloredTextWidth is the width drawColoredTextSegments draws segments in.
+func coloredTextWidth(segments []coloredTextSegment) int {
+	w := 0
+	for _, seg := range segments {
+		w += uiTextWidth(seg.text)
+	}
+	return w
+}
+
+// drawScaledTextSegments is drawColoredTextSegments in heading text at
+// scale, the pen starting at (x, y), the top of the line, on whole pixels.
+func drawScaledTextSegments(screen *ebiten.Image, segments []coloredTextSegment, x, y, scale int) {
+	ox, oy := uiLabelOrigin(activeUIFont())
+	for _, seg := range segments {
+		if strings.TrimSpace(seg.text) != "" {
+			img := outlinedLabelImage(seg.text, seg.color)
+			b := img.Bounds()
+			uiDrawImageScaled(screen, img, float64(x-ox*scale), float64(y-oy*scale), float64(b.Dx()*scale), float64(b.Dy()*scale), &ebiten.DrawImageOptions{})
+		}
+		x += uiTextWidth(seg.text) * scale
+	}
+}
+
 func sameColor(a, b color.Color) bool {
 	ar, ag, ab, aa := a.RGBA()
 	br, bg, bb, ba := b.RGBA()

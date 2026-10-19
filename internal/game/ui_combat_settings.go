@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/stats"
@@ -327,6 +328,29 @@ func autoBuildTag(a config.AutoStatsConfig) string {
 		return autoBuildStatTags[a.Primary]
 	}
 	return autoBuildStatTags[a.Primary] + " > " + autoBuildStatTags[a.Secondary]
+}
+
+// autoBuildLabel is the "Build: <name>" line the hero screens show for the
+// build AUTO follows, at most maxW wide at scale: the name alone when the
+// line does not fit, nil when neither does. Hovering it shows
+// autoBuildTooltipRows.
+func autoBuildLabel(b config.AutoBuild, maxW, scale int) []coloredTextSegment {
+	label := []coloredTextSegment{{uitext.Text("build.label") + " ", gameplayInk.muted}, {b.Name, gameplayInk.text}}
+	for ; len(label) > 0; label = label[1:] {
+		if coloredTextWidth(label)*scale <= maxW {
+			return label
+		}
+	}
+	return nil
+}
+
+// autoBuildTooltipRows names a build and its primary and secondary stats.
+func autoBuildTooltipRows(b config.AutoBuild) character.CardRows {
+	main := stats.Title(b.Primary)
+	if b.Secondary != "" {
+		main += ", " + stats.Title(b.Secondary)
+	}
+	return referenceTooltipRows(uitext.Text("build.card_title", b.Name), uitext.Text("build.main_stats"), main, "")
 }
 
 // autoBuildOrder says how AUTO spends points in a build, phase by phase.
