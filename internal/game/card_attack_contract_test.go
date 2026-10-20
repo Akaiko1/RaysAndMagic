@@ -177,7 +177,7 @@ func TestSpecialReflectionUsesMitigatedDamage(t *testing.T) {
 	g.cardSlots[0].key = "vengeful_ningyo_card"
 	g.combatBuffs = []TimedCombatBuff{{ResistPct: 50, InReduce: 10}}
 	m := mkTestMonster("Caster", 1000)
-	dealt := cs.damagePartyMemberPartsFromSource(0, ch, damagecalc.Parts{Normal: 100, True: 20}, monsterPkg.DamageFire.String(), true, m)
+	dealt, _ := cs.damagePartyMemberPartsFromSource(0, ch, damagecalc.Parts{Normal: 100, True: 20}, monsterPkg.DamageFire.String(), true, m)
 	if dealt != 50 || 1000-m.HitPoints != dealt*g.cardThornsPct()/100 {
 		t.Fatalf("wrong mitigation/reflection: received=%d reflected=%d", dealt, 1000-m.HitPoints)
 	}

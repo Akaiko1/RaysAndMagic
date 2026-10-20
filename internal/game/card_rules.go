@@ -73,7 +73,7 @@ func (cs *CombatSystem) triggerWildfire(victim *monsterPkg.Monster3D) {
 		cs.game.createSplashImpact(burst.x, burst.y, burst.x, burst.y, card.CardWildfireRadiusTiles*cs.game.config.GetTileSize(), true, false, ElementColors[school])
 		cs.forEachAreaVictim(cs.pointBlast(burst.x, burst.y, card.CardWildfireRadiusTiles), partyAreaHurts, func(m *monsterPkg.Monster3D) {
 			hit := cs.applyPartyMonsterAttack(m, attack)
-			cs.reportIndirectHit(m, hit.Total(), card.Name, school)
+			cs.reportIndirectHit(m, hit.DealtDamage, card.Name, school)
 			if m.IsAlive() {
 				cs.afflictMonster(m, monsterBurn, card.CardWildfireBurnSeconds*cs.game.config.GetTPS(), logToneGood, false)
 			} else {

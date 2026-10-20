@@ -108,7 +108,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		ps.CardCollectionItems[i] = g.cardCollectionItem(i)
 	}
 	for _, m := range g.party.Members {
-		ps.Members = append(ps.Members, buildCharacterSave(m))
+		saved := buildCharacterSave(m)
+		g.refundShotsInFlight(m, &saved.SpellState)
+		ps.Members = append(ps.Members, saved)
 	}
 	for _, m := range g.party.Reserve {
 		ps.Reserve = append(ps.Reserve, buildCharacterSave(m))

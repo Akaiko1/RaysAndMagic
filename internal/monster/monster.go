@@ -689,6 +689,19 @@ type DamageComponent struct {
 	ResistPiercePct int
 }
 
+// DealtDamage is what one packet took off a monster: the combined parts and,
+// in packet order, each school's share of them.
+type DealtDamage struct {
+	damagecalc.Parts
+	Shares []DamageShare
+}
+
+// DamageShare is one school's part of a dealt packet.
+type DamageShare struct {
+	DamageType DamageType
+	Parts      damagecalc.Parts
+}
+
 // TakeDamagePacket is the single monster sink for one potentially multi-school
 // hit. Each school applies its own resistance, then one flat soak is subtracted
 // from the combined normal damage. A physical hit converted into several
@@ -699,33 +712,39 @@ type DamageComponent struct {
 // half and knows nothing about ARMOR. Every hit belongs to
 // CombatSystem.applyMonsterDamagePacket, which resolves target armor first;
 // calling in here is how monster-vs-monster damage used to skip armor entirely.
-func (m *Monster3D) TakeDamagePacket(components []DamageComponent) damagecalc.Parts {
+func (m *Monster3D) TakeDamagePacket(components []DamageComponent) DealtDamage {
 	// An invulnerable boss absorbs all damage from every source: a sealed (dormant)
 	// boss until its quest unseals it, or an idol-warded boss until its idols fall.
 	// Both flags are set per-frame in the game's pre-pass; this is the backstop for
 	// damage paths that don't pre-check (AoE splash, mastery true-damage, mob-vs-mob).
 	if m.IsDamageInvulnerable() {
-		return damagecalc.Parts{}
+		return DealtDamage{}
 	}
 
-	var dealt damagecalc.Parts
+	dealt := DealtDamage{Shares: make([]DamageShare, 0, len(components))}
 	for _, component := range components {
 		resistance := 0
 		if m.Resistances != nil {
 			resistance = m.Resistances[component.DamageType]
 		}
 		resisted := component.Parts.ApplyResistance(resistance, component.ResistPiercePct)
-		dealt.Normal += resisted.Normal
-		dealt.True += resisted.True
+		dealt.Shares = append(dealt.Shares, DamageShare{component.DamageType, resisted})
 	}
 
 	// Flat soak (champion Stone Skin) after resists, like the party's
-	// incoming-damage-reduction buff ordering. True damage bypasses it.
+	// incoming-damage-reduction buff ordering. True damage bypasses it; the
+	// soak comes off the shares' normal damage in packet order.
 	if m.SoakDamage > 0 && (m.Soak.Active()) {
-		dealt.Normal -= m.SoakDamage
-		if dealt.Normal < 0 {
-			dealt.Normal = 0
+		soak := m.SoakDamage
+		for i := range dealt.Shares {
+			taken := min(soak, dealt.Shares[i].Parts.Normal)
+			dealt.Shares[i].Parts.Normal -= taken
+			soak -= taken
 		}
+	}
+	for _, share := range dealt.Shares {
+		dealt.Normal += share.Parts.Normal
+		dealt.True += share.Parts.True
 	}
 
 	// Apply damage

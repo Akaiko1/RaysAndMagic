@@ -35,16 +35,17 @@ var logToneStripes = map[logTone]color.RGBA{
 
 // The prose dims so names and numbers carry the line.
 var (
-	logPlain   = color.RGBA{175, 175, 185, 255}
-	logMuted   = color.RGBA{130, 130, 140, 255}
-	logHero    = color.RGBA{255, 235, 200, 255}
-	logAlly    = keywordColors["utility"]
-	logEnemy   = color.RGBA{240, 120, 110, 255}
-	logNeutral = color.RGBA{210, 190, 130, 255}
-	logTrue    = color.RGBA{255, 255, 255, 255}
-	logPoison  = color.RGBA{190, 210, 70, 255}
-	logLowHP   = color.RGBA{240, 190, 70, 255}
-	logDyingHP = color.RGBA{240, 90, 80, 255}
+	logPlain    = color.RGBA{175, 175, 185, 255}
+	logMuted    = color.RGBA{130, 130, 140, 255}
+	logHero     = color.RGBA{255, 235, 200, 255}
+	logAlly     = keywordColors["utility"]
+	logEnemy    = color.RGBA{240, 120, 110, 255}
+	logNeutral  = color.RGBA{210, 190, 130, 255}
+	logPhysical = color.RGBA{255, 255, 255, 255} // physical damage, lifted off the prose
+	logTrue     = color.RGBA{255, 95, 195, 255}  // true damage: a hue no school or log role uses
+	logPoison   = color.RGBA{190, 210, 70, 255}
+	logLowHP    = color.RGBA{240, 190, 70, 255}
+	logDyingHP  = color.RGBA{240, 90, 80, 255}
 )
 
 // logPart is a styled argument of logCombat; any other argument prints plain.
@@ -152,10 +153,14 @@ func logDamageSchool(school string) logPart {
 // physical lifted to white so it stands off the grey prose.
 func logSchoolColor(school string) color.Color {
 	if school == monsterPkg.DamagePhysical.String() {
-		return logTrue
+		return logPhysical
 	}
 	return SchoolColor(school)
 }
+
+// logHPPaid is HP a hero pays (Sacrifice, Strong Magic): no damage, so no
+// school's or true damage's tint.
+func logHPPaid(n int) logPart { return logStyled{strconv.Itoa(n), logPhysical} }
 
 // logTrueDamage is true damage, which no school or armor touches.
 func logTrueDamage(n int) logPart { return logStyled{strconv.Itoa(n), logTrue} }

@@ -2,6 +2,7 @@ package game
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"ugataima/internal/status"
 
@@ -53,6 +54,13 @@ func personalSpellDamage(c *character.MMCharacter, kind config.MechanicKind) (in
 	return m.Power(tier), convertToMonsterDamageType(m.DamageSchool)
 }
 
+// fateGuided reports whether Fate guides the hero's weapon strikes past
+// Perfect Dodge.
+func fateGuided(c *character.MMCharacter) bool {
+	m, _ := personalSpellMechanic(c, config.MechanicFate)
+	return m != nil
+}
+
 func personalSpellMechanic(c *character.MMCharacter, kind config.MechanicKind) (*config.SpellMechanicConfig, int) {
 	if c == nil {
 		return nil, 0
@@ -65,11 +73,16 @@ func personalSpellMechanic(c *character.MMCharacter, kind config.MechanicKind) (
 	return nil, 0
 }
 
-// Consume once per committed weapon action, never per victim or projectile leg.
-func consumePersonalAttackCharges(c *character.MMCharacter) {
+// consumePersonalAttackCharges spends one charge of every charged weapon
+// empowerment (Fire Aura, Fate), never per victim or projectile leg: a swing
+// when it lands, a shot at its release (chargeShots refunds a shot that lands
+// on no one). It returns the effects as they stood before.
+func consumePersonalAttackCharges(c *character.MMCharacter) []character.PersonalSpellEffect {
+	var spent []character.PersonalSpellEffect
 	n := 0
 	for _, e := range c.SpellState.Effects {
 		if d, ok := config.GetSpellDefinition(e.SpellID); ok && d.Mechanic != nil && len(d.Mechanic.ChargesByMastery) > 0 {
+			spent = append(spent, e)
 			e.Charges--
 			if e.Charges <= 0 {
 				continue
@@ -79,6 +92,97 @@ func consumePersonalAttackCharges(c *character.MMCharacter) {
 		n++
 	}
 	c.SpellState.Effects = c.SpellState.Effects[:n]
+	return spent
+}
+
+// refundAttackCharges gives back the charge of each spent effect, up to the
+// full count of the effect now held; a spent-out effect returns with one
+// charge.
+func refundAttackCharges(state *character.SpellState, spent []character.PersonalSpellEffect) {
+	for _, e := range spent {
+		i := slices.IndexFunc(state.Effects, func(held character.PersonalSpellEffect) bool { return held.SpellID == e.SpellID })
+		if i < 0 {
+			e.Charges = 1
+			state.Set(e)
+			continue
+		}
+		held := &state.Effects[i]
+		full := held.Charges + 1
+		if d, ok := config.GetSpellDefinition(held.SpellID); ok && d.Mechanic != nil {
+			full = d.Mechanic.Charges(held.Tier)
+		}
+		held.Charges = min(held.Charges+1, full)
+	}
+}
+
+// shotCharges is one ranged action's spent attack charges, shared by every
+// shot it loosed and every leg they spawn: they stay spent once any of them
+// strikes (strikeCarried), and come back when the last leaves play having
+// struck no one.
+type shotCharges struct {
+	hero   *character.MMCharacter
+	spent  []character.PersonalSpellEffect
+	shots  int
+	landed bool
+}
+
+// chargeShots spends a ranged action's attack charges at the release and
+// hands the account to its shots.
+func (cs *CombatSystem) chargeShots(hero *character.MMCharacter, shots []Arrow) {
+	spent := consumePersonalAttackCharges(hero)
+	if len(spent) == 0 {
+		return
+	}
+	account := &shotCharges{hero: hero, spent: spent}
+	for i := range shots {
+		shots[i].Charges = account
+		account.shots++
+	}
+}
+
+// settleShotCharges closes the accounts of shots leaving play (all of them,
+// or only the spent ones).
+func (g *MMGame) settleShotCharges(all bool) {
+	for i := range g.arrows {
+		ar := &g.arrows[i]
+		if ar.Charges == nil || !all && ar.flying() {
+			continue
+		}
+		account := ar.Charges
+		ar.Charges = nil
+		if account.shots--; account.shots == 0 && !account.landed {
+			refundAttackCharges(&account.hero.SpellState, account.spent)
+		}
+	}
+}
+
+// refundShotsInFlight gives a saved hero back the charges of shots still in
+// flight that have struck no one: a save keeps no projectiles, so in the
+// loaded game those shots never flew.
+func (g *MMGame) refundShotsInFlight(hero *character.MMCharacter, state *character.SpellState) {
+	seen := map[*shotCharges]bool{}
+	for i := range g.arrows {
+		account := g.arrows[i].Charges
+		if account == nil || account.hero != hero || account.landed || seen[account] {
+			continue
+		}
+		seen[account] = true
+		refundAttackCharges(state, account.spent)
+	}
+}
+
+// strikeCarried is whether a weapon strike counts as landed for its attack
+// charges: it got past the target's Perfect Dodge, or a Grandmaster's graze
+// carried its damage through it.
+func strikeCarried(dodged, through, grazes bool) bool {
+	return !dodged || through && grazes
+}
+
+// noteStrike marks the shot's charge account when the strike counts.
+func (ar *Arrow) noteStrike(dodged, through, grazes bool) {
+	if ar.Charges != nil && strikeCarried(dodged, through, grazes) {
+		ar.Charges.landed = true
+	}
 }
 
 func (g *MMGame) advancedBuff(kind config.MechanicKind) *TimedCombatBuff {

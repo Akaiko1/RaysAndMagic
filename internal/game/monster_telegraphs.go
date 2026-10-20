@@ -329,13 +329,14 @@ func (g *MMGame) burnTelegraphFieldParty(source *monster.Monster3D, name, school
 		if g.combat.magicWardBlocks(school, false, source != nil) {
 			return
 		}
-		dealt := g.combat.damagePartyMemberPartsFromSource(i, c, parts, school, false, source)
+		dealt, shares := g.combat.damagePartyMemberPartsFromSource(i, c, parts, school, false, source)
 		if dealt > 0 {
 			g.reportDamage(logToneBad, damageLog{
 				Source: logMonsterAs(source, name),
 				Target: heroLogTarget(c),
 				Amount: dealt,
 				School: school,
+				Shares: shares,
 			})
 		}
 	})

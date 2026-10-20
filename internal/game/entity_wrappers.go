@@ -148,6 +148,7 @@ func recycleProjectileWrapper(wrapper entities.ProjectileUpdateInterface) {
 // place (no per-frame allocation) with their collision entities.
 func (g *MMGame) RemoveInactiveEntities() {
 	g.magicProjectiles = keepFlying(g.collisionSystem, g.magicProjectiles)
+	g.settleShotCharges(false)
 	g.arrows = keepFlying(g.collisionSystem, g.arrows)
 	g.flasks = keepFlying(g.collisionSystem, g.flasks)
 }
@@ -161,6 +162,7 @@ func (g *MMGame) projectileCount() int {
 // switchToMap keeps the collision system, so stale entities must go.
 func (g *MMGame) clearProjectiles() {
 	g.magicProjectiles = dropShots(g.collisionSystem, g.magicProjectiles)
+	g.settleShotCharges(true)
 	g.arrows = dropShots(g.collisionSystem, g.arrows)
 	g.flasks = dropShots(g.collisionSystem, g.flasks)
 }

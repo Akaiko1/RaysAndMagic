@@ -179,14 +179,15 @@ func (cs *CombatSystem) pushElementalTarget(m *monster.Monster3D, tiles float64)
 // crit rolls, or a second kill settlement for the primary target.
 func (cs *CombatSystem) elementalWeaponBonus(target *monster.Monster3D, amount int, school, label string) {
 	parts := cs.game.elementalDamageBuff(damagecalc.Parts{Normal: amount}, school)
-	dealt := cs.applyMonsterDamagePacket(target, singleMonsterDamagePacket(parts, school, 0), monsterDamageOptions{}).Total()
+	dealt := cs.applyMonsterDamagePacket(target, singleMonsterDamagePacket(parts, school, 0), monsterDamageOptions{})
 	cs.markMonsterHit(target)
 	x, y := cs.monsterVisualPos(target)
 	cs.game.createElementalAbilityImpact(x, y, school, target)
 	cs.game.reportDamage(logToneGood, damageLog{
 		Source: logSchoolWord(school, label),
 		Target: monsterLogTarget(target),
-		Amount: dealt,
+		Amount: dealt.Total(),
 		School: school,
+		Shares: dealtShares(dealt),
 	})
 }

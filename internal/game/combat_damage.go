@@ -116,9 +116,9 @@ type monsterDamageOptions struct {
 // applyMonsterDamagePacket is the only game-side monster mitigation boundary.
 // It applies target armor to every normal component, then hands all schools to
 // Monster3D together for per-school resistance and one shared flat soak.
-func (cs *CombatSystem) applyMonsterDamagePacket(target *monsterPkg.Monster3D, packet monsterDamagePacket, options monsterDamageOptions) damagecalc.Parts {
+func (cs *CombatSystem) applyMonsterDamagePacket(target *monsterPkg.Monster3D, packet monsterDamagePacket, options monsterDamageOptions) monsterPkg.DealtDamage {
 	if target == nil || len(packet.Components) == 0 {
-		return damagecalc.Parts{}
+		return monsterPkg.DealtDamage{}
 	}
 
 	armorClass := target.EffectiveArmorClass()
@@ -186,6 +186,7 @@ type partyMonsterAttack struct {
 	IsMelee              bool
 	Projectile           bool // a weapon shot or spell bolt, or its splash
 	GrazesDodge          bool
+	Undodgeable          bool // Fate: no Perfect Dodge avoids it
 	IgnoreArmor          bool
 	ArmorIgnoreChancePct int
 	// PrimaryHit marks the landed primary hit, the one whose weapon riders
@@ -323,7 +324,7 @@ func (cs *CombatSystem) monsterWeaponDamageOptions(
 }
 
 type partyMonsterHit struct {
-	damagecalc.Parts
+	monsterPkg.DealtDamage
 	Critical     bool
 	SourceNormal int // pre-mitigation amount used to size impact effects
 }
@@ -354,6 +355,7 @@ func (cs *CombatSystem) landPartyHit(target *monsterPkg.Monster3D, b partyBlow) 
 		Target:   monsterLogTarget(target),
 		Amount:   hit.Total(),
 		School:   b.school,
+		Shares:   dealtShares(hit.DealtDamage),
 		Kind:     b.kind,
 		Critical: hit.Critical,
 	})
@@ -393,7 +395,7 @@ func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, at
 	if parts.Total() > 0 && (attack.IsMelee || attack.IsRanged) {
 		cs.game.playMonsterSound(soundMonsterHit, target)
 	}
-	return partyMonsterHit{Parts: parts, Critical: critical, SourceNormal: packet.normalDamage()}
+	return partyMonsterHit{DealtDamage: parts, Critical: critical, SourceNormal: packet.normalDamage()}
 }
 
 // Drain pays only for HP actually removed, including true damage through dodge.

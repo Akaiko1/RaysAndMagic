@@ -168,7 +168,7 @@ func TestBookHealTargets(t *testing.T) {
 		hp          [4]int // percent of max; 0 = knocked out
 		pointer     int    // card under the pointer (-1 none)
 		entry       string // "book", "f", "c" or "space"
-		want        int // the one member healed; -1: F/C refuse and keep the SP
+		want        int    // the one member healed; -1: F/C refuse and keep the SP
 	}{
 		{"heal_other/book/most wounded ally", "heal_other", [4]int{80, 30, 100, 60}, -1, "book", 1},
 		{"heal_other/book/skips 0 HP", "heal_other", [4]int{100, 0, 100, 50}, -1, "book", 3},

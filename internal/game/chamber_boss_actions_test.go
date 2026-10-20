@@ -61,13 +61,19 @@ func runChamberBossAction(t *testing.T, g *MMGame, gl *GameLoop, boss *monsterPk
 // expired.
 func flyShots(t *testing.T, g *MMGame, gl *GameLoop) {
 	t.Helper()
+	for frame := 0; frame < 10*g.config.GetTPS() && g.projectileCount() > 0; frame++ {
+		flyShotsFrame(t, g, gl)
+	}
+}
+
+// flyShotsFrame is one real projectile tick.
+func flyShotsFrame(t *testing.T, g *MMGame, gl *GameLoop) {
+	t.Helper()
 	if g.threading == nil {
 		g.threading = &threading.ThreadingComponents{EntityUpdater: entities.NewEntityUpdaterWithWorkers(1)}
 		t.Cleanup(g.threading.Shutdown)
 	}
-	for frame := 0; frame < 10*g.config.GetTPS() && g.projectileCount() > 0; frame++ {
-		gl.updateProjectilesAndImpacts()
-	}
+	gl.updateProjectilesAndImpacts()
 }
 
 // TestChamberBossLaneAndPushAreFree: the lane pattern and the push ride a

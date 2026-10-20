@@ -384,7 +384,7 @@ func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY fl
 // and crit stamped at release, the hero's personal enchantments, the graze.
 func (cs *CombatSystem) arrowAttack(ar *Arrow, school string, weaponDef *config.WeaponDefinitionConfig, weaponName string) partyMonsterAttack {
 	attack := cs.newPartyWeaponAttack(ar.Damage, ar.TrueDamage, school, weaponDef, weaponName, true, ar.Crit, ar.CritChance)
-	attack.Attacker, attack.GrazesDodge = ar.Attacker, ar.GrazesDodge
+	attack.Attacker, attack.GrazesDodge, attack.Undodgeable = ar.Attacker, ar.GrazesDodge, ar.Undodgeable
 	attack.addPersonalSpellPayload(ar.FireAuraPercent, ar.FireAuraSchool, ar.VampiricPct)
 	return attack
 }
@@ -393,7 +393,7 @@ func (cs *CombatSystem) arrowAttack(ar *Arrow, school string, weaponDef *config.
 // through lands (landed), else the dodge is announced. dodged is false when
 // the victim did not dodge and the hit goes on.
 func (cs *CombatSystem) dodgePartyShot(m *monsterPkg.Monster3D, attack partyMonsterAttack, attackerName, school, weaponName string, weaponDef *config.WeaponDefinitionConfig) (dodged, landed bool) {
-	if !cs.monsterPerfectDodges(m) {
+	if attack.Undodgeable || !cs.monsterPerfectDodges(m) {
 		return false, false
 	}
 	landed = cs.applyDamageThroughDodge(m, attack, attack.Attacker, attackerName, weaponDef)
@@ -411,6 +411,7 @@ func (cs *CombatSystem) reportProjectileHit(m *monsterPkg.Monster3D, name, schoo
 		Target:   monsterLogTarget(m),
 		Amount:   hit.Total(),
 		School:   school,
+		Shares:   dealtShares(hit.DealtDamage),
 		Critical: hit.Critical,
 		Kind:     damageLogProjectile,
 	})
@@ -582,8 +583,12 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 	// is dodged, but typed TRUE damage still lands and a Grandmaster's weapon
 	// strike grazes through. A blast spell still goes off around a target that
 	// dodged or was bound.
-	if dodged, landed := cs.dodgePartyShot(monster, attack, attackerName, damageTypeStr, weaponName, weaponDef); dodged {
-		if landed && budget != nil {
+	dodged, through := cs.dodgePartyShot(monster, attack, attackerName, damageTypeStr, weaponName, weaponDef)
+	if ar, ok := projectile.(*Arrow); ok {
+		ar.noteStrike(dodged, through, attack.GrazesDodge)
+	}
+	if dodged {
+		if through && budget != nil {
 			budget.hits[monster]++
 		}
 		cs.game.collisionSystem.UnregisterEntity(entityID)
@@ -742,15 +747,16 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, attack part
 // applyPartySplashFrom is applyAoeSplash from any point; exclude (may be nil)
 // is the direct victim the splash must not bill twice.
 func (cs *CombatSystem) applyPartySplashFrom(x, y float64, attack partyMonsterAttack, radiusTiles float64, exclude *monsterPkg.Monster3D) {
-	cs.applyAoeSplashAt(x, y, attack, radiusTiles, exclude, func(m *monsterPkg.Monster3D, actual int) {
+	cs.applyAoeSplashAt(x, y, attack, radiusTiles, exclude, func(m *monsterPkg.Monster3D, hit partyMonsterHit) {
 		cs.markMonsterHit(m)
 		primarySchool := attack.Packet.primarySchool()
 		cs.spawnMonsterHitBurst(m, primarySchool)
 		cs.game.reportDamage(logToneGood, damageLog{
 			Source: logSchoolWord(primarySchool, attack.WeaponName),
 			Target: monsterLogTarget(m),
-			Amount: actual,
+			Amount: hit.Total(),
 			School: primarySchool,
+			Shares: dealtShares(hit.DealtDamage),
 			Kind:   damageLogSplash,
 		})
 		if !m.IsAlive() {
@@ -762,10 +768,10 @@ func (cs *CombatSystem) applyPartySplashFrom(x, y float64, attack partyMonsterAt
 // applyAoeSplashAt owns ground and target-centered party splash alike: a weapon
 // or spell hit, which a Dark Elf may turn into a binding. Source-specific
 // status, presentation and kill riders run after the shared hit.
-func (cs *CombatSystem) applyAoeSplashAt(x, y float64, attack partyMonsterAttack, radiusTiles float64, exclude *monsterPkg.Monster3D, onHit func(*monsterPkg.Monster3D, int)) {
+func (cs *CombatSystem) applyAoeSplashAt(x, y float64, attack partyMonsterAttack, radiusTiles float64, exclude *monsterPkg.Monster3D, onHit func(*monsterPkg.Monster3D, partyMonsterHit)) {
 	cs.forEachSplashVictim(x, y, radiusTiles, exclude, func(m *monsterPkg.Monster3D) {
 		if !cs.tryDarkElfBindInstead(attack.Attacker, m) {
-			onHit(m, cs.applyPartyMonsterAttack(m, attack).Total())
+			onHit(m, cs.applyPartyMonsterAttack(m, attack))
 		}
 	})
 }
@@ -791,6 +797,9 @@ func (cs *CombatSystem) spawnArrowContinuation(cont Arrow, weaponDef *config.Wea
 	cont.Continuation = true
 	if weaponDef == nil || weaponDef.Physics == nil {
 		return
+	}
+	if cont.Charges != nil {
+		cont.Charges.shots++ // a leg of the same action
 	}
 	cont.ID = cs.game.GenerateProjectileID("arrow")
 	cont.Active = true

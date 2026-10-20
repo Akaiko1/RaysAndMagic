@@ -28,6 +28,7 @@ type CombatSystem struct {
 	overflow             *overflowCast
 	spellTarget          *character.MMCharacter
 	castHovered          *character.MMCharacter // the hero under the cursor when a hand cast began (book and quick-bar heals); nil for none or an automatic cast
+	strikeLanded         bool                   // the weapon action under way reached a target past its dodge
 	partyEventDepth      int
 	magicWardDecision    int
 	deviceClock          deviceCooldownSweep
@@ -676,6 +677,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 
 func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, explicitAim bool) bool {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
+	cs.strikeLanded = false
 
 	// Stunned characters cannot attack either.
 	if !attacker.CanUseCombatAction() {
@@ -711,20 +713,22 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, explicitAim bool) 
 	// For ranged: roll crit and apply doubling inside createArrowAttack only.
 	acted := false
 	summonRolled := false
-	castInstead := false // the Pixie Card turned the swing into a spell
 	if weaponDef.IsRanged() {
 		// Masked Huntress Card: boost ranged weapon damage.
 		totalDamage = cs.weaponRangedDamageAtLaunch(totalDamage, true)
 		// createArrowAttack returns false at the projectile cap (MaxProjectiles):
 		// nothing fired, so no cooldown/action - and no card procs either.
+		firstShot := len(cs.game.arrows)
 		acted = cs.createArrowAttackAimed(totalDamage, slot, "", angle, explicitAim)
+		if acted {
+			cs.chargeShots(attacker, cs.game.arrows[firstShot:])
+		}
 	} else if pct := cs.game.cardSpellProcPct(); pct > 0 && rand.Intn(100) < pct && cs.tryCardFireBoltInstead(attacker) {
 		// Pixie Card: the swing becomes a free Fire Bolt cast instead of a melee hit.
 		// castResolvedSpell already rolled the summon-card checks for this
 		// action (a real cast counts as one) - don't roll it a second time below.
 		acted = true
 		summonRolled = true
-		castInstead = true
 	} else {
 		// Bronze Cesti: the pair lands every swing twice at half damage - two
 		// full strikes with independent crit rolls (steadier than one big hit).
@@ -757,8 +761,9 @@ func (cs *CombatSystem) equipmentAttackAtAngle(angle float64, explicitAim bool) 
 	// Card procs only fire on an attack that actually happened (gated above), so a
 	// capped ranged weapon can't be spammed for free Ningyo/Orc Warlord procs.
 	if acted {
-		if !castInstead {
-			// Fate and Fire Aura empower a weapon strike; a card spell uses neither.
+		if cs.strikeLanded {
+			// Fate and Fire Aura empower a swing that lands (strikeCarried); a
+			// miss and a card spell spend neither. Shots settle in chargeShots.
 			consumePersonalAttackCharges(attacker)
 		}
 		cs.tryAttackZoneProc(weaponDef, attacker)
@@ -917,6 +922,7 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 		}
 		if !bonusBolt {
 			arrow.FireAuraPercent, arrow.FireAuraSchool = personalSpellDamage(attacker, config.MechanicFireAura)
+			arrow.Undodgeable = fateGuided(attacker)
 			arrow.VampiricPct = personalSpellPower(attacker, config.MechanicVampiricWeapon)
 			if i == 0 || equippedDef.HasSignature(config.SignatureReturning) {
 				cs.snapshotWeaponSignature(&arrow, attacker, slot, equippedDef)
@@ -1449,7 +1455,8 @@ func (cs *CombatSystem) applyDamageThroughDodge(monster *monsterPkg.Monster3D, a
 		return false
 	}
 	beforeHP := monster.HitPoints
-	actual := cs.applyMonsterDamagePacket(monster, through, cs.partyMonsterDamageOptions(attack, monster)).Total()
+	dealt := cs.applyMonsterDamagePacket(monster, through, cs.partyMonsterDamageOptions(attack, monster))
+	actual := dealt.Total()
 	settleVampiricHit(attacker, attack.VampiricPct, beforeHP-monster.HitPoints)
 	if actual > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, monster)
@@ -1460,6 +1467,7 @@ func (cs *CombatSystem) applyDamageThroughDodge(monster *monsterPkg.Monster3D, a
 		Target: monsterLogTarget(monster),
 		Amount: actual,
 		School: through.loggedSchool(),
+		Shares: dealtShares(dealt),
 		Kind:   damageLogDodge,
 	})
 	if !monster.IsAlive() {
@@ -1504,16 +1512,20 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	auraDamage, auraSchool := personalSpellDamage(attacker, config.MechanicFireAura)
 	attack.addPersonalSpellPayload(auraDamage, auraSchool, personalSpellPower(attacker, config.MechanicVampiricWeapon))
 	attack.GrazesDodge = grazesDodge
+	attack.Undodgeable = fateGuided(attacker)
 	attack.ArmorIgnoreChancePct = cs.game.cardArmorPiercePct()
 
 	// Check monster perfect dodge: the normal hit is avoided, but weapon-mastery
 	// TRUE damage still lands and a Grandmaster's hit grazes through.
-	if cs.monsterPerfectDodges(monster) {
-		if !cs.applyDamageThroughDodge(monster, attack, attacker, attackerName, weaponDef) {
+	if !attack.Undodgeable && cs.monsterPerfectDodges(monster) {
+		through := cs.applyDamageThroughDodge(monster, attack, attacker, attackerName, weaponDef)
+		if !through {
 			cs.game.logCombatLine(logToneNone, uitext.Text("combat.dodges_s_attack", logSlot, logSlot), logMonsterName(monster), logHeroText(attackerName))
 		}
+		cs.strikeLanded = cs.strikeLanded || strikeCarried(true, through, attack.GrazesDodge)
 		return
 	}
+	cs.strikeLanded = true
 	if cs.tryDarkElfBindInstead(attacker, monster) {
 		return
 	}
@@ -1543,6 +1555,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		Target:   monsterLogTarget(monster),
 		Amount:   finalDamage,
 		School:   damageTypeStr,
+		Shares:   dealtShares(hit.DealtDamage),
 		Critical: isCrit,
 	})
 	cs.trySleightOfHand(attacker, monster)
@@ -2124,7 +2137,8 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		cs.game.gainDodgeCharge(target)
 		pierce := cs.projectilePierce(hit.Projectile, hit.DamageType)
 		through := throughDodgeParts(hit.Parts, hit.GrazesDodge)
-		dealt := cs.mitigateCharacterParts(through, hit.DamageType, target, hit.IgnoresArmor, hit.ArmorPiercePct, pierce).Total()
+		mitigated := cs.mitigateCharacterParts(through, hit.DamageType, target, hit.IgnoresArmor, hit.ArmorPiercePct, pierce)
+		dealt := mitigated.Total()
 		cs.stormReversal(monster, target, hit, dealt, pierce)
 		if dealt <= 0 {
 			cs.game.logCombatLine(logToneNone, uitext.Text("combat.perfect_dodge_evades_s_attack", logSlot, logSlot), logHeroName(target), logMonsterAs(monster, sourceName))
@@ -2134,7 +2148,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		if through.Normal > 0 {
 			school = normalizeDamageTypeStr(hit.DamageType)
 		}
-		cs.landHeroDamage(monster, target, sourceName, hit, dealt, school, damageLogHeroDodge, false)
+		cs.landHeroDamage(monster, target, sourceName, hit, mitigated, school, damageLogHeroDodge, false)
 		return
 	}
 
@@ -2152,23 +2166,23 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		return
 	}
 
-	dealt := cs.mitigateCharacterDamagePartsWithArmorPierce(
+	mitigated := cs.mitigateCharacterDamagePartsWithArmorPierce(
 		hit.Parts,
 		hit.DamageType,
 		target,
 		hit.IgnoresArmor,
 		hit.ArmorPiercePct,
 		hit.Projectile,
-	).Total()
-	cs.landHeroDamage(monster, target, sourceName, hit, dealt, hit.DamageType, hit.LogKind, true)
+	)
+	cs.landHeroDamage(monster, target, sourceName, hit, mitigated, hit.DamageType, hit.LogKind, true)
 }
 
 // landHeroDamage settles a monster hit's mitigated damage on a hero: hit
 // triggers (resolveHeroHitDamage), the HP loss and its log line, knockout, the
 // damage flash; a struck (undodged) hit adds its FX and the attacker's riders;
 // every landing answers with reflection and grows Drakehide scales.
-func (cs *CombatSystem) landHeroDamage(monster *monsterPkg.Monster3D, target *character.MMCharacter, sourceName string, hit monsterCharacterHit, dealt int, school string, kind damageLogKind, struck bool) {
-	dealt = cs.resolveHeroHitDamage(monster, target, dealt)
+func (cs *CombatSystem) landHeroDamage(monster *monsterPkg.Monster3D, target *character.MMCharacter, sourceName string, hit monsterCharacterHit, mitigated damagecalc.Parts, school string, kind damageLogKind, struck bool) {
+	dealt := cs.resolveHeroHitDamage(monster, target, mitigated.Total())
 	attacker := sourceName // the hit is the attacking monster's, whatever its ability
 	if monster != nil {
 		attacker = monster.Name
@@ -2179,6 +2193,7 @@ func (cs *CombatSystem) landHeroDamage(monster *monsterPkg.Monster3D, target *ch
 		Target:   heroLogTarget(target),
 		Amount:   dealt,
 		School:   school,
+		Shares:   heroShares(dealt, mitigated, normalizeDamageTypeStr(hit.DamageType)),
 		Kind:     kind,
 		Critical: hit.Critical && struck,
 	})
@@ -2223,26 +2238,25 @@ func (cs *CombatSystem) reflectMonsterDamage(monster *monsterPkg.Monster3D, targ
 	if reflected <= 0 && fireBack <= 0 {
 		return
 	}
-	dealt := 0
+	// Thorns and the fiery riposte are two packets read as one line.
+	var dealt monsterPkg.DealtDamage
+	answer := func(amount int, school monsterPkg.DamageType) {
+		d := cs.applyMonsterDamagePacket(monster, singleMonsterDamagePacket(damagecalc.Parts{Normal: amount}, school.String(), 0), monsterDamageOptions{IgnoreArmor: true})
+		dealt.Normal, dealt.True = dealt.Normal+d.Normal, dealt.True+d.True
+		dealt.Shares = append(dealt.Shares, d.Shares...)
+	}
 	if reflected > 0 {
-		dealt += cs.applyMonsterDamagePacket(
-			monster,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: reflected}, monsterPkg.DamagePhysical.String(), 0),
-			monsterDamageOptions{IgnoreArmor: true},
-		).Total()
+		answer(reflected, monsterPkg.DamagePhysical)
 	}
 	if fireBack > 0 && monster.IsAlive() {
-		dealt += cs.applyMonsterDamagePacket(
-			monster,
-			singleMonsterDamagePacket(damagecalc.Parts{Normal: fireBack}, monsterPkg.DamageFire.String(), 0),
-			monsterDamageOptions{IgnoreArmor: true},
-		).Total()
+		answer(fireBack, monsterPkg.DamageFire)
 	}
-	if dealt > 0 {
+	if dealt.Total() > 0 {
 		cs.game.reportDamage(logToneGood, damageLog{
 			Target: monsterLogTarget(monster),
-			Amount: dealt,
+			Amount: dealt.Total(),
 			School: monsterPkg.DamagePhysical.String(),
+			Shares: dealtShares(dealt),
 			Kind:   damageLogReflection,
 		})
 	}
@@ -2689,22 +2703,24 @@ func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCh
 // cheat-death chokepoint), and flash the damage-blink. Callers supply their
 // own flavor line, hostility, and any extra VFX (e.g. party flame).
 func (cs *CombatSystem) damagePartyMemberParts(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string, hostileSpell bool) int {
-	return cs.damagePartyMemberPartsFromSource(idx, member, parts, school, hostileSpell, nil)
+	dealt, _ := cs.damagePartyMemberPartsFromSource(idx, member, parts, school, hostileSpell, nil)
+	return dealt
 }
 
 // damagePartyMemberPartsFromSource retains ownership for undodgeable monster
-// hits. Environmental damage and friendly splash have no hostile source.
-func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string, hostileSpell bool, source *monsterPkg.Monster3D) int {
+// hits. Environmental damage and friendly splash have no hostile source. It
+// also returns the loss by element for the caller's log line.
+func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *character.MMCharacter, parts damagecalc.Parts, school string, hostileSpell bool, source *monsterPkg.Monster3D) (int, []damageShare) {
 	// Apply the same ward policy as monsterHitCharacter. The source gate keeps
 	// environmental damage and friendly splash outside that hostile-hit rule.
 	if cs.magicWardBlocks(school, hostileSpell, source != nil) {
-		return 0
+		return 0, nil
 	}
 	if cs.tryAbsorbSpellHit(member, parts, hostileSpell, "") {
-		return 0
+		return 0, nil
 	}
-	dealt := cs.mitigateCharacterDamageParts(parts, school, member, false).Total()
-	dealt = cs.resolveHeroHitDamage(source, member, dealt)
+	mitigated := cs.mitigateCharacterDamageParts(parts, school, member, false)
+	dealt := cs.resolveHeroHitDamage(source, member, mitigated.Total())
 	hostile := ""
 	if source != nil {
 		hostile = source.Name
@@ -2716,7 +2732,7 @@ func (cs *CombatSystem) damagePartyMemberPartsFromSource(idx int, member *charac
 	cs.game.TriggerDamageHit(idx, dealt)
 	growScaleStacks(member, dealt) // Drakehide: specials grow scales too
 	cs.reflectMonsterDamage(source, member, dealt, false, false)
-	return dealt
+	return dealt, heroShares(dealt, mitigated, normalizeDamageTypeStr(school))
 }
 
 func (g *MMGame) clearPartyScaleStacks() {
@@ -3941,14 +3957,15 @@ func (cs *CombatSystem) landMonsterOnMonster(attacker, target *monsterPkg.Monste
 	}
 	if hit.canDodge && cs.monsterPerfectDodges(target) {
 		through := hit.packet.throughDodge(hit.grazesDodge)
-		actual := cs.applyMonsterDamagePacket(target, through, hit.opts).Total()
+		dealt := cs.applyMonsterDamagePacket(target, through, hit.opts)
+		actual := dealt.Total()
 		if actual <= 0 {
 			cs.game.addActorCombatMessage(attacker, target, styledFormat(uitext.Text("combat.monster.dodges", logSlot, logSlot, logSlot)), logMonsterName(target), source, hit.evades)
 			return monsterHitMissed
 		}
 		cs.game.playMonsterSound(soundMonsterHit, target)
 		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.reportActorDamage(attacker, target, damageLog{Source: source, Target: monsterLogTarget(target), Amount: actual, School: through.loggedSchool(), Kind: damageLogDodge})
+		cs.game.reportActorDamage(attacker, target, damageLog{Source: source, Target: monsterLogTarget(target), Amount: actual, School: through.loggedSchool(), Shares: dealtShares(dealt), Kind: damageLogDodge})
 		if !target.IsAlive() {
 			cs.finishActorKill(attacker, target)
 		}
@@ -3967,12 +3984,13 @@ func (cs *CombatSystem) landMonsterOnMonster(attacker, target *monsterPkg.Monste
 		packet, seared = packet.withTrue(instakillSearDamage(target)), true
 	}
 	if hit.packet.total() > 0 || seared {
-		actual := cs.applyMonsterDamagePacket(target, packet, hit.opts).Total()
+		dealt := cs.applyMonsterDamagePacket(target, packet, hit.opts)
+		actual := dealt.Total()
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
 		}
 		target.HitTintFrames = MonsterHitFlashFrames
-		cs.game.reportActorDamage(attacker, target, damageLog{Source: source, Target: monsterLogTarget(target), Amount: actual, School: hit.packet.primarySchool(), Kind: hit.kind, Critical: hit.critical})
+		cs.game.reportActorDamage(attacker, target, damageLog{Source: source, Target: monsterLogTarget(target), Amount: actual, School: hit.packet.primarySchool(), Shares: dealtShares(dealt), Kind: hit.kind, Critical: hit.critical})
 	}
 	if target.IsAlive() {
 		if hit.riders {

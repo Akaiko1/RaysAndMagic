@@ -298,7 +298,9 @@ func (cs *CombatSystem) applyReturningBladeHit(shot *Arrow, target *monster.Mons
 	// weapon's own effects: the same attack, dodge, school and log line.
 	school := normalizeDamageTypeStr(shot.DamageType)
 	attack := cs.arrowAttack(shot, school, nil, shot.Signature.Name)
-	if dodged, _ := cs.dodgePartyShot(target, attack, partyAttackerName(shot.Attacker), school, shot.Signature.Name, nil); dodged {
+	dodged, through := cs.dodgePartyShot(target, attack, partyAttackerName(shot.Attacker), school, shot.Signature.Name, nil)
+	shot.noteStrike(dodged, through, attack.GrazesDodge)
+	if dodged {
 		return
 	}
 	// The racial proc rides every party hit; only the primary weapon's own

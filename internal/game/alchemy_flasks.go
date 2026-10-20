@@ -187,8 +187,7 @@ func (cs *CombatSystem) detonateFlask(p *FlaskProjectile, x, y float64) {
 	cs.forEachSplashVictim(x, y, p.Radius/float64(cs.game.config.GetTileSize()), nil, func(m *monster.Monster3D) {
 		victimAttack := attack
 		victimAttack.Packet = catalyzedFlaskPacket(m, p, attack.Packet)
-		actual := cs.applyPartyMonsterAttack(m, victimAttack).Total()
-		cs.reportIndirectHit(m, actual, d.Name, normalizeDamageTypeStr(d.Flask.Element))
+		cs.reportIndirectHit(m, cs.applyPartyMonsterAttack(m, victimAttack).DealtDamage, d.Name, normalizeDamageTypeStr(d.Flask.Element))
 		if m.IsAlive() {
 			if p.CatalysisPercent > 0 && p.CatalysisFrames > 0 && p.ActorID != 0 {
 				if m.Relics.Catalysis == nil {

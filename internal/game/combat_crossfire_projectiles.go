@@ -60,11 +60,12 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 	}
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
-	dealt := cs.applyMonsterDamagePacket(
+	hit := cs.applyMonsterDamagePacket(
 		target,
 		singleMonsterDamagePacket(parts, damageTypeStr, 0),
 		monsterDamageOptions{Projectile: true},
-	).Total()
+	)
+	dealt := hit.Total()
 	if dealt > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, target)
 		target.HitTintFrames = MonsterHitFlashFrames
@@ -74,6 +75,7 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 		Target: monsterLogTarget(target),
 		Amount: dealt,
 		School: damageTypeStr,
+		Shares: dealtShares(hit),
 	})
 	if !target.IsAlive() {
 		cs.finishMonsterKill(target)

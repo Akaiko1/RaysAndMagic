@@ -80,7 +80,7 @@ func (cs *CombatSystem) ringToll(t pendingToll) {
 	if a := t.Attack.Attacker; a != nil {
 		name = a.Name + "'s toll"
 	}
-	cs.game.reportDamage(logToneGood, damageLog{Source: logHeroText(name), Target: monsterLogTarget(m), Amount: hit.Total(), School: t.School})
+	cs.game.reportDamage(logToneGood, damageLog{Source: logHeroText(name), Target: monsterLogTarget(m), Amount: hit.Total(), School: t.School, Shares: dealtShares(hit.DealtDamage)})
 	if !m.IsAlive() {
 		cs.finishWeaponKill(m, nil, t.Attack.Attacker)
 	}

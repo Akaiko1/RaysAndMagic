@@ -152,8 +152,8 @@ func (g *MMGame) effectEnabled(a *config.AdventureConfig, v *AdventureVisit, e c
 	return true
 }
 
-// damageEnvironment resolves both schools before reporting one combined hit
-// per member. Zero-damage ticks stay silent; the first school colors the total.
+// damageEnvironment resolves both schools before reporting one hit per
+// member, each school its own part. Zero-damage ticks stay silent.
 func (g *MMGame) damageEnvironment(e config.EnvironmentEffect, ticks int) {
 	if g.combat == nil || ticks <= 0 {
 		return
@@ -164,16 +164,22 @@ func (g *MMGame) damageEnvironment(e config.EnvironmentEffect, ticks int) {
 			first = e.Damage / 2
 			second = e.Damage - first
 		}
-		dealt := g.combat.damagePartyMemberElement(i, c, first*ticks, e.School, false)
+		shares := []damageShare{{e.School, g.combat.damagePartyMemberElement(i, c, first*ticks, e.School, false)}}
 		if second > 0 && c.HitPoints > 0 {
-			dealt += g.combat.damagePartyMemberElement(i, c, second*ticks, e.SecondarySchool, false)
+			shares = append(shares, damageShare{e.SecondarySchool, g.combat.damagePartyMemberElement(i, c, second*ticks, e.SecondarySchool, false)})
 		}
-		if dealt > 0 {
+		shares = slices.DeleteFunc(shares, func(s damageShare) bool { return s.Amount <= 0 })
+		if len(shares) > 0 {
+			dealt := 0
+			for _, s := range shares {
+				dealt += s.Amount
+			}
 			g.reportDamage(logToneBad, damageLog{
 				Source: logSchoolWord(e.School, e.Name),
 				Target: heroLogTarget(c),
 				Amount: dealt,
 				School: e.School,
+				Shares: shares,
 			})
 		}
 	})

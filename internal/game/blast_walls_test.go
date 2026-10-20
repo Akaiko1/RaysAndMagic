@@ -279,7 +279,7 @@ func TestQuakesAndArtilleryReachBehindWalls(t *testing.T) {
 		}, true},
 		"point blast (control)": {func(g *MMGame, ts float64) {
 			attack := g.combat.newPartyMonsterAttack(30, 0, "fire", 0, nil, "Blast", false, true, false)
-			g.combat.applyAoeSplashAt(14.85*ts, 10.5*ts, attack, 3, nil, func(*monsterPkg.Monster3D, int) {})
+			g.combat.applyAoeSplashAt(14.85*ts, 10.5*ts, attack, 3, nil, func(*monsterPkg.Monster3D, partyMonsterHit) {})
 		}, false},
 	} {
 		t.Run(name, func(t *testing.T) {

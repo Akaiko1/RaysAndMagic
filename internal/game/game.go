@@ -132,7 +132,9 @@ type Arrow struct {
 	FireAuraPercent        int
 	FireAuraSchool         monster.DamageType // Snapshotted with damage; later effect expiry cannot change a flying shot.
 	VampiricPct            int
+	Undodgeable            bool             // Fate at the release: no Perfect Dodge avoids the shot.
 	Continuation           bool             // Runtime-only; secondary legs cannot spend fresh attack charges.
+	Charges                *shotCharges     // Runtime-only; the attack charges this shot's action spent.
 	Launch                 projectileLaunch // Runtime-only; save/load discards projectiles.
 	ElementalAbilityDamage int              // Effective-stat scaling snapshotted at launch.
 	Backwash               *backwashCharge  // Secondary charge; never triggers ordinary hit riders.

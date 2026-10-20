@@ -32,9 +32,9 @@ spells:
     mechanic:
       kind: "fire_aura"
       power_by_mastery: [20, 30, 40, 50]
-      charges_by_mastery: [2, 3, 4, 5]
+      charges_by_mastery: [6, 8, 10, 12]
       damage_school: "fire"
-      summary: "Enchants one ally's next {charges} weapon attacks with extra Fire damage equal to {power}% of their damage before defenses."
+      summary: "Enchants one ally's next {charges} weapon hits with extra Fire damage equal to {power}% of their damage before defenses."
 
   haste:
     duration_by_mastery: [12, 15, 18, 24]
@@ -154,8 +154,8 @@ spells:
     mechanic:
       kind: "fate"
       power_by_mastery: [20, 30, 40, 50]
-      charges_by_mastery: [2, 3, 4, 5]
-      summary: "The next {charges} attacks by one ally gain +{power}% critical chance."
+      charges_by_mastery: [6, 8, 10, 12]
+      summary: "One ally's next {charges} weapon hits ignore Perfect Dodge and gain +{power}% critical chance."
 
   shared_life:
     name: "Shared Life"

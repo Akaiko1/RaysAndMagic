@@ -4,6 +4,7 @@ import (
 	"strings"
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
+	damagecalc "ugataima/internal/damage"
 	"ugataima/internal/monster"
 )
 
@@ -51,9 +52,83 @@ type damageLog struct {
 	Source   logPart
 	Target   damageLogTarget
 	Amount   int
-	School   string // the number's tint and named school; "" is true damage
+	School   string        // the number's tint and named school; "" is true damage
+	Shares   []damageShare // the hit by element when known; they replace Amount/School
 	Kind     damageLogKind
 	Critical bool
+}
+
+// damageShare is one element's part of a logged hit; school "" is true damage.
+type damageShare struct {
+	School string
+	Amount int
+}
+
+// dealtShares is a packet dealt to a monster by element: each school's normal
+// damage under that school, in packet order, then all its true damage as one
+// share. Empty shares drop out.
+func dealtShares(d monster.DealtDamage) []damageShare {
+	var out []damageShare
+	add := func(school string, n int) {
+		if n <= 0 {
+			return
+		}
+		for i := range out {
+			if out[i].School == school {
+				out[i].Amount += n
+				return
+			}
+		}
+		out = append(out, damageShare{school, n})
+	}
+	for _, share := range d.Shares {
+		add(share.DamageType.String(), share.Parts.Normal)
+	}
+	for _, share := range d.Shares {
+		add("", share.Parts.True)
+	}
+	return out
+}
+
+// heroShares splits a hero's final HP loss between the hit's school and its
+// true damage in the ratio the mitigated parts carried: later reductions
+// (Celestial Armor, the reactive shell, Sacrifice) take from both alike.
+func heroShares(final int, parts damagecalc.Parts, school string) []damageShare {
+	if final <= 0 || parts.Total() <= 0 {
+		return nil
+	}
+	trueShare := final * parts.True / parts.Total()
+	var out []damageShare
+	if final-trueShare > 0 {
+		out = append(out, damageShare{school, final - trueShare})
+	}
+	if trueShare > 0 {
+		out = append(out, damageShare{"", trueShare})
+	}
+	return out
+}
+
+// amountParts is a hit's number in its school's tint and its phrase, the
+// number with its school named; a hit of several elements reads
+// "43 dark + 16 fire" in both.
+func (hit damageLog) amountParts() (amount, phrase logPart) {
+	shares := hit.Shares
+	if len(shares) == 0 {
+		shares = []damageShare{{hit.School, hit.Amount}}
+	}
+	space := logColored(" ", logPlain)
+	if len(shares) == 1 {
+		n := logDamage(shares[0].Amount, shares[0].School)
+		return n, logParts(n, space, logDamageSchool(shares[0].School))
+	}
+	var joined logJoined
+	for i, share := range shares {
+		if i > 0 {
+			joined = append(joined, logColored(" + ", logPlain))
+		}
+		joined = append(joined, logDamage(share.Amount, share.School), space, logDamageSchool(share.School))
+	}
+	return joined, joined
 }
 
 // logSlot marks where a catalog line takes a styled log part: render the
@@ -76,7 +151,7 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 	if kind == "" {
 		kind = damageLogHit
 	}
-	amount := logDamage(hit.Amount, hit.School)
+	amount, phrase := hit.amountParts()
 	args := []any{hit.Source, hit.Target.name, amount}
 	// Explicit keys let the catalog audit check every authored template and its
 	// arity; styledFormat turns the logSlot markers into styled log parts.
@@ -95,20 +170,20 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 	case damageLogScorch:
 		format = uitext.Text("combat.damage.scorch", slot, slot, slot)
 	case damageLogDodge:
-		format = uitext.Text("combat.damage.dodge", slot, slot, slot, slot)
-		args = []any{hit.Target.name, hit.Source, amount, logDamageSchool(hit.School)}
+		format = uitext.Text("combat.damage.dodge", slot, slot, slot)
+		args = []any{hit.Target.name, hit.Source, phrase}
 	case damageLogHeroDodge:
-		format = uitext.Text("combat.damage.hero_dodge", slot, slot, slot, slot)
-		args = []any{hit.Target.name, hit.Source, amount, logDamageSchool(hit.School)}
+		format = uitext.Text("combat.damage.hero_dodge", slot, slot, slot)
+		args = []any{hit.Target.name, hit.Source, phrase}
 	case damageLogReflection:
 		format = uitext.Text("combat.damage.reflection", slot, slot)
 		args = []any{hit.Target.name, amount}
 	case damageLogSacrifice:
 		format = uitext.Text("combat.damage.sacrifice", slot, slot, slot)
-		args = []any{hit.Target.name, amount, hit.Source}
+		args = []any{hit.Target.name, logHPPaid(hit.Amount), hit.Source}
 	case damageLogBurnCost:
 		format = uitext.Text("combat.damage.burn_cost", slot, slot)
-		args = []any{hit.Target.name, amount}
+		args = []any{hit.Target.name, logHPPaid(hit.Amount)}
 	case damageLogStrike:
 		format = uitext.Text("combat.damage.strike", slot, slot, slot)
 	case damageLogBoundStrike:
@@ -116,8 +191,8 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 	case damageLogBolt:
 		format = uitext.Text("combat.damage.bolt", slot, slot, slot)
 	case damageLogProjectile:
-		format = uitext.Text("combat.damage.projectile", slot, slot, slot, slot)
-		args = append(args, logDamageSchool(hit.School))
+		format = uitext.Text("combat.damage.projectile", slot, slot, slot)
+		args = []any{hit.Source, hit.Target.name, phrase}
 	case damageLogBurst:
 		format = uitext.Text("combat.damage.burst", slot, slot, slot)
 	default:

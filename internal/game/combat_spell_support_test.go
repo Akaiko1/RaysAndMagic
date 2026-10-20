@@ -333,8 +333,8 @@ func TestAdvancedPersonalSpellsStackAndFollowWeaponAction(t *testing.T) {
 				t.Fatalf("Vampiric Weapon HP=%d, want %d", c.HitPoints, wantHP)
 			}
 			for _, e := range c.SpellState.Effects {
-				if (e.SpellID == "fire_aura" || e.SpellID == "fate") && e.Charges != 1 {
-					t.Fatalf("one committed action must spend one charge: %+v", e)
+				if d, _ := config.GetSpellDefinition(e.SpellID); (e.SpellID == "fire_aura" || e.SpellID == "fate") && e.Charges != d.Mechanic.Charges(0)-1 {
+					t.Fatalf("one landed action must spend one charge: %+v", e)
 				}
 			}
 			raw, err := json.Marshal(buildCharacterSave(c))
@@ -876,6 +876,9 @@ func TestPixieCardSwingKeepsPersonalCharges(t *testing.T) {
 	}
 	g.cardSlots[0].key = ""
 	c.RTCooldown = 0
+	m := mkTestMonster("Swing target", 10000)
+	m.ID, m.X = "pixie-swing-target", float64(g.config.GetTileSize())
+	g.world.Monsters = []*monsterPkg.Monster3D{m}
 	if !g.combat.EquipmentMeleeAttack() {
 		t.Fatal("real swing rejected")
 	}
@@ -1091,6 +1094,225 @@ func TestCelestialArmorEndsWhenSpent(t *testing.T) {
 		}
 		if len(g.combatBuffs) != 0 || g.buffStatuses["celestial_armor"] != nil {
 			t.Fatalf("tb=%v: spent Celestial Armor stayed: %+v", tb, g.combatBuffs)
+		}
+	}
+}
+
+// Fire Aura and Fate spend a charge once per weapon action that lands past
+// its target's dodge (a Grandmaster's graze carries it through): a melee
+// swing at once, a shot when its last leg leaves play. A miss - perfect
+// dodge, a swing at nothing, a shot into the open - spends nothing in RT and
+// TB alike; a refunded last charge brings the effect back. Fate's strikes
+// ignore Perfect Dodge, a shot keeping that from its release even when the
+// release spent Fate's last charge.
+func TestWeaponChargesSpendOnlyOnLandedStrikes(t *testing.T) {
+	type cell struct {
+		weapon string
+		target string // "in reach", "dodges" or "none"
+		fate   bool   // Fate rides along with Fire Aura
+		gm     bool   // Grandmaster of the weapon: grazes through a dodge
+		last   bool   // only one charge of each effect left
+		spent  bool
+	}
+	cells := []cell{
+		{"iron_sword", "in reach", false, false, false, true},
+		{"iron_sword", "dodges", false, false, false, false},
+		{"iron_sword", "dodges", false, true, false, true},
+		{"iron_sword", "dodges", true, false, false, true},
+		{"iron_sword", "none", true, false, false, false},
+		{"hunting_bow", "in reach", false, false, false, true},
+		{"hunting_bow", "dodges", false, false, false, false},
+		{"hunting_bow", "dodges", false, true, false, true},
+		{"hunting_bow", "dodges", true, false, false, true},
+		{"hunting_bow", "dodges", true, false, true, true},
+		{"hunting_bow", "none", true, false, false, false},
+		{"hunting_bow", "none", false, false, true, false},
+		{"hunting_bow", "in reach", false, false, true, true},
+	}
+	for _, tb := range []bool{false, true} {
+		for _, c := range cells {
+			t.Run(fmt.Sprintf("TB=%v/%s/%s/fate=%v/gm=%v/last=%v", tb, c.weapon, c.target, c.fate, c.gm, c.last), func(t *testing.T) {
+				g, gl, hero := chargedStrikeGame(t, tb, c.weapon, c.fate)
+				if c.gm {
+					skill, _ := character.WeaponSkillForCategory(lookupWeaponConfig(hero.Equipment[items.SlotMainHand]).Category)
+					hero.Skills[skill] = &character.Skill{Mastery: character.MasteryGrandMaster}
+				}
+				if c.last {
+					for i := range hero.SpellState.Effects {
+						hero.SpellState.Effects[i].Charges = 1
+					}
+				}
+				before := heroCharges(hero)
+				if c.target != "none" {
+					tileX := 3
+					if c.weapon == "hunting_bow" {
+						tileX = 6
+					}
+					chargedStrikeTarget(g, tileX, c.target == "dodges")
+				}
+				from := strikeChargedWeapon(t, g, gl)
+				assertCharges(t, hero, before, c.spent)
+				switch {
+				case c.gm && c.target == "dodges":
+					// A graze may round the aura's quarter away: the line shows it.
+					if !loggedSince(g, from, " dodges, but ") {
+						t.Fatal("no graze through the dodge")
+					}
+				case c.target != "none":
+					if struck := loggedSince(g, from, " fire "); struck != c.spent {
+						t.Fatalf("Fire Aura's fire landed=%v, want %v", struck, c.spent)
+					}
+				}
+			})
+		}
+	}
+}
+
+// A shot's legs and the save share its account: a pierce leg or a returning
+// blade that strikes after the first contact was dodged keeps the charges
+// spent; a shot that leaves play unlanded - flying off, a map switch -
+// refunds them.
+func TestShotLegsSettleChargesOnce(t *testing.T) {
+	for _, c := range []struct {
+		name, weapon string
+		dodger, next int  // goblin tiles: the first contact dodges; 0 = none
+		dodgeOnce    bool // the dodger dodges only the outward pass
+		mapSwitch    bool // the party leaves while the shot flies
+		spent        bool
+	}{
+		{"pierce leg strikes behind a dodge", "arbalest", 4, 6, false, false, true},
+		{"pierce leg flies off", "arbalest", 4, 0, false, false, false},
+		{"return leg strikes", "solstice_returning_gale", 5, 0, true, false, true},
+		{"return leg dodged too", "solstice_returning_gale", 5, 0, false, false, false},
+		{"map switch mid-flight", "hunting_bow", 0, 0, false, true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			g, gl, hero := chargedStrikeGame(t, false, c.weapon, false)
+			before := heroCharges(hero)
+			var dodger *monsterPkg.Monster3D
+			if c.dodger > 0 {
+				dodger = chargedStrikeTarget(g, c.dodger, true)
+			}
+			if c.next > 0 {
+				chargedStrikeTarget(g, c.next, false)
+			}
+			from := len(g.combatLogHistory)
+			g.selectedChar = 1
+			if !g.combat.EquipmentMeleeAttack() {
+				t.Fatal("weapon action rejected")
+			}
+			if c.mapSwitch {
+				g.clearProjectiles()
+			}
+			for frame := 0; frame < 10*g.config.GetTPS() && g.projectileCount() > 0; frame++ {
+				if c.dodgeOnce && len(g.arrows) > 0 && g.arrows[0].Signature.ReturnLeg {
+					dodger.PerfectDodge = 0
+				}
+				flyShotsFrame(t, g, gl)
+			}
+			assertCharges(t, hero, before, c.spent)
+			if struck := loggedSince(g, from, " fire "); struck != c.spent {
+				t.Fatalf("Fire Aura's fire landed=%v, want %v", struck, c.spent)
+			}
+		})
+	}
+}
+
+// A save keeps no projectiles, so a shot in flight that has struck no one is
+// saved as never fired: its charges are back in the save, while the live hero
+// waits for the shot.
+func TestSaveRefundsChargesOfShotsInFlight(t *testing.T) {
+	t.Chdir("../..")
+	g, wm, _ := bootOpenWorldGame(t, false)
+	hero := g.party.Members[1]
+	hero.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
+	hero.Conditions, hero.RTCooldown = nil, 0
+	def, _ := spells.GetSpellDefinitionByID("fire_aura")
+	hero.SpellState.Set(character.PersonalSpellEffect{SpellID: string(def.ID), Charges: def.Mechanic.Charges(0)})
+	g.selectedChar = 1
+	if !g.combat.EquipmentMeleeAttack() || len(g.arrows) == 0 {
+		t.Fatal("no shot in flight")
+	}
+	live := heroCharges(hero)["fire_aura"]
+	saved := g.buildSave(wm).Party.Members[1].SpellState
+	got := 0
+	for _, e := range saved.Effects {
+		if e.SpellID == "fire_aura" {
+			got = e.Charges
+		}
+	}
+	if live != def.Mechanic.Charges(0)-1 || got != def.Mechanic.Charges(0) {
+		t.Fatalf("live %d (want %d), saved %d (want %d)", live, def.Mechanic.Charges(0)-1, got, def.Mechanic.Charges(0))
+	}
+}
+
+func chargedStrikeGame(t *testing.T, tb bool, weapon string, fate bool) (*MMGame, *GameLoop, *character.MMCharacter) {
+	t.Helper()
+	g, gl := newSpecialsTestGame(t)
+	g.turnBasedMode = tb
+	g.camera.Angle = 0 // facing the target row, east
+	hero := g.party.Members[1]
+	hero.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(weapon)
+	hero.Conditions, hero.RTCooldown = nil, 0
+	caster := g.party.Members[0]
+	caster.SpellPoints, caster.MaxSpellPoints = 1000, 1000
+	caster.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{}
+	castAdvancedSupport(t, g, "fire_aura", 0, hero)
+	if fate {
+		castAdvancedSupport(t, g, "fate", 0, hero)
+	}
+	return g, gl, hero
+}
+
+func chargedStrikeTarget(g *MMGame, tileX int, dodges bool) *monsterPkg.Monster3D {
+	m := spawnSpecialsMonster(g, "goblin", tileX, 2)
+	m.HitPoints, m.MaxHitPoints = 100000, 100000
+	m.IsEngagingPlayer, m.WasAttacked = false, false
+	m.Resistances = map[monsterPkg.DamageType]int{}
+	if dodges {
+		m.PerfectDodge = 100
+	}
+	return m
+}
+
+// strikeChargedWeapon is one weapon action by the hero in slot 1, its shots
+// flown out; it returns where the action's log lines begin.
+func strikeChargedWeapon(t *testing.T, g *MMGame, gl *GameLoop) int {
+	t.Helper()
+	from := len(g.combatLogHistory)
+	g.selectedChar = 1
+	if !g.combat.EquipmentMeleeAttack() {
+		t.Fatal("weapon action rejected")
+	}
+	flyShots(t, g, gl)
+	return from
+}
+
+// loggedSince is whether a line logged since from contains text. Fire Aura's
+// fire lands only with the strike, so " fire " marks a strike that landed.
+func loggedSince(g *MMGame, from int, text string) bool {
+	for _, e := range g.combatLogHistory[from:] {
+		if strings.Contains(e.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func heroCharges(hero *character.MMCharacter) map[string]int {
+	out := map[string]int{}
+	for _, e := range hero.SpellState.Effects {
+		out[e.SpellID] = e.Charges
+	}
+	return out
+}
+
+func assertCharges(t *testing.T, hero *character.MMCharacter, before map[string]int, spent bool) {
+	t.Helper()
+	after := heroCharges(hero)
+	for id, n := range before {
+		if want := n - map[bool]int{true: 1}[spent]; after[id] != want {
+			t.Fatalf("%s charges %d -> %d, want %d", id, n, after[id], want)
 		}
 	}
 }

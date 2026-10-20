@@ -53,8 +53,8 @@ func TestCombatLogPiecesColorWhoAndWhat(t *testing.T) {
 		"ability":           {logAbility("Piercing Shot"), []coloredTextSegment{{"Piercing Shot", keywordColors["auto"]}}},
 		"poison":            {logColored("poisoned", logPoison), []coloredTextSegment{{"poisoned", logPoison}}},
 		"school word":       {logSchoolWord("water", "Ice Bolt"), []coloredTextSegment{{"Ice Bolt", SchoolColor("water")}}},
-		"physical is white": {logDamage(53, "physical"), []coloredTextSegment{{"53", logTrue}}},
-		"physical word":     {logSchoolWord("physical", "Blowgun"), []coloredTextSegment{{"Blowgun", logTrue}}},
+		"physical is white": {logDamage(53, "physical"), []coloredTextSegment{{"53", logPhysical}}},
+		"physical word":     {logSchoolWord("physical", "Blowgun"), []coloredTextSegment{{"Blowgun", logPhysical}}},
 		"nil hero is blank": {logHeroName(nil), []coloredTextSegment{{"", logHero}}},
 	}
 	for _, school := range damage.Types() {
@@ -350,7 +350,7 @@ func TestDamageReportsCaptureResolvedHits(t *testing.T) {
 	}{
 		{"Flame hits Dummy for 50 damage! (HP: 950/1000)", "50", SchoolColor("fire")},
 		{"Dummy takes 20 damage from Fire Trap! (HP: 930/1000)", "20", SchoolColor("fire")},
-		{"Heat hits " + hero.Name + " for 30 damage! (HP: 970/1000)", "30", logTrue},
+		{"Heat hits " + hero.Name + " for 30 damage! (HP: 970/1000)", "30", logPhysical},
 		{"Dummy dodges, but " + hero.Name + " lands 5 fire damage! (HP: 925/1000)", "5", SchoolColor("fire")},
 		{"Dummy dodges, but " + hero.Name + " lands 3 true damage! (HP: 922/1000)", "3", logTrue}, // true damage meets resistance
 		{"Dummy dodges, but Ghoul lands 5 fire damage! (HP: 917/1000)", "5", SchoolColor("fire")},

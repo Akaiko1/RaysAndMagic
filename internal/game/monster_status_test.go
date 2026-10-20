@@ -255,6 +255,10 @@ func TestMonsterFireburstDamagesParty(t *testing.T) {
 
 	for _, member := range cs.game.party.Members {
 		member.HitPoints = 50
+		member.Luck = 0 // Luck buys Perfect Dodge; a dodged burst leaves HP untouched
+		if got := cs.PerfectDodgeChance(member); got != 0 {
+			t.Fatalf("fixture: %s still dodges %d%%", member.Name, got)
+		}
 	}
 
 	monster := &monsterPkg.Monster3D{
