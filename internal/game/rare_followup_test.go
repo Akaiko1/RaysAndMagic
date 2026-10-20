@@ -295,7 +295,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 				if c.FlowingStaffCharges() != tier+1 {
 					t.Fatal("movement did not grant mastery capacity")
 				}
-				passFrames(g, 1000000)
+				passFrames(g, config.RoundFrames(1, g.config.GetTPS())) // the clock ticks; charges have none
 				g.clearTransientCombatState()
 				c = restoreCharacterSave(buildCharacterSave(c))
 				g.party.Members[0] = c
@@ -331,7 +331,7 @@ func TestRareFlowingStaffPersistentCharges(t *testing.T) {
 	c.RareClass.FlowCharges = 0
 	c = restoreCharacterSave(buildCharacterSave(c))
 	g.party.Members[0] = c
-	passFrames(g, 100000)
+	passFrames(g, config.RoundFrames(1, g.config.GetTPS())) // the clock ticks; charges have none
 	if c.FlowingStaffCharges() != 1 || c.RareClass.FlowFrames != 0 {
 		t.Fatal("legacy timer did not migrate to one permanent charge")
 	}

@@ -46,7 +46,8 @@ jobs:
         # libraries and a display/graphics context. xvfb-run supplies
         # the virtual display for graphics-dependent tests.
         # Split internal/game across runners: its cumulative race-test time
-        # exceeds 15m on CI. Each group keeps the same timeout and detector.
+        # exceeds 15m on CI. Groups are planned by measured test time
+        # (race-shard-plan.py); each keeps the same timeout and detector.
         # Shard 0 also runs every other package.
         run: xvfb-run --auto-servernum bash .github/scripts/test-race-shard.sh ${{ matrix.shard }} ${{ strategy.job-total }}
 
