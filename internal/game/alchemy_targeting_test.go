@@ -87,11 +87,32 @@ func assertFlaskAim(t *testing.T, g *MMGame, key string, target *monster.Monster
 	}
 }
 
+// Aiming reads a flask's range alone, so one flask per authored range stands
+// for all. Every state runs in RT; TB adds the states its front-slot pull
+// reaches (an adjacent or diagonal target) and one plain target.
 func TestAlchemyFlaskForwardAcquisition(t *testing.T) {
 	cases := []string{"near_left", "near_right", "dead", "charmed", "card summon", "druid summon", "spell summon", "caravan", "bound", "passive", "wildlife", "behind", "outside_cone", "beyond_range", "wall", "empty", "diagonal"}
-	for _, tb := range []bool{false, true} {
-		for _, key := range []string{"harm_flask", "venom_flask", "fire_flask"} {
-			for _, state := range cases {
+	tbStates := map[string]bool{"near_right": true, "behind": true, "diagonal": true}
+	loadTestConfig(t) // the flask definitions
+	var flasks []string
+	ranges := map[int]bool{}
+	for _, key := range []string{"harm_flask", "venom_flask", "fire_flask"} {
+		def, ok := config.GetItemDefinition(key)
+		if !ok || def.Flask == nil {
+			t.Fatalf("%s is no flask", key)
+		}
+		if !ranges[def.Flask.RangeTiles] {
+			ranges[def.Flask.RangeTiles] = true
+			flasks = append(flasks, key)
+		}
+	}
+	for _, key := range flasks {
+		for _, state := range cases {
+			modes := []bool{false}
+			if tbStates[state] {
+				modes = append(modes, true)
+			}
+			for _, tb := range modes {
 				t.Run(fmt.Sprintf("TB=%v/%s/%s", tb, key, state), func(t *testing.T) {
 					g, ih := flaskTargetFixture(t, key, tb)
 					far := addFlaskTarget(g, 5, 0)

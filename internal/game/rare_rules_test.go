@@ -477,88 +477,98 @@ func TestRareRulesCatalogEligibility(t *testing.T) {
 	}
 }
 
+// Weapon splash and flasks share one victim filter: every state runs for the
+// splash and for one flask, the other flasks only where their own code differs
+// (fire's burn on the edge and on a kill; harm's physical packet once). No
+// combat mode is read here, so the cells run in RT.
 func TestRareRulesSharedSplashVictims(t *testing.T) {
-	for _, tb := range []bool{false, true} {
-		for _, source := range []string{"splash", "harm_flask", "venom_flask", "fire_flask"} {
-			for _, state := range []string{"center", "edge", "outside", "dead", "card summon", "druid summon", "spell summon", "bound", "dormant", "warded", "lethal"} {
-				t.Run(fmt.Sprintf("TB=%v/%s/%s", tb, source, state), func(t *testing.T) {
-					g, c := rareClassGame(t, character.ClassAlchemist, tb)
-					ts := float64(g.config.GetTileSize())
-					center := zoneVictim(t, g)
-					center.ArmorClass = 0
-					target := zoneVictim(t, g)
-					target.ArmorClass = 0
-					target.X += ts
-					want := 40
-					switch state {
-					case "center":
-						target.X = center.X
-					case "edge":
-						target.X += ts
-					case "outside":
-						target.X += ts + 1
-						want = 0
-					case "dead":
-						target.HitPoints, want = 0, 0
-					case "card summon", "druid summon", "spell summon":
-						if !markPartySummonKind(g, target, state) {
-							t.Fatal("invalid summon fixture")
-						}
-						want = 0
-					case "bound":
-						target.Bound = true
-						target.BoundClock = framesClock(300)
-					case "dormant":
-						target.BossDormant, want = true, 0
-					case "warded":
-						target.BossWarded, want = true, 0
-					case "lethal":
-						target.HitPoints, want = 10, 10
-					}
-					before, primary := target.HitPoints, center.HitPoints
-					g.world.Monsters = append(g.world.Monsters, nil)
-					var p FlaskProjectile
-					if source == "splash" {
-						attack := g.combat.newPartyMonsterAttack(40, 0, "fire", 0, nil, "Test Splash", false, true, false)
-						g.combat.applyAoeSplash(center, attack, 2)
-					} else {
-						p = FlaskProjectile{Active: true, LifeTime: 100, Key: source, Radius: 2 * ts, Damage: 40, Attacker: c}
-						if source == "venom_flask" {
-							p.PoisonFrames = 120
-						} else if source == "fire_flask" {
-							p.BurnFrames = 120
-						}
-						g.combat.detonateFlask(&p, center.X, center.Y)
-					}
-					if before-target.HitPoints != want {
-						t.Fatalf("victim damage=%d want=%d", before-target.HitPoints, want)
-					}
-					primaryWant := 40
-					if source == "splash" {
-						primaryWant = 0
-					}
-					if primary-center.HitPoints != primaryWant {
-						t.Fatal("ground impact and primary-excluding splash disagree on center ownership")
-					}
-					rider := want > 0 && target.IsAlive()
-					if (target.PoisonedFramesRemaining > 0) != (rider && source == "venom_flask") || (target.BurnFramesRemaining > 0) != (rider && source == "fire_flask") {
-						t.Fatal("flask status rider reached an excluded or dead victim")
-					}
-					if state == "lethal" && !slices.Contains(g.deadMonsterIDs, target.ID) {
-						t.Fatal("splash kill bypassed the shared death/reward pipeline")
-					}
-					if state == "lethal" && source != "splash" && g.collisionSystem.GetEntityByID(target.ID) != nil {
-						t.Fatal("flask kill lost immediate collision cleanup")
-					}
-					if source != "splash" {
-						hp, xp := target.HitPoints, c.Experience
-						g.combat.detonateFlask(&p, center.X, center.Y)
-						if target.HitPoints != hp || c.Experience != xp {
-							t.Fatal("repeat impact dealt damage or awarded XP twice")
-						}
-					}
-				})
-			}
+	states := []string{"center", "edge", "outside", "dead", "card summon", "druid summon", "spell summon", "bound", "dormant", "warded", "lethal"}
+	type cell struct{ source, state string }
+	var cells []cell
+	for _, source := range []string{"splash", "venom_flask"} {
+		for _, state := range states {
+			cells = append(cells, cell{source, state})
 		}
+	}
+	cells = append(cells, cell{"fire_flask", "edge"}, cell{"fire_flask", "lethal"}, cell{"harm_flask", "center"})
+	for _, cc := range cells {
+		source, state := cc.source, cc.state
+		t.Run(fmt.Sprintf("%s/%s", source, state), func(t *testing.T) {
+			g, c := rareClassGame(t, character.ClassAlchemist, false)
+			ts := float64(g.config.GetTileSize())
+			center := zoneVictim(t, g)
+			center.ArmorClass = 0
+			target := zoneVictim(t, g)
+			target.ArmorClass = 0
+			target.X += ts
+			want := 40
+			switch state {
+			case "center":
+				target.X = center.X
+			case "edge":
+				target.X += ts
+			case "outside":
+				target.X += ts + 1
+				want = 0
+			case "dead":
+				target.HitPoints, want = 0, 0
+			case "card summon", "druid summon", "spell summon":
+				if !markPartySummonKind(g, target, state) {
+					t.Fatal("invalid summon fixture")
+				}
+				want = 0
+			case "bound":
+				target.Bound = true
+				target.BoundClock = framesClock(300)
+			case "dormant":
+				target.BossDormant, want = true, 0
+			case "warded":
+				target.BossWarded, want = true, 0
+			case "lethal":
+				target.HitPoints, want = 10, 10
+			}
+			before, primary := target.HitPoints, center.HitPoints
+			g.world.Monsters = append(g.world.Monsters, nil)
+			var p FlaskProjectile
+			if source == "splash" {
+				attack := g.combat.newPartyMonsterAttack(40, 0, "fire", 0, nil, "Test Splash", false, true, false)
+				g.combat.applyAoeSplash(center, attack, 2)
+			} else {
+				p = FlaskProjectile{Active: true, LifeTime: 100, Key: source, Radius: 2 * ts, Damage: 40, Attacker: c}
+				if source == "venom_flask" {
+					p.PoisonFrames = 120
+				} else if source == "fire_flask" {
+					p.BurnFrames = 120
+				}
+				g.combat.detonateFlask(&p, center.X, center.Y)
+			}
+			if before-target.HitPoints != want {
+				t.Fatalf("victim damage=%d want=%d", before-target.HitPoints, want)
+			}
+			primaryWant := 40
+			if source == "splash" {
+				primaryWant = 0
+			}
+			if primary-center.HitPoints != primaryWant {
+				t.Fatal("ground impact and primary-excluding splash disagree on center ownership")
+			}
+			rider := want > 0 && target.IsAlive()
+			if (target.PoisonedFramesRemaining > 0) != (rider && source == "venom_flask") || (target.BurnFramesRemaining > 0) != (rider && source == "fire_flask") {
+				t.Fatal("flask status rider reached an excluded or dead victim")
+			}
+			if state == "lethal" && !slices.Contains(g.deadMonsterIDs, target.ID) {
+				t.Fatal("splash kill bypassed the shared death/reward pipeline")
+			}
+			if state == "lethal" && source != "splash" && g.collisionSystem.GetEntityByID(target.ID) != nil {
+				t.Fatal("flask kill lost immediate collision cleanup")
+			}
+			if source != "splash" {
+				hp, xp := target.HitPoints, c.Experience
+				g.combat.detonateFlask(&p, center.X, center.Y)
+				if target.HitPoints != hp || c.Experience != xp {
+					t.Fatal("repeat impact dealt damage or awarded XP twice")
+				}
+			}
+		})
 	}
 }

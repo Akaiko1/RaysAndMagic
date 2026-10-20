@@ -260,6 +260,10 @@ func TestGoldenThiefBugInfernoIsRangeBound(t *testing.T) {
 
 	member := g.party.Members[0]
 	member.MaxHitPoints, member.HitPoints = 200, 200
+	member.Luck = 0 // Luck buys Perfect Dodge; a dodged nova deals nothing
+	if got := cs.PerfectDodgeChance(member); got != 0 {
+		t.Fatalf("fixture: %s still dodges %d%%", member.Name, got)
+	}
 	hpBefore := func() int { return member.HitPoints }
 
 	// 1) Far beyond the authored reach: no nova, in either mode.

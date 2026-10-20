@@ -347,7 +347,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				if npc.QuestPropOwner != "" || npc.HarvestOwner != "" {
 					continue // derived from saved activity state, not NPC visited flags
 				}
-				key, x, y := savedPos(wm, localize, mapKey, npc.X, npc.Y)
+				key, x, y := savedSpot(wm, localize, mapKey, npc.X, npc.Y)
 				ns := NPCSave{
 					MapKey: key, Key: npc.Key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited,
 					DoorAttempts: npc.DoorAttempts, DoorLockBroken: npc.DoorLockBroken,

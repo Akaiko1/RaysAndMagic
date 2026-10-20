@@ -87,6 +87,7 @@ func TestBoxPileSceneryMovement(t *testing.T) {
 }
 
 // Treasure chests creak open; barrels, campfires and box piles stay silent.
+// Every crate also has the NPC it spawns as.
 func TestCrateInteractionSoundsAreAuthoredByProp(t *testing.T) {
 	crateTestGame(t)
 	chests, props := 0, 0
@@ -101,6 +102,9 @@ func TestCrateInteractionSoundsAreAuthoredByProp(t *testing.T) {
 		}
 		if got := crate.InteractionSound; got != want {
 			t.Errorf("%s interaction sound = %q, want %q", key, got, want)
+		}
+		if _, err := character.CreateNPCFromConfig(key, 0, 0); err != nil {
+			t.Errorf("crate %s has no NPC: %v", key, err)
 		}
 	}
 	if chests == 0 || props == 0 {

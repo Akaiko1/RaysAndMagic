@@ -26,7 +26,10 @@ var respawnRosterStates = []struct {
 // Empty + positive stamp -> cleared roster stays empty.
 // Populated + missing/zero/positive stamp -> saved roster and its allies survive.
 // Every row must discard prior-timeline monsters, including after resave/load.
-// RT and TB share applySave; farming maps cannot be merged into open world.
+// The prior monster is one a respawn would keep (alive, charmed or pacified):
+// hostile, bound or dead ones could never reveal a leak. The save format
+// version and its migration are TestDailyTimersSaveMigration's. RT and TB
+// share applySave; farming maps cannot be merged into open world.
 func TestSaveRespawnRosterReplacesPreviousTimeline(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -41,76 +44,76 @@ func TestSaveRespawnRosterReplacesPreviousTimeline(t *testing.T) {
 		{name: "populated stamped", populated: true, stamp: 1},
 	} {
 		for _, state := range respawnRosterStates {
+			if state.dead || !state.charmed && !state.pacified {
+				continue
+			}
 			for _, active := range []bool{false, true} {
-				for _, version := range []int{0, respawnDaySaveVersion} {
-					t.Run(fmt.Sprintf("%s/%s/active=%v/version=%d", tc.name, state.name, active, version), func(t *testing.T) {
-						g, wm := dailyTimerTestGame(t)
-						w, mapKey := g.world, "timer_test"
-						if !active {
-							mapKey = "inactive_farm"
-							w = newTestWorld(g.config)
-							w.MonsterSpawns = g.world.MonsterSpawns
-							wm.LoadedMaps[mapKey] = w
-							wm.MapConfigs[mapKey] = &config.MapConfig{RespawnDays: 3}
+				t.Run(fmt.Sprintf("%s/%s/active=%v", tc.name, state.name, active), func(t *testing.T) {
+					g, wm := dailyTimerTestGame(t)
+					w, mapKey := g.world, "timer_test"
+					if !active {
+						mapKey = "inactive_farm"
+						w = newTestWorld(g.config)
+						w.MonsterSpawns = g.world.MonsterSpawns
+						wm.LoadedMaps[mapKey] = w
+						wm.MapConfigs[mapKey] = &config.MapConfig{RespawnDays: 3}
+					}
+					if tc.populated {
+						for i := 0; i < 3; i++ {
+							m := monster.NewMonster3DFromConfig(64, 64, "bandit", g.config)
+							m.CharmedByParty, m.Pacified = i == 1, i == 2
+							w.Monsters = append(w.Monsters, m)
 						}
-						if tc.populated {
-							for i := 0; i < 3; i++ {
-								m := monster.NewMonster3DFromConfig(64, 64, "bandit", g.config)
-								m.CharmedByParty, m.Pacified = i == 1, i == 2
-								w.Monsters = append(w.Monsters, m)
-							}
+					}
+					saved := g.buildSave(wm)
+					saved.MapRespawnDay = nil
+					if tc.stamp >= 0 {
+						saved.MapRespawnDay = map[string]int{mapKey: tc.stamp}
+					}
+					wantCount, wantStamp := 0, max(0, tc.stamp)
+					if tc.populated {
+						wantCount = 3
+					} else if tc.stamp <= 0 {
+						wantCount, wantStamp = len(w.MonsterSpawns), 1
+					}
+					wantSaved := saved.MapMonsters[mapKey]
+					for load := 0; load < 2; load++ {
+						foreign := monster.NewMonster3DFromConfig(64, 64, "dragon", g.config)
+						foreign.CharmedByParty, foreign.Pacified, foreign.Bound = state.charmed, state.pacified, state.bound
+						if state.dead {
+							foreign.HitPoints = 0
 						}
-						saved := g.buildSave(wm)
-						saved.RespawnDayVersion = version
-						saved.MapRespawnDay = nil
-						if tc.stamp >= 0 {
-							saved.MapRespawnDay = map[string]int{mapKey: tc.stamp}
+						w.Monsters = []*monster.Monster3D{foreign}
+						w.LastRespawnDay = 999
+						if active {
+							w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 						}
-						wantCount, wantStamp := 0, max(0, tc.stamp)
-						if tc.populated {
-							wantCount = 3
-						} else if tc.stamp <= 0 {
-							wantCount, wantStamp = len(w.MonsterSpawns), 1
+						if err := g.applySave(wm, &saved); err != nil {
+							t.Fatal(err)
 						}
-						wantSaved := saved.MapMonsters[mapKey]
-						for load := 0; load < 2; load++ {
-							foreign := monster.NewMonster3DFromConfig(64, 64, "dragon", g.config)
-							foreign.CharmedByParty, foreign.Pacified, foreign.Bound = state.charmed, state.pacified, state.bound
-							if state.dead {
-								foreign.HitPoints = 0
+						if len(w.Monsters) != wantCount || w.LastRespawnDay != wantStamp {
+							t.Fatalf("load %d: roster/stamp = %d/%d, want %d/%d", load, len(w.Monsters), w.LastRespawnDay, wantCount, wantStamp)
+						}
+						if g.collisionSystem.GetEntityByID(foreign.ID) != nil {
+							t.Fatal("collision system retained a previous-timeline monster")
+						}
+						for i, m := range w.Monsters {
+							if m.Key != "bandit" || m.ID == foreign.ID {
+								t.Fatal("loaded roster retained a previous-timeline monster")
 							}
-							w.Monsters = []*monster.Monster3D{foreign}
-							w.LastRespawnDay = 999
-							if active {
-								w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-							}
-							if err := g.applySave(wm, &saved); err != nil {
-								t.Fatal(err)
-							}
-							if len(w.Monsters) != wantCount || w.LastRespawnDay != wantStamp {
-								t.Fatalf("load %d: roster/stamp = %d/%d, want %d/%d", load, len(w.Monsters), w.LastRespawnDay, wantCount, wantStamp)
-							}
-							if g.collisionSystem.GetEntityByID(foreign.ID) != nil {
-								t.Fatal("collision system retained a previous-timeline monster")
-							}
-							for i, m := range w.Monsters {
-								if m.Key != "bandit" || m.ID == foreign.ID {
-									t.Fatal("loaded roster retained a previous-timeline monster")
-								}
-								if tc.populated {
-									ms := wantSaved[i]
-									if m.ID != ms.ID || m.Pacified != ms.Pacified || m.CharmedByParty != (ms.CharmedByParty || ms.Pacified) {
-										t.Fatal("load lost a saved monster's identity or charm state")
-									}
-								}
-								if active && g.collisionSystem.GetEntityByID(m.ID) == nil {
-									t.Fatal("restored monster is missing from collision system")
+							if tc.populated {
+								ms := wantSaved[i]
+								if m.ID != ms.ID || m.Pacified != ms.Pacified || m.CharmedByParty != (ms.CharmedByParty || ms.Pacified) {
+									t.Fatal("load lost a saved monster's identity or charm state")
 								}
 							}
-							saved = g.buildSave(wm)
+							if active && g.collisionSystem.GetEntityByID(m.ID) == nil {
+								t.Fatal("restored monster is missing from collision system")
+							}
 						}
-					})
-				}
+						saved = g.buildSave(wm)
+					}
+				})
 			}
 		}
 	}

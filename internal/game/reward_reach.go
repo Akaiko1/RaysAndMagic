@@ -19,15 +19,18 @@ func (terrain rewardReachTerrain) IsTileBlocking(x, y int) bool {
 	if terrain.IsTileOpaque(x, y) {
 		return true
 	}
-	if terrain.passage && terrain.IsTileBlockingForTerrainPassage(x, y) {
-		return true
-	}
-	if tm := world.GlobalTileManager; tm != nil {
-		return tm.BlocksPickup(terrain.Tiles[y][x], terrain.passage)
-	}
-	// Content-free worlds retain the legacy water exception.
 	tile := terrain.Tiles[y][x]
-	return tile != world.TileWater && tile != world.TileDeepWater && terrain.IsTileBlockingTerrainAt(x, y)
+	tm := world.GlobalTileManager
+	if tm == nil {
+		// Content-free worlds retain the legacy water exception.
+		return tile != world.TileWater && tile != world.TileDeepWater && terrain.IsTileBlockingTerrainAt(x, y)
+	}
+	// Passage only adds reach: ground reachable on foot stays reachable on the
+	// map border, which blocks the traversal but not a hand.
+	if !tm.BlocksPickup(tile, false) {
+		return false
+	}
+	return !terrain.passage || terrain.IsTileBlockingForTerrainPassage(x, y) || tm.BlocksPickup(tile, true)
 }
 
 // canReachWorldReward is the terrain gate for physical rewards: lecterns,

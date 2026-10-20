@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -16,67 +17,112 @@ import (
 
 // Pending casts hand the view to their picker without committing. Refusals
 // leave the original view intact; Escape from a picker returns to the world.
+// Each picker kind (identify, ally, beacon, portal) runs from the book and
+// the quick slot in RT and TB; the book's F is Enter's alias; a refusal
+// happens before any spell's own branch, so one spell covers both.
 func TestDeferredSpellInputHandoff(t *testing.T) {
+	type entryKey struct {
+		name string
+		book bool
+		key  ebiten.Key
+	}
+	bookEnter, bookF, quickF := entryKey{"book Enter", true, ebiten.KeyEnter}, entryKey{"book F", true, ebiten.KeyF}, entryKey{"quick F", false, ebiten.KeyF}
+	type cell struct {
+		id    spells.SpellID
+		tb    bool
+		entry entryKey
+		state string
+	}
+	var cells []cell
+	kinds := map[string]bool{}
+	loadTestConfig(t) // the spell catalog the cells are chosen from
 	for _, id := range []spells.SpellID{"identify_monster", "fire_aura", "fate", "vampiric_weapon", "vvoid_beacon", "town_portal"} {
+		d, err := spells.GetSpellDefinitionByID(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The picker branch executeSpellCast takes, in its own order.
+		var kind string
+		switch {
+		case d.TargetsAlly():
+			kind = "ally"
+		case d.Mechanic != nil && d.Mechanic.Kind == config.MechanicIdentifyMonster:
+			kind = "identify"
+		case d.Mechanic != nil && d.Mechanic.Kind == config.MechanicVvoidBeacon:
+			kind = "beacon"
+		case d.TownPortal:
+			kind = "portal"
+		default:
+			t.Fatalf("%s opens no picker", id)
+		}
+		if kinds[kind] {
+			continue
+		}
+		kinds[kind] = true
 		for _, tb := range []bool{false, true} {
-			for _, entry := range []struct {
-				name string
-				book bool
-				key  ebiten.Key
-			}{{"book Enter", true, ebiten.KeyEnter}, {"book F", true, ebiten.KeyF}, {"quick F", false, ebiten.KeyF}} {
-				for _, state := range []string{"ready", "no SP", "no action"} {
-					t.Run(fmt.Sprintf("%s/TB=%v/%s/%s", id, tb, entry.name, state), func(t *testing.T) {
-						g, _, _ := travelFixture(t)
-						installFakePointer(t)
-						g.turnBasedMode, g.currentTurn, g.selectedChar = tb, 0, 0
-						g.menuOpen, g.currentTab = entry.book, TabSpellbook
-						g.selectedSchool, g.selectedSpell = 0, 0
-						g.visitedTavernMaps = map[string]bool{"other": true}
-						c := g.party.Members[0]
-						c.Class = character.ClassSorcerer
-						d, err := spells.GetSpellDefinitionByID(id)
-						if err != nil {
-							t.Fatal(err)
-						}
-						c.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{character.MagicSchoolID(d.School): {KnownSpells: []spells.SpellID{id}}}
-						c.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(id)}
-						c.SpellPoints, c.MaxSpellPoints, c.ActionsRemaining, c.RTCooldown = 100, 100, 2, 0
-						switch state {
-						case "no SP":
-							c.SpellPoints = 0
-						case "no action":
-							if tb {
-								c.ActionsRemaining = 0
-							} else {
-								c.RTCooldown = 20
-							}
-						}
-						sp, actions, cooldown := c.SpellPoints, c.ActionsRemaining, c.RTCooldown
-						ih := NewInputHandler(g)
-						pressKeys(ih, entry.key)
-						if c.SpellPoints != sp || c.ActionsRemaining != actions || c.RTCooldown != cooldown {
-							t.Fatal("unconfirmed or refused cast spent resources")
-						}
-						if state != "ready" {
-							if g.menuOpen != entry.book || g.townPortalPickerOpen {
-								t.Fatal("refused cast changed its original view or opened a picker")
-							}
-							return
-						}
-						if g.menuOpen || !g.townPortalPickerOpen || g.townPortalCaster != c || g.townPortalSpell != id || !g.gameplayPausedByOverlay() {
-							t.Fatal("pending cast did not replace the book with its paused picker")
-						}
-						pressKeys(ih, ebiten.KeyEscape)
-						if g.menuOpen || g.townPortalPickerOpen || g.gameplayPausedByOverlay() {
-							t.Fatal("cancelling targeting did not return to the world")
-						}
-						if c.SpellPoints != sp || c.ActionsRemaining != actions || c.RTCooldown != cooldown {
-							t.Fatal("cancelling targeting spent resources")
-						}
-					})
+			for _, entry := range []entryKey{bookEnter, quickF} {
+				cells = append(cells, cell{id, tb, entry, "ready"})
+				if len(kinds) == 1 {
+					cells = append(cells, cell{id, tb, entry, "no SP"}, cell{id, tb, entry, "no action"})
 				}
 			}
 		}
+	}
+	if len(kinds) != 4 {
+		t.Fatalf("fixture covers picker kinds %v, want identify, ally, beacon and portal", kinds)
+	}
+	cells = append(cells, cell{cells[0].id, false, bookF, "ready"})
+	for _, cc := range cells {
+		id, tb, entry, state := cc.id, cc.tb, cc.entry, cc.state
+		t.Run(fmt.Sprintf("%s/TB=%v/%s/%s", id, tb, entry.name, state), func(t *testing.T) {
+			g, _, _ := travelFixture(t)
+			installFakePointer(t)
+			g.turnBasedMode, g.currentTurn, g.selectedChar = tb, 0, 0
+			g.menuOpen, g.currentTab = entry.book, TabSpellbook
+			g.selectedSchool, g.selectedSpell = 0, 0
+			g.visitedTavernMaps = map[string]bool{"other": true}
+			c := g.party.Members[0]
+			c.Class = character.ClassSorcerer
+			d, err := spells.GetSpellDefinitionByID(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{character.MagicSchoolID(d.School): {KnownSpells: []spells.SpellID{id}}}
+			c.Equipment[items.SlotQuickAction] = items.Item{Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect(id)}
+			c.SpellPoints, c.MaxSpellPoints, c.ActionsRemaining, c.RTCooldown = 100, 100, 2, 0
+			switch state {
+			case "no SP":
+				c.SpellPoints = 0
+			case "no action":
+				if tb {
+					c.ActionsRemaining = 0
+				} else {
+					c.RTCooldown = 20
+				}
+			}
+			sp, actions, cooldown := c.SpellPoints, c.ActionsRemaining, c.RTCooldown
+			ih := NewInputHandler(g)
+			pressKeys(ih, entry.key)
+			if c.SpellPoints != sp || c.ActionsRemaining != actions || c.RTCooldown != cooldown {
+				t.Fatal("unconfirmed or refused cast spent resources")
+			}
+			if state != "ready" {
+				if g.menuOpen != entry.book || g.townPortalPickerOpen {
+					t.Fatal("refused cast changed its original view or opened a picker")
+				}
+				return
+			}
+			if g.menuOpen || !g.townPortalPickerOpen || g.townPortalCaster != c || g.townPortalSpell != id || !g.gameplayPausedByOverlay() {
+				t.Fatal("pending cast did not replace the book with its paused picker")
+			}
+			pressKeys(ih, ebiten.KeyEscape)
+			if g.menuOpen || g.townPortalPickerOpen || g.gameplayPausedByOverlay() {
+				t.Fatal("cancelling targeting did not return to the world")
+			}
+			if c.SpellPoints != sp || c.ActionsRemaining != actions || c.RTCooldown != cooldown {
+				t.Fatal("cancelling targeting spent resources")
+			}
+		})
 	}
 }
 

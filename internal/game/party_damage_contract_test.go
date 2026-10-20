@@ -28,8 +28,9 @@ func partyDamageTargets(g *MMGame, tile float64) (*monsterPkg.Monster3D, *monste
 	return primary, secondary
 }
 
-// RT/TB x every authored AoE weapon x pre-impact marks x launch crit x
-// surviving/lethal primary. A death burst remains its own, non-critical hit.
+// Every authored AoE weapon x pre-impact marks x launch crit x surviving or
+// lethal primary, in RT, plus one TB cell per weapon. A death burst remains
+// its own, non-critical hit.
 func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
 	var keys []string
@@ -42,77 +43,94 @@ func TestAuthoredWeaponSplashDesignationContract(t *testing.T) {
 	if len(keys) == 0 {
 		t.Fatal("no AoE weapons loaded")
 	}
+	type cell struct {
+		key, marks   string
+		tb, critical bool
+		lethal       bool
+	}
+	var cells []cell
 	for _, key := range keys {
-		for _, tb := range []bool{false, true} {
-			for _, marks := range []string{"none", "primary", "secondary", "both"} {
-				for _, critical := range []bool{false, true} {
-					for _, lethal := range []bool{false, true} {
-						t.Run(fmt.Sprintf("%s/tb=%v/%s/crit=%v/lethal=%v", key, tb, marks, critical, lethal), func(t *testing.T) {
-							g, _, ch, tile := sniperFixture(t, tb)
-							isolateTrueDamageMember(ch, 0)
-							ch.Skills[character.SkillDesignateTarget] = &character.Skill{}
-							ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
-							g.combat.designationRoll = func(int) int { return 0 }
-							g.cardSlots = [MaxCardSlots]cardSlot{}
-							g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
-							def, _ := config.GetWeaponDefinition(key)
-							primary, secondary := partyDamageTargets(g, tile)
-							if marks == "primary" || marks == "both" {
-								g.designateTarget(ch, primary)
-							}
-							if marks == "secondary" {
-								g.designateTarget(ch, secondary)
-							}
-							if marks == "both" {
-								other := character.CreateCharacter("Other", character.ClassSniper, g.config)
-								g.party.Members = append(g.party.Members, other)
-								g.designateTarget(other, secondary)
-							}
-							if lethal {
-								primary.HitPoints = 1
-							}
-							normal := 100
-							if critical {
-								normal = 200
-							}
-							trueDamage, _ := g.combat.weaponMasteryStrike(ch, def)
-							if def.Range > 3 {
-								shot := &Arrow{ID: "splash-contract", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer,
-									Attacker: ch, BowKey: key, Damage: normal, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), Crit: critical}
-								g.combat.applyProjectileDamage(shot, primary, shot.ID)
-								if ch.DesignatedTargetID != primary.ID {
-									t.Fatal("successful ranged hit did not replace the mark")
-								}
-								if shot.Damage != normal || shot.Crit != critical {
-									t.Fatal("impact modified the launch payload")
-								}
-							} else {
-								g.combat.ApplyDamageToMonster(primary, normal, testWeapon(def.Name), critical)
-							}
-							for i, victim := range []*monsterPkg.Monster3D{primary, secondary} {
-								if i == 0 && lethal {
-									if victim.IsAlive() {
-										t.Fatal("lethal primary survived")
-									}
-									continue
-								}
-								wantNormal := 100
-								if critical || marks == "both" || (i == 0 && marks == "primary") || (i == 1 && marks == "secondary") {
-									wantNormal = 200
-								}
-								want := wantNormal + 7 + trueDamage
-								if i == 1 && lethal && def.DeathBurstRadiusTiles >= 0.5 {
-									want += primary.MaxHitPoints * def.DeathBurstMaxHPPct / 100
-								}
-								if got := 10000 - victim.HitPoints; got != want {
-									t.Fatalf("%s took %d, want %d (crit affects only its pre-buff normal damage)", victim.Name, got, want)
-								}
-							}
-						})
-					}
+		for _, critical := range []bool{false, true} {
+			// A launch crit already doubles every victim: marks cannot upgrade
+			// it further, so a crit needs only no marks and every mark.
+			marks := []string{"none", "primary", "secondary", "both"}
+			if critical {
+				marks = []string{"none", "both"}
+			}
+			for _, m := range marks {
+				for _, lethal := range []bool{false, true} {
+					cells = append(cells, cell{key: key, marks: m, critical: critical, lethal: lethal})
 				}
 			}
 		}
+		// The damage contract reads no combat mode; one TB cell per weapon
+		// keeps the turn-based path honest.
+		cells = append(cells, cell{key: key, marks: "secondary", tb: true, lethal: true})
+	}
+	for _, c := range cells {
+		key, tb, marks, critical, lethal := c.key, c.tb, c.marks, c.critical, c.lethal
+		t.Run(fmt.Sprintf("%s/tb=%v/%s/crit=%v/lethal=%v", key, tb, marks, critical, lethal), func(t *testing.T) {
+			g, _, ch, tile := sniperFixture(t, tb)
+			isolateTrueDamageMember(ch, 0)
+			ch.Skills[character.SkillDesignateTarget] = &character.Skill{}
+			ch.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
+			g.combat.designationRoll = func(int) int { return 0 }
+			g.cardSlots = [MaxCardSlots]cardSlot{}
+			g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutBonus: 7, OutDamageType: "all"})
+			def, _ := config.GetWeaponDefinition(key)
+			primary, secondary := partyDamageTargets(g, tile)
+			if marks == "primary" || marks == "both" {
+				g.designateTarget(ch, primary)
+			}
+			if marks == "secondary" {
+				g.designateTarget(ch, secondary)
+			}
+			if marks == "both" {
+				other := character.CreateCharacter("Other", character.ClassSniper, g.config)
+				g.party.Members = append(g.party.Members, other)
+				g.designateTarget(other, secondary)
+			}
+			if lethal {
+				primary.HitPoints = 1
+			}
+			normal := 100
+			if critical {
+				normal = 200
+			}
+			trueDamage, _ := g.combat.weaponMasteryStrike(ch, def)
+			if def.Range > 3 {
+				shot := &Arrow{ID: "splash-contract", Active: true, LifeTime: 60, Owner: ProjectileOwnerPlayer,
+					Attacker: ch, BowKey: key, Damage: normal, TrueDamage: trueDamage, DamageType: weaponDamageTypeStr(def), Crit: critical}
+				g.combat.applyProjectileDamage(shot, primary, shot.ID)
+				if ch.DesignatedTargetID != primary.ID {
+					t.Fatal("successful ranged hit did not replace the mark")
+				}
+				if shot.Damage != normal || shot.Crit != critical {
+					t.Fatal("impact modified the launch payload")
+				}
+			} else {
+				g.combat.ApplyDamageToMonster(primary, normal, testWeapon(def.Name), critical)
+			}
+			for i, victim := range []*monsterPkg.Monster3D{primary, secondary} {
+				if i == 0 && lethal {
+					if victim.IsAlive() {
+						t.Fatal("lethal primary survived")
+					}
+					continue
+				}
+				wantNormal := 100
+				if critical || marks == "both" || (i == 0 && marks == "primary") || (i == 1 && marks == "secondary") {
+					wantNormal = 200
+				}
+				want := wantNormal + 7 + trueDamage
+				if i == 1 && lethal && def.DeathBurstRadiusTiles >= 0.5 {
+					want += primary.MaxHitPoints * def.DeathBurstMaxHPPct / 100
+				}
+				if got := 10000 - victim.HitPoints; got != want {
+					t.Fatalf("%s took %d, want %d (crit affects only its pre-buff normal damage)", victim.Name, got, want)
+				}
+			}
+		})
 	}
 }
 

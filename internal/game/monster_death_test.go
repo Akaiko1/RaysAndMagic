@@ -214,6 +214,33 @@ func TestMonsterLootLandingAndHop(t *testing.T) {
 	}
 }
 
+// A bag pushed off a blocker lands by the same reach rule as the tile it fell
+// on: walkable ground on the map border is a valid landing, though the search
+// never passes through the border.
+func TestMonsterLootLandingReachesTheBorderRing(t *testing.T) {
+	for _, exit := range []string{"border", "none"} {
+		t.Run(exit, func(t *testing.T) {
+			g := deathTestGame(t)
+			ts := g.config.GetTileSize()
+			for y := range g.world.Tiles {
+				for x := range g.world.Tiles[y] {
+					g.world.Tiles[y][x] = world.TileWall
+				}
+			}
+			g.world.Tiles[3][1] = world.TileEmpty
+			g.collisionSystem.RegisterEntity(collision.NewEntity("closed_door", 1.5*ts, 3.5*ts, ts, ts, collision.CollisionTypeNPC, true))
+			wantX, wantY := 1.5*ts, 3.5*ts // nowhere better: the bag stays
+			if exit == "border" {
+				g.world.Tiles[3][0] = world.TileEmpty
+				wantX = 0.5 * ts
+			}
+			if x, y := g.reachableMonsterLootLanding(1.5*ts, 3.5*ts); x != wantX || y != wantY {
+				t.Fatalf("landing %v,%v want %v,%v", x, y, wantX, wantY)
+			}
+		})
+	}
+}
+
 // Flight x combat mode covers the shared finalizer. Save/load while falling
 // settles the persistent reward, just as saving during a ground loot hop does.
 func TestMonsterDeathFlight(t *testing.T) {

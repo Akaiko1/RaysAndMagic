@@ -54,7 +54,7 @@ TestAlchemyCheckedMaterialsTransaction 6.02
 TestAlchemyDisplayedMaterialScrollAndSelection 1.09
 TestAlchemyEveryMaterialCraftsIndependently 0.30
 TestAlchemyFiltersKeepRecipeIdentity 0.19
-TestAlchemyFlaskForwardAcquisition 26.52
+TestAlchemyFlaskForwardAcquisition 3.41
 TestAlchemyFlaskInputAndImpact 7.33
 TestAlchemyHealthManaMixedScaleCostAtEveryMastery 0.26
 TestAlchemyKeyedSelectionPersistence 1.13
@@ -179,7 +179,7 @@ TestAuthoredShortcutOverridesReturnPose 0.40
 TestAuthoredSingleTargetWeaponsUseDesignation 13.59
 TestAuthoredSpellOverridesReachGameAndEditor 0.35
 TestAuthoredSpellVictimBonusContract 8.41
-TestAuthoredWeaponSplashDesignationContract 39.66
+TestAuthoredWeaponSplashDesignationContract 9.04
 TestAutoAllocationIgnoresBatchSize 0.52
 TestAutoBuildGearValidation 0.42
 TestAutoButtonsSpendByChosenBuild 1.55
@@ -498,7 +498,7 @@ TestCrateBlockedDuringCombatWithoutWasting 1.14
 TestCrateCatalogRollFilters 0.74
 TestCrateCurrencyPaysPerSlot 0.91
 TestCrateIgniteUsesWearerStatusDuration 0.86
-TestCrateInteractionSoundsAreAuthoredByProp 0.69
+TestCrateInteractionSoundsAreAuthoredByProp 0.73
 TestCrateOpensAcrossWaterButNotThroughWalls 0.77
 TestCrateSlotsRollOneSourceEach 0.69
 TestCrateTrapDealsItsAuthoredDamageType 2.37
@@ -539,7 +539,7 @@ TestDarkness_StunsMonstersInRadiusOnly 0.15
 TestDayNightDozeNeverRewinds 0.16
 TestDayNightFracWrapsCycle 0.00
 TestDayNightPackPartyDistanceAndNoTopUp 0.48
-TestDayNightPacksUseVacantAuthoredSlots 32.48
+TestDayNightPacksUseVacantAuthoredSlots 10.18
 TestDayNightPhaseBoundaries 0.00
 TestDayNightSlotReservationsAreOneToOneAfterLoad 13.96
 TestDayNightSlotSaveRoundTrip 0.99
@@ -554,7 +554,7 @@ TestDeepJungleWarlordBindsChestEncounter 1.56
 TestDeepWaterNoSpamWhileAirborne 5.14
 TestDeferredHitTestDoesNotCacheUnknownScale 1.87
 TestDeferredLoadingFeedbackClassifiesActualWork 0.56
-TestDeferredSpellInputHandoff 22.16
+TestDeferredSpellInputHandoff 4.20
 TestDemandUploadsUseSharedBoundedBatch 0.00
 TestDerivedGPUCommitsPublishOnlyAfterBudgetedCompletion 0.00
 TestDervishFixedQuotaAcrossPacks 10.31
@@ -764,7 +764,7 @@ TestFlowShieldRequiresCombat 1.37
 TestFlyDropsIndoors 0.27
 TestFlyEjectFromWall 0.21
 TestFlyTileRules 0.15
-TestFlyingPartyAttackOrigins 26.60
+TestFlyingPartyAttackOrigins 5.77
 TestFocusModeClearsOnTurnBasedEntryAndRosterSwap 0.14
 TestFocusModeClearsWhenLeavingGameplay 0.15
 TestFocusModeDoesNotFallBackOutsideFocus 0.15
@@ -934,7 +934,7 @@ TestLakeSpiderNightPackAdvancesRepeatableQuest 1.41
 TestLakeSpidersRepeatEachNight 0.80
 TestLandmarkCollisionCases 0.73
 TestLargerInterfaceKeepsTheArtNearNormal 0.00
-TestLateKillQuestAcceptance 163.63
+TestLateKillQuestAcceptance 79.47
 TestLayerOwnershipLossCancelsTransientDrags 0.16
 TestLazyRenderResourceOwnershipCaseTable 3.70
 TestLazySourceOwnershipIsScopedToWorldRender 3.01
@@ -1108,7 +1108,7 @@ TestMonkPartyAbilitiesDoNotFireAgainstActor 0.46
 TestMonsterAndNPCPointerDepthPriority 3.00
 TestMonsterAndNPCSpritesHaveNoNearCull 0.13
 TestMonsterAnimationAssets 0.32
-TestMonsterAttackOriginsLiveAndSnapshot 10.90
+TestMonsterAttackOriginsLiveAndSnapshot 3.87
 TestMonsterAttackTimingOnlySlowsAuthoredSheets 0.72
 TestMonsterBlastsStopAtWalls 1.45
 TestMonsterClocksSaveAndLegacyTriples 0.59
@@ -1132,6 +1132,7 @@ TestMonsterFireburstDamagesParty 0.15
 TestMonsterHitRidersReachEveryTarget 3.81
 TestMonsterHoverUsesPointerAttackGates 3.38
 TestMonsterLootLandingAndHop 0.99
+TestMonsterLootLandingReachesTheBorderRing 0.48
 TestMonsterMoveTurnBased_EscapesPocketAwayFromParty 0.12
 TestMonsterMoveTurnBased_GorillaFordsRiverPastOwnSummons 0.15
 TestMonsterMoveTurnBased_HoldsWhenNoPathExists 0.13
@@ -1414,7 +1415,7 @@ TestPrewarmRetainsCPUImagesUntilDerivedWorkFinishes 0.14
 TestProfileAchievementQueueSurvivesOverflowAndPauses 0.17
 TestProfileAllTabsUseDisplayedControls 0.72
 TestProfileBossTrophies 1.29
-TestProfileCollectingChestSources 57.84
+TestProfileCollectingChestSources 1.23
 TestProfileDamageUsesActualHPLossAndSurvival 0.68
 TestProfileDoesNotCountAlliesOrRepeatedCorpseCleanup 0.16
 TestProfileExplorationSortsPercentNotAreaOrTime 0.16
@@ -1571,7 +1572,7 @@ TestRarePathfindingAutocastAndProgression 1.34
 TestRarePathfindingPartyAndRunning 6.66
 TestRarePendingRepeatHonorsRunningWeapon 1.94
 TestRarePharmacologyCoherentSourceAndTooltip 0.26
-TestRareProgressionEveryClassThroughXPAndSave 93.54
+TestRareProgressionEveryClassThroughXPAndSave 21.04
 TestRarePurifyLifeStates 0.74
 TestRareReturnAcrossFoldChain 16.34
 TestRareReturnStepRespectsRoot 0.26
@@ -1581,7 +1582,7 @@ TestRareRulesCheapestMaterial 0.22
 TestRareRulesExplicitStepOwnsRefusal 4.56
 TestRareRulesQuickeningOwnershipAndSharedRecovery 4.51
 TestRareRulesQuietEntombedTechniques 0.43
-TestRareRulesSharedSplashVictims 26.07
+TestRareRulesSharedSplashVictims 4.05
 TestRareRulesTechniqueMovementAndPersistence 3.20
 TestRareRulesZoneAuthoring 0.19
 TestRareSaveRealCharacterAndTurnState 1.64
@@ -1724,7 +1725,7 @@ TestSaveLoad_SealedBossSnapsToSpawn 0.17
 TestSaveMapResolutionBeforeMutation 0.95
 TestSaveRefundsChargesOfShotsInFlight 4.95
 TestSaveReplacementEntryPoints 2.16
-TestSaveRespawnRosterReplacesPreviousTimeline 25.22
+TestSaveRespawnRosterReplacesPreviousTimeline 3.07
 TestSaveRowModel 0.00
 TestSaveWithTransientFish 11.48
 TestSavedCardPreviewMatchesRestore 6.50
@@ -1837,7 +1838,7 @@ TestSolsticePlaytestScenario 6.14
 TestSolsticeSlowActionFloorAndRecovery 0.22
 TestSolsticeTelegraphCrossfire 9.88
 TestSolsticeTelegraphSaveRestore 5.86
-TestSolsticeTelegraphSchedulers 25.86
+TestSolsticeTelegraphSchedulers 7.20
 TestSolsticeTelegraphWallAndFactionGates 2.26
 TestSolsticeTraversalGateEligibility 62.86
 TestSolsticeVisitLifecycle 38.24

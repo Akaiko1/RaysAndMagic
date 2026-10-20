@@ -22,10 +22,7 @@ func (g *MMGame) restoreSavedNPCs(wm *world.WorldManager, save *GameSave) {
 				// unified coordinates.
 				nsX, nsY = wm.ProjectWorldPos(ns.MapKey, ns.X, ns.Y)
 			}
-			for _, npc := range w.NPCs {
-				if !npcSaveMatches(npc, ns, nsX, nsY) {
-					continue
-				}
+			for _, npc := range savedNPCTargets(wm, w.NPCs, ns, nsX, nsY, !ok) {
 				npc.Visited = ns.Visited
 				npc.PropUseStarted = 0 // restore the settled prop pose, never replay consumption
 				npc.DoorAttempts = ns.DoorAttempts
@@ -80,6 +77,17 @@ func savedPos(wm *world.WorldManager, merged bool, mapKey string, x, y float64) 
 	return mapKey, x, y
 }
 
+// savedSpot is savedPos for a record whose spot is its identity (an NPC,
+// npcSaveMatches): the region-local position kept exact, also on the border
+// ring that savedPos snaps inward.
+func savedSpot(wm *world.WorldManager, merged bool, mapKey string, x, y float64) (string, float64, float64) {
+	key, lx, ly := savedPos(wm, merged, mapKey, x, y)
+	if merged && wm != nil {
+		lx, ly = wm.LocalizeRegionWorldPos(key, x, y)
+	}
+	return key, lx, ly
+}
+
 // loadedPos is savedPos's inverse: a region-tagged position projected into
 // the merged world.
 func loadedPos(wm *world.WorldManager, mapKey string, x, y float64) (float64, float64) {
@@ -108,14 +116,35 @@ func savedStockKey(saved NPCStockSave) string {
 // name in saves from before keys were saved, so a later rename keeps the
 // state - and its spot (x, y projected to the live world) when saved.
 func npcSaveMatches(npc *character.NPC, ns NPCSave, x, y float64) bool {
+	return npcSaveNamesNPC(npc, ns) && ((ns.X == 0 && ns.Y == 0) || (npc.X == x && npc.Y == y))
+}
+
+func npcSaveNamesNPC(npc *character.NPC, ns NPCSave) bool {
 	if ns.Key != "" {
-		if npc.Key != ns.Key {
-			return false
-		}
-	} else if npc.Name != ns.Name {
-		return false
+		return npc.Key == ns.Key
 	}
-	return (ns.X == 0 && ns.Y == 0) || (npc.X == x && npc.Y == y)
+	return npc.Name == ns.Name
+}
+
+// savedNPCTargets lists the live NPCs a record restores (npcSaveMatches). A
+// merged-region record no NPC matches may be from before spots were exact
+// (savedSpot), when an NPC on the border ring of the record's region was saved
+// at the spot LocalizeWorldPos snaps it to.
+func savedNPCTargets(wm *world.WorldManager, npcs []*character.NPC, ns NPCSave, x, y float64, merged bool) []*character.NPC {
+	var exact, legacy []*character.NPC
+	for _, npc := range npcs {
+		if npcSaveMatches(npc, ns, x, y) {
+			exact = append(exact, npc)
+		} else if merged && len(exact) == 0 && npcSaveNamesNPC(npc, ns) && (ns.X != 0 || ns.Y != 0) {
+			if key, lx, ly, _ := wm.LocalizeWorldPos(npc.X, npc.Y); key == ns.MapKey && lx == ns.X && ly == ns.Y {
+				legacy = append(legacy, npc)
+			}
+		}
+	}
+	if len(exact) > 0 {
+		return exact
+	}
+	return legacy
 }
 
 func (g *MMGame) restoreSavedContainers(wm *world.WorldManager, save *GameSave) {

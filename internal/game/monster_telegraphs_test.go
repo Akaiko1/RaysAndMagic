@@ -1,10 +1,12 @@
 package game
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"testing"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -179,122 +181,159 @@ func TestSolsticeForcedArrival(t *testing.T) {
 	}
 }
 
+// A telegraph resolves by its authored kind and shape alone (plus a sustained
+// field and a low-HP gate), so each outcome runs one solstice monster per
+// distinct authored behaviour: a hit per kind x shape x field x gate, an
+// escape per shape (the shield's ally aside), an interrupt once - in both
+// schedulers, RT and TB.
 func TestSolsticeTelegraphSchedulers(t *testing.T) {
 	keys := []string{"ember_elemental", "cinder_hound", "kiln_automaton", "tide_elemental", "cistern_eel", "flow_automaton", "neressa", "jade_elemental", "shardback_burrower", "anchor_automaton", "gale_elemental", "storm_kite", "transfer_automaton", "sunscarab", "rain_serpent", "rootbound_sentinel", "dusk_moth"}
+	type cell struct{ key, outcome string }
+	type behaviour struct {
+		outcome      string
+		kind         monster.TelegraphKind
+		shape        monster.TelegraphShape
+		sustain, low bool
+	}
+	var cells []cell
+	seen := map[behaviour]bool{}
+	cfg := loadTestConfig(t)
 	for _, key := range keys {
-		for _, tb := range []bool{false, true} {
-			for _, outcome := range []string{"hit", "escaped", "interrupted"} {
-				t.Run(fmt.Sprintf("%s/TB%v/%s", key, tb, outcome), func(t *testing.T) {
-					g, gl := newSpecialsTestGame(t)
-					g.gameLoop = gl
-					g.turnBasedMode = tb
-					placePlayerAtTile(g, 6, 6, 64)
-					for _, c := range g.party.Members {
-						c.HitPoints = 10000
-						c.MaxHitPoints = 10000
-					}
-					m := spawnSpecialsMonster(g, "solstice_"+key, 8, 6)
-					m.HitPoints = m.MaxHitPoints / 5
-					a := monsterTelegraph(m)
-					if a == nil {
-						t.Fatal("authored special missing")
-					}
-					var ally *monster.Monster3D
-					if a.Kind == "shield" {
-						m.DamageMin, m.DamageMax = 60, 80
-						ally = spawnSpecialsMonster(g, "goblin", 8, 7)
-						ally.AttackCDFrames = 99999
-						ally.Speed = 0
-					}
-					m.State, m.StateTimer = monster.StateAttacking, 1
-					g.refreshMonsterAIState()
-					before := partyHPSum(g)
-					if tb {
-						runTBMonsterTurns(g, gl, 1)
-					} else {
-						g.combat.HandleMonsterInteractions()
-					}
-					if m.Telegraph.Warning != monsterTelegraph(m).WarningClock(g.config.GetTPS()) || len(m.Telegraph.Tiles) == 0 {
-						t.Fatalf("scheduler did not announce: %+v", m.Telegraph)
-					}
-					if partyHPSum(g) != before {
-						t.Fatal("wind-up also dealt an ordinary hit")
-					}
-					original := m.Telegraph.Clone()
-					if outcome == "escaped" {
-						if ally != nil {
-							ally.Pacified = true
-						} else {
-							placePlayerAtTile(g, 6, 9, 64)
-						}
-					}
-					if outcome == "interrupted" {
-						m.Stun.Frames, m.Stun.Turns = 999, 9
-					}
-					if tb {
-						runTBMonsterTurns(g, gl, 1)
-					} else {
-						for range int(math.Ceil(a.WarningSeconds*float64(g.config.GetTPS()))) + 1 {
-							g.tickMonsterTelegraphs(false)
-							// One resolution frame is enough: the following frame belongs to normal AI.
-							if m.Telegraph.Released || outcome == "interrupted" {
-								g.combat.HandleMonsterInteractions()
-								break
-							}
-						}
-					}
-					if m.Telegraph.Warning.Active() {
-						t.Fatal("warning did not expire")
-					}
-					if outcome == "interrupted" {
-						if partyHPSum(g) != before {
-							t.Fatal("interrupted cast hurt party")
-						}
-						return
-					}
-					if !reflect.DeepEqual(original.Tiles, m.Telegraph.Tiles) {
-						t.Fatal("warning retargeted")
-					}
-					if ally != nil {
-						if (ally.SoakDamage > 0) != (outcome == "hit") {
-							t.Fatalf("shield=%d", ally.SoakDamage)
-						}
-						if outcome == "hit" && ally.SoakDamage != 35 {
-							t.Fatalf("shield absorption = %d, want 35 from staged attack stats", ally.SoakDamage)
-						}
-					} else {
-						hit := partyHPSum(g) < before
-						if hit != (outcome == "hit") {
-							t.Fatalf("damage=%v, before=%d after=%d", hit, before, partyHPSum(g))
-						}
-						if outcome == "hit" {
-							switch a.Kind {
-							case "root":
-								if !g.partyRooted() {
-									t.Fatal("root absent")
-								}
-							case "slow":
-								if !g.partyHinder.Slow.Active() {
-									t.Fatal("slow absent")
-								}
-							case "push":
-								x, _ := g.GetPlayerTilePosition()
-								if x != 5 {
-									t.Fatal("push did not land legally")
-								}
-							case "charge":
-								if m.X != 7.5*64 {
-									t.Fatalf("charge crossed target or failed: %v", m.X)
-								}
-							case "retreat":
-								if m.X <= 8.5*64 {
-									t.Fatal("retreat did not move away")
-								}
-							}
-						}
-					}
-				})
+		a := monsterTelegraph(monster.NewMonster3DFromConfig(0, 0, "solstice_"+key, cfg))
+		if a == nil {
+			t.Fatalf("%s: authored special missing", key)
+		}
+		// An escape differs by shape (and the shield's ally); an interrupt by
+		// nothing authored.
+		escape := behaviour{outcome: "escaped", shape: a.Shape}
+		if a.Kind == "shield" {
+			escape.kind = a.Kind
+		}
+		for _, b := range []behaviour{
+			{outcome: "hit", kind: a.Kind, shape: a.Shape, sustain: a.SustainPercent > 0, low: a.BelowHPPercent > 0},
+			escape,
+			{outcome: "interrupted"},
+		} {
+			if !seen[b] {
+				seen[b] = true
+				cells = append(cells, cell{key, b.outcome})
 			}
+		}
+	}
+	slices.SortFunc(cells, func(a, b cell) int { return cmp.Compare(a.key+a.outcome, b.key+b.outcome) })
+	for _, c := range cells {
+		key, outcome := c.key, c.outcome
+		for _, tb := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/TB%v/%s", key, tb, outcome), func(t *testing.T) {
+				g, gl := newSpecialsTestGame(t)
+				g.gameLoop = gl
+				g.turnBasedMode = tb
+				placePlayerAtTile(g, 6, 6, 64)
+				for _, c := range g.party.Members {
+					c.HitPoints = 10000
+					c.MaxHitPoints = 10000
+				}
+				m := spawnSpecialsMonster(g, "solstice_"+key, 8, 6)
+				m.HitPoints = m.MaxHitPoints / 5
+				a := monsterTelegraph(m)
+				if a == nil {
+					t.Fatal("authored special missing")
+				}
+				var ally *monster.Monster3D
+				if a.Kind == "shield" {
+					m.DamageMin, m.DamageMax = 60, 80
+					ally = spawnSpecialsMonster(g, "goblin", 8, 7)
+					ally.AttackCDFrames = 99999
+					ally.Speed = 0
+				}
+				m.State, m.StateTimer = monster.StateAttacking, 1
+				g.refreshMonsterAIState()
+				before := partyHPSum(g)
+				if tb {
+					runTBMonsterTurns(g, gl, 1)
+				} else {
+					g.combat.HandleMonsterInteractions()
+				}
+				if m.Telegraph.Warning != monsterTelegraph(m).WarningClock(g.config.GetTPS()) || len(m.Telegraph.Tiles) == 0 {
+					t.Fatalf("scheduler did not announce: %+v", m.Telegraph)
+				}
+				if partyHPSum(g) != before {
+					t.Fatal("wind-up also dealt an ordinary hit")
+				}
+				original := m.Telegraph.Clone()
+				if outcome == "escaped" {
+					if ally != nil {
+						ally.Pacified = true
+					} else {
+						placePlayerAtTile(g, 6, 9, 64)
+					}
+				}
+				if outcome == "interrupted" {
+					m.Stun.Frames, m.Stun.Turns = 999, 9
+				}
+				if tb {
+					runTBMonsterTurns(g, gl, 1)
+				} else {
+					for range int(math.Ceil(a.WarningSeconds*float64(g.config.GetTPS()))) + 1 {
+						g.tickMonsterTelegraphs(false)
+						// One resolution frame is enough: the following frame belongs to normal AI.
+						if m.Telegraph.Released || outcome == "interrupted" {
+							g.combat.HandleMonsterInteractions()
+							break
+						}
+					}
+				}
+				if m.Telegraph.Warning.Active() {
+					t.Fatal("warning did not expire")
+				}
+				if outcome == "interrupted" {
+					if partyHPSum(g) != before {
+						t.Fatal("interrupted cast hurt party")
+					}
+					return
+				}
+				if !reflect.DeepEqual(original.Tiles, m.Telegraph.Tiles) {
+					t.Fatal("warning retargeted")
+				}
+				if ally != nil {
+					if (ally.SoakDamage > 0) != (outcome == "hit") {
+						t.Fatalf("shield=%d", ally.SoakDamage)
+					}
+					if outcome == "hit" && ally.SoakDamage != 35 {
+						t.Fatalf("shield absorption = %d, want 35 from staged attack stats", ally.SoakDamage)
+					}
+				} else {
+					hit := partyHPSum(g) < before
+					if hit != (outcome == "hit") {
+						t.Fatalf("damage=%v, before=%d after=%d", hit, before, partyHPSum(g))
+					}
+					if outcome == "hit" {
+						switch a.Kind {
+						case "root":
+							if !g.partyRooted() {
+								t.Fatal("root absent")
+							}
+						case "slow":
+							if !g.partyHinder.Slow.Active() {
+								t.Fatal("slow absent")
+							}
+						case "push":
+							x, _ := g.GetPlayerTilePosition()
+							if x != 5 {
+								t.Fatal("push did not land legally")
+							}
+						case "charge":
+							if m.X != 7.5*64 {
+								t.Fatalf("charge crossed target or failed: %v", m.X)
+							}
+						case "retreat":
+							if m.X <= 8.5*64 {
+								t.Fatal("retreat did not move away")
+							}
+						}
+					}
+				}
+			})
 		}
 	}
 }

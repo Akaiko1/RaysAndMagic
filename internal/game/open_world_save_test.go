@@ -113,6 +113,45 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 		t.Fatalf("region tracking: CurrentMapKey = %q, want highlands", wm.CurrentMapKey)
 	}
 
+	// NPC state is keyed by the authored spot, so it must survive every load
+	// direction also on a region's border ring, which party positions snap
+	// away from (the fixture is the calendar disc on solstice_approach's edge).
+	// The ring is where LocalizeKeyedWorldPos moves a spot; quest props and
+	// harvest nodes are not saved as NPC state.
+	type ringNPC struct {
+		npc    *character.NPC
+		key    string
+		lx, ly float64
+	}
+	var ring []ringNPC
+	for _, npc := range wm.OpenWorld.NPCs {
+		if npc.QuestPropOwner != "" || npc.HarvestOwner != "" {
+			continue
+		}
+		key, _, _, ok := wm.LocalizeWorldPos(npc.X, npc.Y)
+		lx, ly := wm.LocalizeRegionWorldPos(key, npc.X, npc.Y)
+		if sx, sy := wm.LocalizeKeyedWorldPos(key, npc.X, npc.Y); ok && (sx != lx || sy != ly) {
+			npc.Visited = true
+			ring = append(ring, ringNPC{npc, key, lx, ly})
+		}
+	}
+	if len(ring) == 0 {
+		t.Fatal("fixture: no NPC stands on a region's border ring")
+	}
+	resetRing := func() {
+		for _, r := range ring {
+			r.npc.Visited = false
+		}
+	}
+	checkRing := func(direction string) {
+		t.Helper()
+		for _, r := range ring {
+			if !r.npc.Visited {
+				t.Fatalf("%s: %s on the %s border lost its state", direction, r.npc.Key, r.key)
+			}
+		}
+	}
+
 	save := g.buildSave(wm)
 
 	// Save format: region key + map-local coordinates, no merged-world keys.
@@ -160,8 +199,47 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 	if err := wm.SwitchToMap("forest"); err != nil {
 		t.Fatalf("switch to forest region: %v", err)
 	}
+	resetRing()
 	if err := g.applySave(wm, &save); err != nil {
 		t.Fatalf("unified reload: %v", err)
+	}
+	checkRing("unified reload")
+	// A save from before exact spots holds a ring NPC at its snapped spot.
+	legacy, snapped := g.buildSave(wm), 0
+	for i, ns := range legacy.NPCStates {
+		for _, r := range ring {
+			if ns.MapKey == r.key && ns.Key == r.npc.Key && ns.X == r.lx && ns.Y == r.ly {
+				legacy.NPCStates[i].X, legacy.NPCStates[i].Y = wm.LocalizeKeyedWorldPos(r.key, r.npc.X, r.npc.Y)
+				snapped++
+			}
+		}
+	}
+	if snapped != len(ring) {
+		t.Fatalf("fixture: %d of %d ring NPCs saved at their exact spot", snapped, len(ring))
+	}
+	resetRing()
+	if err := g.applySave(wm, &legacy); err != nil {
+		t.Fatalf("legacy reload: %v", err)
+	}
+	checkRing("legacy reload")
+	// A same-key neighbour standing on a ring NPC's snapped spot keeps its own
+	// state: the legacy reading is only for a record no NPC matches.
+	r := ring[0]
+	neighbour := *r.npc
+	sx, sy := wm.LocalizeKeyedWorldPos(r.key, r.npc.X, r.npc.Y)
+	neighbour.X, neighbour.Y = wm.ProjectWorldPos(r.key, sx, sy)
+	neighbour.Visited = false
+	wm.OpenWorld.NPCs = append(wm.OpenWorld.NPCs, &neighbour)
+	withNeighbour := g.buildSave(wm)
+	resetRing()
+	err := g.applySave(wm, &withNeighbour)
+	wm.OpenWorld.NPCs = wm.OpenWorld.NPCs[:len(wm.OpenWorld.NPCs)-1]
+	if err != nil {
+		t.Fatalf("neighbour reload: %v", err)
+	}
+	checkRing("neighbour reload")
+	if neighbour.Visited {
+		t.Fatalf("neighbour reload: %s took the state of its ring twin", neighbour.Key)
 	}
 	if wm.CurrentMapKey != "highlands" {
 		t.Fatalf("unified reload map = %q, want highlands", wm.CurrentMapKey)
@@ -188,6 +266,15 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 	if got, want := len(wmSplit.LoadedMaps["forest"].Monsters), len(save.MapMonsters["forest"]); got != want {
 		t.Fatalf("split forest monsters = %d, want %d", got, want)
 	}
+	for _, r := range ring {
+		found := false
+		for _, npc := range wmSplit.LoadedMaps[r.key].NPCs {
+			found = found || npc.Key == r.npc.Key && npc.X == r.lx && npc.Y == r.ly && npc.Visited
+		}
+		if !found {
+			t.Fatalf("split load: %s on the %s border lost its state", r.npc.Key, r.key)
+		}
+	}
 
 	// And back: a save written in SPLIT mode loads into the unified world at
 	// the projected position.
@@ -197,9 +284,11 @@ func TestOpenWorldSaveRoundTrip(t *testing.T) {
 			splitSave.MapKey, splitSave.PlayerX, splitSave.PlayerY, wantLX, wantLY)
 	}
 	world.GlobalWorldManager = wm
+	resetRing()
 	if err := g.applySave(wm, &splitSave); err != nil {
 		t.Fatalf("unified load of split save: %v", err)
 	}
+	checkRing("unified load of split save")
 	if math.Abs(g.camera.X-startX) > 0.01 || math.Abs(g.camera.Y-startY) > 0.01 {
 		t.Fatalf("unified load of split save player = (%.1f,%.1f), want (%.1f,%.1f)", g.camera.X, g.camera.Y, startX, startY)
 	}

@@ -16,7 +16,8 @@ import (
 )
 
 // All physical reward kinds share terrain policy, including the target cell.
-// Water is exempt without a buff; only Fly crosses a chasm. Test both pickup
+// Water is exempt without a buff; only Fly crosses a chasm. On the map border,
+// which blocks flight, Fly adds no reach and takes none away. Test both pickup
 // dispatch and a stale selection that reaches the consumption handler directly.
 func TestWorldRewardReach(t *testing.T) {
 	cfg := crateTestGame(t).config
@@ -46,10 +47,13 @@ func TestWorldRewardReach(t *testing.T) {
 		{"tree", false, false},
 		{"dragon_cliffs_boulder", false, false},
 	} {
-		for _, placement := range []string{"target", "between", "start", "corner", "same_cell"} {
+		for _, placement := range []string{"target", "between", "start", "corner", "same_cell", "border"} {
 			for _, ability := range []string{"none", "water_magic", "fly", "spirit_walk"} {
 				for _, kind := range []string{"spell_lectern", "chest_wooden", "bag", "encounter_chest"} {
 					for _, entry := range []string{"selection", "stale_selection"} {
+						if placement == "border" && (ability != "none" && ability != "fly" || kind != "bag" || entry != "selection") {
+							continue // the border varies only the reach rule: one passage bit, one reward
+						}
 						t.Run(fmt.Sprintf("%s/%s/%s/%s/%s", terrain.key, placement, ability, kind, entry), func(t *testing.T) {
 							g := newTestGame(cfg, newTestWorldSized(cfg, 10, 10))
 							g.sprites = spriteManager
@@ -66,6 +70,8 @@ func TestWorldRewardReach(t *testing.T) {
 								ry = 4.5
 							case "same_cell":
 								rx, bx = 3.7, 3
+							case "border":
+								px, rx, bx = 8.5, 9.5, 9
 							}
 							g.camera.X, g.camera.Y = px*ts, py*ts
 							g.camera.Angle = math.Atan2(ry-py, rx-px)
@@ -78,7 +84,7 @@ func TestWorldRewardReach(t *testing.T) {
 							g.world.SetTerrainPassageActive(!g.flyActive)
 							g.walkOnWaterActive = ability == "water_magic"
 							g.waterBreathingActive = ability == "water_magic"
-							want := terrain.walking || (g.flyActive || spiritActive) && terrain.flying
+							want := terrain.walking || (g.flyActive || spiritActive) && terrain.flying && placement != "border"
 							gold, inventory := g.party.Gold, len(g.party.Inventory)
 							if kind == "bag" || kind == "encounter_chest" {
 								containerKind := ContainerKindLootBag
