@@ -1,10 +1,15 @@
 sample_rate: 48000
 
+# Mix (2026-10-21): music sits under the effects. Its bed is about 26 dB below
+# full scale in the open world; a hit lands 3-4 dB above it. The music bus and
+# the track volumes set the bed, the sound volumes set each cue's priority.
+# Every sound file is mastered so its loudest 100 ms (K-weighted) sits at
+# -20 dBFS with peaks at or under -1.4 dBFS; a new file must match.
 buses:
   master: 1.0
-  ui: 0.75
-  sfx: 0.8
-  music: 0.8
+  ui: 1.0
+  sfx: 1.0
+  music: 0.35
 
 school_sounds:
   fire: spell_fire
@@ -30,28 +35,37 @@ music:
   crossfade_ms: 2500
   boss_crossfade_ms: 900
   loop_crossfade_ms: 3000
+  # A sound with duck_music_db lowers the music while it plays.
+  duck_attack_ms: 150
+  duck_release_ms: 600
   boss_track: boss_fight
+  # Track volume is the track's role: fights 1.0, dungeons 0.89 (-1 dB), open
+  # world 0.84 (-1.5 dB), towns and temples 0.71 (-3 dB). Every file is
+  # mastered to -14 LUFS. loop_start_ms/loop_end_ms skip an authored intro on
+  # repeats and an authored fade-out, so the loop seam does not dip.
   tracks:
     forest:
       file: audio/music/forest.ogg
       biomes: [forest]
-      volume: 1.0
+      volume: 0.84
     desert:
       file: audio/music/desert.ogg
       biomes: [desert]
-      volume: 1.0
+      volume: 0.84
+      loop_start_ms: 15500
+      loop_end_ms: 145500
     water:
       file: audio/music/water.ogg
       biomes: [water]
-      volume: 1.0
+      volume: 0.84
     church:
       file: audio/music/church.ogg
       biomes: [church]
-      volume: 1.0
+      volume: 0.71
     clock_tower:
       file: audio/music/clockwork.ogg
       biomes: [clock_tower_workshop, clock_tower_gearworks, clock_tower_belfry]
-      volume: 1.0
+      volume: 0.89
     arena:
       file: audio/music/arena.ogg
       biomes: [arena]
@@ -59,48 +73,60 @@ music:
     pyramid:
       file: audio/music/pyramid.ogg
       biomes: [pyramid]
-      volume: 1.0
+      volume: 0.89
+      loop_start_ms: 7000
+      loop_end_ms: 147000
     lich_nexus:
       file: audio/music/lich_nexus.ogg
       biomes: [lich_nexus]
-      volume: 1.0
+      volume: 0.89
+      loop_start_ms: 500
+      loop_end_ms: 143500
     culverts:
       file: audio/music/culverts.ogg
       biomes: [culverts]
-      volume: 1.0
+      volume: 0.89
     # The eastern island shares one theme for now: the garden sits behind the
     # castle on the same island, so the castle track carries both until the
     # garden gets its own.
     japanese_castle:
       file: audio/music/japanese_castle.ogg
       biomes: [japanese_castle, sakura_garden]
-      volume: 1.0
+      volume: 0.84
+      loop_start_ms: 10500
+      loop_end_ms: 144000
     city:
       file: audio/music/city.ogg
       biomes: [city]
-      volume: 1.0
+      volume: 0.71
     elf_city:
       file: audio/music/elf_city.ogg
       biomes: [elf_city]
-      volume: 1.0
+      volume: 0.71
     nomad_city:
       file: audio/music/nomad_city.ogg
       biomes: [nomad_city]
-      volume: 1.0
+      volume: 0.71
     highlands:
       file: audio/music/highlands.ogg
       biomes: [highlands]
-      volume: 1.0
+      volume: 0.84
+      loop_start_ms: 5000
+      loop_end_ms: 143000
     dragon_cliffs:
       file: audio/music/dragon_cliffs.ogg
       biomes: [dragon_cliffs]
-      volume: 1.0
+      volume: 0.84
+      loop_start_ms: 5000
+      loop_end_ms: 147000
     # The Solstice temple stands in the jungle and borrows its theme until the
     # vestibule and the four chambers get their own; the approach is jungle.
     jungle:
       file: audio/music/jungle.ogg
       biomes: [jungle, solstice_vestibule, solstice_fire, solstice_water, solstice_earth, solstice_air]
-      volume: 1.0
+      volume: 0.84
+      loop_start_ms: 12500
+      loop_end_ms: 146500
     boss_fight:
       file: audio/music/boss_fight.ogg
       volume: 1.0
@@ -112,7 +138,7 @@ sounds:
       - audio/combat/melee_swing_02.ogg
       - audio/combat/melee_swing_03.ogg
     bus: sfx
-    volume: 0.62
+    volume: 0.70
     cooldown_ms: 55
     max_instances: 3
   monster_melee_swing:
@@ -121,7 +147,7 @@ sounds:
       - audio/combat/melee_swing_02.ogg
       - audio/combat/melee_swing_03.ogg
     bus: sfx
-    volume: 0.5
+    volume: 0.56
     cooldown_ms: 55
     max_instances: 4
   monster_hit:
@@ -133,7 +159,7 @@ sounds:
       - audio/combat/monster_hit_plate_02.ogg
       - audio/combat/monster_hit_plate_03.ogg
     bus: sfx
-    volume: 0.5
+    volume: 0.78
     cooldown_ms: 55
     max_instances: 4
   party_hit:
@@ -145,13 +171,13 @@ sounds:
       - audio/combat/party_hit_plate_02.ogg
       - audio/combat/party_hit_plate_03.ogg
     bus: sfx
-    volume: 0.65
+    volume: 0.78
     cooldown_ms: 110
     max_instances: 2
   bow_release:
     files: [audio/combat/bow_release_01.ogg]
     bus: sfx
-    volume: 0.62
+    volume: 0.74
     cooldown_ms: 70
     max_instances: 3
   blaster_shot:
@@ -159,7 +185,7 @@ sounds:
       - audio/combat/blaster_shot_01.ogg
       - audio/combat/blaster_shot_02.ogg
     bus: sfx
-    volume: 0.58
+    volume: 0.70
     cooldown_ms: 65
     max_instances: 4
   enemy_death:
@@ -168,7 +194,7 @@ sounds:
       - audio/combat/enemy_death_02.ogg
       - audio/combat/enemy_death_03.ogg
     bus: sfx
-    volume: 0.58
+    volume: 0.70
     cooldown_ms: 90
     max_instances: 3
 
@@ -177,7 +203,7 @@ sounds:
       - audio/magic/fire_01.ogg
       - audio/magic/fire_02.ogg
     bus: sfx
-    volume: 0.62
+    volume: 0.70
     cooldown_ms: 90
     max_instances: 3
   spell_water_ice:
@@ -185,7 +211,7 @@ sounds:
       - audio/magic/water_ice_01.ogg
       - audio/magic/water_ice_02.ogg
     bus: sfx
-    volume: 0.62
+    volume: 0.73
     cooldown_ms: 90
     max_instances: 3
   spell_air_electric:
@@ -193,7 +219,7 @@ sounds:
       - audio/magic/air_electric_01.ogg
       - audio/magic/air_electric_02.ogg
     bus: sfx
-    volume: 0.58
+    volume: 0.70
     cooldown_ms: 90
     max_instances: 3
   spell_earth:
@@ -201,7 +227,7 @@ sounds:
       - audio/magic/earth_01.ogg
       - audio/magic/earth_02.ogg
     bus: sfx
-    volume: 0.62
+    volume: 0.70
     cooldown_ms: 90
     max_instances: 3
   spell_light_heal:
@@ -209,7 +235,7 @@ sounds:
       - audio/magic/light_heal_01.ogg
       - audio/magic/light_heal_02.ogg
     bus: sfx
-    volume: 0.55
+    volume: 0.70
     cooldown_ms: 90
     max_instances: 3
   spell_dark_psychic:
@@ -217,7 +243,7 @@ sounds:
       - audio/magic/dark_psychic_01.ogg
       - audio/magic/dark_psychic_02.ogg
     bus: sfx
-    volume: 0.58
+    volume: 0.70
     cooldown_ms: 90
     max_instances: 3
 
@@ -226,7 +252,7 @@ sounds:
       - audio/world/door_open_01.ogg
       - audio/world/door_open_02.ogg
     bus: sfx
-    volume: 0.68
+    volume: 0.56
     cooldown_ms: 200
     max_instances: 2
   door_locked:
@@ -234,13 +260,13 @@ sounds:
       - audio/world/door_locked_01.ogg
       - audio/world/door_locked_02.ogg
     bus: sfx
-    volume: 0.6
+    volume: 0.71
     cooldown_ms: 180
     max_instances: 1
   chest_open:
     files: [audio/world/chest_open_01.ogg]
     bus: sfx
-    volume: 0.64
+    volume: 0.56
     cooldown_ms: 0
     max_instances: 2
   coins:
@@ -249,18 +275,20 @@ sounds:
       - audio/world/coins_02.ogg
       - audio/world/coins_03.ogg
     bus: sfx
-    volume: 0.58
+    volume: 0.56
     cooldown_ms: 120
     max_instances: 2
   quest_complete:
     files: [audio/progression/quest_complete_01.ogg]
     bus: ui
-    volume: 0.62
+    volume: 0.70
     cooldown_ms: 500
     max_instances: 1
+    duck_music_db: 6
   level_up:
     files: [audio/progression/level_up_01.ogg]
     bus: ui
-    volume: 0.68
+    volume: 0.70
     cooldown_ms: 500
     max_instances: 1
+    duck_music_db: 6

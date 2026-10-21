@@ -76,6 +76,7 @@ type UISystem struct {
 	collectionTemplates map[string]items.Item
 	collectionBag       []collectionBagEntry
 	atlas               worldAtlas
+	hudIconSilhouettes  uiColorBake // white hover rims of action-rail icons
 
 	journalRewardItems      map[string]items.Item
 	journalItemsCatalog     *config.ItemSystemConfig
@@ -174,6 +175,8 @@ func NewUISystem(game *MMGame) *UISystem {
 	ui := &UISystem{
 		game:               game,
 		hubInteractionChar: -1,
+		atlas:              worldAtlas{greyIcons: uiColorBake{cm: &atlasGreyInk}},
+		hudIconSilhouettes: uiColorBake{cm: &hudIconWhite},
 	}
 	ui.initRadarDots()
 	return ui

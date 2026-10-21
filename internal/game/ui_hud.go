@@ -1496,24 +1496,31 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 	opts.GeoM.Translate(float64(centerX-radius), float64(centerY-radius))
 	uiDrawImage(screen, ui.compassTileLayer, opts)
 
-	// Draw NPCs on minimap
-	for _, npc := range ui.game.world.NPCs {
-		if !ui.game.npcMapMarkerVisible(npc) {
-			continue
+	// Draw NPCs on minimap: used props first, so live dots sit on top (as on
+	// the atlas).
+	for _, spent := range []bool{true, false} {
+		dot := color.RGBA{255, 210, 55, 255}
+		if spent {
+			dot = color.RGBA{150, 146, 136, 255} // a used prop: stone grey
 		}
-		npcTileX := TileIndex(npc.X, tileSize)
-		npcTileY := TileIndex(npc.Y, tileSize)
-		dx := npcTileX - playerTileX
-		dy := npcTileY - playerTileY
+		for _, npc := range ui.game.world.NPCs {
+			if ui.game.npcPropSpent(npc) != spent || !ui.game.npcMapMarkerVisible(npc) {
+				continue
+			}
+			npcTileX := TileIndex(npc.X, tileSize)
+			npcTileY := TileIndex(npc.Y, tileSize)
+			dx := npcTileX - playerTileX
+			dy := npcTileY - playerTileY
 
-		// Keep the entire live marker inside the same circular map viewport.
-		dotRadius := max(float32(2), miniTileSize/2)
-		markerLimit := float32(radius) - dotRadius - 1
-		if float32(dx*dx+dy*dy)*miniTileSize*miniTileSize <= markerLimit*markerLimit {
-			screenX := float32(centerX) + float32(dx)*miniTileSize
-			screenY := float32(centerY) + float32(dy)*miniTileSize
-			uiFillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
-			uiFillCircle(screen, screenX, screenY, dotRadius, color.RGBA{255, 210, 55, 255}, true)
+			// Keep the entire live marker inside the same circular map viewport.
+			dotRadius := max(float32(2), miniTileSize/2)
+			markerLimit := float32(radius) - dotRadius - 1
+			if float32(dx*dx+dy*dy)*miniTileSize*miniTileSize <= markerLimit*markerLimit {
+				screenX := float32(centerX) + float32(dx)*miniTileSize
+				screenY := float32(centerY) + float32(dy)*miniTileSize
+				uiFillCircle(screen, screenX, screenY, dotRadius+1, color.RGBA{8, 10, 14, 235}, true)
+				uiFillCircle(screen, screenX, screenY, dotRadius, dot, true)
+			}
 		}
 	}
 }

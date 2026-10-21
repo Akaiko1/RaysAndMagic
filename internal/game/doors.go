@@ -23,8 +23,9 @@ func (g *MMGame) npcIsDoor(npc *character.NPC) bool {
 	return npcRenderCatOf(npc) == catDoor
 }
 
-// npcDoorOpen: an open door is invisible and non-interactive - the render
-// collector and the focus/click resolvers all skip through this one test. Two
+// npcDoorOpen: an open door is invisible and non-interactive. The render
+// collector skips it through this test, interaction through
+// npcTakesInteraction. Two
 // explicit door behaviors share the render class: a lockable door is open once
 // unlocked (Visited); the champion portcullis is open while no champion lives.
 func (g *MMGame) npcDoorOpen(npc *character.NPC) bool {

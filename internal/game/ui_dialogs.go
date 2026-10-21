@@ -38,7 +38,7 @@ func (ui *UISystem) drawStatPlusButton(screen *ebiten.Image, r layoutRect, live,
 	icon := layoutRect{r.x + (r.w-24)/2, r.y + (r.h-24)/2, 24, 24}
 	sprite := ui.game.sprites.GetSprite(statBadgeStyle.icon)
 	if live && hover {
-		drawHUDIconHoverGlow(screen, sprite, icon)
+		ui.drawHUDIconHoverGlow(screen, statBadgeStyle.icon, icon)
 	}
 	drawImageScaled(screen, sprite, icon.x, icon.y, icon.w, icon.h)
 	if !live {

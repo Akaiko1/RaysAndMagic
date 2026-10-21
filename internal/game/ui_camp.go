@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/colorm"
 )
 
 const campHUDSprite = "icon_camp"
@@ -63,14 +64,21 @@ func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 	return l, true
 }
 
+// hudIconWhite keeps an icon's alpha silhouette and paints it white.
+var hudIconWhite = func() colorm.ColorM {
+	var cm colorm.ColorM
+	cm.Scale(0, 0, 0, 1)
+	cm.Translate(1, 1, 1, 0)
+	return cm
+}()
+
 // drawHUDIconHoverGlow rims an action-rail icon in white while preserving its
 // alpha silhouette.
-func drawHUDIconHoverGlow(screen, sprite *ebiten.Image, r layoutRect) {
+func (ui *UISystem) drawHUDIconHoverGlow(screen *ebiten.Image, key string, r layoutRect) {
 	op := &ebiten.DrawImageOptions{}
-	op.ColorM.Scale(0, 0, 0, 1)
-	op.ColorM.Translate(1, 1, 1, 0)
 	op.ColorScale.ScaleAlpha(0.16)
-	uiDrawImageScaledEdgeGlow(screen, sprite, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
+	white := ui.hudIconSilhouettes.of(key, ui.game.sprites.GetSprite(key))
+	uiDrawImageScaledEdgeGlow(screen, white, float64(r.x), float64(r.y), float64(r.w), float64(r.h), 2, op)
 }
 
 // drawAutoStatsHUD is the party's AUTO button beside the camp: every hero
@@ -94,7 +102,7 @@ func (ui *UISystem) drawAutoStatsHUD(screen *ebiten.Image) {
 	icon := layoutRect{r.x + (r.w-side)/2, r.bottom() - side, side, side}
 	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, statBadgeStyle.tint, g.badgeAuraPulse(ui.cardAnimClock()))
 	if hover {
-		drawHUDIconHoverGlow(screen, sprite, icon)
+		ui.drawHUDIconHoverGlow(screen, statBadgeStyle.icon, icon)
 	}
 	drawImageScaled(screen, sprite, icon.x, icon.y, icon.w, icon.h)
 	drawCenteredTextWithShadow(screen, "AUTO", icon.x, icon.bottom()-uiTextCharHeight-4, icon.w, uiTextCharHeight+1, statBadgeStyle.tint)
@@ -121,7 +129,7 @@ func (ui *UISystem) drawCampHUD(screen *ebiten.Image) {
 	hover := !ui.hudClicksBlocked() && isMouseHoveringBox(mouseX, mouseY, r.x, r.y, r.right(), r.bottom())
 	sprite := g.sprites.GetSprite(campHUDSprite)
 	if hover {
-		drawHUDIconHoverGlow(screen, sprite, r)
+		ui.drawHUDIconHoverGlow(screen, campHUDSprite, r)
 	}
 	drawImageScaled(screen, sprite, r.x, r.y, r.w, r.h)
 	// Keep the number directly on the artwork; only the glyph shadow supplies

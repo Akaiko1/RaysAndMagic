@@ -1308,10 +1308,7 @@ func (g *MMGame) updateFocusedNPC() {
 	band := halfW * 0.4 // "roughly centred": middle 40% of the screen
 	bestDist := maxDist
 	for _, npc := range currentWorld.NPCs {
-		if g.npcAbsent(npc) {
-			continue
-		}
-		if g.npcDoorOpen(npc) { // raised portcullis: nothing to interact with
+		if !g.npcTakesInteraction(npc) {
 			continue
 		}
 		ex, ey := g.npcEffectivePos(npc)
@@ -1334,13 +1331,17 @@ func (g *MMGame) updateFocusedNPC() {
 	}
 }
 
-// findNPCAtScreen returns the visible NPC whose rendered sprite is under the
-// given point in UI units (nearest wins). inRange reports whether it is close
-// enough to interact (InteractionDistance) - a hit beyond that only prompts.
+// npcTakesInteraction reports whether an NPC can be acted on: present
+// (npcAbsent), not a raised portcullis, not an emptied prop. ONE predicate for
+// interact focus, clicks and both hover cues (sprites and prop models).
+func (g *MMGame) npcTakesInteraction(npc *character.NPC) bool {
+	return !g.npcAbsent(npc) && !g.npcDoorOpen(npc) && !g.npcPropSpent(npc)
+}
+
 // npcAbsent reports whether an NPC is not in the world right now: a spent
-// hide_when_visited prop, or a night_only NPC during the day. ONE predicate for
-// interaction focus, click targeting and rendering - a gate applied at only two
-// of the three sites leaves an invisible NPC still talkable (or a talkable one
+// hide_when_visited prop, or a night_only NPC during the day. Rendering skips
+// it directly, interaction through npcTakesInteraction - a gate applied at only
+// some of the sites leaves an invisible NPC still talkable (or a talkable one
 // invisible).
 func (g *MMGame) npcAbsent(npc *character.NPC) bool {
 	if npc == nil {
@@ -1358,6 +1359,9 @@ func (g *MMGame) npcAbsent(npc *character.NPC) bool {
 	return !g.partyLevelUnlocked(npc.MinPartyLevel) || (npc.NightOnly && !g.dayNightIsNight)
 }
 
+// findNPCAtScreen returns the visible NPC whose rendered sprite is under the
+// given point in UI units (nearest wins). inRange reports whether it is close
+// enough to interact (InteractionDistance) - a hit beyond that only prompts.
 func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRange bool) {
 	currentWorld := g.GetCurrentWorld()
 	if currentWorld == nil || g.renderHelper == nil {
@@ -1366,13 +1370,10 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 	clickX, clickY = g.uiToWorldPoint(clickX, clickY)
 	bestDist := math.MaxFloat64
 	for _, n := range currentWorld.NPCs {
-		if g.npcAbsent(n) {
-			continue
-		}
 		if n.Sprite == "" || n.Sprite == "none" {
 			continue // invisible portal NPCs aren't clickable
 		}
-		if g.npcDoorOpen(n) { // raised portcullis: not drawn, not clickable
+		if !g.npcTakesInteraction(n) {
 			continue
 		}
 		ex, ey := g.npcEffectivePos(n)
@@ -2090,6 +2091,7 @@ func (g *MMGame) Shutdown() {
 	}
 	if g.gameLoop != nil && g.gameLoop.ui != nil {
 		g.gameLoop.ui.atlas.release()
+		g.gameLoop.ui.hudIconSilhouettes.release()
 		g.gameLoop.ui.releaseCompassFrame()
 		g.gameLoop.ui.profileArt.close()
 		g.gameLoop.ui.profileArt = nil

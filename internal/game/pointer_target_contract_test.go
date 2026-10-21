@@ -126,21 +126,28 @@ func TestMonsterAndNPCPointerDepthPriority(t *testing.T) {
 	// The monster stands one tile ahead (tile 11; "in front" is a person on
 	// that tile). Depth decides, except for a scenery prop on the monster's
 	// own tile: it is painted behind the monster and must not take the press.
+	// An emptied crate in front takes no press at all (a gate with no mode, so
+	// one mode checks it).
 	cases := []struct {
 		where       string
 		category    string
 		tilesAhead  float64
 		wantMonster bool
+		emptied     bool
 	}{
-		{"far behind", "npc", 3, true},
-		{"near behind", "npc", 1.5, true},
-		{"in front", "npc", 0.5, false},
-		{"no monster", "npc", 3, false},
-		{"prop on monster tile", "scenery", 0.9, true},
-		{"prop on nearer tile", "scenery", 0.45, false},
+		{"far behind", "npc", 3, true, false},
+		{"near behind", "npc", 1.5, true, false},
+		{"in front", "npc", 0.5, false, false},
+		{"no monster", "npc", 3, false, false},
+		{"prop on monster tile", "scenery", 0.9, true, false},
+		{"prop on nearer tile", "scenery", 0.45, false, false},
+		{"emptied crate on nearer tile", "scenery", 0.45, true, true},
 	}
 	for _, tb := range []bool{false, true} {
 		for _, c := range cases {
+			if c.emptied && tb {
+				continue
+			}
 			t.Run(fmt.Sprintf("TB=%v/%s", tb, c.where), func(t *testing.T) {
 				g, ih, fp, m, tick := mouseCombatHarness(t, tb)
 				g.camera.Angle = 0
@@ -150,6 +157,9 @@ func TestMonsterAndNPCPointerDepthPriority(t *testing.T) {
 				ts := float64(g.config.GetTileSize())
 				distance := c.tilesAhead * ts
 				npc := &character.NPC{Name: "Fixture", Sprite: "missing_pick_fixture", RenderCategory: c.category, SizeClass: "full_tile", X: g.camera.X + distance, Y: g.camera.Y}
+				if c.emptied {
+					npc.Type, npc.Visited = character.NPCTypeLootCrate, true
+				}
 				g.world.NPCs = []*character.NPC{npc}
 				sx, sy, size, visible := g.renderHelper.NPCSpriteMetrics(npc, npc.X, npc.Y, distance)
 				if !visible {

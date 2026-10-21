@@ -190,6 +190,8 @@ func projectWorldTriangles[I ~uint16 | ~uint32](p *paniniRasterizer, vs []ebiten
 	return p.vertices, p.indices
 }
 
+// worldDrawImage takes no ColorM or CompositeMode (both deprecated): the raster
+// path draws triangles and drops them; use ColorScale and Blend.
 func worldDrawImage(dst, src *ebiten.Image, op *ebiten.DrawImageOptions) {
 	p := worldRaster(dst)
 	if p == nil {
@@ -206,7 +208,7 @@ func worldDrawImage(dst, src *ebiten.Image, op *ebiten.DrawImageOptions) {
 		x, y := o.GeoM.Apply(q[0], q[1])
 		v[i] = ebiten.Vertex{DstX: float32(x), DstY: float32(y), SrcX: float32(q[0] + float64(b.Min.X)), SrcY: float32(q[1] + float64(b.Min.Y)), ColorR: o.ColorScale.R(), ColorG: o.ColorScale.G(), ColorB: o.ColorScale.B(), ColorA: o.ColorScale.A()}
 	}
-	opts := ebiten.DrawTrianglesOptions{ColorM: o.ColorM, ColorScaleMode: ebiten.ColorScaleModePremultipliedAlpha, CompositeMode: o.CompositeMode, Blend: o.Blend, Filter: o.Filter, DisableMipmaps: o.DisableMipmaps}
+	opts := ebiten.DrawTrianglesOptions{ColorScaleMode: ebiten.ColorScaleModePremultipliedAlpha, Blend: o.Blend, Filter: o.Filter, DisableMipmaps: o.DisableMipmaps}
 	vertices, indices := projectWorldTriangles(p, v[:], weaponQuadIndices, false)
 	dst.DrawTriangles32(vertices, indices, src, &opts)
 }

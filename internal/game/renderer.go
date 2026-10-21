@@ -4361,7 +4361,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	hovered := false
 	if r.game.worldClickAllowed() {
 		ex, ey := r.game.npcEffectivePos(s.npc)
-		if dist := Distance(ex, ey, r.game.camera.X, r.game.camera.Y); dist <= InteractionDistance {
+		if dist := Distance(ex, ey, r.game.camera.X, r.game.camera.Y); dist <= InteractionDistance && r.game.npcTakesInteraction(s.npc) {
 			mouseX, mouseY := r.game.worldCursorPosition()
 			hovered = r.game.npcScreenHitTest(s.npc, ex, ey, mouseX, mouseY)
 		}

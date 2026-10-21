@@ -23,6 +23,13 @@ func (g *MMGame) npcIsWalkUpProp(npc *character.NPC) bool {
 	return npc != nil && (npc.HarvestOwner != "" || character.IsWalkUpPropType(npc.Type))
 }
 
+// npcPropSpent reports a used walk-up prop that stays in the world (an opened
+// barrel, a campfire already rested at): it takes no interaction
+// (npcTakesInteraction), so no Space prompt, and its map markers turn grey.
+func (g *MMGame) npcPropSpent(npc *character.NPC) bool {
+	return npc != nil && npc.Visited && character.IsWalkUpPropType(npc.Type)
+}
+
 // partyTrapAvoidChancePct is the Disarm Trap mastery table for avoiding a
 // chest/door trap ENTIRELY (constants beside the skill's other numbers in
 // character/catalog.go). The party's best hand does the work; the flat damage
@@ -44,8 +51,7 @@ func (g *MMGame) partyTrapAvoidChancePct() (int, *character.MMCharacter) {
 // Tier behavior is fully data-driven from loots.yaml `crates:` (by NPC key).
 func (g *MMGame) useLootCrate(npc *character.NPC) {
 	if npc.Visited {
-		g.AddCombatMessage(uitext.Text("combat.the_is_empty", npc.Name))
-		return
+		return // a used prop takes no interaction; a stale path must not loot it twice
 	}
 	crate := config.GetCrateConfig(npc.Key)
 	if crate == nil {
@@ -436,8 +442,7 @@ func (g *MMGame) grantCrateLoot(npc *character.NPC, loot []items.Item, gold, are
 // school open who doesn't know it. NOT consumed when nobody can learn.
 func (g *MMGame) useSpellLectern(npc *character.NPC) {
 	if npc.Visited {
-		g.AddCombatMessage(uitext.Text("combat.the_lectern_s_pages_are_blank"))
-		return
+		return // a used prop takes no interaction; a stale path must not teach it twice
 	}
 	lectern := npc.Lectern
 	if lectern == nil {

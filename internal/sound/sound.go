@@ -45,6 +45,8 @@ type SoundDefinition struct {
 	Volume       float64  `yaml:"volume"`
 	CooldownMS   int      `yaml:"cooldown_ms"`
 	MaxInstances int      `yaml:"max_instances"`
+	// DuckMusicDB lowers the music by this many dB while the sound plays.
+	DuckMusicDB float64 `yaml:"duck_music_db"`
 }
 
 // MusicDefinition configures location transitions and seamless loop handoffs.
@@ -52,15 +54,21 @@ type MusicDefinition struct {
 	CrossfadeMS     int                             `yaml:"crossfade_ms"`
 	BossCrossfadeMS int                             `yaml:"boss_crossfade_ms"`
 	LoopCrossfadeMS int                             `yaml:"loop_crossfade_ms"`
+	DuckAttackMS    int                             `yaml:"duck_attack_ms"`
+	DuckReleaseMS   int                             `yaml:"duck_release_ms"`
 	BossTrack       string                          `yaml:"boss_track"`
 	Tracks          map[string]MusicTrackDefinition `yaml:"tracks"`
 }
 
 // MusicTrackDefinition maps one streamed music file to one or more biomes.
+// The optional loop window skips an authored intro on repeats (loop_start_ms)
+// and an authored outro (loop_end_ms, where the loop crossfade ends).
 type MusicTrackDefinition struct {
-	File   string   `yaml:"file"`
-	Biomes []string `yaml:"biomes"`
-	Volume float64  `yaml:"volume"`
+	File        string   `yaml:"file"`
+	Biomes      []string `yaml:"biomes"`
+	Volume      float64  `yaml:"volume"`
+	LoopStartMS int      `yaml:"loop_start_ms"`
+	LoopEndMS   int      `yaml:"loop_end_ms"`
 }
 
 type musicAsset struct {
@@ -68,6 +76,12 @@ type musicAsset struct {
 	// two music players. It must stay alive for the lifetime of those players.
 	data     []byte
 	duration time.Duration
+	loop     musicLoop
+}
+
+// musicLoop is a track's resolved loop window: the whole file unless authored.
+type musicLoop struct {
+	start, end time.Duration
 }
 
 type decodedStream interface {
@@ -137,18 +151,33 @@ func LoadCatalog(path string) (_ *Catalog, err error) {
 		if stream.Length() <= 0 {
 			return nil, fmt.Errorf("music %q file %q has unknown or empty decoded length", key, def.File)
 		}
-		bytesPerSecond := int64(catalog.SampleRate * 2 * 4)
-		duration := time.Duration(float64(stream.Length()) / float64(bytesPerSecond) * float64(time.Second))
-		loopFade := time.Duration(catalog.Music.LoopCrossfadeMS) * time.Millisecond
-		if duration <= loopFade {
-			return nil, fmt.Errorf("music %q duration %v must be longer than loop_crossfade_ms (%v)", key, duration, loopFade)
+		duration := pcmDuration(int(stream.Length()), catalog.SampleRate)
+		loop := musicLoop{start: time.Duration(def.LoopStartMS) * time.Millisecond, end: duration}
+		if def.LoopEndMS > 0 {
+			loop.end = time.Duration(def.LoopEndMS) * time.Millisecond
 		}
-		catalog.musicAssets[key] = musicAsset{data: raw, duration: duration}
+		if loop.end > duration {
+			return nil, fmt.Errorf("music %q loop_end_ms %v is past the end of the file (%v)", key, loop.end, duration)
+		}
+		// The repeat must reach full volume before its own loop crossfade.
+		loopFade := time.Duration(catalog.Music.LoopCrossfadeMS) * time.Millisecond
+		if loop.end-loop.start < 2*loopFade {
+			return nil, fmt.Errorf("music %q loop window %v must hold two loop crossfades (%v)", key, loop.end-loop.start, 2*loopFade)
+		}
+		catalog.musicAssets[key] = musicAsset{data: raw, duration: duration, loop: loop}
 	}
 	return &catalog, nil
 }
 
+// pcmDuration is the length of interleaved stereo float32 PCM.
+func pcmDuration(bytes, sampleRate int) time.Duration {
+	return time.Duration(float64(bytes) / float64(sampleRate*2*4) * float64(time.Second))
+}
+
 const maxParallelSoundDecoders = 8
+
+// maxDuckMusicDB keeps a duck a dip, never a mute.
+const maxDuckMusicDB = 24.0
 
 type soundDecodeResult struct {
 	variants [][]byte
@@ -250,6 +279,12 @@ func validateCatalog(catalog *Catalog) error {
 		if def.MaxInstances <= 0 {
 			return fmt.Errorf("sound %q max_instances must be > 0", key)
 		}
+		if def.DuckMusicDB < 0 || def.DuckMusicDB > maxDuckMusicDB {
+			return fmt.Errorf("sound %q duck_music_db must be between 0 and %g", key, maxDuckMusicDB)
+		}
+		if def.DuckMusicDB > 0 && (catalog.Music.DuckAttackMS <= 0 || catalog.Music.DuckReleaseMS <= 0) {
+			return fmt.Errorf("sound %q ducks the music: music duck_attack_ms and duck_release_ms must be > 0", key)
+		}
 		for _, file := range def.Files {
 			if strings.TrimSpace(file) == "" {
 				return fmt.Errorf("sound %q contains an empty file path", key)
@@ -316,6 +351,9 @@ func validateCatalog(catalog *Catalog) error {
 			}
 			if def.Volume <= 0 || def.Volume > 1 {
 				return fmt.Errorf("music %q volume must be > 0 and <= 1", key)
+			}
+			if def.LoopStartMS < 0 || def.LoopEndMS < 0 {
+				return fmt.Errorf("music %q loop_start_ms and loop_end_ms must be >= 0", key)
 			}
 			if key == bossTrack && len(def.Biomes) > 0 {
 				return fmt.Errorf("boss music %q must not define biomes", key)
@@ -456,20 +494,49 @@ func defaultVolumeSettings() VolumeSettings {
 
 type musicTrack struct {
 	definition MusicTrackDefinition
-	duration   time.Duration
+	loop       musicLoop
 	players    []musicPlayer
 	resume     musicPlayer
 }
 
+// ramp moves a level between two values over a duration: music crossfades on
+// the equal-power curve, the music duck (a dB depth) in a straight line.
+type ramp struct {
+	value, from, to float64
+	started         time.Time
+	duration        time.Duration
+}
+
+func (r *ramp) start(to float64, duration time.Duration, now time.Time) {
+	r.from, r.to, r.started, r.duration = r.value, to, now, duration
+}
+
+// advance moves the level to now on the equal-power curve and reports whether
+// the ramp has finished.
+func (r *ramp) advance(now time.Time) bool { return r.advanceOn(now, equalPowerGain) }
+
+// advanceLinear is advance in a straight line: an even dB slope for the duck.
+func (r *ramp) advanceLinear(now time.Time) bool { return r.advanceOn(now, linearGain) }
+
+func (r *ramp) advanceOn(now time.Time, curve func(from, to, progress float64) float64) bool {
+	if r.duration <= 0 {
+		return true
+	}
+	progress := float64(now.Sub(r.started)) / float64(r.duration)
+	r.value = curve(r.from, r.to, progress)
+	if progress < 1 {
+		return false
+	}
+	r.duration = 0
+	r.from = r.to
+	return true
+}
+
 type musicVoice struct {
-	trackKey     string
-	player       musicPlayer
-	gain         float64
-	fadeFrom     float64
-	fadeTo       float64
-	fadeStarted  time.Time
-	fadeDuration time.Duration
-	stopAfter    bool
+	trackKey  string
+	player    musicPlayer
+	fade      ramp
+	stopAfter bool
 }
 
 type musicPlayer interface {
@@ -478,7 +545,7 @@ type musicPlayer interface {
 	Pause()
 	Play()
 	Position() time.Duration
-	Rewind() error
+	SetPosition(time.Duration) error
 	SetVolume(float64)
 }
 
@@ -486,7 +553,8 @@ type musicStartMode uint8
 
 const (
 	musicStartResume musicStartMode = iota
-	musicStartFresh
+	musicStartFresh                 // from the top: the intro plays
+	musicStartLoop                  // a loop repeat: from the loop start
 )
 
 // Manager owns the single Ebiten audio context, reusable short-sound players,
@@ -501,6 +569,10 @@ type Manager struct {
 	musicVoices  []*musicVoice
 	musicBiome   map[string]string
 	desiredMusic string
+	// duck is the music's dip in dB; ducks are the cues still sounding, and
+	// the dip follows the deepest of them.
+	duck         ramp
+	ducks        []duckCue
 	volumes      VolumeSettings
 	settingsPath string
 	lastPlayed   map[string]time.Time
@@ -592,7 +664,7 @@ func (m *Manager) prepareMusicPlayers() error {
 	for _, key := range sortedMusicKeys(m.catalog.Music.Tracks) {
 		def := m.catalog.Music.Tracks[key]
 		asset := m.catalog.musicAssets[key]
-		track := &musicTrack{definition: def, duration: asset.duration}
+		track := &musicTrack{definition: def, loop: asset.loop}
 		for range 2 {
 			stream, err := vorbis.DecodeF32(bytes.NewReader(asset.data))
 			if err != nil {
@@ -764,7 +836,8 @@ func (m *Manager) musicVolumeLocked(trackKey string, gain float64) float64 {
 	if track == nil {
 		return 0
 	}
-	return m.catalog.Buses["master"] * m.catalog.Buses["music"] * track.definition.Volume * m.volumes.Master * m.volumes.Music * gain
+	duck := math.Pow(10, -m.duck.value/20)
+	return m.catalog.Buses["master"] * m.catalog.Buses["music"] * track.definition.Volume * m.volumes.Master * m.volumes.Music * duck * gain
 }
 
 func (m *Manager) refreshPlayerVolumesLocked() {
@@ -776,8 +849,12 @@ func (m *Manager) refreshPlayerVolumesLocked() {
 			}
 		}
 	}
+	m.refreshMusicVolumesLocked()
+}
+
+func (m *Manager) refreshMusicVolumesLocked() {
 	for _, voice := range m.musicVoices {
-		voice.player.SetVolume(m.musicVolumeLocked(voice.trackKey, voice.gain))
+		voice.player.SetVolume(m.musicVolumeLocked(voice.trackKey, voice.fade.value))
 	}
 }
 
@@ -964,7 +1041,7 @@ func (m *Manager) PlayWithGain(key string, gain float64) bool {
 		return false
 	}
 	variantPools := m.pools[key]
-	_, player := m.pickIdleVariantPlayerLocked(key, variantPools)
+	variant, player := m.pickIdleVariantPlayerLocked(key, variantPools)
 	if player == nil {
 		return false
 	}
@@ -972,10 +1049,87 @@ func (m *Manager) PlayWithGain(key string, gain float64) bool {
 		return false
 	}
 	m.playerGains[player] = gain
-	player.SetVolume(m.soundVolumeLocked(def, gain))
+	volume := m.soundVolumeLocked(def, gain)
+	player.SetVolume(volume)
 	player.Play()
 	m.lastPlayed[key] = now
+	m.duckForCueLocked(def, volume, now.Add(pcmDuration(len(m.catalog.samples[key][variant]), m.catalog.SampleRate)), now)
 	return true
+}
+
+// duckForCueLocked ducks the music under a cue that is heard: one silenced by
+// the Effects or Master slider leaves the music alone.
+func (m *Manager) duckForCueLocked(def SoundDefinition, volume float64, until, now time.Time) {
+	if def.DuckMusicDB > 0 && volume > 0 {
+		m.duckMusicLocked(def.DuckMusicDB, until, now)
+	}
+}
+
+// duckCue is one ducking cue still sounding: its depth in dB and its end.
+type duckCue struct {
+	db    float64
+	until time.Time
+}
+
+// duckMusicLocked lowers the music by db while the cue plays, until until.
+// Update releases it.
+func (m *Manager) duckMusicLocked(db float64, until, now time.Time) {
+	before := m.duck.value
+	m.ducks = append(m.ducks, duckCue{db: db, until: until})
+	m.retargetDuckLocked(now)
+	if m.duck.value != before {
+		m.refreshMusicVolumesLocked() // the dip moved since the last update
+	}
+}
+
+// retargetDuckLocked heads the dip for the deepest cue still sounding (0 once
+// none is), from where it is, never jumping. It falls at that cue's attack
+// pace and rises at the pace of the release under way, or of releasing the
+// dip it leaves; a full attack or release takes the authored time.
+func (m *Manager) retargetDuckLocked(now time.Time) {
+	m.duck.advanceLinear(now)
+	target := 0.0
+	for _, c := range m.ducks {
+		target = max(target, c.db)
+	}
+	if target == m.duck.to {
+		return
+	}
+	value := m.duck.value
+	if target == value {
+		m.duck.start(target, 0, now)
+		return
+	}
+	var perDB float64 // nanoseconds per dB of this move
+	switch {
+	case target > value:
+		perDB = float64(time.Duration(m.catalog.Music.DuckAttackMS)*time.Millisecond) / target
+	case m.duck.duration > 0 && m.duck.to < m.duck.from:
+		perDB = float64(m.duck.duration) / (m.duck.from - m.duck.to) // keep the rise under way
+	default:
+		perDB = float64(time.Duration(m.catalog.Music.DuckReleaseMS)*time.Millisecond) / value
+	}
+	m.duck.start(target, time.Duration(math.Abs(target-value)*perDB), now)
+}
+
+// updateDuckLocked drops the cues that ended and applies the dip to music.
+func (m *Manager) updateDuckLocked(now time.Time) {
+	if len(m.ducks) == 0 && m.duck.value == 0 {
+		return
+	}
+	before := m.duck.value
+	sounding := m.ducks[:0]
+	for _, c := range m.ducks {
+		if now.Before(c.until) {
+			sounding = append(sounding, c)
+		}
+	}
+	m.ducks = sounding
+	m.retargetDuckLocked(now)
+	m.duck.advanceLinear(now)
+	if m.duck.value != before {
+		m.refreshMusicVolumesLocked()
+	}
 }
 
 func (m *Manager) pickIdleVariantPlayerLocked(key string, variantPools [][]*audio.Player) (int, *audio.Player) {
@@ -1061,7 +1215,7 @@ func (m *Manager) SetMusicState(biome string, bossCombat bool) {
 			if voice.trackKey != trackKey || !voice.player.IsPlaying() {
 				continue
 			}
-			remaining := track.duration - voice.player.Position()
+			remaining := track.loop.end - voice.player.Position()
 			if remaining > bestRemaining {
 				reused = voice
 				bestRemaining = remaining
@@ -1111,23 +1265,22 @@ func (m *Manager) startMusicVoiceLocked(trackKey string, fadeDuration time.Durat
 	}
 	player.Pause()
 	loopFade := time.Duration(m.catalog.Music.LoopCrossfadeMS) * time.Millisecond
-	if mode == musicStartFresh || player.Position() >= track.duration-loopFade {
-		if err := player.Rewind(); err != nil {
+	switch {
+	case mode == musicStartFresh:
+		if err := player.SetPosition(0); err != nil {
+			return nil
+		}
+	case mode == musicStartLoop || player.Position() >= track.loop.end-loopFade:
+		// A repeat, or a resume too close to the loop end to be heard.
+		if err := player.SetPosition(track.loop.start); err != nil {
 			return nil
 		}
 	}
 	if track.resume == player {
 		track.resume = nil
 	}
-	voice := &musicVoice{
-		trackKey:     trackKey,
-		player:       player,
-		gain:         0,
-		fadeFrom:     0,
-		fadeTo:       1,
-		fadeStarted:  now,
-		fadeDuration: fadeDuration,
-	}
+	voice := &musicVoice{trackKey: trackKey, player: player}
+	voice.fade.start(1, fadeDuration, now)
 	player.SetVolume(0)
 	player.Play()
 	m.musicVoices = append(m.musicVoices, voice)
@@ -1136,11 +1289,12 @@ func (m *Manager) startMusicVoiceLocked(trackKey string, fadeDuration time.Durat
 
 func (m *Manager) fadeMusicVoiceLocked(voice *musicVoice, target float64, duration time.Duration, stopAfter bool, now time.Time) {
 	m.advanceMusicVoiceLocked(voice, now)
-	voice.fadeFrom = voice.gain
-	voice.fadeTo = target
-	voice.fadeStarted = now
-	voice.fadeDuration = duration
+	voice.fade.start(target, duration, now)
 	voice.stopAfter = stopAfter
+}
+
+func linearGain(from, to, progress float64) float64 {
+	return from + (to-from)*min(1, max(0, progress))
 }
 
 func equalPowerGain(from, to, progress float64) float64 {
@@ -1154,21 +1308,12 @@ func equalPowerGain(from, to, progress float64) float64 {
 }
 
 func (m *Manager) advanceMusicVoiceLocked(voice *musicVoice, now time.Time) bool {
-	if voice.fadeDuration <= 0 {
-		return true
+	before := voice.fade.value
+	done := voice.fade.advance(now)
+	if voice.fade.value != before {
+		voice.player.SetVolume(m.musicVolumeLocked(voice.trackKey, voice.fade.value))
 	}
-	progress := float64(now.Sub(voice.fadeStarted)) / float64(voice.fadeDuration)
-	gain := equalPowerGain(voice.fadeFrom, voice.fadeTo, progress)
-	if gain != voice.gain {
-		voice.gain = gain
-		voice.player.SetVolume(m.musicVolumeLocked(voice.trackKey, voice.gain))
-	}
-	if progress < 1 {
-		return false
-	}
-	voice.fadeDuration = 0
-	voice.fadeFrom = voice.fadeTo
-	return true
+	return done
 }
 
 func (m *Manager) beginLoopCrossfadeLocked(now time.Time) {
@@ -1188,10 +1333,10 @@ func (m *Manager) beginLoopCrossfadeLocked(now time.Time) {
 	}
 	track := m.musicTracks[m.desiredMusic]
 	loopFade := time.Duration(m.catalog.Music.LoopCrossfadeMS) * time.Millisecond
-	if track == nil || track.duration <= loopFade || current.player.Position() < track.duration-loopFade {
+	if track == nil || current.player.Position() < track.loop.end-loopFade {
 		return
 	}
-	if m.startMusicVoiceLocked(m.desiredMusic, loopFade, now, musicStartFresh) == nil {
+	if m.startMusicVoiceLocked(m.desiredMusic, loopFade, now, musicStartLoop) == nil {
 		return
 	}
 	m.fadeMusicVoiceLocked(current, 0, loopFade, true, now)
@@ -1223,6 +1368,7 @@ func (m *Manager) Update() {
 	}
 	m.musicVoices = kept
 	m.beginLoopCrossfadeLocked(now)
+	m.updateDuckLocked(now)
 }
 
 func (m *Manager) rememberMusicResumeLocked(voice *musicVoice) {
@@ -1243,10 +1389,10 @@ func musicResumeRemaining(track *musicTrack, player musicPlayer, loopCrossfadeMS
 	}
 	position := player.Position()
 	loopFade := time.Duration(loopCrossfadeMS) * time.Millisecond
-	if position < 0 || position >= track.duration-loopFade {
+	if position < 0 || position >= track.loop.end-loopFade {
 		return 0
 	}
-	return track.duration - position
+	return track.loop.end - position
 }
 
 // Close releases every pooled player. The process-wide context is owned by

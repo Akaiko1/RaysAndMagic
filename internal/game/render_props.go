@@ -218,7 +218,7 @@ func (r *Renderer) collectPropModels() {
 			continue
 		}
 		brightness := r.calculateBrightnessWithTorchLight(npc.X, npc.Y, dist)
-		if dist <= InteractionDistance && g.worldClickAllowed() {
+		if dist <= InteractionDistance && g.worldClickAllowed() && g.npcTakesInteraction(npc) {
 			x, y := g.worldCursorPosition()
 			if g.propModelHitTest(npc, x, y) {
 				brightness *= standeeHoverBoost

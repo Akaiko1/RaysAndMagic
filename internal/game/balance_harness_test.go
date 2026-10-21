@@ -255,3 +255,28 @@ func TestBalanceArenaStartsClean(t *testing.T) {
 		t.Fatal("no party's preparation raised its max HP; the rested-start rule checks nothing")
 	}
 }
+
+// In real time the party acts through the live path (whoever is ready) and
+// the fight never enters turn-based mode.
+func TestBalanceArenaRealTime(t *testing.T) {
+	a := newBalanceArena(t)
+	a.rt = true
+	f := a.fight("rogues", 15, []string{"goblin"})
+	if a.g.turnBasedMode {
+		t.Fatal("a real-time fight switched to turn-based mode")
+	}
+	if !f.Won {
+		t.Fatalf("real-time fight lost or stalled after %d rounds", f.Rounds)
+	}
+	acted := 0
+	for who, kinds := range f.Actions {
+		if who != "party" {
+			for _, n := range kinds {
+				acted += n
+			}
+		}
+	}
+	if acted == 0 {
+		t.Fatalf("no hero acted: %v", f.Actions)
+	}
+}

@@ -65,4 +65,26 @@ func TestUpdateFocusedNPC_CenterAndRangeRules(t *testing.T) {
 	if g.focusedNPC != nil {
 		t.Fatalf("visited statue: focused = %s, want nil", name())
 	}
+
+	// A person already talked to keeps focus.
+	ahead.HideWhenVisited = false
+	g.updateFocusedNPC()
+	if g.focusedNPC != ahead {
+		t.Fatalf("talked-to person: focused = %s, want Ahead", name())
+	}
+
+	// A used walk-up prop that stays in the world (an opened barrel) takes no
+	// focus, so no Space prompt: the full crate just behind it gets it.
+	opened := &character.NPC{Type: character.NPCTypeLootCrate, RenderCategory: "scenery", Name: "Opened", X: g.camera.X + tile/2, Y: g.camera.Y, Visited: true}
+	full := &character.NPC{Type: character.NPCTypeLootCrate, RenderCategory: "scenery", Name: "Full", X: g.camera.X + tile*0.8, Y: g.camera.Y}
+	w.NPCs = []*character.NPC{opened, full}
+	g.updateFocusedNPC()
+	if g.focusedNPC != full {
+		t.Fatalf("opened crate in front: focused = %s, want Full", name())
+	}
+	full.Visited = true
+	g.updateFocusedNPC()
+	if g.focusedNPC != nil {
+		t.Fatalf("both crates used: focused = %s, want nil", name())
+	}
 }

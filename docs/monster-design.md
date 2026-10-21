@@ -191,13 +191,14 @@ ability needs both a log line and a row in `balanceAbilities`
 
 The sweep sends every [bench party](test-scenarios.md#benchmark-parties)
 (levels 15, 20, 25 and 30) against every encounter within five levels of
-its own. The fights are turn-based and run through the real combat loop:
+its own. The fights run through the real combat loop, turn-based by default:
 
     go test -tags balance ./internal/game -run TestBalanceSweep -v
 
-`BALANCE_LEVEL`, `BALANCE_PARTY` and `BALANCE_KIND` narrow the run, and
-`BALANCE_TRIALS` sets the fights per cell (default 10). `BALANCE_OUT` writes
-every cell as JSON. A full sweep takes under a minute.
+`BALANCE_MODE=rt` runs the same fights in real time. `BALANCE_LEVEL`,
+`BALANCE_PARTY` and `BALANCE_KIND` narrow the run, and `BALANCE_TRIALS` sets
+the fights per cell (default 10). `BALANCE_OUT` writes every cell as JSON. A
+full turn-based sweep takes under a minute; real time takes longer.
 
 The party plays like a sensible player:
 
@@ -205,8 +206,10 @@ The party plays like a sensible player:
   Wayfarer's autocast.
 - It smart-attacks the nearest enemy. That one action heals a wounded ally,
   casts the readied spell, throws the readied flask, arms the readied trap,
-  or strikes.
-- If most of the party fights in melee, it advances first.
+  or strikes. In real time it keeps attacking like a held key: the game
+  hands each action to whichever hero is ready.
+- If most of the party fights in melee, it advances first; in real time it
+  walks in. A party with nothing in reach steps closer.
 - It revives a fallen hero from a quick slot.
 - Heroes drink potions on their own below 35% HP (`characters.auto_drink`),
   as in the game.
@@ -232,7 +235,8 @@ The report also lists:
 
 The sweep does not cover these yet:
 
-- real-time combat, whose mechanics differ and need their own pass;
+- real-time tactics: the party never kites, retreats or splits a pack, and a
+  round in real time is three seconds of play;
 - quick-slot spells other than revives;
 - spell choice that takes resistances into account.
 

@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/colorm"
 )
 
 // The paper is artwork; every geographic mark comes from the live world.
@@ -47,6 +48,7 @@ type worldAtlas struct {
 	bucketStride                    int
 	tileMarks                       []atlasTileMark
 	portals                         []image.Point
+	greyIcons                       uiColorBake
 }
 
 type atlasTileMark struct {
@@ -58,7 +60,8 @@ func (a *worldAtlas) release() {
 	if a.terrain != nil {
 		a.terrain.Deallocate()
 	}
-	*a = worldAtlas{}
+	a.greyIcons.release()
+	*a = worldAtlas{greyIcons: a.greyIcons}
 }
 
 func atlasRegions(w *world.World3D) []world.OpenWorldRegion {
@@ -364,19 +367,22 @@ func (ui *UISystem) drawAtlasMarkers(screen *ebiten.Image, p atlasProjection) {
 	g := ui.game
 	ts := float64(g.config.GetTileSize())
 	iconSize := math.Max(14, math.Min(26, p.scale*2.4))
-	for _, npc := range g.world.NPCs {
-		if !g.npcMapMarkerVisible(npc) {
-			continue
-		}
-		x, y, ok := p.point(int(npc.X/ts), int(npc.Y/ts))
-		if ok {
-			ui.drawAtlasNamedIcon(screen, ui.atlasNPCIcon(npc), npc.Name, x, y, iconSize)
+	// Used props first, so live ones sit on top.
+	for _, spent := range []bool{true, false} {
+		for _, npc := range g.world.NPCs {
+			if g.npcPropSpent(npc) != spent || !g.npcMapMarkerVisible(npc) {
+				continue
+			}
+			x, y, ok := p.point(int(npc.X/ts), int(npc.Y/ts))
+			if ok {
+				ui.drawAtlasNamedIcon(screen, ui.atlasNPCIcon(npc), npc.Name, x, y, iconSize, spent)
+			}
 		}
 	}
 	for _, tile := range ui.atlas.portals {
 		x, y, ok := p.point(tile.X, tile.Y)
 		if ok {
-			ui.drawAtlasIcon(screen, g.atlasStyle.PortalIcon, x, y, iconSize)
+			ui.drawAtlasIcon(screen, g.atlasStyle.PortalIcon, x, y, iconSize, false)
 		}
 	}
 	// Bosses use the current roster and position, never cached spawn markers.
@@ -387,7 +393,7 @@ func (ui *UISystem) drawAtlasMarkers(screen *ebiten.Image, p atlasProjection) {
 		}
 		x, y, ok := p.point(int(boss.X/ts), int(boss.Y/ts))
 		if ok {
-			ui.drawAtlasNamedIcon(screen, g.atlasStyle.BossIcon, boss.Name, x, y, math.Max(22, iconSize))
+			ui.drawAtlasNamedIcon(screen, g.atlasStyle.BossIcon, boss.Name, x, y, math.Max(22, iconSize), false)
 		}
 	}
 	if g.questManager != nil {
@@ -502,7 +508,7 @@ func (ui *UISystem) drawAtlasLegend(screen *ebiten.Image, r layoutRect) {
 			break
 		}
 		if e.icon != "" {
-			ui.drawAtlasIcon(screen, e.icon, float32(x+8), float32(r.y+10), 22)
+			ui.drawAtlasIcon(screen, e.icon, float32(x+8), float32(r.y+10), 22, false)
 		} else {
 			atlasMarker(screen, float32(x+7), float32(r.y+9), 4, e.c, e.quest)
 		}
@@ -609,14 +615,34 @@ func (ui *UISystem) atlasNPCIcon(npc *character.NPC) string {
 	return ui.game.atlasStyle.RenderCategories[npcCatName[npcRenderCatOf(npc)]]
 }
 
-func (ui *UISystem) drawAtlasIcon(screen *ebiten.Image, key string, x, y float32, size float64) {
-	if ui.game.sprites != nil && ui.game.sprites.HasSprite(key) {
-		uiDrawImageScaled(screen, ui.game.sprites.GetSprite(key), float64(x)-size/2, float64(y)-size/2, size, size, nil)
+// atlasSpentFade fades a used object's grey icon into the parchment.
+var atlasSpentFade = func() *ebiten.DrawImageOptions {
+	op := &ebiten.DrawImageOptions{}
+	op.ColorScale.ScaleAlpha(0.55)
+	return op
+}()
+
+// atlasGreyInk turns an icon to grey ink.
+var atlasGreyInk = func() colorm.ColorM {
+	var cm colorm.ColorM
+	cm.ChangeHSV(0, 0, 1)
+	return cm
+}()
+
+func (ui *UISystem) drawAtlasIcon(screen *ebiten.Image, key string, x, y float32, size float64, spent bool) {
+	if ui.game.sprites == nil || !ui.game.sprites.HasSprite(key) {
+		return
 	}
+	img, op := ui.game.sprites.GetSprite(key), (*ebiten.DrawImageOptions)(nil)
+	if spent {
+		// Baked once (uiColorBake); a sprite still loading bakes when it lands.
+		img, op = ui.atlas.greyIcons.of(key, img), atlasSpentFade
+	}
+	uiDrawImageScaled(screen, img, float64(x)-size/2, float64(y)-size/2, size, size, op)
 }
 
-func (ui *UISystem) drawAtlasNamedIcon(screen *ebiten.Image, key, name string, x, y float32, size float64) {
-	ui.drawAtlasIcon(screen, key, x, y, size)
+func (ui *UISystem) drawAtlasNamedIcon(screen *ebiten.Image, key, name string, x, y float32, size float64, spent bool) {
+	ui.drawAtlasIcon(screen, key, x, y, size, spent)
 	mx, my := uiCursorPosition()
 	if image.Pt(mx, my).In(uiBounds(screen)) && math.Abs(float64(mx)-float64(x)) <= size/2 && math.Abs(float64(my)-float64(y)) <= size/2 {
 		ui.queueTooltip([]string{name}, mx+12, my+12)
@@ -647,7 +673,7 @@ func (ui *UISystem) drawAtlasTileIcons(screen *ebiten.Image, p atlasProjection) 
 		tile := mark.point
 		x, y, ok := p.point(tile.X, tile.Y)
 		if ok {
-			ui.drawAtlasIcon(screen, mark.icon, x, y, size)
+			ui.drawAtlasIcon(screen, mark.icon, x, y, size, false)
 		}
 	}
 }
