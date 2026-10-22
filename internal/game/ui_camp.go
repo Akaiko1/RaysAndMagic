@@ -17,6 +17,7 @@ const campHUDSprite = "icon_camp"
 
 type gameplayActionBarLayout struct {
 	bounds, quick, camp, auto layoutRect
+	quick2                    layoutRect // the second quick row, above quick; zero without it
 	hasQuick, hasAuto         bool
 }
 
@@ -29,11 +30,13 @@ func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 		return gameplayActionBarLayout{}, false
 	}
 	l := gameplayActionBarLayout{}
+	secondRow := false
 	if g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
 		if ch := g.party.Members[g.selectedChar]; ch != nil {
 			for _, it := range ch.QuickSlots {
 				l.hasQuick = l.hasQuick || it != nil
 			}
+			secondRow = ch.QuickSecondRow
 		}
 	}
 	for _, m := range g.party.Members {
@@ -48,6 +51,9 @@ func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 	bottom := max(campSize, partyTop-18)
 	if l.hasQuick {
 		l.quick = layoutRect{right - barW, bottom - barH, barW, barH}
+		if secondRow {
+			l.quick2 = layoutRect{l.quick.x, l.quick.y - quickSlotRowGap - barH, barW, barH}
+		}
 		right = l.quick.x - gap
 	}
 	l.camp = layoutRect{right - campSize, bottom - campSize, campSize, campSize}
@@ -61,6 +67,9 @@ func inGameActionBarLayout(g *MMGame) (gameplayActionBarLayout, bool) {
 		end = l.quick.right()
 	}
 	l.bounds.w = end - l.bounds.x
+	if l.quick2.w > 0 {
+		l.bounds = l.bounds.union(l.quick2)
+	}
 	return l, true
 }
 

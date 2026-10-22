@@ -20,7 +20,7 @@ func TestRareBookDisplayedPagesAndSources(t *testing.T) {
 			g.menuOpen = true
 			g.currentTab = TabSpellbook
 			g.selectedChar = 0
-			l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true)
+			l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true, 1)
 			for page := 0; page < pageCount(len(config.GlobalAlchemy.Recipes), l.rows); page++ {
 				for local := 0; local < l.rows; local++ {
 					idx := page*l.rows + local
@@ -90,7 +90,7 @@ func TestRareBookDisplayedPagesAndSources(t *testing.T) {
 // authored (roomy) scheme of both books.
 func TestRareBookLayoutSeparation(t *testing.T) {
 	h := newDisplayedModalHarness(t, 1920, 1080)
-	whole := computeRareBookLayout(computeTabbedMenuLayout(1280, gameplayViewportBottomWithPartyHUD(720)).content, false).detail
+	whole := computeRareBookLayout(computeTabbedMenuLayout(1280, gameplayViewportBottomWithPartyHUD(720)).content, false, 1).detail
 	kael := character.CreateCharacter("Kael", character.ClassWayfarer, h.g.config)
 	inside := func(r, outer layoutRect) bool {
 		return r.x >= outer.x && r.y >= outer.y && r.right() <= outer.right() && r.bottom() <= outer.bottom()
@@ -101,9 +101,25 @@ func TestRareBookLayoutSeparation(t *testing.T) {
 	forEachUIFont(t, func(t *testing.T) {
 		for _, size := range withInterfaceFrames(t, [][2]int{{1024, 768}, {1920, 1080}}) {
 			content := computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content
-			for _, alchemy := range []bool{false, true} {
-				l := computeRareBookLayout(content, alchemy)
-				where := fmt.Sprintf("%v alchemy=%v", size, alchemy)
+			for _, cell := range [][2]int{{0, 1}, {1, 1}, {0, 2}, {1, 2}} {
+				alchemy, quickRows := cell[0] == 1, cell[1]
+				l := computeRareBookLayout(content, alchemy, quickRows)
+				where := fmt.Sprintf("%v alchemy=%v rows=%d", size, alchemy, quickRows)
+				if quickRows == 2 {
+					// The page stays the one-row page; the pair sits side by
+					// side inside the source field, no higher than the one bar.
+					one := computeRareBookLayout(content, alchemy, 1)
+					page := l
+					page.quick, page.quick2 = one.quick, layoutRect{}
+					if !reflect.DeepEqual(page, one) {
+						t.Fatalf("%s: the second row changed the page", where)
+					}
+					if l.quick2.y != l.quick.y || l.quick2.w != l.quick.w || l.quick2.x < l.quick.right() ||
+						l.quick.x < l.inner.x || l.quick2.right() > l.inner.right() || l.quick.y < one.quick.y || l.quick.bottom() > l.hint.y {
+						t.Fatalf("%s: rows %+v and %+v are not a pair inside the footer of %+v", where, l.quick, l.quick2, one.quick)
+					}
+					continue
+				}
 				authored := size == [2]int{1920, 1080}
 				if l.frame.w*2 != l.frame.h*3 {
 					t.Fatalf("%s: artwork aspect ratio changed", where)
@@ -247,7 +263,7 @@ func TestRareBookTechniqueGestures(t *testing.T) {
 				g.menuOpen = true
 				g.currentTab = TabSpellbook
 				g.showPartyStats = true
-				l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, false)
+				l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, false, 1)
 				fp := installFakePointer(t)
 				for i, d := range config.GlobalTechniques.Techniques {
 					parts := rareBookRowParts(l.row(i))

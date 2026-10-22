@@ -184,6 +184,7 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 						item(*it)
 					}
 				}
+				mix(uint64(boolInt(ch.QuickSecondRow))) // moves the tabs' bars and pager
 			}
 		}
 	}

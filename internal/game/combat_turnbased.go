@@ -320,7 +320,8 @@ func (gl *GameLoop) monsterCombatStepTB(m *monster.Monster3D) {
 	if foe := m.AIFoe; foe != nil && foe.IsAlive() {
 		if gl.tryMonsterAttackFoeTurnBased(m, foe) {
 			// Claimed a distinct logical attack post and spent the turn striking.
-		} else {
+		} else if !gl.tryPhaseShiftTB(m) {
+			// Phase Shift is this turn's movement; without it the walk runs.
 			gl.monsterMoveTurnBased(m)
 		}
 		return

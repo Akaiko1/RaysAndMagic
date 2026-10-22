@@ -84,6 +84,7 @@ func TestDisplayedInputRejectsChangedIdentity(t *testing.T) {
 		}},
 		{"stack quantity", func(g *MMGame, _ *UISystem) { g.party.Inventory[0].Quantity++ }},
 		{"slot binding", func(g *MMGame, _ *UISystem) { it := g.party.Inventory[1]; g.party.Members[0].QuickSlots[0] = &it }},
+		{"second quick row", func(g *MMGame, _ *UISystem) { g.party.Members[0].QuickSecondRow = true }},
 		{"actor selection", func(g *MMGame, _ *UISystem) { g.selectedChar = 1 }},
 		{"roster replacement", func(g *MMGame, _ *UISystem) {
 			g.party.Members[0], g.party.Members[1] = g.party.Members[1], g.party.Members[0]

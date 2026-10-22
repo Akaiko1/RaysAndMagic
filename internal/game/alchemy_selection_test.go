@@ -216,7 +216,7 @@ func TestAlchemyDisplayedMaterialScrollAndSelection(t *testing.T) {
 			g.party.Members[0] = character.CreateCharacter("Elara", character.ClassAlchemist, g.config)
 			g.menuOpen, g.currentTab, g.selectedChar = true, TabSpellbook, 0
 			r := &config.GlobalAlchemy.Recipes[0]
-			l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true)
+			l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true, 1)
 			a := makeAlchemyMaterialLayout(l, r)
 			fp := installFakePointer(t)
 			oldWheel := pointerWheel
@@ -321,7 +321,7 @@ func TestAlchemyDisplayedMaterialScrollAndSelection(t *testing.T) {
 
 func TestAlchemyCategoriesAreSharedAcrossRecipes(t *testing.T) {
 	rareClassGame(t, character.ClassAlchemist, false)
-	l := computeRareBookLayout(layoutRect{0, 0, 1000, 700}, true)
+	l := computeRareBookLayout(layoutRect{0, 0, 1000, 700}, true, 1)
 	for _, recipe := range config.GlobalAlchemy.Recipes {
 		a := makeAlchemyMaterialLayout(l, &recipe)
 		count := map[string]int{}

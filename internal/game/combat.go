@@ -1784,9 +1784,13 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 	// outlive that foe when an earlier monster kills it; in that case this actor
 	// waits for the next shared retarget instead of falling into party combat.
 	if behavior == monsterPkg.AIBehaviorFightFoe {
-		if !cs.commitMonsterAttack(monster, monsterAttackDestination{foe: monster.AIFoe}, monsterAttackRealtime) && monsterInAttackTransit(monster) {
+		if cs.commitMonsterAttack(monster, monsterAttackDestination{foe: monster.AIFoe}, monsterAttackRealtime) {
+			return
+		}
+		if monsterInAttackTransit(monster) {
 			cs.game.releaseMonsterAttackPost(monster)
 		}
+		cs.tryPhaseShift(monster, false) // across a gap toward the foe, as toward the party
 		return
 	}
 

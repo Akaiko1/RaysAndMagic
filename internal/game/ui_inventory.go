@@ -22,7 +22,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 	mouseX, mouseY := pointerPosition()
 
-	layout := computeInventoryContentLayout(content)
+	layout := computeInventoryContentLayout(content, currentChar.QuickRows())
 	paperX, paperY, paperW, paperH := layout.paper.x, layout.paper.y, layout.paper.w, layout.paper.h
 
 	drawLabel := func(label string, r layoutRect, tint color.RGBA) {
@@ -114,8 +114,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, content layoutRec
 	ui.drawInventoryTabs(screen, layout.personalCategories.x, layout.personalCategories.y, layout.personalCategories.w, currentChar)
 	ui.drawInventoryBagGrid(screen, currentChar, layout.personalGrid, layout.personalPager, &ui.personalInventoryPage)
 	ui.drawInventoryBagGrid(screen, nil, layout.grid, layout.pager, &ui.inventoryPage)
-	drawCenteredUIText(screen, "Quick slots", layout.quickSlots.x, layout.quickSlots.y-quickSlotTabLabelSpace, layout.quickSlots.w, quickSlotTabLabelH)
-	ui.drawQuickSlotBar(screen, ui.game.selectedChar, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w, !ui.modalLayerOwnsInput())
+	ui.drawTabQuickSlots(screen, false, layout.quickSlots, layout.quickSlots2)
 
 	if len(tooltip) > 0 && tooltipHasItem {
 		lines := ui.appendCardArtHintRows(tooltip, itemCardKey(tooltipItem))
@@ -653,7 +652,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 		ui.game.selectedSpell = -1
 	}
 
-	bl := computeBookLayout(content)
+	bl := computeBookLayout(content, currentChar.QuickRows())
 	header := fmt.Sprintf("%s - Spellbook", currentChar.Name)
 	if ui.game.selectedSchool >= 0 && ui.game.selectedSchool < len(schools) {
 		header += " - " + schools[ui.game.selectedSchool].DisplayName() + " Magic"
@@ -759,7 +758,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, content layoutRec
 	ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput(), func() {
 		ui.game.selectedSpell = -1
 	})
-	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
+	ui.drawTabQuickSlots(screen, true, bl.quick, bl.quick2)
 	drawCenteredUIText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 

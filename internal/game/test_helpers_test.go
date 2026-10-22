@@ -161,6 +161,13 @@ func summonTileWorld(t *testing.T) (*MMGame, float64) {
 	return game, ts
 }
 
+// inGameQuickSlotBarLayout is row I of the in-game quick bar, as the action
+// rail lays it out, and whether the bar shows.
+func inGameQuickSlotBarLayout(g *MMGame) (layoutRect, bool) {
+	layout, visible := inGameActionBarLayout(g)
+	return layout.quick, visible && layout.hasQuick
+}
+
 func placePlayerAtTile(game *MMGame, tx, ty int, tileSize float64) {
 	game.camera.X = float64(tx)*tileSize + tileSize/2
 	game.camera.Y = float64(ty)*tileSize + tileSize/2

@@ -55,7 +55,7 @@ func TestTypedRowsReachItemAndSpellHovers(t *testing.T) {
 				case "equipped":
 					hero.Equipment[items.SlotMainHand] = item
 					content := computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content
-					paper := computeInventoryContentLayout(content).paper
+					paper := computeInventoryContentLayout(content, 1).paper
 					slot := inventoryPaperdollSlots[0]
 					for _, candidate := range inventoryPaperdollSlots {
 						if candidate.slot == items.SlotMainHand {

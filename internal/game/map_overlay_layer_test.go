@@ -183,7 +183,7 @@ func TestQuickSlotBarUnderModalIsNotInteractive(t *testing.T) {
 
 	// Control: with nothing modal up, that right click DOES bind the quick spell.
 	g.mouseRightClicks = []queuedClick{rightClick}
-	ui.drawQuickSlotBar(screen, 0, bar.x, bar.y, bar.w, true)
+	ui.drawQuickSlotBar(screen, 0, 0, bar.x, bar.y, bar.w, bar, true)
 	if len(g.mouseRightClicks) != 0 {
 		t.Fatal("control failed: an interactive bar ignored the right click")
 	}
@@ -192,7 +192,7 @@ func TestQuickSlotBarUnderModalIsNotInteractive(t *testing.T) {
 
 	// Under a modal layer the same click must be left alone.
 	g.mouseRightClicks = []queuedClick{rightClick}
-	ui.drawQuickSlotBar(screen, 0, bar.x, bar.y, bar.w, false)
+	ui.drawQuickSlotBar(screen, 0, 0, bar.x, bar.y, bar.w, bar, false)
 	if len(g.mouseRightClicks) != 1 {
 		t.Fatal("a decorative bar consumed a right click belonging to the modal above it")
 	}
@@ -334,7 +334,7 @@ func TestModalOpenedFromInventoryIgnoresOlderQueuedClicks(t *testing.T) {
 	}
 
 	hub := computeTabbedMenuLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g))
-	inv := computeInventoryContentLayout(hub.content)
+	inv := computeInventoryContentLayout(hub.content, 1)
 	x, y, w, h := scaleInventorySourceRect(inv.grid.x, inv.grid.y, inv.grid.w, inv.grid.w,
 		inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
 	itemClick := func(at int64) queuedClick { return queuedClick{x: x + w/2, y: y + h/2, at: at} }
@@ -389,7 +389,7 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 	}
 
 	hub := computeTabbedMenuLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g))
-	inv := computeInventoryContentLayout(hub.content)
+	inv := computeInventoryContentLayout(hub.content, 1)
 	x, y, w, h := scaleInventorySourceRect(inv.grid.x, inv.grid.y, inv.grid.w, inv.grid.w,
 		inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
 	itemClick := func(at int64) queuedClick { return queuedClick{x: x + w/2, y: y + h/2, at: at} }

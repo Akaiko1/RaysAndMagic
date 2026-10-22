@@ -115,7 +115,7 @@ func tabbedMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 
 func inventoryLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
-	l := computeInventoryContentLayout(menu.content)
+	l := computeInventoryContentLayout(menu.content, 1)
 	return namedLayoutBox("inventory-content", menu.content), []uiBox{
 		namedLayoutBox("personal-grid", l.personalGrid), namedLayoutBox("personal-pager", l.personalPager),
 		namedLayoutBox("shared-filters", l.categories),
@@ -160,7 +160,7 @@ func charactersLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 
 func bookLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	menu := computeTabbedMenuLayout(screenW, gameplayViewportBottomWithPartyHUD(screenH))
-	l := computeBookLayout(menu.content)
+	l := computeBookLayout(menu.content, 1)
 	return namedLayoutBox("book-content", menu.content), []uiBox{
 		namedLayoutBox("header", l.header),
 		{"book", l.bookX, l.bookY, l.bookW, l.bookH},

@@ -102,7 +102,7 @@ func TestTranslocatorDisplayedInventory(t *testing.T) {
 				owner = hero
 			}
 			g.party.Bag(owner).Add(items.CreateItemFromYAML("translocator"))
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 			grid := l.grid
 			if personal {
 				grid = l.personalGrid

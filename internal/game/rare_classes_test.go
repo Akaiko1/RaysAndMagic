@@ -852,7 +852,7 @@ func TestRareDisplayedAutocastCheckboxes(t *testing.T) {
 			g.currentTab = TabSpellbook
 			g.showPartyStats = true
 			content := computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content
-			l := computeRareBookLayout(content, false)
+			l := computeRareBookLayout(content, false, 1)
 			for i, d := range config.GlobalTechniques.Techniques {
 				if d.Automatic {
 					for _, want := range []bool{true, false, true} {

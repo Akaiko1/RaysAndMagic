@@ -189,6 +189,7 @@ type CharacterSave struct {
 	MagicSchools          []MagicSchoolEntry `json:"magic_schools"`
 	Equipment             []EquipmentEntry   `json:"equipment"`
 	QuickSlots            []QuickSlotEntry   `json:"quick_slots,omitempty"`
+	QuickSecondRow        bool               `json:"quick_second_row,omitempty"`
 	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
 	PoisonTickTimer       int                `json:"poison_tick_timer,omitempty"`
 	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty"`

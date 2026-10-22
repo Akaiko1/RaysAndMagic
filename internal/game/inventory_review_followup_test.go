@@ -31,7 +31,7 @@ func TestInventoryReviewPickedFragmentDisplayedDrop(t *testing.T) {
 					it.Quantity = 4
 					dst.Add(it)
 				}
-				l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+				l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 				srcRect, dstRect := l.grid, l.personalGrid
 				if personal {
 					srcRect, dstRect = dstRect, srcRect
@@ -237,7 +237,7 @@ func TestInventoryDropsFollowTheCell(t *testing.T) {
 			hero.Inventory = []items.Item{item("Iron Dagger", items.ItemWeapon, 0)}
 			slot := item("Health Potion", items.ItemConsumable, 2)
 			hero.QuickSlots = [character.QuickSlotCount]*items.Item{&slot}
-			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content)
+			l := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(g)).content, 1)
 			_, quick := quickSlotRects(l.quickSlots.x, l.quickSlots.y, l.quickSlots.w)
 			at := func(c cell) (int, int) {
 				switch c.bag {

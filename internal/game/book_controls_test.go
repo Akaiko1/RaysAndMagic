@@ -76,7 +76,7 @@ func bookControlsHarness(t *testing.T, trap, tb bool) (*displayedModalHarness, *
 	// A different existing quick action must survive direct book use.
 	actor.Equipment[items.SlotQuickAction] = items.Item{Name: "Previous quick action", Type: items.ItemUtilitySpell, SpellEffect: "heal"}
 	menu := computeTabbedMenuLayout(g.config.GetScreenWidth(), gameplayViewportBottom(g))
-	book := computeBookLayout(menu.content)
+	book := computeBookLayout(menu.content, 1)
 	x, y := book.cardPos(index % book.cardsPerSpread())
 	// Real displayed controls must resolve art from the same root as the game.
 	t.Chdir("../..")
@@ -312,7 +312,7 @@ func TestBookDifferentEntriesDoNotFormDoubleClick(t *testing.T) {
 				}
 				g.selectedSpell, g.selectedTrap = -1, -1
 				menu := computeTabbedMenuLayout(g.config.GetScreenWidth(), gameplayViewportBottom(g))
-				book := computeBookLayout(menu.content)
+				book := computeBookLayout(menu.content, 1)
 				if book.cardsPerSpread() < 2 {
 					t.Fatal("fixture requires both entries on the displayed page")
 				}

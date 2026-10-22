@@ -165,6 +165,79 @@ func TestPhaseShiftCrossesGapsOnlyWhenWalkingFails(t *testing.T) {
 	}
 }
 
+// A walker fighting a party summon across a gap blinks toward it as toward
+// the party (the summon soaks its aggro while shooting it from the far bank),
+// melee or ranged, and the log names the summon. The ranged walker's summon
+// stands out of range of the whole near bank. A blink never lands on the
+// party: in the last scene walls leave the party's row the only line across,
+// with the summon nearer to the walker three rows up. That scene is TB only:
+// an RT walker on the launch tile already has the party nearer than any
+// summon across the gap and blinks toward the party instead.
+func TestPhaseShiftCrossesTowardTheSummonItFights(t *testing.T) {
+	east := phaseTestGapX1 + 1
+	for _, tc := range []struct {
+		name, key         string
+		walkerX, summonX  int
+		party             [2]int // tile
+		partyOnTheLanding bool   // TB only
+	}{
+		{"melee", "solstice_cinder_hound", 12, east, [2]int{22, phaseTestRow}, false},
+		{"ranged", "solstice_ember_elemental", 14, east + 3, [2]int{24, phaseTestRow}, false},
+		{"party on the landing", "solstice_cinder_hound", 12, east, [2]int{east, phaseTestRow + 3}, true},
+	} {
+		for _, tb := range []bool{false, true} {
+			if tc.partyOnTheLanding && !tb {
+				continue
+			}
+			t.Run(tc.name+"/"+map[bool]string{false: "RT", true: "TB"}[tb], func(t *testing.T) {
+				game, gl, m, ts := phaseShiftScene(t, tb, "solstice_gap", [2]int{0, 39}, tc.key, tc.walkerX, 22)
+				// This driver runs no telegraph clock: a Cinder Charge wind-up at the
+				// summon would hold the hound for good.
+				m.Abilities.Telegraph = nil
+				if tc.partyOnTheLanding {
+					// The far bank: the party's row and a path from it round to
+					// the summon's posts, walls elsewhere.
+					open := map[[2]int]bool{{east, phaseTestRow}: true, {east, phaseTestRow + 3}: true,
+						{east + 1, phaseTestRow + 3}: true, {east + 1, phaseTestRow + 2}: true, {east + 1, phaseTestRow + 1}: true}
+					for y := range game.world.Height {
+						for x := east; x < game.world.Width; x++ {
+							if !open[[2]int{x, y}] {
+								game.world.Tiles[y][x] = world.TileWall
+							}
+						}
+					}
+					game.collisionSystem.UpdateTileChecker(game.world)
+				}
+				placePlayerAtTile(game, tc.party[0], tc.party[1], ts)
+				x, y := TileCenterFromTile(tc.summonX, phaseTestRow, ts) // nearer than the party
+				summon := monster.NewMonster3DFromConfig(x, y, "frost_elemental", game.config)
+				markCardAlly(summon)
+				summon.Speed = 0 // holds its tile: distances stay as staged
+				game.world.Monsters = append(game.world.Monsters, summon)
+				game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+				game.refreshMonsterAIState()
+				if m.AIFoe != summon {
+					t.Fatalf("fixture: the walker fights %v, want the summon", m.AIFoe)
+				}
+				updates := 2400
+				if tb {
+					updates = 30
+				}
+				if blinked, at := runPhaseShiftScene(game, gl, m, ts, updates); !blinked {
+					t.Fatalf("no blink toward the summon (walker at tile %d)", at)
+				}
+				if landing := [2]int{TileIndex(m.X, ts), TileIndex(m.Y, ts)}; landing == tc.party {
+					t.Fatalf("blinked onto the party's tile %v", landing)
+				}
+				want := "phase-shifts toward " + summon.Name
+				if !slices.ContainsFunc(game.GetCombatMessages(), func(line string) bool { return strings.Contains(line, want) }) {
+					t.Fatalf("no %q line", want)
+				}
+			})
+		}
+	}
+}
+
 // Every melee chamber mob with Phase Shift crosses every authored jump link of
 // its chamber toward a party waiting past the far end, in both modes and both
 // directions: the gaps that used to leave them staring at the party. Ranged
@@ -421,8 +494,8 @@ func TestPhaseShiftUnreachableLaunchDoesNotSearchEveryTick(t *testing.T) {
 	game.collisionSystem.UpdateTileChecker(game.world)
 	px, py := game.combat.logicalCameraXY()
 	m.PhasePlan = monster.PhaseShiftPlan{Planned: true, Active: true, Launch: pocket,
-		From:  monster.TileCoord{X: TileIndex(m.X, ts), Y: TileIndex(m.Y, ts)},
-		Party: monster.TileCoord{X: TileIndex(px, ts), Y: TileIndex(py, ts)}}
+		From:   monster.TileCoord{X: TileIndex(m.X, ts), Y: TileIndex(m.Y, ts)},
+		Target: monster.TileCoord{X: TileIndex(px, ts), Y: TileIndex(py, ts)}}
 	before := m.PathSearchCount
 	for i := 0; i < 60; i++ {
 		stepMonstersRT(game, gl)

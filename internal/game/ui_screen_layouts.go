@@ -11,6 +11,12 @@ type layoutRect struct{ x, y, w, h int }
 func (r layoutRect) right() int  { return r.x + r.w }
 func (r layoutRect) bottom() int { return r.y + r.h }
 
+// union is the smallest rect holding r and o.
+func (r layoutRect) union(o layoutRect) layoutRect {
+	x, y := min(r.x, o.x), min(r.y, o.y)
+	return layoutRect{x, y, max(r.right(), o.right()) - x, max(r.bottom(), o.bottom()) - y}
+}
+
 func layoutRectOf(r image.Rectangle) layoutRect { return layoutRect{r.Min.X, r.Min.Y, r.Dx(), r.Dy()} }
 
 const (
@@ -99,12 +105,16 @@ type inventoryContentLayout struct {
 	paper, grid, personalGrid                  layoutRect
 	pager, personalPager                       layoutRect
 	categories, personalCategories, quickSlots layoutRect
+	quickSlots2                                layoutRect // the second quick row, beside quickSlots; zero without it
 	headings                                   [3]layoutRect
 	resources                                  [2]layoutRect
 	textScale                                  int
 }
 
-func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
+// computeInventoryContentLayout lays the tab out for quickRows quick-slot bars
+// (the selected hero's QuickRows). The bags are the same for either; a second
+// row sits beside the first at the foot of the bag column.
+func computeInventoryContentLayout(content layoutRect, quickRows int) inventoryContentLayout {
 	// Compact windows give the bags more of the available width. The paperdoll
 	// retains its aspect ratio, while text switches only between native and 2x.
 	textScale, gap := readingTextScale, 24
@@ -150,6 +160,10 @@ func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
 	pager := layoutRect{shared.x + (gs-pagerW)/2, shared.bottom() + 8, pagerW, pagerBtnH}
 	personalPager := layoutRect{personal.x + (gs-pagerW)/2, personal.bottom() + 8, pagerW, pagerBtnH}
 	quick := layoutRect{personal.x + (shared.right()-personal.x-quickW)/2, top + blockH - quickH, quickW, quickH}
+	var quick2 layoutRect
+	if quickRows > 1 {
+		quick, quick2 = quickSlotPair(quick, layoutRect{personal.x, quick.y, shared.right() - personal.x, quickH})
+	}
 	resourceY := top + labelH + 8
 	filterY := resourceY + (topH-labelH-18-filterH)/2
 	resources := [2]layoutRect{{paper.x, resourceY, pw, labelH}, {paper.x, resourceY + labelH, pw, labelH}}
@@ -159,7 +173,7 @@ func computeInventoryContentLayout(content layoutRect) inventoryContentLayout {
 	return inventoryContentLayout{
 		textScale: textScale,
 		paper:     paper, grid: shared, personalGrid: personal, pager: pager, personalPager: personalPager,
-		categories: layoutRect{shared.x, filterY, gs, filterH}, personalCategories: layoutRect{personal.x, filterY, gs, filterH}, quickSlots: quick,
+		categories: layoutRect{shared.x, filterY, gs, filterH}, personalCategories: layoutRect{personal.x, filterY, gs, filterH}, quickSlots: quick, quickSlots2: quick2,
 		headings:  [3]layoutRect{{paper.x, top, pw, labelH}, {personal.x, top, gs, labelH}, {shared.x, top, gs, labelH}},
 		resources: resources,
 	}

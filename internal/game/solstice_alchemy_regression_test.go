@@ -120,7 +120,7 @@ func TestSolsticeAlchemyDisplayedBrewing(t *testing.T) {
 			g.party.Members[0] = character.CreateCharacter("Alchemist", character.ClassAlchemist, g.config)
 			g.menuOpen, g.showPartyStats, g.currentTab, g.selectedChar = true, true, TabSpellbook, 0
 			g.world.Monsters = nil
-			l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true)
+			l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true, 1)
 			for ri := range config.GlobalAlchemy.Recipes {
 				r := &config.GlobalAlchemy.Recipes[ri]
 				if !strings.HasPrefix(r.Key, "solstice_") {

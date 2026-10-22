@@ -25,9 +25,10 @@ type PhaseShiftPlan struct {
 	Planned, Active bool
 	Launch, Landing TileCoord
 	Walk            int // tiles from the planning tile to Launch
-	// The tiles the plan was made for; a change forces a fresh plan.
-	From, Party TileCoord
-	Age         int
+	// The tiles the plan was made for (the monster's, its target's); a change
+	// forces a fresh plan.
+	From, Target TileCoord
+	Age          int
 }
 
 // CanPhaseShift reports an authored Phase Shift on a walker.

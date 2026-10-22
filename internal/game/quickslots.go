@@ -14,10 +14,12 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Quick slots: a per-character 5-cell pocket for mouse-driven quick use. While a
-// character tab (inventory/spellbook) is open the bar is shown below the panel
-// and accepts drag-and-drop (items from the bag, spells from the book). In game
-// the bar floats above the party cards and double-click uses the slot:
+// Quick slots: a per-character 5-cell pocket for mouse-driven quick use, with an
+// optional second row (QuickSecondRow, ticked beside the bar in the tabs) stacked
+// above the first. While a character tab (inventory/spellbook) is open the bars
+// are shown below the panel and accept drag-and-drop (items from the bag, spells
+// from the book). In game they float above the party cards and double-click
+// uses a slot:
 //   weapon -> equip/swap, potion -> drink one, spell -> cast.
 // Independent of the F/Space quick action (see character.QuickSlots doc).
 
@@ -27,6 +29,8 @@ const (
 	quickSlotTabLabelH     = 14
 	quickSlotTabLabelGap   = 1
 	quickSlotTabLabelSpace = quickSlotTabLabelH + quickSlotTabLabelGap
+	// quickSlotRowGap separates the second row's bar from the first.
+	quickSlotRowGap = 4
 )
 
 // quickSlotCellFrac is each cell as a CENTER + square side (fractions of the
@@ -34,7 +38,7 @@ const (
 // item icon drawn here REPLACES that window's frame (no double border); empty
 // slots simply show the frame sprite's ornate window. Measured from
 // quick_slots_bar.png (cx evenly spaced, cy centred, side ~ gold-window width).
-var quickSlotCellFrac = [character.QuickSlotCount]struct{ cx, cy, side float64 }{
+var quickSlotCellFrac = [character.QuickSlotsPerRow]struct{ cx, cy, side float64 }{
 	{0.1357, 0.499, 0.164},
 	{0.3172, 0.499, 0.164},
 	{0.4988, 0.499, 0.164},
@@ -54,9 +58,9 @@ const (
 	dragFromEquip // an equipped item dragged off the paperdoll
 )
 
-// quickSlotRects returns the bar height and the 5 cell rects for a bar drawn at
+// quickSlotRects returns the bar height and the cell rects of one bar drawn at
 // (barX, barY) with width barW.
-func quickSlotRects(barX, barY, barW int) (barH int, slots [character.QuickSlotCount]image.Rectangle) {
+func quickSlotRects(barX, barY, barW int) (barH int, slots [character.QuickSlotsPerRow]image.Rectangle) {
 	barH = int(float64(barW) / quickSlotBarAspect)
 	side := int(quickSlotCellFrac[0].side * float64(barW))
 	for i, f := range quickSlotCellFrac {
@@ -67,24 +71,62 @@ func quickSlotRects(barX, barY, barW int) (barH int, slots [character.QuickSlotC
 	return
 }
 
+// quickSlotPair puts row II beside row I in place of a tab's one-row bar: the
+// pair shares the span's width, is never taller than the bar and keeps its
+// foot, so a second row takes no page height.
+func quickSlotPair(bar, span layoutRect) (quick, quick2 layoutRect) {
+	w := min(bar.w, (span.w-quickSlotRowGap)/2)
+	h := int(float64(w) / quickSlotBarAspect)
+	pairW := 2*w + quickSlotRowGap
+	x := max(span.x, min(bar.x+(bar.w-pairW)/2, span.right()-pairW))
+	y := bar.bottom() - h
+	return layoutRect{x, y, w, h}, layoutRect{x + w + quickSlotRowGap, y, w, h}
+}
+
 func ptInRect(x, y int, r image.Rectangle) bool {
 	return x >= r.Min.X && x < r.Max.X && y >= r.Min.Y && y < r.Max.Y
 }
 
-// drawQuickSlotBar renders the frame + the character's slot icons at (barX,barY)
-// width barW, wires each cell as a drag source / drop target, and returns the
-// slot rects so callers can add their own click logic. interactive=false draws
-// it as pure decoration: a bar under a modal layer must not bind a quick spell
-// on a right click or start a drag, even though it stays visible beneath.
-func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, barW int, interactive bool) [character.QuickSlotCount]image.Rectangle {
+// drawQuickSlotRows draws the character's quick-slot bars: row I at quick and,
+// with the second row on, row II at quick2 (zero otherwise). It returns every
+// cell rect by slot index (row II cells stay empty with one row) so callers
+// can add their own click logic. interactive=false draws them as pure
+// decoration: bars under a modal layer must not bind a quick spell on a right
+// click or start a drag, even though they stay visible beneath.
+func (ui *UISystem) drawQuickSlotRows(screen *ebiten.Image, charIdx int, quick, quick2 layoutRect, interactive bool) [character.QuickSlotCount]image.Rectangle {
+	var cells [character.QuickSlotCount]image.Rectangle
+	strip := quickSlotStrip(quick, quick2)
+	for row, r := range [2]layoutRect{quick, quick2} {
+		if r.w <= 0 {
+			continue
+		}
+		bar := ui.drawQuickSlotBar(screen, charIdx, row, r.x, r.y, r.w, strip, interactive)
+		copy(cells[row*character.QuickSlotsPerRow:], bar[:])
+	}
+	return cells
+}
+
+// quickSlotStrip is the box holding both rows (row I alone without row II).
+func quickSlotStrip(quick, quick2 layoutRect) layoutRect {
+	if quick2.w <= 0 {
+		return quick
+	}
+	return quick.union(quick2)
+}
+
+// drawQuickSlotBar renders one row's frame + slot icons at (barX,barY) width
+// barW and wires each cell as a drag source / drop target. strip is every row
+// drawn together, which the hover card keeps clear of.
+func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, row, barX, barY, barW int, strip layoutRect, interactive bool) [character.QuickSlotsPerRow]image.Rectangle {
 	_, slots := quickSlotRects(barX, barY, barW)
 	barH := int(float64(barW) / quickSlotBarAspect)
 	drawImageScaled(screen, ui.game.sprites.GetSprite(quickSlotBarSprite), barX, barY, barW, barH)
 
 	ch := ui.game.party.Members[charIdx]
 	mouseX, mouseY := uiCursorPosition()
-	for i := 0; i < character.QuickSlotCount; i++ {
-		r := slots[i]
+	for cell := range character.QuickSlotsPerRow {
+		i := row*character.QuickSlotsPerRow + cell
+		r := slots[cell]
 		if interactive {
 			ui.quickSlotCellInteract(charIdx, i, r)
 		}
@@ -109,7 +151,7 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 		if ptInRect(mouseX, mouseY, r) {
 			drawRectBorder(screen, r.Min.X-2, r.Min.Y-2, r.Dx()+4, r.Dy()+4, 2, color.RGBA{210, 170, 80, 230})
 			if interactive && item != nil && !ui.game.drag.active {
-				ui.hoverQuickSlot(charIdx, i, *item, ch, layoutRect{barX, barY, barW, barH}, mouseX+16, mouseY+8)
+				ui.hoverQuickSlot(charIdx, i, *item, ch, strip, mouseX+16, mouseY+8)
 			}
 		}
 	}
@@ -719,24 +761,83 @@ func (ui *UISystem) drawDragCarried(screen *ebiten.Image) {
 
 }
 
-// drawTabQuickSlotBar places the quick-slot bar at (barX,barY) width barW, with a
-// label above it. Callers position it in the free space of the open tab so it
-// clears the panel art.
-func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW int) {
-	label := "Quick Slots - drag items / spells here"
-	if uiTextWidth(label) > barW {
-		label = "Quick Slots"
+// drawTabQuickSlots draws the selected character's quick-slot bars in a tab -
+// row I (quick) and row II (quick2, zero with one row) - with the caption and
+// the second-row check box on the line above them. Callers position the bars
+// in the free space of the open tab so they clear the panel art. withHint
+// tries the caption with the drag hint first.
+func (ui *UISystem) drawTabQuickSlots(screen *ebiten.Image, withHint bool, quick, quick2 layoutRect) {
+	g := ui.game
+	bars := quickSlotStrip(quick, quick2)
+	line := layoutRect{bars.x, bars.y - quickSlotTabLabelSpace, bars.w, quickSlotTabLabelH}
+	check := ui.drawQuickSecondRowCheck(screen, g.party.Members[g.selectedChar], line)
+	// The longest caption that clears the check box: centred over the bar,
+	// else from the bar's left edge.
+	captions := [2]string{uitext.Text("ui.quick_slots_drag_hint"), uitext.Text("ui.quick_slots")}
+	first := 1
+	if withHint {
+		first = 0
 	}
-	drawCenteredUIText(screen, label,
-		barX, barY-quickSlotTabLabelSpace, barW, quickSlotTabLabelH)
-	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW, !ui.modalLayerOwnsInput())
+	for _, caption := range captions[first:] {
+		w := uiTextWidth(caption)
+		if line.x+(line.w+w)/2 <= check.x-6 {
+			drawCenteredUIText(screen, caption, line.x, line.y, line.w, line.h)
+			break
+		}
+		if line.x+w <= check.x-6 {
+			drawCenteredUIText(screen, caption, line.x, line.y, w, line.h)
+			break
+		}
+	}
+	ui.drawQuickSlotRows(screen, g.selectedChar, quick, quick2, !ui.modalLayerOwnsInput())
 }
 
-// inGameQuickSlotBarLayout uses the shared gameplay action rail so item hit
-// regions, camping and the other HUD overlays agree on their occupied space.
-func inGameQuickSlotBarLayout(g *MMGame) (layoutRect, bool) {
-	layout, visible := inGameActionBarLayout(g)
-	return layout.quick, visible && layout.hasQuick
+// drawQuickSecondRowCheck is the second-row check box, right-aligned on the
+// caption line: box and label are one target. Returns its rect.
+func (ui *UISystem) drawQuickSecondRowCheck(screen *ebiten.Image, ch *character.MMCharacter, line layoutRect) layoutRect {
+	label := uitext.Text("ui.quick_second_row")
+	const box, pad = 11, 4
+	w := box + pad + uiTextWidth(label)
+	r := layoutRect{line.right() - w, line.y, w, line.h}
+	live := !ui.modalLayerOwnsInput()
+	mx, my := uiCursorPosition()
+	hover := live && isMouseHoveringBox(mx, my, r.x, r.y-2, r.right(), r.bottom()+2)
+	edge, ink := gameplayInk.muted, gameplayInk.muted
+	if hover || ch.QuickSecondRow {
+		edge, ink = gameplayInk.focus, gameplayInk.heading
+	}
+	drawBuildCheck(screen, layoutRect{r.x, r.y + (r.h-box)/2, box, box}, ch.QuickSecondRow, edge)
+	drawUITextColored(screen, label, r.x+box+pad, r.y+(r.h-uiTextCharHeight)/2, ink)
+	hit := layoutRect{r.x, r.y - 2, r.w, r.h + 4}
+	ui.onGatedClick(hit, func() bool { return !ui.modalLayerOwnsInput() }, func() {
+		ui.game.setQuickSecondRow(ch, !ch.QuickSecondRow)
+	})
+	if hover {
+		ui.queueTooltip([]string{uitext.Text("ui.quick_second_row_hint")}, mx+12, my+12)
+	}
+	return r
+}
+
+// setQuickSecondRow turns a hero's second quick-slot row on or off. Off sends
+// its items back to the hero's bag; spells, traps, techniques and flask
+// shortcuts belong to their books and just leave the bar.
+func (g *MMGame) setQuickSecondRow(ch *character.MMCharacter, on bool) {
+	if ch == nil || ch.QuickSecondRow == on {
+		return
+	}
+	if !on {
+		if g.drag.active && g.dragSrc == dragFromQuickSlot && g.dragQuickSlot >= character.QuickSlotsPerRow &&
+			g.dragQuickChar >= 0 && g.dragQuickChar < len(g.party.Members) && g.party.Members[g.dragQuickChar] == ch {
+			g.clearDrag()
+		}
+		for i := character.QuickSlotsPerRow; i < character.QuickSlotCount; i++ {
+			if it := ch.QuickSlots[i]; it != nil {
+				ch.QuickSlots[i] = nil
+				g.returnQuickItemToInventory(*it, ch)
+			}
+		}
+	}
+	ch.QuickSecondRow = on
 }
 
 // drawInGameQuickSlots floats the bar above the party cards, right-aligned to the
@@ -745,15 +846,14 @@ func inGameQuickSlotBarLayout(g *MMGame) (layoutRect, bool) {
 // quick items.
 func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
 	g := ui.game
-	bar, visible := inGameQuickSlotBarLayout(g)
-	if !visible {
+	layout, visible := inGameActionBarLayout(g)
+	if !visible || !layout.hasQuick {
 		return
 	}
 	ch := g.party.Members[g.selectedChar]
-
-	slots := ui.drawQuickSlotBar(screen, g.selectedChar, bar.x, bar.y, bar.w, !ui.hudClicksBlocked())
-	for i := 0; i < character.QuickSlotCount; i++ {
-		if ch.QuickSlots[i] == nil {
+	slots := ui.drawQuickSlotRows(screen, g.selectedChar, layout.quick, layout.quick2, !ui.hudClicksBlocked())
+	for i := range character.QuickSlotCount {
+		if ch.QuickSlots[i] == nil || slots[i].Empty() {
 			continue
 		}
 		r := slots[i]

@@ -342,6 +342,7 @@ func readyBuildActions(m *character.MMCharacter, action string, quick []string) 
 		}
 		m.QuickSlots[i] = &it
 	}
+	m.QuickSecondRow = len(quick) > character.QuickSlotsPerRow
 	return nil
 }
 

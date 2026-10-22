@@ -22,6 +22,7 @@ func hasRareBook(c *character.MMCharacter) bool {
 // Keep one source scale; the title and the entire quick-slot unit stay inside it.
 type rareBookLayout struct {
 	frame, inner, header, list, detail, quick, hint layoutRect
+	quick2                                          layoutRect // the second quick row, beside quick; zero without it
 	rows, rowHeight, rowGap                         int
 	rowsTop                                         int  // y of the first row
 	listTitle                                       bool // the list heading fits above the rows
@@ -39,7 +40,10 @@ const (
 	rareBookListTitle = 24
 )
 
-func computeRareBookLayout(content layoutRect, alchemist bool) rareBookLayout {
+// computeRareBookLayout lays the book out for quickRows quick-slot bars (the
+// selected hero's QuickRows). The page is the same for either; a second row
+// sits beside the first.
+func computeRareBookLayout(content layoutRect, alchemist bool, quickRows int) rareBookLayout {
 	frameH := min(720, content.h, content.w*2/3)
 	frameH -= frameH % 2
 	frameW := frameH * 3 / 2
@@ -52,8 +56,13 @@ func computeRareBookLayout(content layoutRect, alchemist bool) rareBookLayout {
 	hint := layoutRect{inner.x, inner.bottom() - 16, inner.w, 16}
 	quick := layoutRect{frame.x + (frame.w-300)/2, hint.y - 8 - 64, 300, 64}
 	body := layoutRect{inner.x, header.bottom() + 8, inner.w, quick.y - quickSlotTabLabelSpace - 12 - header.bottom() - 8}
+	var quick2 layoutRect
+	if quickRows > 1 {
+		quick.h = int(float64(quick.w) / quickSlotBarAspect) // as drawn: a touch taller than the box
+		quick, quick2 = quickSlotPair(quick, inner)
+	}
 	left := body.w * 36 / 100
-	l := rareBookLayout{frame: frame, inner: inner, header: header, hint: hint, quick: quick,
+	l := rareBookLayout{frame: frame, inner: inner, header: header, hint: hint, quick: quick, quick2: quick2,
 		list: layoutRect{body.x, body.y, left, body.h}, detail: layoutRect{body.x + left + 12, body.y, body.w - left - 12, body.h}}
 	l.listTitle, l.rowsTop, l.rowGap = true, l.list.y+rareBookListTitle, 6
 	l.rowHeight = 54
@@ -265,7 +274,7 @@ func (ui *UISystem) drawRareClassBook(screen *ebiten.Image, content layoutRect) 
 	if !alchemist {
 		title, art = "Pilgrim Techniques", "pilgrim_technique_panel"
 	}
-	l := computeRareBookLayout(content, alchemist)
+	l := computeRareBookLayout(content, alchemist, c.QuickRows())
 	if g.sprites.HasSprite(art) {
 		drawImageScaled(screen, g.sprites.GetSprite(art), l.frame.x, l.frame.y, l.frame.w, l.frame.h)
 	}
@@ -277,7 +286,7 @@ func (ui *UISystem) drawRareClassBook(screen *ebiten.Image, content layoutRect) 
 	} else {
 		ui.drawPilgrimTechniques(screen, c, l)
 	}
-	ui.drawTabQuickSlotBar(screen, l.quick.x, l.quick.y, l.quick.w)
+	ui.drawTabQuickSlots(screen, true, l.quick, l.quick2)
 	hint := "Click materials to select | Scroll list | Enter: brew"
 	if !alchemist {
 		hint = "Drag icons to quick slots | Enter: use | V: Fold | Shift+V: Return"

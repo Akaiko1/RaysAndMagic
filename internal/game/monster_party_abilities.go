@@ -184,7 +184,7 @@ func (cs *CombatSystem) blinkBehindParty(m *monster.Monster3D, cadence monsterAt
 			g.tryClaimMonsterAttackPost(m)
 			continue
 		}
-		cs.settleBlink(m, oldX, oldY)
+		cs.settleBlink(m, oldX, oldY, px, py)
 		g.AddCombatMessage(uitext.Text("combat.slips_behind_the_party", m.Name))
 		return true
 	}
@@ -208,12 +208,12 @@ func (g *MMGame) placeMonster(m *monster.Monster3D, x, y float64) {
 	m.ResetPathfinding()
 }
 
-// settleBlink finishes a blink (Rear Blink, Phase Shift): a fresh route, the
-// party in view, and a light column where it left and where it arrived.
-func (cs *CombatSystem) settleBlink(m *monster.Monster3D, oldX, oldY float64) {
+// settleBlink finishes a blink (Rear Blink, Phase Shift): a fresh route, its
+// target at (faceX, faceY) in view, and a light column where it left and where
+// it arrived.
+func (cs *CombatSystem) settleBlink(m *monster.Monster3D, oldX, oldY, faceX, faceY float64) {
 	m.ResetPathfinding()
-	px, py := cs.logicalCameraXY()
-	m.Direction = math.Atan2(py-m.Y, px-m.X)
+	m.Direction = math.Atan2(faceY-m.Y, faceX-m.X)
 	cs.game.spawnBlinkLightColumn(oldX, oldY)
 	cs.game.spawnBlinkLightColumn(m.X, m.Y)
 }

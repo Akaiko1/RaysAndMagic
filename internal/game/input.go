@@ -3178,16 +3178,18 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 	}
 }
 
-// findEncounterSpawnLocation finds a suitable spawn location near the encounter using DRY helper
+// An encounter or statue summon appears this many tiles from its NPC.
+const encounterSpawnMinTiles, encounterSpawnMaxTiles = 3.0, 5.0
+
+// findEncounterSpawnLocation picks a random walkable spot in the spawn ring
+// around the NPC; (0, 0) when none turns up.
 func (ih *InputHandler) findEncounterSpawnLocation(npcX, npcY float64) (float64, float64) {
 	tileSize := float64(ih.game.config.GetTileSize())
 
-	// Try to spawn within 3-5 tiles of the NPC
 	maxAttempts := 15
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		// Random offset 3-5 tiles away
-		offsetRange := 3.0 + rand.Float64()*2.0 // 3-5 tiles
-		angle := rand.Float64() * 2 * 3.14159   // Random angle
+		offsetRange := encounterSpawnMinTiles + rand.Float64()*(encounterSpawnMaxTiles-encounterSpawnMinTiles)
+		angle := rand.Float64() * 2 * math.Pi
 
 		offsetX := math.Cos(angle) * offsetRange * tileSize
 		offsetY := math.Sin(angle) * offsetRange * tileSize

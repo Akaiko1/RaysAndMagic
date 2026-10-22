@@ -173,6 +173,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		normalizeItemFromConfig(&item)
 		m.Equipment[items.EquipSlot(eq.Slot)] = item
 	}
+	m.QuickSecondRow = cs.QuickSecondRow
 	for _, qs := range cs.QuickSlots {
 		if qs.Slot < 0 || qs.Slot >= character.QuickSlotCount {
 			continue
@@ -180,6 +181,8 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		item := qs.Item
 		normalizeItemFromConfig(&item)
 		m.QuickSlots[qs.Slot] = &item
+		// A filled second-row cell shows its row, whatever the flag said.
+		m.QuickSecondRow = m.QuickSecondRow || qs.Slot >= character.QuickSlotsPerRow
 	}
 	m.RareClass = cs.RareClass.Clone()
 	m.SpellState = cs.SpellState.Clone()
@@ -292,6 +295,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 			cs.QuickSlots = append(cs.QuickSlots, QuickSlotEntry{Slot: i, Item: *item})
 		}
 	}
+	cs.QuickSecondRow = m.QuickSecondRow
 	cs.RareClass = m.RareClass.Clone()
 	cs.SpellState = m.SpellState.Clone()
 	cs.AutoDrinkCD, cs.AutocastCD = m.AutoDrinkCD.Saved(), m.AutocastCD.Saved()

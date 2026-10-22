@@ -892,7 +892,8 @@ monsters:
       fire: 90
       physical: 10
       air: 75
-    walkable_tile_overrides:
+    # Flight does not clear opaque terrain; every desert dragon names the dunes.
+    walkable_tile_overrides: &dragon_dune_flight
       - "desert_dune"
       - "large_dune"
 
@@ -930,6 +931,7 @@ monsters:
       dark: 90
       physical: 10
       fire: 40
+    walkable_tile_overrides: *dragon_dune_flight
 
   dragon_green:
     type: "dragon"
@@ -959,6 +961,7 @@ monsters:
       earth: 90
       physical: 25
       fire: -25                # nature dragon: vulnerable to fire
+    walkable_tile_overrides: *dragon_dune_flight
 
   dragon_gold:
     type: "dragon"
@@ -991,6 +994,7 @@ monsters:
       air: 90
       physical: 10
       water: -25               # vulnerable to water/ice
+    walkable_tile_overrides: *dragon_dune_flight
 
   # -- Elder Dragons (ELITE) ------------------------------------------------
   # Summoned ONLY by the four desert statues (dragon_statue_*). Dedicated elder
@@ -1023,6 +1027,7 @@ monsters:
       fire: 100
       physical: 10
       air: 75
+    walkable_tile_overrides: *dragon_dune_flight
 
   elder_dragon_red:
     type: "dragon"
@@ -1051,6 +1056,7 @@ monsters:
       dark: 100
       physical: 10
       fire: 40
+    walkable_tile_overrides: *dragon_dune_flight
 
   elder_dragon_green:
     type: "dragon"
@@ -1077,6 +1083,7 @@ monsters:
       earth: 100
       physical: 25
       fire: -25
+    walkable_tile_overrides: *dragon_dune_flight
 
   elder_dragon_gold:
     type: "dragon"
@@ -1105,6 +1112,7 @@ monsters:
       air: 100
       physical: 10
       water: -25
+    walkable_tile_overrides: *dragon_dune_flight
 
   # Forest-specific monsters
   forest_orc:

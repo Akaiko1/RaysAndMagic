@@ -18,7 +18,7 @@ import (
 func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 
-	bl := computeBookLayout(content)
+	bl := computeBookLayout(content, currentChar.QuickRows())
 
 	drawCenteredUIText(screen, fmt.Sprintf("%s - Trap Book", currentChar.Name), bl.header.x, bl.header.y, bl.header.w, bl.header.h)
 	drawImageScaled(screen, ui.game.sprites.GetSprite("trap_recipe_book_open"), bl.bookX, bl.bookY, bl.bookW, bl.bookH)
@@ -75,7 +75,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, content layoutRect
 	ui.drawPager(screen, bl.pager.x, bl.pager.y, bl.pager.w, &ui.spellPage, totalPages, !ui.modalLayerOwnsInput(), func() {
 		ui.game.selectedTrap = ui.spellPage * perSpread
 	})
-	ui.drawTabQuickSlotBar(screen, bl.quick.x, bl.quick.y, bl.quick.w)
+	ui.drawTabQuickSlots(screen, true, bl.quick, bl.quick2)
 	drawCenteredUIText(screen, bookControlsHint, bl.controls.x, bl.controls.y, bl.controls.w, bl.controls.h)
 }
 

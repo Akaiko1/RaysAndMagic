@@ -11,17 +11,19 @@ import (
 )
 
 // Phase Shift (abilities.phase_shift) lets a walker blink across a chasm or
-// water toward the party. It is a movement fallback only: while the monster's
+// water toward its attack target: whatever it fights (a party summon, a bound
+// ally, a berserk or caravan foe), else the party. It is a movement fallback
+// only: while the monster's
 // own pursuit reaches an attack position within monster_ai.phase_shift's
 // detour_factor times the best walk-and-blink plan (counting the cooldown
 // still to wait), pursuit runs exactly as before. The blink runs straight
 // along a row or column, over at least one gap tile, onto the first walkable
 // tile beyond it within range_tiles; walls, doors, exits and solid props stop
-// it, and it may pass over the party.
+// it, and it passes over its target and the party, never landing on either.
 //
 // Cost: a replan runs the pursuit's own search plus two flood fills over the
 // planning box, several pursuit repaths' worth. It runs only for authored
-// phase shifters chasing the party with a gap nearby, so keep phase_shift on
+// phase shifters chasing a target with a gap nearby, so keep phase_shift on
 // monsters of small dungeon maps (the Solstice chambers), not open-world ones.
 //
 // Ordinary code reaches Phase Shift only through these entry points:
@@ -33,34 +35,44 @@ import (
 // The monster side (plan, cooldowns, the RT launch walk) is in
 // internal/monster/phase_shift.go.
 
-// phaseShiftEligible: a hostile walker chasing the party that cannot strike it
-// from where it stands.
-func (cs *CombatSystem) phaseShiftEligible(m *monster.Monster3D) bool {
-	if !m.CanPhaseShift() || !m.IsAlive() || m.AIFoe != nil || m.Bound || m.IsInertSetPiece() || !m.TargetsParty() {
-		return false
+// phaseShiftTarget is the attack target (monsterAttackTarget: whatever the
+// monster fights, else the party) of a hostile walker that may blink, and its
+// tile. The party's own allies never blink.
+func (cs *CombatSystem) phaseShiftTarget(m *monster.Monster3D) (x, y float64, tile monster.TileCoord, ok bool) {
+	if !m.CanPhaseShift() || !m.IsAlive() || m.Bound || m.IsInertSetPiece() {
+		return 0, 0, monster.TileCoord{}, false
 	}
-	switch m.CurrentAIBehavior() {
-	case monster.AIBehaviorSeekParty, monster.AIBehaviorRelentlessParty:
-	default:
-		return false
+	if _, x, y, ok = cs.game.monsterAttackTarget(m); !ok {
+		return 0, 0, monster.TileCoord{}, false
 	}
-	if cs.game.turnBasedMode {
-		// Grid reach alone: a walker in attack transit still counts as in reach.
-		px, py := cs.logicalCameraXY()
-		return !cs.monsterAttackPointInReachTB(m, px, py)
-	}
-	return !cs.partyInStrikeReach(m, false)
+	ts := float64(cs.game.config.GetTileSize())
+	return x, y, monster.TileCoord{X: TileIndex(x, ts), Y: TileIndex(y, ts)}, true
 }
 
-// phaseShiftWalk is the monster's own pursuit in the active mode: the attack
-// positions it walks to and the length of the route it finds to one of them
-// (-1: none). A turn-based ranged attacker needs a row or column lane.
-func (cs *CombatSystem) phaseShiftWalk(m *monster.Monster3D, px, py float64) ([]monster.TileCoord, int) {
+// phaseShiftOutOfReach: the monster cannot strike the target at (x, y) from
+// where it stands.
+func (cs *CombatSystem) phaseShiftOutOfReach(m *monster.Monster3D, x, y float64) bool {
+	if cs.game.turnBasedMode {
+		// Grid reach alone: a walker in attack transit still counts as in reach.
+		return !cs.monsterAttackPointInReachTB(m, x, y)
+	}
+	return !cs.monsterCanStrikePoint(m, x, y)
+}
+
+// phaseShiftWalk is the monster's own pursuit of the target at (tx, ty) in the
+// active mode: the attack positions it walks to and the length of the route it
+// finds to one of them (-1: none). A turn-based ranged attacker needs a row or
+// column lane to the party; without lane goals it walks straight at the
+// target, as the TB mover does.
+func (cs *CombatSystem) phaseShiftWalk(m *monster.Monster3D, tx, ty float64) ([]monster.TileCoord, int) {
 	g := cs.game
 	if !g.turnBasedMode {
-		return m.PursuitRoute(g.collisionSystem, px, py)
+		return m.PursuitRoute(g.collisionSystem, tx, ty)
 	}
-	goals := g.turnBasedApproachGoals(m, px, py)
+	goals := g.turnBasedApproachGoals(m, tx, ty)
+	if goals == nil && m.HasRangedAttack() {
+		return m.PursuitRoute(g.collisionSystem, tx, ty)
+	}
 	return goals, m.PathTilesToAny(g.collisionSystem, goals, g.attackTargetTile(m))
 }
 
@@ -73,24 +85,28 @@ type phaseScratch struct {
 }
 
 // phasePlanner is one plan's tile box over the shared scratch, with a
-// traversal cache for the walking fields and the blink checks. The party's
-// tile is never walkable, as for the pursuit (blockedAttackTargetTile).
+// traversal cache for the walking fields and the blink checks. The target's
+// tile is never walkable, as for the pursuit (blockedAttackTargetTile); a
+// blink lands on neither it nor the party's tile.
 // Other monsters do not block a launch or a landing: walkers waiting or
 // landing together are a transit stack (the tile fan draws
 // them apart) and pick their blinks independently.
 type phasePlanner struct {
 	cs               *CombatSystem
 	m                *monster.Monster3D
-	party            monster.TileCoord
+	target, party    monster.TileCoord
 	minX, minY, w, h int
 	s                *phaseScratch
 }
 
-func (cs *CombatSystem) newPhasePlanner(m *monster.Monster3D, party, a, b monster.TileCoord, margin int) *phasePlanner {
+func (cs *CombatSystem) newPhasePlanner(m *monster.Monster3D, target, a, b monster.TileCoord, margin int) *phasePlanner {
 	g := cs.game
 	minX, minY := max(0, min(a.X, b.X)-margin), max(0, min(a.Y, b.Y)-margin)
 	maxX, maxY := min(g.world.Width-1, max(a.X, b.X)+margin), min(g.world.Height-1, max(a.Y, b.Y)+margin)
-	p := &phasePlanner{cs: cs, m: m, party: party, minX: minX, minY: minY, w: maxX - minX + 1, h: maxY - minY + 1, s: &cs.phase}
+	px, py := cs.logicalCameraXY()
+	ts := float64(g.config.GetTileSize())
+	party := monster.TileCoord{X: TileIndex(px, ts), Y: TileIndex(py, ts)}
+	p := &phasePlanner{cs: cs, m: m, target: target, party: party, minX: minX, minY: minY, w: maxX - minX + 1, h: maxY - minY + 1, s: &cs.phase}
 	p.s.walk = slices.Grow(p.s.walk[:0], p.w*p.h)[:p.w*p.h]
 	clear(p.s.walk)
 	return p
@@ -106,7 +122,7 @@ func (p *phasePlanner) index(t monster.TileCoord) int {
 // traversable is the monster's own movement rule (habitat, body, blockers).
 func (p *phasePlanner) traversable(t monster.TileCoord) bool {
 	i := p.index(t)
-	if i < 0 || t == p.party {
+	if i < 0 || t == p.target {
 		return false
 	}
 	if p.s.walk[i] == 0 {
@@ -149,7 +165,7 @@ func phaseShiftGapNear(w *world.World3D, m *monster.Monster3D, ts float64, r int
 
 // field fills dist (reused) with the monster's four-way walking distance to
 // the nearest of starts inside the box, up to depth; -1 = unreachable or
-// farther. Start tiles count as reached, except the party's own tile.
+// farther. Start tiles count as reached, except the target's own tile.
 func (p *phasePlanner) field(starts []monster.TileCoord, dist []int, depth int) []int {
 	dist = slices.Grow(dist[:0], p.w*p.h)[:p.w*p.h]
 	for i := range dist {
@@ -157,7 +173,7 @@ func (p *phasePlanner) field(starts []monster.TileCoord, dist []int, depth int) 
 	}
 	queue := p.s.queue[:0]
 	for _, start := range starts {
-		if i := p.index(start); i >= 0 && dist[i] < 0 && start != p.party {
+		if i := p.index(start); i >= 0 && dist[i] < 0 && start != p.target {
 			dist[i] = 0
 			queue = append(queue, start)
 		}
@@ -184,8 +200,8 @@ func (p *phasePlanner) field(starts []monster.TileCoord, dist []int, depth int) 
 var blinkDirections = [4][2]int{{0, -1}, {-1, 0}, {1, 0}, {0, 1}} // {dx, dy}: up, left, right, down
 
 // blinkLanding walks a straight line from launch: one or more gaps, then the
-// first walkable tile within reach is the landing (the party's tile is passed
-// over). Anything else on the line - a wall, a door, an exit, a solid prop or
+// first walkable tile within reach is the landing (the target's and the
+// party's tiles are passed over). Anything else on the line - a wall, a door, an exit, a solid prop or
 // sight blocker - stops it. Returns the landing and its distance in tiles.
 func (p *phasePlanner) blinkLanding(launch monster.TileCoord, dir [2]int, reach int) (monster.TileCoord, int, bool) {
 	crossed := false
@@ -194,7 +210,7 @@ func (p *phasePlanner) blinkLanding(launch monster.TileCoord, dir [2]int, reach 
 		switch {
 		case p.gap(t):
 			crossed = true
-		case t == p.party:
+		case t == p.target || t == p.party:
 			if !crossed {
 				return monster.TileCoord{}, 0, false
 			}
@@ -229,17 +245,16 @@ func (cs *CombatSystem) planPhaseShift(m *monster.Monster3D, wait int) monster.P
 	g := cs.game
 	tune := g.config.MonsterAI.PhaseShift
 	ts := float64(g.config.GetTileSize())
-	px, py := cs.logicalCameraXY()
+	tx, ty, target, ok := cs.phaseShiftTarget(m)
 	from := monster.TileCoord{X: TileIndex(m.X, ts), Y: TileIndex(m.Y, ts)}
-	party := monster.TileCoord{X: TileIndex(px, ts), Y: TileIndex(py, ts)}
-	plan := monster.PhaseShiftPlan{Planned: true, From: from, Party: party}
+	plan := monster.PhaseShiftPlan{Planned: true, From: from, Target: target}
 	r := m.Abilities.PhaseShift.RangeTiles
-	if g.world == nil || g.collisionSystem == nil ||
-		max(absInt(from.X-party.X), absInt(from.Y-party.Y)) > tune.WindowTiles ||
-		!cs.phaseShiftEligible(m) || !phaseShiftGapNear(g.world, m, ts, tune.MaxWalkTiles+r) {
+	if !ok || g.world == nil || g.collisionSystem == nil ||
+		max(absInt(from.X-target.X), absInt(from.Y-target.Y)) > tune.WindowTiles ||
+		!cs.phaseShiftOutOfReach(m, tx, ty) || !phaseShiftGapNear(g.world, m, ts, tune.MaxWalkTiles+r) {
 		return plan
 	}
-	goals, direct := cs.phaseShiftWalk(m, px, py)
+	goals, direct := cs.phaseShiftWalk(m, tx, ty)
 	if len(goals) == 0 {
 		return plan
 	}
@@ -250,7 +265,7 @@ func (cs *CombatSystem) planPhaseShift(m *monster.Monster3D, wait int) monster.P
 	if wait > limit {
 		return plan // walking gets there before the cooldown does
 	}
-	p := cs.newPhasePlanner(m, party, from, party, tune.WindowTiles)
+	p := cs.newPhasePlanner(m, target, from, target, tune.WindowTiles)
 	p.s.toGoal = p.field(goals, p.s.toGoal, limit)
 	toGoal := p.s.toGoal
 	p.s.fromSelf = p.field([]monster.TileCoord{from}, p.s.fromSelf, min(tune.MaxWalkTiles, limit))
@@ -293,12 +308,11 @@ func (cs *CombatSystem) refreshPhaseShiftPlan(m *monster.Monster3D) {
 		return
 	}
 	ts := float64(cs.game.config.GetTileSize())
-	px, py := cs.logicalCameraXY()
 	p := &m.PhasePlan
+	x, y, target, ok := cs.phaseShiftTarget(m)
 	if p.Planned && p.Age < cs.game.config.MonsterAI.PhaseShift.ReplanFrames &&
-		p.From == (monster.TileCoord{X: TileIndex(m.X, ts), Y: TileIndex(m.Y, ts)}) &&
-		p.Party == (monster.TileCoord{X: TileIndex(px, ts), Y: TileIndex(py, ts)}) {
-		if p.Active && !cs.phaseShiftEligible(m) {
+		p.From == (monster.TileCoord{X: TileIndex(m.X, ts), Y: TileIndex(m.Y, ts)}) && p.Target == target {
+		if p.Active && !(ok && cs.phaseShiftOutOfReach(m, x, y)) {
 			m.PhasePlan = monster.PhaseShiftPlan{}
 			return
 		}
@@ -310,38 +324,43 @@ func (cs *CombatSystem) refreshPhaseShiftPlan(m *monster.Monster3D) {
 
 // tryPhaseShift blinks a monster that stands on its plan's launch tile center
 // (where the blink was planned and is checked from) with the active mode's
-// cooldown spent. The landing is checked again first, against where the party
+// cooldown spent. The landing is checked again first, against where the target
 // stands now.
 func (cs *CombatSystem) tryPhaseShift(m *monster.Monster3D, turnBased bool) bool {
 	plan := m.PhasePlan
-	if !plan.Active || !m.PhaseShiftReady(turnBased) || !m.AtTileCenter(plan.Launch) ||
-		cs.game.monsterMovementHeld(m) || !cs.phaseShiftEligible(m) {
+	if !plan.Active || !m.PhaseShiftReady(turnBased) || !m.AtTileCenter(plan.Launch) || cs.game.monsterMovementHeld(m) {
 		return false
 	}
-	ts := float64(cs.game.config.GetTileSize())
-	px, py := cs.logicalCameraXY()
-	party := monster.TileCoord{X: TileIndex(px, ts), Y: TileIndex(py, ts)}
-	p := cs.newPhasePlanner(m, party, plan.Launch, plan.Landing, 1)
+	x, y, target, ok := cs.phaseShiftTarget(m)
+	if !ok || !cs.phaseShiftOutOfReach(m, x, y) {
+		return false
+	}
+	p := cs.newPhasePlanner(m, target, plan.Launch, plan.Landing, 1)
 	dir := [2]int{cmp.Compare(plan.Landing.X, plan.Launch.X), cmp.Compare(plan.Landing.Y, plan.Launch.Y)}
 	if landing, _, ok := p.blinkLanding(plan.Launch, dir, m.Abilities.PhaseShift.RangeTiles); !ok || landing != plan.Landing {
 		m.PhasePlan = monster.PhaseShiftPlan{}
 		return false
 	}
-	cs.executePhaseShift(m, plan.Landing)
+	cs.executePhaseShift(m, plan.Landing, x, y)
 	return true
 }
 
-// executePhaseShift moves the monster to the landing tile: a movement, so it
-// claims no attack and keeps its attack cadence.
-func (cs *CombatSystem) executePhaseShift(m *monster.Monster3D, landing monster.TileCoord) {
+// executePhaseShift moves the monster to the landing tile, facing its target
+// at (faceX, faceY): a movement, so it claims no attack and keeps its attack
+// cadence.
+func (cs *CombatSystem) executePhaseShift(m *monster.Monster3D, landing monster.TileCoord, faceX, faceY float64) {
 	g := cs.game
 	oldX, oldY := m.X, m.Y
 	x, y := TileCenterFromTile(landing.X, landing.Y, float64(g.config.GetTileSize()))
 	g.relocateMonster(m, x, y)
-	cs.settleBlink(m, oldX, oldY)
+	cs.settleBlink(m, oldX, oldY, faceX, faceY)
 	m.ArmPhaseShiftCooldown(g.config.GetTPS())
 	m.PhasePlan = monster.PhaseShiftPlan{}
 	g.refreshMonsterCollisionState(m)
+	if foe := m.AIFoe; foe != nil {
+		g.logCombatLine(logToneBad, uitext.Text("combat.toward_target", logSlot, logSlot, logSlot), logMonsterName(m), logAbility("phase-shifts"), logMonsterName(foe))
+		return
+	}
 	g.logCombatLine(logToneBad, uitext.Text("combat.toward_the_party", logSlot, logSlot), logMonsterName(m), logAbility("phase-shifts"))
 }
 
@@ -360,7 +379,7 @@ func (gl *GameLoop) tryPhaseShiftTB(m *monster.Monster3D) bool {
 // movement runs.
 func (gl *GameLoop) stepTowardPhaseLaunchTB(m *monster.Monster3D, tileSize float64) bool {
 	plan := m.PhasePlan
-	if !plan.Active || m.AIFoe != nil || m.Bound {
+	if !plan.Active {
 		return false
 	}
 	if TileIndex(m.X, tileSize) == plan.Launch.X && TileIndex(m.Y, tileSize) == plan.Launch.Y {

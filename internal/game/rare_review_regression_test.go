@@ -379,7 +379,7 @@ func TestRareDisplayedWorkbenchMaxAndSafety(t *testing.T) {
 				it.Quantity = a.Count * 7
 				g.party.AddItem(it)
 			}
-			l := computeRareBookLayout(layout.content, true)
+			l := computeRareBookLayout(layout.content, true, 1)
 			a := makeAlchemyMaterialLayout(l, r)
 			maxButton := a.maximum
 			h.clicks(false, maxButton.x+10, maxButton.y+10, 1)

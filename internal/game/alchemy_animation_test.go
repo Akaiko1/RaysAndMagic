@@ -50,7 +50,7 @@ func TestAlchemyAnimationCommitAndLifetime(t *testing.T) {
 					g.party.AddItem(it)
 				}
 				before := append([]items.Item(nil), g.party.Inventory...)
-				l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true)
+				l := computeRareBookLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottom(g)).content, true, 1)
 				a := makeAlchemyMaterialLayout(l, r)
 				cast := func() {
 					if route == "click" {

@@ -213,7 +213,7 @@ func TestPhysicalInventoryGesturesPreserveDoubleClick(t *testing.T) {
 			ch := h.g.party.Members[0]
 			ch.HitPoints = 1
 			h.g.party.Inventory = []items.Item{potion}
-			layout := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(h.g)).content)
+			layout := computeInventoryContentLayout(computeTabbedMenuLayout(1024, gameplayViewportBottom(h.g)).content, 1)
 			x, y, w, height := scaleInventorySourceRect(layout.grid.x, layout.grid.y, layout.grid.w, layout.grid.h, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
 			count := func() int { return h.g.party.Inventory[0].Count() }
 			if source == "quick_slot" {

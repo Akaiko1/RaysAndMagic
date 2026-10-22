@@ -65,9 +65,22 @@ func (c *MMCharacter) ArmsMasterTier() int { return c.SkillTier(SkillArmsMaster)
 func (c *MMCharacter) DisarmTrapTier() int { return c.SkillTier(SkillDisarmTrap) }
 func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 
-// QuickSlotCount is the number of per-character quick slots (matches the 5-cell
-// quick-bar frame art).
-const QuickSlotCount = 5
+// QuickSlotsPerRow is one quick-slot bar (the 5-cell frame art); a hero has
+// QuickSlotRows of them, the second shown only with QuickSecondRow.
+const (
+	QuickSlotsPerRow = 5
+	QuickSlotRows    = 2
+	QuickSlotCount   = QuickSlotsPerRow * QuickSlotRows
+)
+
+// QuickRows is how many quick-slot rows the hero shows: 1, or 2 with the
+// second row on.
+func (c *MMCharacter) QuickRows() int {
+	if c != nil && c.QuickSecondRow {
+		return QuickSlotRows
+	}
+	return 1
+}
 
 // AdventureExperience follows the hero through roster swaps and saves.
 type AdventureExperience struct {
@@ -138,8 +151,11 @@ type MMCharacter struct {
 	// inventory and lives in the slot (nil = empty). Physical slot items still
 	// count as carried stock for quests, crafting and exchanges. Spells hold a temporary
 	// spell item (spellbook-owned; never returned to inventory). Independent of
-	// the F/Space quick action (Equipment[SlotQuickAction]).
-	QuickSlots [QuickSlotCount]*items.Item
+	// the F/Space quick action (Equipment[SlotQuickAction]). Row I is
+	// QuickSlots[:QuickSlotsPerRow]; row II, the rest, holds items only while
+	// QuickSecondRow is on.
+	QuickSlots     [QuickSlotCount]*items.Item
+	QuickSecondRow bool
 
 	// Status effects
 	Conditions []Condition

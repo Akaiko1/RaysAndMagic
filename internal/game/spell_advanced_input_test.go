@@ -308,7 +308,7 @@ func TestAutocastCheckboxOwnsPhysicalGesture(t *testing.T) {
 			}
 			c.MagicSchools = map[character.MagicSchoolID]*character.MagicSkill{character.MagicSchoolID(d.School): {KnownSpells: []spells.SpellID{id}}}
 			menu := computeTabbedMenuLayout(g.config.GetScreenWidth(), gameplayViewportBottom(g))
-			bl := computeBookLayout(menu.content)
+			bl := computeBookLayout(menu.content, 1)
 			x, y := bl.cardPos(0)
 			box := spellAutocastRect(x, y, bl.cardW, bl.iconSize)
 			fp := installFakePointer(t)
