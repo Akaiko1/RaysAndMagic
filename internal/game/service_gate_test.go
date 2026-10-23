@@ -875,7 +875,10 @@ func TestEveryInteractQuestTagHasAProducer(t *testing.T) {
 	if err := ValidateInteractTagProducers(qm); err != nil {
 		t.Fatalf("shipped catalogs: %v", err)
 	}
-	producers := interactTagProducers(character.NPCConfigInstance.NPCs)
+	producers, err := interactTagProducers(character.NPCConfigInstance.NPCs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// A quest counting a tag nobody produces is refused.
 	qm.Definitions()["typo_errand"] = &quests.QuestDefinition{
 		Name: "Typo", Type: quests.QuestTypeInteract, TargetMonster: "shrine_lantern",
@@ -894,13 +897,42 @@ func TestEveryInteractQuestTagHasAProducer(t *testing.T) {
 		t.Fatalf("the arena tag %q is produced by %v (ok=%v), want a code tag",
 			quests.ArenaDuelTag, source, ok)
 	}
+	// An NPC's talk_tag is credited by every conversation: a repeatable talk
+	// source, never a counted prop. Every other authored tag is a prop.
+	talk := map[string]bool{}
+	for _, npc := range character.NPCConfigInstance.NPCs {
+		if npc != nil && npc.TalkTag != "" {
+			talk[npc.TalkTag] = true
+		}
+	}
+	if len(talk) == 0 {
+		t.Fatal("control: no talk_tag NPC in the catalog")
+	}
 	for tag, source := range producers {
-		if tag != quests.ArenaDuelTag && source != interactTagFromProp {
+		switch {
+		case tag == quests.ArenaDuelTag:
+		case talk[tag] && source != interactTagFromTalk:
+			t.Errorf("talk tag %q is produced by %v, want a talk source", tag, source)
+		case !talk[tag] && source != interactTagFromProp:
 			t.Errorf("authored tag %q is marked code-produced, so its props would never be counted", tag)
 		}
 	}
 	if def := qm.Definitions()["pit_standing"]; def == nil || def.TargetMonster != quests.ArenaDuelTag {
 		t.Fatalf("pit_standing counts %v, want the arena tag %q", def, quests.ArenaDuelTag)
+	}
+	// One tag, one kind of producer: a talk tag that a prop or the pit also
+	// credits would be both counted and repeatable, decided by map order.
+	prop := &character.NPCData{Dialogue: &character.NPCDialogue{Choices: []*character.NPCDialogueChoice{{Prop: &character.NPCPropCopy{Tag: "shared_tag"}}}}}
+	for name, catalog := range map[string]map[string]*character.NPCData{
+		"prop":  {"talker": {TalkTag: "shared_tag"}, "rack": prop},
+		"arena": {"talker": {TalkTag: quests.ArenaDuelTag}},
+	} {
+		if _, err := interactTagProducers(catalog); err == nil {
+			t.Errorf("a talk tag also credited by the %s loaded", name)
+		}
+	}
+	if _, err := interactTagProducers(map[string]*character.NPCData{"talker": {TalkTag: "shared_tag"}}); err != nil {
+		t.Fatalf("control: a lone talk tag was refused: %v", err)
 	}
 }
 

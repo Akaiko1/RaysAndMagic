@@ -216,10 +216,11 @@ func (g *MMGame) resolveCampConfirmation(confirmed bool) {
 	}
 	g.campConfirmOpen = false
 	if confirmed {
+		hurt := g.watcherPartyHurt() // judged as they lie down: the rest heals it
 		message, rested := g.TryCamp()
 		g.AddCombatMessage(message)
 		if rested {
-			g.beginCampRest()
+			g.beginCampRest(hurt)
 			// One cue per accepted rest, using the actual healing spell's
 			// YAML school routing; never once per party member or draw frame.
 			if heal, err := spells.GetSpellDefinitionByID(spells.SpellID(items.SpellEffectHealOther)); err == nil {

@@ -21,16 +21,18 @@ import (
 type logTone int
 
 const (
-	logToneNone   logTone = iota // system lines, misses
-	logToneGood                  // the party deals damage, heals, kills
-	logToneBad                   // the party is hit, afflicted, knocked out
-	logToneReward                // experience, loot, levels
+	logToneNone    logTone = iota // system lines, misses
+	logToneGood                   // the party deals damage, heals, kills
+	logToneBad                    // the party is hit, afflicted, knocked out
+	logToneReward                 // experience, loot, levels
+	logToneWatcher                // the Pursuers' captain speaks (watcher.go)
 )
 
 var logToneStripes = map[logTone]color.RGBA{
-	logToneGood:   {90, 200, 110, 255},
-	logToneBad:    {230, 80, 70, 255},
-	logToneReward: {240, 200, 60, 255},
+	logToneGood:    {90, 200, 110, 255},
+	logToneBad:     {230, 80, 70, 255},
+	logToneReward:  {240, 200, 60, 255},
+	logToneWatcher: storyCaptainInk,
 }
 
 // The prose dims so names and numbers carry the line.

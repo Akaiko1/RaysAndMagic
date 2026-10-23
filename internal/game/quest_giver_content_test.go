@@ -32,7 +32,7 @@ func bootQuestGiverTest(t *testing.T) (*MMGame, *quests.QuestManager) {
 // spawn bosses, not to be read) may start active.
 func TestOpeningQuestsComeFromGivers(t *testing.T) {
 	_, qm := bootQuestGiverTest(t)
-	for _, id := range []string{"goblin_hunt", "wolf_pack", "dragon_slayer", "lake_spiders"} {
+	for _, id := range []string{"goblin_hunt", "wolf_pack", "dragon_slayer", "lake_spiders", "main_tower_letter"} {
 		if q := qm.GetQuest(id); q != nil {
 			t.Errorf("quest %q is active at boot; it must be given by an NPC", id)
 		}
@@ -42,6 +42,8 @@ func TestOpeningQuestsComeFromGivers(t *testing.T) {
 		"wolf_pack":     "forest_peasant_wenna",
 		"lake_spiders":  "lake_bather_ilsa",
 		"dragon_slayer": "desert_pilgrim_sylwen",
+		// The main storyline starts here; nothing else hands out the letter.
+		"main_tower_letter": "tower_envoy",
 	}
 	for questID, npcKey := range givers {
 		npc, err := character.CreateNPCFromConfig(npcKey, 0, 0)

@@ -197,7 +197,7 @@ func TestCampPresentationRetiresWithTimeline(t *testing.T) {
 				if state == "confirmation" {
 					g.campConfirmOpen = true
 				} else {
-					g.beginCampRest()
+					g.beginCampRest(false)
 				}
 				if g.campConfirmOpen != (state == "confirmation") || (g.campRest != nil) != (state == "animation") {
 					t.Fatal("fixture did not establish the requested camp state")

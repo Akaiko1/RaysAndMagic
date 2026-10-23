@@ -249,6 +249,12 @@ func TestInteractQuestProgressIsAuthored(t *testing.T) {
 				TargetCount: 3, ProgressText: "shrine lamps lifted"},
 			wants: "must set target_monster",
 		},
+		{
+			// A hidden quest taken from a giver would vanish from the journal.
+			name:  "hidden but not starting",
+			def:   &QuestDefinition{Type: QuestTypeKill, TargetMonster: "alien", TargetCount: 3, Hidden: true},
+			wants: "hidden needs is_starting_quest",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateQuestConfig(&QuestConfig{Quests: map[string]*QuestDefinition{"q": tc.def}})

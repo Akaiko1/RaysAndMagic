@@ -42,6 +42,7 @@ type NPC struct {
 	MinPartyLevel    int
 	NightOnly        bool           // present only at night (see NPCData.NightOnly)
 	RejectsLich      bool           // Light-aligned ward (Mage Tower) - won't speak to a party with a Lich
+	TalkTag          string         // interact tag credited on every conversation (npc_config.go)
 	TownPortal       bool           // makes this NPC's map a Town Portal destination, and the arrival point on it
 	RequiresQuest    string         // service gate: no shop/training until this quest is turned in (see NPCData.RequiresQuest)
 	Training         map[string]int // Target mastery -> gold cost, sourced from NPC YAML.

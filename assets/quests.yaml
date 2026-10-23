@@ -137,6 +137,23 @@ quests:
     activity:
       objectives: [{"token": "delivery", "map": "solstice_approach", "event": "interact", "item": "solstice_charged_quill", "count": 3}]
 
+  # The main storyline's first step (docs/story-plan.md): Envoy Corwin at the
+  # forest tavern hands the party the Tower's letter. Speaking to the Mage Tower
+  # delivers it (talk_tag in npcs.yaml); the story screen takes over from there.
+  main_tower_letter:
+    name: "The Tower's Letter"
+    description: "Carry the Mage Tower's sealed letter from Envoy Corwin to the Mage Tower in the Misty Highlands."
+    type: "interact"
+    target_monster: "tower_letter"
+    progress_text: "letter delivered"
+    target_count: 1
+    is_starting_quest: false
+    main: true
+    auto_claim: true
+    rewards:
+      gold: 0
+      experience: 0
+
   # The opening chain: Wenna the herb-picker stands by the forest clearing where
   # the party begins. She asks for the goblins first and only mentions the wolves
   # once that is done (requires_quest in npcs.yaml), so a new party is handed one
@@ -362,6 +379,9 @@ quests:
     progress_text: "elder dragons killed"
     target_count: 4
     encounter_only: true
+    main: true
+    # Sylwen offers the hunt from this party level; the Elder Dragons are 29-31.
+    min_party_level: 24
     # Taken from Sylwen, the pilgrim keeping vigil at the desert seals. The
     # statues refuse a statuette until this oath is sworn (buildStatueChoices),
     # so the hunt can never be finished by a party that never accepted it.
@@ -431,6 +451,8 @@ quests:
     target_map: "dragon_cliffs"
     exterminate: true
     is_starting_quest: true
+    main: true
+    hidden: true   # shown once the Tower's story beat reveals it
     rewards:
       gold: 3000
       experience: 2300
@@ -449,6 +471,8 @@ quests:
     target_map: "water"
     exterminate: true
     is_starting_quest: true
+    main: true
+    hidden: true   # shown once Seabright's story beat reveals it
     rewards:
       gold: 3000
       experience: 1800
@@ -466,6 +490,8 @@ quests:
     is_starting_quest: true
     auto_claim: true
     victory: true
+    main: true
+    hidden: true   # shown once the Last Reckoning story beat reveals it
     rewards:
       gold: 0
       experience: 0

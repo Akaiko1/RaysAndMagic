@@ -124,10 +124,11 @@ type UISystem struct {
 	stackSplitPicker      stackSplitPickerState
 	personalInventoryTab  int
 	personalInventoryPage int
-	inventoryPage         int // current inventory grid page (0-based)
-	inventoryTab          int // active inventory category filter (index into inventoryTabs)
-	questPage             int // current quest log page (0-based)
-	spellPage             int // current spell/trap book spread (0-based)
+	inventoryPage         int  // current inventory grid page (0-based)
+	inventoryTab          int  // active inventory category filter (index into inventoryTabs)
+	questPage             int  // current quest log page (0-based)
+	questChronicle        bool // the Quests tab shows the story Chronicle
+	spellPage             int  // current spell/trap book spread (0-based)
 	equipClicks           doubleClickTracker[items.EquipSlot]
 	hubInteractionOpen    bool
 	hubInteractionChar    int
@@ -244,6 +245,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	defer func() { ui.renderedModalSnapshot = ui.topModalSnapshot() }()
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
+	ui.drawWatcherCard(screen)
 
 	// Draw debug/info elements
 	ui.drawDebugInfo(screen)
@@ -268,8 +270,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawCombatLogOverlay(screen)
 	}
 
-	// Draw Victory overlay if active
-	if ui.game.gameVictory && !ui.game.showHighScores {
+	// Draw Victory overlay if active. The ending plate opens over it and owns
+	// the screen until it closes: none of the panel shows around the plate.
+	if ui.game.gameVictory && !ui.game.showHighScores && ui.game.storyScreen == nil {
 		ui.drawVictoryOverlay(screen)
 	}
 
@@ -324,6 +327,11 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
 		ui.drawLevelUpChoicePopup(screen)
+	}
+	// A story event covers every layer below it.
+	if ui.game.storyScreen != nil {
+		ui.discardLowerHoverText()
+		ui.drawStoryScreen(screen)
 	}
 
 	// Full card art: while SHIFT is held over a card (Cards tab, collector,

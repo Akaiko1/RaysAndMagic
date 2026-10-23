@@ -112,6 +112,12 @@ type QuestDefinition struct {
 	EncounterOnly bool `yaml:"encounter_only,omitempty"`
 	// Victory marks the single quest whose completion wins the game.
 	Victory bool `yaml:"victory,omitempty"`
+	// Main marks a main-storyline step: the journal lists it first.
+	Main bool `yaml:"main,omitempty"`
+	// Hidden keeps a quest out of the journal and its banners until a story
+	// event reveals it (story_events.yaml reveals_quests). Its progress counts
+	// from the start, so it suits quests that start active at boot.
+	Hidden bool `yaml:"hidden,omitempty"`
 	// TargetMap scopes kills and the "no living targets left -> complete" check
 	// to the monsters created on one map, wherever they wander, for region
 	// quests whose monster type also lives elsewhere (e.g. the cliff troll cull -
@@ -252,6 +258,9 @@ func validateQuestConfig(config *QuestConfig) error {
 		}
 		if def.Repeatable != "" && def.AutoClaim {
 			return fmt.Errorf("quest %q: repeatable requires an explicit reward claim", id)
+		}
+		if def.Hidden && !def.IsStartingQuest {
+			return fmt.Errorf("quest %q: hidden needs is_starting_quest - a quest taken from a giver must show in the journal", id)
 		}
 		if def.FixedQuota && (def.Type != QuestTypeKill || def.Exterminate) {
 			return fmt.Errorf("quest %q: fixed_quota requires a non-exterminate kill quest", id)

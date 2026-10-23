@@ -15,10 +15,75 @@ type campRestPresentation struct {
 	sprite                         string
 	elapsed, fadeIn, hold, fadeOut int
 	presented                      bool
-	surface                        *ebiten.Image
-	dissolve                       *ebiten.Shader
-	revealPattern, hidePattern     campDissolvePattern
-	revealRadius, hideRadius       float32
+	scene                          dissolveScene
+	// watcherLine is the captain's remark over this rest (watcher.go); the
+	// scene holds until it is read.
+	watcherLine   *WatcherLine
+	watcherRead   bool
+	watcherLogged bool // his words showed: the line is spent and logged
+}
+
+// dissolveScene draws one picture through the camp dissolve shader: the
+// pixel-cluster reveal and hide shared by camp rest and the story plates.
+type dissolveScene struct {
+	surface                    *ebiten.Image
+	revealPattern, hidePattern campDissolvePattern
+	revealRadius, hideRadius   float32
+}
+
+// dissolveShader is compiled once and shared by every camp scene and plate.
+var dissolveShader *ebiten.Shader
+
+func newDissolveScene(c config.CampingConfig) dissolveScene {
+	return dissolveScene{revealPattern: newCampDissolvePattern(c), hidePattern: newCampDissolvePattern(c)}
+}
+
+func (d *dissolveScene) release() {
+	if d.surface != nil {
+		d.surface.Deallocate()
+	}
+	d.surface = nil
+}
+
+// draw renders img into rect (screen pixels) at the given reveal progress;
+// place lays the picture out inside the rect. hiding switches to the second,
+// independent pattern so the picture leaves differently from how it came.
+func (d *dissolveScene) draw(screen *ebiten.Image, rect image.Rectangle, img *ebiten.Image,
+	place func(w, h, iw, ih int) (x, y, dw, dh float64), progress float32, hiding bool, c config.CampingConfig) {
+	w, h := rect.Dx(), rect.Dy()
+	if w <= 0 || h <= 0 {
+		return
+	}
+	if d.surface == nil || d.surface.Bounds().Size() != rect.Size() {
+		if d.surface != nil {
+			d.surface.Deallocate()
+		}
+		d.surface = ebiten.NewImage(w, h)
+		d.revealRadius = d.revealPattern.coverageRadius(w, h)
+		d.hideRadius = d.hidePattern.coverageRadius(w, h)
+	}
+	if compileShader(&dissolveShader, "camp_dissolve.kage") != nil {
+		return // a broken shader skips the picture; the rest still completes
+	}
+	// The render target clips any overflow, preserving one uniform scale.
+	d.surface.Clear()
+	x, y, dw, dh := place(w, h, img.Bounds().Dx(), img.Bounds().Dy())
+	graphics.DrawImageScaled(d.surface, img, x, y, dw, dh, nil)
+	pixels := c.DissolvePixelSize
+	if pixels <= 0 {
+		pixels = config.DefaultCampingConfig().DissolvePixelSize
+	}
+	pattern, radius := &d.revealPattern, d.revealRadius
+	if hiding {
+		pattern, radius = &d.hidePattern, d.hideRadius
+	}
+	op := &ebiten.DrawRectShaderOptions{Uniforms: map[string]any{
+		"Progress": progress, "PixelSize": float32(float64(pixels) * uiScaleOf(screen)),
+		"Centers": pattern.centers[:], "NoiseSeed": pattern.noiseSeed, "Radius": radius,
+	}}
+	op.Images[0] = d.surface
+	op.GeoM.Translate(float64(rect.Min.X), float64(rect.Min.Y))
+	screen.DrawRectShader(w, h, dissolveShader, op)
 }
 
 func (g *MMGame) campSceneSprite() string {
@@ -35,31 +100,31 @@ func (g *MMGame) campSceneSprite() string {
 	return config.DefaultCampingConfig().DefaultScene
 }
 
-func (g *MMGame) beginCampRest() {
+// campRestFrames converts a camping duration to frames; an unset value takes
+// the shipped default.
+func (g *MMGame) campRestFrames(seconds, fallback float64) int {
+	if seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		seconds = fallback
+	}
+	return g.framesForSeconds(seconds)
+}
+
+// beginCampRest starts the camp scene; hurt is whether the party lay down
+// wounded (the rest has healed it by now), for the captain's line.
+func (g *MMGame) beginCampRest(hurt bool) {
 	g.cancelCampPresentation()
 	c, defaults := g.config.Camping, config.DefaultCampingConfig()
-	frames := func(seconds, fallback float64) int {
-		if seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
-			seconds = fallback
-		}
-		return max(1, int(math.Round(seconds*float64(g.config.GetTPS()))))
-	}
-	g.campRest = &campRestPresentation{sprite: g.campSceneSprite(),
-		revealPattern: newCampDissolvePattern(c), hidePattern: newCampDissolvePattern(c),
-		fadeIn:  frames(c.FadeInSeconds, defaults.FadeInSeconds),
-		hold:    frames(c.HoldSeconds, defaults.HoldSeconds),
-		fadeOut: frames(c.FadeOutSeconds, defaults.FadeOutSeconds)}
+	g.campRest = &campRestPresentation{sprite: g.campSceneSprite(), scene: newDissolveScene(c),
+		fadeIn:  g.campRestFrames(c.FadeInSeconds, defaults.FadeInSeconds),
+		hold:    g.campRestFrames(c.HoldSeconds, defaults.HoldSeconds),
+		fadeOut: g.campRestFrames(c.FadeOutSeconds, defaults.FadeOutSeconds)}
+	g.campRest.watcherLine = g.watcherCampLine(hurt)
 }
 
 func (g *MMGame) cancelCampPresentation() {
 	g.campConfirmOpen = false
 	if s := g.campRest; s != nil {
-		if s.surface != nil {
-			s.surface.Deallocate()
-		}
-		if s.dissolve != nil {
-			s.dissolve.Deallocate()
-		}
+		s.scene.release()
 	}
 	g.campRest = nil
 }
@@ -71,7 +136,14 @@ func (g *MMGame) tickCampRest() {
 	}
 	// A newly requested picture must finish streaming before its display clock
 	// runs. Loading owns the screen and its own pause during that interval.
-	if gl := g.gameLoop; gl != nil && gl.loading != nil && gl.loading.awaitingFrame {
+	if g.loadingStall() {
+		return
+	}
+	if l := s.watcherLine; l != nil && !s.watcherLogged && s.elapsed >= s.watcherWordsAt(g.storyTiming()) {
+		s.watcherLogged = true
+		g.speakWatcherLine(l)
+	}
+	if s.campWatcherHolding() {
 		return
 	}
 	s.elapsed++
@@ -97,52 +169,26 @@ func (ui *UISystem) drawCampRest(screen *ebiten.Image) {
 		return
 	}
 	img := g.sprites.GetSprite(s.sprite)
-	if img == nil {
-		// Missing custom art must not trap the player in a permanent modal.
-		if !g.sprites.HasSprite(s.sprite) {
-			s.presented = true
+	if img == nil && g.sprites.HasSprite(s.sprite) {
+		return // still streaming: the clock waits for the picture
+	}
+	// Display acknowledgement, not simulation progress. Missing art must not
+	// trap the player in a permanent modal: the clock runs and his line shows.
+	s.presented = true
+	if img != nil {
+		// The dissolve shader works in the screen's own pixels, so the scene art
+		// is cover-fitted at native resolution, leaving the party HUD untouched.
+		viewport := uiPixelRect(screen, uiBounds(screen).Intersect(image.Rect(0, 0, g.config.GetScreenWidth(), gameplayViewportBottom(g))))
+		cover := func(w, h, iw, ih int) (float64, float64, float64, float64) {
+			return campSceneCoverGeometry(w, h, iw, ih, g.config.Camping.MaxTopCropFraction)
 		}
-		return
+		s.scene.draw(screen, viewport, img, cover, s.alpha(), s.elapsed > s.fadeIn+s.hold, g.config.Camping)
 	}
-	s.presented = true // Display acknowledgement, not simulation progress.
-	// The dissolve shader works in the screen's own pixels, so the scene art
-	// is cover-fitted at native resolution.
-	viewport := uiPixelRect(screen, uiBounds(screen).Intersect(image.Rect(0, 0, g.config.GetScreenWidth(), gameplayViewportBottom(g))))
-	w, h := viewport.Dx(), viewport.Dy()
-	if w <= 0 || h <= 0 {
-		return
+	if s.watcherLine != nil {
+		view := image.Rect(0, 0, g.config.GetScreenWidth(), gameplayViewportBottom(g))
+		ui.drawCampWatcherLine(screen, view)
+		ui.onGatedClick(layoutRectOf(view), func() bool { return ui.topModalLayer() == modalLayerCampRest && g.campRest == s }, g.releaseCampWatcher)
 	}
-	if s.surface == nil || s.surface.Bounds().Size() != viewport.Size() {
-		if s.surface != nil {
-			s.surface.Deallocate()
-		}
-		s.surface = ebiten.NewImage(w, h)
-		s.revealRadius = s.revealPattern.coverageRadius(w, h)
-		s.hideRadius = s.hidePattern.coverageRadius(w, h)
-	}
-	if compileShader(&s.dissolve, "camp_dissolve.kage") != nil {
-		return // a broken shader skips the scene art; the rest still completes
-	}
-	// Cover-fit through the shared scaler. The render target clips the overflow,
-	// preserving one uniform scale and leaving the party HUD untouched.
-	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
-	x, y, dw, dh := campSceneCoverGeometry(w, h, iw, ih, g.config.Camping.MaxTopCropFraction)
-	graphics.DrawImageScaled(s.surface, img, x, y, dw, dh, nil)
-	pixels := g.config.Camping.DissolvePixelSize
-	if pixels <= 0 {
-		pixels = config.DefaultCampingConfig().DissolvePixelSize
-	}
-	pattern, radius := &s.revealPattern, s.revealRadius
-	if s.elapsed > s.fadeIn+s.hold {
-		pattern, radius = &s.hidePattern, s.hideRadius
-	}
-	op := &ebiten.DrawRectShaderOptions{Uniforms: map[string]any{
-		"Progress": s.alpha(), "PixelSize": float32(float64(pixels) * uiScaleOf(screen)),
-		"Centers": pattern.centers[:], "NoiseSeed": pattern.noiseSeed, "Radius": radius,
-	}}
-	op.Images[0] = s.surface
-	op.GeoM.Translate(float64(viewport.Min.X), float64(viewport.Min.Y))
-	screen.DrawRectShader(w, h, s.dissolve, op)
 }
 
 // Patterns are sampled once per camp, separately for appearing/disappearing.

@@ -379,7 +379,6 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 
 	// Wolf alive -> no completion, no bridge.
 	g.completeClearedKillQuestsForTarget("wolf", false)
-	g.applyCompletedQuestTiles()
 	if g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest completed while a wolf lives")
 	}
@@ -387,15 +386,55 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 		t.Fatalf("%d bridge tiles laid while a wolf lives", laid)
 	}
 
-	// Last wolf dies -> quest completes and the bridge appears.
+	// Last wolf dies -> quest completes and the bridge appears, laid by the
+	// completion itself.
 	wolf.HitPoints = 0
 	g.completeClearedKillQuestsForTarget("wolf", false)
-	g.applyCompletedQuestTiles()
 	if !g.questManager.GetQuest("forest_wolf_cull").Completed {
 		t.Fatal("quest should complete once the map is cleared")
 	}
 	if laid := bridgeLaid(); laid != len(tileChanges) {
 		t.Errorf("bridge tiles laid = %d, want all %d", laid, len(tileChanges))
+	}
+}
+
+// Every path that completes a quest changes the world with it - the completion
+// hook owns that - so a talk that hands the screen to a story beat, an arena
+// bout (the same tag credit) or a cleared encounter cannot leave it unbuilt.
+func TestEveryCompletionPathChangesTheWorld(t *testing.T) {
+	for _, row := range []struct {
+		name     string
+		def      quests.QuestDefinition
+		complete func(*MMGame)
+	}{
+		{"talk tag", quests.QuestDefinition{Name: "Talk", Type: quests.QuestTypeInteract, TargetMonster: "test_talk", TargetCount: 1},
+			func(g *MMGame) { g.creditTalkTag(&character.NPC{TalkTag: "test_talk"}) }},
+		{"cleared encounter", quests.QuestDefinition{Name: "Camp", Type: quests.QuestTypeEncounter, TargetCount: 1},
+			func(g *MMGame) {
+				(&GameLoop{game: g}).awardEncounterRewards(&monster.EncounterRewards{QuestID: "test_quest"})
+			}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			g, w := loadRealQuestTileData(t)
+			quests.GlobalQuestManager = g.questManager // the encounter path reads the global
+			bridge, ok := world.GlobalTileManager.GetTileTypeFromKey("quest_bridge")
+			if !ok || w.Tiles[5][5] == bridge {
+				t.Fatal("fixture: no bridge tile, or it is already laid")
+			}
+			def := row.def
+			def.OnCompleteTiles = []quests.QuestTileChange{{Map: "forest", X: 5, Y: 5, Tile: "quest_bridge"}}
+			g.questManager.Definitions()["test_quest"] = &def
+			if err := g.questManager.ActivateQuest("test_quest"); err != nil {
+				t.Fatal(err)
+			}
+			row.complete(g)
+			if q := g.questManager.GetQuest("test_quest"); q == nil || !q.Completed {
+				t.Fatal("fixture: the path did not complete the quest")
+			}
+			if w.Tiles[5][5] != bridge {
+				t.Error("the quest completed but its world change was not made")
+			}
+		})
 	}
 }
 

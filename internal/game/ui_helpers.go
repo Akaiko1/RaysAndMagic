@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -241,6 +242,7 @@ const (
 	modalLayerCamp
 	modalLayerCampRest
 	modalLayerLevelChoice
+	modalLayerStory
 	modalLayerCount
 )
 
@@ -271,6 +273,8 @@ func topModalLayerFor(g *MMGame, stackSplitOpen bool) modalLayerID {
 		return modalLayerNone
 	}
 	switch {
+	case g.storyScreen != nil:
+		return modalLayerStory
 	case g.currentLevelUpChoice() != nil:
 		return modalLayerLevelChoice
 	case g.campRest != nil:
@@ -445,6 +449,20 @@ func (ui *UISystem) topModalSnapshot() modalLayerSnapshot {
 		s.state[1] = ui.stackSplitPicker.from
 		s.state[2] = ui.stackSplitPicker.quantity
 		s.stateID = ui.stackSplitPicker.id
+	case modalLayerStory:
+		// A press reveals the page or turns it: a click drawn before the reveal
+		// must not turn the page the reveal just showed.
+		if st := g.storyScreen; st != nil {
+			s.state[0] = st.page
+			s.state[1] = slices.IndexFunc(globalStoryEvents, func(e StoryEventDef) bool { return e.ID == st.event.ID })
+			s.state[2] = boolInt(st.textShown(g.storyTiming()))
+		}
+	case modalLayerCampRest:
+		// The same for the captain's words over the camp scene.
+		if c := g.campRest; c != nil && c.watcherLine != nil {
+			s.state[0] = boolInt(c.watcherWordsUp(g.storyTiming()))
+			s.state[1] = boolInt(c.watcherRead)
+		}
 	case modalLayerLevelChoice:
 		s.levelChoice = g.currentLevelUpChoice()
 		if s.levelChoice != nil {
@@ -1223,12 +1241,21 @@ func drawUITextColored(screen *ebiten.Image, text string, x, y int, col color.Co
 // drawUITextColoredIn is drawUITextColored in a given font (the font list
 // shows each name in its own).
 func drawUITextColoredIn(screen *ebiten.Image, font *uiGlyphAtlas, text string, x, y int, col color.Color) {
+	drawUITextColoredAlphaIn(screen, font, text, x, y, col, 1)
+}
+
+// drawUITextColoredAlphaIn draws a cached outlined label faded by alpha; the
+// label cache stays keyed by colour, so a fade costs no new label.
+func drawUITextColoredAlphaIn(screen *ebiten.Image, font *uiGlyphAtlas, text string, x, y int, col color.Color, alpha float64) {
 	if text == "" {
 		return
 	}
 	ox, oy := uiLabelOrigin(font)
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Translate(float64(x-ox), float64(y-oy))
+	if alpha < 1 {
+		opts.ColorScale.ScaleAlpha(float32(alpha))
+	}
 	uiDrawImage(screen, outlinedLabelImageIn(font, text, col), opts)
 }
 

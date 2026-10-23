@@ -82,6 +82,9 @@ type NPCData struct {
 	MinPartyLevel    int             `yaml:"min_party_level,omitempty"`
 	NightOnly        bool            `yaml:"night_only,omitempty"`   // present only during the night half-cycle (e.g. the lake bather, who shares the night with the spiders)
 	RejectsLich      bool            `yaml:"rejects_lich,omitempty"` // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
+	// TalkTag is an interact tag credited whenever the party speaks to this
+	// NPC (the Mage Tower takes the envoy's letter).
+	TalkTag string `yaml:"talk_tag,omitempty"`
 	// Buys is this merchant's flat offer per unit for the listed item keys,
 	// paid instead of the value-based price (Merchant skill does not apply).
 	Buys map[string]int `yaml:"buys,omitempty"`
@@ -186,6 +189,7 @@ type NPCQuestMessages struct {
 	NotCompleted   string `yaml:"not_completed,omitempty"`
 	Ineligible     string `yaml:"ineligible,omitempty"`
 	RejectedUndead string `yaml:"rejected_undead,omitempty"`
+	LevelLocked    string `yaml:"level_locked,omitempty"` // the party is below the quest's min_party_level
 }
 
 // NPCDialogueChoice represents a dialogue choice option
@@ -644,6 +648,7 @@ func NewNPCFromData(key string, data *NPCData, x, y float64) *NPC {
 		GridSpanTiles:    data.GridSpanTiles,
 		GridSpanDir:      data.GridSpanDir,
 		RejectsLich:      data.RejectsLich,
+		TalkTag:          data.TalkTag,
 		TownPortal:       data.TownPortal,
 		RequiresQuest:    data.RequiresQuest,
 		Training:         data.Training,

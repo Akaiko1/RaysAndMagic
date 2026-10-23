@@ -51,6 +51,7 @@ func (g *MMGame) syncOpenWorldRegion() {
 	if mc := wm.MapConfigs[r.MapKey]; mc != nil && mc.Name != "" {
 		g.AddCombatMessage(uitext.Text("combat.you_enter", mc.Name))
 	}
+	g.fireStoryTrigger(storyOnRegionEntered, r.MapKey, false)
 }
 
 // mapKeyOnCurrentWorld reports whether state tagged with mapKey lives on the

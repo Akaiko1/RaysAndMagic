@@ -312,6 +312,40 @@ func TestLogLinesCarryTheirTone(t *testing.T) {
 	}
 }
 
+// Every kind of damage line names its damage the same way: each number in its
+// tint, and only the special damage - every school but physical, and true
+// damage - named after it.
+func TestDamageLinesNameOnlySpecialDamage(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	kinds := []damageLogKind{damageLogHit, damageLogCrush, damageLogSplash, damageLogIndirect, damageLogScorch,
+		damageLogDodge, damageLogHeroDodge, damageLogReflection, damageLogStrike, damageLogBoundStrike,
+		damageLogBolt, damageLogProjectile, damageLogBurst}
+	shapes := []struct {
+		name   string
+		hit    damageLog
+		phrase string
+	}{
+		{"physical", damageLog{Amount: 52, School: "physical"}, " 52"},
+		{"one element", damageLog{Amount: 12, School: "light"}, " 12 light"},
+		{"true", damageLog{Amount: 3}, " 3 true"},
+		{"several", damageLog{Shares: []damageShare{{"physical", 40}, {"fire", 16}, {"", 3}}}, " 40 + 16 fire + 3 true"},
+	}
+	for _, kind := range kinds {
+		for _, shape := range shapes {
+			hit := shape.hit
+			hit.Kind, hit.Source = kind, logColored("Src", logPlain)
+			hit.Target = damageLogTarget{name: logColored("Dummy", logEnemy), hp: 10, maxHP: 20}
+			g.combatLogHistory = nil
+			g.reportDamage(logToneGood, hit)
+			text := g.combatLogHistory[0].Text
+			if !strings.Contains(text, shape.phrase) || strings.Contains(text, "physical") {
+				t.Errorf("%s, %s: %q, want %q and no word for physical damage", kind, shape.name, text, strings.TrimSpace(shape.phrase))
+			}
+		}
+	}
+}
+
 // Sequential production hits must log their own resolved amount and HP, not
 // the initial raw amount or the final HP after all follow-up damage.
 func TestDamageReportsCaptureResolvedHits(t *testing.T) {
@@ -348,8 +382,8 @@ func TestDamageReportsCaptureResolvedHits(t *testing.T) {
 		text, amount string
 		tint         color.Color
 	}{
-		{"Flame hits Dummy for 50 damage! (HP: 950/1000)", "50", SchoolColor("fire")},
-		{"Dummy takes 20 damage from Fire Trap! (HP: 930/1000)", "20", SchoolColor("fire")},
+		{"Flame hits Dummy for 50 fire damage! (HP: 950/1000)", "50", SchoolColor("fire")},
+		{"Dummy takes 20 fire damage from Fire Trap! (HP: 930/1000)", "20", SchoolColor("fire")},
 		{"Heat hits " + hero.Name + " for 30 damage! (HP: 970/1000)", "30", logPhysical},
 		{"Dummy dodges, but " + hero.Name + " lands 5 fire damage! (HP: 925/1000)", "5", SchoolColor("fire")},
 		{"Dummy dodges, but " + hero.Name + " lands 3 true damage! (HP: 922/1000)", "3", logTrue}, // true damage meets resistance

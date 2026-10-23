@@ -1845,12 +1845,21 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 // drawQuestsContent draws the quests tab content
 func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) {
 	layout := computeQuestContentLayout(content, nil, 0)
-	drawScaledMetalCenteredText(screen, uitext.Text("ui.quest_journal"), layout.title.x+layout.title.w/2, layout.title.y+8, 2, rarityGold)
+	heading := uitext.Text("ui.quest_journal")
+	if ui.questChronicle {
+		heading = uitext.Text("ui.story_chronicle")
+	}
+	drawScaledMetalCenteredText(screen, heading, layout.title.x+layout.title.w/2, layout.title.y+8, 2, rarityGold)
 	if ui.game.sprites.HasSprite("theme_quest_seal") {
 		drawImageScaled(screen, ui.game.sprites.GetSprite("theme_quest_seal"), layout.title.x+layout.title.w/2-144, layout.title.y-10, 36, 36)
 	}
 	listTop, _, _ := questCardListAvailable(content)
 	emptyX := layout.pager.x
+	ui.drawChronicleToggle(screen, layout.title)
+	if ui.questChronicle {
+		ui.drawChronicle(screen, content)
+		return
+	}
 
 	// Check if quest manager is available
 	if ui.game.questManager == nil {
@@ -1858,7 +1867,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, content layoutRect) 
 		return
 	}
 
-	allQuests := ui.game.questManager.GetAllQuests()
+	allQuests := ui.game.journalQuests()
 	if len(allQuests) == 0 {
 		drawUIText(screen, "No active quests.", emptyX, listTop)
 		return

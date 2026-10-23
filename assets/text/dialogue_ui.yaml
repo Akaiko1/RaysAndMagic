@@ -99,6 +99,7 @@ dialog.trained_to_for_gold: "%s trained %s to %s for %d gold."
 dialog.training_option: "%s:  %s -> %s   %d gold"
 dialog.spell_trader_prompt: "Select a spell to learn."
 dialog.you_are_already_on_that_quest: "You are already on that quest."
+dialog.quest_needs_party_level: "This quest requires party level %d."
 dialog.your_cards_double_click_to_add: "Your cards (double-click to add)"
 
 caravan.goods_tab: "Trade Goods"

@@ -28,6 +28,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	g.terrainChanges = nil
 	g.cancelDayNightSkip()
 	g.cancelCampPresentation()
+	g.closeStoryScreen()
 	g.profileKilled = nil
 	g.discardFish()
 	wm.RandomizeEnvironmentSprites()
@@ -57,7 +58,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 		g.addTreasureChestsFromRewards(legacyRewards)
 	}
 	g.restoreSavedEffectPresentation(wm, save)
+	g.restoreStory(save) // before the journal: its reconciliation reads this save's reveals
 	g.restoreSavedQuests(save)
+	g.resyncLegacyStory(save)
+	g.restoreWatcher(save)
 	g.restoreTerrainChanges(save.TerrainChanges)
 	g.settleStrandedMonsters() // after ice and terrain are restored
 	// A position saved on an older map layout can sit inside what is now a

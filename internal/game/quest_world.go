@@ -244,16 +244,28 @@ func questJournalRank(q *quests.Quest) int {
 	}
 }
 
-// sortQuestJournal orders quests in place for display: by rank, then by name so
-// the list is stable frame to frame.
+// sortQuestJournal orders quests in place for display: by rank, main-storyline
+// steps first within a rank, then by name so the list is stable frame to frame.
 func sortQuestJournal(qs []*quests.Quest) {
 	sort.SliceStable(qs, func(i, j int) bool {
 		ri, rj := questJournalRank(qs[i]), questJournalRank(qs[j])
 		if ri != rj {
 			return ri < rj
 		}
+		if mi, mj := qs[i].Definition.Main, qs[j].Definition.Main; mi != mj {
+			return mi
+		}
 		return qs[i].Definition.Name < qs[j].Definition.Name
 	})
+}
+
+// journalQuests is every quest the player is shown: hidden quests stay out
+// until a story event reveals them (questVisible).
+func (g *MMGame) journalQuests() []*quests.Quest {
+	if g.questManager == nil {
+		return nil
+	}
+	return slices.DeleteFunc(g.questManager.GetAllQuests(), func(q *quests.Quest) bool { return !g.questVisible(q) })
 }
 
 // questIDLess is THE stable order for quests collected out of the manager's map
@@ -409,8 +421,9 @@ func (g *MMGame) refreshWorldTileRenderCaches() {
 	}
 }
 
-// applyCompletedQuestTiles runs at every "a quest may have just completed"
-// touchpoint: syncs quest world-tiles and fires any pending completion spawns.
+// applyCompletedQuestTiles brings the world in line with quest state: quest
+// tiles, quest props and pending completion spawns. The completion hook runs it
+// on every completion; new game and load sync the same parts themselves.
 func (g *MMGame) applyCompletedQuestTiles() {
 	g.syncQuestTiles()
 	g.syncQuestProps()
@@ -425,12 +438,23 @@ func (g *MMGame) announceQuestCompletionWithMessage(q *quests.Quest, message str
 	if q == nil || q.Definition == nil {
 		return
 	}
+	// THE completion hook: every path that completes a quest passes here, so
+	// its world changes land on all of them.
+	g.applyCompletedQuestTiles()
 	// This hook runs only on completion transitions, not journal rendering
 	// or restoration of completed quests. Automatic objectives and payouts resolve
 	// here; ordinary quests are counted later at their committed turn-in.
 	if q.RewardsClaimed {
 		g.recordProfileQuestResolution(q)
 	}
+	if !g.questVisible(q) {
+		return // told when a story beat reveals it (tickStoryEvents)
+	}
+	g.presentQuestCompletion(q, message)
+}
+
+// presentQuestCompletion is the completion's sound and log line.
+func (g *MMGame) presentQuestCompletion(q *quests.Quest, message string) {
 	g.playSound(soundQuestComplete)
 	if message != "" {
 		g.logCombat(logToneReward, "%s", message)
@@ -528,18 +552,12 @@ func (g *MMGame) reconcileKillQuests() {
 	if g.questManager == nil {
 		return
 	}
-	completed := false
 	for _, q := range g.questManager.GetActiveQuests() {
 		if q.Completed || q.Definition == nil ||
 			q.Definition.Type != quests.QuestTypeKill {
 			continue
 		}
-		if g.completeKillQuestIfCleared(q, false) {
-			completed = true
-		}
-	}
-	if completed {
-		g.applyCompletedQuestTiles()
+		g.completeKillQuestIfCleared(q, false)
 	}
 }
 
@@ -690,10 +708,13 @@ func ValidateInteractTagProducers(qm *quests.QuestManager) error {
 	if err := validateQuestActiveProps(qm); err != nil {
 		return err
 	}
-	producers := interactTagProducers(character.NPCConfigInstance.NPCs)
-	placedPerTag, censusErr := placedPropTagCounts(world.GlobalWorldManager)
-	if censusErr != nil {
-		return censusErr
+	producers, err := interactTagProducers(character.NPCConfigInstance.NPCs)
+	if err != nil {
+		return err
+	}
+	census, err := placedInteractTagCensus(world.GlobalWorldManager)
+	if err != nil {
+		return err
 	}
 	ids := sortedMapKeys(qm.Definitions()) // one error first, the same one every run
 	for _, id := range ids {
@@ -706,6 +727,17 @@ func ValidateInteractTagProducers(qm *quests.QuestManager) error {
 			return fmt.Errorf("quest %q counts interact tag %q, which nothing credits: no prop declares it and no code path produces it",
 				id, def.TargetMonster)
 		}
+		// A talk tag is repeatable (each conversation credits it); one placed NPC
+		// carrying it is all it needs.
+		if source == interactTagFromTalk {
+			if census == nil {
+				fmt.Printf("[WARN] quest %q needs a placed NPC with talk tag %q; the census was unavailable and was skipped (failed maps: %v)\n",
+					id, def.TargetMonster, failedMapsOf(world.GlobalWorldManager))
+			} else if !census.talkers[def.TargetMonster] {
+				return fmt.Errorf("quest %q counts talk tag %q, but no placed NPC carries it", id, def.TargetMonster)
+			}
+			continue
+		}
 		// A code-produced tag is repeatable (a bout can be fought again) and has
 		// no props to count - but its code path must still be able to fire.
 		if source != interactTagFromProp {
@@ -715,7 +747,7 @@ func ValidateInteractTagProducers(qm *quests.QuestManager) error {
 			}
 			continue
 		}
-		if placedPerTag == nil {
+		if census == nil {
 			// Nothing to judge: no loaded world, or a map failed to load. An empty
 			// non-nil census is trustworthy and must reject an impossible quest.
 			fmt.Printf("[WARN] quest %q needs %d props tagged %q; the prop census was unavailable and was skipped (failed maps: %v)\n",
@@ -727,7 +759,7 @@ func ValidateInteractTagProducers(qm *quests.QuestManager) error {
 		if def.Activity != nil {
 			continue
 		}
-		if placed := placedPerTag[def.TargetMonster]; placed < def.TargetCount {
+		if placed := census.props[def.TargetMonster]; placed < def.TargetCount {
 			return fmt.Errorf("quest %q asks for %d of tag %q but only %d such props are placed in the world - it could never be finished",
 				id, def.TargetCount, def.TargetMonster, placed)
 		}
@@ -735,18 +767,25 @@ func ValidateInteractTagProducers(qm *quests.QuestManager) error {
 	return validateQuestActivityProps(qm, true)
 }
 
-// placedPropTagCounts counts distinct one-shot NPC props actually standing in
-// loaded worlds. A physical NPC counts once; multiple prop actions on one NPC
-// are ambiguous authoring rather than multiple usable objects. A nil map means
-// the census is unavailable. A non-nil empty map is a trustworthy count of zero.
-func placedPropTagCounts(wm *world.WorldManager) (map[string]int, error) {
+// placedTagCensus is what the NPCs standing in loaded worlds credit: one-shot
+// prop tags, counted per physical NPC, and talk tags.
+type placedTagCensus struct {
+	props   map[string]int
+	talkers map[string]bool
+}
+
+// placedInteractTagCensus takes the census in one walk. A physical NPC counts
+// once; multiple prop actions on one NPC are ambiguous authoring rather than
+// multiple usable objects. A nil census means it is unavailable; a non-nil
+// empty one is a trustworthy count of zero.
+func placedInteractTagCensus(wm *world.WorldManager) (*placedTagCensus, error) {
 	if wm == nil || len(wm.FailedMaps) > 0 {
 		// Same rule as placedNPCKeys: a map that failed to load took its props
 		// with it, and counting off a partial world turns one broken map into an
 		// unbootable game that blames the quest data for it.
 		return nil, nil
 	}
-	counts := map[string]int{}
+	census := &placedTagCensus{props: map[string]int{}, talkers: map[string]bool{}}
 	seenNPCs := make(map[*character.NPC]struct{})
 	loadedWorld := false
 	var censusErr error
@@ -756,13 +795,19 @@ func placedPropTagCounts(wm *world.WorldManager) (map[string]int, error) {
 		}
 		loadedWorld = true
 		for _, npc := range w.NPCs {
-			if npc == nil || npc.DialogueData == nil {
+			if npc == nil {
 				continue
 			}
 			if _, duplicate := seenNPCs[npc]; duplicate {
 				continue
 			}
 			seenNPCs[npc] = struct{}{}
+			if npc.TalkTag != "" {
+				census.talkers[npc.TalkTag] = true
+			}
+			if npc.DialogueData == nil {
+				continue
+			}
 			propTag := ""
 			propChoices := 0
 			if err := npc.DialogueData.WalkChoices(func(c *character.NPCDialogueChoice) error {
@@ -781,7 +826,7 @@ func placedPropTagCounts(wm *world.WorldManager) (map[string]int, error) {
 				return
 			}
 			if propTag != "" {
-				counts[propTag]++
+				census.props[propTag]++
 			}
 		}
 	})
@@ -791,7 +836,7 @@ func placedPropTagCounts(wm *world.WorldManager) (map[string]int, error) {
 	if !loadedWorld {
 		return nil, nil
 	}
-	return counts, nil
+	return census, nil
 }
 
 // failedMapsOf reports the maps LoadAllMaps could not read, for diagnostics.
@@ -810,6 +855,7 @@ type interactTagSource int
 const (
 	interactTagFromProp interactTagSource = iota // an authored prop:/tag block
 	interactTagFromCode                          // produced by a code path (the arena bout)
+	interactTagFromTalk                          // an NPC's talk_tag, credited on every conversation
 )
 
 // codeInteractTagReady names every tag no prop declares, WITH the world condition
@@ -846,15 +892,22 @@ var codeInteractTagReady = map[string]func(*world.WorldManager) bool{
 }
 
 // interactTagProducers is every tag something in the game can actually credit:
-// the authored props declare theirs, the code tags declare their own.
-func interactTagProducers(catalog map[string]*character.NPCData) map[string]interactTagSource {
+// the authored props and talk tags declare theirs, the code tags their own. A
+// talk tag also credited by a prop or a code path is refused: it would be both
+// counted and repeatable.
+func interactTagProducers(catalog map[string]*character.NPCData) (map[string]interactTagSource, error) {
 	tags := map[string]interactTagSource{}
 	for tag := range codeInteractTagReady {
 		tags[tag] = interactTagFromCode
 	}
-	for _, npc := range catalog {
+	talkers := map[string]string{} // talk tag -> an NPC carrying it
+	for _, key := range sortedMapKeys(catalog) {
+		npc := catalog[key]
 		if npc == nil {
 			continue
+		}
+		if npc.TalkTag != "" {
+			talkers[npc.TalkTag] = key
 		}
 		_ = npc.Dialogue.WalkChoices(func(c *character.NPCDialogueChoice) error {
 			// A code tag stays a code tag even if a prop also declares it (a
@@ -869,7 +922,13 @@ func interactTagProducers(catalog map[string]*character.NPCData) map[string]inte
 			return nil
 		})
 	}
-	return tags
+	for _, tag := range sortedMapKeys(talkers) {
+		if _, taken := tags[tag]; taken {
+			return nil, fmt.Errorf("NPC %q: talk_tag %q is also credited by a prop or a code path; one tag, one kind of producer", talkers[tag], tag)
+		}
+		tags[tag] = interactTagFromTalk
+	}
+	return tags, nil
 }
 
 // questGateError is the rule for a quest a content gate waits on: a known

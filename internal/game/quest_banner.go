@@ -11,7 +11,7 @@ import (
 // (the channel lives in screen_banner.go). A DIFF WATCHER, not notification
 // calls - every event is derived by comparing the manager's state against last
 // frame's snapshot, so a new progress source raises banners with no call of its
-// own and none can be forgotten.
+// own and none can be forgotten. Hidden quests raise no banner until revealed.
 
 // questBannerSnapshot is the per-quest state the diff compares.
 type questBannerSnapshot struct {
@@ -119,6 +119,9 @@ func (g *MMGame) syncQuestBanners(announce bool) {
 		}
 		if !announce {
 			return
+		}
+		if !g.questVisible(q) {
+			return // a hidden quest raises no banner until revealed
 		}
 		if kind, ok := questBannerEventFor(q, was, known); ok {
 			events = append(events, questBannerEvent{quest: q, kind: kind})

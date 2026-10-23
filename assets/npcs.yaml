@@ -1274,6 +1274,7 @@ npcs:
     transparent: true
     size_class: structure
     rejects_lich: true
+    talk_tag: "tower_letter"   # the gate takes Envoy Corwin's letter (main_tower_letter)
     dialogue:
       greeting: "White fire runs up the tower door. A voice speaks from above: 'Petitioners for the rank of Archmage, hear the trial.'"
       active_message: "'The Lich King still rules his Nexus. Destroy him and return to this tower.'"
@@ -3627,6 +3628,9 @@ npcs:
       active_message: "Hunt the Elder Dragons, then return to me. Each desert seal takes a statuette of its own color. The Pyramid Sanctum's reliquaries hold them. Be ready when the seal opens."
       completed_message: "The Elder Dragons are destroyed. After two years watching these stones, I had begun to think I would grow old here. You have earned the pilgrimage's reward."
       visited_message: "My watch is over. I keep looking at the road east, wondering how far I could walk before sundown."
+      quest_messages:
+        dragon_slayer:
+          level_locked: "Sylwen looks you over and shakes her head. 'An Elder Dragon would burn all four of you before your first blow. Come back stronger. The Tower has work for you until then.'"
       choice_prompt: "Sylwen keeps a hand on the warm stone."
       choices:
         - text: "Why do the runes do nothing?"
@@ -3650,6 +3654,84 @@ npcs:
         - text: "Report the seals empty"
           action: "turn_in_quest"
           quest_id: "dragon_slayer"
+
+  # The main storyline's guides (docs/story-plan.md). Corwin starts it by the
+  # forest tavern; Rhosyn warns parties off the jungle at the desert passage;
+  # Brannoc keeps count of the lamps off the Seabright pier.
+  tower_envoy:
+    biomes: ["forest"]
+    name: "Envoy Corwin"
+    type: "quest_giver"
+    description: "An envoy of the Mage Tower in white and gold travelling robes, a sealed letter in his satchel"
+    sprite: "tower_envoy"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Corwin, envoy of the Mage Tower. The Tower is hiring ash-walkers, and I am told you are four of them. This letter must reach the Tower's gate in the Misty Highlands."
+      active_message: "Leave the forest by the west road and go north into the Misty Highlands. Speak at the Tower's gate. The letter does the rest."
+      completed_message: "The Tower has its letter. What it asks of you now is the Tower's business. Good luck, ash-walkers."
+      visited_message: "The Tower has its letter. What it asks of you now is the Tower's business. Good luck, ash-walkers."
+      quest_messages:
+        main_tower_letter:
+          offer: "Corwin, envoy of the Mage Tower. The Tower is hiring ash-walkers, and I am told you are four of them. This letter must reach the Tower's gate in the Misty Highlands."
+          active: "Leave the forest by the west road and go north into the Misty Highlands. Speak at the Tower's gate. The letter does the rest."
+          completed: "The Tower has its letter. What it asks of you now is the Tower's business. Good luck, ash-walkers."
+      choice_prompt: "Corwin holds out a sealed letter."
+      choices:
+        - text: "What is an ash-walker?"
+          action: "info"
+          response: "A fighter with no Light of their own. What is loose out there eats the Light, so the Tower cannot send its own people. It sends you. That is all I am allowed to say."
+          choices:
+            - text: "We will carry the letter."
+              action: "give_quest"
+              quest_id: "main_tower_letter"
+            - text: "Back."
+              action: "back"
+        - text: "We will carry the letter."
+          action: "give_quest"
+          quest_id: "main_tower_letter"
+
+  desert_scout:
+    biomes: ["desert"]
+    name: "Rhosyn the Scout"
+    type: "encounter"
+    description: "A scout for the Dunehold caravans, in sand-coloured wraps, a curved bow in her hand"
+    sprite: "desert_scout"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Rhosyn, scout for the Dunehold caravans. The road east goes into the Deep Jungle. Do not take it unless you have killed things much bigger than bandits. The jungle orcs took a whole caravan last month."
+      choice_prompt: "Rhosyn keeps an eye on the road east."
+      choices:
+        - text: "What is in the jungle?"
+          action: "info"
+          response: "Orcs, apes the size of a cart, and something in the river that drags oxen under. Their warlord does not die when you cut him. Come back when you are stronger."
+        - text: "Where should we go instead?"
+          action: "info"
+          response: "West. The Mage Tower in the Misty Highlands is hiring fighters. The pyramid in these dunes is a better place to learn than the jungle, and it has statuettes worth more than a caravan."
+        - text: "Leave"
+          action: "leave"
+
+  harbor_watch:
+    biomes: ["city"]
+    name: "Brannoc of the Harbour Watch"
+    type: "encounter"
+    description: "A Seabright harbour guard in an oilskin coat, a lantern in one hand and a short spear in the other"
+    sprite: "harbor_watch"
+    render_category: npc
+    size_class: person
+    dialogue:
+      greeting: "Brannoc, Harbour Watch. Look down off the pier at night and you will see them: lamps on the sea floor, in rows. Three boats have sailed out over them and not come back."
+      choice_prompt: "Brannoc lifts his lantern toward the water."
+      choices:
+        - text: "What are they?"
+          action: "info"
+          response: "The old fishermen say there is a town down there. I say whatever lit them can count. They come on at the same hour every night, all of them at once. Something called the Aliens keeps them."
+        - text: "How do we get down there?"
+          action: "info"
+          response: "Cast Water Breathing and walk into the deep water north of the town gate, where the sea comes into the forest. Kill every Alien in the Ocean Depths. Then come back and tell me the lamps are out."
+        - text: "Leave"
+          action: "leave"
 
 
   sister_mira:

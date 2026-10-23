@@ -650,6 +650,19 @@ type MMGame struct {
 	// playthrough (persisted). Spawns are one-shot events, never re-applied.
 	questSpawnsDone  map[string]bool
 	questPropLayouts map[string]string // per-run layout IDs, chosen before acceptance
+	// Story events (story_events.go): shown and still-queued event IDs
+	// (persisted), the hidden quests their reveals unlocked, and the open screen.
+	storySeen     []StorySeenSave // shown events in the order shown, with their day
+	storyQueue    []string
+	storyRevealed map[string]bool // persisted: a legacy save reveals without a beat
+	storyScreen   *storyPresentation
+	// The watching captain (watcher.go): lines spoken, the day of his last
+	// random remark, kill remarks waiting for the fight to end (all persisted),
+	// his card.
+	watcherSeen    map[string]bool
+	watcherLastDay int
+	watcherQueue   []string
+	watcherCard    *watcherCard
 	// bossFireTraps: the Brood Mother's armed fire-trap field (persisted) and
 	// the collision ID of the boss that sowed it. See boss_fire_traps.go.
 	bossFireTraps      []bossFireTrap
@@ -1109,6 +1122,7 @@ func newMMGame(cfg *config.Config, preview bool) *MMGame {
 	game.validateBuffFxSprites()
 	game.validatePartyCardPanelAsset()
 	game.validateInterfaceArt()
+	game.validateStoryArt()
 	validateWeaponFxStyles()
 	validateAutoBuildGear(game.config)
 	validateFlaskFxStyles()
@@ -2144,6 +2158,7 @@ func (g *MMGame) checkVictory() {
 		g.enterPostVictoryFreeMode()
 		g.gameVictory = true
 		g.victoryTime = time.Now()
+		g.fireStoryTrigger(storyOnVictory, "", false)
 	}
 }
 
@@ -2332,11 +2347,7 @@ func (g *MMGame) framesForSeconds(seconds float64) int {
 	if g != nil && g.config != nil {
 		tps = g.config.GetTPS()
 	}
-	frames := int(seconds*float64(tps) + 0.5)
-	if frames < 1 && seconds > 0 {
-		return 1 // never round a real duration down to "no frames at all"
-	}
-	return frames
+	return config.SecondsToFrames(seconds, tps)
 }
 
 // HitSparkFrames is how long the hit feedback (whole-card red flash + spark

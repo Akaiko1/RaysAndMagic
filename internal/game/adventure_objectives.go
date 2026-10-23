@@ -76,7 +76,6 @@ func (g *MMGame) creditAdventureMovement(method string, oldX, oldY, newX, newY f
 			}
 			_, done, _ := g.questManager.CreditObjective(id, quests.ObjectiveEvent{Token: o.Token, Map: key, Event: o.Event, Night: g.dayNightIsNight, From: from, To: to})
 			if done {
-				g.applyCompletedQuestTiles()
 				g.announceQuestCompletionWithMessage(g.questManager.GetQuest(id), "The crossing is recorded.")
 			}
 		}

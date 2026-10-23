@@ -22,9 +22,17 @@ func (g *MMGame) canActivateQuest(id string) error {
 		return fmt.Errorf("unknown quest %q", id)
 	}
 	if !g.partyLevelUnlocked(d.MinPartyLevel) {
-		return fmt.Errorf("This quest requires party level %d.", d.MinPartyLevel)
+		return questLevelLocked{d.MinPartyLevel}
 	}
 	return nil
+}
+
+// questLevelLocked refuses a quest the party is too young for; a giver may
+// answer it in its own voice (quest_messages level_locked).
+type questLevelLocked struct{ level int }
+
+func (e questLevelLocked) Error() string {
+	return uitext.Text("dialog.quest_needs_party_level", e.level)
 }
 
 func (g *MMGame) activateQuest(id string) error {
@@ -36,9 +44,7 @@ func (g *MMGame) activateQuest(id string) error {
 	}
 	g.spawnQuestCompletionMonsters(false)
 	g.syncQuestProps()
-	if g.creditQuestIfCleared(id) {
-		g.applyCompletedQuestTiles()
-	}
+	g.creditQuestIfCleared(id)
 	return nil
 }
 
@@ -118,12 +124,11 @@ func (g *MMGame) handleQuestActivity(npc *character.NPC, id string, words *chara
 	return true
 }
 
-// completePropErrand is the completion beat every prop route shares: quest
-// tiles, the prop's completed line and - when the errand's own giver took the
+// completePropErrand is the completion beat every prop route shares: the
+// prop's completed line and - when the errand's own giver took the
 // delivery, which is its turn-in - the payout on the spot. Elsewhere the line
 // carries the route's hint for claiming the reward later.
 func (g *MMGame) completePropErrand(npc *character.NPC, q *quests.Quest, completed, claimHint string) {
-	g.applyCompletedQuestTiles()
 	if !npcGivesQuest(npc, q.ID) {
 		g.announceQuestCompletionWithMessage(q, completed+claimHint)
 		return

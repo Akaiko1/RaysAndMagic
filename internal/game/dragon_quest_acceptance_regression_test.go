@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/quests"
 )
 
@@ -23,7 +24,24 @@ func TestDragonSlayerAcceptanceDoesNotCompleteBeforeSummons(t *testing.T) {
 		quests.GlobalQuestManager = previousQuestManager
 	})
 
+	if err := character.LoadNPCConfig("../../assets/npcs.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	sylwen, err := character.CreateNPCFromConfig("desert_pilgrim_sylwen", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ih := &InputHandler{game: cs.game}
+	// Below level 24 she refuses in her own words and nothing starts.
+	cs.game.dialogNPC = sylwen
+	ih.handleGiveQuest("dragon_slayer")
+	log := cs.game.combatLogHistory
+	want := sylwen.DialogueData.QuestMessages["dragon_slayer"].LevelLocked
+	if questManager.GetQuest("dragon_slayer") != nil || want == "" || len(log) == 0 || log[len(log)-1].Text != want {
+		t.Fatalf("under-level party: quest active %v, last line %v; want her level_locked reply", questManager.GetQuest("dragon_slayer") != nil, log)
+	}
+	cs.game.maxPartyLevel = 24
+	cs.game.dialogNPC = sylwen
 	ih.handleGiveQuest("dragon_slayer")
 
 	quest := questManager.GetQuest("dragon_slayer")

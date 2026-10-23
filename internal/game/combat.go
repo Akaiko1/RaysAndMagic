@@ -3204,6 +3204,7 @@ func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 	m.DeathDrawX, m.DeathDrawY = cs.monsterVisualPos(m)
 	m.DeathDrawn = true
 	cs.game.recordAdventureBoss(m)
+	cs.game.rewardOwner().noteStoryKill(m)
 	if m.IsCaravan() {
 		cs.game.recordCaravanLoss(m.ID)
 	}
@@ -3239,7 +3240,7 @@ func (cs *CombatSystem) announceKill(m *monsterPkg.Monster3D, xp int) {
 // summons, caravans, wildlife prey or a boss's unbound adds. A boss's adds
 // still drop their gold and loot like any kill: intended, not a farming bug.
 func (cs *CombatSystem) killExperience(monster *monsterPkg.Monster3D) int {
-	if isPurePartySummon(monster) || monster.NoKillRewards || monster.IsCaravan() {
+	if !killCredited(monster) {
 		return 0
 	}
 	if monster.SummonedBy != "" && !monster.CharmedByParty {
@@ -3304,10 +3305,9 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 	if monster == nil || recipient.party == nil || len(recipient.party.Members) == 0 {
 		return 0
 	}
-	// A pure party summon was never an enemy: its death credits the party
-	// with nothing (no XP, gold, or loot). THE single gate for that rule, so
-	// every death path (melee, projectile, splash) honours it automatically.
-	if isPurePartySummon(monster) || monster.NoKillRewards || monster.IsCaravan() {
+	// THE single gate (killCredited), so every death path (melee, projectile,
+	// splash) honours it automatically.
+	if !killCredited(monster) {
 		return 0
 	}
 
@@ -3372,13 +3372,27 @@ func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
 	}
 }
 
+// killCredited: the party is credited with this death at all - XP, gold, loot.
+// A pure party summon was never an enemy; caravans and wildlife prey
+// (NoKillRewards) pay nothing.
+func killCredited(m *monsterPkg.Monster3D) bool {
+	return m != nil && !isPurePartySummon(m) && !m.NoKillRewards && !m.IsCaravan()
+}
+
+// killCountsForProgress: a credited death that also advances quests, the story
+// and the captain. Runtime summons, ecology actors and fish (marked
+// QuestProgressIgnored by their spawners) never do.
+func killCountsForProgress(m *monsterPkg.Monster3D) bool {
+	return killCredited(m) && !m.QuestProgressIgnored
+}
+
 // updateQuestProgress updates quest progress when a monster is killed
 func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 	recipient := cs.game.rewardOwner()
 	if recipient.questManager == nil {
 		return
 	}
-	if monster.QuestProgressIgnored {
+	if !killCountsForProgress(monster) {
 		return
 	}
 
@@ -3401,10 +3415,8 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 	}
 
 	// Kill quests also complete when their eligible roster is cleared
-	// (counter notwithstanding), and completions may change the world
-	// (e.g. the wolf-cull bridge).
+	// (counter notwithstanding).
 	recipient.completeClearedKillQuestsForTarget(monsterType, true)
-	recipient.applyCompletedQuestTiles()
 }
 
 // checkLevelUp checks if a character should level up and applies level up benefits.

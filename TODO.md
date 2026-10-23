@@ -1,5 +1,9 @@
 # TODO
 
+- [ ] Main storyline: the Noble/Selfish ending (E4) remains; the story events,
+  main quest line, guiding NPCs and the watching captain are built. Plan and
+  decisions in docs/story-plan.md.
+
 - [ ] Decide the level pacing proposals (desert/jungle and highlands/cliffs
   jumps, pyramid stair, church climax): docs/game-design-proposals.md.
 

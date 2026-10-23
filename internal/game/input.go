@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -299,6 +300,18 @@ func (ih *InputHandler) handleTopModalInput() bool {
 		}
 	case modalLayerLevelChoice:
 		ih.handleLevelUpChoiceInput()
+	case modalLayerCampRest:
+		if ih.keys.Consume(ebiten.KeySpace) || ih.keys.Consume(ebiten.KeyEnter) ||
+			ih.keys.Consume(ebiten.KeyNumpadEnter) || ih.keys.Consume(ebiten.KeyEscape) {
+			g.releaseCampWatcher()
+		}
+	case modalLayerStory:
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			g.closeStoryScreen()
+		} else if ih.keys.Consume(ebiten.KeySpace) || ih.keys.Consume(ebiten.KeyEnter) ||
+			ih.keys.Consume(ebiten.KeyNumpadEnter) || ih.keys.Consume(ebiten.KeyRight) {
+			g.advanceStory()
+		}
 	}
 	return true
 }
@@ -418,6 +431,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	// pristine, so the old run's spawned bosses are gone with them).
 	g.questSpawnsDone = nil
 	g.pendingQuestSpawns = nil
+	g.resetStory()
 	// Fresh run must not inherit the old run's quest world-changes (e.g. the
 	// wolf-cull bridge). wm.Reset below reloads maps pristine anyway; this
 	// revert is the belt-and-suspenders for any world instance that survives.
@@ -482,6 +496,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 
 	// Hand control to the gameplay loop.
 	g.appScreen = AppScreenInGame
+	g.fireStoryTrigger(storyOnNewGame, "", false)
 }
 
 // handleVictoryInput processes input on the victory screen. High scores over a
@@ -1571,7 +1586,7 @@ func (g *MMGame) worldClickAllowed() bool {
 	if g.editorPreview != nil {
 		return false
 	}
-	if g.gameLoop != nil && g.gameLoop.loading != nil && g.gameLoop.loading.awaitingFrame {
+	if g.loadingStall() {
 		return false
 	}
 	stackSplitOpen := false
@@ -1798,6 +1813,9 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// to speak, a chest or a lectern that has no dialog at all) and would leave
 	// their own "Press SPACE to interact" heading hanging over the result.
 	ih.game.noteInteractPromptEngaged(npc)
+	// Speaking delivers whatever this NPC takes, before any refusal below: the
+	// Tower's gate takes the envoy's letter even from a party it will not admit.
+	ih.game.creditTalkTag(npc)
 	// A Light-aligned ward that flags rejects_lich (the Mage Tower) won't speak to
 	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
 	// giver" - other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
@@ -1818,7 +1836,15 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// turn-in option appears (e.g. the Lich King slain before the Archmage's Trial
 	// was taken, or the cliff trolls thinned below the quota).
 	ih.game.creditClearedKillQuests(npc)
-	ih.game.applyCompletedQuestTiles() // dialogue-time credit can complete a world-changing quest
+	// No dialog opens over a story beat waiting to be shown, this talk's own
+	// included (a letter delivered, a hunt credited): the dialog would hold the
+	// beat and answer what the party has not read. Mid-fight the beat waits.
+	if ih.game.syncStoryQuestBeats(); len(ih.game.storyQueue) > 0 {
+		if ih.game.partyInCombat() {
+			ih.game.AddCombatMessage(uitext.Text("combat.enemies_are_upon_you_finish_the_fight"))
+		}
+		return
+	}
 	ih.game.beginConversation(npc)
 	ih.buildStatueChoices(npc)
 	kind := ih.game.npcDialogKindFor(npc)
@@ -2801,8 +2827,12 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	// Activation and authored replies share one path after eligibility checks.
 	if err := g.activateQuest(questID); err != nil {
 		reply := err.Error()
-		if g.questManager != nil && g.questManager.GetQuest(questID) != nil {
+		var locked questLevelLocked
+		switch {
+		case g.questManager != nil && g.questManager.GetQuest(questID) != nil:
 			reply = npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.AlreadyActive }, reply)
+		case errors.As(err, &locked):
+			reply = npcQuestReply(npc, questID, func(m character.NPCQuestMessages) string { return m.LevelLocked }, reply)
 		}
 		g.AddCombatMessage(reply)
 		return

@@ -393,6 +393,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 	}
 	sort.Strings(questSpawnsDone) // deterministic save bytes
+	watcherSeen, watcherLastDay, watcherQueue := g.watcherSaveState()
 
 	// Calculate played time
 	playedTime := time.Since(g.sessionStartTime)
@@ -465,7 +466,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 	}
 
-	return GameSave{
+	save := GameSave{
 		Adventure:        cloneAdventureState(g.adventure),
 		TerrainChanges:   append([]TerrainChange(nil), g.terrainChanges...),
 		MapKey:           saveMapKey,
@@ -481,6 +482,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		NPCStates:        nstates,
 		Quests:           questSaves,
 		QuestSpawnsDone:  questSpawnsDone,
+		WatcherSeen:      watcherSeen,
+		WatcherLastDay:   watcherLastDay,
+		WatcherQueue:     watcherQueue,
 		QuestPropLayouts: cloneQuestPropLayouts(g.questPropLayouts),
 		Alchemy:          g.alchemy.Clone(), SpatialReuse: g.spatialReuse.Saved(), OpenerCooldown: g.openerCooldown.Saved(), PartyMoveClock: g.partyMoveClock.Saved(),
 		BossFireTraps:               bossFireTrapSaves,
@@ -551,6 +555,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 
 		MapReturnPoses: returnPoses,
 	}
+	g.storySaveState(&save)
+	return save
 }
 
 // statBonusesToMap serializes a StatBonuses block for saves (nonzero entries

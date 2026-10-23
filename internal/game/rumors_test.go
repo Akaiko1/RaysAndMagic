@@ -2,6 +2,8 @@ package game
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -58,6 +60,14 @@ func TestRumorsYAML_LoadsAndRotates(t *testing.T) {
 		}
 		retiring++
 		g.questManager = quests.NewQuestManager(questCfg)
+		g.storyRevealed = nil
+		if def := g.questManager.Definitions()[r.Quest]; def != nil && def.Hidden {
+			// A hidden quest is not gossiped about before its story beat.
+			if shown(r.Text) {
+				t.Errorf("rumor for hidden %s shown before its beat revealed it", r.Quest)
+			}
+			g.revealQuest(r.Quest)
+		}
 		if !shown(r.Text) {
 			t.Errorf("rumor for %s never shown before its quest completes", r.Quest)
 		}
@@ -89,6 +99,41 @@ func TestRumorsYAML_LoadsAndRotates(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("after-gated rumor (return to the deep) never surfaced")
+	}
+}
+
+// {min_party_level} quotes the rumor quest's own gate; a slot whose quest has
+// no level gate, or a load with no quest catalog, is refused - never shipped
+// as a literal, never a crash.
+func TestRumorLevelSlotReadsTheQuestGate(t *testing.T) {
+	prev := globalRumors
+	t.Cleanup(func() { globalRumors = prev })
+	questCfg, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	qm := quests.NewQuestManager(questCfg)
+	load := func(entry string, qm *quests.QuestManager) error {
+		path := filepath.Join(t.TempDir(), "rumors.yaml")
+		if err := os.WriteFile(path, []byte("rumors:\n"+entry), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return LoadRumorConfig(path, qm)
+	}
+	good := "  - text: \"Come back at level {min_party_level}.\"\n    quest: dragon_slayer\n"
+	if err := load(good, qm); err != nil {
+		t.Fatalf("control: %v", err)
+	}
+	if want := fmt.Sprintf("level %d.", qm.Definitions()["dragon_slayer"].MinPartyLevel); globalRumors[0].Text != "Come back at "+want {
+		t.Fatalf("rumor reads %q, want the quest's level", globalRumors[0].Text)
+	}
+	for name, bad := range map[string]error{
+		"ungated quest": load(strings.Replace(good, "dragon_slayer", "goblin_hunt", 1), qm),
+		"no catalog":    load(good, nil),
+	} {
+		if bad == nil {
+			t.Errorf("%s: loaded", name)
+		}
 	}
 }
 
@@ -237,6 +282,7 @@ func TestRumors_SpawnedBossFollowupSurvivesUntilBossDies(t *testing.T) {
 	if err := g.questManager.ActivateQuest("water_purge"); err != nil {
 		t.Fatalf("activate water purge: %v", err)
 	}
+	g.revealQuest("water_purge") // the lamps beat has shown it; this test is about the boss
 	globalRumors = []RumorDef{{
 		After:        "water_purge",
 		UntilMonster: "alien_enforcer",
@@ -342,6 +388,7 @@ func TestRumors_HighestPriorityBossFollowupLeadsThePlayer(t *testing.T) {
 		},
 	}
 	g := &MMGame{questManager: questManager}
+	g.revealQuest("water_purge") // the lamps beat has shown it
 	got := g.eligibleRumors()
 	if len(got) != 1 || got[0] != "unlocked boss" {
 		t.Fatalf("urgent rumor pool = %v, want only unlocked boss", got)

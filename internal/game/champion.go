@@ -38,19 +38,37 @@ func (g *MMGame) creditArenaDuelWin(m *monster.Monster3D) {
 	if !g.currentMapHasDuelArena() {
 		return
 	}
+	g.creditInteractTag(quests.ArenaDuelTag, func(q *quests.Quest) string {
+		return uitext.Text("combat.the_bout_goes_on_your_record", q.GetProgressString())
+	})
+}
+
+// creditTalkTag credits an NPC's talk_tag to every interact quest waiting on
+// it, the way a bout credits the arena tag above.
+func (g *MMGame) creditTalkTag(npc *character.NPC) {
+	if npc == nil || npc.TalkTag == "" || g.questManager == nil {
+		return
+	}
+	g.creditInteractTag(npc.TalkTag, nil)
+}
+
+// creditInteractTag credits an interact tag to every quest waiting on it:
+// progress (nil for none) writes the line for a quest the tag advanced without
+// completing.
+func (g *MMGame) creditInteractTag(tag string, progress func(*quests.Quest) string) {
 	// The manager reports what it ACTUALLY advanced; re-deriving the match here
 	// would print progress for a quest whose counter never moved.
-	advanced, completed := g.questManager.OnInteract(quests.ArenaDuelTag)
+	advanced, completed := g.questManager.OnInteract(tag)
 	// Both lists come out of a map walk: sort them, or two quests sharing the tag
 	// would write the combat log in a different order run to run (the same hazard
 	// the banner producer sorts away).
 	sortQuestsByID(advanced)
 	sortQuestsByID(completed)
 	for _, q := range advanced {
-		if q.Completed {
+		if q.Completed || progress == nil {
 			continue
 		}
-		g.AddCombatMessage(uitext.Text("combat.the_bout_goes_on_your_record", q.GetProgressString()))
+		g.AddCombatMessage(progress(q))
 	}
 	for _, q := range completed {
 		g.announceQuestCompletion(q)

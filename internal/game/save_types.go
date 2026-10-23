@@ -36,6 +36,13 @@ type GameSave struct {
 	NPCStates          []NPCSave                `json:"npc_states"`
 	Quests             []QuestSave              `json:"quests,omitempty"`
 	QuestSpawnsDone    []string                 `json:"quest_spawns_done,omitempty"`
+	StoryVersion       int                      `json:"story_version,omitempty"`
+	StorySeen          []StorySeenSave          `json:"story_seen,omitempty"`
+	StoryQueue         []string                 `json:"story_queue,omitempty"`
+	StoryRevealed      []string                 `json:"story_revealed,omitempty"`
+	WatcherSeen        []string                 `json:"watcher_seen,omitempty"`
+	WatcherLastDay     int                      `json:"watcher_last_day,omitempty"`
+	WatcherQueue       []string                 `json:"watcher_queue,omitempty"`
 	QuestPropLayouts   map[string]string        `json:"quest_prop_layouts,omitempty"`
 	BossFireTraps      []bossFireTrap           `json:"boss_fire_traps,omitempty"`
 	BossFireTrapsOwner string                   `json:"boss_fire_traps_owner,omitempty"`

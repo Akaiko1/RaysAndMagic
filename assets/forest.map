@@ -60,7 +60,7 @@
 %..P.T....P@.g@T.....T...PP...@T@FFFFT...........%  >[npc:forest_hollow_stump], [npc:barrel_green], [npc:pile_of_old_boxes], [npc:chest_golden]
 T..P.......T.g.....T...TTT.T.TTTTTTTT............%
 T.T.....T.......TT...TT.TM..T.TP..MMM............%
-T.P..T.Mggg....T..@..T........CCCCCC...........RR%  >[npc:tavern]
+T.P..T.Mggg....T..@..T@.......CCCCCC...........RR%  >[npc:tavern], [npc:tower_envoy]
 T.P...gggM.T...TT..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [tile:planks]
 T.T.....T......FT..CCCCCC.....CCCCCC.........Pn@R%  >[npc:campfire]
 T.M..T.......P.TT..CCCCCC..+.................Pn@R%  >[npc:pile_of_old_boxes]

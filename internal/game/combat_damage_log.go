@@ -108,27 +108,27 @@ func heroShares(final int, parts damagecalc.Parts, school string) []damageShare 
 	return out
 }
 
-// amountParts is a hit's number in its school's tint and its phrase, the
-// number with its school named; a hit of several elements reads
-// "43 dark + 16 fire" in both.
-func (hit damageLog) amountParts() (amount, phrase logPart) {
+// damagePhrase is a hit's damage as every damage line names it: each
+// element's number in its tint, and the special ones - every school but
+// physical, and true damage - named after it: "52", "12 light", "3 true",
+// "40 + 16 fire + 3 true".
+func (hit damageLog) damagePhrase() logPart {
 	shares := hit.Shares
 	if len(shares) == 0 {
 		shares = []damageShare{{hit.School, hit.Amount}}
 	}
 	space := logColored(" ", logPlain)
-	if len(shares) == 1 {
-		n := logDamage(shares[0].Amount, shares[0].School)
-		return n, logParts(n, space, logDamageSchool(shares[0].School))
-	}
-	var joined logJoined
+	var phrase logJoined
 	for i, share := range shares {
 		if i > 0 {
-			joined = append(joined, logColored(" + ", logPlain))
+			phrase = append(phrase, logColored(" + ", logPlain))
 		}
-		joined = append(joined, logDamage(share.Amount, share.School), space, logDamageSchool(share.School))
+		phrase = append(phrase, logDamage(share.Amount, share.School))
+		if share.School != monster.DamagePhysical.String() {
+			phrase = append(phrase, space, logDamageSchool(share.School))
+		}
 	}
-	return joined, joined
+	return phrase
 }
 
 // logSlot marks where a catalog line takes a styled log part: render the
@@ -151,8 +151,8 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 	if kind == "" {
 		kind = damageLogHit
 	}
-	amount, phrase := hit.amountParts()
-	args := []any{hit.Source, hit.Target.name, amount}
+	phrase := hit.damagePhrase()
+	args := []any{hit.Source, hit.Target.name, phrase}
 	// Explicit keys let the catalog audit check every authored template and its
 	// arity; styledFormat turns the logSlot markers into styled log parts.
 	const slot = logSlot
@@ -166,7 +166,7 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 		format = uitext.Text("combat.damage.splash", slot, slot, slot)
 	case damageLogIndirect:
 		format = uitext.Text("combat.damage.indirect", slot, slot, slot)
-		args = []any{hit.Target.name, amount, hit.Source}
+		args = []any{hit.Target.name, phrase, hit.Source}
 	case damageLogScorch:
 		format = uitext.Text("combat.damage.scorch", slot, slot, slot)
 	case damageLogDodge:
@@ -177,7 +177,7 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 		args = []any{hit.Target.name, hit.Source, phrase}
 	case damageLogReflection:
 		format = uitext.Text("combat.damage.reflection", slot, slot)
-		args = []any{hit.Target.name, amount}
+		args = []any{hit.Target.name, phrase}
 	case damageLogSacrifice:
 		format = uitext.Text("combat.damage.sacrifice", slot, slot, slot)
 		args = []any{hit.Target.name, logHPPaid(hit.Amount), hit.Source}
@@ -192,7 +192,6 @@ func (g *MMGame) reportDamage(tone logTone, hit damageLog) {
 		format = uitext.Text("combat.damage.bolt", slot, slot, slot)
 	case damageLogProjectile:
 		format = uitext.Text("combat.damage.projectile", slot, slot, slot)
-		args = []any{hit.Source, hit.Target.name, phrase}
 	case damageLogBurst:
 		format = uitext.Text("combat.damage.burst", slot, slot, slot)
 	default:

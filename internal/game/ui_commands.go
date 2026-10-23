@@ -123,6 +123,7 @@ func (ui *UISystem) displayIdentity() uiDisplayIdentity {
 	mix(uint64(g.alchemyBatches))
 	mix(ui.alchemyRevision)
 	mix(uint64(uiFontGeneration)) // a new font moves every measured label
+	mix(uint64(boolInt(ui.questChronicle)))
 	mix(uint64(boolInt(g.fontListOpen)))
 	mix(uint64(boolInt(g.brewAnimation != nil)))
 	mix(uint64(g.settingsTab))

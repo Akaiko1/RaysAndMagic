@@ -4,12 +4,14 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"slices"
 	"strconv"
 
 	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/quests"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -397,15 +399,20 @@ func (ui *UISystem) drawAtlasMarkers(screen *ebiten.Image, p atlasProjection) {
 		}
 	}
 	if g.questManager != nil {
+		// The numbered slots go to the quests the journal shows, in its order
+		// (main line first); a hidden quest or one marked on another world takes
+		// none, so the numbers hold still frame to frame.
 		wm := world.GlobalWorldManager
-		for i, q := range g.questManager.GetActiveQuests() {
-			if i >= len(atlasQuest) {
+		active := slices.DeleteFunc(g.questManager.GetActiveQuests(), func(q *quests.Quest) bool {
+			return !g.questVisible(q) || q.Definition.MarkerX == 0 && q.Definition.MarkerY == 0
+		})
+		sortQuestJournal(active)
+		slot := 0
+		for _, q := range active {
+			if slot >= len(atlasQuest) {
 				break
 			}
 			d := q.Definition
-			if d.MarkerX == 0 && d.MarkerY == 0 {
-				continue
-			}
 			x, y := d.MarkerX, d.MarkerY
 			if wm != nil {
 				key := d.MarkerMap
@@ -417,12 +424,12 @@ func (ui *UISystem) drawAtlasMarkers(screen *ebiten.Image, p atlasProjection) {
 				}
 				x, y = wm.ProjectTile(key, x, y)
 			}
-			px, py, ok := p.point(x, y)
-			if ok {
-				atlasMarker(screen, px, py, 7, atlasQuest[i], true)
-				label := strconv.Itoa(i + 1)
+			if px, py, ok := p.point(x, y); ok {
+				atlasMarker(screen, px, py, 7, atlasQuest[slot], true)
+				label := strconv.Itoa(slot + 1)
 				drawUIText(screen, label, int(px)-uiTextWidth(label)/2, int(py)-uiTextCharHeight/2)
 			}
+			slot++
 		}
 	}
 	if g.camera != nil {

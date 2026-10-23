@@ -49,7 +49,7 @@ func (d *DisplayConfig) resolveFonts(dir string) error {
 			return fmt.Errorf("%s: duplicate key %q", where, f.Key)
 		case f.Label == "":
 			return fmt.Errorf("%s: label is required", where)
-		case !isASCII(f.Label):
+		case !IsASCII(f.Label):
 			return fmt.Errorf("%s: label must be ASCII", where)
 		case f.File == "" && f.SizePx != 0:
 			return fmt.Errorf("%s: size_px applies to a font file only", where)
@@ -69,7 +69,8 @@ func (d *DisplayConfig) resolveFonts(dir string) error {
 	return nil
 }
 
-func isASCII(s string) bool {
+// IsASCII reports whether s is plain ASCII, the rule for all game text.
+func IsASCII(s string) bool {
 	for _, r := range s {
 		if r > 127 {
 			return false

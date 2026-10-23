@@ -58,6 +58,23 @@ camping:
   hold_seconds: 2.5
   fade_out_seconds: 0.8
 
+# Story event screen (assets/story_events.yaml). The plate uses the camping
+# dissolve above; the captain's light blinks before his text appears.
+story_screen:
+  text_fade_seconds: 0.3
+  light_blinks: 3
+  light_blink_seconds: 0.4
+
+# The Pursuers' captain (assets/watcher.yaml). Story-boss lines always play;
+# the rest are random remarks: chance per rest, chance per kill, at most
+# max_random_lines per run, min_days_between apart (3-4 a run on average).
+watcher:
+  camp_chance: 0.2
+  kill_chance: 0.35
+  max_random_lines: 5
+  min_days_between: 2
+  card_seconds: 6
+
 # Game world settings
 world:
   tile_size: 64

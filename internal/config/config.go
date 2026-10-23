@@ -328,6 +328,8 @@ type Config struct {
 	Tiles                  TileConfig             `yaml:"tiles"`
 	DayNight               DayNightConfig         `yaml:"day_night"`
 	Camping                CampingConfig          `yaml:"camping"`
+	StoryScreen            StoryScreenConfig      `yaml:"story_screen"`
+	Watcher                WatcherConfig          `yaml:"watcher"`
 	AdventureScaling       AdventureScalingConfig `yaml:"adventure_scaling"`
 
 	// PlayerInterfaceSize is the saved interface preset key ("" until loaded).
@@ -351,6 +353,80 @@ type CampingConfig struct {
 
 func DefaultCampingConfig() CampingConfig {
 	return CampingConfig{DissolveClustersMin: 5, DissolveClustersMax: 6, MaxTopCropFraction: 0.08, DissolvePixelSize: 4, DefaultScene: "camp_dungeon", FadeInSeconds: 0.65, HoldSeconds: 2.5, FadeOutSeconds: 0.8}
+}
+
+// StoryScreenConfig times the story event screen. Its plate reuses the camping
+// dissolve and fade-in; the captain's light blinks before his text appears.
+type StoryScreenConfig struct {
+	TextFadeSeconds   float64 `yaml:"text_fade_seconds"`
+	LightBlinks       int     `yaml:"light_blinks"`
+	LightBlinkSeconds float64 `yaml:"light_blink_seconds"`
+}
+
+// WatcherConfig paces the Pursuers' captain (assets/watcher.yaml). Story-boss
+// lines always play; every other line is a random remark: a chance per rest
+// or per kill, at most MaxRandomLines per run, never within MinDaysBetween
+// of his last one. CardSeconds keeps his kill card up.
+type WatcherConfig struct {
+	CampChance     float64 `yaml:"camp_chance"`
+	KillChance     float64 `yaml:"kill_chance"`
+	MaxRandomLines int     `yaml:"max_random_lines"`
+	MinDaysBetween int     `yaml:"min_days_between"`
+	CardSeconds    float64 `yaml:"card_seconds"`
+}
+
+func (c WatcherConfig) validate() error {
+	for _, v := range []struct {
+		name  string
+		value float64
+	}{{"camp_chance", c.CampChance}, {"kill_chance", c.KillChance}} {
+		if !(v.value >= 0 && v.value <= 1) {
+			return fmt.Errorf("watcher.%s must be in [0,1], got %v", v.name, v.value)
+		}
+	}
+	if c.MaxRandomLines < 0 || c.MinDaysBetween < 0 {
+		return fmt.Errorf("watcher.max_random_lines and min_days_between must not be negative")
+	}
+	if !(c.CardSeconds > 0) || math.IsInf(c.CardSeconds, 0) {
+		return fmt.Errorf("watcher.card_seconds must be positive")
+	}
+	return nil
+}
+
+// SecondsToFrames is THE seconds-to-frames rule: nearest frame, never zero for
+// a real duration. The game's framesForSeconds and the config checks share it.
+func SecondsToFrames(seconds float64, tps int) int {
+	frames := int(seconds*float64(tps) + 0.5)
+	if frames < 1 && seconds > 0 {
+		return 1
+	}
+	return frames
+}
+
+// validate also checks the camp scene against it, in the frames the game
+// counts: a rest that carries the captain's line holds until his light has
+// blinked and his words are up.
+func (c StoryScreenConfig) validate(camp CampingConfig, tps int) error {
+	for _, v := range []struct {
+		name  string
+		value float64
+	}{{"text_fade_seconds", c.TextFadeSeconds}, {"light_blink_seconds", c.LightBlinkSeconds}} {
+		if !(v.value > 0) || math.IsInf(v.value, 0) {
+			return fmt.Errorf("story_screen.%s must be positive", v.name)
+		}
+	}
+	if c.LightBlinks <= 0 {
+		return fmt.Errorf("story_screen.light_blinks must be positive")
+	}
+	hold := camp.HoldSeconds
+	if hold <= 0 {
+		hold = DefaultCampingConfig().HoldSeconds
+	}
+	need := c.LightBlinks*SecondsToFrames(c.LightBlinkSeconds, tps) + SecondsToFrames(c.TextFadeSeconds, tps)
+	if have := SecondsToFrames(hold, tps); have < need {
+		return fmt.Errorf("camping.hold_seconds %.2f (%d frames) is shorter than the captain's light and words (%d frames)", hold, have, need)
+	}
+	return nil
 }
 
 // DayNightConfig tunes the day/night cycle. Zero values fall back to the
@@ -1933,6 +2009,12 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := config.StatusEffects.validate(); err != nil {
+		return nil, err
+	}
+	if err := config.StoryScreen.validate(config.Camping, config.GetTPS()); err != nil {
+		return nil, err
+	}
+	if err := config.Watcher.validate(); err != nil {
 		return nil, err
 	}
 	for _, pack := range config.DayNight.Packs {

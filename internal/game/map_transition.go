@@ -267,6 +267,9 @@ func (g *MMGame) finishMapArrival(x, y, angle float64) {
 		g.snapToCardinalDirection()
 	}
 	g.applyEnvironmentArrival()
+	if wm := world.GlobalWorldManager; wm != nil {
+		g.fireStoryTrigger(storyOnRegionEntered, wm.CurrentMapKey, false)
+	}
 	g.Autosave()
 }
 

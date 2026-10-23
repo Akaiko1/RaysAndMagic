@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"os"
+	"strconv"
 	"strings"
 
 	"ugataima/internal/character"
@@ -41,6 +42,8 @@ type rumorConfig struct {
 
 var globalRumors []RumorDef
 
+const rumorMinLevelSlot = "{min_party_level}"
+
 // LoadRumorConfig loads assets/rumors.yaml and validates every quest link
 // against the same quest definitions used by gameplay.
 func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
@@ -52,7 +55,8 @@ func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
 	if err := strictyaml.Decode(data, &cfg); err != nil {
 		return fmt.Errorf("rumors: %w", err)
 	}
-	for i, r := range cfg.Rumors {
+	for i := range cfg.Rumors {
+		r := &cfg.Rumors[i]
 		if r.Text == "" {
 			return fmt.Errorf("rumors: entry %d has no text", i)
 		}
@@ -75,6 +79,14 @@ func LoadRumorConfig(path string, questManager *quests.QuestManager) error {
 		}
 		if r.Quest != "" && (questManager == nil || questManager.Definitions()[r.Quest] == nil) {
 			return fmt.Errorf("rumors: entry %d references unknown quest %q", i, r.Quest)
+		}
+		// {min_party_level} reads the rumor quest's own gate, so the tavern can
+		// never quote a stale level.
+		if strings.Contains(r.Text, rumorMinLevelSlot) {
+			if r.Quest == "" || questManager.Definitions()[r.Quest].MinPartyLevel <= 0 {
+				return fmt.Errorf("rumors: entry %d uses %s without a level-gated quest", i, rumorMinLevelSlot)
+			}
+			r.Text = strings.ReplaceAll(r.Text, rumorMinLevelSlot, strconv.Itoa(questManager.Definitions()[r.Quest].MinPartyLevel))
 		}
 		if r.After != "" {
 			if questManager == nil {
@@ -151,8 +163,11 @@ func (g *MMGame) rumorMonsterObjectiveComplete(r RumorDef) bool {
 }
 
 func (g *MMGame) rumorAvailable(r RumorDef) bool {
-	if r.After != "" && !g.questCompleted(r.After) {
+	if r.After != "" && (!g.questCompleted(r.After) || !g.questIDVisible(r.After)) {
 		return false
+	}
+	if r.Quest != "" && !g.questIDVisible(r.Quest) {
+		return false // a hidden quest is not gossiped about before its beat
 	}
 	if r.Quest != "" && g.questCompleted(r.Quest) {
 		return false

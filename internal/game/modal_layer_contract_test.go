@@ -59,7 +59,10 @@ func TestTopModalLayerIdentifiesEveryLayer(t *testing.T) {
 			g.levelUpChoiceOpen = true
 		}, pauses: true},
 		{name: "camp", want: modalLayerCamp, set: func(g *MMGame, _ *UISystem) { g.campConfirmOpen = true }, pauses: true},
-		{name: "camp rest", want: modalLayerCampRest, set: func(g *MMGame, _ *UISystem) { g.beginCampRest() }, pauses: true},
+		{name: "camp rest", want: modalLayerCampRest, set: func(g *MMGame, _ *UISystem) { g.beginCampRest(false) }, pauses: true},
+		{name: "story", want: modalLayerStory, set: func(g *MMGame, _ *UISystem) {
+			g.storyScreen = &storyPresentation{event: &StoryEventDef{ID: "x", Pages: []string{"p"}}}
+		}, pauses: true},
 	}
 
 	seen := make(map[modalLayerID]bool, len(tests))
@@ -117,7 +120,12 @@ func TestTopModalLayerUsesDrawPriority(t *testing.T) {
 	g.campConfirmOpen = true
 	g.levelUpChoiceQueue = []levelUpChoiceRequest{{}}
 	g.levelUpChoiceOpen = true
+	g.storyScreen = &storyPresentation{event: &StoryEventDef{ID: "x", Pages: []string{"p"}}}
 
+	if got := ui.topModalLayer(); got != modalLayerStory {
+		t.Fatalf("top modal = %d, want last-drawn story %d", got, modalLayerStory)
+	}
+	g.storyScreen = nil
 	if got := ui.topModalLayer(); got != modalLayerLevelChoice {
 		t.Fatalf("top modal = %d, want last-drawn level choice %d", got, modalLayerLevelChoice)
 	}
@@ -177,6 +185,25 @@ func TestModalIdentityChangeDropsQueuedClicks(t *testing.T) {
 	}
 }
 
+// Switching the Quests tab between the journal and the Chronicle retires the
+// page's registered commands, so a queued second click cannot land on the
+// view the player no longer sees.
+func TestChronicleToggleRetiresDisplayedCommands(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
+	ui := NewUISystem(g)
+	g.menuOpen, g.currentTab = true, TabQuests
+	ui.beginDisplayedInput()
+	ui.endDisplayedInput()
+	if !ui.displayedInputCurrent() {
+		t.Fatal("control: the page just drawn is not current")
+	}
+	ui.questChronicle = true
+	if ui.displayedInputCurrent() {
+		t.Fatal("the Chronicle view still accepts the journal's commands")
+	}
+}
+
 func TestInputDispatchUsesDrawPriority(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
@@ -224,6 +251,19 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 		g.stash = &stash.Stash{}
 		g.stashScreenOpen = true
 	}
+	// A press first reveals what is fading in, the next acts on it.
+	openStory := func(g *MMGame, _ *UISystem) {
+		g.storyScreen = &storyPresentation{event: &StoryEventDef{ID: "x", Pages: []string{"p", "q"}}}
+	}
+	openCamp := func(wordsUp bool) func(*MMGame, *UISystem) {
+		return func(g *MMGame, _ *UISystem) {
+			c := &campRestPresentation{watcherLine: &WatcherLine{ID: "x", Text: "t"}, fadeIn: 10, hold: 10000, fadeOut: 10, elapsed: 10}
+			if wordsUp {
+				c.elapsed = c.watcherWordsAt(g.storyTiming()) + g.storyTiming().textFade
+			}
+			g.campRest = c
+		}
+	}
 	tests := []struct {
 		name    string
 		open    func(*MMGame, *UISystem)
@@ -267,6 +307,9 @@ func TestModalContentMutationActivatesRedrawBarrier(t *testing.T) {
 				t.Fatal("stash transfer commit failed in the isolated save dir")
 			}
 		}, true},
+		{"story page revealed", openStory, func(_ *testing.T, g *MMGame, _ *UISystem) { g.advanceStory() }, true},
+		{"captain's words revealed", openCamp(false), func(_ *testing.T, g *MMGame, _ *UISystem) { g.releaseCampWatcher() }, true},
+		{"captain's words read", openCamp(true), func(_ *testing.T, g *MMGame, _ *UISystem) { g.releaseCampWatcher() }, true},
 		{"entry screen over a background dialog", openDialog, func(_ *testing.T, g *MMGame, ui *UISystem) {
 			g.appScreen = AppScreenMainMenu
 			ui.renderedModalSnapshot = modalLayerSnapshot{}

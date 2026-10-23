@@ -7,6 +7,12 @@ func (g *MMGame) updateInterfacePresentation() {
 	g.uiFrameCount++
 	g.tickAlchemyBrewAnimation()
 	g.tickCampRest()
+	if g.appScreen == AppScreenInGame {
+		g.syncStoryQuestBeats() // every frame, paused or not: a claim in the open journal counts too
+	}
+	g.tickStoryEvents()
+	g.tickStoryScreen()
+	g.tickWatcher()
 	if g.gameplayPausedByOverlay() {
 		g.tickPausedAchievementBanner()
 	}

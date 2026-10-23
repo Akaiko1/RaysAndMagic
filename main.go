@@ -70,6 +70,13 @@ func main() {
 	if err := world.GlobalWorldManager.LoadAllMaps(); err != nil {
 		log.Fatalf("Failed to load maps: %v", err)
 	}
+	// Story events: the main storyline's full-screen beats.
+	if err := game.LoadStoryConfig("assets/story_events.yaml", quests.GlobalQuestManager, world.GlobalWorldManager); err != nil {
+		log.Fatalf("Failed to load story events: %v", err)
+	}
+	if err := game.LoadWatcherConfig("assets/watcher.yaml"); err != nil {
+		log.Fatalf("Failed to load the watcher: %v", err)
+	}
 	audioManager, err := sound.LoadGlobal("assets/audio.yaml", storage.AppSavePath("audio_settings.json"))
 	if err != nil {
 		if sound.IsCatalogContractError(err) {

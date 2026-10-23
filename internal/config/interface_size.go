@@ -43,7 +43,7 @@ func (d DisplayConfig) validateInterfaceSizes() error {
 		case size.Scale <= previous:
 			return fmt.Errorf("%s: scale %.2f must be larger than the previous preset", where, size.Scale)
 		}
-		if !isASCII(size.Label) {
+		if !IsASCII(size.Label) {
 			return fmt.Errorf("%s: label must be ASCII", where)
 		}
 		seen[size.Key] = true

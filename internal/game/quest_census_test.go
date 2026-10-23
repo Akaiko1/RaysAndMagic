@@ -49,6 +49,7 @@ func TestKillQuotaKeepsFutureBossesAndStatueSources(t *testing.T) {
 			}
 
 			ih := &InputHandler{game: g}
+			g.maxPartyLevel = 24 // Sylwen swears in no party below it
 			ih.handleGiveQuest("dragon_slayer")
 			hunt := g.questManager.GetQuest("dragon_slayer")
 			var seals []*character.NPC
