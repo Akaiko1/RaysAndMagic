@@ -106,7 +106,7 @@ func (r *Renderer) drawMeleeFxClockCogfang(screen *ebiten.Image, s SlashEffect, 
 	if sweepT < 1 {
 		tx, ty := arcAt(1)
 		r.clockCogRing(screen, tx, ty, h*0.06*w, h*0.016*w, clockBrass, clockWhite,
-			fade, float64(r.game.frameCount)*0.3)
+			fade, r.game.worldSeconds()*36)
 	}
 
 	// The bite: toothed gear-ring stamp + punched plate chips at the arc's end.
@@ -202,7 +202,7 @@ func (r *Renderer) drawMeleeFxClockChime(screen *ebiten.Image, s SlashEffect, cx
 			mx := impactX + (auraHash(seed, k, 336, 0)-0.5)*reach*1.8
 			rise := u * (0.4 + auraHash(seed, k, 337, 0)) * h * 0.14
 			my := impactY - rise + (auraHash(seed, k, 338, 0)-0.5)*reach*0.4
-			tw := 0.6 + 0.4*math.Sin(float64(r.game.frameCount)*0.31+float64(k)*1.7)
+			tw := 0.6 + 0.4*math.Sin(r.game.worldSeconds()*37.2+float64(k)*1.7)
 			r.drawGlowSprite(screen, mx, my, math.Max(2.5, h*0.013), clockBrass, fade*(1-u*0.5)*0.85*tw, additiveGlowBlend)
 		}
 	}
@@ -296,12 +296,12 @@ func (r *Renderer) drawMeleeFxClockMainspring(screen *ebiten.Image, s SlashEffec
 // machinery even at a glance across the room.
 func (r *Renderer) drawWeaponProjectileFxClockPistol(screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {
 	seed := id + 421
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	r.weaponFxHalo(screen, cx, cy, size*.9, size*.72, math.Max(1.5, size*.13), 8, clockBrass, .65*critBoost)
 	// Spinning cog ring around the slug.
 	const teeth = 8
 	for i := 0; i < teeth; i++ {
-		ang := fc*0.28 + 2*math.Pi*float64(i)/teeth
+		ang := sec*33.6 + 2*math.Pi*float64(i)/teeth
 		rr := size * 0.95
 		if i%2 == 0 {
 			rr *= 1.3

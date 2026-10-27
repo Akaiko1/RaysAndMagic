@@ -416,7 +416,7 @@ func (g *MMGame) applySkyForPhase(fade bool) {
 	g.updateSkyPanorama(name)
 	if fade && prev != nil && g.skyPanorama != nil {
 		g.skyPanoramaPrev = prev
-		total := int(g.config.DayNight.PanoramaFadeSecondsOrDefault() * float64(g.config.GetTPS()))
+		total := g.framesForSeconds(g.config.DayNight.PanoramaFadeSecondsOrDefault())
 		g.skyFadeFrames, g.skyFadeTotal = total, total
 	} else {
 		g.cancelSkyFade()

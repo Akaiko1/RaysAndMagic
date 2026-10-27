@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-
-	"ugataima/internal/config"
 )
 
 // ArborealConfig permits only authored trees, never arbitrary walls or water.
@@ -196,11 +194,7 @@ func (m *Monster3D) updateArboreal(c CollisionChecker, tx, ty float64, turn bool
 		}
 		return true
 	}
-	tps := config.GetTargetTPS()
-	if m.config != nil {
-		tps = m.config.GetTPS()
-	}
-	dt := 1 / float64(max(1, tps))
+	dt := 1 / float64(m.tps())
 	if turn {
 		dt = m.tileSize() / speedPerSecond(math.Max(.01, m.Speed))
 		// Turn-based Slow costs whole turns (ConsumeSlowedTurn), never step size.

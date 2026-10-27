@@ -29,7 +29,7 @@ func TestPresentationEntryPoints(t *testing.T) {
 				g.cardFxTimers[fx][0] = 8
 			}
 			g.screenShake = 2
-			g.buffFxAnims = []buffFxAnim{{sprite: "test", age: 0}}
+			g.buffFxAnims = []buffFxAnim{{sprite: "test", lifetime: g.framesForSeconds(buffFxSeconds)}}
 			g.elementalAttackEffects = []elementalAttackEffect{{Frames: 10}}
 			g.impactLights = []ImpactLight{{Life: 20}}
 			g.slashEffects = []SlashEffect{{Active: true, MaxFrames: 20}}

@@ -555,7 +555,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, content layoutRe
 		}
 		preview := ui.game.combat.calculateWeaponDamagePreview(weapon, member)
 		crit := ui.game.combat.CalculateWeaponCritChance(weapon, member)
-		tps := max(1, ui.game.config.GetTPS())
+		tps := ui.game.config.GetTPS()
 		return fmt.Sprintf("%s: %d dmg, %d%% crit, %.1fs CD", label, preview.Total, crit, float64(cooldownFrames)/float64(tps))
 	}
 

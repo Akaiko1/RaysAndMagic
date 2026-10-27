@@ -1145,11 +1145,13 @@ func TestLegendaryDropAnnouncementDoesNotPersistOnTheBag(t *testing.T) {
 
 // THE RULE, one row per authored duration: a duration is written in SECONDS and
 // converted with the live tps, so the same wall-clock time elapses at 60 and at
-// 120 (the shipped build runs 120 - config.yaml, and main.go forces it on macOS).
+// 120 (the shipped build runs config.yaml's engine.tps, 120).
 // Written as a table because these were frame counts commented "at 60fps": every
 // one of them elapsed in HALF its documented time in the shipped game, and the
 // prompt grace commented "two seconds is longer than any blip" was one second.
 func TestTimedDurationsAreTpsIndependent(t *testing.T) {
+	cfg := loadTestConfig(t)
+	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	cases := []struct {
 		name    string
 		seconds float64
@@ -1164,6 +1166,21 @@ func TestTimedDurationsAreTpsIndependent(t *testing.T) {
 		}},
 		{"badge aura period", badgeAuraPeriodSeconds, func(g *MMGame) int {
 			return g.framesForSeconds(badgeAuraPeriodSeconds)
+		}},
+		{"hero Speed curve at Speed 0", AttackCooldownInterceptSeconds, func(g *MMGame) int { return g.speedCurveFrames(0) }},
+		{"real-time recovery floor", RTCooldownMinSeconds, func(g *MMGame) int { return g.clampRTCooldown(0) }},
+		{"input stagger", cfg.UI.InputStaggerSeconds, func(g *MMGame) int { return g.inputStaggerFrames() }},
+		{"attack-key hold repeat", rtHoldRepeatSeconds, func(g *MMGame) int {
+			held := 0
+			for !g.holdRepeats(held) {
+				held++
+			}
+			return held
+		}},
+		{"monster attack cooldown", cfg.MonsterAI.AttackCooldownSeconds, func(g *MMGame) int {
+			m := monster.NewMonster3DFromConfig(0, 0, "goblin", g.config)
+			m.AttackCooldownMultiplier = 1
+			return m.AttackCooldownFrames()
 		}},
 	}
 	// loadTestConfig returns the SHARED config.GlobalConfig pointer, so the tick
@@ -1189,6 +1206,22 @@ func TestTimedDurationsAreTpsIndependent(t *testing.T) {
 	}
 	// And the whole banner timeline follows, not just its legs.
 	fast, slow := atTPS(120), atTPS(60)
+	// A hero's recoveries keep their seconds too: the Speed curve is scaled
+	// before any rounding to frames.
+	for _, g := range []*MMGame{fast, slow} {
+		g.combat = NewCombatSystem(g)
+		g.party.Members[0].Speed = 40
+	}
+	for name, recovery := range map[string]func(g *MMGame) int{
+		"weapon":        func(g *MMGame) int { return g.combat.WeaponCooldownFrames(g.party.Members[0]) },
+		"5 s action":    func(g *MMGame) int { return g.combat.actionCooldownBreakdown(g.party.Members[0], 5).TotalFrames },
+		"action pacing": func(g *MMGame) int { return g.combat.CalculateActionCooldownFrames(g.party.Members[0]) },
+	} {
+		fastSec, slowSec := float64(recovery(fast))/120, float64(recovery(slow))/60
+		if math.Abs(fastSec-slowSec) > 0.02 {
+			t.Errorf("%s recovery at Speed 40 lasts %.3fs at 120 tps and %.3fs at 60", name, fastSec, slowSec)
+		}
+	}
 	for _, kind := range []screenBannerKind{bannerQuestDone, bannerInteractPrompt} {
 		fastSec := float64(fast.bannerLifetime(kind)) / 120
 		slowSec := float64(slow.bannerLifetime(kind)) / 60

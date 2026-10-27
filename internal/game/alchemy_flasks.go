@@ -154,7 +154,7 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 	g.flasks = append(g.flasks, p)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(p.ID, p.X, p.Y, 10, 10, collision.CollisionTypeProjectile, false))
 	g.commitHeroAction(idx, g.combat.FlaskCooldownFrames(c, key))
-	g.actionInputStagger = rtActionStagger
+	g.actionInputStagger = g.rtActionStaggerFrames()
 	if announce {
 		g.AddCombatMessage(uitext.Text("combat.throws", c.Name, d.Name))
 	}

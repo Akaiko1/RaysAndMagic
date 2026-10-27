@@ -97,7 +97,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, attackTick bool) boo
 			near := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= m.EvadeRadiusTiles*float64(cs.game.config.GetTileSize())
 			if !m.BossCD.Active() && (near || m.BossHurtPending) && cs.blinkMonsterRandom(m) {
 				tps := cs.game.config.GetTPS()
-				m.BossCD.ArmFrames(int(math.Round(m.BossCooldownSecs*float64(tps))), tps)
+				m.BossCD.ArmSeconds(m.BossCooldownSecs, tps)
 				m.BossHurtPending = false
 				cs.game.AddCombatMessage(uitext.Text("combat.skitters_away_into_the_dark", m.Name))
 			}

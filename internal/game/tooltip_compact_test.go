@@ -270,7 +270,7 @@ func TestWeaponTooltipFullBreakdownListsOnlyActiveFactors(t *testing.T) {
 				want = append(slices.Clone(want), "Base weapon cooldown: "+cooldownSeconds(cs, cs.WeaponCooldownFramesFor(probe, testWeapon(weapon.Name))))
 			}
 			if tt.cooldownLimit {
-				want = append(slices.Clone(want), "Cooldown limit: "+cooldownSeconds(cs, RTCooldownMinFrames))
+				want = append(slices.Clone(want), "Cooldown limit: "+cooldownSeconds(cs, cs.game.framesForSeconds(RTCooldownMinSeconds)))
 			}
 			for _, want := range want {
 				if !strings.Contains(full, want) {

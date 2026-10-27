@@ -1,8 +1,6 @@
 package game
 
 import (
-	"math"
-
 	"ugataima/internal/monster"
 )
 
@@ -41,7 +39,7 @@ func (ih *InputHandler) beginMouseAttack(target *monster.Monster3D) {
 }
 
 func (ih *InputHandler) scheduleTBMouseRepeat(seconds float64) {
-	ih.mouseAttackRepeatAt = ih.game.frameCount + int64(math.Ceil(seconds*float64(ih.game.config.GetTPS())))
+	ih.mouseAttackRepeatAt = ih.game.frameCount + int64(ih.game.framesForSeconds(seconds))
 }
 
 func (ih *InputHandler) repeatMouseAttack() {
@@ -76,7 +74,7 @@ func (ih *InputHandler) repeatMouseAttack() {
 		ih.mouseAttackTarget = target
 	}
 	ih.mouseAttackHoldFrames++
-	ready := ih.mouseAttackHoldFrames >= rtHoldRepeatDelay
+	ready := g.holdRepeats(ih.mouseAttackHoldFrames)
 	if g.turnBasedMode {
 		ready = g.frameCount >= ih.mouseAttackRepeatAt
 	}
@@ -147,7 +145,7 @@ func (ih *InputHandler) performMouseSmartAttack(target *monster.Monster3D) bool 
 		}
 		if !g.ensureTBActor(rtActSmart) {
 			if g.passTBAttackRequest() {
-				g.actionInputStagger = ih.actionCooldown(15)
+				g.actionInputStagger = ih.actionCooldown()
 				return true
 			}
 			return false
@@ -175,5 +173,5 @@ func (ih *InputHandler) performTurnBasedSmartAttack() {
 	} else if action.Acted {
 		g.commitHeroAction(g.selectedChar, action.Recovery)
 	}
-	g.actionInputStagger = ih.actionCooldown(15)
+	g.actionInputStagger = ih.actionCooldown()
 }

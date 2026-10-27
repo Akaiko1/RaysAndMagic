@@ -20,15 +20,14 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// statHoldInitialDelay - frames the user has to hold the mouse on a +button
-// before hold-to-repeat starts firing. Configured for the game's 120 TPS so
-// ~340 ms keeps single clicks pure (no accidental double-spend) while a
-// deliberate hold takes over fast.
-// statHoldRepeatRate - frames between hold-fired increments after the delay.
-// At 120 TPS ~ 67 ms / ~15 stats per second when held.
+// statHoldDelaySeconds - how long the user has to hold the mouse on a
+// +button before hold-to-repeat starts firing: long enough to keep single
+// clicks pure (no accidental double-spend) while a deliberate hold takes over
+// fast. statHoldRepeatSeconds - the gap between hold-fired increments after
+// the delay, ~15 stats per second when held.
 const (
-	statHoldInitialDelay = 40 // ~0.33s at 120 TPS
-	statHoldRepeatRate   = 8  // ~0.07s at 120 TPS
+	statHoldDelaySeconds  = 0.33
+	statHoldRepeatSeconds = 0.07
 )
 
 // drawStatPlusButton is one stat's "+": the stat-growth badge itself (its
@@ -141,14 +140,14 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 			clickIn := interactive && g.consumeLeftClickIn(plus.x, plus.y, plus.right(), plus.bottom())
 
 			// Hold-to-repeat: once the user keeps the button held over the same
-			// +button past statHoldInitialDelay, fire an extra increment every
-			// statHoldRepeatRate frames. Single clicks still come through clickIn
+			// +button past statHoldDelaySeconds, fire an extra increment every
+			// statHoldRepeatSeconds. Single clicks still come through clickIn
 			// above unchanged.
 			if !ui.displayedInput.processingClick && interactive && isHover && mousePressed {
 				if ui.statHoldStat == key {
 					ui.statHoldFrames++
-					if ui.statHoldFrames > statHoldInitialDelay &&
-						(ui.statHoldFrames-statHoldInitialDelay)%statHoldRepeatRate == 0 {
+					delay, every := g.framesForSeconds(statHoldDelaySeconds), g.framesForSeconds(statHoldRepeatSeconds)
+					if ui.statHoldFrames > delay && (ui.statHoldFrames-delay)%every == 0 {
 						clickIn = true
 					}
 				} else {
@@ -1475,7 +1474,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			price, special := ui.game.merchantUnitSellPrice(item)
 			wanted := buysGoods && special
-			pulse := ui.game.badgeAuraPulse(ui.game.uiFrameCount)
+			pulse := ui.game.badgeAuraPulse(ui.game.uiSeconds())
 			if wanted {
 				drawWantedGoodsLight(screen, ui.uiSoftGlow(), x, y, w, h, pulse, false)
 			}

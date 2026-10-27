@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// Boss effect flags travel in pairs - a half-specified pair must fail at load
-// time, not silently zero out in code.
-func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
+// Abilities authored as a pair of fields fail at load when one half is
+// missing, instead of silently zeroing out in code.
+func TestValidateMonsterConfiguration_AbilityPairs(t *testing.T) {
 	cases := []struct {
 		name    string
 		def     MonsterDefinition
@@ -27,11 +27,20 @@ func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
 			name: "complete_pair_ok",
 			def:  MonsterDefinition{Name: "X", Boss: true, Abilities: Abilities{Teleport: TeleportAbility{AtHP: 300, Chance: 0.1}}},
 		},
+		{
+			name:    "pounce_without_cooldown",
+			def:     MonsterDefinition{Name: "X", Abilities: Abilities{Pounce: PounceAbility{RangeTiles: 3}}},
+			wantErr: "pounce needs range_tiles and cooldown_seconds",
+		},
+		{
+			name: "pounce_ok",
+			def:  MonsterDefinition{Name: "X", Abilities: Abilities{Pounce: PounceAbility{RangeTiles: 3, CooldownSeconds: 4}}},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.def.SizeClass == "" {
-				tc.def.SizeClass = "person" // these cases exercise teleport pairs, not size
+				tc.def.SizeClass = "person" // these cases exercise ability pairs, not size
 			}
 			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"test_boss": tc.def}}
 			err := validateMonsterConfiguration(cfg)

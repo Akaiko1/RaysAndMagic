@@ -19,7 +19,7 @@ type TrapDefinitionConfig struct {
 	Level           int     `yaml:"level"`              // owner level required
 	SPCost          int     `yaml:"sp_cost"`            // spell points to place
 	CooldownSeconds float64 `yaml:"cooldown_seconds"`   // RT cooldown after placing
-	LifetimeSeconds int     `yaml:"lifetime_seconds"`   // armed trap despawns after this
+	LifetimeSeconds int     `yaml:"lifetime_seconds"`   // armed trap despawns after this; Timer exception: may be a non-whole-round span, its TB rounds round up
 	Element         string  `yaml:"element"`            // gameplay damage school
 	ArmedFx         string  `yaml:"armed_fx,omitempty"` // shader model and activation style
 	DamageBase      int     `yaml:"damage_base,omitempty"`

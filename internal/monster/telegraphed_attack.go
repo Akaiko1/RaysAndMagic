@@ -17,20 +17,22 @@ import (
 // DurationSeconds, whole rounds, the same span in both modes. Runtime keeps
 // them on DualClocks (TelegraphState).
 type TelegraphedAttack struct {
-	Name            string          `yaml:"name"`
-	Kind            TelegraphKind   `yaml:"kind"`
-	School          damagecalc.Type `yaml:"school"`
-	Shape           TelegraphShape  `yaml:"shape"`
-	Range           int             `yaml:"range"`
-	CooldownSeconds float64         `yaml:"cooldown_seconds"`
-	CooldownRounds  int             `yaml:"cooldown_rounds"`
-	WarningSeconds  float64         `yaml:"warning_seconds"`
-	WarningRounds   int             `yaml:"warning_rounds"`
-	DurationSeconds int             `yaml:"duration_seconds,omitempty"`
-	DamagePercent   int             `yaml:"damage_percent"`
-	SustainPercent  int             `yaml:"sustain_percent,omitempty"` // a lingering field's damage per second, percent of the attack
-	Riders          Riders          `yaml:"riders,omitempty"`          // required on a damaging telegraph
-	BelowHPPercent  int             `yaml:"below_hp_percent,omitempty"`
+	Name   string          `yaml:"name"`
+	Kind   TelegraphKind   `yaml:"kind"`
+	School damagecalc.Type `yaml:"school"`
+	Shape  TelegraphShape  `yaml:"shape"`
+	Range  int             `yaml:"range"`
+	// Timer exception: cooldown and warning are authored RT/TB pairs, not the
+	// 1 round = 3 s conversion; the warning is a reaction window.
+	CooldownSeconds float64 `yaml:"cooldown_seconds"`
+	CooldownRounds  int     `yaml:"cooldown_rounds"`
+	WarningSeconds  float64 `yaml:"warning_seconds"`
+	WarningRounds   int     `yaml:"warning_rounds"`
+	DurationSeconds int     `yaml:"duration_seconds,omitempty"` // whole rounds, both modes: no exception
+	DamagePercent   int     `yaml:"damage_percent"`
+	SustainPercent  int     `yaml:"sustain_percent,omitempty"` // a lingering field's damage per second, percent of the attack
+	Riders          Riders  `yaml:"riders,omitempty"`          // required on a damaging telegraph
+	BelowHPPercent  int     `yaml:"below_hp_percent,omitempty"`
 }
 
 // TelegraphKind is what a telegraph does on release.

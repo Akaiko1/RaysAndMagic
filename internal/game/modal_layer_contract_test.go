@@ -676,17 +676,16 @@ func TestPausedOverlayFreezesTheWorldPicture(t *testing.T) {
 func TestPartyCardAnimationReadsTheInterfaceClock(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorldSized(cfg, 4, 4))
-	ui := NewUISystem(g)
 
 	g.frameCount, g.uiFrameCount = 500, 900
-	if got := ui.cardAnimClock(); got != g.uiFrameCount {
-		t.Fatalf("card animation clock = %d, want the interface clock %d (world clock is %d)",
-			got, g.uiFrameCount, g.frameCount)
+	if got, want := g.uiSeconds(), float64(g.uiFrameCount)/float64(g.tickRate()); got != want {
+		t.Fatalf("card animation clock = %v s, want the interface clock %v s (world clock is frame %d)",
+			got, want, g.frameCount)
 	}
 	// And it keeps moving on a frame the world does not: that is the whole point.
-	before := ui.cardAnimClock()
+	before := g.uiSeconds()
 	g.uiFrameCount++
-	if ui.cardAnimClock() == before {
+	if g.uiSeconds() == before {
 		t.Fatal("the card clock did not follow the interface clock")
 	}
 	if g.frameCount != 500 {

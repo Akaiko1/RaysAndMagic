@@ -1,7 +1,6 @@
 package game
 
 import (
-	"math"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -58,7 +57,7 @@ func (g *MMGame) updateAutomaticConsumables() {
 
 		if used {
 			tps := g.config.GetTPS()
-			ch.AutoDrinkCD.ArmFrames(max(1, int(math.Ceil(rules.IntervalSeconds*float64(tps)))), tps)
+			ch.AutoDrinkCD.ArmSeconds(rules.IntervalSeconds, tps)
 		}
 	}
 }

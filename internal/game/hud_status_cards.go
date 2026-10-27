@@ -135,7 +135,7 @@ func statBonusLines(b stats.StatBonuses) []string {
 }
 
 func (g *MMGame) buffRemainingText(frames int) string {
-	tps := max(1, g.config.GetTPS())
+	tps := g.config.GetTPS()
 	seconds := (max(0, frames) + tps - 1) / tps
 	return config.DurationText(seconds)
 }

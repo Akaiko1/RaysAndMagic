@@ -110,8 +110,8 @@ type UISystem struct {
 	// statHoldStat is the name of the stat whose +button the user is
 	// currently holding the mouse on. Empty means no hold in progress.
 	// Single clicks go through consumeLeftClickIn; hold-to-repeat kicks in
-	// after statHoldInitialDelay frames and fires every statHoldRepeatRate
-	// frames thereafter so points pour out at a controllable rate.
+	// after statHoldDelaySeconds and fires every statHoldRepeatSeconds
+	// thereafter so points pour out at a controllable rate.
 	statHoldStat          string
 	statHoldFrames        int
 	statPlan              statPlanMemo // AUTO's preview in the stat popup

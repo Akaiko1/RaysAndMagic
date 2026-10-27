@@ -966,7 +966,7 @@ func TestSaveLoadRestoresBossTrapStateWithoutQuestManager(t *testing.T) {
 	ts := float64(cfg.GetTileSize())
 	boss := monsterPkg.NewMonster3DFromConfig(20*ts, 20*ts, "dragon_brood_mother", cfg)
 	boss.ID = "saved_brood_mother"
-	boss.ArmTrapVolleyCooldown(cfg.GetTPS())
+	boss.ArmTrapVolleyCooldown()
 	saveWorld.Monsters = []*monsterPkg.Monster3D{boss}
 
 	saveGame := newTestGame(cfg, saveWorld)

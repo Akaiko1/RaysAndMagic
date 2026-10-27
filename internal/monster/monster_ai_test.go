@@ -976,7 +976,7 @@ func TestFleeExpiresAtAuthoredBoundaryInBothModes(t *testing.T) {
 			AlertRadius: 3 * 64, SpawnX: 320, SpawnY: 320, TetherRadius: 4 * 64,
 			HitPoints: 10, MaxHitPoints: 10,
 			State:  StateFleeing,
-			config: &config.Config{MonsterAI: config.MonsterAIConfig{FleeDuration: durationSeconds * tps}},
+			config: &config.Config{MonsterAI: config.MonsterAIConfig{FleeSeconds: durationSeconds}},
 		}
 	}
 
@@ -1024,7 +1024,7 @@ func TestFlee_CorneredStillTimesOut(t *testing.T) {
 	}
 	playerX, playerY := m.X+2*64, m.Y // party right next to it
 
-	for i := 0; i < 400 && m.State == StateFleeing; i++ {
+	for i := 0; i <= m.fleeDurationFrames() && m.State == StateFleeing; i++ {
 		m.StateTimer++ // Update() does this in the real loop
 		m.updateFleeing(checker, playerX, playerY)
 	}

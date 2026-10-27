@@ -79,12 +79,8 @@ func (cs *CombatSystem) castPersistentDamageZone(spellID spells.SpellID, def spe
 	if def.ZoneRadiusTiles <= 0 {
 		return castNotHandled
 	}
-	tps := cs.game.config.GetTPS()
 	tile := float64(cs.game.config.GetTileSize())
-	interval := int(def.ZoneTickSeconds * float64(tps))
-	if interval < 1 {
-		interval = tps // default: once per second
-	}
+	interval := cs.game.framesForSeconds(def.ZoneTickSeconds)
 	// Duration scales with mastery (CalculateSpellDurationFrames), matching the
 	// in-game tooltip - same source of truth as every other timed spell.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
@@ -490,7 +486,7 @@ func (cs *CombatSystem) damageZoneMonstersIn(spellID string, coverage, view []*P
 			cs.game.spawnSteamPuff(m.X, m.Y) // scalding steam keeps its own puff
 		}
 		if def != nil && def.ZoneBurnSeconds > 0 && m.IsAlive() {
-			cs.afflictMonster(m, monsterBurn, int(def.ZoneBurnSeconds*float64(cs.game.config.GetTPS())), logToneGood, false)
+			cs.afflictMonster(m, monsterBurn, cs.game.framesForSeconds(def.ZoneBurnSeconds), logToneGood, false)
 		}
 		cs.finishIndirectKill(m)
 	}
@@ -638,17 +634,18 @@ func (g *MMGame) appendSteamPuffLocked(x, y float64, count int) {
 	particles := make([]SpellHitParticle, 0, count)
 	for i := 0; i < count; i++ {
 		tint := mixColor(base, [3]int{255, 255, 255}, rand.Float64()*0.5)
+		life := g.framesBetween(SpellParticleLifeSeconds, .25)
 		particles = append(particles, SpellHitParticle{
 			X:        x,
 			Y:        y,
 			OffsetX:  (rand.Float64() - 0.5) * 10,
 			OffsetY:  (rand.Float64() - 0.5) * 6,
-			VelX:     (rand.Float64() - 0.5) * 0.5,
-			VelY:     -(0.8 + rand.Float64()*1.0), // rise like steam
-			Gravity:  -0.02,
+			VelX:     (rand.Float64() - 0.5) * 60,
+			VelY:     -(96 + rand.Float64()*120), // rise like steam
+			Gravity:  -288,
 			Color:    tint,
-			LifeTime: SpellParticleLife + rand.Intn(10),
-			MaxLife:  SpellParticleLife,
+			LifeTime: life,
+			MaxLife:  life, // the fade starts at once, like every other particle
 			Size:     SpellParticleSize,
 			Active:   true,
 		})
@@ -664,12 +661,12 @@ type PersistentDamageZoneSave struct {
 	X              float64 `json:"x"`
 	Y              float64 `json:"y"`
 	Radius         float64 `json:"radius"`
-	FramesLeft     int     `json:"frames_left"`
+	FramesLeft     int     `json:"frames_left" ticks:"frames"`
 	TickDamage     int     `json:"tick_damage"`
 	TrueTickDamage int     `json:"true_tick_damage,omitempty"`
 	ResistPierce   int     `json:"resist_pierce,omitempty"`
-	IntervalFrames int     `json:"interval_frames"`
-	TickCounter    int     `json:"tick_counter,omitempty"`
+	IntervalFrames int     `json:"interval_frames" ticks:"frames"`
+	TickCounter    int     `json:"tick_counter,omitempty" ticks:"frames"`
 	AxisX          float64 `json:"axis_x,omitempty"`
 	AxisY          float64 `json:"axis_y,omitempty"`
 }

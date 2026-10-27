@@ -236,9 +236,9 @@ func (g *MMGame) addMonsterLootDrop(m *monster.Monster3D, drops []items.Item, go
 		}
 		settings := g.monsterDeathSettings()
 		hop = lootHop{fromX: sx, fromY: sy, started: g.frameCount,
-			duration: max(1, int64(settings.LootHopSeconds*float64(g.config.GetTPS()))), heightTiles: settings.LootHopHeightTiles}
+			duration: int64(g.framesForSeconds(settings.LootHopSeconds)), heightTiles: settings.LootHopHeightTiles}
 		if m.Flying || m.VisualHeightTiles() > 0 {
-			hop.started += int64(math.Ceil(settings.FallSeconds * float64(g.config.GetTPS())))
+			hop.started += int64(g.framesForSeconds(settings.FallSeconds))
 		}
 	}
 	x, y = g.reachableMonsterLootLanding(x, y)

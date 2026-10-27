@@ -56,11 +56,9 @@ func spellAreaLines(def spells.SpellDefinition) []string {
 }
 
 func addWeaponCooldown(sec *ttSection, ch *character.MMCharacter, cs *CombatSystem, def *config.WeaponDefinitionConfig) {
-	tps := float64(config.GetTargetTPS())
-	if cs != nil && cs.game != nil {
-		tps = float64(cs.game.config.GetTPS())
-	}
-	reference := math.Round(float64(calculateSpeedActionCooldownFrames(0)) * RTBaseCooldownMult * character.WeaponCooldownMultiplier(def))
+	g := cs.gameOrNil()
+	tps := float64(g.tickRate())
+	reference := float64(g.speedCurveFrames(0, RTBaseCooldownMult, character.WeaponCooldownMultiplier(def)))
 	if ch == nil {
 		sec.Add("Base weapon cooldown: %.2fs", character.CardSeconds(reference/tps))
 		sec.AddDetail("Scales with wielder Speed - TB: 1 action")
@@ -69,7 +67,7 @@ func addWeaponCooldown(sec *ttSection, ch *character.MMCharacter, cs *CombatSyst
 	cd := cs.weaponCooldownBreakdown(ch, def)
 	sec.Add("%s", cooldownLine(cs, cd.TotalFrames))
 	sec.AddDetail("Base weapon cooldown: %.2fs", character.CardSeconds(reference/tps))
-	atSpeed := math.Round(cd.BaseFrames * cd.WeaponMultiplier)
+	atSpeed := float64(g.speedCurveFrames(cd.Speed, RTBaseCooldownMult, cd.WeaponMultiplier))
 	// Subtract displayed stages so their two-decimal values add up on the card.
 	delta := math.Round(atSpeed*100/tps)/100 - math.Round(reference*100/tps)/100
 	sec.AddDetail("Speed (%d): %+.2fs", cd.Speed, delta)
@@ -147,7 +145,7 @@ func addCooldownStages(sec *ttSection, base float64, tb string, cd *cooldownBrea
 	}
 	sec.AddDetail("Base cooldown: %.2fs", character.CardSeconds(cd.BaseSeconds))
 	tps := float64(cs.game.config.GetTPS())
-	atSpeed := math.Round(cd.BaseSeconds*cd.SpeedFactor*tps) / tps
+	atSpeed := float64(cs.game.framesForSeconds(cd.BaseSeconds*cd.SpeedFactor)) / tps
 	delta := math.Round(atSpeed*100)/100 - math.Round(cd.BaseSeconds*100)/100
 	sec.AddDetail("Speed (%d): %+.2fs", cd.Speed, delta)
 	if cd.WeaponMultiplier != 1 {

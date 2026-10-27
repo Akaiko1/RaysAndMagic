@@ -514,7 +514,7 @@ func TestCardSummonNoSpawnSpaceDoesNotSpendCooldown(t *testing.T) {
 
 func TestCardSummonCooldownsTickAndExpireIndependently(t *testing.T) {
 	for _, turn := range []bool{false, true} {
-		round := config.RoundFrames(1, config.GlobalConfig.GetTPS())
+		round := config.RoundFrames(1, config.GetTargetTPS())
 		g := &MMGame{cardSummonCooldowns: map[string]status.DualClock{"orc": framesClock(2 * round), "lich": framesClock(round)}}
 		g.tickCardSummonCooldowns(turn)
 		if !turn {

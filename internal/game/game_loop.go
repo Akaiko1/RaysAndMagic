@@ -402,7 +402,7 @@ func (gl *GameLoop) drawExplorationScene(screen *ebiten.Image) {
 	world := image.Pt(g.worldWidth(), g.worldHeight())
 	blurPx := g.turnBlurPixels(world.X) // blur length in the scene's own pixels
 	blur := blurPx >= 0.75
-	if projection.distance == 0 && !blur && turnBlurStrength > 0 && !g.turnBlurWarm {
+	if projection.distance == 0 && !blur && turnBlurSeconds > 0 && !g.turnBlurWarm {
 		// Prewarm the exact blur pipeline on an idle frame. BlurPx=0 is a
 		// visually identical blit, but it creates the scene buffer and lets
 		// Ebiten/Metal compile the shader pipeline before the first TB turn.

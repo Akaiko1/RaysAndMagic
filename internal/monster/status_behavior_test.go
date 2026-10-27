@@ -129,10 +129,36 @@ func TestInvulnerableBossAbsorbsPoisonInBothModes(t *testing.T) {
 	}
 }
 
+// A slow drags a pounce's and a phase shift's real-time wait - it moves and
+// attacks slower - but never their turn-based rounds, where it skips turns.
+func TestSlowDragsAbilityCooldownsInRealTimeOnly(t *testing.T) {
+	const tps = 120
+	pounce := func(m *Monster3D) *status.DualClock { m.ArmPounceCooldown(2); return &m.PounceCD }
+	phase := func(m *Monster3D) *status.DualClock { m.ArmPhaseShiftCooldown(); return &m.PhaseShiftCD }
+	for _, c := range []struct {
+		name          string
+		slow          int
+		arm           func(*Monster3D) *status.DualClock
+		frames, turns int
+	}{
+		{"pounce at 50% slow", 50, pounce, 1200, 2},     // 10 s
+		{"phase shift", 0, phase, 1080, 3},              // 9 s
+		{"phase shift at 30% slow", 30, phase, 1543, 3}, // 9 s / 0.7 = 1542.86 frames, the nearest frame
+	} {
+		m := &Monster3D{Abilities: Abilities{Pounce: PounceAbility{CooldownSeconds: 5}, PhaseShift: PhaseShiftAbility{CooldownSeconds: 9}}}
+		if c.slow > 0 {
+			m.ApplySlow(c.slow, 10*tps, 10)
+		}
+		if clock := c.arm(m); clock.Frames != c.frames || clock.Turns != c.turns {
+			t.Errorf("%s: %d frames / %d turns, want %d / %d", c.name, clock.Frames, clock.Turns, c.frames, c.turns)
+		}
+	}
+}
+
 func TestPounceCooldownCarriesAcrossModes(t *testing.T) {
 	m := &Monster3D{Abilities: Abilities{Pounce: PounceAbility{CooldownSeconds: 4}}}
 	const tps = 120
-	m.ArmPounceCooldown(tps, 2)
+	m.ArmPounceCooldown(2)
 	if m.PounceCD.Frames != 4*tps || m.PounceCD.Turns != 2 {
 		t.Fatalf("armed pounce cooldown = %d frames/%d turns, want %d/2",
 			m.PounceCD.Frames, m.PounceCD.Turns, 4*tps)
@@ -158,7 +184,7 @@ func TestPounceCooldownCarriesAcrossModes(t *testing.T) {
 			m.PounceCD.Frames, m.PounceCD.Turns)
 	}
 
-	m.ArmPounceCooldown(tps, 2)
+	m.ArmPounceCooldown(2)
 	for range tps {
 		m.TickAbilityClocks(false)
 	}

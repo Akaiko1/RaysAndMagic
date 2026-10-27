@@ -62,16 +62,12 @@ func (m *Monster3D) PhaseShiftWaitTiles(turnBased bool, passesLeft, perRound int
 }
 
 // ArmPhaseShiftCooldown starts both mode clocks from the authored whole rounds.
-func (m *Monster3D) ArmPhaseShiftCooldown(tps int) {
+func (m *Monster3D) ArmPhaseShiftCooldown() {
 	if m == nil {
 		return
 	}
-	if tps <= 0 {
-		tps = config.GetTargetTPS()
-	}
-	seconds := m.Abilities.PhaseShift.CooldownSeconds
-	frames := max(1, int(math.Round(float64(seconds*tps)*m.SlowCadenceFactor())))
-	m.PhaseShiftCD.Refresh(frames, config.CombatRounds(seconds))
+	seconds := m.Abilities.PhaseShift.CooldownSeconds // validated: whole rounds, positive
+	m.armSlowedCooldown(&m.PhaseShiftCD, float64(seconds), config.CombatRounds(seconds))
 }
 
 // followPhaseShiftPlan walks an active plan's launch tile and holds on its

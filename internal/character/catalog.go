@@ -113,6 +113,8 @@ const (
 	// DarkElfBindingChancePct is shared by the racial hit gate and reference text.
 	DarkElfBindingChancePct = 3
 	// OverwatchReadySeconds: stationary time before RT reactions become ready.
+	// Timer exception: not whole rounds; DualClock.ArmSeconds rounds its TB
+	// count up.
 	OverwatchReadySeconds = 1.0
 	// DoorForceChancePct is the fixed chance of a qualifying Might/Intellect
 	// attempt. DoorMaxNonKeyAttempts failed non-key attempts jam the lock.

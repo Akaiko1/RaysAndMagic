@@ -121,7 +121,7 @@ func (r *Renderer) prepareWorldMaterial() {
 		m.pixels = make([]byte, 8*w)
 	}
 	scale := math.Max(r.game.camera.ViewDist, 64) * 2
-	m.clock[0] = float32(r.weaponMaterialClock())
+	m.clock[0] = float32(r.game.worldSeconds())
 	m.forward = [3]float32{float32(math.Cos(r.game.camera.Angle)), float32(math.Sin(r.game.camera.Angle)), float32(r.game.config.GetTileSize())}
 	m.viewport = [3]float32{float32(w), float32(h), float32(scale)}
 	for x := 0; x < w; x++ {

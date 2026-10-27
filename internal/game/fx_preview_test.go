@@ -40,7 +40,7 @@ func TestFxPreview_CatalogAndSpawnCycle(t *testing.T) {
 		}
 		seen[it.Kind] = true
 		p.Select(it)
-		steps := fxRespawnTicks + 5
+		steps := p.g.framesForSeconds(fxRespawnSeconds) + 5
 		if it.Kind == FxTrap {
 			steps = 3 * cfg.GetTPS()
 		}
@@ -108,12 +108,12 @@ func TestFxPreview_PresentationClockAdvancesOncePerStep(t *testing.T) {
 		seen[it.Kind] = true
 		t.Run(it.Key, func(t *testing.T) {
 			p.Select(it)
-			for _, steps := range []int{1, fxRespawnTicks, 1} {
-				before := p.g.gameLoop.ui.cardAnimClock()
+			for _, steps := range []int{1, p.g.framesForSeconds(fxRespawnSeconds), 1} {
+				before := p.g.uiFrameCount
 				for i := 0; i < steps; i++ {
 					p.Step()
 				}
-				if got := p.g.gameLoop.ui.cardAnimClock() - before; got != int64(steps) {
+				if got := p.g.uiFrameCount - before; got != int64(steps) {
 					t.Fatalf("presentation advanced %d ticks, want %d", got, steps)
 				}
 			}
@@ -240,13 +240,13 @@ func TestFxPreview_StatusExhibitsStageRealState(t *testing.T) {
 				if !onHero {
 					staged = p.g.world.Monsters[0]
 				}
-				for i := 0; i < fxRespawnTicks+5; i++ {
+				for i := 0; i < p.g.framesForSeconds(fxRespawnSeconds)+5; i++ {
 					p.Step()
 				}
 				check("respawn")
 				// Outlive the staged state: loop-ticked timers (Charm, Bind, party
 				// root) must be refreshed, never left to expire mid-selection.
-				for i := 0; i < statusStageFrames+2*fxRespawnTicks; i++ {
+				for i := 0; i < p.g.framesForSeconds(statusStageSeconds)+2*p.g.framesForSeconds(fxRespawnSeconds); i++ {
 					p.Step()
 				}
 				check("past the staged duration")
@@ -299,7 +299,7 @@ func TestFxPreview_AttackCompletesBeforeReplay(t *testing.T) {
 		})
 	}
 	p.Select(FxItem{Kind: FxSpell, Key: "hot_steam"})
-	for i := 0; i < fxRespawnTicks*3; i++ {
+	for i := 0; i < p.g.framesForSeconds(fxRespawnSeconds)*3; i++ {
 		p.Step()
 	}
 	if len(p.g.persistentDamageZones) == 0 {

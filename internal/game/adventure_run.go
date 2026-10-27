@@ -147,7 +147,7 @@ func (g *MMGame) announceAdventureArenaBarrier() {
 	if g.arenaBarrierMessageAfter > g.frameCount {
 		return
 	}
-	g.arenaBarrierMessageAfter = g.frameCount + int64(max(1, g.config.GetTPS())*3)
+	g.arenaBarrierMessageAfter = g.frameCount + int64(3*g.config.GetTPS())
 	g.AddCombatMessage(uitext.Text("adventure.arena_barrier"))
 }
 

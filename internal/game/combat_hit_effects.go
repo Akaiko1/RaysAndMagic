@@ -51,11 +51,35 @@ func weaponImpactColor(def *config.WeaponDefinitionConfig) [3]int {
 }
 
 const (
-	SpellParticleCount = 8  // Base number of particles per spell hit
-	SpellParticleLife  = 20 // ~0.17s at 120 TPS
-	SpellParticleSpeed = 2.0
-	SpellParticleSize  = 4
+	SpellParticleCount       = 8     // Base number of particles per spell hit
+	SpellParticleLifeSeconds = 0.167 // a base particle's life
+	SpellParticleSpeed       = 240.0 // impact-plane units per second
+	SpellParticleSize        = 4
 )
+
+// Particle drag: the speed a particle keeps halves every half-life (seconds),
+// across and along the vertical.
+const (
+	particleDragHalfLifeX = 0.09335
+	particleDragHalfLifeY = 0.1415
+)
+
+// particleTrailCrumbSeconds is how often a falling star drops a breadcrumb;
+// particleTrailCrumbLifeSeconds is how long one lingers.
+const (
+	particleTrailCrumbSeconds     = 0.025
+	particleTrailCrumbLifeSeconds = 0.117
+)
+
+// framesBetween is a random span from minSeconds up to (not including)
+// maxSeconds in whole frames: particle lifetime jitter.
+func (g *MMGame) framesBetween(minSeconds, maxSeconds float64) int {
+	lo, hi := g.framesForSeconds(minSeconds), g.framesForSeconds(maxSeconds)
+	if hi <= lo {
+		return lo
+	}
+	return lo + rand.Intn(hi-lo)
+}
 
 // CreateSpellHitEffectFromSpell spawns spell hit particles scaled by base damage and hit radius.
 func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string, anchor monsterVisualAnchor) {
@@ -163,8 +187,8 @@ type ImpactLight struct {
 	Life, MaxLife int
 }
 
-// impactLightFrames is how long an impact flash lasts (intensity decays with life).
-const impactLightFrames = 20 // ~0.17s at 120 TPS
+// impactLightSeconds is how long an impact flash lasts (intensity decays with life).
+const impactLightSeconds = 0.17
 
 // CreateSpellHitEffect spawns a burst of colored particles at the impact point
 func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCount, particleSize int, target *monsterPkg.Monster3D) {
@@ -199,7 +223,7 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 		X: x, Y: y,
 		Radius:    float64(g.config.GetTileSize()) * (1.8 + 0.02*float64(particleCount)),
 		Intensity: 0.7,
-		Life:      impactLightFrames, MaxLife: impactLightFrames,
+		Life:      g.framesForSeconds(impactLightSeconds), MaxLife: g.framesForSeconds(impactLightSeconds),
 	})
 	style := spellHitStyle(element)
 	// Bigger spells (larger particleSize, set from damage+radius) throw their
@@ -220,57 +244,57 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 		speed := SpellParticleSpeed * (0.6 + rand.Float64()*0.8) * spread
 		vx := math.Cos(angle) * speed
 		vy := math.Sin(angle) * speed
-		life := SpellParticleLife + rand.Intn(10) - 5
+		life := g.framesBetween(.125, .208)
 		grav := 0.0
 		tint := baseColor
 
 		switch style {
 		case "ember": // fire: bias upward, drift up, hot tint, fade fast
-			vy = vy*0.55 - (0.6 + rand.Float64()*1.0)
-			grav = -0.05
+			vy = vy*0.55 - (72 + rand.Float64()*120)
+			grav = -720
 			tint = mixColor(baseColor, [3]int{255, 240, 180}, rand.Float64()*0.55)
 		case "shard": // ice: sharp outward shards that fall and linger
 			vx *= 1.3
 			vy *= 1.3
-			grav = 0.14
-			life += 8
+			grav = 2016
+			life += g.framesForSeconds(.067)
 			tint = mixColor(baseColor, [3]int{235, 245, 255}, rand.Float64()*0.5)
 		case "void": // dark: slow, soft motes that creep outward, sink and linger
 			vx *= 0.7
-			vy = vy*0.7 + 0.3
-			grav = 0.05
-			life += 6
+			vy = vy*0.7 + 36
+			grav = 720
+			life += g.framesForSeconds(.05)
 			tint = mixColor(baseColor, [3]int{190, 120, 255}, rand.Float64()*0.55)
 		case "flash": // light: a bright, fast radiant flare that pops out and fades quickly
 			vx *= 1.5
 			vy *= 1.5
-			life -= 4
+			life -= g.framesForSeconds(.033)
 			tint = mixColor(baseColor, [3]int{255, 255, 235}, rand.Float64()*0.6)
 		case "static": // air = lightning/sparks: jagged electric crackle, gone in a snap
 			vx *= 1.4 + rand.Float64()*1.4 // wildly uneven speeds -> spiky, not a round star
 			vy *= 1.4 + rand.Float64()*1.4
-			life -= 6
+			life -= g.framesForSeconds(.05)
 			tint = mixColor(baseColor, [3]int{255, 255, 255}, rand.Float64()*0.7)
 		case "rubble": // earth: heavy chunks thrown low, dropping hard
 			vx *= 1.1
-			vy = vy*0.5 + 0.4
-			grav = 0.22
-			life += 4
+			vy = vy*0.5 + 48
+			grav = 3168
+			life += g.framesForSeconds(.033)
 			tint = mixColor(baseColor, [3]int{170, 140, 90}, rand.Float64()*0.5)
 		case "spiral": // mind: tangential swirl instead of a radial burst
 			vx, vy = -vy*1.2, vx*1.2
-			life += 4
+			life += g.framesForSeconds(.033)
 			tint = mixColor(baseColor, [3]int{210, 230, 255}, rand.Float64()*0.5)
 		case "soul": // spirit: slow wisps that float up and linger
 			vx *= 0.5
-			vy = vy*0.4 - (0.5 + rand.Float64()*0.8)
-			grav = -0.02
-			life += 12
+			vy = vy*0.4 - (60 + rand.Float64()*96)
+			grav = -288
+			life += g.framesForSeconds(.1)
 			tint = mixColor(baseColor, [3]int{235, 225, 255}, rand.Float64()*0.6)
 		case "mend": // body: gentle sparkles drifting upward, soft and brief
 			vx *= 0.6
-			vy = vy*0.5 - (0.3 + rand.Float64()*0.5)
-			grav = -0.01
+			vy = vy*0.5 - (36 + rand.Float64()*60)
+			grav = -144
 			tint = mixColor(baseColor, [3]int{220, 255, 220}, rand.Float64()*0.5)
 		}
 
@@ -284,7 +308,7 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 		// Mirror fragments need a visible tumble and erosion tail. Keep authored
 		// star flashes brief; this lifetime is presentation-only.
 		if !stars {
-			life += max(1, int(math.Round(float64(g.config.GetTPS())*.55)))
+			life += g.framesForSeconds(.55)
 		}
 
 		particles[i] = SpellHitParticle{
@@ -308,7 +332,7 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 		Active:    true,
 	}
 	if !stars {
-		effect.BurstLife = max(1, int(math.Round(float64(g.config.GetTPS())*.32)))
+		effect.BurstLife = g.framesForSeconds(.32)
 		effect.BurstRadius = float64(particleSize)*4 + 6
 		effect.BurstColor = baseColor
 		effect.BurstDust = style != "ember" && style != "flash"
@@ -325,14 +349,14 @@ func (g *MMGame) spawnBlinkLightColumn(x, y float64) {
 	const n = 22
 	parts := make([]SpellHitParticle, n)
 	for i := 0; i < n; i++ {
-		life := 70 + rand.Intn(30)
+		life := g.framesBetween(.583, .833)
 		parts[i] = SpellHitParticle{
 			X: x, Y: y,
 			OffsetX:  (rand.Float64() - 0.5) * 10,
 			OffsetY:  -rand.Float64() * 130,
-			VelX:     (rand.Float64() - 0.5) * 0.3,
-			VelY:     -(0.4 + rand.Float64()*0.7),
-			Gravity:  -0.01,
+			VelX:     (rand.Float64() - 0.5) * 36,
+			VelY:     -(48 + rand.Float64()*84),
+			Gravity:  -144,
 			Color:    mixColor([3]int{255, 250, 210}, [3]int{255, 215, 120}, rand.Float64()),
 			LifeTime: life, MaxLife: life, Size: 6, Active: true,
 		}
@@ -371,7 +395,7 @@ func (g *MMGame) spawnImpactSparks(x, y float64, target *monsterPkg.Monster3D, a
 		X: x, Y: y,
 		Radius:    float64(g.config.GetTileSize()) * 1.2,
 		Intensity: 0.5,
-		Life:      impactLightFrames * 2 / 3, MaxLife: impactLightFrames * 2 / 3,
+		Life:      g.framesForSeconds(impactLightSeconds) * 2 / 3, MaxLife: g.framesForSeconds(impactLightSeconds) * 2 / 3,
 	})
 	base := [3]int{255, 210, 110}
 	if len(authored) > 0 {
@@ -381,13 +405,13 @@ func (g *MMGame) spawnImpactSparks(x, y float64, target *monsterPkg.Monster3D, a
 	parts := make([]SpellHitParticle, n)
 	for i := 0; i < n; i++ {
 		ang := rand.Float64() * 2 * math.Pi
-		sp := 2.8 + rand.Float64()*3.2
-		life := 11 + rand.Intn(7)
+		sp := 336 + rand.Float64()*384
+		life := g.framesBetween(.092, .15)
 		parts[i] = SpellHitParticle{
 			X: x, Y: y,
 			VelX:     math.Cos(ang) * sp,
-			VelY:     math.Sin(ang)*sp - 0.8, // slight upward bias
-			Gravity:  0.11,
+			VelY:     math.Sin(ang)*sp - 96, // slight upward bias
+			Gravity:  1584,
 			Color:    mixColor(base, [3]int{}, rand.Float64()*.2),
 			LifeTime: life, MaxLife: life, Size: 5, Active: true,
 		}
@@ -482,15 +506,15 @@ func (g *MMGame) spawnStarburstFx(cx, cy, radiusTiles float64) {
 		particles := make([]SpellHitParticle, 0, 6)
 		for i := 0; i < 6; i++ {
 			tint := mixColor(star, [3]int{255, 230, 140}, rand.Float64()*0.5) // white->gold sparkle
-			life := SpellParticleLife + rand.Intn(8)
+			life := g.framesBetween(.167, .233)
 			particles = append(particles, SpellHitParticle{
 				X:         wx,
 				Y:         wy,
 				OffsetX:   (rand.Float64() - 0.5) * 8,
 				OffsetY:   -36 - rand.Float64()*28, // start above the tile
-				VelX:      (rand.Float64() - 0.5) * 0.8,
-				VelY:      2.6 + rand.Float64()*1.6, // fall down into the tile
-				Gravity:   0.12,
+				VelX:      (rand.Float64() - 0.5) * 96,
+				VelY:      312 + rand.Float64()*192, // fall down into the tile
+				Gravity:   1728,
 				Color:     tint,
 				LifeTime:  life,
 				MaxLife:   life,
@@ -574,17 +598,17 @@ func (g *MMGame) spawnQuakeGroundFxWhere(cx, cy, radiusTiles float64, allowed fu
 		clods := 4 + rand.Intn(3)
 		particles := make([]SpellHitParticle, 0, clods+1)
 		for i := 0; i < clods; i++ {
-			life := SpellParticleLife + rand.Intn(16)
+			life := g.framesBetween(.167, .3)
 			// Thrown a third of a tile up at most, then gravity drops it back
 			// into the floor it came off.
 			hop := (0.16 + rand.Float64()*0.20) * perTileHeight
-			gravity := 0.19
+			gravity := 2736.0
 			particles = append(particles, SpellHitParticle{
 				X:        wx,
 				Y:        wy,
 				OffsetX:  (rand.Float64() - 0.5) * 26,
 				OffsetY:  ground - rand.Float64()*3, // sits on the floor, not at eye level
-				VelX:     (rand.Float64() - 0.5) * 1.2,
+				VelX:     (rand.Float64() - 0.5) * 144,
 				VelY:     -math.Sqrt(2 * gravity * hop), // up; OffsetY grows downward
 				Gravity:  gravity,
 				Color:    mixColor(soil, dust, rand.Float64()*0.5),
@@ -596,15 +620,15 @@ func (g *MMGame) spawnQuakeGroundFxWhere(cx, cy, radiusTiles float64, allowed fu
 			})
 		}
 		// One slow dust puff per patch, hanging where the ground broke.
-		life := SpellParticleLife + 18 + rand.Intn(10)
+		life := g.framesBetween(.317, .4)
 		particles = append(particles, SpellHitParticle{
 			X:        wx,
 			Y:        wy,
 			OffsetX:  (rand.Float64() - 0.5) * 14,
 			OffsetY:  ground - 0.06*perTileHeight,
-			VelX:     (rand.Float64() - 0.5) * 0.4,
-			VelY:     -(0.25 + rand.Float64()*0.35),
-			Gravity:  0.012,
+			VelX:     (rand.Float64() - 0.5) * 48,
+			VelY:     -(30 + rand.Float64()*42),
+			Gravity:  172.8,
 			Color:    mixColor(dust, [3]int{198, 180, 150}, rand.Float64()),
 			LifeTime: life,
 			MaxLife:  life,
@@ -632,6 +656,9 @@ func (g *MMGame) UpdateHitEffects() {
 	// Trail breadcrumbs spawned this frame (collected, then appended AFTER the
 	// in-place compaction below - never mutate g.spellHitEffects mid-iteration).
 	var trail []SpellHitEffect
+	dt := 1 / float64(g.tickRate())
+	dragX, dragY := math.Exp2(-dt/particleDragHalfLifeX), math.Exp2(-dt/particleDragHalfLifeY)
+	crumbEvery, crumbLife := g.framesForSeconds(particleTrailCrumbSeconds), g.framesForSeconds(particleTrailCrumbLifeSeconds)
 
 	// Update spell hit effects
 	writeIdx := 0
@@ -652,10 +679,10 @@ func (g *MMGame) UpdateHitEffects() {
 			}
 
 			// Integrate impact-plane offsets; projection applies the anchor depth.
-			particle.OffsetX += particle.VelX
-			particle.OffsetY += particle.VelY
-			particle.VelX *= 0.94
-			particle.VelY = particle.VelY*0.96 + particle.Gravity
+			particle.OffsetX += particle.VelX * dt
+			particle.OffsetY += particle.VelY * dt
+			particle.VelX *= dragX
+			particle.VelY = particle.VelY*dragY + particle.Gravity*dt
 			particle.LifeTime--
 
 			if particle.LifeTime <= 0 {
@@ -665,7 +692,7 @@ func (g *MMGame) UpdateHitEffects() {
 				// Falling-star trail: drop a faint, motionless breadcrumb at the
 				// current position every few frames; it lingers and fades on its
 				// own ("slowly evaporates"). Breadcrumbs don't trail themselves.
-				if particle.Trail && particle.LifeTime%3 == 0 {
+				if particle.Trail && particle.LifeTime%crumbEvery == 0 {
 					sz := particle.Size - 1
 					if sz < 1 {
 						sz = 1
@@ -673,7 +700,7 @@ func (g *MMGame) UpdateHitEffects() {
 					trail = append(trail, SpellHitEffect{Anchor: effect.Anchor, Active: true, Particles: []SpellHitParticle{{
 						X: particle.X, Y: particle.Y,
 						OffsetX: particle.OffsetX, OffsetY: particle.OffsetY,
-						Color: particle.Color, LifeTime: 14, MaxLife: 14, Size: sz, DepthTest: particle.DepthTest, Active: true,
+						Color: particle.Color, LifeTime: crumbLife, MaxLife: crumbLife, Size: sz, DepthTest: particle.DepthTest, Active: true,
 					}}})
 				}
 			}

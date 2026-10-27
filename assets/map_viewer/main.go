@@ -295,7 +295,7 @@ func main() {
 	ebiten.SetWindowTitle("RaysAndMagic Map Viewer")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetVsyncEnabled(false)
-	ebiten.SetTPS(120)
+	ebiten.SetTPS(cfg.GetTPS()) // the game's rate: the FX and mob previews run game code timed in seconds
 
 	if err := ebiten.RunGame(v); err != nil {
 		log.Fatal(err)

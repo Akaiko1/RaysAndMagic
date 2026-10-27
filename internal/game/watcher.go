@@ -401,7 +401,7 @@ func (ui *UISystem) drawWatcherCard(screen *ebiten.Image) {
 	lines := wrapUIText(c.line.Text, probe.w)
 	card, portrait, text := watcherCardLayout(g.config.GetScreenWidth(), len(lines))
 	total := g.watcherCardFrames()
-	fade := float64(g.config.GetTPS()) / 5
+	fade := float64(g.framesForSeconds(0.2))
 	alpha := min(1, float64(c.elapsed)/fade, float64(total-c.elapsed)/fade)
 	if alpha <= 0 {
 		return

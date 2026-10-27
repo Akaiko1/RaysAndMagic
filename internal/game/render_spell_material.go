@@ -66,7 +66,7 @@ func (r *Renderer) drawSpellMaterialProjected(dst *ebiten.Image, x, y, size floa
 		right = 2.8
 	}
 	left += (-1.7 - left) * head
-	phase := r.weaponMaterialClock()
+	phase := r.game.worldSeconds()
 	axial := 1.0
 	if directionalSpellKind(kind) {
 		axial = projection.axial

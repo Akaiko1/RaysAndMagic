@@ -174,11 +174,7 @@ func (cs *CombatSystem) CalculateSpellDurationFrames(spellID spells.SpellID, cha
 	if seconds <= 0 {
 		return 0
 	}
-	tps := cs.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.GetTargetTPS()
-	}
-	return seconds * tps
+	return seconds * cs.game.config.GetTPS()
 }
 
 // CalculateSpellStatBonus returns the spell's uniform stat bonus (e.g. Bless),
@@ -377,33 +373,34 @@ func (cs *CombatSystem) CalculateActionCooldownFrames(char *character.MMCharacte
 		return 0
 	}
 	if cs.game.turnBasedMode {
-		return inputDebounceCooldown
+		return cs.game.framesForSeconds(inputDebounceSeconds)
 	}
-	speed := char.GetEffectiveSpeed()
-	return calculateSpeedActionCooldownFrames(speed)
+	return cs.game.speedCurveFrames(char.GetEffectiveSpeed())
 }
 
-func calculateSpeedActionCooldownFrames(speed int) int {
-	frames := AttackCooldownIntercept - AttackCooldownSpeedSlope*float64(speed)
-	cd := int(math.Round(frames))
-	if cd < AttackCooldownMinFrames {
-		return AttackCooldownMinFrames
+// speedCurveSteps is the Speed curve in whole steps of 1/config.DefaultTPS
+// seconds, the grain it is balanced in, so it lasts the same at any tick rate.
+func speedCurveSteps(speed int) int {
+	step := func(seconds float64) int { return config.SecondsToFrames(seconds, config.DefaultTPS) }
+	cd := step(AttackCooldownInterceptSeconds - AttackCooldownSpeedSlope*float64(speed))
+	return max(step(AttackCooldownMinSeconds), min(step(AttackCooldownMaxSeconds), cd))
+}
+
+// speedCurveFrames is the Speed curve times mults in live frames, rounded once
+// to the nearest frame at the end: THE conversion for every recovery built on
+// the curve. Built in frames, so it is exact at the shipped rate (nil game:
+// the loaded config's rate).
+func (g *MMGame) speedCurveFrames(speed int, mults ...float64) int {
+	frames := float64(speedCurveSteps(speed)) * float64(g.tickRate()) / config.DefaultTPS
+	for _, m := range mults {
+		frames *= m
 	}
-	if cd > AttackCooldownMaxFrames {
-		return AttackCooldownMaxFrames
-	}
-	return cd
+	return int(math.Round(frames))
 }
 
 // clampRTCooldown clamps a real-time per-character cooldown to the sane range.
-func clampRTCooldown(frames int) int {
-	if frames < RTCooldownMinFrames {
-		return RTCooldownMinFrames
-	}
-	if frames > RTCooldownMaxFrames {
-		return RTCooldownMaxFrames
-	}
-	return frames
+func (g *MMGame) clampRTCooldown(frames int) int {
+	return max(g.framesForSeconds(RTCooldownMinSeconds), min(g.framesForSeconds(RTCooldownMaxSeconds), frames))
 }
 
 // WeaponCooldownFrames is the real-time cooldown after a weapon attack: the
@@ -438,7 +435,6 @@ func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, wea
 
 type weaponCooldownBreakdown struct {
 	Speed                    int
-	BaseFrames               float64
 	WeaponMultiplier         float64
 	DualWieldingReductionPct int
 	RawFrames                int
@@ -448,12 +444,12 @@ type weaponCooldownBreakdown struct {
 }
 
 func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, def *config.WeaponDefinitionConfig) weaponCooldownBreakdown {
-	result := weaponCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
-	if cs == nil || cs.game == nil || char == nil {
+	g := cs.gameOrNil()
+	result := weaponCooldownBreakdown{WeaponMultiplier: 1, TotalFrames: g.framesForSeconds(RTCooldownMinSeconds)}
+	if g == nil || char == nil {
 		return result
 	}
 	result.Speed = char.GetEffectiveSpeed()
-	result.BaseFrames = float64(calculateSpeedActionCooldownFrames(result.Speed)) * RTBaseCooldownMult
 	if def != nil {
 		result.WeaponMultiplier = character.WeaponCooldownMultiplier(def)
 	}
@@ -463,10 +459,10 @@ func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, def
 		result.DualWieldingReductionPct = tier * character.DualWieldingCDReductionPerTier
 	}
 	dualWieldingMultiplier := 1.0 - float64(result.DualWieldingReductionPct)/100.0
-	result.RawFrames = int(math.Round(result.BaseFrames * result.WeaponMultiplier * dualWieldingMultiplier))
-	result.ClampedFrames = clampRTCooldown(result.RawFrames)
-	result.QuickenPct = cs.game.quickenRecoveryPct(char)
-	result.TotalFrames = cs.game.quickenRecovery(char, result.ClampedFrames)
+	result.RawFrames = g.speedCurveFrames(result.Speed, RTBaseCooldownMult, result.WeaponMultiplier, dualWieldingMultiplier)
+	result.ClampedFrames = g.clampRTCooldown(result.RawFrames)
+	result.QuickenPct = g.quickenRecoveryPct(char)
+	result.TotalFrames = g.quickenRecovery(char, result.ClampedFrames)
 	return result
 }
 
@@ -475,8 +471,8 @@ func (cs *CombatSystem) weaponCooldownBreakdown(char *character.MMCharacter, def
 // faster heroes recover faster. 1.0 at the reference Speed, clamped to
 // [Min, Max].
 func actionCooldownSpeedFactor(speed int) float64 {
-	ref := float64(calculateSpeedActionCooldownFrames(ActionCooldownSpeedRefSpeed))
-	cur := float64(calculateSpeedActionCooldownFrames(speed))
+	ref := float64(speedCurveSteps(ActionCooldownSpeedRefSpeed))
+	cur := float64(speedCurveSteps(speed))
 	factor := cur / ref
 	if factor < ActionCooldownSpeedFactorMin {
 		return ActionCooldownSpeedFactorMin
@@ -560,8 +556,9 @@ func (cs *CombatSystem) FlaskCooldownFrames(char *character.MMCharacter, flaskKe
 // multiplier, then applies the RT limits and Quickening. A nil hero (unknown
 // action) gets the minimum recovery.
 func (cs *CombatSystem) cooldownBreakdown(char *character.MMCharacter, seconds float64, weaponName string, weaponMult float64) cooldownBreakdown {
-	result := cooldownBreakdown{WeaponMultiplier: 1, TotalFrames: RTCooldownMinFrames}
-	if cs == nil || cs.game == nil || char == nil {
+	g := cs.gameOrNil()
+	result := cooldownBreakdown{WeaponMultiplier: 1, TotalFrames: g.framesForSeconds(RTCooldownMinSeconds)}
+	if g == nil || char == nil {
 		return result
 	}
 	if seconds == 0 {
@@ -572,10 +569,9 @@ func (cs *CombatSystem) cooldownBreakdown(char *character.MMCharacter, seconds f
 	result.Speed = char.GetEffectiveSpeed()
 	result.SpeedFactor = actionCooldownSpeedFactor(result.Speed)
 	result.WeaponName, result.WeaponMultiplier = weaponName, weaponMult
-	frames := seconds * float64(cs.game.config.GetTPS()) * result.SpeedFactor * weaponMult
-	result.RawFrames = int(math.Round(frames))
-	result.ClampedFrames = clampRTCooldown(result.RawFrames)
-	result.QuickenPct = cs.game.quickenRecoveryPct(char)
-	result.TotalFrames = cs.game.quickenRecovery(char, result.ClampedFrames)
+	result.RawFrames = g.framesForSeconds(seconds * result.SpeedFactor * weaponMult)
+	result.ClampedFrames = g.clampRTCooldown(result.RawFrames)
+	result.QuickenPct = g.quickenRecoveryPct(char)
+	result.TotalFrames = g.quickenRecovery(char, result.ClampedFrames)
 	return result
 }

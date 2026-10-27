@@ -5,8 +5,6 @@ import (
 	"math"
 	"strings"
 
-	"ugataima/internal/config"
-
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -54,17 +52,6 @@ func weaponMaterial(style string) int {
 		return weaponEnergy
 	}
 	return weaponMetal
-}
-
-func (r *Renderer) weaponMaterialClock() float64 {
-	if r.game == nil {
-		return 0
-	}
-	tps := config.DefaultTPS
-	if r.game.config != nil {
-		tps = max(1, r.game.config.GetTPS())
-	}
-	return float64(r.game.frameCount) / float64(tps)
 }
 
 func (r *Renderer) ensureWeaponMaterialShaders() error {
@@ -222,7 +209,7 @@ func (r *Renderer) drawWeaponCharge(dst *ebiten.Image, x, y, size, dx, dy float6
 		return
 	}
 	size *= math.Sqrt(crit)
-	phase := r.weaponMaterialClock()
+	phase := r.game.worldSeconds()
 	prev := r.weaponMaterialState
 	r.weaponMaterialState = weaponMaterialState{material: weaponEnergy, phase: phase, seed: seed}
 	defer func() { r.weaponMaterialState = prev }()
@@ -298,7 +285,7 @@ func (r *Renderer) drawWeaponFacets(dst *ebiten.Image, verts []ebiten.Vertex, in
 		}
 		v.SrcX, v.SrcY = uv[i%3][0], uv[i%3][1]
 		v.Custom0, v.Custom1 = 0, float32(i/3)*.27
-		v.Custom2, v.Custom3 = float32(r.weaponMaterialClock()*.7)+float32(i/3), .7
+		v.Custom2, v.Custom3 = float32(r.game.worldSeconds()*.7)+float32(i/3), .7
 	}
 	r.weaponMaterialOpts.Blend = ebiten.BlendSourceOver
 	worldDrawTrianglesShader(dst, verts, indices, r.impactMaterialShader, &r.weaponMaterialOpts)
@@ -314,7 +301,7 @@ func (r *Renderer) drawBulletTracer(dst *ebiten.Image, x, y, size float64, view 
 		return
 	}
 	previous := r.weaponMaterialState
-	r.weaponMaterialState = weaponMaterialState{material: weaponEnergy, phase: r.weaponMaterialClock(), seed: id}
+	r.weaponMaterialState = weaponMaterialState{material: weaponEnergy, phase: r.game.worldSeconds(), seed: id}
 	defer func() { r.weaponMaterialState = previous }()
 	length := size * 3.6 * crit
 	r.weaponFxSegment(dst, x-dx*length*.75, y, x+dx*length*.25, y, size*.45, col, .85, additiveGlowBlend)

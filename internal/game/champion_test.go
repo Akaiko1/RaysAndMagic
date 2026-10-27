@@ -220,8 +220,8 @@ func TestChampionMeleeArc(t *testing.T) {
 }
 
 // A champion's real-time attack moment spends its attack only when a hand
-// swings: with both hands cooling it spends nothing, so a Cogfang jam
-// already landed this cycle holds (one jam per attack); a swing clears it.
+// swings: with both hands cooling it spends nothing. A Cogfang jam delays the
+// main hand, so an off-hand swing before that attack is due keeps the lock.
 func TestChampionAttackSpentOnlyWhenAHandSwings(t *testing.T) {
 	for _, ready := range []bool{false, true} {
 		cs := newTestCombatSystemWithConfig(t)
@@ -239,14 +239,12 @@ func TestChampionAttackSpentOnlyWhenAHandSwings(t *testing.T) {
 		cs.jamMonster(m, 2)
 		cd := m.AttackCDFrames
 		spent := cs.commitMonsterAttack(m, monsterAttackDestination{}, monsterAttackRealtime)
-		if spent != ready || m.Jammed == ready {
+		if spent != ready || !m.Jammed {
 			t.Fatalf("ready=%v: spent=%v jammed=%v", ready, spent, m.Jammed)
 		}
-		if !ready {
-			cs.jamMonster(m, 2)
-			if m.AttackCDFrames != cd {
-				t.Fatalf("a second jam in the same cycle moved the cooldown %d -> %d", cd, m.AttackCDFrames)
-			}
+		cs.jamMonster(m, 2)
+		if m.AttackCDFrames != cd {
+			t.Fatalf("ready=%v: a second jam before the delayed attack moved the cooldown %d -> %d", ready, cd, m.AttackCDFrames)
 		}
 	}
 }

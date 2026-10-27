@@ -88,7 +88,7 @@ type EnvironmentState struct {
 func (v *AdventureVisit) migrateLegacy(a *config.AdventureConfig, tps int) {
 	if v.LegacyHealCarry > 0 {
 		left := max(0, float64(config.CombatRoundSeconds)-v.LegacyHealCarry)
-		v.HealClock = status.FromFrames(int(math.Ceil(left*float64(tps))), tps)
+		v.HealClock = status.FromSeconds(left, tps)
 		v.LegacyHealCarry = 0
 	}
 	if a == nil {
@@ -243,7 +243,7 @@ func (g *MMGame) adventureScheduleText(source string) string {
 		status = "cleared"
 	}
 	if o.next != "" {
-		seconds := int(math.Ceil((o.nextAt - now) * float64(g.dayNightCycleFrames()) / float64(max(1, g.config.GetTPS()))))
+		seconds := int(math.Ceil((o.nextAt - now) * float64(g.dayNightCycleFrames()) / float64(g.config.GetTPS())))
 		hours := math.Ceil((o.nextAt-now)*24*10) / 10
 		return fmt.Sprintf("Now: %s (%s). Next available: %s in %d:%02d (%.1f game hours). Each chamber resets %d game days after victory.", name(o.current), status, name(o.next), seconds/60, seconds%60, hours, g.adventureConfig(o.next).ResetDays)
 	}

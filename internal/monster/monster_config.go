@@ -84,7 +84,7 @@ type MonsterDefinition struct {
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All optional.
 	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete the boss does not attack: it evades (if evade_radius_tiles set) or just holds dormant; turns aggressive once complete
 	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // >0 = evasive boss: blink when the party is within this many tiles (needs boss_cooldown_seconds). Omit for a dormant boss that just holds.
-	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cooldown between evasive blinks (required with evade_radius_tiles)
+	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cooldown between evasive blinks (required with evade_radius_tiles); Timer exception: may be a non-whole-round span, its TB rounds round up
 	// Idol-ward (deep-jungle warlord): the boss is invulnerable + rooted (holds its
 	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
 	WardedByIdols     bool    `yaml:"warded_by_idols,omitempty"` // boss: warded while any idol lives

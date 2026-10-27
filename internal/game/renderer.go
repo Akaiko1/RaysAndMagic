@@ -690,7 +690,7 @@ func (r *Renderer) updateActiveLights() {
 		dy := light.Y - camY
 		if dx*dx+dy*dy <= maxDist*maxDist {
 			if light.Firefly {
-				light.Intensity *= fireflySwarmFlicker(light.Seed, r.weaponMaterialClock())
+				light.Intensity *= fireflySwarmFlicker(light.Seed, r.game.worldSeconds())
 			}
 			r.activeLights = append(r.activeLights, light)
 		}
@@ -775,7 +775,7 @@ func (r *Renderer) updateActiveLights() {
 		}
 		r.activeLights = append(r.activeLights, LightSource{
 			X: tp.X, Y: tp.Y, Radius: torchRadius,
-			Intensity: wallTorchLightIntensity * wallTorchFlicker(tp.seed, r.game.frameCount),
+			Intensity: wallTorchLightIntensity * wallTorchFlicker(tp.seed, r.game.worldSeconds()),
 		})
 	}
 
@@ -3186,6 +3186,17 @@ func monsterHitShakeSizePx(spriteSize int) float64 {
 	return MonsterHitShakeMaxRefPx
 }
 
+// monsterHitRattle is a struck monster's sideways shudder as a fraction of its
+// sprite size: it decays with the red flash and flips sides from the monster's
+// own hit, so monsters struck apart do not rattle in step. Zero without a flash.
+func (r *Renderer) monsterHitRattle(m *monster.Monster3D) float64 {
+	if m == nil || m.HitTintFrames <= 0 {
+		return 0
+	}
+	f := min(1, float64(m.HitTintFrames)/float64(r.game.monsterHitFlashFrames()))
+	return jitterSign(float64(m.HitTintFrames)/float64(r.game.tickRate())) * f * MonsterHitShakeAmplitudeFrac
+}
+
 func cardinalForwardFromAngle(angle float64) (int, int) {
 	c, s := math.Cos(angle), math.Sin(angle)
 	if math.Abs(c) >= math.Abs(s) {
@@ -3920,7 +3931,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 		}
 		ox, oy := r.game.groundContainerRenderOffset(c)
 		phase := auraHash(int(c.X), int(c.Y), 0, 0) * 2 * math.Pi
-		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*r.game.worldSeconds()
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("container", spriteName), s.sprite, false)
 		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
 			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
@@ -4013,7 +4024,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 			td := world.GlobalTileManager.GetTileData(s.tileType)
 			if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; spin != 0 && (td == nil || !td.NoSpin) {
 				phase := auraHash(s.tileX, s.tileY, 0, 0) * 2 * math.Pi
-				yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+				yaw += phase + spin*math.Pi/180*r.game.worldSeconds()
 			}
 			if r.drawLandmarkStandee(screen, frame, r.prefixedStandeeKeyName("landmark", name), worldX, worldY, yaw, s.depthPerp, s.sizeF, s.bottomF, b) {
 				return
@@ -4066,17 +4077,7 @@ func (r *Renderer) prepareMonsterPick(s UnifiedSpriteRenderData) (monsterPickHit
 	// Hit shake: while the red flash timer runs, rattle the sprite left-right in
 	// place (amplitude decays with the timer). Reads as a struck shudder without
 	// moving the monster's actual position - replaces the old knockback.
-	if s.monster != nil && s.monster.HitTintFrames > 0 {
-		f := float64(s.monster.HitTintFrames) / float64(MonsterHitFlashFrames)
-		if f > 1 {
-			f = 1
-		}
-		dir := 1.0
-		if s.monster.HitTintFrames%2 == 0 {
-			dir = -1.0
-		}
-		drawLeftF += dir * f * MonsterHitShakeAmplitudeFrac * monsterHitShakeSizePx(s.spriteSize)
-	}
+	drawLeftF += r.monsterHitRattle(s.monster) * monsterHitShakeSizePx(s.spriteSize)
 	screenYF := s.bottomF - s.sizeF
 
 	if r.game.config.Graphics.Standee.Enabled {
@@ -4128,17 +4129,8 @@ func (r *Renderer) prepareMonsterPick(s UnifiedSpriteRenderData) (monsterPickHit
 		// Hit shake, standee edition: rattle the token along its own axis in
 		// world space (same amplitude/phase as the billboard's screen shake).
 		entX, entY := renderX, renderY
-		if m.HitTintFrames > 0 {
-			f := float64(m.HitTintFrames) / float64(MonsterHitFlashFrames)
-			if f > 1 {
-				f = 1
-			}
-			dir := 1.0
-			if m.HitTintFrames%2 == 0 {
-				dir = -1.0
-			}
-			worldLen := r.spriteFootprintWorld(monsterHitShakeSizePx(s.spriteSize), s.depthPerp)
-			off := dir * f * MonsterHitShakeAmplitudeFrac * worldLen
+		if rattle := r.monsterHitRattle(m); rattle != 0 {
+			off := rattle * r.spriteFootprintWorld(monsterHitShakeSizePx(s.spriteSize), s.depthPerp)
 			entX += math.Cos(m.StandeeYaw) * off
 			entY += math.Sin(m.StandeeYaw) * off
 		}
@@ -4162,9 +4154,9 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	br := float32(brightness)
 	rr, gg, bb := br, br, br
 	// Hit flash: when just struck, flash red (boost red, cut green/blue), fading
-	// over MonsterHitFlashFrames so the impact reads clearly.
+	// over MonsterHitFlashSeconds so the impact reads clearly.
 	if s.monster != nil && s.monster.HitTintFrames > 0 {
-		f := float32(s.monster.HitTintFrames) / float32(MonsterHitFlashFrames)
+		f := float32(s.monster.HitTintFrames) / float32(r.game.monsterHitFlashFrames())
 		if f > 1 {
 			f = 1
 		}
@@ -4215,12 +4207,12 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	// Head-anchored glyphs hide behind terrain like the head badges, and each
 	// monster runs its own phase.
 	if r.monsterAnchorVisible(s) {
-		phase := float64(monsterFXSalt(s.monster.ID))
+		phase := float64(monsterFXSalt(s.monster.ID)) * fxSaltSeconds
 		if s.monster.Stun.Active() {
 			r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize), phase)
 		}
 		if s.monster.PoisonedFramesRemaining > 0 {
-			r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize), int(phase))
+			r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize), phase)
 		}
 	}
 	if s.monster.BurnFramesRemaining > 0 {
@@ -4228,20 +4220,23 @@ func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRend
 	}
 }
 
+// poisonBubbleSeconds is one poison bubble's rise, over a monster and on a
+// party card alike.
+const poisonBubbleSeconds = 0.6
+
 // drawMonsterPoisonBubbles rises a column of small green bubbles past a
 // poisoned monster - the world-space sibling of the character HUD's
 // drawCardPoisonBubbles (ui_hud.go).
-func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY, spriteSize float64, phase int) {
+func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY, spriteSize, phase float64) {
 	r.statusGlyphs.reset()
 	defer r.statusGlyphs.flush(screen)
-	f := int(r.game.frameCount) + phase
+	t := r.game.worldSeconds() + phase
 	const n = 6
-	const period = 72
 	w := spriteSize * 0.5
 	left := centerX - w/2
 	for k := 0; k < n; k++ {
-		phase := float64((f+k*period/n)%period) / float64(period) // 0..1 rising loop
-		bx := left + (float64(k)+0.5)/float64(n)*w + math.Sin(float64(f)*0.08+float64(k))*spriteSize*0.02
+		phase := math.Mod(t/poisonBubbleSeconds+float64(k)/n, 1) // 0..1 rising loop
+		bx := left + (float64(k)+0.5)/float64(n)*w + math.Sin(t*9.6+float64(k))*spriteSize*0.02
 		by := topY + spriteSize*(1-phase)
 		a := uint8(170 * (1 - phase)) // fade as it nears the top ("pops")
 		if a < 12 {
@@ -4273,6 +4268,10 @@ func (r *Renderer) drawMonsterBurnFlames(screen *ebiten.Image, s UnifiedSpriteRe
 func (r *Renderer) monsterAnchorVisible(s UnifiedSpriteRenderData) bool {
 	return s.screenX >= 0 && s.screenX < len(r.game.depthBuffer) && s.depthPerp < r.game.depthBuffer[s.screenX]
 }
+
+// fxSaltSeconds is one step of a monsterFXSalt phase offset: one tick of the
+// shipped rate.
+const fxSaltSeconds = 1.0 / config.DefaultTPS
 
 // monsterFXSalt derives a stable per-monster hash salt from its ID, so status
 // animations run out of step from one monster to the next.
@@ -4308,22 +4307,22 @@ func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spr
 	r.statusGlyphs.reset()
 	defer r.statusGlyphs.flush(screen)
 	cy, rx, ry := stunStarRingGeometry(worldProjectionOf(screen), centerX, topY, spriteSize)
-	stunStarGlyphs(float64(r.game.frameCount)+phase, centerX, cy, rx, ry, spriteSize*0.02, spriteSize*0.03,
+	stunStarGlyphs(r.game.worldSeconds()+phase, centerX, cy, rx, ry, spriteSize*0.02, spriteSize*0.03,
 		r.statusGlyphs.line, r.statusGlyphs.circle)
 }
 
 // stunStarGlyphs is the dazed ring the portrait card and the world share:
-// five four-point stars orbit the ellipse at time f, each twinkling on its
+// five four-point stars orbit the ellipse at time t (seconds), each twinkling on its
 // own phase with a faint diagonal sparkle. line and dot draw in the caller's
 // primitives.
-func stunStarGlyphs(f, cx, cy, rx, ry, armBase, armTwinkle float64,
+func stunStarGlyphs(t, cx, cy, rx, ry, armBase, armTwinkle float64,
 	line func(x0, y0, x1, y1, width float64, c color.RGBA), dot func(x, y, radius float64, c color.RGBA)) {
 	const n = 5
 	for k := 0; k < n; k++ {
-		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)
+		ang := t*7.2 + 2*math.Pi*float64(k)/float64(n)
 		sx := cx + math.Cos(ang)*rx
 		sy := cy + math.Sin(ang)*ry
-		tw := 0.5 + 0.5*math.Sin(f*0.25+float64(k)*1.7) // twinkle
+		tw := 0.5 + 0.5*math.Sin(t*30+float64(k)*1.7) // twinkle
 		a := uint8(120 + 135*tw)
 		arm := armBase + armTwinkle*tw
 		col := color.RGBA{255, 240, 120, a}
@@ -4517,7 +4516,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 			yaw = st.yaw
 		} else if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; !facesParty && spin != 0 && !s.npc.NoSpin {
 			phase := auraHash(int(s.npc.X), int(s.npc.Y), 0, 0) * 2 * math.Pi
-			yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+			yaw += phase + spin*math.Pi/180*r.game.worldSeconds()
 		}
 		// Landmarks (towers, churches, the city gate, the lich nexus) render as a
 		// TALL crossed standee spinning with the same showcase yaw - a 3D monument
@@ -4595,19 +4594,15 @@ func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
 // returned image is a cached SubImage and the returned width/height are the
 // per-frame dimensions. Otherwise the sprite is returned unchanged.
 func (r *Renderer) selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
-	return r.selectAnimatedSpriteFrameWithStride(sprite, frameCount, SpriteFrameStride)
+	return r.selectAnimatedSpriteFrameWithStride(sprite, frameCount, r.game.framesForSeconds(SpriteFrameSeconds))
 }
 
 func (r *Renderer) selectNPCIdleSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
-	tps := config.DefaultTPS
-	if r != nil && r.game != nil && r.game.config != nil {
-		tps = r.game.config.GetTPS()
+	var g *MMGame
+	if r != nil {
+		g = r.game
 	}
-	return r.selectAnimatedSpriteFrameWithStride(
-		sprite,
-		frameCount,
-		animationTicksPerFrame(tps, NPCIdleAnimationFPS),
-	)
+	return r.selectAnimatedSpriteFrameWithStride(sprite, frameCount, animationTicksPerFrame(g.tickRate(), NPCIdleAnimationFPS))
 }
 
 func (r *Renderer) selectAnimatedSpriteFrameWithStride(sprite *ebiten.Image, frameCount int64, stride int) (*ebiten.Image, int, int) {
@@ -4814,6 +4809,10 @@ func (r *Renderer) drawProjectileCollisionBox(screen *ebiten.Image, screenX, scr
 	worldDrawImage(screen, r.whiteImg, boxOpts)
 }
 
+// spellGhostSpacingSeconds is the flight time between a spell bolt's trailing
+// ghosts.
+const spellGhostSpacingSeconds = 1.0 / 30
+
 // drawMagicProjectile draws one spell or visual-only flight. The sorted sprite
 // pass calls it at the shot's depth, so trees and actors in front hide it.
 func (r *Renderer) drawMagicProjectile(screen *ebiten.Image, idx int) {
@@ -4890,7 +4889,7 @@ func (r *Renderer) drawMagicProjectile(screen *ebiten.Image, idx int) {
 	view := r.projectileView(magicProjectile.X, magicProjectile.Y, magicProjectile.VelX, magicProjectile.VelY)
 	handX, handY, convergence := r.spellHandOffset(magicProjectile, fxProfile, view, r.game.worldWidth(), r.game.worldHeight())
 	centerX, centerY = centerX+handX, centerY+handY
-	pulse := 0.85 + 0.15*math.Sin(float64(r.game.frameCount)*fxProfile.pulseSpeed*0.15)
+	pulse := 0.85 + 0.15*math.Sin(r.game.worldSeconds()*fxProfile.pulseSpeed*18)
 	critBoost := 1.0
 	if magicProjectile.Crit {
 		critBoost = 1.2
@@ -4899,7 +4898,7 @@ func (r *Renderer) drawMagicProjectile(screen *ebiten.Image, idx int) {
 	// to every ghost. Extrapolating the bent velocity would detach the wake
 	// around target crossings and continuation departures.
 	for gi := 1; gi <= 3; gi++ {
-		k := float64(gi) * 4
+		k := float64(gi) * spellGhostSpacingSeconds * float64(r.game.tickRate()) // ticks of travel back
 		gproj, gm, gok := r.projectLaunchedEntity(physical.Launch,
 			physical.X-physical.VelX*k, physical.Y-physical.VelY*k, physical.VelX, physical.VelY,
 			spellGraphicsConfig.BaseSize, spellGraphicsConfig.MinSize, spellGraphicsConfig.MaxSize)
@@ -4946,6 +4945,10 @@ func (r *Renderer) drawSpellProjectileFxForView(screen *ebiten.Image, cx, cy, si
 	}
 	r.drawSpellMaterialProjected(screen, cx, cy, math.Max(size, spellFxMinClusterSize), core, critBoost, id, kind, 1, view.spellProjection(convergence))
 }
+
+// arrowLookBackSeconds is how far back along its flight an arrow samples its
+// shaft angle and arc.
+const arrowLookBackSeconds = 1.0 / 40
 
 // drawArrow draws one arrow, bolt or slug. The sorted sprite pass calls it at
 // the shot's depth, so trees and actors in front hide it.
@@ -5067,7 +5070,8 @@ func (r *Renderer) drawArrow(screen *ebiten.Image, idx int) {
 		return math.Min(math.Max(t, 0), 1)
 	}
 	tNow := flightT(float64(arrow.LifeTime))
-	tPrev := flightT(float64(arrow.LifeTime) + 3)
+	lookBack := arrowLookBackSeconds * float64(r.game.tickRate()) // ticks of flight back
+	tPrev := flightT(float64(arrow.LifeTime) + lookBack)
 	arcNow := arcAmp * 4 * tNow * (1 - tNow)
 	centerY -= arcNow
 
@@ -5104,7 +5108,7 @@ func (r *Renderer) drawArrow(screen *ebiten.Image, idx int) {
 	camDx := arrow.X - r.game.camera.X
 	camDy := arrow.Y - r.game.camera.Y
 	if camDx*camDx+camDy*camDy > arrowAngleMinDist*arrowAngleMinDist {
-		if prev, _, pok := r.projectLaunchedEntity(physical.Launch, physical.X-physical.VelX*3, physical.Y-physical.VelY*3, physical.VelX, physical.VelY,
+		if prev, _, pok := r.projectLaunchedEntity(physical.Launch, physical.X-physical.VelX*lookBack, physical.Y-physical.VelY*lookBack, physical.VelX, physical.VelY,
 			bowDef.Graphics.BaseSize, bowDef.Graphics.MinSize, bowDef.Graphics.MaxSize); pok {
 			arcPrev := arcAmp * 4 * tPrev * (1 - tPrev)
 			pdx := centerX - handX - float64(prev.screenX)
@@ -5385,7 +5389,7 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			lifeRatio := math.Max(0, math.Min(1, float64(particle.LifeTime)/float64(particle.MaxLife)))
 			if particle.Star {
 				size := spellParticleScreenSize(particle.Size, lifeRatio, scale)
-				tw := 0.7 + 0.3*math.Sin(float64(r.game.frameCount)*0.45+float64(j))
+				tw := 0.7 + 0.3*math.Sin(r.game.worldSeconds()*54+float64(j))
 				r.drawSparkStar(screen, screenX, screenY, size*0.9,
 					particle.Color, mixColor(particle.Color, [3]int{255, 255, 255}, .6), lifeRatio*tw, 1)
 				continue

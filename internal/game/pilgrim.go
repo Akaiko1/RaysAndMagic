@@ -180,7 +180,7 @@ func (g *MMGame) useTechnique(idx int, key string, automatic, announce bool) boo
 		g.commitHeroAction(idx, cooldown)
 	}
 	if !automatic {
-		g.actionInputStagger = rtActionStagger
+		g.actionInputStagger = g.rtActionStaggerFrames()
 	}
 	return true
 }
@@ -223,7 +223,7 @@ func (g *MMGame) quickenRecovery(c *character.MMCharacter, frames int) int {
 	if frames <= 0 || pct == 0 {
 		return frames
 	}
-	return clampRTCooldown(frames * (100 - pct) / 100)
+	return g.clampRTCooldown(frames * (100 - pct) / 100)
 }
 
 // quickenRecoveryPct is the recovery cut Quickening gives c right now (0 when

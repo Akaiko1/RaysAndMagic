@@ -74,9 +74,9 @@ func mouseCombatHarness(t *testing.T, tb bool) (*MMGame, *InputHandler, *fakePoi
 // the current clock: the RT frame delay or the authored TB delay.
 func mouseHoldRepeatTicks(g *MMGame) int {
 	if g.turnBasedMode {
-		return int(math.Ceil(g.config.UI.TurnBasedMouseHold.DelaySeconds*float64(g.config.GetTPS()))) + 1
+		return g.framesForSeconds(g.config.UI.TurnBasedMouseHold.DelaySeconds) + 1
 	}
-	return rtHoldRepeatDelay + 1
+	return g.framesForSeconds(rtHoldRepeatSeconds) + 1
 }
 
 // partySummonKinds lists every pure-summon source the party can own: card
@@ -308,7 +308,7 @@ func TestMouseSmartAttackOwnershipAndGates(t *testing.T) {
 					}
 				}
 				before := len(g.slashEffects)
-				for i := 0; i < rtHoldRepeatDelay+30; i++ {
+				for i := 0; i < g.framesForSeconds(rtHoldRepeatSeconds)+30; i++ {
 					tick()
 				}
 				if len(g.slashEffects) != before {
@@ -399,7 +399,7 @@ func TestMouseSmartAttackStickyDisplayedPose(t *testing.T) {
 					}
 					switch change {
 					case "hit shake":
-						m.HitTintFrames = MonsterHitFlashFrames
+						m.HitTintFrames = g.monsterHitFlashFrames()
 					case "attack frame":
 						s.sprite = attack.Frames[1]
 					case "mirror":
@@ -453,7 +453,7 @@ func TestMouseSmartAttackStickyDisplayedPose(t *testing.T) {
 						}
 						g.currentTurn = 0
 					}
-					for range rtHoldRepeatDelay + 120 {
+					for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 						tick()
 					}
 					if ih.mouseAttackTarget != m || m.HitPoints >= hp {
@@ -487,7 +487,7 @@ func TestMouseSmartAttackStickyInput(t *testing.T) {
 					g.gameLoop.renderer.monsterPick.hits = append(g.gameLoop.renderer.monsterPick.hits, monsterPickHit{monster: want, left: 250, top: 150, size: 140, depth: 32})
 				}
 				hp := want.HitPoints
-				for range rtHoldRepeatDelay + 120 {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 					tick()
 				}
 				if ih.mouseAttackTarget != want || want.HitPoints >= hp {
@@ -543,7 +543,7 @@ func TestMouseSmartAttackDynamicAcquisition(t *testing.T) {
 				if entry != "kill behind" {
 					fp.moveTo(50, 50)
 				}
-				for range rtHoldRepeatDelay {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) {
 					tick()
 				}
 				if entry != "kill behind" {
@@ -620,7 +620,7 @@ func TestMouseSmartAttackDynamicAcquisitionCancellation(t *testing.T) {
 				} else {
 					fp.hold() // Any held press can acquire once gameplay is available.
 				}
-				for range rtHoldRepeatDelay + 120 {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 					tick()
 				}
 				if reason == "release" || reason == "world" {
@@ -643,7 +643,7 @@ func TestMouseHoldResumesWhenSprintEnds(t *testing.T) {
 	fp.press()
 	tick()
 	fp.hold()
-	for range rtHoldRepeatDelay + 60 {
+	for range g.framesForSeconds(rtHoldRepeatSeconds) + 60 {
 		tick()
 	}
 	if len(g.slashEffects) != 0 {
@@ -653,7 +653,7 @@ func TestMouseHoldResumesWhenSprintEnds(t *testing.T) {
 		t.Fatal("sprinting dropped the held target")
 	}
 	ih.heldKeys = heldOnly()
-	for range rtHoldRepeatDelay + 60 {
+	for range g.framesForSeconds(rtHoldRepeatSeconds) + 60 {
 		tick()
 	}
 	if len(g.slashEffects) == 0 {
@@ -827,7 +827,7 @@ func TestMouseSmartAttackHoverAcquisitionPolicy(t *testing.T) {
 						r.monsterPick.hits = append(r.monsterPick.hits, victimHit)
 					}
 					firstHP := first.HitPoints
-					for range rtHoldRepeatDelay + 120 {
+					for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 						tick()
 					}
 					acquirable := kind != "caravan" && kind != "charmed" && !summon
@@ -1013,7 +1013,7 @@ func TestMouseSmartAttackHeldTargetPausesOutsideViewport(t *testing.T) {
 					}
 					r.monsterPick.hits = []monsterPickHit{moved}
 					hp := m.HitPoints
-					for range rtHoldRepeatDelay + 120 {
+					for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 						tick()
 					}
 					r.selectMonsterHover()
@@ -1273,7 +1273,7 @@ func TestMouseHoldClaimedPressAndMode(t *testing.T) {
 				shown()
 				fp.moveTo(320, 220)
 				before := len(g.slashEffects)
-				for range rtHoldRepeatDelay + 120 {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 					tick()
 				}
 				if len(g.slashEffects) != before || ih.mouseAttackTarget != nil {
@@ -1284,7 +1284,7 @@ func TestMouseHoldClaimedPressAndMode(t *testing.T) {
 				fp.press()
 				tick()
 				fp.hold()
-				for range rtHoldRepeatDelay + 120 {
+				for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 					tick()
 				}
 				if len(g.slashEffects) <= before {

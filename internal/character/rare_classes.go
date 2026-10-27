@@ -17,8 +17,8 @@ type RareClassState struct {
 	FlowDistance float64         `json:"flow_distance,omitempty"`
 	KitGranted   bool            `json:"kit_granted,omitempty"`
 	Automatic    map[string]bool `json:"automatic,omitempty"`
-	AutoFrames   int             `json:"auto_frames,omitempty"` // Legacy input, migrated to MMCharacter.AutocastCD on load.
-	FlowFrames   int             `json:"flow_frames,omitempty"` // Legacy save field; migrated to one persistent charge on load.
+	AutoFrames   int             `json:"auto_frames,omitempty" ticks:"frames"` // Legacy input, migrated to MMCharacter.AutocastCD on load.
+	FlowFrames   int             `json:"flow_frames,omitempty" ticks:"frames"` // Legacy save field; migrated to one persistent charge on load.
 	FlowCharges  int             `json:"flow_charges,omitempty"`
 	Anchor       SpatialAnchor   `json:"anchor,omitempty"`
 }
@@ -29,7 +29,7 @@ type SpatialAnchor struct {
 	Y      float64          `json:"y,omitempty"`
 	Clock  status.DualClock `json:"clock,omitzero"`
 	// LegacyFrames is an older save's lifetime, moved into Clock on load.
-	LegacyFrames int `json:"frames,omitempty"`
+	LegacyFrames int `json:"frames,omitempty" ticks:"frames"`
 }
 
 func (r RareClassState) Clone() RareClassState {

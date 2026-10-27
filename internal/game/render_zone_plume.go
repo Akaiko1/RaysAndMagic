@@ -34,7 +34,7 @@ func (r *Renderer) drawFirePlume(dst *ebiten.Image, wx, wy, width, height, maxDe
 		return
 	}
 	lo, hi := max(0, int(math.Floor(sx-half))), min(r.game.worldWidth()-1, int(math.Ceil(sx+half)))
-	phase := r.weaponMaterialClock() * (.82 + .36*auraHash(seedX, seedY, 913, 0))
+	phase := r.game.worldSeconds() * (.82 + .36*auraHash(seedX, seedY, 913, 0))
 	seed := auraHash(seedX, seedY, 911, 0) * 47
 	alpha *= math.Min(1, (maxDepth-depth)/(maxDepth*.3))
 	verts, indices := r.standeeVerts[:0], r.standeeIdx[:0]

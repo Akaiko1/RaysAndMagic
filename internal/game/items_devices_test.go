@@ -288,7 +288,7 @@ func TestTranslocatorShopSave(t *testing.T) {
 
 // Definition changes and legacy cooldowns must migrate in every physical store.
 func TestTranslocatorRestoreCooldown(t *testing.T) {
-	for _, state := range []string{"legacy boundary", "legacy clamped", "frames clamped", "negative", "partial"} {
+	for _, state := range []string{"legacy boundary", "legacy residue", "legacy clamped", "frames clamped", "negative", "partial"} {
 		t.Run(state, func(t *testing.T) {
 			g, wm, _ := travelFixture(t)
 			save := g.buildSave(wm)
@@ -297,6 +297,8 @@ func TestTranslocatorRestoreCooldown(t *testing.T) {
 			switch state {
 			case "legacy boundary":
 				it.LegacyDeviceCooldown = 9.00000000000004
+			case "legacy residue":
+				it.LegacyDeviceCooldown, want = 1e-9, 0
 			case "legacy clamped":
 				it.LegacyDeviceCooldown = 30
 				want = 10 * g.config.GetTPS()

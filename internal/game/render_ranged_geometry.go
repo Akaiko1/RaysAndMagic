@@ -223,7 +223,7 @@ func (r *Renderer) drawRangedHeldMesh(dst *ebiten.Image, view image.Point, x, y,
 	if r.rangedMaterialOpts.Uniforms == nil {
 		r.rangedMaterialOpts.Uniforms = map[string]any{"Time": r.rangedMaterialTime[:], "DepthStage": r.rangedDepthStage[:]}
 	}
-	r.rangedMaterialTime[0] = float32(r.weaponMaterialClock())
+	r.rangedMaterialTime[0] = float32(r.game.worldSeconds())
 	tr.depth = true
 	verts, indices, bounds := r.prepareCameraVolume(dst.Bounds(), x, y, size, alpha, tr, mesh, [3]int{255, 255, 255}, 0, true)
 	if len(indices) == 0 || bounds.Empty() {

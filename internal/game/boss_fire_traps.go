@@ -84,7 +84,7 @@ func (cs *CombatSystem) tryBossTrapVolley(m *monsterPkg.Monster3D) {
 	if cs.attackOriginBlocked(m.X, m.Y) {
 		return
 	}
-	m.ArmTrapVolleyCooldown(cs.game.config.GetTPS())
+	m.ArmTrapVolleyCooldown()
 	// Sowing the field is the attack Overwatch answers; a trap that later
 	// erupts under the party is not a new action.
 	cs.monsterActionScope(m, nil, func() bool {

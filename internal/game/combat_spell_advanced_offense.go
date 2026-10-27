@@ -191,7 +191,7 @@ func (cs *CombatSystem) spawnAreaTargetFlight(def spells.SpellDefinition, target
 	}
 	frames := max(1, int(math.Ceil(distance/math.Hypot(p.VelX, p.VelY))))
 	if rays.DurationSeconds > 0 {
-		frames = max(1, int(math.Round(rays.DurationSeconds*float64(cs.game.config.GetTPS()))))
+		frames = cs.game.framesForSeconds(rays.DurationSeconds)
 	}
 	tint := rays.Palette[index%len(rays.Palette)]
 	launch := projectileLaunch{valid: true, x: x, y: y, angle: angle,

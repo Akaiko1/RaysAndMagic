@@ -1,10 +1,13 @@
 package stash_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/stash"
 	"ugataima/internal/storage"
@@ -50,6 +53,38 @@ func TestStash_RoundTrip(t *testing.T) {
 	}
 	if !stash.IsEmpty(got.Slots[3]) {
 		t.Errorf("slot 3 should still be empty, got %q", got.Slots[3].Name)
+	}
+}
+
+// A chest records the tick rate its items' clocks were written at; read at
+// another rate they keep their seconds (a chest without a rate ran at the
+// shipped one).
+func TestStash_TickRateRescalesItemClocks(t *testing.T) {
+	var s stash.Stash
+	s.Slots[0] = items.Item{Name: "Translocator", DeviceCooldown: items.RoundClock{Frames: 400, Turns: 2, Rate: 360}}
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	live := config.GetTargetTPS()
+	for _, tc := range []struct {
+		name, rate string
+		want       items.RoundClock
+	}{
+		{"same rate", fmt.Sprintf(`"tick_rate":%d`, live), items.RoundClock{Frames: 400, Turns: 2, Rate: 360}},
+		{"written at twice the rate", fmt.Sprintf(`"tick_rate":%d`, 2*live), items.RoundClock{Frames: 200, Turns: 2, Rate: 180}},
+		{"no recorded rate", `"tick_rate":0`, items.RoundClock{Frames: 400, Turns: 2, Rate: 360}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := strings.Replace(string(raw), fmt.Sprintf(`"tick_rate":%d`, live), tc.rate, 1)
+			var got stash.Stash
+			if err := json.Unmarshal([]byte(data), &got); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if got.Slots[0].DeviceCooldown != tc.want {
+				t.Fatalf("device recharge %+v, want %+v", got.Slots[0].DeviceCooldown, tc.want)
+			}
+		})
 	}
 }
 

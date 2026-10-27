@@ -99,11 +99,7 @@ func (r *Renderer) nightMoteMaxDepth() float64 {
 }
 
 func (r *Renderer) nightMoteSpawnInterval() int64 {
-	tps := r.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
-	}
-	return max(1, int64(math.Round(r.game.config.Graphics.NightMotes.EmissionIntervalSeconds*float64(tps))))
+	return int64(r.game.framesForSeconds(r.game.config.Graphics.NightMotes.EmissionIntervalSeconds))
 }
 
 func randomNightMoteSizeScale() float64 {
@@ -138,14 +134,10 @@ func (r *Renderer) updateNightMotes() {
 	}
 	r.nightMotes = r.nightMotes[:write]
 
-	tps := r.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
-	}
 	if tick < r.nightMoteScanTick {
 		return
 	}
-	r.nightMoteScanTick = tick + int64(max(1, tps/6))
+	r.nightMoteScanTick = tick + int64(r.game.framesForSeconds(1.0/6))
 	r.updateNightMoteTrees(tick)
 }
 
@@ -265,15 +257,11 @@ func (r *Renderer) spawnNightMote(tick int64, chosen *TransparentSpriteData, cur
 	jitter := tileSize * 0.14
 	targetX += (rand.Float64()*2 - 1) * jitter
 	targetY += (rand.Float64()*2 - 1) * jitter
-	tps := r.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
-	}
 	r.nightMotes = append(r.nightMotes, nightMote{
 		startX: chosen.worldX, startY: chosen.worldY,
 		targetX: targetX, targetY: targetY,
 		bornTick:  tick,
-		dieTick:   tick + max(1, int64(math.Round(r.game.config.Graphics.NightMotes.LifetimeSeconds*float64(tps)))),
+		dieTick:   tick + int64(r.game.framesForSeconds(r.game.config.Graphics.NightMotes.LifetimeSeconds)),
 		phase:     rand.Float64() * 2 * math.Pi,
 		sizeScale: randomNightMoteSizeScale(),
 		source:    nightMoteTreeID{tileX: chosen.tileX, tileY: chosen.tileY},
@@ -347,6 +335,6 @@ func (r *Renderer) drawNightMotes(screen *ebiten.Image) {
 	for i := range draws {
 		d := &draws[i]
 		phase := d.phase
-		r.drawFirefly(screen, d.x, d.y, d.glowSize, d.alpha*fireflyPulse(r.weaponMaterialClock(), phase), r.weaponMaterialClock()*53+phase, d.palette.glow, d.palette.core)
+		r.drawFirefly(screen, d.x, d.y, d.glowSize, d.alpha*fireflyPulse(r.game.worldSeconds(), phase), r.game.worldSeconds()*53+phase, d.palette.glow, d.palette.core)
 	}
 }

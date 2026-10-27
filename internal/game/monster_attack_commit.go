@@ -101,16 +101,10 @@ func (cs *CombatSystem) monsterAttackStillValid(m *monster.Monster3D, target mon
 // modes. Planners may test reach before moving, but this boundary revalidates
 // current faction, target lifetime, obstruction and logical post ownership.
 // Boss specials retain their separate authored action gates.
-func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monsterAttackDestination, cadence monsterAttackCadence) (spent bool) {
+func (cs *CombatSystem) commitMonsterAttack(m *monster.Monster3D, target monsterAttackDestination, cadence monsterAttackCadence) bool {
 	if !cs.monsterAttackStillValid(m, target, cadence) {
 		return false
 	}
-	// An attack ends its cycle's jam window (one jam per attack it makes).
-	defer func() {
-		if spent {
-			m.Jammed = false
-		}
-	}()
 	// Champions own independently timed hands; ordinary attacks have one clock.
 	independentHands := m.IsChampion() && !m.Bound && (target.foe != nil || cs.monsterUsesMeleeAgainstParty(m))
 	actionReady := cadence != monsterAttackRealtime || (m.AttackCDFrames == 0 && (target.foe != nil || m.StateTimer == 1))
@@ -179,7 +173,7 @@ func (cs *CombatSystem) deliverCommittedAttack(m *monster.Monster3D, target mons
 			return false
 		}
 	}
-	m.AttackCDFrames = m.AttackCooldownFrames()
+	m.ArmAttackCooldown(m.AttackCooldownFrames(), cs.game.turnBasedMode)
 	cs.game.armMonsterAttackAnimation(m)
 	cs.deliverMonsterAttack(m, target)
 	return true

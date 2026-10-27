@@ -70,9 +70,6 @@ func cooldownSeconds(cs *CombatSystem, frames int) string {
 		return ""
 	}
 	tps := cs.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
-	}
 	return fmt.Sprintf("%.2fs", character.CardSeconds(float64(frames)/float64(tps)))
 }
 
@@ -83,9 +80,6 @@ func cooldownLine(cs *CombatSystem, frames int) string {
 		return ""
 	}
 	tps := cs.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
-	}
 	return character.CooldownLine(float64(frames) / float64(tps))
 }
 
@@ -808,11 +802,8 @@ func buildTechniqueTooltipUnifiedRows(d *config.TechniqueDefinition, char *chara
 		casting.Add("Reuse: %ds, shared by %s (TB: once per turn)", d.ReuseSeconds, strings.Join(techniqueStepNames(), " and "))
 	}
 	effect := ttSection{Title: "EFFECTS"}
-	tps := config.DefaultTPS
-	if cs != nil {
-		tps = cs.game.config.GetTPS()
-	}
-	if line := techniqueMagnitude(char, d, tps); line != "" {
+	g := cs.gameOrNil()
+	if line := techniqueMagnitude(char, d, g.tickRate()); line != "" {
 		effect.Add("%s", line)
 	}
 	trigger := ttSection{Title: "TRIGGER"}

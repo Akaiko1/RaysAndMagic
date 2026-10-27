@@ -19,7 +19,7 @@ func (r *Renderer) drawRangedSunFlame(dst *ebiten.Image, x, y, scale, alpha floa
 	if f.opts.Uniforms == nil {
 		f.opts.Uniforms = map[string]any{"Time": f.time[:]}
 	}
-	f.time[0] = float32(r.weaponMaterialClock()) + .3
+	f.time[0] = float32(r.game.worldSeconds()) + .3
 	f.opts.Images[0] = r.ensureFireNoise()
 	// These are the bounds of preservationFlame; its base is at y=.218.
 	for i, p := range [4][2]float64{{-.13, -.16}, {.13, -.16}, {-.13, .32}, {.13, .32}} {

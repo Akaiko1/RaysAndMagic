@@ -11,7 +11,7 @@ type CatalysisMark struct {
 	Percent int              `json:"percent"`
 	Clock   status.DualClock `json:"clock,omitzero"`
 	// LegacyFrames is an older save's lifetime, moved into Clock on load.
-	LegacyFrames int `json:"frames,omitempty"`
+	LegacyFrames int `json:"frames,omitempty" ticks:"frames"`
 }
 
 // RelicState belongs to this monster, including across map re-entry and saves.
@@ -52,7 +52,7 @@ func (s RelicState) Normalized(capPercent int) RelicState {
 		s.CrumbleCapPct = min(s.CrumbleCapPct, capPercent)
 	}
 	for id, mark := range s.Catalysis {
-		status.MigrateFrames(&mark.Clock, &mark.LegacyFrames, config.GlobalConfig.GetTPS())
+		status.MigrateFrames(&mark.Clock, &mark.LegacyFrames, config.GetTargetTPS())
 		s.Catalysis[id] = mark
 		if id == 0 || !mark.Clock.Active() || mark.Percent <= 0 || mark.Percent > 100 {
 			delete(s.Catalysis, id)

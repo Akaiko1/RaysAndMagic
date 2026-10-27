@@ -1,8 +1,8 @@
 # Brief jumps only; no fish persist or patrol underwater.
 fish:
   species: {forest: common_carp, sakura_garden: koi, highlands: rainbow_salmon}
-  roll_every_frames: 120
-  # Independent rolls; 8.28 eligible forest bank tiles average about 0.112 jumps/s at 120 TPS.
+  roll_every_seconds: 1
+  # Independent rolls; 8.28 eligible forest bank tiles average about 0.112 jumps/s.
   spawn_chance_per_tile: 0.0135
   flight_seconds: 1.8
   height_tiles: 0.7

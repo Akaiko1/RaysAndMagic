@@ -145,7 +145,7 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 				g.addCombatBuff(TimedCombatBuff{ID: config.TechniqueID("quickening"), Clock: framesClock(100), RecoveryPct: 35})
 				want := base
 				if actor == c && base > 0 {
-					want = clampRTCooldown(base * 65 / 100)
+					want = g.clampRTCooldown(base * 65 / 100)
 				}
 				if got := frames(); got != want {
 					t.Fatalf("recovery=%d want=%d", got, want)
@@ -212,7 +212,7 @@ func TestRareRulesQuickeningOwnershipAndSharedRecovery(t *testing.T) {
 					if k.staffed {
 						mult = staff.SpellCooldownMultiplier
 					}
-					want := clampRTCooldown(clampRTCooldown(int(math.Round(k.seconds*float64(g.config.GetTPS())*actionCooldownSpeedFactor(c.GetEffectiveSpeed())*mult))) * 65 / 100)
+					want := g.clampRTCooldown(g.clampRTCooldown(g.framesForSeconds(k.seconds*actionCooldownSpeedFactor(c.GetEffectiveSpeed())*mult)) * 65 / 100)
 					ih := NewInputHandler(g)
 					switch {
 					case key == "F":

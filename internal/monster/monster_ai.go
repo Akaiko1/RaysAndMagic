@@ -1,10 +1,10 @@
 package monster
 
 import (
+	"cmp"
 	"math"
 	"math/rand"
 	"ugataima/internal/collision"
-	"ugataima/internal/config"
 	"ugataima/internal/mathutil"
 )
 
@@ -217,7 +217,7 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 
 	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
 	// attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
-	if collisionChecker != nil && m.Arbor.Phase == "" && m.StateTimer%15 == 0 { // throttle checks
+	if collisionChecker != nil && m.Arbor.Phase == "" && m.StateTimer%m.framesForSeconds(unstuckProbeSeconds) == 0 { // throttle checks
 		if !collisionChecker.CanMoveToWithTileOverrides(m.ID, m.X, m.Y, m.WalkableTileOverrides, m.Flying) {
 			m.unstuckFromObstacles(collisionChecker)
 		}
@@ -306,8 +306,8 @@ func (m *Monster3D) startsAttack(checker CollisionChecker, targetX, targetY floa
 func (m *Monster3D) attackEnterReach() float64 {
 	reach := m.PursuitReachPixels()
 	enter := reach
-	if m.config != nil && m.config.MonsterAI.AttackEnterRangeFraction > 0 { // validated at load; hand-built configs have no band
-		enter *= m.config.MonsterAI.AttackEnterRangeFraction
+	if f := m.ai().AttackEnterRangeFraction; f > 0 { // validated at load; hand-built configs have no band
+		enter *= f
 	}
 	return max(enter, min(reach, m.tileSize()))
 }
@@ -504,15 +504,9 @@ func (m *Monster3D) playerAlertRadii() (float64, float64) {
 	if (m.LootGuarding || m.LootGuardAlerted) && !m.WasAttacked {
 		return LootGuardAggroRadiusTiles * m.tileSize(), 1
 	}
-	defaultRadius, multiplier := 4.0, 2.0
-	if m.config != nil {
-		if m.config.MonsterAI.DefaultAlertRadiusTiles > 0 {
-			defaultRadius = m.config.MonsterAI.DefaultAlertRadiusTiles
-		}
-		if m.config.MonsterAI.DisengageDistanceMultiplier > 0 {
-			multiplier = m.config.MonsterAI.DisengageDistanceMultiplier
-		}
-	}
+	ai := m.ai()
+	defaultRadius := cmp.Or(ai.DefaultAlertRadiusTiles, defaultMonsterAI.DefaultAlertRadiusTiles)
+	multiplier := cmp.Or(ai.DisengageDistanceMultiplier, defaultMonsterAI.DisengageDistanceMultiplier)
 	radius := m.AlertRadius
 	if radius <= 0 {
 		radius = defaultRadius * m.tileSize()
@@ -617,15 +611,16 @@ func (m *Monster3D) NextReturnHomeStep(checker CollisionChecker) (int, int, bool
 	return path[1].X, path[1].Y, true
 }
 
-func (m *Monster3D) updateIdle(playerX, playerY float64) {
-	// Get AI config values
-	var idlePatrolTimer int = 60         // Default value (0.5 seconds at 120 TPS)
-	var idleToPatrolChance float64 = 0.1 // Default value
+// Movement watchdogs: how often a monster probes for being stuck inside an
+// obstacle, and how long a route may make no progress before it is dropped.
+const (
+	unstuckProbeSeconds = 0.125
+	stallWatchSeconds   = 0.5
+)
 
-	if m.config != nil {
-		idlePatrolTimer = m.config.MonsterAI.IdlePatrolTimer
-		idleToPatrolChance = m.config.MonsterAI.IdleToPatrolChance
-	}
+func (m *Monster3D) updateIdle(playerX, playerY float64) {
+	ai := m.ai()
+	idleSeconds, meanWait := ai.IdlePatrolSeconds, ai.IdleToPatrolMeanSeconds
 
 	// If not engaging player and outside tether, return to spawn
 	if !m.IsEngagingPlayer && !m.IsWithinTetherRadius() {
@@ -635,8 +630,10 @@ func (m *Monster3D) updateIdle(playerX, playerY float64) {
 		return
 	}
 
-	// Occasionally start patrolling if within tether or engaging player
-	if m.StateTimer >= idlePatrolTimer && rand.Float64() < idleToPatrolChance {
+	// Occasionally start patrolling if within tether or engaging player: an
+	// exponential wait of meanWait seconds, rolled each tick at the live rate.
+	// A hand-built config without the wait never patrols.
+	if m.StateTimer >= m.framesForSeconds(idleSeconds) && meanWait > 0 && rand.Float64() < 1-math.Exp(-1/(meanWait*float64(m.tps()))) {
 		m.State = StatePatrolling
 		m.StateTimer = 0
 		if m.IsEngagingPlayer {
@@ -653,12 +650,7 @@ func (m *Monster3D) updateIdle(playerX, playerY float64) {
 
 // updatePatrolling moves monster randomly for normal wandering behavior using pathfinding
 func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker) {
-	// Get AI config values
-	var patrolIdleTimer int = 1200 // Default value (10 seconds at 120 TPS)
-
-	if m.config != nil {
-		patrolIdleTimer = m.config.MonsterAI.PatrolIdleTimer
-	}
+	patrolIdleSeconds := m.ai().PatrolIdleSeconds
 
 	// Safety check for collision system
 	if collisionChecker == nil {
@@ -701,7 +693,7 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker) {
 	}
 
 	// Return to idle after a while
-	if m.StateTimer >= patrolIdleTimer {
+	if m.StateTimer >= m.framesForSeconds(patrolIdleSeconds) {
 		m.State = StateIdle
 		m.StateTimer = 0
 	}
@@ -750,7 +742,7 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	// stays fixed. No net progress in half a second means some dynamic condition
 	// invalidated it; drop the route and replan, or wait if no route exists.
 	m.stallTimer++
-	if m.stallTimer >= 60 {
+	if m.stallTimer >= m.framesForSeconds(stallWatchSeconds) {
 		if distance(m.X, m.Y, m.stallAnchorX, m.stallAnchorY) < 2 {
 			m.ResetPathfinding()
 		}
@@ -1002,10 +994,7 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 		return TileCoord{}, false
 	}
 
-	fleeDistance := m.tileSize() * 4
-	if m.config != nil && m.config.MonsterAI.FleeDistanceTiles > 0 {
-		fleeDistance = m.config.MonsterAI.FleeDistanceTiles * m.tileSize()
-	}
+	fleeDistance := cmp.Or(m.ai().FleeDistanceTiles, defaultMonsterAI.FleeDistanceTiles) * m.tileSize()
 
 	dx := m.X - playerX
 	dy := m.Y - playerY
@@ -1038,12 +1027,9 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 	return TileCoord{}, false
 }
 
-// pathCheckFrequency returns the configured repath throttle in ticks (default 30).
+// pathCheckFrequency returns the configured repath throttle in ticks.
 func (m *Monster3D) pathCheckFrequency() int {
-	if m.config != nil && m.config.MonsterAI.PathCheckFrequency > 0 {
-		return m.config.MonsterAI.PathCheckFrequency
-	}
-	return 30
+	return m.framesForSeconds(cmp.Or(m.ai().PathCheckSeconds, defaultMonsterAI.PathCheckSeconds))
 }
 
 // followPathToTarget computes (or reuses) an A* path and moves toward the next tile.
@@ -1616,16 +1602,7 @@ func reconstructPathGrid(ps *pathScratch, endIdx int) []TileCoord {
 func speedPerSecond(speed float64) float64 { return speed * 60 }
 
 func (m *Monster3D) speedPerTick() float64 {
-	tps := config.DefaultTPS
-	if m.config != nil {
-		tps = m.config.GetTPS()
-	} else {
-		tps = config.GetTargetTPS()
-	}
-	if tps <= 0 {
-		return m.EffectiveSpeed()
-	}
-	return speedPerSecond(m.EffectiveSpeed()) / float64(tps)
+	return speedPerSecond(m.EffectiveSpeed()) / float64(m.tps())
 }
 
 type movementSpeedMultipliers struct {
@@ -1651,19 +1628,11 @@ func (m *Monster3D) movementSpeed(state MonsterState) float64 {
 }
 
 func (m *Monster3D) movementSpeedMultipliers() movementSpeedMultipliers {
-	mults := movementSpeedMultipliers{
-		Patrol: 0.5,
-		Flee:   1.5,
+	ai := m.ai()
+	return movementSpeedMultipliers{
+		Patrol: cmp.Or(ai.NormalSpeedMultiplier, defaultMonsterAI.NormalSpeedMultiplier),
+		Flee:   cmp.Or(ai.FleeSpeedMultiplier, defaultMonsterAI.FleeSpeedMultiplier),
 	}
-	if m.config != nil {
-		if m.config.MonsterAI.NormalSpeedMultiplier > 0 {
-			mults.Patrol = m.config.MonsterAI.NormalSpeedMultiplier
-		}
-		if m.config.MonsterAI.FleeSpeedMultiplier > 0 {
-			mults.Flee = m.config.MonsterAI.FleeSpeedMultiplier
-		}
-	}
-	return mults
 }
 
 func (m *Monster3D) canRepath(pathCheckFrequency int) bool {
@@ -1693,14 +1662,23 @@ func (m *Monster3D) updateAlert(collisionChecker CollisionChecker, playerX, play
 	}
 }
 
+// ArmAttackCooldown starts the real-time attack cooldown after an attack
+// action, never shortening one in flight. Arming it from zero in real time
+// means the attack a Cogfang jam delayed has happened: the jam lock lifts. A
+// turn-based arm only carries the spent action across a mode switch; there the
+// lock lifts when the swings are drawn (TakeTurnBasedSwings).
+func (m *Monster3D) ArmAttackCooldown(frames int, turnBased bool) {
+	if m.AttackCDFrames == 0 && !turnBased {
+		m.Jammed = false
+	}
+	m.AttackCDFrames = max(m.AttackCDFrames, frames)
+}
+
 // AttackCooldownFrames is the real-time minimum interval between this monster's
 // attacks (config base x its per-monster multiplier, >=1). Single source for both
 // the attacking-state dwell and the persistent AttackCDFrames gate in combat.
 func (m *Monster3D) AttackCooldownFrames() int {
-	cd := 60
-	if m.config != nil {
-		cd = m.config.MonsterAI.AttackCooldown
-	}
+	cd := m.framesForSeconds(m.ai().AttackCooldownSeconds)
 	if m.AttackCooldownMultiplier > 0 {
 		cd = int(math.Round(float64(cd) * m.AttackCooldownMultiplier))
 	}
@@ -1739,16 +1717,9 @@ func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, 
 		m.AttackCount++
 
 		// After enough consecutive attacks, roll the configured chance to flee
-		fleeAfter, fleeChance := 5, 0.5
-		if m.config != nil {
-			ai := &m.config.MonsterAI
-			if ai.FleeAfterAttacks > 0 {
-				fleeAfter = ai.FleeAfterAttacks
-			}
-			if ai.FleeAfterAttacksChance > 0 {
-				fleeChance = ai.FleeAfterAttacksChance
-			}
-		}
+		ai := m.ai()
+		fleeAfter := cmp.Or(ai.FleeAfterAttacks, defaultMonsterAI.FleeAfterAttacks)
+		fleeChance := cmp.Or(ai.FleeAfterAttacksChance, defaultMonsterAI.FleeAfterAttacksChance)
 		if !m.IsBoss() && m.AttackCount >= fleeAfter && rand.Float64() < fleeChance {
 			// Start fleeing
 			m.State = StateFleeing
@@ -1766,12 +1737,11 @@ func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, 
 	}
 }
 
+// fleeDurationFrames is the flee span in frames. Timer exception: a TB
+// monster turn advances it by one second (NextFleeTurnStep), not a 3 s round,
+// so N seconds of RT flight last N TB turns.
 func (m *Monster3D) fleeDurationFrames() int {
-	fleeDuration := 300
-	if m.config != nil {
-		fleeDuration = m.config.MonsterAI.FleeDuration
-	}
-	return fleeDuration
+	return m.framesForSeconds(m.ai().FleeSeconds)
 }
 
 // finishFleeIfExpired owns the common RT/TB exit transition. Flee is the tail

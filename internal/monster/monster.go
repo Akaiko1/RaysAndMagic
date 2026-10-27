@@ -451,7 +451,7 @@ type Monster3D struct {
 	AttackCooldownMultiplier float64  // The one attack speed: RT cooldown scale (0.5 = twice as often) and TB swings per action (turn_based_cadence.go)
 	TurnBasedSwingCarry      float64  // Fractional TB swing banked between attack actions, in [-0.5, 0.5) unless attack time was lost (a jam); persisted
 	TurnBasedStepCarry       float64  // Fractional TB step banked between movement actions, in [-0.5, 0.5); persisted
-	Jammed                   bool     // A jam already landed on this attack cycle (one per attack the monster makes); persisted
+	Jammed                   bool     // A jam already landed: more hits add nothing until the delayed attack (RT: the attack that re-arms AttackCDFrames from zero; TB: swings drawn); persisted
 	HourMarks                int      // Minute Hand hits counted toward striking the hour
 	AttackCDFrames           int      // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
 	// Abilities is this monster's own copy of its authored abilities
@@ -796,7 +796,7 @@ func (m *Monster3D) applyDoTTicks(key string, ticks int) {
 }
 
 func (m *Monster3D) tickDoT(key string, remaining, timer *int, elapsedFrames int) {
-	ticks, _ := status.TickDoT(remaining, timer, elapsedFrames, m.dotTPS())
+	ticks, _ := status.TickDoT(remaining, timer, elapsedFrames, m.tps())
 	m.applyDoTTicks(key, ticks)
 }
 
@@ -805,14 +805,6 @@ func (m *Monster3D) tickPoison(elapsedFrames int) {
 		return
 	}
 	m.tickDoT("poison", &m.PoisonedFramesRemaining, &m.poisonTickTimer, elapsedFrames)
-}
-
-// dotTPS is the shared cadence reference for poison and burn ticks.
-func (m *Monster3D) dotTPS() int {
-	if m.config != nil {
-		return m.config.GetTPS()
-	}
-	return config.GetTargetTPS()
 }
 
 // TickPoison advances the poison timer by one REAL-TIME frame (RT mode),
@@ -982,7 +974,7 @@ func (m *Monster3D) RestoreDoTTickTimers(poison, burn int) {
 	if m == nil {
 		return
 	}
-	tps := m.dotTPS()
+	tps := m.tps()
 	m.poisonTickTimer = status.RestoreDoTTickTimer(m.PoisonedFramesRemaining, poison, tps)
 	m.burnTickTimer = status.RestoreDoTTickTimer(m.BurnFramesRemaining, burn, tps)
 }
@@ -1151,34 +1143,30 @@ func (m *Monster3D) CanPounce() bool {
 
 // ArmPounceCooldown starts both mode clocks. The active clock drains its
 // counterpart proportionally, so changing combat mode cannot extend the wait.
-func (m *Monster3D) ArmPounceCooldown(tps, turns int) {
+func (m *Monster3D) ArmPounceCooldown(turns int) {
 	if m == nil {
 		return
 	}
-	if tps <= 0 {
-		tps = config.GetTargetTPS()
-	}
-	frames := int(math.Round(m.Abilities.Pounce.CooldownSeconds * float64(tps) * m.SlowCadenceFactor()))
-	if m.Abilities.Pounce.CooldownSeconds > 0 && frames < 1 {
-		frames = 1
-	}
-	m.PounceCD.Refresh(frames, turns)
+	m.armSlowedCooldown(&m.PounceCD, m.Abilities.Pounce.CooldownSeconds, turns)
+}
+
+// armSlowedCooldown arms a movement or attack cooldown (pounce, phase shift):
+// seconds of RT stretched by the slow active when it is armed
+// (SlowCadenceFactor, as the attack cadence is), beside rounds of TB, where a
+// slow costs skipped turns instead. A slow moves and attacks slower
+// (statuses.yaml); other ability cooldowns keep their pace. Timer exception: a
+// slowed cooldown keeps its own RT/TB rate, as the slow stretches only RT.
+func (m *Monster3D) armSlowedCooldown(clock *status.DualClock, seconds float64, rounds int) {
+	clock.ArmPair(seconds*m.SlowCadenceFactor(), rounds, m.tps())
 }
 
 // ArmTrapVolleyCooldown starts both authored mode clocks. The rated pair keeps
 // elapsed cooldown spent in one mode spent after switching to the other.
-func (m *Monster3D) ArmTrapVolleyCooldown(tps int) {
+func (m *Monster3D) ArmTrapVolleyCooldown() {
 	if m == nil {
 		return
 	}
-	if tps <= 0 {
-		tps = config.GetTargetTPS()
-	}
-	frames := int(math.Round(m.Abilities.TrapVolley.IntervalSeconds * float64(tps)))
-	if m.Abilities.TrapVolley.IntervalSeconds > 0 && frames < 1 {
-		frames = 1
-	}
-	m.TrapVolleyCD.Refresh(frames, m.Abilities.TrapVolley.IntervalTurns)
+	m.TrapVolleyCD.ArmPair(m.Abilities.TrapVolley.IntervalSeconds, m.Abilities.TrapVolley.IntervalTurns, m.tps())
 }
 
 // TickAbilityClocks spends one tick of the running mode on every ability

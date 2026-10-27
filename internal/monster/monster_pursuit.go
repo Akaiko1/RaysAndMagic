@@ -53,11 +53,11 @@ func (m *Monster3D) RetaliateAgainstParty(x, y float64) {
 	if m.config == nil || !m.partyPresent() || m.IsPartyControlled() || m.IsAmbient() || m.IsInertSetPiece() || m.BossEvasive {
 		return
 	}
-	c := m.config.MonsterAI.Pursuit
+	c := m.ai().Pursuit
 	m.WasAttacked = true
 	r := &m.Retaliation
 	r.RadiusTiles = math.Max(m.PursuitLimitTiles(), math.Hypot(m.X-x, m.Y-y)/m.tileSize()+c.RetaliationMarginTiles)
-	r.Refresh(int(math.Ceil(c.RetaliationSeconds*float64(m.config.GetTPS()))), c.RetaliationTurns)
+	r.ArmPair(c.RetaliationSeconds, c.RetaliationTurns, m.tps())
 	if !m.IsEngagingPlayer {
 		m.BeginPlayerEngagement()
 	}
@@ -74,13 +74,13 @@ func (m *Monster3D) RestoreRetaliation(saved RetaliationState) {
 	if m.config == nil || saved.Frames <= 0 || math.IsNaN(saved.RadiusTiles) || math.IsInf(saved.RadiusTiles, 0) || saved.RadiusTiles <= 0 {
 		return
 	}
-	c := m.config.MonsterAI.Pursuit
-	frames := int(math.Ceil(c.RetaliationSeconds * float64(m.config.GetTPS())))
-	rate := status.DualRate(frames, c.RetaliationTurns)
+	c := m.ai().Pursuit
+	full := status.PairClock(c.RetaliationSeconds, c.RetaliationTurns, m.tps(), 1) // the leash RetaliateAgainstParty arms
+	rate := full.Rate
 	if rate <= 0 {
 		return
 	}
-	saved.Frames = min(saved.Frames, frames)
+	saved.Frames = min(saved.Frames, full.Frames)
 	saved.Rate = rate
 	saved.Turns = (saved.Frames + rate - 1) / rate
 	m.Retaliation = saved

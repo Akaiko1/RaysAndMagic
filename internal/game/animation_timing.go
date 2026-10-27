@@ -5,6 +5,8 @@ import (
 	"ugataima/internal/monster"
 )
 
+// animationTicksPerFrame is how many ticks one frame of an fps animation
+// holds at tps: 1/fps seconds by the one seconds-to-frames rule.
 func animationTicksPerFrame(tps, fps int) int {
 	if tps <= 0 {
 		tps = config.DefaultTPS
@@ -12,11 +14,7 @@ func animationTicksPerFrame(tps, fps int) int {
 	if fps <= 0 {
 		return 1
 	}
-	ticks := tps / fps
-	if ticks < 1 {
-		return 1
-	}
-	return ticks
+	return config.SecondsToFrames(1/float64(fps), tps)
 }
 
 func animationDurationFrames(tps, fps, frameCount int) int {
@@ -43,13 +41,9 @@ func (g *MMGame) authoredMonsterAttackFrameCount(mon *monster.Monster3D) int {
 func (g *MMGame) monsterAttackAnimationDuration(mon *monster.Monster3D) int {
 	frameCount := g.authoredMonsterAttackFrameCount(mon)
 	if frameCount == 0 {
-		return MonsterAttackAnimFrames
+		return g.framesForSeconds(MonsterAttackAnimSeconds)
 	}
-	tps := config.DefaultTPS
-	if g != nil && g.config != nil {
-		tps = g.config.GetTPS()
-	}
-	return animationDurationFrames(tps, AuthoredMonsterAttackFPS, frameCount)
+	return animationDurationFrames(g.tickRate(), AuthoredMonsterAttackFPS, frameCount)
 }
 
 func (g *MMGame) armMonsterAttackAnimation(mon *monster.Monster3D) {

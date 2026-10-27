@@ -8,7 +8,7 @@ import (
 // Fish are short local encounters, not persistent roaming populations.
 type FishSpawnConfig struct {
 	Species            map[string]string `yaml:"species"`
-	RollEveryFrames    int               `yaml:"roll_every_frames"`
+	RollEverySeconds   float64           `yaml:"roll_every_seconds"`
 	SpawnChancePerTile float64           `yaml:"spawn_chance_per_tile"`
 	FlightSeconds      float64           `yaml:"flight_seconds"`
 	HeightTiles        float64           `yaml:"height_tiles"`
@@ -17,12 +17,12 @@ type FishSpawnConfig struct {
 }
 
 func (f *FishSpawnConfig) Validate() error {
-	for _, value := range []float64{f.FlightSeconds, f.HeightTiles, f.RadiusTiles} {
+	for _, value := range []float64{f.RollEverySeconds, f.FlightSeconds, f.HeightTiles, f.RadiusTiles} {
 		if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
 			return fmt.Errorf("fish timing, height and radius must be finite and positive")
 		}
 	}
-	if f.RollEveryFrames <= 0 || f.RadiusTiles < 2 || f.RadiusTiles > 16 || f.HeightTiles > 3 {
+	if f.RadiusTiles < 2 || f.RadiusTiles > 16 || f.HeightTiles > 3 {
 		return fmt.Errorf("invalid fish roll cadence, height or radius bounds")
 	}
 	if math.IsNaN(f.SpawnChancePerTile) || f.SpawnChancePerTile < 0 || f.SpawnChancePerTile > 1 {

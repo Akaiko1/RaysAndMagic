@@ -85,7 +85,7 @@ func (g *MMGame) statBuffByID(spellID string) (TimedStatBuff, bool) {
 type StatBuffSave struct {
 	SpellID  string         `json:"spell_id"`
 	SourceID string         `json:"source_id,omitempty"`
-	Frames   int            `json:"frames"`
+	Frames   int            `json:"frames" ticks:"frames"`
 	Bonuses  map[string]int `json:"bonuses"`
 }
 
@@ -114,7 +114,7 @@ func restoreStatBuffs(saves []StatBuffSave) []TimedStatBuff {
 	out := make([]TimedStatBuff, len(saves))
 	for i, s := range saves {
 		out[i] = TimedStatBuff{
-			SpellID: s.SpellID, SourceID: s.SourceID, Clock: status.FromFrames(s.Frames, config.GlobalConfig.GetTPS()),
+			SpellID: s.SpellID, SourceID: s.SourceID, Clock: status.FromFrames(s.Frames, config.GetTargetTPS()),
 			Bonuses: character.StatBonusesFromMap(s.Bonuses),
 		}
 	}

@@ -109,7 +109,7 @@ func (ui *UISystem) drawAutoStatsHUD(screen *ebiten.Image) {
 		side = side / art * art
 	}
 	icon := layoutRect{r.x + (r.w-side)/2, r.bottom() - side, side, side}
-	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, statBadgeStyle.tint, g.badgeAuraPulse(ui.cardAnimClock()))
+	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, statBadgeStyle.tint, g.badgeAuraPulse(ui.game.uiSeconds()))
 	if hover {
 		ui.drawHUDIconHoverGlow(screen, statBadgeStyle.icon, icon)
 	}

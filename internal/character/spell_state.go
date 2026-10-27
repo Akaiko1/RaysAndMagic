@@ -14,7 +14,7 @@ type PersonalSpellEffect struct {
 	Charges int              `json:"charges,omitempty"`
 	Clock   status.DualClock `json:"clock,omitzero"` // idle: lasts until its charges are spent
 	// LegacyFrames is an older save's remaining time, moved into Clock on load.
-	LegacyFrames int `json:"frames,omitempty"`
+	LegacyFrames int `json:"frames,omitempty" ticks:"frames"`
 }
 
 // SpellBeacon stores map-local coordinates so a saved mark survives switching
@@ -31,10 +31,10 @@ type SpellState struct {
 	Automatic map[string]bool             `json:"automatic,omitempty"`
 	Reuse     map[string]status.DualClock `json:"reuse,omitempty"`
 	// LegacyReuseFrames is an older save's reuse lockouts, moved into Reuse.
-	LegacyReuseFrames map[string]int `json:"reuse_frames,omitempty"`
+	LegacyReuseFrames map[string]int `json:"reuse_frames,omitempty" ticks:"frames"`
 	// LegacyAutoFrames is the old home of the autocast budget, migrated to
 	// MMCharacter.AutocastCD on load.
-	LegacyAutoFrames int           `json:"auto_frames,omitempty"`
+	LegacyAutoFrames int           `json:"auto_frames,omitempty" ticks:"frames"`
 	Beacons          []SpellBeacon `json:"beacons,omitempty"`
 }
 

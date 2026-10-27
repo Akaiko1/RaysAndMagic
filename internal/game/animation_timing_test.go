@@ -148,7 +148,7 @@ func TestMonsterAttackTimingOnlySlowsAuthoredSheets(t *testing.T) {
 		t.Fatalf("missing-art fixture unexpectedly has %d authored attack frames", got)
 	}
 	g.armMonsterAttackAnimation(fallback)
-	if got, want := fallback.AttackAnimFrames, MonsterAttackAnimFrames; got != want {
+	if got, want := fallback.AttackAnimFrames, g.framesForSeconds(MonsterAttackAnimSeconds); got != want {
 		t.Fatalf("walking-sheet fallback duration = %d, want unchanged %d", got, want)
 	}
 }

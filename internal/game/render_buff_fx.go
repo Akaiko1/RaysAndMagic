@@ -15,10 +15,10 @@ import (
 // Screen-space like the melee flourish - no camera/depth involvement.
 
 const (
-	buffFxTotalFrames  = 56  // ~0.47s at 120 TPS
-	buffFxFadeInEnd    = 6   // ticks of fade-in (~0.05s at 120 TPS)
-	buffFxFadeOutStart = 42  // fade to zero from here to the end (~0.35s at 120 TPS)
-	buffFxHeightFrac   = 0.6 // target sprite height as a fraction of screen height
+	buffFxSeconds        = 0.47 // a buff sprite's whole animation
+	buffFxFadeInSeconds  = 0.05 // fade-in
+	buffFxFadeOutSeconds = 0.35 // fade to zero from here to the end
+	buffFxHeightFrac     = 0.6  // target sprite height as a fraction of screen height
 )
 
 type buffFxAnim struct {
@@ -48,17 +48,10 @@ func (g *MMGame) partyCardCast() (buffFxAnim, bool) {
 	return buffFxAnim{}, false
 }
 
-func (a buffFxAnim) totalFrames() int {
-	if a.lifetime > 0 {
-		return a.lifetime
-	}
-	return buffFxTotalFrames
-}
-
 func (g *MMGame) playSpellCastFx(def *config.SpellDefinitionConfig) {
 	g.playBuffFx(def.BuffFxSprite)
 	if def.Graphics != nil && def.Graphics.CastOverlay != "" {
-		g.buffFxAnims = append(g.buffFxAnims, buffFxAnim{overlay: def.Graphics.CastOverlay, weapon: def.Graphics.CastOverlayWeapon, scale: def.Graphics.CastOverlayScale, lifetime: max(1, g.config.GetTPS()*6/5)})
+		g.buffFxAnims = append(g.buffFxAnims, buffFxAnim{overlay: def.Graphics.CastOverlay, weapon: def.Graphics.CastOverlayWeapon, scale: def.Graphics.CastOverlayScale, lifetime: g.framesForSeconds(1.2)})
 	}
 }
 
@@ -67,7 +60,7 @@ func (g *MMGame) playBuffFx(sprite string) {
 	if sprite == "" {
 		return
 	}
-	g.buffFxAnims = append(g.buffFxAnims, buffFxAnim{sprite: sprite})
+	g.buffFxAnims = append(g.buffFxAnims, buffFxAnim{sprite: sprite, lifetime: g.framesForSeconds(buffFxSeconds)})
 }
 
 // queueAutocastFx keeps each committed autocast's visual group together and
@@ -75,7 +68,7 @@ func (g *MMGame) playBuffFx(sprite string) {
 func (g *MMGame) queueAutocastFx(first int) {
 	wait := 0
 	for _, a := range g.buffFxAnims[:first] {
-		wait = max(wait, a.delay+a.totalFrames()-a.age)
+		wait = max(wait, a.delay+a.lifetime-a.age)
 	}
 	for i := first; i < len(g.buffFxAnims); i++ {
 		g.buffFxAnims[i].delay = wait
@@ -95,7 +88,7 @@ func (g *MMGame) tickBuffFx() {
 		} else {
 			a.age++
 		}
-		if a.age < a.totalFrames() {
+		if a.age < a.lifetime {
 			dst = append(dst, a)
 		}
 	}
@@ -127,17 +120,19 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 			continue
 		}
 		frames := r.animationFrames(sheet)
-		frame := a.age * len(frames) / buffFxTotalFrames
+		total := a.lifetime
+		frame := a.age * len(frames) / total
 		if frame >= len(frames) {
 			frame = len(frames) - 1
 		}
 		img := frames[frame]
 
 		alpha := 1.0
-		if a.age < buffFxFadeInEnd {
-			alpha = float64(a.age) / buffFxFadeInEnd
-		} else if a.age > buffFxFadeOutStart {
-			alpha = 1.0 - float64(a.age-buffFxFadeOutStart)/float64(buffFxTotalFrames-buffFxFadeOutStart)
+		fadeIn, fadeOut := r.game.framesForSeconds(buffFxFadeInSeconds), r.game.framesForSeconds(buffFxFadeOutSeconds)
+		if a.age < fadeIn {
+			alpha = float64(a.age) / float64(fadeIn)
+		} else if a.age > fadeOut {
+			alpha = 1.0 - float64(a.age-fadeOut)/float64(total-fadeOut)
 		}
 
 		fw, fh := img.Bounds().Dx(), img.Bounds().Dy()

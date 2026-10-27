@@ -77,7 +77,7 @@ type Item struct {
 	// DeviceCooldown is the device's recharge on the one RT/TB clock.
 	DeviceCooldown RoundClock `json:"device_recharge,omitzero"`
 	// Older saves' recharges, moved into DeviceCooldown on load.
-	LegacyDeviceCooldownFrames int     `json:"device_cooldown_frames,omitempty"`
+	LegacyDeviceCooldownFrames int     `json:"device_cooldown_frames,omitempty" ticks:"frames"`
 	LegacyDeviceCooldown       float64 `json:"device_cooldown,omitempty"`
 	UseAction                  string  `json:"use_action,omitempty"`
 	// Key is the catalog key (weapons.yaml or items.yaml), stamped at creation

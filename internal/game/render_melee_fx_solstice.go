@@ -103,7 +103,7 @@ func (r *Renderer) drawMeleeFxSolsticeTransfer(screen *ebiten.Image, s SlashEffe
 // Water travels as two counterflowing ribbons enclosing a clear reservoir.
 // A side projection reveals the wake; head-on shows its double spiral mouth.
 func (r *Renderer) drawWeaponProjectileFxSolsticeFlow(screen *ebiten.Image, cx, cy, size, dx, dy, alpha float64, id int) {
-	phase := r.weaponMaterialClock()*4 + float64(id%11)
+	phase := r.game.worldSeconds()*4 + float64(id%11)
 	nx, ny := projectilePerpendicular(dx, dy)
 	for strand := 0; strand < 2; strand++ {
 		offset := phase + float64(strand)*math.Pi
@@ -121,7 +121,7 @@ func (r *Renderer) drawWeaponProjectileFxSolsticeFlow(screen *ebiten.Image, cx, 
 }
 
 func (r *Renderer) drawWeaponProjectileFxSolsticeFlowHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	phase := r.weaponMaterialClock()*4 + float64(id%11)
+	phase := r.game.worldSeconds()*4 + float64(id%11)
 	for strand := 0; strand < 2; strand++ {
 		offset := phase + float64(strand)*math.Pi
 		r.drawDissolveStroke(screen, dissolveStroke{

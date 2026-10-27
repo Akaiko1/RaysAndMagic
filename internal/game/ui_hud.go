@@ -963,17 +963,17 @@ func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx in
 	if t <= 0 {
 		return
 	}
-	intensity := float64(t) / float64(PartyFlameFrames) // 1 -> 0 overall fade
-	f := int(ui.cardAnimClock())
+	intensity := float64(t) / float64(ui.game.framesForSeconds(PartyFlameSeconds)) // 1 -> 0 overall fade
+	clock := ui.game.uiSeconds()
 	const n = 14
 	for k := 0; k < n; k++ {
-		phase := float64((f*2+k*53)%60) / 60.0 // 0..1 rising cycle, staggered per tongue
-		rise := 1.0 - phase                    // brightness/heat fade as it climbs
+		phase := math.Mod(clock*4+float64(k)*53/60, 1) // 0..1 rising cycle, staggered per tongue
+		rise := 1.0 - phase                            // brightness/heat fade as it climbs
 		a := uint8(220 * rise * intensity)
 		if a < 8 {
 			continue
 		}
-		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(float64(f)*0.2+float64(k))*3
+		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(clock*24+float64(k))*3
 		py := float64(startY+h) - phase*float64(h)*1.05 // from card bottom up past the top
 		sz := float32(3 + 3*rise)
 		col := color.RGBA{255, uint8(40 + 190*rise), uint8(40 * rise), a} // yellow->orange->red
@@ -989,8 +989,8 @@ func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx in
 	if t <= 0 {
 		return
 	}
-	intensity := float64(t) / float64(HitSparkFrames) // 1 -> 0 fade
-	prog := 1.0 - intensity                           // 0 -> 1 as sparks fly out
+	intensity := float64(t) / float64(ui.game.framesForSeconds(HitSparkSeconds)) // 1 -> 0 fade
+	prog := 1.0 - intensity                                                      // 0 -> 1 as sparks fly out
 
 	// Whole-card red flash (not just the portrait).
 	uiFillRect(screen, float32(x), float32(startY), float32(w-2), float32(h),
@@ -1023,7 +1023,7 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 	if t <= 0 {
 		return
 	}
-	prog := 1.0 - float64(t)/float64(HealEffectFrames) // 0 -> 1 as they rise & fade
+	prog := 1.0 - float64(t)/float64(ui.game.framesForSeconds(HealEffectSeconds)) // 0 -> 1 as they rise & fade
 	const n = 5
 	for k := 0; k < n; k++ {
 		// Each "+" rises on its own staggered phase so they don't move in lockstep.
@@ -1049,12 +1049,11 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 // drawCardPoisonBubbles draws green bubbles drifting up a poisoned member's card
 // (replaces the old flat green tint). Runs continuously while poisoned.
 func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h int) {
-	f := int(ui.cardAnimClock())
+	t := ui.game.uiSeconds()
 	const n = 6
-	const period = 72
 	for k := 0; k < n; k++ {
-		phase := float64((f+k*period/n)%period) / float64(period) // 0..1 rising loop
-		bx := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(float64(f)*0.08+float64(k))*3
+		phase := math.Mod(t/poisonBubbleSeconds+float64(k)/n, 1) // 0..1 rising loop
+		bx := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(t*9.6+float64(k))*3
 		by := float64(startY+h) - phase*float64(h)
 		a := uint8(170 * (1 - phase)) // fade as it nears the top ("pops")
 		if a < 12 {
@@ -1079,12 +1078,12 @@ func hashNoise(seed float64) float64 {
 // embers that float up and wink out. Built to read as real fire, not a recolour
 // of the poison bubbles. Runs continuously while ConditionBurning.
 func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx int) {
-	f := float64(ui.cardAnimClock())
+	t := ui.game.uiSeconds()
 	fx, fb, fw, fh := float64(x), float64(startY+h), float64(w), float64(h)
 	salt := float64(idx) * 13.7
 
 	// Flickering warm glow banked along the bottom of the card.
-	glow := uint8(35 + 25*math.Sin(f*0.3+salt))
+	glow := uint8(35 + 25*math.Sin(t*36+salt))
 	uiFillRect(screen, float32(x), float32(startY)+float32(fh*0.55), float32(w-2), float32(fh*0.45),
 		color.RGBA{120, 40, 10, glow}, false)
 
@@ -1092,10 +1091,10 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 	for k := 0; k < n; k++ {
 		seed := float64(k)*1.7 + salt
 		life := hashNoise(seed)
-		ph := math.Mod(f*0.02*(0.6+life*0.8)+life, 1.0) // 0..1 rising, varied speed
-		rise := 1.0 - ph                                // heat fades with height
+		ph := math.Mod(t*2.4*(0.6+life*0.8)+life, 1.0) // 0..1 rising, varied speed
+		rise := 1.0 - ph                               // heat fades with height
 		col := hashNoise(seed * 3.3)
-		wob := math.Sin(f*0.15+life*6.28+float64(k))*5*ph + (hashNoise(seed+f*0.01)-0.5)*4
+		wob := math.Sin(t*18+life*6.28+float64(k))*5*ph + (hashNoise(seed+t*1.2)-0.5)*4
 		px := fx + col*fw + wob
 		if px < fx || px > fx+fw {
 			continue
@@ -1117,8 +1116,8 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 	const embers = 6
 	for k := 0; k < embers; k++ {
 		seed := float64(k)*7.1 + salt
-		ph := math.Mod(f*0.012+hashNoise(seed), 1.0)
-		px := fx + hashNoise(seed*2.0)*fw + math.Sin(f*0.05+seed)*6
+		ph := math.Mod(t*1.44+hashNoise(seed), 1.0)
+		px := fx + hashNoise(seed*2.0)*fw + math.Sin(t*6+seed)*6
 		py := fb - ph*fh*1.2
 		a := uint8(200 * (1 - ph) * (1 - ph))
 		if a < 12 {
@@ -1134,7 +1133,7 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int) {
 	cx := float64(x) + float64(w)*0.5
 	cy := float64(startY) + float64(h)*0.30 // ring around the upper portrait (head)
-	stunStarGlyphs(float64(ui.cardAnimClock()), cx, cy, float64(w)*0.42, float64(h)*0.20, 2.5, 3.5,
+	stunStarGlyphs(ui.game.uiSeconds(), cx, cy, float64(w)*0.42, float64(h)*0.20, 2.5, 3.5,
 		func(x0, y0, x1, y1, width float64, c color.RGBA) {
 			uiStrokeLine(screen, float32(x0), float32(y0), float32(x1), float32(y1), float32(width), c, true)
 		},
@@ -1188,11 +1187,6 @@ const (
 	badgeAuraFloor    = 0.55 // pulse trough - never dims out of sight
 )
 
-// cardAnimClock is the clock EVERY party-card animation reads: the interface
-// clock, which keeps running while an overlay pauses the world. A hit flash,
-// poison bubbles, ignite, stun stars and the progression aura are presentation
-// on a panel the player is looking at - they must not freeze under an open hub,
-// and equally must not be driven by the world clock, which stops there.
 // partyCardDown reports the states that darken a party card instead of
 // animating it: unconscious, dead and eradicated.
 func partyCardDown(c *character.MMCharacter) bool {
@@ -1202,25 +1196,28 @@ func partyCardDown(c *character.MMCharacter) bool {
 
 // partyStatusClock phases each card's status motifs apart from its neighbours.
 func (ui *UISystem) partyStatusClock(card int) float64 {
-	return float64(ui.cardAnimClock()) + float64(card)*17
+	return ui.game.uiSeconds() + float64(card*17)*fxSaltSeconds
 }
 
-func (ui *UISystem) cardAnimClock() int64 {
-	if ui == nil || ui.game == nil {
+// uiSeconds is the clock EVERY party-card animation reads: the interface clock
+// in seconds (uiFrameCount at the live rate), which keeps running while an
+// overlay pauses the world. A hit flash, poison bubbles, ignite, stun stars and
+// the progression aura are presentation on a panel the player is looking at -
+// they must not freeze under an open hub, and equally must not be driven by the
+// world clock, which stops there.
+func (g *MMGame) uiSeconds() float64 {
+	if g == nil {
 		return 0
 	}
-	return ui.game.uiFrameCount
+	return float64(g.uiFrameCount) / float64(g.tickRate())
 }
 
-// badgeAuraPulse is the shared 0..1 breath. Both badges read the SAME clock
-// (g.uiFrameCount, which keeps advancing while a menu pauses the world), so two
-// badges on one portrait pulse together instead of beating against each other.
-func (g *MMGame) badgeAuraPulse(frame int64) float64 {
-	period := int64(g.framesForSeconds(badgeAuraPeriodSeconds))
-	if period <= 0 {
-		return 1
-	}
-	phase := float64(frame%period) / float64(period)
+// badgeAuraPulse is the shared 0..1 breath at seconds on the interface clock.
+// Both badges read the SAME clock (g.uiSeconds, which keeps advancing while a
+// menu pauses the world), so two badges on one portrait pulse together instead
+// of beating against each other.
+func (g *MMGame) badgeAuraPulse(seconds float64) float64 {
+	phase := math.Mod(seconds, badgeAuraPeriodSeconds) / badgeAuraPeriodSeconds
 	return badgeAuraFloor + (1-badgeAuraFloor)*(0.5-0.5*math.Cos(2*math.Pi*phase))
 }
 
@@ -1237,7 +1234,7 @@ func drawPartyProgressionBadgeAura(screen *ebiten.Image, x, y, w, h int, base co
 // aura, and the label in the chip's tint. Hover rings the whole chip.
 func (ui *UISystem) drawPartyLevelUpChip(screen *ebiten.Image, r layoutRect, style progressionBadgeStyle, label string, isHover bool) {
 	icon := layoutRect{r.x, r.y, partyLevelUpChipH, partyLevelUpChipH}
-	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, style.tint, ui.game.badgeAuraPulse(ui.cardAnimClock()))
+	drawPartyProgressionBadgeAura(screen, icon.x, icon.y, icon.w, icon.h, style.tint, ui.game.badgeAuraPulse(ui.game.uiSeconds()))
 	drawPartyProgressionBadgeShadow(screen, icon.x, icon.y, icon.w, icon.h)
 	ui.drawInterfaceIcon(screen, style.icon, icon.x, icon.y, icon.w, icon.h)
 	if label != "" {

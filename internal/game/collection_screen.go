@@ -307,7 +307,7 @@ func (ui *UISystem) drawBinderPage(screen *ebiten.Image, L collectionLayout, int
 		ui.drawCollectionSurface(screen, rings, collectionSurface{mode: collectionModeRings, page: rings, grid: geometry})
 	}
 	mx, my := uiCursorPosition()
-	clock := float64(g.uiFrameCount) / float64(max(1, g.config.GetTPS()))
+	clock := g.uiSeconds()
 	accent := color.RGBA{190, 120, 220, 255}
 	first := g.collectionSpread * perSpread
 	for slot := 0; slot < perSpread; slot++ {
@@ -547,7 +547,7 @@ func (ui *UISystem) drawCollectionSurface(dst *ebiten.Image, r layoutRect, s col
 	u["Mode"] = float32(s.mode)
 	u["Filled"] = boolFloat32(s.filled)
 	u["Hover"] = boolFloat32(s.hover)
-	u["Time"] = float32(float64(ui.game.uiFrameCount) / float64(max(1, ui.game.config.GetTPS())))
+	u["Time"] = float32(ui.game.uiSeconds())
 	u["Margin"] = d.margin[:]
 	u["Copies"] = s.copies
 	u["Side"] = s.side

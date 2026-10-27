@@ -82,7 +82,7 @@ func (r *Renderer) drawWeaponProjectileFx(style string, screen *ebiten.Image, cx
 		return
 	}
 	previous := r.weaponMaterialState
-	r.weaponMaterialState = weaponMaterialState{material: weaponMaterial(style), phase: r.weaponMaterialClock(), seed: id}
+	r.weaponMaterialState = weaponMaterialState{material: weaponMaterial(style), phase: r.game.worldSeconds(), seed: id}
 	defer func() { r.weaponMaterialState = previous }()
 	if fx, ok := weaponProjectileFxStyles[style]; ok && fx.side != nil {
 		fx.side(r, screen, cx, cy, size*math.Sqrt(critBoost), dirX, dirY, alpha, id)
@@ -116,7 +116,7 @@ func (r *Renderer) drawBowWeaponProjectileFxHeadOn(style string, screen *ebiten.
 		return
 	}
 	previous := r.weaponMaterialState
-	r.weaponMaterialState = weaponMaterialState{material: weaponMaterial(style), phase: r.weaponMaterialClock(), seed: id}
+	r.weaponMaterialState = weaponMaterialState{material: weaponMaterial(style), phase: r.game.worldSeconds(), seed: id}
 	defer func() { r.weaponMaterialState = previous }()
 	fx, ok := weaponProjectileFxStyles[style]
 	if !ok {
@@ -132,11 +132,11 @@ func (r *Renderer) drawBowWeaponProjectileFxHeadOn(style string, screen *ebiten.
 }
 
 func (r *Renderer) drawWeaponProjectileFxArenaRecurveHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// Rear view of the enchanted arrow: loose feathers orbit its fletching.
 	gold, feather := [3]int{220, 166, 82}, [3]int{255, 238, 182}
 	for k := 0; k < 8; k++ {
-		angle := fc*0.08 + 2*math.Pi*float64(k)/8
+		angle := sec*9.6 + 2*math.Pi*float64(k)/8
 		radius := size * (0.75 + 0.38*float64(k%2))
 		r.weaponFxPlate(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
 			size*0.38, math.Max(2, size*0.1), angle, mixColor(gold, feather, float64(k%2)*0.5),
@@ -155,12 +155,12 @@ func (r *Renderer) drawWeaponProjectileFxArenaLanistaHeadOn(screen *ebiten.Image
 }
 
 func (r *Renderer) drawWeaponProjectileFxClockPistolHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	r.weaponFxHalo(screen, cx, cy, size*1.0, size*1.0, math.Max(1.5, size*.13), 8, clockBrass, .65*alpha)
 	// The cog is seen face-on around the muzzle flash.
 	const teeth = 8
 	for i := 0; i < teeth; i++ {
-		angle := fc*0.28 + 2*math.Pi*float64(i)/teeth
+		angle := sec*33.6 + 2*math.Pi*float64(i)/teeth
 		radius := size * 1.15
 		if i%2 == 0 {
 			radius *= 1.25
@@ -172,12 +172,12 @@ func (r *Renderer) drawWeaponProjectileFxClockPistolHeadOn(screen *ebiten.Image,
 }
 
 func (r *Renderer) drawWeaponProjectileFxDragonWingHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// Four membrane vanes seen around the arrow tail, beating in and out.
-	beat := 0.62 + 0.28*math.Sin(fc*0.34)
+	beat := 0.62 + 0.28*math.Sin(sec*40.8)
 	wing, vein := [3]int{188, 226, 176}, [3]int{232, 250, 224}
 	for k := 0; k < 4; k++ {
-		angle := fc*0.025 + 2*math.Pi*float64(k)/4
+		angle := sec*3 + 2*math.Pi*float64(k)/4
 		rootX, rootY := cx+math.Cos(angle)*size*0.35, cy+math.Sin(angle)*size*0.35
 		tipX, tipY := cx+math.Cos(angle)*size*1.6*beat, cy+math.Sin(angle)*size*1.6*beat
 		r.weaponFxSegment(screen, rootX, rootY, tipX, tipY, math.Max(2.5, size*0.17), wing, 0.58*alpha, additiveGlowBlend)
@@ -186,11 +186,11 @@ func (r *Renderer) drawWeaponProjectileFxDragonWingHeadOn(screen *ebiten.Image, 
 }
 
 func (r *Renderer) drawWeaponProjectileFxDragonNestHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// The seeker head becomes a ring of inward-facing clutch hooks.
 	hunt, bone := [3]int{178, 208, 122}, dragonBone
 	for k := 0; k < 6; k++ {
-		angle := fc*0.04 + 2*math.Pi*float64(k)/6
+		angle := sec*4.8 + 2*math.Pi*float64(k)/6
 		outerX, outerY := cx+math.Cos(angle)*size*1.35, cy+math.Sin(angle)*size*1.35
 		innerX, innerY := cx+math.Cos(angle+0.45)*size*0.62, cy+math.Sin(angle+0.45)*size*0.62
 		r.weaponFxSegment(screen, outerX, outerY, innerX, innerY, math.Max(2.5, size*0.18), hunt, 0.65*alpha, additiveGlowBlend)
@@ -199,12 +199,12 @@ func (r *Renderer) drawWeaponProjectileFxDragonNestHeadOn(screen *ebiten.Image, 
 }
 
 func (r *Renderer) drawWeaponProjectileFxTechSuppressorHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// End-on rifling reads as two counter-rotating gas rings.
 	for ring := 0; ring < 2; ring++ {
 		radius := size * (0.75 + 0.55*float64(ring))
 		r.weaponFxHalo(screen, cx, cy, radius, radius, math.Max(1, size*.07), 0, techCyan, (.45-.1*float64(ring))*alpha)
-		spin := fc * 0.5 * (1 - 2*float64(ring))
+		spin := sec * 60 * (1 - 2*float64(ring))
 		for i := 0; i < 10; i++ {
 			angle := spin + 2*math.Pi*float64(i)/10
 			r.weaponFxAccent(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
@@ -216,9 +216,9 @@ func (r *Renderer) drawWeaponProjectileFxTechSuppressorHeadOn(screen *ebiten.Ima
 }
 
 func (r *Renderer) drawWeaponProjectileFxTechLonglanceHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// The lance collapses into its scope reticle when viewed down-axis.
-	pulse := 0.75 + 0.25*math.Sin(fc*0.5)
+	pulse := 0.75 + 0.25*math.Sin(sec*60)
 	r.weaponFxHalo(screen, cx, cy, size*.8, size*.8, math.Max(1, size*.06), 0, techCyan, .65*pulse*alpha)
 	for ring := 0; ring < 2; ring++ {
 		radius := size * (0.8 + 0.55*float64(ring))
@@ -238,12 +238,12 @@ func (r *Renderer) drawWeaponProjectileFxTechLonglanceHeadOn(screen *ebiten.Imag
 }
 
 func (r *Renderer) drawWeaponProjectileFxTechCompoundHeadOn(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// The two cams remain visible as counter-rotating rings around the nock.
 	alloy := [3]int{168, 196, 214}
 	for ring := 0; ring < 2; ring++ {
 		radius := size * (0.82 + 0.5*float64(ring))
-		spin := fc * 0.22 * (1 - 2*float64(ring))
+		spin := sec * 26.4 * (1 - 2*float64(ring))
 		for k := 0; k < 10; k++ {
 			angle := spin + 2*math.Pi*float64(k)/10
 			r.weaponFxPlate(screen, cx+math.Cos(angle)*radius, cy+math.Sin(angle)*radius,
@@ -255,11 +255,11 @@ func (r *Renderer) drawWeaponProjectileFxTechCompoundHeadOn(screen *ebiten.Image
 }
 
 func (r *Renderer) drawWeaponProjectileFxArenaRecurveIncoming(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// A compact pressure crown surrounds the approaching arrowhead.
 	gold, white := [3]int{220, 166, 82}, [3]int{255, 238, 182}
 	for k := 0; k < 8; k++ {
-		angle := fc*0.08 + 2*math.Pi*float64(k)/8
+		angle := sec*9.6 + 2*math.Pi*float64(k)/8
 		inner := size * 0.68
 		outer := size * (1.05 + 0.12*float64(k%2))
 		r.weaponFxSegment(screen,
@@ -271,13 +271,13 @@ func (r *Renderer) drawWeaponProjectileFxArenaRecurveIncoming(screen *ebiten.Ima
 }
 
 func (r *Renderer) drawWeaponProjectileFxDragonWingIncoming(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// Folded wing energy frames the approaching point without exposing the rear
 	// membrane vanes.
 	wing, vein := [3]int{188, 226, 176}, [3]int{232, 250, 224}
-	pulse := 0.82 + 0.14*math.Sin(fc*0.34)
+	pulse := 0.82 + 0.14*math.Sin(sec*40.8)
 	for k := 0; k < 4; k++ {
-		angle := fc*0.025 + math.Pi/4 + 2*math.Pi*float64(k)/4
+		angle := sec*3 + math.Pi/4 + 2*math.Pi*float64(k)/4
 		inner := size * 0.72
 		outer := size * 1.25 * pulse
 		r.weaponFxSegment(screen,
@@ -290,11 +290,11 @@ func (r *Renderer) drawWeaponProjectileFxDragonWingIncoming(screen *ebiten.Image
 }
 
 func (r *Renderer) drawWeaponProjectileFxTechCompoundIncoming(screen *ebiten.Image, cx, cy, size, alpha float64, id int) {
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	// The approaching broadhead is bracketed by a rotating targeting ring; the
 	// rear nock and cams stay hidden behind it.
 	alloy := [3]int{168, 196, 214}
-	spin := fc * 0.22
+	spin := sec * 26.4
 	for k := 0; k < 12; k++ {
 		angle := spin + 2*math.Pi*float64(k)/12
 		radius := size * 1.02
@@ -351,12 +351,12 @@ func (r *Renderer) drawWeaponProjectileFxArenaRecurve(screen *ebiten.Image, cx, 
 
 func (r *Renderer) drawWeaponProjectileFxArenaArbalest(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	steel, spark := [3]int{155, 175, 195}, [3]int{238, 246, 255}
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	for ring := 0; ring < 2; ring++ {
 		radius := size * (0.65 + 0.38*float64(ring))
 		r.weaponFxHalo(screen, cx, cy, radius, radius*.72, math.Max(1, size*.065), 0, steel, .55*alpha)
 		for i := 0; i < 6; i++ {
-			a := fc*0.16*(1+float64(ring)*0.25) + 2*math.Pi*float64(i)/6
+			a := sec*19.2*(1+float64(ring)*0.25) + 2*math.Pi*float64(i)/6
 			r.weaponFxAccent(screen, cx+math.Cos(a)*radius, cy+math.Sin(a)*radius*0.72,
 				math.Max(2, size*0.105), mixColor(steel, spark, float64(ring)*0.35), 0.48*alpha, additiveGlowBlend)
 		}
@@ -372,11 +372,11 @@ func (r *Renderer) drawWeaponProjectileFxArenaArbalest(screen *ebiten.Image, cx,
 
 func (r *Renderer) drawWeaponProjectileFxArenaLanista(screen *ebiten.Image, cx, cy, size, dirX, dirY, alpha float64, id int) {
 	gold, white := [3]int{245, 202, 94}, [3]int{255, 251, 220}
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	r.weaponFxHalo(screen, cx, cy, size*1.05, size*.76, math.Max(1.5, size*.13), 0, gold, .7*alpha)
 	for i := 0; i < 10; i++ {
-		a := fc*0.09 + 2*math.Pi*float64(i)/10
-		radius := size * (1.05 + 0.08*math.Sin(fc*0.13+float64(i)))
+		a := sec*10.8 + 2*math.Pi*float64(i)/10
+		radius := size * (1.05 + 0.08*math.Sin(sec*15.6+float64(i)))
 		r.drawGlowSprite(screen, cx+math.Cos(a)*radius, cy+math.Sin(a)*radius*0.72,
 			size*0.20, mixColor(gold, white, float64(i%2)*0.4), 0.54*alpha, additiveGlowBlend)
 	}

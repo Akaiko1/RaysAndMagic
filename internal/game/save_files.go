@@ -13,6 +13,7 @@ import (
 
 	uitext "ugataima/assets/text"
 	"ugataima/internal/highscore"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
@@ -228,15 +229,21 @@ func RenameSaveSlot(row int, name string) error {
 	return storage.WriteJSONAtomic(path, &save, 0644)
 }
 
-// LoadGameFromFile loads state from a JSON file and applies it
-func (g *MMGame) LoadGameFromFile(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
+// UnmarshalJSON decodes a save at the live tick rate (status.RescaleSaved), as
+// the stash file does, so every reader gets live frames.
+func (s *GameSave) UnmarshalJSON(data []byte) error {
+	type plain GameSave
+	if err := json.Unmarshal(data, (*plain)(s)); err != nil {
 		return err
 	}
-	defer f.Close()
-	var save GameSave
-	if err := json.NewDecoder(f).Decode(&save); err != nil {
+	s.TickRate = status.RescaleSaved(s, s.TickRate)
+	return nil
+}
+
+// LoadGameFromFile loads state from a JSON file and applies it
+func (g *MMGame) LoadGameFromFile(path string) error {
+	save, err := ReadGameSave(path)
+	if err != nil {
 		return err
 	}
 
@@ -245,7 +252,7 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 		return errors.New("world manager not available")
 	}
 	g.loadNeedsResave = false
-	if err := g.applySave(wm, &save); err != nil {
+	if err := g.applySave(wm, save); err != nil {
 		return err
 	}
 	// One-time migration write: a load that stamped legacy items with instance

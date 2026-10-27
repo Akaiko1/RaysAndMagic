@@ -497,7 +497,7 @@ func TestDisplayedHeldStatRepeatsAndStops(t *testing.T) {
 		t.Fatal("initial stat press did not spend exactly one point")
 	}
 	fp.hold()
-	for i := 0; i < statHoldInitialDelay+statHoldRepeatRate; i++ {
+	for i := 0; i < h.g.framesForSeconds(statHoldDelaySeconds)+h.g.framesForSeconds(statHoldRepeatSeconds); i++ {
 		h.pointerStep()
 	}
 	if ch.FreeStatPoints != 3 {
@@ -506,7 +506,7 @@ func TestDisplayedHeldStatRepeatsAndStops(t *testing.T) {
 	fp.release()
 	h.pointerStep()
 	fp.idle()
-	for i := 0; i < statHoldRepeatRate+1; i++ {
+	for i := 0; i < h.g.framesForSeconds(statHoldRepeatSeconds)+1; i++ {
 		h.pointerStep()
 	}
 	if ch.FreeStatPoints != 3 || h.ui.statHoldStat != "" {

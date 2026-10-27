@@ -1,5 +1,7 @@
 package items
 
+import "ugataima/internal/mathutil"
+
 // WeaponSignatureState travels with the physical weapon through transfers,
 // equipment, stash and saves. A Solar Flare shot holds a transient reservation
 // on launch and only its landed hit spends the saved charge; Skirmish and
@@ -17,4 +19,10 @@ type RoundClock struct {
 	Frames int `json:"frames,omitempty"`
 	Turns  int `json:"turns,omitempty"`
 	Rate   int `json:"rate,omitempty"`
+}
+
+// ScaleTicks keeps the clock's seconds at a tick rate k times the old one
+// (status.TickScaler): frames and rate scale, turns stay.
+func (c *RoundClock) ScaleTicks(k float64) {
+	c.Frames, c.Rate = mathutil.ScaleCount(c.Frames, k), mathutil.ScaleCount(c.Rate, k)
 }

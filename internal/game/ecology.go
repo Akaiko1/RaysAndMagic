@@ -27,7 +27,7 @@ type EcologyState struct {
 	Returning        bool             `json:"returning,omitempty"`
 	RespawnDay       int              `json:"respawn_day,omitempty"`
 	Stop             status.DualClock `json:"stop,omitzero"`
-	LegacyStopFrames int              `json:"stop_frames,omitempty"` // read into Stop
+	LegacyStopFrames int              `json:"stop_frames,omitempty" ticks:"frames"` // read into Stop
 	Deliveries       int              `json:"deliveries,omitempty"`
 	Stock            map[string]int   `json:"stock,omitempty"`
 }

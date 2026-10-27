@@ -173,7 +173,7 @@ func TestFishScheduleAndSave(t *testing.T) {
 	g, wm, _ := fishTestGame(t, "forest")
 	f := config.GlobalEcology.Fish
 	f.SpawnChancePerTile = 1
-	for i := 0; i < f.RollEveryFrames-1; i++ {
+	for i := 0; i < g.framesForSeconds(f.RollEverySeconds)-1; i++ {
 		g.frameCount++
 		g.updateFish()
 	}
@@ -186,7 +186,7 @@ func TestFishScheduleAndSave(t *testing.T) {
 	if sources < 2 || len(g.world.Monsters) != sources {
 		t.Fatal("did not roll independently for every water tile")
 	}
-	for i := 0; i < f.RollEveryFrames; i++ {
+	for i := 0; i < g.framesForSeconds(f.RollEverySeconds); i++ {
 		g.frameCount++
 		g.updateFish()
 	}

@@ -18,7 +18,7 @@ type FrozenWaterTile struct {
 	Y      int              `json:"y"`
 	Clock  status.DualClock `json:"clock,omitzero"`
 	// LegacyFrames is an older save's time left, moved into Clock on load.
-	LegacyFrames int `json:"frames_remaining,omitempty"`
+	LegacyFrames int `json:"frames_remaining,omitempty" ticks:"frames"`
 }
 
 // frozenWaterLocal resolves a tile of world w to the key and local tile ice is stored under.

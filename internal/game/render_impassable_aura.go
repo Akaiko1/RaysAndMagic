@@ -10,11 +10,11 @@ import (
 // Shared ground-effect tuning. Curtain and particle heights follow floor
 // perspective; distant effects fade before their configured range limit.
 const (
-	auraRiseFraction   = 0.55 // curtain height / particle travel relative to floor-rise
-	auraRisePeriodTick = 95.0 // ticks for one bubble to travel bottom->top
-	auraColorBoost     = 1.35 // brighten the tile colour so the boundary reads as a glow
-	auraMinDepth       = 12.0 // near clip (world units) to avoid huge close-up blobs
-	auraSpeedJitterMin = 0.55 // per-bubble rise speed varies in [min, 2-min]xbase period
+	auraRiseFraction      = 0.55   // curtain height / particle travel relative to floor-rise
+	auraRisePeriodSeconds = 0.7917 // seconds for one bubble to travel bottom->top
+	auraColorBoost        = 1.35   // brighten the tile colour so the boundary reads as a glow
+	auraMinDepth          = 12.0   // near clip (world units) to avoid huge close-up blobs
+	auraSpeedJitterMin    = 0.55   // per-bubble rise speed varies in [min, 2-min]xbase period
 )
 
 var auraCardinalDirections = [...][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}

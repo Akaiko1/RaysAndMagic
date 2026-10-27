@@ -29,7 +29,7 @@ func (r *Renderer) prepareRelicMaterial() bool {
 		}
 		r.relicMaterialOpts.Uniforms = map[string]interface{}{"Time": r.relicMaterialTime[:]}
 	}
-	r.relicMaterialTime[0] = float32(r.weaponMaterialClock())
+	r.relicMaterialTime[0] = float32(r.game.worldSeconds())
 	r.relicMaterialOpts.Blend = ebiten.BlendSourceOver
 	return true
 }
@@ -37,7 +37,7 @@ func (r *Renderer) prepareRelicMaterial() bool {
 // Staves retain the shared charged core. Three uneven solar prominences echo
 // the icon's ribs as light around the shot, at the same scale as other staves.
 func (r *Renderer) drawSunCrucibleCorona(dst *ebiten.Image, x, y, size, dx, dy, alpha float64, seed int) {
-	phase := r.weaponMaterialClock() * 2.1
+	phase := r.game.worldSeconds() * 2.1
 	for i := 0; i < 3; i++ {
 		start := float64(i)*2*math.Pi/3 + phase*.35
 		r.drawDissolveStroke(dst, dissolveStroke{

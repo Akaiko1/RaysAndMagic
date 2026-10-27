@@ -145,8 +145,8 @@ func TestSpellInputRecoveryByEffect(t *testing.T) {
 					if (c.RTCooldown == 0) != tc.noRecovery {
 						t.Fatalf("personal recovery=%d; want none=%v", c.RTCooldown, tc.noRecovery)
 					}
-					if !tb && !book && g.actionInputStagger != rtActionStagger {
-						t.Fatalf("input stagger=%d, want %d", g.actionInputStagger, rtActionStagger)
+					if !tb && !book && g.actionInputStagger != g.rtActionStaggerFrames() {
+						t.Fatalf("input stagger=%d, want %d", g.actionInputStagger, g.rtActionStaggerFrames())
 					}
 					for _, viewer := range []*character.MMCharacter{nil, c} {
 						card := GetSpellTooltipRows(d.ID, viewer, g.combat, true).String()

@@ -25,7 +25,6 @@ weapons:
 
     melee:
       arc_type: 3
-      animation_frames: 10
 
     graphics:
       slash_color: [200, 255, 255]

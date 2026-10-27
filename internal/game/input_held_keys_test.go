@@ -192,10 +192,10 @@ func TestInputHandlerHeldKeysThroughSeam(t *testing.T) {
 				ih := NewInputHandler(g)
 				ih.heldKeys = heldOnly(tc.key)
 				ih.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
-				for frame := 1; frame <= rtHoldRepeatDelay; frame++ {
+				for frame := 1; frame <= g.framesForSeconds(rtHoldRepeatSeconds); frame++ {
 					ih.keys.BeginFrame()
 					ih.handleCombatInput()
-					if frame < rtHoldRepeatDelay && ih.pendingRepeat != rtActNone {
+					if frame < g.framesForSeconds(rtHoldRepeatSeconds) && ih.pendingRepeat != rtActNone {
 						t.Fatalf("hold repeated after %d frames", frame)
 					}
 				}

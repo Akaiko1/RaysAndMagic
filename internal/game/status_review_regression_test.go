@@ -83,7 +83,7 @@ func TestStatusReviewTurnVisualLifetime(t *testing.T) {
 				m := monster.NewMonster3DFromConfig(400, 400, "wolf", g.config)
 				g.world.Monsters = []*monster.Monster3D{m}
 				g.turnBasedMode = true
-				tc.monster(m)
+				tc.monster(g, m)
 				for range 2 {
 					g.tickMonsterTurnStatuses(m, true)
 					gl.endMonsterTurn()
@@ -97,7 +97,7 @@ func TestStatusReviewTurnVisualLifetime(t *testing.T) {
 					t.Fatal("completed budget leaked outside the monster phase")
 				}
 				if reapply {
-					tc.monster(m)
+					tc.monster(g, m)
 				}
 				gl.endMonsterTurn()
 				want := statusVisuals(0)

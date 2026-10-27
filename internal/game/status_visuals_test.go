@@ -22,7 +22,7 @@ func TestStatusVisualActiveStateAndHeldTurns(t *testing.T) {
 			if got := monsterStatusVisuals(m, true); got != 0 {
 				t.Fatal("healthy monster has an overlay")
 			}
-			tc.monster(m)
+			tc.monster(nil, m) // no game: the loaded config's rate
 			for _, tb := range []bool{false, true} {
 				if got := monsterStatusVisuals(m, tb); got != tc.flag {
 					t.Fatalf("active visual=%v want %v", got, tc.flag)

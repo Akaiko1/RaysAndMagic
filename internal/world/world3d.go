@@ -2,7 +2,6 @@ package world
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -27,16 +26,13 @@ func (reg *TeleporterRegistry) GroupReady(group string) bool {
 
 // ArmGroup starts a group's re-trigger guard of seconds.
 func (reg *TeleporterRegistry) ArmGroup(group string, seconds float64, tps int) {
-	frames := int(math.Ceil(seconds * float64(tps)))
-	if frames <= 0 {
+	if seconds <= 0 {
 		return
 	}
 	if reg.GroupCooldowns == nil {
 		reg.GroupCooldowns = make(map[string]status.DualClock)
 	}
-	var clock status.DualClock
-	clock.ArmFrames(frames, tps)
-	reg.GroupCooldowns[group] = clock
+	reg.GroupCooldowns[group] = status.FromSeconds(seconds, tps)
 }
 
 // TickGroups spends one tick of the running mode on every group's guard.
@@ -58,10 +54,10 @@ type TeleporterLocation struct {
 	X, Y              int
 	TileType          TileType3D
 	TileKey           string
-	Label             string // Unique label for this teleporter
-	MapKey            string // Which map/world this teleporter is in
-	Group             string // Teleporter group (e.g., "violet", "red")
-	CooldownSeconds   float64
+	Label             string  // Unique label for this teleporter
+	MapKey            string  // Which map/world this teleporter is in
+	Group             string  // Teleporter group (e.g., "violet", "red")
+	CooldownSeconds   float64 // Timer exception: may be a non-whole-round span, its TB rounds round up
 	AutoActivate      bool
 	RandomDestination bool
 	ExcludeSelf       bool

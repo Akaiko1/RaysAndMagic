@@ -47,7 +47,7 @@ const statusBadgeVisuals = visualBind
 type statusVisualEntry struct {
 	flag    statusVisuals
 	key     string
-	monster func(*monster.Monster3D)              // nil for hero-only motifs
+	monster func(*MMGame, *monster.Monster3D)     // nil for hero-only motifs
 	hero    func(*MMGame, *character.MMCharacter) // nil for monster-only motifs
 }
 
@@ -55,8 +55,8 @@ type statusVisualEntry struct {
 func (e statusVisualEntry) label() string { return config.Status(e.key).Name }
 
 const (
-	statusStageFrames = 900
-	statusStageTurns  = 3
+	statusStageSeconds = 7.5
+	statusStageTurns   = 3
 )
 
 func heroStatusCondition(c character.Condition) func(*MMGame, *character.MMCharacter) {
@@ -65,33 +65,43 @@ func heroStatusCondition(c character.Condition) func(*MMGame, *character.MMChara
 
 var statusVisualCatalog = []statusVisualEntry{
 	{visualRoot, "root",
-		func(m *monster.Monster3D) {
-			m.Root.Refresh(statusStageFrames, statusStageTurns)
+		func(g *MMGame, m *monster.Monster3D) {
+			m.Root.Refresh(g.framesForSeconds(statusStageSeconds), statusStageTurns)
 		},
 		func(g *MMGame, _ *character.MMCharacter) {
-			g.partyRoot.Refresh(statusStageFrames, statusStageTurns)
+			g.partyRoot.Refresh(g.framesForSeconds(statusStageSeconds), statusStageTurns)
 		}},
-	{visualSlow, "slow", func(m *monster.Monster3D) { m.ApplySlow(50, statusStageFrames, statusStageTurns) },
+	{visualSlow, "slow", func(g *MMGame, m *monster.Monster3D) {
+		m.ApplySlow(50, g.framesForSeconds(statusStageSeconds), statusStageTurns)
+	},
 		func(g *MMGame, _ *character.MMCharacter) {
-			g.partyHinder.Slow.Refresh(statusStageFrames, statusStageTurns)
+			g.partyHinder.Slow.Refresh(g.framesForSeconds(statusStageSeconds), statusStageTurns)
 		}},
-	{visualWeaken, "weaken", func(m *monster.Monster3D) { m.ApplyWeaken(50, statusStageFrames, statusStageTurns) }, nil},
-	{visualShred, "armor_shred", func(m *monster.Monster3D) { m.ApplyArmorShred(50, statusStageFrames, statusStageTurns) }, nil},
-	{visualCharm, "charm", func(m *monster.Monster3D) {
-		m.Pacified, m.PacifiedClock = true, status.FromFrames(statusStageFrames, config.DefaultTPS)
+	{visualWeaken, "weaken", func(g *MMGame, m *monster.Monster3D) {
+		m.ApplyWeaken(50, g.framesForSeconds(statusStageSeconds), statusStageTurns)
 	}, nil},
-	{visualBind, "bind", func(m *monster.Monster3D) {
-		m.Bound, m.BoundClock = true, status.FromFrames(statusStageFrames, config.DefaultTPS)
+	{visualShred, "armor_shred", func(g *MMGame, m *monster.Monster3D) {
+		m.ApplyArmorShred(50, g.framesForSeconds(statusStageSeconds), statusStageTurns)
 	}, nil},
-	{visualEnrage, "enrage", func(m *monster.Monster3D) { m.Abilities.Enrage.AtHP = max(1, m.HitPoints) }, nil},
+	{visualCharm, "charm", func(g *MMGame, m *monster.Monster3D) {
+		m.Pacified, m.PacifiedClock = true, status.FromSeconds(statusStageSeconds, g.tickRate())
+	}, nil},
+	{visualBind, "bind", func(g *MMGame, m *monster.Monster3D) {
+		m.Bound, m.BoundClock = true, status.FromSeconds(statusStageSeconds, g.tickRate())
+	}, nil},
+	{visualEnrage, "enrage", func(_ *MMGame, m *monster.Monster3D) { m.Abilities.Enrage.AtHP = max(1, m.HitPoints) }, nil},
 	{visualDisease, "diseased", nil, heroStatusCondition(character.ConditionDiseased)},
 	{visualCurse, "cursed", nil, heroStatusCondition(character.ConditionCursed)},
 	{visualSleep, "asleep", nil, heroStatusCondition(character.ConditionAsleep)},
-	{visualFear, "fear", func(m *monster.Monster3D) { m.ApplyFear(statusStageFrames) }, heroStatusCondition(character.ConditionFear)},
+	{visualFear, "fear", func(g *MMGame, m *monster.Monster3D) { m.ApplyFear(g.framesForSeconds(statusStageSeconds)) }, heroStatusCondition(character.ConditionFear)},
 	{visualParalysis, "paralyzed", nil, heroStatusCondition(character.ConditionParalyzed)},
 	{visualStone, "stone", nil, heroStatusCondition(character.ConditionStone)},
-	{visualMelt, "armor_melt", func(m *monster.Monster3D) { m.MeltArmor(statusStageFrames, statusStageTurns) },
-		func(_ *MMGame, h *character.MMCharacter) { h.MeltArmor(statusStageFrames, statusStageTurns) }},
+	{visualMelt, "armor_melt", func(g *MMGame, m *monster.Monster3D) {
+		m.MeltArmor(g.framesForSeconds(statusStageSeconds), statusStageTurns)
+	},
+		func(g *MMGame, h *character.MMCharacter) {
+			h.MeltArmor(g.framesForSeconds(statusStageSeconds), statusStageTurns)
+		}},
 }
 
 func statusVisualEntryFor(flag statusVisuals) (statusVisualEntry, bool) {
@@ -225,7 +235,7 @@ func (g *MMGame) partyConditionLabels(m *character.MMCharacter) (full, short str
 type statusCanvas struct {
 	dst        *ebiten.Image
 	x, y, w, h float64
-	clock      float64
+	clock      float64 // seconds
 	visible    func(centerX, width float64) bool
 	batch      *statusPathBatch
 	world      *worldStatusBatch
@@ -431,7 +441,7 @@ func (c statusCanvas) splitShield(f float64, col color.RGBA) {
 	c.stroke(.77, .45, .84, .49, .015, col)
 	c.stroke(.84, .49, .80, .60, .015, col)
 	for i := 0; i < 3; i++ {
-		ph := math.Mod(f*.01+float64(i)/3, 1)
+		ph := math.Mod(f*1.2+float64(i)/3, 1)
 		flake := col
 		flake.A = uint8(190 * (1 - ph))
 		c.dot(.76+float64(i)*.05, .64+ph*.19, .016, flake)
@@ -452,7 +462,7 @@ func (c statusCanvas) build(v statusVisuals) {
 			lastX, lastY := base, .96
 			for j := 1; j <= 9; j++ {
 				u := float64(j) / 9
-				x := base + dir*(.08+.06*math.Sin(u*6+f*.015))
+				x := base + dir*(.08+.06*math.Sin(u*6+f*1.8))
 				y := .96 - u*.38
 				c.stroke(lastX, lastY, x, y, .022, bark)
 				if j%3 == 0 {
@@ -467,7 +477,7 @@ func (c statusCanvas) build(v statusVisuals) {
 		// An hourglass beside the actor: the sand drains, then the glass turns
 		// over smoothly, so the loop never jumps.
 		frame, glass, sand := color.RGBA{132, 211, 245, 235}, color.RGBA{190, 232, 250, 200}, color.RGBA{232, 214, 160, 235}
-		const period = 480.0
+		const period = 4.0 // seconds
 		ph := math.Mod(f, period) / period
 		flow, turn := min(1, ph/.8), 0.0
 		if ph > .8 {
@@ -506,7 +516,7 @@ func (c statusCanvas) build(v statusVisuals) {
 	if v&visualWeaken != 0 {
 		ash := color.RGBA{182, 151, 204, 220}
 		for i := 0; i < 3; i++ {
-			ph := math.Mod(f*.007+float64(i)/3, 1)
+			ph := math.Mod(f*.84+float64(i)/3, 1)
 			y := .33 + ph*.36
 			col := ash
 			col.A = uint8(210*(1-ph) + 25)
@@ -523,7 +533,7 @@ func (c statusCanvas) build(v statusVisuals) {
 	if v&visualCharm != 0 {
 		rose := color.RGBA{255, 148, 196, 235}
 		for i := 0; i < 3; i++ {
-			ph := math.Mod(f*.003+float64(i)/3, 1)
+			ph := math.Mod(f*.36+float64(i)/3, 1)
 			x, y := .27+float64(i)*.23, .25-ph*.15
 			col := rose
 			col.A = uint8(235 * math.Sin(math.Pi*ph))
@@ -544,7 +554,7 @@ func (c statusCanvas) build(v statusVisuals) {
 		for side := 0; side < 2; side++ {
 			x := .07 + float64(side)*.86
 			for i := 0; i < 3; i++ {
-				ph := math.Mod(f*.005+float64(i)/3, 1)
+				ph := math.Mod(f*.6+float64(i)/3, 1)
 				y := .78 - ph*.44
 				col := color.RGBA{255, 96, 60, uint8(230 * math.Sin(math.Pi*ph))}
 				lx, ly := c.square(x, y, -.035, .028)
@@ -557,7 +567,7 @@ func (c statusCanvas) build(v statusVisuals) {
 	}
 	if v&visualDisease != 0 {
 		for i := 0; i < 7; i++ {
-			a := f*.035 + float64(i)*2.4
+			a := f*4.2 + float64(i)*2.4
 			x := .5 + math.Cos(a)*(.30+.05*math.Sin(a*2))
 			y := .46 + math.Sin(a*.8)*.31
 			c.dot(x, y, .022, color.RGBA{182, 185, 68, 215})
@@ -567,14 +577,14 @@ func (c statusCanvas) build(v statusVisuals) {
 	if v&visualCurse != 0 {
 		violet := color.RGBA{201, 138, 244, 225}
 		for i := 0; i < 4; i++ {
-			a := f*.014 + float64(i)*math.Pi/2
+			a := f*1.68 + float64(i)*math.Pi/2
 			c.arc(.5, .22, .38, .10, a, a+.9, violet)
 			c.diamond(.5+.38*math.Cos(a), .22+.10*math.Sin(a), .025, .04, violet)
 		}
 	}
 	if v&visualSleep != 0 {
 		for i := 0; i < 3; i++ {
-			ph := math.Mod(f*.004+float64(i)/3, 1)
+			ph := math.Mod(f*.48+float64(i)/3, 1)
 			x := .56 + ph*.26
 			y := .5 - ph*.40
 			sz := .045 + ph*.025
@@ -588,14 +598,14 @@ func (c statusCanvas) build(v statusVisuals) {
 		pale := color.RGBA{208, 225, 226, 225}
 		for side := 0; side < 2; side++ {
 			x := .1 + float64(side)*.80
-			wob := .02 * math.Sin(f*.25+float64(side))
+			wob := .02 * math.Sin(f*30+float64(side))
 			c.stroke(x, .25, x+wob, .37, .014, pale)
 			c.stroke(x+wob, .37, x-wob, .48, .014, pale)
 			c.stroke(x-wob, .48, x, .58, .014, pale)
 		}
 	}
 	if v&visualParalysis != 0 {
-		gold := color.RGBA{250, 219, 108, uint8(175 + 65*math.Sin(f*.09)*math.Sin(f*.09))}
+		gold := color.RGBA{250, 219, 108, uint8(175 + 65*math.Sin(f*10.8)*math.Sin(f*10.8))}
 		for side := 0; side < 2; side++ {
 			x := .1 + float64(side)*.8
 			dir := 1.0
@@ -611,7 +621,7 @@ func (c statusCanvas) build(v statusVisuals) {
 		// Stone chips circle the hero like a slowly closing shell.
 		stone := color.RGBA{181, 195, 203, 235}
 		for i := 0; i < 5; i++ {
-			a := f*.012 + float64(i)*2*math.Pi/5
+			a := f*1.44 + float64(i)*2*math.Pi/5
 			x, y := .5+math.Cos(a)*.44, .62+math.Sin(a)*.08
 			c.chip(x, y, .065, .085, stone)
 			c.stroke(x-.02, y-.025, x+.025, y-.045, .015, color.RGBA{239, 241, 226, 210})
@@ -636,7 +646,7 @@ func (r *Renderer) drawAdditionalMonsterStatusFX(screen *ebiten.Image, s Unified
 	width := min(size*.64, (bottom-top)*1.1)
 	c := statusCanvas{dst: screen, x: float64(s.screenX) - width/2, y: top, w: width, h: bottom - top,
 		world:   &r.statusGlyphs,
-		clock:   float64(r.game.frameCount) + float64(monsterFXSalt(s.monster.ID)),
+		clock:   r.game.worldSeconds() + float64(monsterFXSalt(s.monster.ID))*fxSaltSeconds,
 		visible: func(x, w float64) bool { return r.statusFxSpanVisible(depth, x, w) }}
 	c.draw(v)
 }

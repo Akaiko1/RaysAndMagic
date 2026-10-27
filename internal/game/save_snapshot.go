@@ -233,6 +233,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				TurnBasedSwingCarry:     mon.TurnBasedSwingCarry,
 				TurnBasedStepCarry:      mon.TurnBasedStepCarry,
 				Jammed:                  mon.Jammed,
+				AttackCDFrames:          mon.AttackCDFrames,
+				OffHandCDFrames:         mon.OffHandCDFrames,
 				HourMarks:               mon.HourMarks,
 				BossCD:                  mon.BossCD.Saved(),
 				NovaRollCD:              mon.NovaRollCD.Saved(),
@@ -467,6 +469,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	}
 
 	save := GameSave{
+		TickRate:         config.GetTargetTPS(),
 		Adventure:        cloneAdventureState(g.adventure),
 		TerrainChanges:   append([]TerrainChange(nil), g.terrainChanges...),
 		MapKey:           saveMapKey,

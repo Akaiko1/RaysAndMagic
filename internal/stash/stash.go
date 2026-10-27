@@ -11,7 +11,9 @@ import (
 	"os"
 	"slices"
 
+	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/status"
 	"ugataima/internal/storage"
 )
 
@@ -35,14 +37,26 @@ type Stash struct {
 	Album      map[string][]items.Item `json:"album,omitempty"`
 }
 
-// UnmarshalJSON reads the current layout and moves the old card vault
-// (card_slots) into free general cells, for the chest file and the transfer
-// journal alike, so no reader ever sees the retired bank.
+// MarshalJSON records the tick rate the items' frame counts (device recharge,
+// wind-up) were written at, for the chest file and the transfer journal alike.
+func (s Stash) MarshalJSON() ([]byte, error) {
+	type current Stash
+	return json.Marshal(struct {
+		current
+		TickRate int `json:"tick_rate"`
+	}{current(s), config.GetTargetTPS()})
+}
+
+// UnmarshalJSON reads the current layout, moves the old card vault
+// (card_slots) into free general cells and rescales the items' frame counts to
+// the live tick rate (status.RescaleSaved), for the chest file and the
+// transfer journal alike, so no reader ever sees the retired bank.
 func (s *Stash) UnmarshalJSON(data []byte) error {
 	type current Stash
 	var wire struct {
 		current
 		CardSlots []items.Item `json:"card_slots"`
+		TickRate  int          `json:"tick_rate"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
@@ -58,6 +72,7 @@ func (s *Stash) UnmarshalJSON(data []byte) error {
 		}
 		s.Slots[i] = card
 	}
+	status.RescaleSaved(s, wire.TickRate)
 	return nil
 }
 

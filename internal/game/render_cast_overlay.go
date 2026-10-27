@@ -75,7 +75,7 @@ type castOverlayRenderer struct {
 }
 
 func (a buffFxAnim) objectPhase() (phase, alpha float64) {
-	phase = float64(a.age) / float64(a.totalFrames())
+	phase = float64(a.age) / float64(a.lifetime)
 	alpha = smoothStep(phase/.12) * (1 - smoothStep((phase-.72)/.28))
 	return phase, alpha
 }
@@ -135,7 +135,7 @@ func (r *Renderer) drawCastOverlayRegion(dst *ebiten.Image, a buffFxAnim, pass f
 		s.opts.Uniforms = map[string]any{"Phase": s.phase[:], "Style": s.style[:], "Viewport": s.viewport[:], "Origin": s.origin[:], "Pass": s.pass[:]}
 	}
 	w, h := float32(width), float32(height)
-	s.phase[0] = float32(a.age) / float32(a.totalFrames())
+	s.phase[0] = float32(a.age) / float32(a.lifetime)
 	s.pass[0] = pass
 	style := castOverlayStyles[a.overlay]
 	s.style[0] = float32(style.material)

@@ -51,7 +51,7 @@ weapons:
     value: 7500
     no_loot: true
     signature: {kind: rune_discharge, damage: 30, scaling_stat: Intellect, stat_divisor: 2, school: earth, sp_cost: 3}
-    melee: {arc_type: 3, animation_frames: 12}
+    melee: {arc_type: 3}
     graphics: {slash_fx: solstice_stone_script, slash_color: [67, 203, 143], slash_width: 30, slash_length: 70}
 
   solstice_returning_gale:
@@ -97,7 +97,7 @@ weapons:
     rarity: "uncommon"
     value: 320
     hit_shell_absorption: 15
-    melee: {arc_type: 3, animation_frames: 12}
+    melee: {arc_type: 3}
     graphics: {slash_fx: shellknocker, slash_color: [190, 155, 70], slash_width: 38, slash_length: 60}
 
   rainfang:
@@ -111,7 +111,7 @@ weapons:
     rarity: "uncommon"
     value: 320
     attack_zone_proc: {spell: hot_steam, chance_pct: 3, intellect: 50}
-    melee: {arc_type: 1, animation_frames: 6}
+    melee: {arc_type: 1}
     graphics: {slash_fx: rainfang, slash_color: [125, 205, 215], slash_width: 24, slash_length: 38}
 
   solstice_thermal_lance:
@@ -129,7 +129,6 @@ weapons:
     elemental_ability: {kind: pressure, damage: 24, duration_seconds: 9, hits: 3, scaling_stat: Speed, stat_divisor: 3}
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_fx: "solstice_thermal"
       slash_color: [210, 105, 45]
@@ -177,7 +176,6 @@ weapons:
     elemental_ability: {kind: anchor, damage: 12, duration_seconds: 9, max_stacks: 10}
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_lift_ratio: 0.067
       slash_fx: "solstice_anchor"
@@ -200,7 +198,6 @@ weapons:
     elemental_ability: {kind: crosswind, damage: 90, duration_seconds: 9, hits: 3, range_tiles: 3}
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_fx: "solstice_transfer"
       slash_color: [155, 195, 215]
@@ -222,7 +219,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 8  # Brief slash animation
 
     # Visual effects for slash animation
     graphics:
@@ -245,7 +241,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 1
-      animation_frames: 6  # Quick stab animation
 
     # Visual effects for slash animation
     graphics:
@@ -292,7 +287,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 10  # Slower, heavier swing
 
     # Visual effects for slash animation
     graphics:
@@ -317,7 +311,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 10  # Slower, heavier swing
 
     # Visual effects for slash animation
     graphics:
@@ -439,7 +432,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 8  # Standard sword swing
 
     # Visual effects for slash animation
     graphics:
@@ -462,7 +454,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 1
-      animation_frames: 12  # Longer thrust animation
 
     # Visual effects for thrust animation
     graphics:
@@ -484,7 +475,6 @@ weapons:
     flavor: "A drain-cleaner's pole resharpened into a pike - rust and all."
     melee:
       arc_type: 1
-      animation_frames: 12
     graphics:
       slash_color: [120, 110, 70]
       slash_width: 18
@@ -504,7 +494,6 @@ weapons:
     flavor: "A thief-bug's barbed foreleg, lashed to a haft and still twitching."
     melee:
       arc_type: 1
-      animation_frames: 11
     graphics:
       slash_color: [150, 130, 60]
       slash_width: 18
@@ -525,7 +514,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 2
-      animation_frames: 10  # Slightly slower, powerful swing
 
     # Visual effects for slash animation
     graphics:
@@ -549,7 +537,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 3
-      animation_frames: 14  # Slow, heavy swing
 
     # Visual effects for slash animation
     graphics:
@@ -651,7 +638,6 @@ weapons:
 
     melee:
       arc_type: 1
-      animation_frames: 8
     graphics:
       slash_color: [120, 200, 140]  # green agile flash
       slash_width: 16
@@ -749,7 +735,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 3
-      animation_frames: 13
 
     # Visual effects for slash animation
     graphics:
@@ -772,7 +757,6 @@ weapons:
     # Melee-specific configuration
     melee:
       arc_type: 4
-      animation_frames: 16  # Slow, ponderous swing
 
     # Visual effects for slash animation
     graphics:
@@ -797,7 +781,6 @@ weapons:
     flavor: "Forged to cut; the blade thirsts even sheathed."
     melee:
       arc_type: 3
-      animation_frames: 7
     graphics:
       slash_color: [200, 40, 40]
       slash_width: 36
@@ -819,7 +802,6 @@ weapons:
     flavor: "A dragonfly that lit upon the point fell to the ground in two."
     melee:
       arc_type: 2
-      animation_frames: 11
     graphics:
       slash_color: [120, 200, 140]
       slash_width: 22
@@ -843,7 +825,6 @@ weapons:
     flavor: "A shadow with two edges."
     melee:
       arc_type: 2
-      animation_frames: 5
     graphics:
       slash_color: [120, 60, 180]
       slash_width: 22
@@ -889,7 +870,6 @@ weapons:
     flavor: "One curve, one purpose."
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_fx: katana
       slash_color: [220, 230, 235]
@@ -909,7 +889,6 @@ weapons:
     flavor: "The honour-blade; never far from its bearer's side."
     melee:
       arc_type: 1
-      animation_frames: 6
     graphics:
       slash_color: [220, 225, 230]
       slash_width: 24
@@ -928,7 +907,6 @@ weapons:
     flavor: "The footman's reach; plain, straight, and certain."
     melee:
       arc_type: 1
-      animation_frames: 12
     graphics:
       slash_color: [180, 180, 190]
       slash_width: 18
@@ -947,7 +925,6 @@ weapons:
     flavor: "A moon's edge on a pole; it reaps a wide circle."
     melee:
       arc_type: 3
-      animation_frames: 13
     graphics:
       slash_color: [200, 210, 200]
       slash_width: 30
@@ -992,7 +969,6 @@ weapons:
     flavor: "An oni's argument, studded with iron."
     melee:
       arc_type: 2
-      animation_frames: 11
     graphics:
       slash_lift_ratio: 0.086
       slash_color: [170, 150, 120]
@@ -1016,7 +992,6 @@ weapons:
     flavor: "Folded iron feathers; one flick and the grass lies flat."
     melee:
       arc_type: 2
-      animation_frames: 6
     graphics:
       slash_fx: war_fan
       slash_color: [190, 220, 230]
@@ -1039,7 +1014,6 @@ weapons:
     flavor: "It held her hair up. It holds men still."
     melee:
       arc_type: 1
-      animation_frames: 5
     graphics:
       slash_color: [160, 60, 80]
       slash_width: 20
@@ -1060,7 +1034,6 @@ weapons:
     flavor: "It clears a path through anything - vines, or men."
     melee:
       arc_type: 2
-      animation_frames: 7
     graphics:
       slash_color: [200, 210, 180]
       slash_width: 32
@@ -1080,7 +1053,6 @@ weapons:
     flavor: "Glass older than the jungle, and just as patient."
     melee:
       arc_type: 1
-      animation_frames: 9
     graphics:
       slash_color: [80, 70, 90]
       slash_width: 20
@@ -1099,7 +1071,6 @@ weapons:
     flavor: "Every tooth in it belonged to something that lost."
     melee:
       arc_type: 2
-      animation_frames: 10
     graphics:
       slash_lift_ratio: 0.114
       slash_color: [210, 200, 170]
@@ -1145,7 +1116,6 @@ weapons:
     flavor: "It bites where armor forgets to."
     melee:
       arc_type: 1
-      animation_frames: 5
     graphics:
       slash_color: [140, 200, 120]
       slash_width: 22
@@ -1167,7 +1137,6 @@ weapons:
     flavor: "Stone gods and standing men fall to the same swing."
     melee:
       arc_type: 3
-      animation_frames: 12
     graphics:
       slash_lift_ratio: 0.156
       slash_color: [220, 180, 90]
@@ -1191,7 +1160,6 @@ weapons:
     flavor: "Short, ugly, and always the last word of the bout."
     melee:
       arc_type: 2
-      animation_frames: 7
     graphics:
       slash_color: [230, 225, 215]
       slash_width: 34
@@ -1213,7 +1181,6 @@ weapons:
     flavor: "Every swing peels the fight a little more naked."
     melee:
       arc_type: 3
-      animation_frames: 13
     graphics:
       slash_color: [210, 190, 130]
       slash_width: 48
@@ -1235,7 +1202,6 @@ weapons:
     flavor: "The crowd counts the chimes."
     melee:
       arc_type: 2
-      animation_frames: 10
     graphics:
       slash_color: [200, 200, 210]
       slash_width: 42
@@ -1256,7 +1222,6 @@ weapons:
     flavor: "The line holds because the point holds."
     melee:
       arc_type: 1
-      animation_frames: 11
     graphics:
       slash_color: [190, 180, 170]
       slash_width: 20
@@ -1279,7 +1244,6 @@ weapons:
     flavor: "First the net, then the fork, then the verdict."
     melee:
       arc_type: 1
-      animation_frames: 10
     graphics:
       slash_color: [180, 200, 210]
       slash_width: 22
@@ -1301,7 +1265,6 @@ weapons:
     flavor: "It listens to the other blade, then talks back."
     melee:
       arc_type: 1
-      animation_frames: 6
     graphics:
       slash_color: [220, 220, 235]
       slash_width: 22
@@ -1323,7 +1286,6 @@ weapons:
     flavor: "The lion on the crest is the last thing a breastplate sees."
     melee:
       arc_type: 2
-      animation_frames: 12
     graphics:
       slash_color: [220, 205, 160]
       slash_width: 46
@@ -1423,7 +1385,6 @@ weapons:
     flavor: "Two fists, four knuckle-plates, one rhythm."
     melee:
       arc_type: 1
-      animation_frames: 5
     graphics:
       slash_color: [210, 160, 110]
       slash_width: 24
@@ -1449,7 +1410,6 @@ weapons:
 
     melee:
       arc_type: 2
-      animation_frames: 8
 
     graphics:
       slash_color: [255, 220, 180]
@@ -1473,7 +1433,6 @@ weapons:
     flavor: "Every parry loses the other blade a tooth."
     melee:
       arc_type: 2
-      animation_frames: 8
     graphics:
       slash_color: [200, 220, 245]
       slash_fx: "clock_cogfang"
@@ -1496,7 +1455,6 @@ weapons:
     flavor: "For whom does it toll? Whoever stands closest."
     melee:
       arc_type: 2
-      animation_frames: 11
     graphics:
       slash_lift_ratio: 0.074
       slash_color: [235, 215, 160]
@@ -1522,7 +1480,6 @@ weapons:
     flavor: "Sixty stabs an hour, on the hour, every hour."
     melee:
       arc_type: 1
-      animation_frames: 6
     graphics:
       slash_color: [220, 228, 240]
       slash_fx: "clock_minute"
@@ -1545,7 +1502,6 @@ weapons:
     flavor: "Wound in 1602. Still furious."
     melee:
       arc_type: 1
-      animation_frames: 10
     graphics:
       slash_color: [200, 195, 185]
       slash_fx: "clock_mainspring"
@@ -1635,7 +1591,6 @@ weapons:
     flavor: "What it bites, it brands."
     melee:
       arc_type: 2
-      animation_frames: 12
     graphics:
       slash_color: [235, 120, 60]
       slash_width: 44
@@ -1658,7 +1613,6 @@ weapons:
     flavor: "It does not finish fights. It swallows them."
     melee:
       arc_type: 3
-      animation_frames: 14
     graphics:
       slash_color: [200, 70, 50]
       slash_width: 52
@@ -1683,7 +1637,6 @@ weapons:
     flavor: "Hatch, little one."
     melee:
       arc_type: 2
-      animation_frames: 12
     graphics:
       slash_color: [255, 140, 40]
       slash_width: 46
@@ -1705,7 +1658,6 @@ weapons:
     flavor: "Armor is a rumor it declines to believe."
     melee:
       arc_type: 1
-      animation_frames: 11
     graphics:
       slash_color: [180, 200, 210]
       slash_width: 30
@@ -1728,7 +1680,6 @@ weapons:
     flavor: "The tarn keeps what slows down."
     melee:
       arc_type: 1
-      animation_frames: 11
     graphics:
       slash_color: [90, 160, 150]
       slash_width: 34
@@ -1753,7 +1704,6 @@ weapons:
     flavor: "Small teeth teach long lessons."
     melee:
       arc_type: 1
-      animation_frames: 9
     graphics:
       slash_color: [120, 220, 90]
       slash_width: 24
@@ -1776,7 +1726,6 @@ weapons:
     flavor: "The roar breaks what the steel forgives."
     melee:
       arc_type: 2
-      animation_frames: 13
     graphics:
       slash_color: [200, 170, 120]
       slash_width: 50
@@ -1934,7 +1883,6 @@ weapons:
     flavor: "It does not cut. It disagrees."
     melee:
       arc_type: 2
-      animation_frames: 10
     graphics:
       slash_color: [130, 235, 235]
       slash_width: 40

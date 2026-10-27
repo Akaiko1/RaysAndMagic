@@ -275,7 +275,7 @@ func TestDisplayedStatHoldKeepsItsActorAndLayout(t *testing.T) {
 			fp.hold()
 			ui.Draw(screen)
 			ui.dispatchDisplayedInput()
-			for i := 0; i < statHoldInitialDelay+statHoldRepeatRate-1; i++ {
+			for i := 0; i < g.framesForSeconds(statHoldDelaySeconds)+g.framesForSeconds(statHoldRepeatSeconds)-1; i++ {
 				ui.dispatchDisplayedInput()
 			}
 			tc.change(g)

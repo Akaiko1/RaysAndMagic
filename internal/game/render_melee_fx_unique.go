@@ -15,9 +15,9 @@ import (
 // deterministic particles in the weapon's own element and silhouette; weapons
 // without a style keep the category swing in drawMeleeParticles.
 
-// meleeFxStyledLingerFrames extends the lifetime of styled swings so their
+// meleeFxStyledLingerSeconds extends the lifetime of styled swings so their
 // dissolve tails (blood droplets, debris, wisps) have room to play out.
-const meleeFxStyledLingerFrames = 44 // ~0.37s at 120 TPS
+const meleeFxStyledLingerSeconds = 0.37
 
 // meleeFxStyleDraw maps graphics.slash_fx to its bespoke renderer
 // (legendaries here, rares + naginata in render_melee_fx_rare.go).
@@ -323,7 +323,7 @@ func (r *Renderer) drawMeleeFxTonbogiri(screen *ebiten.Image, s SlashEffect, cx,
 		return
 	}
 	seed := seedFromID(s.ID)
-	fc := int(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	h := screenH * meleeSizeScale
 	emerald := [3]int{90, 225, 140}
 	skyCyan := [3]int{130, 235, 235}
@@ -346,7 +346,7 @@ func (r *Renderer) drawMeleeFxTonbogiri(screen *ebiten.Image, s SlashEffect, cx,
 		path:  func(t float64) (float64, float64) { return baseX, baseY - reach*t },
 		width: func(t float64) float64 { return (4 + 6*(1-t)) * widthScale },
 		color: func(t float64) [3]int {
-			return mixColor(emerald, skyCyan, 0.5+0.5*math.Sin(t*9+float64(fc)*0.25))
+			return mixColor(emerald, skyCyan, 0.5+0.5*math.Sin(t*9+sec*30))
 		},
 		alpha:  func(t float64) float64 { return 0.45 + 0.55*t },
 		length: reach,
@@ -475,7 +475,7 @@ func (r *Renderer) drawMeleeFxIdolBreaker(screen *ebiten.Image, s SlashEffect, c
 			r.drawWeaponShard(screen, sx, sy, math.Max(2, sz*f), c, fade*(1-u*u)*0.9*f*f, ug, seed+k*37, false)
 		}
 	}
-	fc := int(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	const embers = 7
 	for k := 0; k < embers; k++ {
 		eb := auraHash(seed, k, 55, 0) * 0.3
@@ -483,7 +483,7 @@ func (r *Renderer) drawMeleeFxIdolBreaker(screen *ebiten.Image, s SlashEffect, c
 			continue
 		}
 		eu := (u - eb) / (1 - eb)
-		tw := 0.5 + 0.5*math.Sin(float64(fc)*0.3+auraHash(seed, k, 56, 0)*2*math.Pi)
+		tw := 0.5 + 0.5*math.Sin(sec*36+auraHash(seed, k, 56, 0)*2*math.Pi)
 		ex := impX + (auraHash(seed, k, 57, 0)-0.5)*h*0.14 + math.Sin(eu*5)*thick*0.4
 		ey := impY - eu*h*0.14
 		r.drawSparkStar(screen, ex, ey, math.Max(2, thick*0.22*(1-eu*0.5)),

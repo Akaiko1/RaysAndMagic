@@ -53,40 +53,60 @@ func NewInputHandler(game *MMGame) *InputHandler {
 	return &InputHandler{game: game}
 }
 
-// inputDebounceCooldown is a minimal cooldown to prevent key repeat issues
-const inputDebounceCooldown = 10 // ~0.08s at 120 TPS
+// inputDebounceSeconds is a minimal cooldown to prevent key repeat issues.
+const inputDebounceSeconds = 0.08
 
-// rtActionStagger is the short global gap (frames) between any two real-time
+// rtActionStaggerSeconds is the short global gap between any two real-time
 // combat actions. The big gate is each character's own RTCooldown; this small
 // stagger only spaces out a held-key volley so the party visibly fires in turn
-// (~0.07s apart at 120 TPS) instead of several members acting on one frame.
-const rtActionStagger = 8
+// instead of several members acting on one frame.
+const rtActionStaggerSeconds = 0.07
 
-// rtHoldRepeatDelay is how long (frames) an attack key must be HELD before it
-// starts auto-repeating (cycling the party). Set well above a normal tap (even a
-// slow ~0.3s one) so single presses fire exactly once - only a deliberate hold
-// cycles. ~0.45s at 120 TPS.
-const rtHoldRepeatDelay = 54 // ~0.45s at 120 TPS
+// rtActionStaggerFrames is rtActionStaggerSeconds at the live rate.
+func (g *MMGame) rtActionStaggerFrames() int {
+	return g.framesForSeconds(rtActionStaggerSeconds)
+}
+
+// rtHoldRepeatSeconds is how long an attack key must be HELD before it starts
+// auto-repeating (cycling the party). Set well above a normal tap (even a slow
+// ~0.3s one) so single presses fire exactly once - only a deliberate hold
+// cycles.
+const rtHoldRepeatSeconds = 0.45
+
+// inputStaggerFrames is the gap between accepted gameplay inputs
+// (ui.input_stagger_seconds).
+func (g *MMGame) inputStaggerFrames() int {
+	return g.framesForSeconds(g.config.UI.InputStaggerSeconds)
+}
+
+// holdRepeats reports whether a key held for holdFrames has passed the
+// auto-repeat delay (rtHoldRepeatSeconds).
+func (g *MMGame) holdRepeats(holdFrames int) bool {
+	return holdFrames >= g.framesForSeconds(rtHoldRepeatSeconds)
+}
 
 // spacePickupWanted gates the ground-loot pickup on Space with the same
 // tap-vs-hold discipline as the combat keys: a fresh tap fires exactly once; a
-// sustained hold auto-repeats only after rtHoldRepeatDelay (paced further by
+// sustained hold auto-repeats only after rtHoldRepeatSeconds (paced further by
 // the input cooldown at the call site). Must NOT key off the raw held state -
 // a normal tap outlives the input cooldown.
-func spacePickupWanted(just bool, holdFrames int) bool {
-	return just || holdFrames >= rtHoldRepeatDelay
+func (g *MMGame) spacePickupWanted(just bool, holdFrames int) bool {
+	return just || g.holdRepeats(holdFrames)
 }
 
 // actionCooldown returns the number of frames to wait before the next action.
 // In turn-based mode, returns a minimal debounce value since actions are limited by turns.
 // In real-time mode, uses Speed-based scaling; the underlying curve reaches its
 // minimum at AttackCooldownCapSpeed.
-func (ih *InputHandler) actionCooldown(_ int) int {
-	if ih == nil || ih.game == nil || ih.game.combat == nil {
-		return inputDebounceCooldown
+func (ih *InputHandler) actionCooldown() int {
+	var g *MMGame
+	if ih != nil {
+		g = ih.game
 	}
-	selected := ih.game.party.Members[ih.game.selectedChar]
-	return ih.game.combat.CalculateActionCooldownFrames(selected)
+	if g == nil || g.combat == nil {
+		return g.framesForSeconds(inputDebounceSeconds)
+	}
+	return g.combat.CalculateActionCooldownFrames(g.party.Members[g.selectedChar])
 }
 
 // HandleInput processes all input for the current frame
@@ -542,7 +562,7 @@ func (ih *InputHandler) closeVictoryOverlay() {
 func (ih *InputHandler) handleVictoryNameInput() {
 	ih.game.victoryNameInput = appendRunesLimited(ih.game.victoryNameInput, AcceptTypedRunes(typedInputChars()), 20)
 
-	if repeatingKeyPressed(ebiten.KeyBackspace) {
+	if ih.game.repeatingKeyPressed(ebiten.KeyBackspace) {
 		ih.game.victoryNameInput = removeLastRune(ih.game.victoryNameInput)
 	}
 }
@@ -587,12 +607,16 @@ func (ih *InputHandler) saveVictoryScore() {
 	ih.game.victoryScoreSaved = true
 }
 
+// Text-field key repeat: the first repeat after keyRepeatDelaySeconds, then
+// one every keyRepeatIntervalSeconds.
+const (
+	keyRepeatDelaySeconds    = 0.25
+	keyRepeatIntervalSeconds = 0.025
+)
+
 // repeatingKeyPressed returns true if key is pressed with repeat handling
-func repeatingKeyPressed(key ebiten.Key) bool {
-	const (
-		delay    = 30
-		interval = 3
-	)
+func (g *MMGame) repeatingKeyPressed(key ebiten.Key) bool {
+	delay, interval := g.framesForSeconds(keyRepeatDelaySeconds), g.framesForSeconds(keyRepeatIntervalSeconds)
 	d := inpututil.KeyPressDuration(key)
 	if d == 1 {
 		return true
@@ -763,7 +787,7 @@ func (g *MMGame) loadSaveRow(row int) bool {
 
 func (ih *InputHandler) handleSaveRenameInput() {
 	ih.game.saveRenameInput = appendRunesLimited(ih.game.saveRenameInput, AcceptTypedRunes(typedInputChars()), 24)
-	if repeatingKeyPressed(ebiten.KeyBackspace) {
+	if ih.game.repeatingKeyPressed(ebiten.KeyBackspace) {
 		ih.game.saveRenameInput = removeLastRune(ih.game.saveRenameInput)
 	}
 	if ih.keys.Consume(ebiten.KeyEnter) {
@@ -931,13 +955,13 @@ func (ih *InputHandler) handleCombatInput() {
 
 	// Space also picks up ground loot - works while sprinting. Same tap-vs-hold
 	// discipline as the combat keys below: a tap picks up exactly ONE container;
-	// a deliberate hold (rtHoldRepeatDelay) vacuums a fanned pile paced by the
+	// a deliberate hold (rtHoldRepeatSeconds) vacuums a fanned pile paced by the
 	// input cooldown. Skipped once this press has fired a combat action, so the
 	// SAME tap that killed a mob can't immediately grab the bag it dropped
 	// (release + press again to pick up).
-	if spacePickupWanted(spaceJust, ih.spaceHoldFrames) && !ih.spacePressActed && ih.game.actionInputStagger == 0 {
+	if ih.game.spacePickupWanted(spaceJust, ih.spaceHoldFrames) && !ih.spacePressActed && ih.game.actionInputStagger == 0 {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
-			ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+			ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 			return
 		}
 	}
@@ -945,7 +969,7 @@ func (ih *InputHandler) handleCombatInput() {
 	// the feet wins above so an NPC can never block a pickup. Fresh press only -
 	// a held Space keeps its combat meaning.
 	if spaceJust && ih.game.actionInputStagger == 0 && ih.tryFocusedNPCInteraction() {
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 		return
 	}
 	if running {
@@ -954,14 +978,14 @@ func (ih *InputHandler) handleCombatInput() {
 	}
 
 	// Tap vs hold: a fresh press (Just) fires ONCE; a sustained hold only
-	// auto-repeats after rtHoldRepeatDelay, so a single tap can't fire twice.
+	// auto-repeats after rtHoldRepeatSeconds, so a single tap can't fire twice.
 	anyHeld := rHeld || spaceHeld || fHeld || cHeld || hHeld
 	if anyHeld {
 		ih.attackHoldFrames++
 	} else {
 		ih.attackHoldFrames = 0
 	}
-	repeat := ih.attackHoldFrames >= rtHoldRepeatDelay
+	repeat := ih.game.holdRepeats(ih.attackHoldFrames)
 
 	kind := rtActNone
 	switch {
@@ -1082,7 +1106,7 @@ func (ih *InputHandler) performRTCombatAction(kind rtActionKind, freshCast bool)
 func (ih *InputHandler) commitRTAction(kind rtActionKind, cooldownFrames int) {
 	sel := ih.game.party.Members[ih.game.selectedChar]
 	sel.RTCooldown = cooldownFrames
-	ih.game.actionInputStagger = rtActionStagger
+	ih.game.actionInputStagger = ih.game.rtActionStaggerFrames()
 	ih.game.advanceRTActor(kind)
 }
 
@@ -1107,7 +1131,7 @@ func (ih *InputHandler) commitRTWeaponAttack(kind rtActionKind, sel *character.M
 		}
 	}
 	sel.NextTBAttackOffHand = slot == items.SlotMainHand
-	ih.game.actionInputStagger = rtActionStagger
+	ih.game.actionInputStagger = ih.game.rtActionStaggerFrames()
 	ih.game.advanceRTActor(kind)
 }
 
@@ -1312,11 +1336,7 @@ func (ih *InputHandler) strafeRight() {
 }
 
 func (ih *InputHandler) movementScale() float64 {
-	tps := ih.game.config.GetTPS()
-	if tps <= 0 {
-		return 1.0
-	}
-	return 60.0 / float64(tps)
+	return 60.0 / float64(ih.game.config.GetTPS())
 }
 
 // moveSpeed is the per-frame real-time translation speed: base move speed x the
@@ -1660,7 +1680,7 @@ func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
 	}
 	if g.currentTab == tab {
 		g.menuOpen = false
-		g.actionInputStagger = g.config.UI.InputStaggerFrames
+		g.actionInputStagger = g.inputStaggerFrames()
 		return
 	}
 	g.showMenuTab(tab)
@@ -1679,7 +1699,7 @@ func (g *MMGame) showMenuTab(tab MenuTab) {
 // openTabbedMenu opens the tabbed menu with the specified tab
 func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
 	ih.game.showMenuTab(tab)
-	ih.game.tabbedMenuInputCooldown = ih.game.config.UI.InputStaggerFrames
+	ih.game.tabbedMenuInputCooldown = ih.game.inputStaggerFrames()
 }
 
 // handleTabbedMenuInput processes input when the tabbed menu is open
@@ -1691,7 +1711,7 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 	// Close menu with Escape
 	if ih.keys.Consume(ebiten.KeyEscape) {
 		ih.game.menuOpen = false
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 		return
 	}
 
@@ -1699,7 +1719,7 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 	// click, including for a dead or eradicated member whose inventory is open.
 	for idx, key := range [...]ebiten.Key{ebiten.Key1, ebiten.Key2, ebiten.Key3, ebiten.Key4} {
 		if ih.keyHeld(key) && ih.game.selectPartyMemberManually(idx) {
-			ih.game.tabbedMenuInputCooldown = ih.game.config.UI.InputStaggerFrames
+			ih.game.tabbedMenuInputCooldown = ih.game.inputStaggerFrames()
 		}
 	}
 
@@ -1747,9 +1767,9 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	}
 	if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
 		if ih.useSelectedBookEntryFromHub() {
-			g.actionInputStagger = g.config.UI.InputStaggerFrames
+			g.actionInputStagger = g.inputStaggerFrames()
 		} else {
-			g.tabbedMenuInputCooldown = g.config.UI.InputStaggerFrames
+			g.tabbedMenuInputCooldown = g.inputStaggerFrames()
 		}
 	}
 }
@@ -1874,13 +1894,13 @@ func (ih *InputHandler) handleDialogInput() {
 		if ih.game.selectedCharIdx > 0 {
 			ih.game.selectedCharIdx--
 		}
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 	if ih.keyHeld(ebiten.KeyRight) && ih.game.actionInputStagger == 0 {
 		if ih.game.selectedCharIdx < len(ih.game.party.Members)-1 {
 			ih.game.selectedCharIdx++
 		}
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 
 	// Handle different NPC capabilities
@@ -2351,7 +2371,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 
 		if moved {
-			ih.game.turnBasedMoveCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
+			ih.game.turnBasedMoveCooldown = ih.game.framesForSeconds(TurnBasedInputCooldownSeconds)
 			ih.game.endPartyTurnAfterMovement()
 			return
 		}
@@ -2371,7 +2391,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 
 		if rotated {
-			ih.game.turnBasedRotCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
+			ih.game.turnBasedRotCooldown = ih.game.framesForSeconds(TurnBasedInputCooldownSeconds)
 			return
 		}
 	}
@@ -2393,7 +2413,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 		if ih.tryFocusedNPCInteraction() {
 			// Dialog opens; talking costs no action slot.
-			ih.game.actionInputStagger = ih.actionCooldown(15)
+			ih.game.actionInputStagger = ih.actionCooldown()
 			return
 		}
 		kind = rtActSmart
@@ -2417,7 +2437,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		if kind == rtActSmart || kind == rtActWeapon {
 			ih.game.passTBAttackRequest()
 		}
-		ih.game.actionInputStagger = ih.actionCooldown(15)
+		ih.game.actionInputStagger = ih.actionCooldown()
 		return
 	}
 	selected := ih.game.party.Members[ih.game.selectedChar]
@@ -2431,19 +2451,19 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		if ih.game.combat.EquipmentMeleeAttack() {
 			ih.game.commitWeaponAction()
 		}
-		ih.game.actionInputStagger = ih.actionCooldown(15)
+		ih.game.actionInputStagger = ih.actionCooldown()
 	case rtActSmart:
 		ih.performTurnBasedSmartAttack()
 	case rtActSlotted:
 		if fired, recovery := ih.useSlottedActionResolved(selected); fired {
 			ih.game.commitHeroAction(ih.game.selectedChar, recovery)
 		}
-		ih.game.actionInputStagger = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
+		ih.game.actionInputStagger = ih.actionCooldown() // debounce even on a failed cast, like the other action keys
 	case rtActHeal:
 		if cast, spellID := ih.game.combat.CastBestHeal(); cast {
 			ih.game.commitHeroAction(ih.game.selectedChar, ih.game.combat.SpellCooldownFrames(selected, spellID))
 		}
-		ih.game.actionInputStagger = ih.actionCooldown(15)
+		ih.game.actionInputStagger = ih.actionCooldown()
 	}
 }
 
@@ -2614,18 +2634,18 @@ func (ih *InputHandler) handleSpellTraderInput() {
 	if ih.keyHeld(ebiten.KeyUp) && ih.game.actionInputStagger == 0 {
 		ih.navigateSpellSelectionUp(spellKeys)
 		ih.syncSpellTraderPageToSelection(spellKeys)
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 	if ih.keyHeld(ebiten.KeyDown) && ih.game.actionInputStagger == 0 {
 		ih.navigateSpellSelectionDown(spellKeys)
 		ih.syncSpellTraderPageToSelection(spellKeys)
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 
 	// Purchase spell with Enter
 	if ih.keyHeld(ebiten.KeyEnter) && ih.game.actionInputStagger == 0 {
 		ih.purchaseSelectedSpell()
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 }
 
@@ -2649,7 +2669,7 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 			ih.game.dialogSelectedSpell = len(options) - 1
 		}
 		ih.syncSkillTrainerPageToSelection()
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 	if ih.keys.Consume(ebiten.KeyDown) && ih.game.actionInputStagger == 0 {
 		if ih.game.dialogSelectedSpell < len(options)-1 {
@@ -2658,11 +2678,11 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 			ih.game.dialogSelectedSpell = 0
 		}
 		ih.syncSkillTrainerPageToSelection()
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 	if ih.keys.Consume(ebiten.KeyEnter) && ih.game.actionInputStagger == 0 {
 		ih.purchaseSelectedTraining()
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 }
 
@@ -2725,13 +2745,13 @@ func (ih *InputHandler) handleEncounterInput() {
 		if ih.game.selectedChoice > 0 {
 			ih.game.selectedChoice--
 		}
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 	if ih.keyHeld(ebiten.KeyDown) && ih.game.actionInputStagger == 0 {
 		if ih.game.selectedChoice < len(choices)-1 {
 			ih.game.selectedChoice++
 		}
-		ih.game.actionInputStagger = ih.game.config.UI.InputStaggerFrames
+		ih.game.actionInputStagger = ih.game.inputStaggerFrames()
 	}
 
 	// Select with Enter or a number key (1-9). Edge-triggered: executing a

@@ -1,5 +1,10 @@
 package game
 
+import "math"
+
+// screenShakeHalfLifeSeconds: the screen shake's amplitude halves this often.
+const screenShakeHalfLifeSeconds = 0.04519
+
 // updateInterfacePresentation is the single interface tick for gameplay,
 // paused/loading frames and the FX editor. Keep every Card lifetime beside the
 // clock its drawing code reads; render-only frames never call this method.
@@ -38,7 +43,7 @@ func (gl *GameLoop) updateWorldPresentation() {
 
 	// Screen shake decays exponentially toward rest.
 	if gl.game.screenShake > 0 {
-		gl.game.screenShake *= 0.88
+		gl.game.screenShake *= math.Exp2(-1 / (float64(gl.game.tickRate()) * screenShakeHalfLifeSeconds))
 		if gl.game.screenShake < 0.05 {
 			gl.game.screenShake = 0
 		}

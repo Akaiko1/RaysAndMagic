@@ -59,6 +59,15 @@ func NewCombatSystem(game *MMGame) *CombatSystem {
 	return &CombatSystem{game: game}
 }
 
+// gameOrNil is the system's game, nil for a nil system: tooltips and catalog
+// cards price actions without a live game.
+func (cs *CombatSystem) gameOrNil() *MMGame {
+	if cs == nil {
+		return nil
+	}
+	return cs.game
+}
+
 func (cs *CombatSystem) rollRacialProc(chancePct int) bool {
 	if cs != nil && cs.racialProcRoll != nil {
 		return cs.racialProcRoll(chancePct)
@@ -838,7 +847,7 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 		rangeTiles, speedTiles := character.EffectiveWeaponFlight(equippedDef, attacker)
 		arrowSpeed = speedTiles * float64(tileSize) / float64(cs.game.config.GetTPS())
 		if speedTiles > 0 {
-			arrowLifetime = int(rangeTiles/speedTiles*float64(cs.game.config.GetTPS()) + 0.5)
+			arrowLifetime = cs.game.framesForSeconds(rangeTiles / speedTiles)
 		}
 	}
 	collisionSize := cs.game.config.ProjectileHitboxTiles(weaponDef.Physics) * tileSize
@@ -976,16 +985,13 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 		// Linger the visual flourish past the (fast) swing so the shaped trail
 		// fades slowly - the instant hit already resolved separately. Bespoke
 		// legendary styles linger longer: their debris/droplets need the tail.
-		linger := MeleeFxLingerFrames
+		linger := cs.game.framesForSeconds(MeleeFxLingerSeconds)
 		if graphicsConfig.SlashFx != "" {
-			linger = meleeFxStyledLingerFrames
+			linger = cs.game.framesForSeconds(meleeFxStyledLingerSeconds)
 		}
-		maxFrames := meleeConfig.AnimationFrames
-		if maxFrames < linger {
-			maxFrames = linger
-		}
+		maxFrames := linger
 		sweepFrames := max(1, int(math.Round(float64(maxFrames)*meleeSweepFrac)))
-		maxFrames += max(1, int(math.Round(float64(cs.game.config.GetTPS())*.55)))
+		maxFrames += cs.game.framesForSeconds(.55)
 		slashEffect := SlashEffect{
 			WeaponKey:      weaponKey,
 			ID:             cs.game.GenerateProjectileID("slash"),
@@ -1808,7 +1814,7 @@ func (cs *CombatSystem) handleMonsterInteraction(monster *monsterPkg.Monster3D) 
 			if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
 				cs.game.logCombatLine(logToneBad, uitext.Text("combat.at_the_party", logSlot, logSlot), logMonsterName(monster), logAbility("pounces"))
 				cs.commitMonsterAttack(monster, monsterAttackDestination{}, monsterAttackPounce)
-				monster.ArmPounceCooldown(cs.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
+				monster.ArmPounceCooldown(TurnBasedPounceCooldownTurns)
 				return
 			}
 		}
@@ -1832,9 +1838,7 @@ func (cs *CombatSystem) armMonsterRTAttackCooldowns(attacker *monsterPkg.Monster
 	if cs == nil || cs.game == nil || attacker == nil {
 		return
 	}
-	if cooldown := attacker.AttackCooldownFrames(); cooldown > attacker.AttackCDFrames {
-		attacker.AttackCDFrames = cooldown
-	}
+	attacker.ArmAttackCooldown(attacker.AttackCooldownFrames(), cs.game.turnBasedMode)
 	if !attacker.IsChampion() || attacker.HasRangedAttack() {
 		return
 	}
@@ -3076,9 +3080,6 @@ func (cs *CombatSystem) tryApplyWeaponHitRiders(monster *monsterPkg.Monster3D, w
 		return
 	}
 	tps := cs.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.GetTargetTPS()
-	}
 	if weaponDef.ArmorShredPct > 0 && weaponDef.ArmorShredSeconds > 0 {
 		frames, rounds := config.EffectClock(weaponDef.ArmorShredSeconds, tps)
 		monster.ApplyArmorShred(weaponDef.ArmorShredPct, frames, rounds)
@@ -3117,10 +3118,13 @@ func (cs *CombatSystem) tryApplyWeaponHitRiders(monster *monsterPkg.Monster3D, w
 	cs.tryCardPoisonProc(monster)
 }
 
-// jamMonster delays the struck monster's next attack (Cogfang Blade), once
-// per attack it makes: real time adds the seconds to its attack cooldown;
-// turn-based banks them as a share of a turn, and a full turn costs its next
-// attack (commitMonsterAttack).
+// jamMonster delays the struck monster's next attack (Cogfang Blade); more hits
+// add nothing until the delayed attack. Real time adds the seconds to its
+// attack cooldown, and the attack that re-arms it from zero lifts the lock
+// (Monster3D.ArmAttackCooldown); turn-based takes them as a share of a turn's
+// attacks, lifted when the swings are drawn, so an action left with no swing
+// passes without one (deliverCommittedAttack). A mode switch or a load alone
+// lifts nothing.
 func (cs *CombatSystem) jamMonster(m *monsterPkg.Monster3D, seconds int) {
 	if m.Jammed || !m.IsAlive() {
 		return
@@ -3181,7 +3185,7 @@ func (cs *CombatSystem) tryCardPoisonProc(monster *monsterPkg.Monster3D) {
 // (melee, projectile, splash, nova, trap, steam): the damage flash, freeing a
 // Charmed monster, and the explicit turn-based same-kind pack response.
 func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
-	m.HitTintFrames = MonsterHitFlashFrames
+	m.HitTintFrames = cs.game.monsterHitFlashFrames()
 	cs.breakPacifyOnHit(m)
 	m.RetaliateAgainstParty(cs.game.camera.X, cs.game.camera.Y)
 	cs.game.rallyAuthoredBandHit(m)
@@ -3980,7 +3984,7 @@ func (cs *CombatSystem) landMonsterOnMonster(attacker, target *monsterPkg.Monste
 			return monsterHitMissed
 		}
 		cs.game.playMonsterSound(soundMonsterHit, target)
-		target.HitTintFrames = MonsterHitFlashFrames
+		target.HitTintFrames = cs.game.monsterHitFlashFrames()
 		cs.game.reportActorDamage(attacker, target, damageLog{Source: source, Target: monsterLogTarget(target), Amount: actual, School: through.loggedSchool(), Shares: dealtShares(dealt), Kind: damageLogDodge})
 		if !target.IsAlive() {
 			cs.finishActorKill(attacker, target)
@@ -3991,7 +3995,7 @@ func (cs *CombatSystem) landMonsterOnMonster(attacker, target *monsterPkg.Monste
 	switch rollMonsterDisintegrate(target, hit.disintegrate) {
 	case instakillKill:
 		target.HitPoints = 0
-		target.HitTintFrames = MonsterHitFlashFrames
+		target.HitTintFrames = cs.game.monsterHitFlashFrames()
 		cs.game.addActorCombatMessage(attacker, target, styledFormat(uitext.Text("combat.monster.disintegrates", logSlot, logSlot, logSlot)), source, hit.evades, logMonsterName(target))
 		cs.finishActorKill(attacker, target)
 		return monsterHitDisintegrated
@@ -4005,7 +4009,7 @@ func (cs *CombatSystem) landMonsterOnMonster(attacker, target *monsterPkg.Monste
 		if actual > 0 {
 			cs.game.playMonsterSound(soundMonsterHit, target)
 		}
-		target.HitTintFrames = MonsterHitFlashFrames
+		target.HitTintFrames = cs.game.monsterHitFlashFrames()
 		cs.game.reportActorDamage(attacker, target, damageLog{Source: source, Target: monsterLogTarget(target), Amount: actual, School: hit.packet.primarySchool(), Shares: dealtShares(dealt), Kind: hit.kind, Critical: hit.critical})
 	}
 	if target.IsAlive() {

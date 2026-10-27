@@ -21,9 +21,10 @@ type AmbientThreat struct {
 	DetourClearance float64 `json:"detour_clearance,omitempty"`
 }
 
-// threatClock is part of the memory as a clock. A TB turn is walking time,
-// the time a turn_step_speed walker needs for one tile (the movement rule),
-// so the memory spans the same escape in both modes.
+// threatClock is part of the memory as a clock. Timer exception: a TB turn is
+// walking time, the time a turn_step_speed walker needs for one tile (the
+// movement rule), not a 3 s round, so the memory spans the same escape in
+// both modes.
 func (m *Monster3D) threatClock(part float64) status.DualClock {
 	turnSeconds := m.tileSize() / (60 * m.turnStepSpeed())
 	turns := int(math.Ceil(ambientThreatSeconds/turnSeconds - 1e-9))

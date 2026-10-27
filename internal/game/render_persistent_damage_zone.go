@@ -13,10 +13,10 @@ import (
 // twice as high as the tile-edge curtain. Walls clip them; the shared painter
 // pass supplies scenery and actor occlusion.
 const (
-	steamSamplesPerAxis = 3                  // NxN bubble columns spread across each tile
-	steamRiseMultiplier = 2.0                // twice the impassable-aura rise height
-	steamBaseAlpha      = 0.5                //
-	steamRisePeriodTick = auraRisePeriodTick // reuse the aura's bubble travel period
+	steamSamplesPerAxis    = 3                     // NxN bubble columns spread across each tile
+	steamRiseMultiplier    = 2.0                   // twice the impassable-aura rise height
+	steamBaseAlpha         = 0.5                   //
+	steamRisePeriodSeconds = auraRisePeriodSeconds // reuse the aura's bubble travel period
 	// Bubbles need enough pixels for a rim and a highlight to read at all, so the
 	// steam field draws them bigger than the old squares and varies their size -
 	// a uniform size looks like a mechanical grid, not boiling water.
@@ -150,7 +150,7 @@ func (r *Renderer) collectFireHeat(tile float64) {
 		if dx, dy := z.X-cam.X, z.Y-cam.Y; dx*dx+dy*dy > (cam.ViewDist+radius)*(cam.ViewDist+radius) {
 			continue
 		}
-		clock := r.weaponMaterialClock() + auraHash(int(z.X), int(z.Y), 7, 9)*11
+		clock := r.game.worldSeconds() + auraHash(int(z.X), int(z.Y), 7, 9)*11
 		flicker := .88 + .08*math.Sin(clock*5.3) + .04*math.Sin(clock*11.7)
 		r.heatSources = append(r.heatSources, LightSource{X: z.X, Y: z.Y, Radius: radius, Intensity: fireHeatGlowStrength * flicker})
 	}
@@ -178,20 +178,20 @@ func (r *Renderer) emitSteamColumn(screen *ebiten.Image, wx, wy float64, tx, ty,
 	r.emitBubbleColumn(screen, bubbleColumnFx{
 		wx: wx, wy: wy,
 		hx: tx, hy: ty, hi: sIdx,
-		maxDepth:     maxDepth,
-		riseFraction: auraRiseFraction * steamRiseMultiplier, // climbs twice as high as the aura
-		baseAlpha:    steamBaseAlpha,
-		colBright:    1.0,
-		perColumn:    1,
-		periodTick:   steamRisePeriodTick,
-		jitterMin:    auraSpeedJitterMin,
-		jitterSpan:   (1.0 - auraSpeedJitterMin) * 2,
-		sizeFloor:    steamBubbleSizeFloor,
-		sizeCoef:     steamBubbleSizeCoef,
-		wobbleCoef:   0.8,
-		sizeJitter:   steamBubbleSizeJitter,
-		round:        true, // real bubbles (rim + highlight), not glow squares
-		color:        steamBubbleColor,
+		maxDepth:      maxDepth,
+		riseFraction:  auraRiseFraction * steamRiseMultiplier, // climbs twice as high as the aura
+		baseAlpha:     steamBaseAlpha,
+		colBright:     1.0,
+		perColumn:     1,
+		periodSeconds: steamRisePeriodSeconds,
+		jitterMin:     auraSpeedJitterMin,
+		jitterSpan:    (1.0 - auraSpeedJitterMin) * 2,
+		sizeFloor:     steamBubbleSizeFloor,
+		sizeCoef:      steamBubbleSizeCoef,
+		wobbleCoef:    0.8,
+		sizeJitter:    steamBubbleSizeJitter,
+		round:         true, // real bubbles (rim + highlight), not glow squares
+		color:         steamBubbleColor,
 	})
 }
 

@@ -73,6 +73,31 @@ func TestPairClock(t *testing.T) {
 	if c := PairClock(0, 0, 60, 1); c.Active() {
 		t.Fatalf("an empty pair runs: %+v", c)
 	}
+	// ArmPair arms the same pair on a live clock, never shortens it, and takes
+	// the one seconds-to-frames rule: the nearest frame, never zero.
+	var c DualClock
+	c.ArmPair(10, 4, 120)
+	if c != (DualClock{Frames: 1200, Turns: 4, Rate: 300}) {
+		t.Fatalf("ArmPair(10 s, 4) = %+v, want 1200 frames 4 turns at 300", c)
+	}
+	c.TickFrame()
+	c.ArmPair(5, 2, 120)
+	if c.Frames != 1199 || c.Turns != 4 {
+		t.Fatalf("a shorter pair shortened the clock: %+v", c)
+	}
+	for seconds, want := range map[float64]int{2.004: 240, 2.006: 241, 0.001: 1} {
+		var fresh DualClock
+		if fresh.ArmPair(seconds, 1, 120); fresh.Frames != want {
+			t.Errorf("ArmPair(%v s) at 120 TPS = %d frames, want %d", seconds, fresh.Frames, want)
+		}
+	}
+	// ArmSeconds: the same frames rule on the one conversion, TB rounding up.
+	for seconds, want := range map[float64]DualClock{1: {Frames: 120, Turns: 1, Rate: 360}, 0.004: {Frames: 1, Turns: 1, Rate: 360}} {
+		var fresh DualClock
+		if fresh.ArmSeconds(seconds, 120); fresh != want {
+			t.Errorf("ArmSeconds(%v s) at 120 TPS = %+v, want %+v", seconds, fresh, want)
+		}
+	}
 }
 
 // A repeating period lapses once per span and re-arms on the next tick.

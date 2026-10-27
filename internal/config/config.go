@@ -394,7 +394,8 @@ func (c WatcherConfig) validate() error {
 }
 
 // SecondsToFrames is THE seconds-to-frames rule: nearest frame, never zero for
-// a real duration. The game's framesForSeconds and the config checks share it.
+// a real duration. The game's framesForSeconds and the config checks share it;
+// whole seconds may multiply by the rate directly, which is exact.
 func SecondsToFrames(seconds float64, tps int) int {
 	frames := int(seconds*float64(tps) + 0.5)
 	if frames < 1 && seconds > 0 {
@@ -656,10 +657,9 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 	if p.SpeedTiles <= 0 {
 		return GetTargetTPS() // Default 1 second if speed is invalid
 	}
-	// lifetime = range / speed * tps (frames per second). Round (not truncate) so
-	// the projectile travels as close to range_tiles as discrete frames allow -
-	// truncation left a few weapons ~1 frame short of their stated range.
-	return int((p.RangeTiles/p.SpeedTiles)*float64(GetTargetTPS()) + 0.5)
+	// The flight time, range / speed seconds, to the nearest frame so the
+	// projectile travels as close to range_tiles as discrete frames allow.
+	return SecondsToFrames(p.RangeTiles/p.SpeedTiles, GetTargetTPS())
 }
 
 // MeleeAttackConfig for instant melee weapons. ArcType is the discrete swing
@@ -668,8 +668,7 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 // diagonals counting as one step) it defines how many surrounding foes a swing
 // catches - e.g. arc 3 at range 2 sweeps a 90deg cone two ranks deep.
 type MeleeAttackConfig struct {
-	ArcType         int `yaml:"arc_type"`         // 1=single, 2=front+flank, 3=three, 4=five
-	AnimationFrames int `yaml:"animation_frames"` // Frames for animation
+	ArcType int `yaml:"arc_type"` // 1=single, 2=front+flank, 3=three, 4=five
 }
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
@@ -695,9 +694,9 @@ type CameraConfig struct {
 }
 
 type UIConfig struct {
-	InputStaggerFrames int                   `yaml:"input_stagger_frames"` // frames between accepted gameplay inputs (actions, Space pickup/talk, tabbed menus)
-	DamageBlinkFrames  int                   `yaml:"damage_blink_frames"`
-	TurnBasedMouseHold MouseHoldTimingConfig `yaml:"turn_based_mouse_hold"`
+	InputStaggerSeconds float64               `yaml:"input_stagger_seconds"` // gap between accepted gameplay inputs (actions, Space pickup/talk, tabbed menus)
+	DamageBlinkSeconds  float64               `yaml:"damage_blink_seconds"`  // a hit party card's red blink
+	TurnBasedMouseHold  MouseHoldTimingConfig `yaml:"turn_based_mouse_hold"`
 }
 
 type MouseHoldTimingConfig struct {
@@ -1036,18 +1035,65 @@ type SpellDefinitionConfig struct {
 	Graphics *ProjectileRenderConfig `yaml:"graphics,omitempty"`
 }
 
+// DefaultMonsterAI is monster_ai for a monster built without a config (unit
+// fixtures, the FX preview's contact target): the shipped config.yaml values
+// of every field the AI falls back on. A loaded config never takes them - its
+// keys are required (validateRequired).
+func DefaultMonsterAI() MonsterAIConfig {
+	return MonsterAIConfig{
+		IdlePatrolSeconds: 0.5, PatrolIdleSeconds: 10, AttackCooldownSeconds: 1, FleeSeconds: 7,
+		IdleToPatrolMeanSeconds: 0.079, PathCheckSeconds: 0.25,
+		NormalSpeedMultiplier: 0.5, FleeSpeedMultiplier: 1.5, FleeDistanceTiles: 4,
+		DefaultAlertRadiusTiles: 4, DisengageDistanceMultiplier: 2,
+		FleeAfterAttacks: 5, FleeAfterAttacksChance: 0.5,
+	}
+}
+
+// validateRequired fails the boot on a missing or non-positive monster_ai key
+// that DefaultMonsterAI covers, so a loaded config never falls back to it.
+func (c MonsterAIConfig) validateRequired() error {
+	for _, f := range []struct {
+		key   string
+		value float64
+	}{
+		{"idle_patrol_seconds", c.IdlePatrolSeconds},
+		{"patrol_idle_seconds", c.PatrolIdleSeconds},
+		{"attack_cooldown_seconds", c.AttackCooldownSeconds},
+		{"flee_seconds", c.FleeSeconds},
+		{"idle_to_patrol_mean_seconds", c.IdleToPatrolMeanSeconds},
+		{"path_check_seconds", c.PathCheckSeconds},
+		{"normal_speed_multiplier", c.NormalSpeedMultiplier},
+		{"flee_speed_multiplier", c.FleeSpeedMultiplier},
+		{"flee_distance_tiles", c.FleeDistanceTiles},
+		{"default_alert_radius_tiles", c.DefaultAlertRadiusTiles},
+		{"disengage_distance_multiplier", c.DisengageDistanceMultiplier},
+		{"flee_after_attacks", float64(c.FleeAfterAttacks)},
+		{"flee_after_attacks_chance", c.FleeAfterAttacksChance},
+	} {
+		if !(f.value > 0) {
+			return fmt.Errorf("monster_ai.%s must be positive", f.key)
+		}
+	}
+	if c.FleeAfterAttacksChance > 1 {
+		return fmt.Errorf("monster_ai.flee_after_attacks_chance must be at most 1")
+	}
+	return nil
+}
+
 type MonsterAIConfig struct {
 	Pursuit    MonsterPursuitConfig    `yaml:"pursuit"`
 	PhaseShift MonsterPhaseShiftConfig `yaml:"phase_shift"`
 
-	// AI behavior timers in engine update ticks (see engine.tps).
-	IdlePatrolTimer int `yaml:"idle_patrol_timer"`
-	PatrolIdleTimer int `yaml:"patrol_idle_timer"`
-	AttackCooldown  int `yaml:"attack_cooldown"`
-	FleeDuration    int `yaml:"flee_duration"`
+	// AI behavior timers in seconds.
+	IdlePatrolSeconds     float64 `yaml:"idle_patrol_seconds"`
+	PatrolIdleSeconds     float64 `yaml:"patrol_idle_seconds"`
+	AttackCooldownSeconds float64 `yaml:"attack_cooldown_seconds"`
+	FleeSeconds           float64 `yaml:"flee_seconds"`
 
-	// Behavior chance (0.0 to 1.0)
-	IdleToPatrolChance float64 `yaml:"idle_to_patrol_chance"`
+	// IdleToPatrolMeanSeconds is the mean extra wait, once IdlePatrolSeconds
+	// passed, before an idle monster starts patrolling: an exponential wait,
+	// the same at any tick rate.
+	IdleToPatrolMeanSeconds float64 `yaml:"idle_to_patrol_mean_seconds"`
 
 	// Movement parameters
 	NormalSpeedMultiplier float64 `yaml:"normal_speed_multiplier"`
@@ -1059,8 +1105,8 @@ type MonsterAIConfig struct {
 	// Vision distance used while fleeing
 	FleeDistanceTiles float64 `yaml:"flee_distance_tiles"`
 
-	// AI frequency check (in frames)
-	PathCheckFrequency int `yaml:"path_check_frequency"`
+	// PathCheckSeconds throttles repathing.
+	PathCheckSeconds float64 `yaml:"path_check_seconds"`
 
 	// Detection tuning. Distances are in tiles; the rest are multipliers.
 	DefaultAlertRadiusTiles     float64 `yaml:"default_alert_radius_tiles"`    // fallback when a monster omits alert_radius
@@ -1768,8 +1814,9 @@ type WeaponDefinitionConfig struct {
 	// HP deal FreshTargetMultiplier (Mainspring Pike).
 	FreshTargetMinHPPct   int     `yaml:"fresh_target_min_hp_pct,omitempty"`
 	FreshTargetMultiplier float64 `yaml:"fresh_target_multiplier,omitempty"`
-	// JamSeconds: a hit delays the target's next attack by this long, once per
-	// attack it makes (Cogfang Blade); turn-based banks it as a share of a turn.
+	// JamSeconds: a hit delays the target's next attack by this long; more hits
+	// add nothing until the delayed attack (Cogfang Blade); turn-based takes
+	// it as a share of a turn's attacks.
 	JamSeconds int `yaml:"jam_seconds,omitempty"`
 	// BuffDurationPct: buffs the wielder casts last this much longer
 	// (Escapement Staff).
@@ -1811,18 +1858,18 @@ type WeaponDefinitionConfig struct {
 }
 
 // DefaultTPS is the simulation tick rate the game SHIPS at: config.yaml sets
-// engine.tps to it, and main.go pins the same value when vsync is off (an
-// unsynced loop free-runs otherwise). It is the fallback here so a config-less
-// path ticks at the shipped rate rather than at a slower legacy one.
+// engine.tps to it. It is the fallback here so a config-less path ticks at the
+// shipped rate, and the rate a save without a recorded tick rate was written at.
 //
-// EVERY frame count in this codebase is a duration only at this rate: 60 frames
-// is half a second here, not one. Author durations in seconds and convert with
-// GetTPS (MMGame.framesForSeconds does exactly that); where a raw frame constant
-// remains, its comment states what it lasts at this rate.
+// A frame count is a duration only at one rate: 60 frames is half a second
+// here, not one. Author durations in seconds and convert with GetTPS
+// (MMGame.framesForSeconds does exactly that).
 const DefaultTPS = 120
 
 // Regeneration ticks every RegenerationSeconds in real time and every
-// RegenerationRounds in turn-based play.
+// RegenerationRounds in turn-based play. Timer exception: an authored RT/TB
+// pair, not the 1 round = 3 s conversion; Meditation and Personality regen
+// ride this period.
 const (
 	RegenerationSeconds = 5
 	RegenerationRounds  = 3
@@ -1849,17 +1896,17 @@ func (c *Config) GetTurnStepSpeed() float64 {
 	return DefaultTurnStepSpeed
 }
 
+// GetTargetTPS is the loaded config's tick rate, or DefaultTPS before one is
+// loaded; never zero. Code without a config at hand reads the rate here.
 func GetTargetTPS() int {
-	if GlobalConfig != nil {
-		return GlobalConfig.GetTPS()
-	}
-	return DefaultTPS
+	return GlobalConfig.GetTPS()
 }
 
 // SP regenerates slower while the party fights: every CombatSPRegenSeconds in
 // real time and every CombatSPRegenRounds in turn-based, instead of the
 // RegenerationSeconds / RegenerationRounds cadence every other regen keeps.
 // Both real-time intervals are seconds, so the fight stays slower at any TPS.
+// Timer exception: an authored RT/TB pair, not the 1 round = 3 s conversion.
 const (
 	CombatSPRegenSeconds = 9
 	CombatSPRegenRounds  = 4
@@ -1996,8 +2043,11 @@ func LoadConfig(filename string) (*Config, error) {
 	if f := config.MonsterAI.AttackEnterRangeFraction; !(f > 0 && f <= 1) {
 		return nil, fmt.Errorf("monster_ai.attack_enter_range_fraction must be in (0,1]")
 	}
-	if config.UI.InputStaggerFrames <= 0 {
-		return nil, fmt.Errorf("ui.input_stagger_frames must be positive")
+	if !(config.UI.InputStaggerSeconds > 0) || !(config.UI.DamageBlinkSeconds > 0) {
+		return nil, fmt.Errorf("ui.input_stagger_seconds and ui.damage_blink_seconds must be positive")
+	}
+	if err := config.MonsterAI.validateRequired(); err != nil {
+		return nil, err
 	}
 	if err := config.UI.TurnBasedMouseHold.validate(); err != nil {
 		return nil, err

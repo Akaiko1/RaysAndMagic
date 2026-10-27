@@ -181,7 +181,7 @@ func TestTeleporterTravelLocality(t *testing.T) {
 				g.camera.Angle = 0.37
 				g.world.Tiles[sy][sx] = world.TileVioletTeleporter
 				wm.GlobalTeleporterRegistry.Teleporters = []world.TeleporterLocation{
-					{X: sx, Y: sy, MapKey: "forest", Group: "test", AutoActivate: true, ExcludeSelf: true, CrossMap: true},
+					{X: sx, Y: sy, MapKey: "forest", Group: "test", AutoActivate: true, ExcludeSelf: true, CrossMap: true, CooldownSeconds: 5},
 					{X: dx, Y: dy, MapKey: targetKey, Group: "test"},
 				}
 				wm.TransitionInProgress = locality == "refused_map"
@@ -203,6 +203,15 @@ func TestTeleporterTravelLocality(t *testing.T) {
 				}
 				if g.camera.X != wantX || g.camera.Y != wantY || math.Abs(g.camera.Angle-wantAngle) > 1e-9 {
 					t.Fatalf("teleporter locality changed position/heading: %+v, want (%v,%v,%v)", g.camera, wantX, wantY, wantAngle)
+				}
+				// A jump arms its group's re-trigger guard (5 s, 2 TB turns); a refused one does not.
+				guard := wm.GlobalTeleporterRegistry.GroupCooldowns["test"]
+				if locality == "refused_map" {
+					if guard.Active() {
+						t.Fatalf("refused teleport armed its group guard: %+v", guard)
+					}
+				} else if guard.Frames != 5*g.config.GetTPS() || guard.Turns != 2 {
+					t.Fatalf("group guard = %+v, want 5 s and 2 turns", guard)
 				}
 				if locality == "separate_map" {
 					save := readTravelAutosave(t)

@@ -63,9 +63,11 @@ type EnvironmentEffect struct {
 	// DamagePercent and SustainPercent author the damage as a percent of the
 	// map boss's attack at the visit's level, so it grows with the chamber;
 	// each replaces its flat counterpart.
-	DamagePercent    int     `yaml:"damage_percent,omitempty"`
-	SustainPercent   int     `yaml:"sustain_percent,omitempty"`
-	Destination      [2]int  `yaml:"destination,omitempty"`
+	DamagePercent  int    `yaml:"damage_percent,omitempty"`
+	SustainPercent int    `yaml:"sustain_percent,omitempty"`
+	Destination    [2]int `yaml:"destination,omitempty"`
+	// Timer exception: warning and rearm are authored RT/TB pairs, not the
+	// 1 round = 3 s conversion; the warning is a reaction window.
 	WarningSeconds   float64 `yaml:"warning_seconds,omitempty"`
 	WarningRounds    int     `yaml:"warning_rounds,omitempty"`
 	DurationSeconds  int     `yaml:"duration_seconds,omitempty"` // a lane's lingering field: whole rounds, both modes

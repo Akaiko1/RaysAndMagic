@@ -60,8 +60,10 @@ func (m *Monster3D) TurnBasedAttackRate() float64 {
 }
 
 // TakeTurnBasedSwings spends one attack action: it returns the swings this
-// action delivers and banks the remainder for the next one.
+// action delivers and banks the remainder for the next one. Drawing them pays
+// a jam's debt, so a new hit may jam again.
 func (m *Monster3D) TakeTurnBasedSwings() int {
+	m.Jammed = false
 	return nextTurnBasedCount(&m.TurnBasedSwingCarry, m.TurnBasedAttackRate())
 }
 

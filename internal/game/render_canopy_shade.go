@@ -228,9 +228,6 @@ func (r *Renderer) viewerShadeSmoothed() float64 {
 		return r.canopyViewerShade
 	}
 	tps := r.game.config.GetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
-	}
 	if dtFrames > int64(tps) {
 		r.canopyViewerShade = target
 		return target

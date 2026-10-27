@@ -297,7 +297,7 @@ func (cs *CombatSystem) planPhaseShift(m *monster.Monster3D, wait int) monster.P
 // refreshPhaseShiftPlan keeps an RT plan current for the parallel pursuit
 // step: an active plan drops the frame the monster stops being eligible or
 // able to move; plans refresh when either tile changes, and at least every
-// replan_frames. TB plans at each monster turn instead.
+// replan_seconds. TB plans at each monster turn instead.
 func (cs *CombatSystem) refreshPhaseShiftPlan(m *monster.Monster3D) {
 	if !m.CanPhaseShift() {
 		return // ordinary monsters never pay for Phase Shift
@@ -310,7 +310,7 @@ func (cs *CombatSystem) refreshPhaseShiftPlan(m *monster.Monster3D) {
 	ts := float64(cs.game.config.GetTileSize())
 	p := &m.PhasePlan
 	x, y, target, ok := cs.phaseShiftTarget(m)
-	if p.Planned && p.Age < cs.game.config.MonsterAI.PhaseShift.ReplanFrames &&
+	if p.Planned && p.Age < cs.game.framesForSeconds(cs.game.config.MonsterAI.PhaseShift.ReplanSeconds) &&
 		p.From == (monster.TileCoord{X: TileIndex(m.X, ts), Y: TileIndex(m.Y, ts)}) && p.Target == target {
 		if p.Active && !(ok && cs.phaseShiftOutOfReach(m, x, y)) {
 			m.PhasePlan = monster.PhaseShiftPlan{}
@@ -354,7 +354,7 @@ func (cs *CombatSystem) executePhaseShift(m *monster.Monster3D, landing monster.
 	x, y := TileCenterFromTile(landing.X, landing.Y, float64(g.config.GetTileSize()))
 	g.relocateMonster(m, x, y)
 	cs.settleBlink(m, oldX, oldY, faceX, faceY)
-	m.ArmPhaseShiftCooldown(g.config.GetTPS())
+	m.ArmPhaseShiftCooldown()
 	m.PhasePlan = monster.PhaseShiftPlan{}
 	g.refreshMonsterCollisionState(m)
 	if foe := m.AIFoe; foe != nil {

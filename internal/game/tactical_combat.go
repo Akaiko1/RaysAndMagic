@@ -29,7 +29,7 @@ func (g *MMGame) resetOverwatch() {
 func (g *MMGame) armOverwatchStill() {
 	tps := g.config.GetTPS()
 	g.tactics.still = status.DualClock{}
-	g.tactics.still.ArmFrames(int(math.Ceil(character.OverwatchReadySeconds*float64(tps))), tps)
+	g.tactics.still.ArmSeconds(character.OverwatchReadySeconds, tps)
 }
 
 func (g *MMGame) updateTacticalClocks() {

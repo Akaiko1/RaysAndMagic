@@ -9,25 +9,25 @@ import (
 // bubbleColumnFx tunes rising Hot Steam bubbles and drifting teleport motes.
 // Auroras, including valves and boss wards, use the shared curtain collector.
 type bubbleColumnFx struct {
-	wx, wy       float64 // world anchor of the column
-	hx, hy       int     // tile coords -> deterministic, frame-stable per-tile phase
-	salt         int     // per-edge/per-effect hash salt (decorrelates neighbours)
-	hi           int     // per-column index; feeds the strong hash slot so columns desync
-	maxDepth     float64 // far clip and distance-fade reference (world units)
-	riseFraction float64 // bubble travel as a fraction of the tile's floor-rise
-	baseAlpha    float64 // peak alpha before distance and per-stream dimming
-	colBright    float64 // per-stream brightness in [0,1]
-	perColumn    int     // staggered bubbles per column
-	periodTick   float64 // base ticks for one bottom->top trip
-	jitterMin    float64 // rise-speed jitter band lower bound
-	jitterSpan   float64 // ... and width: speed in [jitterMin, jitterMin+jitterSpan]xbase
-	sizeFloor    float64 // smallest bubble size in pixels
-	sizeCoef     float64 // size = max(sizeFloor, (floorY-horizon)*sizeCoef)
-	wobbleCoef   float64 // horizontal wobble amplitude in bubble-sizes
-	color        [3]int
-	fall         bool    // true = motes descend sky->ground (teleporter); default ground->sky (steam/aura)
-	sizeJitter   float64 // 0 = uniform; >0 = per-bubble size varies in [1-j, 1+j]xbase
-	round        bool    // true = rim-lit bubble texture; false = the legacy glow rect
+	wx, wy        float64 // world anchor of the column
+	hx, hy        int     // tile coords -> deterministic, frame-stable per-tile phase
+	salt          int     // per-edge/per-effect hash salt (decorrelates neighbours)
+	hi            int     // per-column index; feeds the strong hash slot so columns desync
+	maxDepth      float64 // far clip and distance-fade reference (world units)
+	riseFraction  float64 // bubble travel as a fraction of the tile's floor-rise
+	baseAlpha     float64 // peak alpha before distance and per-stream dimming
+	colBright     float64 // per-stream brightness in [0,1]
+	perColumn     int     // staggered bubbles per column
+	periodSeconds float64 // base seconds for one bottom->top trip
+	jitterMin     float64 // rise-speed jitter band lower bound
+	jitterSpan    float64 // ... and width: speed in [jitterMin, jitterMin+jitterSpan]xbase
+	sizeFloor     float64 // smallest bubble size in pixels
+	sizeCoef      float64 // size = max(sizeFloor, (floorY-horizon)*sizeCoef)
+	wobbleCoef    float64 // horizontal wobble amplitude in bubble-sizes
+	color         [3]int
+	fall          bool    // true = motes descend sky->ground (teleporter); default ground->sky (steam/aura)
+	sizeJitter    float64 // 0 = uniform; >0 = per-bubble size varies in [1-j, 1+j]xbase
+	round         bool    // true = rim-lit bubble texture; false = the legacy glow rect
 
 }
 
@@ -66,8 +66,8 @@ func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
 		// Per-bubble rise speed so streams desync into random bubbling, not a band
 		// rising in lockstep. +200 salt offset decorrelates speed from phase.
 		speedSeed := auraHash(c.hx, c.hy, c.salt+200, idx)
-		period := c.periodTick * (c.jitterMin + c.jitterSpan*speedSeed)
-		phase := math.Mod(float64(r.game.frameCount)/period+seed, 1.0)
+		period := c.periodSeconds * (c.jitterMin + c.jitterSpan*speedSeed)
+		phase := math.Mod(r.game.worldSeconds()/period+seed, 1.0)
 		// phase 0->1: rising goes floor->top; falling goes top->floor.
 		by := floorY - phase*rise
 		if c.fall {

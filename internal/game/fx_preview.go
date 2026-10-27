@@ -64,9 +64,9 @@ type FxItem struct {
 
 const fxStageMapKey = "fx_stage"
 
-// fxRespawnTicks is the minimum interval between preview casts. Finite attack
+// fxRespawnSeconds is the minimum interval between preview casts. Finite attack
 // visuals and persistent fields finish before the next cast can begin.
-const fxRespawnTicks = 75 // ~0.62s at 120 TPS
+const fxRespawnSeconds = 0.625
 
 // fxHeroIdx is the sandbox hero whose party card the card stage represents.
 const fxHeroIdx = 0
@@ -515,7 +515,7 @@ func (p *FxPreview) refreshStagedStatus() {
 		p.stageStatus(p.caster())
 		return
 	}
-	e.monster(p.g.world.Monsters[0])
+	e.monster(p.g, p.g.world.Monsters[0])
 }
 
 // stageStatus reproduces the motif from real game state: on the hero for card
@@ -542,7 +542,7 @@ func (p *FxPreview) stageStatus(hero *character.MMCharacter) {
 		return
 	}
 	m.Direction = math.Atan2(p.homeY-m.Y, p.homeX-m.X)
-	e.monster(m)
+	e.monster(g, m)
 	g.registerSpawnedMonster(m)
 }
 
@@ -643,17 +643,17 @@ func (p *FxPreview) Step() {
 	p.resolveStageImpacts()
 
 	p.tick++
-	interval := fxRespawnTicks
+	interval := g.framesForSeconds(fxRespawnSeconds)
 	if p.sel.Kind == FxTrap {
 		// Show the armed device, then its actual activation and complete fade.
-		armedTicks := g.config.GetTPS() * 3 / 2
+		armedTicks := g.framesForSeconds(1.5)
 		if p.tick == armedTicks {
 			for _, trap := range g.traps {
 				g.startTrapBurst(trap)
 			}
 			g.traps = g.traps[:0]
 		}
-		interval = armedTicks + int(math.Ceil(trapBurstSeconds*float64(g.config.GetTPS()))) + 15
+		interval = armedTicks + g.framesForSeconds(trapBurstSeconds+.125)
 	}
 	if p.tick >= interval {
 		if (p.sel.Kind == FxSpell || p.sel.Kind == FxWeapon || p.sel.Kind == FxFlask) && p.attackVisualsActive() {

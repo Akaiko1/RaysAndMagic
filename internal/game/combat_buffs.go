@@ -214,7 +214,7 @@ type CombatBuffSave struct {
 
 	ID              string `json:"spell_id"` // source id; the key predates non-spell buffs
 	SourceID        string `json:"source_id,omitempty"`
-	Frames          int    `json:"frames"`
+	Frames          int    `json:"frames" ticks:"frames"`
 	OutBonus        int    `json:"out_bonus,omitempty"`
 	InReduce        int    `json:"in_reduce,omitempty"`
 	ResistPct       int    `json:"resist_pct,omitempty"`

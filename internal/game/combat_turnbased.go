@@ -157,7 +157,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	gl.game.combat.sweepTrapTriggers()
 	gl.applyZoneEntryDamageAll()
 
-	delay := int(TurnBasedExtraMonsterActionDelaySeconds * float64(gl.game.config.GetTPS()))
+	delay := gl.game.framesForSeconds(TurnBasedExtraMonsterActionDelaySeconds)
 	if !gl.game.monsterTurnState.finishPass(delay) {
 		return
 	}
@@ -337,7 +337,7 @@ func (gl *GameLoop) monsterCombatStepTB(m *monster.Monster3D) {
 			if gl.game.combat.executePounce(m, playerX, playerY) {
 				gl.game.AddCombatMessage(uitext.Text("combat.pounces_at_the_party", m.Name))
 				gl.monsterAttackTurnBased(m)
-				m.ArmPounceCooldown(gl.game.config.GetTPS(), TurnBasedPounceCooldownTurns)
+				m.ArmPounceCooldown(TurnBasedPounceCooldownTurns)
 				return
 			}
 			// Couldn't land adjacent - fall through to a normal step this turn.

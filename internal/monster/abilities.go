@@ -114,8 +114,10 @@ type RearBlinkAbility struct {
 
 // TrapVolleyAbility: the boss sows fire traps around itself on a cadence.
 type TrapVolleyAbility struct {
-	Count           int     `yaml:"count"`
-	RadiusTiles     float64 `yaml:"radius_tiles"`
+	Count       int     `yaml:"count"`
+	RadiusTiles float64 `yaml:"radius_tiles"`
+	// Timer exception: the interval is an authored RT/TB pair, not the
+	// 1 round = 3 s conversion.
 	IntervalSeconds float64 `yaml:"interval_seconds"` // RT cadence
 	IntervalTurns   int     `yaml:"interval_turns"`   // TB cadence
 	DamagePercent   int     `yaml:"damage_percent"`   // each trap's hit, percent of the attack
@@ -258,7 +260,9 @@ func (d MonsterDefinition) abilityRows() []abilityRow {
 		},
 		{
 			kind: "pounce", present: set(a.Pounce),
-			problems: func() []string { return need(a.Pounce.RangeTiles > 0, "pounce needs range_tiles") },
+			problems: func() []string {
+				return need(a.Pounce.RangeTiles > 0 && a.Pounce.CooldownSeconds > 0, "pounce needs range_tiles and cooldown_seconds")
+			},
 			lines: func() []EffectLine {
 				return line(uitext.Text("monster.ability.pounce", a.Pounce.RangeTiles, a.Pounce.CooldownSeconds))
 			},

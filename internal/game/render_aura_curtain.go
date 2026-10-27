@@ -218,7 +218,7 @@ func (r *Renderer) flushAuraCurtains(screen *ebiten.Image) {
 			}
 			// All temporal frequencies are integral multiples of this phase,
 			// so wrapping every 20 seconds is continuous even in long sessions.
-			period := int64(max(1, r.game.config.GetTPS())) * 20
+			period := int64(r.game.config.GetTPS()) * 20
 			r.auraCurtainPhase[0] = float32(float64(r.game.frameCount%period) * (2 * math.Pi / float64(period)))
 			worldDrawColumnShader32(screen, verts, indices, shader, &r.auraCurtainOpts)
 		}

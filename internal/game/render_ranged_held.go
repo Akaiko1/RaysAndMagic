@@ -124,7 +124,7 @@ func (cs *CombatSystem) presentRangedShot(hero *character.MMCharacter, def *conf
 	}
 	timing := g.config.Graphics.RangedHeld
 	cooldown := cs.weaponCooldownBreakdown(hero, def).TotalFrames
-	fx := rangedHeldAnimation{hero: hero, hand: hand, model: def.Graphics.HeldModel, duration: max(1, min(int(timing.MaxDurationSeconds*float64(g.config.GetTPS())), int(timing.CooldownFraction*float64(cooldown)))), angle: launch.angle, glow: def.Graphics.Color, charged: charged, sourceAngle: g.camera.Angle}
+	fx := rangedHeldAnimation{hero: hero, hand: hand, model: def.Graphics.HeldModel, duration: max(1, min(g.framesForSeconds(timing.MaxDurationSeconds), int(timing.CooldownFraction*float64(cooldown)))), angle: launch.angle, glow: def.Graphics.Color, charged: charged, sourceAngle: g.camera.Angle}
 	if asset.kind == heldBow {
 		fx.release = g.gameLoop.renderer.rangedReleaseRay(launch)
 	}

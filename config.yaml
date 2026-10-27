@@ -37,10 +37,9 @@ display:
   disable_vsync_on_mac: false
 
 # Engine settings
-# tps is the simulation tick rate and the yardstick for every frame-counted
-# duration in the code (config.DefaultTPS mirrors it; main.go pins the same
-# value when vsync is off). Changing it rescales any duration still written in
-# raw frames - durations authored in seconds convert themselves.
+# tps is the simulation tick rate (config.DefaultTPS mirrors it). Every
+# duration is authored in seconds and converts at this rate, and saves record
+# the rate they were written at, so changing it keeps all timing.
 engine:
   tps: 120
 
@@ -113,8 +112,8 @@ camera:
 
 # UI settings
 ui:
-  input_stagger_frames: 10  # frames between accepted gameplay inputs (actions, Space pickup/talk, tabbed menus)
-  damage_blink_frames: 3    # Number of frames to blink red when taking damage
+  input_stagger_seconds: 0.08  # gap between accepted gameplay inputs (actions, Space pickup/talk, tabbed menus)
+  damage_blink_seconds: 0.025  # a hit party card blinks red this long
   turn_based_mouse_hold:
     delay_seconds: 0.6     # Wait after pressing before automatic attacks start.
     repeat_seconds: 0.35   # Gap between automatic attacks; manual input stays responsive.
@@ -562,14 +561,12 @@ characters:
 
 # Monster stats and AI
 monster_ai:
-  # State timers are update ticks (game.tps = 120).
-  idle_patrol_timer: 60         # Time before starting patrol from idle (0.5 seconds at 120 TPS)
-  patrol_idle_timer: 1200       # Time before returning to idle (10 seconds)
-  attack_cooldown: 120          # Attack delay duration (1 second at 120 TPS)
-  flee_duration: 840            # How long to flee (7 seconds RT / 7 TB turns)
-
-  # Behavior chances (0.0 to 1.0)
-  idle_to_patrol_chance: 0.1    # 10% chance per frame to start patrolling
+  # State timers in seconds.
+  idle_patrol_seconds: 0.5      # Time before starting patrol from idle
+  patrol_idle_seconds: 10       # Time before returning to idle
+  attack_cooldown_seconds: 1    # Attack delay duration
+  flee_seconds: 7               # How long to flee (7 s RT / 7 TB turns; Timer exception: 1 TB turn = 1 s)
+  idle_to_patrol_mean_seconds: 0.079  # mean extra wait before an idle monster starts patrolling
 
   # Movement parameters
   normal_speed_multiplier: 0.5  # Normal movement speed multiplier
@@ -582,20 +579,19 @@ monster_ai:
   # Vision and pathfinding
   flee_distance_tiles: 4        # How far a fleeing monster runs before reconsidering
 
-  # AI frequency checks (in frames)
-  path_check_frequency: 30      # Check for blocked paths every N frames
+  path_check_seconds: 0.25      # Check for blocked paths this often
 
   # Detection (distances in tiles, the rest are multipliers)
   pursuit:
     max_radius_tiles: 16
-    retaliation_seconds: 10
+    retaliation_seconds: 10      # Timer exception: own RT/TB pair with retaliation_turns, not 1 round = 3 s
     retaliation_turns: 4
     retaliation_margin_tiles: 2  # extra reach beyond the incoming shot distance
   phase_shift:                   # abilities.phase_shift planner (costly: for small dungeon maps)
     detour_factor: 2             # blink only when the pursuit route is over this x the plan
     window_tiles: 24             # search margin around the party and the monster
     max_walk_tiles: 16           # farthest walk to a launch tile
-    replan_frames: 30            # real-time plans refresh at least this often
+    replan_seconds: 0.25         # real-time plans refresh at least this often
   default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
   # No detection without line of sight: an unaware monster never aggros through
   # walls/trees (hard rule in PlayerDetectionRange, not a multiplier).

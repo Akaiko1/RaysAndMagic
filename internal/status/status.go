@@ -130,6 +130,14 @@ func (c *DualClock) Refresh(frames, turns int) bool {
 	return RefreshDualRated(&c.Frames, &c.Turns, &c.Rate, frames, turns)
 }
 
+// ArmPair refreshes the clock to an RT span beside its own TB rounds (the
+// timer exceptions' pairs, a slow-dragged cooldown), never shortening it. The
+// span takes THE seconds-to-frames rule (config.SecondsToFrames).
+func (c *DualClock) ArmPair(seconds float64, rounds, tps int) bool {
+	pair := PairClock(seconds, rounds, tps, 1)
+	return c.Refresh(pair.Frames, pair.Turns)
+}
+
 // Arm starts a cooldown of whole rounds on both mode clocks: seconds of RT,
 // the same rounds of TB.
 // No time arms nothing.
@@ -138,6 +146,14 @@ func (c *DualClock) Arm(seconds, tps int) {
 		return
 	}
 	c.armRounds(seconds*normalTPS(tps), config.CombatRounds(seconds), tps)
+}
+
+// ArmSeconds arms a timer authored in seconds that need not be whole rounds
+// (a fresh one is a "Timer exception:"; FromSeconds also restores what an old
+// save kept in seconds): THE seconds-to-frames rule (config.SecondsToFrames),
+// TB rounding up to whole turns as ArmFrames does.
+func (c *DualClock) ArmSeconds(seconds float64, tps int) {
+	c.ArmFrames(config.SecondsToFrames(seconds, normalTPS(tps)), tps)
 }
 
 // ArmFrames arms a span authored in RT frames (fractional seconds): TB rounds
@@ -159,6 +175,8 @@ func (c *DualClock) armRounds(frames, turns, tps int) {
 	}
 }
 
+// normalTPS is the caller's rate, or the engine default: a constant, so a
+// clock armed without a rate never depends on whichever config is loaded.
 func normalTPS(tps int) int {
 	if tps <= 0 {
 		return config.DefaultTPS
@@ -171,6 +189,13 @@ func normalTPS(tps int) int {
 func FromFrames(frames, tps int) DualClock {
 	var c DualClock
 	c.ArmFrames(frames, tps)
+	return c
+}
+
+// FromSeconds is the clock of a span authored in seconds (ArmSeconds).
+func FromSeconds(seconds float64, tps int) DualClock {
+	var c DualClock
+	c.ArmSeconds(seconds, tps)
 	return c
 }
 
@@ -285,9 +310,14 @@ func Clear(remaining, tickTimer *int) {
 }
 
 // PairClock is an authored timer pair, RT seconds beside TB rounds, with part
-// of it left (1 = all): a turn spends the pair's frames per round.
+// of it left (1 = all): a turn spends the pair's frames per round. It builds
+// the RT/TB pairs among the approved timer exceptions (each marked "Timer
+// exception:") and restores the part of a span an old save kept; a fresh span
+// of whole rounds takes the one 1 round = 3 s conversion (DualClock.Arm),
+// except the cooldowns a slow drags (pounce, phase shift: armSlowedCooldown),
+// slowed or not, whose RT part a slow stretches past its rounds.
 func PairClock(seconds float64, rounds, tps int, part float64) DualClock {
-	full := int(math.Ceil(seconds*float64(normalTPS(tps)) - 1e-9))
+	full := config.SecondsToFrames(seconds, normalTPS(tps))
 	c := DualClock{Frames: int(math.Ceil(part*float64(full) - 1e-9)), Turns: int(math.Ceil(part*float64(rounds) - 1e-9))}
 	if !c.Active() {
 		return DualClock{}

@@ -116,13 +116,9 @@ func main() {
 	if disableVsync {
 		ebiten.SetVsyncEnabled(false)
 	}
-	tps := cfg.GetTPS()
-	if disableVsync {
-		// An unsynced loop free-runs, so pin the SHIPPED rate rather than let the
-		// display dictate it - every frame-counted duration is calibrated to it.
-		tps = config.DefaultTPS
-	}
-	ebiten.SetTPS(tps)
+	// The configured rate, vsync or not: every duration converts from seconds at
+	// GetTPS, so the loop must tick at exactly that rate.
+	ebiten.SetTPS(cfg.GetTPS())
 
 	g := game.NewMMGame(cfg)
 	g.LoadPlayerProfile()

@@ -95,8 +95,11 @@ func normalizeItemFromConfig(item *items.Item) {
 		status.MigrateFrames(recharge, &item.LegacyDeviceCooldownFrames, tps)
 		if item.LegacyDeviceCooldown > 0 && !math.IsNaN(item.LegacyDeviceCooldown) && !recharge.Active() {
 			seconds := math.Min(item.LegacyDeviceCooldown, float64(item.Attributes["use_cooldown_seconds"]))
-			// Legacy float accumulation can drift just above an exact frame.
-			*recharge = status.FromFrames(int(math.Round(seconds*float64(tps))), tps)
+			// Legacy float accumulation drifts around an exact frame: a residue
+			// under half a frame is a device already recharged.
+			if seconds*float64(tps) >= 0.5 {
+				*recharge = status.FromSeconds(seconds, tps)
+			}
 		}
 		if recharge.Frames < 0 || recharge.Turns < 0 || recharge.Frames > limit {
 			// A recharge never outlasts the authored one.
@@ -186,7 +189,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	}
 	m.RareClass = cs.RareClass.Clone()
 	m.SpellState = cs.SpellState.Clone()
-	tps := config.GlobalConfig.GetTPS()
+	tps := config.GetTargetTPS()
 	m.RareClass.MigrateLegacyClocks(tps)
 	m.SpellState.MigrateLegacyClocks(tps)
 	// Older saves kept the autocast budget as frames, in the spell or rare-class state.
@@ -221,7 +224,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	}
 	m.Stun = savedClock(cs.Stun, status.DualClock{Frames: cs.StunFramesRemaining, Turns: cs.StunTurnsRemaining, Rate: cs.StunRate})
 	m.StunDRStacks = cs.StunDRStacks
-	m.StunDRMemory = savedClock(cs.StunDRMemory, status.StunDRMemory(cs.StunDRMemoryFrames, cs.StunDRMemoryTurns, config.GlobalConfig.GetTPS()))
+	m.StunDRMemory = savedClock(cs.StunDRMemory, status.StunDRMemory(cs.StunDRMemoryFrames, cs.StunDRMemoryTurns, config.GetTargetTPS()))
 	m.ArmorMelt.Restore(cs.ArmorMelt)
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.ActorID, m.ReactiveCombat, m.Clockwork = cs.ActorID, cs.ReactiveCombat, cs.Clockwork
@@ -326,5 +329,5 @@ func savedClock(saved *status.DualClock, legacy status.DualClock) status.DualClo
 
 // restoreClock reads a saved clock, or an older save's frame count.
 func restoreClock(saved *status.DualClock, legacyFrames int) status.DualClock {
-	return savedClock(saved, status.FromFrames(legacyFrames, config.GlobalConfig.GetTPS()))
+	return savedClock(saved, status.FromFrames(legacyFrames, config.GetTargetTPS()))
 }

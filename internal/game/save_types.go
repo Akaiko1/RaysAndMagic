@@ -12,11 +12,15 @@ import (
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
+	// TickRate is the rate its frame counts were written at, config.GetTargetTPS
+	// (none: an old save, config.DefaultTPS); a load at another rate rescales
+	// them (status.RescaleSaved).
+	TickRate           int               `json:"tick_rate,omitempty"`
 	PartyHinder        PartyHinderState  `json:"party_hinder,omitzero"`
 	Adventure          AdventureState    `json:"adventure,omitempty"`
 	Alchemy            AlchemyState      `json:"alchemy,omitempty"`
 	SpatialReuse       *status.DualClock `json:"spatial_reuse,omitempty"`
-	SpatialReuseFrames int               `json:"spatial_reuse_frames,omitempty"` // legacy, read into SpatialReuse
+	SpatialReuseFrames int               `json:"spatial_reuse_frames,omitempty" ticks:"frames"` // legacy, read into SpatialReuse
 	OpenerCooldown     *status.DualClock `json:"opener_cooldown,omitempty"`
 	PartyMoveClock     *status.DualClock `json:"party_move_clock,omitempty"`
 	PartyRoot          status.DualClock  `json:"party_root,omitzero"`
@@ -52,7 +56,7 @@ type GameSave struct {
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
 	MaxPartyLevel         int                        `json:"max_party_level,omitempty"`
-	DayNightFrames        int                        `json:"day_night_frames,omitempty"`
+	DayNightFrames        int                        `json:"day_night_frames,omitempty" ticks:"frames"`
 	DayNightDay           int                        `json:"day_night_day,omitempty"`
 	CalendarDay           int                        `json:"calendar_day,omitempty"`
 	CalendarWeek          int                        `json:"calendar_week,omitempty"`
@@ -74,8 +78,8 @@ type GameSave struct {
 	CurrentTurn                 int  `json:"current_turn,omitempty"`
 	PartyActionsUsed            int  `json:"party_actions_used,omitempty"`
 	PartyPenaltyFreeActionsUsed int  `json:"party_technique_actions_used,omitempty"`
-	TurnBasedMoveCooldown       int  `json:"turn_based_move_cooldown,omitempty"`
-	TurnBasedRotCooldown        int  `json:"turn_based_rot_cooldown,omitempty"`
+	TurnBasedMoveCooldown       int  `json:"turn_based_move_cooldown,omitempty" ticks:"frames"`
+	TurnBasedRotCooldown        int  `json:"turn_based_rot_cooldown,omitempty" ticks:"frames"`
 	MonsterTurnResolved         bool `json:"monster_turn_resolved,omitempty"`
 	// Legacy saves: the party's TB rounds since the last regeneration payouts
 	// (a save without the HP count paced both on the SP count).
@@ -85,27 +89,27 @@ type GameSave struct {
 	// A save can land during the visible delay before an earned second monster
 	// pass. Preserve the in-progress scheduler instead of restarting the turn.
 	TurnBasedMonsterPassesLeft int      `json:"turn_based_monster_passes_left,omitempty"`
-	TurnBasedMonsterPassDelay  int      `json:"turn_based_monster_pass_delay,omitempty"`
+	TurnBasedMonsterPassDelay  int      `json:"turn_based_monster_pass_delay,omitempty" ticks:"frames"`
 	TurnBasedMonsterStatusTick bool     `json:"turn_based_monster_status_tick,omitempty"`
 	TurnBasedMonsterStunned    []string `json:"turn_based_monster_stunned,omitempty"`
 
 	// Utility/buff state
 	// CardSummonCDFrames is the legacy shared timer (load-only migration).
-	CardSummonCDFrames     int                         `json:"card_summon_cd_frames,omitempty"`
+	CardSummonCDFrames     int                         `json:"card_summon_cd_frames,omitempty" ticks:"frames"`
 	CardSummonClocks       map[string]status.DualClock `json:"card_summon_clocks,omitempty"`
-	CardSummonCooldowns    map[string]int              `json:"card_summon_cooldowns,omitempty"` // legacy frames, read into CardSummonClocks
+	CardSummonCooldowns    map[string]int              `json:"card_summon_cooldowns,omitempty" ticks:"frames"` // legacy frames, read into CardSummonClocks
 	TorchLightActive       bool                        `json:"torch_light_active,omitempty"`
-	TorchLightDuration     int                         `json:"torch_light_duration,omitempty"`
+	TorchLightDuration     int                         `json:"torch_light_duration,omitempty" ticks:"frames"`
 	TorchLightRadius       float64                     `json:"torch_light_radius,omitempty"`
 	WizardEyeActive        bool                        `json:"wizard_eye_active,omitempty"`
-	WizardEyeDuration      int                         `json:"wizard_eye_duration,omitempty"`
+	WizardEyeDuration      int                         `json:"wizard_eye_duration,omitempty" ticks:"frames"`
 	WalkOnWaterActive      bool                        `json:"walk_on_water_active,omitempty"`
-	WalkOnWaterDuration    int                         `json:"walk_on_water_duration,omitempty"`
+	WalkOnWaterDuration    int                         `json:"walk_on_water_duration,omitempty" ticks:"frames"`
 	FlyActive              bool                        `json:"fly_active,omitempty"`
-	FlyDuration            int                         `json:"fly_duration,omitempty"`
+	FlyDuration            int                         `json:"fly_duration,omitempty" ticks:"frames"`
 	VisitedTavernMaps      []string                    `json:"visited_tavern_maps,omitempty"`
 	BlessActive            bool                        `json:"bless_active,omitempty"`
-	BlessDuration          int                         `json:"bless_duration,omitempty"`
+	BlessDuration          int                         `json:"bless_duration,omitempty" ticks:"frames"`
 	BlessStatBonus         int                         `json:"bless_stat_bonus,omitempty"`
 	StatBuffs              []StatBuffSave              `json:"stat_buffs,omitempty"`
 	BlessBonusesPerStat    map[string]int              `json:"bless_bonuses_per_stat,omitempty"`
@@ -116,7 +120,7 @@ type GameSave struct {
 	FrozenWater            []FrozenWaterTile           `json:"frozen_water,omitempty"`
 	Traps                  []TrapSave                  `json:"traps,omitempty"`
 	WaterBreathingActive   bool                        `json:"water_breathing_active,omitempty"`
-	WaterBreathingDuration int                         `json:"water_breathing_duration,omitempty"`
+	WaterBreathingDuration int                         `json:"water_breathing_duration,omitempty" ticks:"frames"`
 	UnderwaterReturnX      float64                     `json:"underwater_return_x,omitempty"`
 	UnderwaterReturnY      float64                     `json:"underwater_return_y,omitempty"`
 	UnderwaterReturnMap    string                      `json:"underwater_return_map,omitempty"`
@@ -165,10 +169,10 @@ type CharacterSave struct {
 	AutocastCD     *status.DualClock                        `json:"autocast_cd,omitempty"`
 	Designation    *status.DualClock                        `json:"designation,omitempty"`
 	// Legacy frame counts, read once into the clocks above.
-	AutoDrinkCooldown  int    `json:"auto_drink_cooldown,omitempty"`
-	AutocastFrames     int    `json:"autocast_frames,omitempty"`
+	AutoDrinkCooldown  int    `json:"auto_drink_cooldown,omitempty" ticks:"frames"`
+	AutocastFrames     int    `json:"autocast_frames,omitempty" ticks:"frames"`
 	DesignatedTargetID string `json:"designated_target_id,omitempty"`
-	DesignationFrames  int    `json:"designation_frames,omitempty"`
+	DesignationFrames  int    `json:"designation_frames,omitempty" ticks:"frames"`
 	Name               string `json:"name"`
 	Class              int    `json:"class"`
 	Race               string `json:"race,omitempty"`
@@ -197,15 +201,15 @@ type CharacterSave struct {
 	Equipment             []EquipmentEntry   `json:"equipment"`
 	QuickSlots            []QuickSlotEntry   `json:"quick_slots,omitempty"`
 	QuickSecondRow        bool               `json:"quick_second_row,omitempty"`
-	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
-	PoisonTickTimer       int                `json:"poison_tick_timer,omitempty"`
-	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty"`
-	BurnTickTimer         int                `json:"burn_tick_timer,omitempty"`
+	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty" ticks:"frames"`
+	PoisonTickTimer       int                `json:"poison_tick_timer,omitempty" ticks:"frames"`
+	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty" ticks:"frames"`
+	BurnTickTimer         int                `json:"burn_tick_timer,omitempty" ticks:"frames"`
 	SPRegen               *status.DualClock  `json:"sp_regen,omitempty"`
 	HPRegen               *status.DualClock  `json:"hp_regen,omitempty"`
 	SPRegenFight          bool               `json:"sp_regen_fight,omitempty"`
-	SpellRegenTimer       int                `json:"spell_regen_timer,omitempty"` // legacy RT frames since the last payout
-	HPRegenTimer          int                `json:"hp_regen_timer,omitempty"`    // legacy, as SpellRegenTimer
+	SpellRegenTimer       int                `json:"spell_regen_timer,omitempty" ticks:"frames"` // legacy RT frames since the last payout
+	HPRegenTimer          int                `json:"hp_regen_timer,omitempty" ticks:"frames"`    // legacy, as SpellRegenTimer
 	Stun                  *status.DualClock  `json:"stun_clock,omitempty"`
 	StunDRStacks          int                `json:"stun_dr_stacks,omitempty"`
 	StunDRMemory          *status.DualClock  `json:"stun_dr_memory_clock,omitempty"`
@@ -220,10 +224,10 @@ type CharacterSave struct {
 	TBRoundActionFloor int `json:"tb_round_action_floor,omitempty"`
 	// RTCooldown preserves the real-time action cooldown - reload must not
 	// reset the party's swing timers mid-fight.
-	RTCooldown int `json:"rt_cooldown,omitempty"`
+	RTCooldown int `json:"rt_cooldown,omitempty" ticks:"frames"`
 	// OffHandRTCooldown mirrors RTCooldown for a Dual Wielding character's
 	// off-hand weapon.
-	OffHandRTCooldown int `json:"off_hand_rt_cooldown,omitempty"`
+	OffHandRTCooldown int `json:"off_hand_rt_cooldown,omitempty" ticks:"frames"`
 	// NextTBAttackOffHand preserves which hand a Dual Wielding character prefers
 	// next, so save/reload can't be used to re-pick the preferred weapon.
 	NextTBAttackOffHand bool `json:"next_tb_attack_off_hand,omitempty"`
@@ -233,11 +237,11 @@ type CharacterSave struct {
 // CharacterLegacyClocks are the stun pairs saves wrote before each saved one
 // DualClock; read on load only.
 type CharacterLegacyClocks struct {
-	StunFramesRemaining int `json:"stun_frames_remaining,omitempty"`
+	StunFramesRemaining int `json:"stun_frames_remaining,omitempty" ticks:"frames"`
 	StunTurnsRemaining  int `json:"stun_turns_remaining,omitempty"`
-	StunRate            int `json:"stun_rate,omitempty"`
+	StunRate            int `json:"stun_rate,omitempty" ticks:"frames"`
 	StunDRMemoryTurns   int `json:"stun_dr_memory_turns,omitempty"`
-	StunDRMemoryFrames  int `json:"stun_dr_memory_frames,omitempty"`
+	StunDRMemoryFrames  int `json:"stun_dr_memory_frames,omitempty" ticks:"frames"`
 }
 
 // legacyRegen reports a save from before the regeneration periods.
@@ -340,13 +344,13 @@ type MonsterSave struct {
 	// pick up current balance values from monsters.yaml after a load.
 	RuntimeStats                   *MonsterRuntimeStatsSave `json:"runtime_stats,omitempty"`
 	Bound                          bool                     `json:"bound,omitempty"`
-	BoundFramesRemaining           int                      `json:"bound_frames_remaining,omitempty"`
-	FearFramesRemaining            int                      `json:"fear_frames_remaining,omitempty"`
-	SilenceImmunityFramesRemaining int                      `json:"silence_immunity_frames_remaining,omitempty"`
-	SilenceFramesRemaining         int                      `json:"silence_frames_remaining,omitempty"`
-	BerserkFramesRemaining         int                      `json:"berserk_frames_remaining,omitempty"`
+	BoundFramesRemaining           int                      `json:"bound_frames_remaining,omitempty" ticks:"frames"`
+	FearFramesRemaining            int                      `json:"fear_frames_remaining,omitempty" ticks:"frames"`
+	SilenceImmunityFramesRemaining int                      `json:"silence_immunity_frames_remaining,omitempty" ticks:"frames"`
+	SilenceFramesRemaining         int                      `json:"silence_frames_remaining,omitempty" ticks:"frames"`
+	BerserkFramesRemaining         int                      `json:"berserk_frames_remaining,omitempty" ticks:"frames"`
 	Pacified                       bool                     `json:"pacified,omitempty"`
-	PacifiedFramesRemaining        int                      `json:"pacified_frames_remaining,omitempty"`
+	PacifiedFramesRemaining        int                      `json:"pacified_frames_remaining,omitempty" ticks:"frames"`
 	CharmedByParty                 bool                     `json:"charmed_by_party,omitempty"`
 	WasAttacked                    bool                     `json:"was_attacked,omitempty"`
 	// Aggro distinguishes active pursuit from permanent provocation. Nil means
@@ -370,8 +374,8 @@ type MonsterSave struct {
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cooldowns.
 	Stun                    *status.DualClock `json:"stun_clock,omitempty"`
-	PoisonedFramesRemaining int               `json:"poisoned_frames_remaining,omitempty"` // Venom-proc cards
-	PoisonTickTimer         int               `json:"poison_tick_timer,omitempty"`
+	PoisonedFramesRemaining int               `json:"poisoned_frames_remaining,omitempty" ticks:"frames"` // Venom-proc cards
+	PoisonTickTimer         int               `json:"poison_tick_timer,omitempty" ticks:"frames"`
 	// Stun diminishing-returns chain - persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
 	StunDRStacks        int                                    `json:"stun_dr_stacks,omitempty"`
@@ -381,8 +385,8 @@ type MonsterSave struct {
 	ElementalMarks      map[string]monster.ElementalWeaponMark `json:"elemental_marks,omitempty"`
 	ArmorShred          *status.DualClock                      `json:"armor_shred_clock,omitempty"`
 	ArmorMelt           *status.DualClock                      `json:"armor_melt,omitempty"`
-	BurnFramesRemaining int                                    `json:"burn_frames_remaining,omitempty"`
-	BurnTickTimer       int                                    `json:"burn_tick_timer,omitempty"`
+	BurnFramesRemaining int                                    `json:"burn_frames_remaining,omitempty" ticks:"frames"`
+	BurnTickTimer       int                                    `json:"burn_tick_timer,omitempty" ticks:"frames"`
 	TrapVolleyCD        *status.DualClock                      `json:"trap_volley_clock,omitempty"`
 	SlowPct             int                                    `json:"slow_pct,omitempty"`
 	Slow                *status.DualClock                      `json:"slow_clock,omitempty"`
@@ -396,14 +400,16 @@ type MonsterSave struct {
 	Pilfered            bool                                   `json:"pilfered,omitempty"`
 	PounceCD            *status.DualClock                      `json:"pounce_clock,omitempty"`
 	PhaseShiftCD        *status.DualClock                      `json:"phase_shift_clock,omitempty"`
-	TurnBasedSwingCarry float64                                `json:"tb_swing_carry,omitempty"` // fractional TB swing banked between attack actions
-	TurnBasedStepCarry  float64                                `json:"tb_step_carry,omitempty"`  // fractional TB step banked between movement actions
-	Jammed              bool                                   `json:"jammed,omitempty"`         // a jam already landed this attack cycle
-	HourMarks           int                                    `json:"hour_marks,omitempty"`     // Minute Hand hits toward the hour strike
+	TurnBasedSwingCarry float64                                `json:"tb_swing_carry,omitempty"`                    // fractional TB swing banked between attack actions
+	TurnBasedStepCarry  float64                                `json:"tb_step_carry,omitempty"`                     // fractional TB step banked between movement actions
+	Jammed              bool                                   `json:"jammed,omitempty"`                            // a jam already landed; more hits add nothing until the delayed attack
+	AttackCDFrames      int                                    `json:"attack_cd_frames,omitempty" ticks:"frames"`   // real-time attack cooldown, a jam's delay included
+	OffHandCDFrames     int                                    `json:"off_hand_cd_frames,omitempty" ticks:"frames"` // a champion's off-hand cooldown
+	HourMarks           int                                    `json:"hour_marks,omitempty"`                        // Minute Hand hits toward the hour strike
 	BossCD              *status.DualClock                      `json:"boss_blink_cd,omitempty"`
-	NovaRollCD          *status.DualClock                      `json:"inferno_roll_cd,omitempty"` // key kept from the inferno-only days
-	LegacyBossCD        int                                    `json:"boss_cd,omitempty"`         // frames, read into BossCD
-	LegacyInfernoCD     int                                    `json:"inferno_cd,omitempty"`      // frames, read into NovaRollCD
+	NovaRollCD          *status.DualClock                      `json:"inferno_roll_cd,omitempty"`           // key kept from the inferno-only days
+	LegacyBossCD        int                                    `json:"boss_cd,omitempty" ticks:"frames"`    // frames, read into BossCD
+	LegacyInfernoCD     int                                    `json:"inferno_cd,omitempty" ticks:"frames"` // frames, read into NovaRollCD
 	BossHurtPending     bool                                   `json:"boss_hurt_pending,omitempty"`
 	BossLastHP          int                                    `json:"boss_last_hp,omitempty"`
 	SummonFirstDone     bool                                   `json:"summon_first_done,omitempty"`
@@ -426,35 +432,35 @@ type MonsterSave struct {
 // MonsterLegacyClocks are the frames/turns/rate triples saves wrote before
 // each status saved one DualClock; read on load only.
 type MonsterLegacyClocks struct {
-	StunFramesRemaining int `json:"stun_frames_remaining,omitempty"`
+	StunFramesRemaining int `json:"stun_frames_remaining,omitempty" ticks:"frames"`
 	StunTurnsRemaining  int `json:"stun_turns_remaining,omitempty"`
-	StunRate            int `json:"stun_rate,omitempty"`
+	StunRate            int `json:"stun_rate,omitempty" ticks:"frames"`
 	StunDRMemoryTurns   int `json:"stun_dr_memory_turns,omitempty"`
-	StunDRMemoryFrames  int `json:"stun_dr_memory_frames,omitempty"`
-	RootFramesRemaining int `json:"root_frames_remaining,omitempty"`
+	StunDRMemoryFrames  int `json:"stun_dr_memory_frames,omitempty" ticks:"frames"`
+	RootFramesRemaining int `json:"root_frames_remaining,omitempty" ticks:"frames"`
 	RootTurnsRemaining  int `json:"root_turns_remaining,omitempty"`
-	RootRate            int `json:"root_rate,omitempty"`
-	ArmorShredFrames    int `json:"armor_shred_frames,omitempty"`
+	RootRate            int `json:"root_rate,omitempty" ticks:"frames"`
+	ArmorShredFrames    int `json:"armor_shred_frames,omitempty" ticks:"frames"`
 	ArmorShredTurns     int `json:"armor_shred_turns,omitempty"`
-	ArmorShredRate      int `json:"armor_shred_rate,omitempty"`
-	TrapVolleyCDFrames  int `json:"trap_volley_cd,omitempty"`
+	ArmorShredRate      int `json:"armor_shred_rate,omitempty" ticks:"frames"`
+	TrapVolleyCDFrames  int `json:"trap_volley_cd,omitempty" ticks:"frames"`
 	TrapVolleyTurnCD    int `json:"trap_volley_turn_cd,omitempty"`
-	TrapVolleyCDRate    int `json:"trap_volley_cd_rate,omitempty"`
-	SlowFrames          int `json:"slow_frames,omitempty"`
+	TrapVolleyCDRate    int `json:"trap_volley_cd_rate,omitempty" ticks:"frames"`
+	SlowFrames          int `json:"slow_frames,omitempty" ticks:"frames"`
 	SlowTurns           int `json:"slow_turns,omitempty"`
-	SlowRate            int `json:"slow_rate,omitempty"`
-	WeakenFrames        int `json:"weaken_frames,omitempty"`
+	SlowRate            int `json:"slow_rate,omitempty" ticks:"frames"`
+	WeakenFrames        int `json:"weaken_frames,omitempty" ticks:"frames"`
 	WeakenTurns         int `json:"weaken_turns,omitempty"`
-	WeakenRate          int `json:"weaken_rate,omitempty"`
-	PounceCDFrames      int `json:"pounce_cd_frames,omitempty"`
+	WeakenRate          int `json:"weaken_rate,omitempty" ticks:"frames"`
+	PounceCDFrames      int `json:"pounce_cd_frames,omitempty" ticks:"frames"`
 	PounceCDTurns       int `json:"pounce_cd_turns,omitempty"`
-	PounceCDRate        int `json:"pounce_cd_rate,omitempty"`
-	PhaseShiftCDFrames  int `json:"phase_shift_cd_frames,omitempty"`
+	PounceCDRate        int `json:"pounce_cd_rate,omitempty" ticks:"frames"`
+	PhaseShiftCDFrames  int `json:"phase_shift_cd_frames,omitempty" ticks:"frames"`
 	PhaseShiftCDTurns   int `json:"phase_shift_cd_turns,omitempty"`
-	PhaseShiftCDRate    int `json:"phase_shift_cd_rate,omitempty"`
-	SoakFrames          int `json:"soak_frames,omitempty"`
+	PhaseShiftCDRate    int `json:"phase_shift_cd_rate,omitempty" ticks:"frames"`
+	SoakFrames          int `json:"soak_frames,omitempty" ticks:"frames"`
 	SoakTurns           int `json:"soak_turns,omitempty"`
-	SoakRate            int `json:"soak_rate,omitempty"`
+	SoakRate            int `json:"soak_rate,omitempty" ticks:"frames"`
 }
 
 type MonsterRuntimeStatsSave struct {

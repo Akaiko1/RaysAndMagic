@@ -1,7 +1,6 @@
 package game
 
 import (
-	"math"
 	"slices"
 
 	uitext "ugataima/assets/text"
@@ -30,12 +29,12 @@ func (h *PartyHinderState) migrateLegacy(tps int) {
 	if window <= 0 {
 		window = 2
 	}
-	span := float64(config.RoundFrames(window, tps))
+	seconds := float64(window * config.CombatRoundSeconds)
 	if h.LegacySlow > 0 {
-		h.Slow = status.FromFrames(int(math.Ceil(h.LegacySlow*span)), tps)
+		h.Slow = status.PairClock(seconds, window, tps, h.LegacySlow)
 	}
 	if h.LegacyRecovery > 0 {
-		h.Recovery = status.FromFrames(int(math.Ceil(h.LegacyRecovery*span)), tps)
+		h.Recovery = status.PairClock(seconds, window, tps, h.LegacyRecovery)
 	}
 	h.LegacySlow, h.LegacyRecovery, h.LegacyWindow = 0, 0, 0
 }

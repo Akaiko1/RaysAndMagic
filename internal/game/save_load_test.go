@@ -2,7 +2,10 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,6 +226,113 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 
 }
 
+// A save read at another tick rate keeps every timer's seconds: decoding
+// rescales its clocks (plain, pointer, in maps, on items) and tagged frame
+// counts, and keeps turns. A save without a recorded rate was written at the
+// shipped one.
+func TestSaveLoad_TickRateChangeKeepsSeconds(t *testing.T) {
+	cfg := loadTestConfig(t) // also the loaded config: decoding reads its rate
+	wm := world.NewWorldManager(cfg)
+	w := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	wm.CurrentMapKey = "forest"
+	game := newTestGame(cfg, w)
+	member := game.party.Members[0]
+	member.RTCooldown = 120
+	device := items.CreateItemFromYAML("translocator")
+	device.DeviceCooldown = items.RoundClock{Frames: 400, Turns: 2, Rate: 360}
+	member.Inventory = []items.Item{device}
+	mob := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
+	mob.ID = "rate-mob"
+	mob.AttackCDFrames = 240
+	mob.PounceCD = status.DualClock{Frames: 361, Turns: 2, Rate: 240}
+	w.Monsters = []*monster.Monster3D{mob}
+	built := game.buildSave(wm)
+	built.CardSummonClocks = map[string]status.DualClock{"wolf": {Frames: 120, Turns: 1, Rate: 360}}
+	built.CardSummonCooldowns = map[string]int{"wolf": 120} // a legacy field, read after the rescale
+	raw, err := json.Marshal(built)
+	if err != nil {
+		t.Fatalf("marshal save: %v", err)
+	}
+	stamp := fmt.Sprintf(`"tick_rate":%d`, cfg.GetTPS())
+	if !strings.Contains(string(raw), stamp) {
+		t.Fatalf("the save does not record its rate %s", stamp)
+	}
+	for _, tc := range []struct {
+		name, stamp                   string
+		recovery, attack, card, legal int
+		device                        items.RoundClock
+		pounce                        status.DualClock
+	}{
+		{"written at twice the rate", fmt.Sprintf(`"tick_rate":%d`, 2*cfg.GetTPS()), 60, 120, 60, 60,
+			items.RoundClock{Frames: 200, Turns: 2, Rate: 180}, status.DualClock{Frames: 181, Turns: 2, Rate: 120}},
+		{"no recorded rate", `"tick_rate":0`, 120, 240, 120, 120,
+			items.RoundClock{Frames: 400, Turns: 2, Rate: 360}, status.DualClock{Frames: 361, Turns: 2, Rate: 240}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var save GameSave
+			if err := json.Unmarshal([]byte(strings.Replace(string(raw), stamp, tc.stamp, 1)), &save); err != nil {
+				t.Fatalf("unmarshal save: %v", err)
+			}
+			ch, ms := save.Party.Members[0], save.Monsters[0]
+			if ch.RTCooldown != tc.recovery || ch.Inventory[0].DeviceCooldown != tc.device {
+				t.Errorf("hero recovery %d, device %+v; want %d, %+v", ch.RTCooldown, ch.Inventory[0].DeviceCooldown, tc.recovery, tc.device)
+			}
+			if ms.AttackCDFrames != tc.attack || ms.PounceCD == nil || *ms.PounceCD != tc.pounce {
+				t.Errorf("monster attack %d, pounce %+v; want %d, %+v", ms.AttackCDFrames, ms.PounceCD, tc.attack, tc.pounce)
+			}
+			if save.CardSummonClocks["wolf"].Frames != tc.card || save.CardSummonCooldowns["wolf"] != tc.legal {
+				t.Errorf("card clock %+v, legacy %d; want %d frames each", save.CardSummonClocks["wolf"], save.CardSummonCooldowns["wolf"], tc.card)
+			}
+			if save.TickRate != cfg.GetTPS() {
+				t.Errorf("the decoded save records rate %d, want the live %d", save.TickRate, cfg.GetTPS())
+			}
+		})
+	}
+}
+
+// Every frame count a save or the stash file keeps rescales with the tick
+// rate: an integer field named like one carries `ticks:"frames"`, unless it is
+// listed here as not frames. A clock rescales by its own type
+// (status.ScalesItself); a struct embedding one still has its fields checked.
+func TestSavedFrameCountsAreTagged(t *testing.T) {
+	notFrames := map[string]string{
+		"GameSave.TickRate":                    "the rate stamp itself",
+		"MonsterLegacyClocks.TrapVolleyTurnCD": "turns",
+		"PartyHinderState.LegacyWindow":        "rounds",
+	}
+	frameName := regexp.MustCompile(`Frames|(Timer|Cooldowns?|CD|Duration|Rate|Delay|Counter|Window)$`)
+	seen := map[reflect.Type]bool{}
+	var walk func(reflect.Type)
+	walk = func(tp reflect.Type) {
+		for tp.Kind() == reflect.Pointer || tp.Kind() == reflect.Slice || tp.Kind() == reflect.Array || tp.Kind() == reflect.Map {
+			tp = tp.Elem()
+		}
+		if tp.Kind() != reflect.Struct || seen[tp] || status.ScalesItself(tp) {
+			return
+		}
+		seen[tp] = true
+		for i := 0; i < tp.NumField(); i++ {
+			field := tp.Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			base := field.Type
+			for base.Kind() == reflect.Pointer || base.Kind() == reflect.Slice || base.Kind() == reflect.Map || base.Kind() == reflect.Array {
+				base = base.Elem()
+			}
+			name := tp.Name() + "." + field.Name
+			if base.Kind() >= reflect.Int && base.Kind() <= reflect.Int64 && frameName.MatchString(field.Name) &&
+				field.Tag.Get("ticks") != "frames" && notFrames[name] == "" {
+				t.Errorf("%s looks like a frame count but has no ticks:\"frames\" tag: a tick-rate change would not rescale it", name)
+			}
+			walk(field.Type)
+		}
+	}
+	walk(reflect.TypeOf(GameSave{}))
+	walk(reflect.TypeOf(stash.Stash{}))
+}
+
 func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	cfg := loadTestConfig(t)
 
@@ -264,7 +374,8 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	mob.NovaRollCD = framesClock(240)                                      // ranged-nova cooldown: a reload must not refresh it
 	mob.TurnBasedSwingCarry = 0.25                                         // banked TB swing fraction: save/load per turn must not reset it
 	mob.TurnBasedStepCarry = -0.25                                         // banked TB step fraction, same contract
-	mob.Jammed = true                                                      // this attack cycle's jam has landed: a reload must not allow another
+	mob.Jammed = true                                                      // a jam has landed: a reload must not allow another before the delayed attack
+	mob.AttackCDFrames, mob.OffHandCDFrames = 97, 33                       // the real-time attack clocks, a jam's delay included
 	mob.HourMarks = 11                                                     // Minute Hand hits toward the hour: a reload must not reset them
 	game.openerCooldown = status.DualClock{Frames: 7, Turns: 1, Rate: 360} // a fight just ended: no opener on reload
 	game.partyMoveClock = status.DualClock{Frames: 9, Turns: 1, Rate: 360} // the party just moved: no held ground on reload
@@ -312,6 +423,9 @@ func TestSaveLoad_PersistsDualClockExchangeRates(t *testing.T) {
 	loadedMob := worldLoad.Monsters[0]
 	if loadedMob.TurnBasedSwingCarry != 0.25 || loadedMob.TurnBasedStepCarry != -0.25 || !loadedMob.Jammed || loadedMob.HourMarks != 11 {
 		t.Errorf("TB carries = swing %v / step %v, jammed %v, hour marks %d after reload, want 0.25 / -0.25, true, 11", loadedMob.TurnBasedSwingCarry, loadedMob.TurnBasedStepCarry, loadedMob.Jammed, loadedMob.HourMarks)
+	}
+	if loadedMob.AttackCDFrames != 97 || loadedMob.OffHandCDFrames != 33 {
+		t.Errorf("attack clocks after reload = %d / %d, want 97 / 33 (a reload must not reset a delayed attack)", loadedMob.AttackCDFrames, loadedMob.OffHandCDFrames)
 	}
 	if loaded.openerCooldown != game.openerCooldown || loaded.partyMoveClock != game.partyMoveClock {
 		t.Errorf("clocks after reload: opener %+v, move %+v; want %+v, %+v", loaded.openerCooldown, loaded.partyMoveClock, game.openerCooldown, game.partyMoveClock)

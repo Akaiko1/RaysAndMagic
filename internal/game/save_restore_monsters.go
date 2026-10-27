@@ -132,7 +132,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					m.HitPoints = min(m.HitPoints, m.MaxHitPoints)
 				}
 				m.Bound = ms.Bound
-				tps := config.GlobalConfig.GetTPS()
+				tps := config.GetTargetTPS()
 				m.BoundClock = status.FromFrames(ms.BoundFramesRemaining, tps)
 				m.Fear = status.FromFrames(ms.FearFramesRemaining, tps)
 				m.Silence = status.FromFrames(ms.SilenceFramesRemaining, tps)
@@ -146,7 +146,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				// bound ally rather than silently turning a card summon neutral.
 				m.Pacified = ms.Pacified && !m.Bound
 				if m.Pacified {
-					m.PacifiedClock = status.FromFrames(ms.PacifiedFramesRemaining, config.GlobalConfig.GetTPS())
+					m.PacifiedClock = status.FromFrames(ms.PacifiedFramesRemaining, config.GetTargetTPS())
 				} else {
 					m.PacifiedClock = status.DualClock{}
 				}
@@ -156,7 +156,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.Stun = savedClock(ms.Stun, status.DualClock{Frames: ms.StunFramesRemaining, Turns: ms.StunTurnsRemaining, Rate: ms.StunRate})
 				m.PoisonedFramesRemaining = ms.PoisonedFramesRemaining
 				m.StunDRStacks = ms.StunDRStacks
-				m.StunDRMemory = savedClock(ms.StunDRMemory, status.StunDRMemory(ms.StunDRMemoryFrames, ms.StunDRMemoryTurns, config.GlobalConfig.GetTPS()))
+				m.StunDRMemory = savedClock(ms.StunDRMemory, status.StunDRMemory(ms.StunDRMemoryFrames, ms.StunDRMemoryTurns, config.GetTargetTPS()))
 				m.Root = savedClock(ms.Root, status.DualClock{Frames: ms.RootFramesRemaining, Turns: ms.RootTurnsRemaining, Rate: ms.RootRate})
 				m.ArmorShredPct = ms.ArmorShredPct
 				m.RestoreElementalMarks(ms.ElementalMarks)
@@ -174,7 +174,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.RestoreDoTTickTimers(ms.PoisonTickTimer, ms.BurnTickTimer)
 				m.TrapVolleyCD = savedClock(ms.TrapVolleyCD, status.DualClock{Frames: ms.TrapVolleyCDFrames, Turns: ms.TrapVolleyTurnCD, Rate: ms.TrapVolleyCDRate})
 				m.Telegraph = ms.Telegraph.Clone()
-				m.Telegraph.MigrateLegacy(monsterTelegraph(m), config.GlobalConfig.GetTPS())
+				m.Telegraph.MigrateLegacy(monsterTelegraph(m), config.GetTargetTPS())
 				m.SlowPct = ms.SlowPct
 				m.Slow = savedClock(ms.Slow, status.DualClock{Frames: ms.SlowFrames, Turns: ms.SlowTurns, Rate: ms.SlowRate})
 				if (!save.TurnBased && m.Slow.Frames <= 0) ||
@@ -203,6 +203,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.TurnBasedSwingCarry = ms.TurnBasedSwingCarry
 				m.TurnBasedStepCarry = ms.TurnBasedStepCarry
 				m.Jammed = ms.Jammed
+				m.AttackCDFrames, m.OffHandCDFrames = max(0, ms.AttackCDFrames), max(0, ms.OffHandCDFrames)
 				m.HourMarks = ms.HourMarks
 				m.BossCD = restoreClock(ms.BossCD, ms.LegacyBossCD)
 				m.NovaRollCD = restoreClock(ms.NovaRollCD, ms.LegacyInfernoCD)

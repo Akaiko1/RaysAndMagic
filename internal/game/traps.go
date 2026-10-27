@@ -428,7 +428,7 @@ func (gl *GameLoop) updateTraps() {
 	}
 	w := 0
 	for _, burst := range g.trapBursts {
-		if float64(g.frameCount-burst.born) >= trapBurstSeconds*float64(g.config.GetTPS()) {
+		if g.frameCount-burst.born >= int64(g.framesForSeconds(trapBurstSeconds)) {
 			continue
 		}
 		g.trapBursts[w] = burst
@@ -466,7 +466,7 @@ type TrapSave struct {
 	X          float64 `json:"x"`
 	Y          float64 `json:"y"`
 	Owner      string  `json:"owner,omitempty"`
-	FramesLeft int     `json:"frames_left,omitempty"`
+	FramesLeft int     `json:"frames_left,omitempty" ticks:"frames"`
 }
 
 func buildTrapSaves(traps []PlacedTrap) []TrapSave {
@@ -506,12 +506,12 @@ func restoreTraps(saves []TrapSave, party *character.Party) []PlacedTrap {
 		left := s.FramesLeft
 		if left <= 0 { // legacy save without lifetime: re-arm fresh
 			if def, ok := config.GetTrapDefinition(s.Key); ok && config.GlobalConfig != nil {
-				left = def.LifetimeSeconds * config.GlobalConfig.GetTPS()
+				left = def.LifetimeSeconds * config.GetTargetTPS()
 			}
 		}
 		out[i] = PlacedTrap{
 			Key: s.Key, MapKey: s.MapKey, TileX: s.TileX, TileY: s.TileY,
-			X: s.X, Y: s.Y, Owner: byName[s.Owner], Life: status.FromFrames(left, config.GlobalConfig.GetTPS()),
+			X: s.X, Y: s.Y, Owner: byName[s.Owner], Life: status.FromFrames(left, config.GetTargetTPS()),
 		}
 	}
 	return out

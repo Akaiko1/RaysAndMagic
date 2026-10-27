@@ -18,7 +18,7 @@ func (r *Renderer) drawMeleeFxSilverSword(screen *ebiten.Image, s SlashEffect, c
 		return
 	}
 	seed := seedFromID(s.ID)
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	h := screenH * meleeSizeScale
 	silver := [3]int{225, 235, 250}
 	white := [3]int{255, 255, 255}
@@ -63,7 +63,7 @@ func (r *Renderer) drawMeleeFxSilverSword(screen *ebiten.Image, s SlashEffect, c
 		u := (progress - born) / (1 - born)
 		gx, gy := arcAt(tb)
 		gy += u * h * 0.05
-		tw := 0.5 + 0.5*math.Sin(fc*0.4+auraHash(seed, k, 13, 0)*2*math.Pi)
+		tw := 0.5 + 0.5*math.Sin(sec*48+auraHash(seed, k, 13, 0)*2*math.Pi)
 		r.drawSparkStar(screen, gx, gy, math.Max(2, thick*0.5*(1-u*0.4)),
 			silver, white, fade*(1-u)*tw, 1)
 	}
@@ -77,7 +77,7 @@ func (r *Renderer) drawMeleeFxGoldSword(screen *ebiten.Image, s SlashEffect, cx,
 		return
 	}
 	seed := seedFromID(s.ID)
-	fc := float64(r.game.frameCount)
+	sec := r.game.worldSeconds()
 	h := screenH * meleeSizeScale
 	gold := [3]int{255, 205, 90}
 	hot := [3]int{255, 245, 200}
@@ -123,7 +123,7 @@ func (r *Renderer) drawMeleeFxGoldSword(screen *ebiten.Image, s SlashEffect, cx,
 		gx, gy := arcAt(tb)
 		gx += (auraHash(seed, k, 16, 0) - 0.5) * thick * 2.5
 		gy += u * h * 0.18 * (0.6 + auraHash(seed, k, 17, 0))
-		tw := 0.5 + 0.5*math.Sin(fc*0.5+auraHash(seed, k, 18, 0)*2*math.Pi)
+		tw := 0.5 + 0.5*math.Sin(sec*60+auraHash(seed, k, 18, 0)*2*math.Pi)
 		r.drawWeaponShard(screen, gx, gy, math.Max(2, thick*0.24*(1-u*0.5)), mixColor(gold, hot, tw), fade*(1-u)*(0.4+0.6*tw), u, seed+k*37, false)
 	}
 }

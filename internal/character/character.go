@@ -911,9 +911,6 @@ func (c *MMCharacter) RestoreLegacyRegen(spellFrames, hpFrames, spellRounds, hpR
 // via BuffBonuses).
 func (c *MMCharacter) updateRegenAndPoison(inCombat bool, absorbDoT ...func(int) int) {
 	tps := config.GetTargetTPS()
-	if tps <= 0 {
-		tps = config.DefaultTPS
-	}
 	c.updatePoison(tps, absorbDoT...)
 	c.updateBurn(tps, absorbDoT...)
 	c.tickStunFrames()
@@ -1046,7 +1043,7 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 	wasActive := c.BurnFramesRemaining > 0
 	if status.Refresh(&c.BurnFramesRemaining, frames) {
 		if !wasActive {
-			c.burnTickTimer = config.GetTargetTPS() / 2 // desync the first tick from poison
+			c.burnTickTimer = config.SecondsToFrames(0.5, config.GetTargetTPS()) // desync the first tick from poison
 		}
 		c.AddCondition(ConditionBurning)
 	}

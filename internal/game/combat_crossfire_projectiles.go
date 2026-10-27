@@ -68,7 +68,7 @@ func (cs *CombatSystem) resolveReflectedMonsterProjectile(
 	dealt := hit.Total()
 	if dealt > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, target)
-		target.HitTintFrames = MonsterHitFlashFrames
+		target.HitTintFrames = cs.game.monsterHitFlashFrames()
 	}
 	cs.game.reportDamage(logToneGood, damageLog{
 		Source: logSchoolWord(damageTypeStr, "The reflected bolt"),

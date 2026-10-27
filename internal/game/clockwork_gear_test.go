@@ -90,7 +90,7 @@ func spendFrames(frames int, tick func(turn bool)) {
 
 // framesClock is a running clock with frames of real time left.
 func framesClock(frames int) status.DualClock {
-	return status.FromFrames(frames, config.GlobalConfig.GetTPS())
+	return status.FromFrames(frames, config.GetTargetTPS())
 }
 
 // lastTickClock runs out on the next tick of either mode.
@@ -98,7 +98,7 @@ func lastTickClock() status.DualClock { return status.DualClock{Frames: 1, Turns
 
 // roundClock is a running clock of one round.
 func roundClock() status.DualClock {
-	return framesClock(config.RoundFrames(1, config.GlobalConfig.GetTPS()))
+	return framesClock(config.RoundFrames(1, config.GetTargetTPS()))
 }
 
 // The Mainspring Pike strikes x5 into a target still at 90%+ of its HP, and
@@ -223,11 +223,15 @@ func TestChimeMaulTollRingsARoundLater(t *testing.T) {
 	})
 }
 
-// A Cogfang hit jams the target once per attack it makes: real time pushes
-// its next attack back by the jam; turn-based takes the same share of a turn's
-// swings from its swing bank, so three jams on a one-swing goblin cost one
-// attack, which arms its real-time cooldown like any spent attack (the bank's
-// save is in the save-load test with the other TB carries).
+// A Cogfang hit jams the target once until the delayed attack: real time
+// pushes its next attack back by the jam; turn-based takes the same share of a
+// turn's swings from its swing bank, so three jams on a one-swing goblin cost
+// one attack, which arms its real-time cooldown like any spent attack (the
+// bank's save is in the save-load test with the other TB carries). Neither a
+// pounce before the delayed attack, nor its cooldown running out before the
+// attack moment, nor a real-time moment without an attack (Tab and back), nor
+// a turn-based action that draws no swings lifts the lock; the attack itself
+// does.
 func TestCogfangJamDelaysTheNextAttack(t *testing.T) {
 	cs, _ := clockworkHero(t, false)
 	g := cs.game
@@ -264,6 +268,56 @@ func TestCogfangJamDelaysTheNextAttack(t *testing.T) {
 	}
 	if lost != 1 {
 		t.Fatalf("three jams cost %d attacks of a one-swing goblin, want 1", lost)
+	}
+
+	foe.Jammed, foe.AttackCDFrames = false, 0
+	cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false)
+	carry := foe.TurnBasedSwingCarry
+	g.turnBasedMode = false
+	foe.StateTimer = 2 // not its attack moment: this frame makes no attack
+	cs.HandleMonsterInteractions()
+	g.turnBasedMode = true
+	cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false)
+	if !foe.Jammed || foe.TurnBasedSwingCarry != carry {
+		t.Fatalf("a real-time frame lifted a turn-based jam: jammed=%v, swing bank %v -> %v", foe.Jammed, carry, foe.TurnBasedSwingCarry)
+	}
+	foe.AttackCDFrames = 0
+	cs.armMonsterRTAttackCooldowns(foe) // a boss special or telegraph spends the turn, drawing no swings
+	cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false)
+	if !foe.Jammed || foe.TurnBasedSwingCarry != carry {
+		t.Fatalf("a turn-based action without swings lifted the jam: jammed=%v, swing bank %v -> %v", foe.Jammed, carry, foe.TurnBasedSwingCarry)
+	}
+
+	g.turnBasedMode = false
+	foe.Jammed, foe.AttackCDFrames = false, 0
+	cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false)
+	if !cs.commitMonsterAttack(foe, monsterAttackDestination{}, monsterAttackPounce) {
+		t.Fatal("fixture: the goblin could not pounce")
+	}
+	delayed := foe.AttackCDFrames
+	cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false)
+	if foe.AttackCDFrames != delayed {
+		t.Fatalf("a hit after a pounce moved the delayed attack %d -> %d frames: the jam stacked", delayed, foe.AttackCDFrames)
+	}
+	foe.StateTimer = 2 // the cooldown runs out between attack moments
+	for range delayed {
+		cs.handleMonsterInteraction(foe)
+	}
+	cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false)
+	if !foe.Jammed || foe.AttackCDFrames != 0 {
+		t.Fatalf("before the attack moment: jammed=%v, cooldown %d; a hit must add nothing until the delayed attack", foe.Jammed, foe.AttackCDFrames)
+	}
+	foe.StateTimer = 1 // the attack moment
+	if !cs.commitMonsterAttack(foe, monsterAttackDestination{}, monsterAttackRealtime) {
+		t.Fatal("fixture: the goblin could not attack")
+	}
+	if foe.Jammed {
+		t.Fatal("the delayed attack happened but the jam lock held")
+	}
+	before := foe.AttackCDFrames
+	cs.ApplyDamageToMonster(foe, 10, testWeapon("Cogfang Blade"), false)
+	if foe.AttackCDFrames != before+jam {
+		t.Fatalf("a hit after the delayed attack delayed it %d frames, want a new jam of %d", foe.AttackCDFrames-before, jam)
 	}
 }
 

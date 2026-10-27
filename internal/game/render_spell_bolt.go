@@ -51,7 +51,7 @@ func (r *Renderer) drawBoltVolume(dst *ebiten.Image, x, y, size float64, axis [3
 	if r.spellBoltOpts.Uniforms == nil {
 		r.spellBoltOpts.Uniforms = map[string]any{"Time": r.spellBoltTime[:]}
 	}
-	r.spellBoltTime[0] = float32(r.weaponMaterialClock())
+	r.spellBoltTime[0] = float32(r.game.worldSeconds())
 	r.drawCameraVolume(dst, x, y, size, alpha, transform, r.spellBoltShader, &r.spellBoltOpts, mesh, rgb, material, equipment)
 }
 

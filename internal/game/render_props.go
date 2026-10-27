@@ -360,7 +360,7 @@ func (r *Renderer) collectPropLights() {
 		if intensity <= 0 {
 			continue
 		}
-		clock := r.weaponMaterialClock() + auraHash(int(npc.X), int(npc.Y), 7, 5)*11
+		clock := r.game.worldSeconds() + auraHash(int(npc.X), int(npc.Y), 7, 5)*11
 		intensity *= .91 + .06*math.Sin(clock*4.7) + .03*math.Sin(clock*9.1)
 		r.activeLights = append(r.activeLights, LightSource{X: npc.X, Y: npc.Y, Radius: radius, Intensity: intensity})
 	}

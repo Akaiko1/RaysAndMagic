@@ -425,7 +425,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) (st
 	}
 	if m.HasRangedAttack() {
 		if m.AttackCDFrames == 0 {
-			m.AttackCDFrames = m.AttackCooldownFrames()
+			m.ArmAttackCooldown(m.AttackCooldownFrames(), cs.game.turnBasedMode)
 			cs.game.armMonsterAttackAnimation(m)
 			cs.performMonsterAttackAgainstMonster(m, foe, ProjectileOwnerMonsterAtActor)
 			return true
@@ -434,7 +434,7 @@ func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) (st
 	}
 
 	if m.AttackCDFrames == 0 {
-		m.AttackCDFrames = m.AttackCooldownFrames()
+		m.ArmAttackCooldown(m.AttackCooldownFrames(), cs.game.turnBasedMode)
 		if !cs.tryMonsterAttackSpecial(m, monsterAttackDestination{foe: foe}) {
 			cs.championCrossfireStrike(m, foe, false)
 		}
@@ -479,14 +479,14 @@ func (cs *CombatSystem) monsterAttackDamage(m *monster.Monster3D) (int, bool) {
 // state-machine tick - so a fast off-hand weapon genuinely swings faster.
 // handled: this call owned the champion's attack moment (a champion
 // template exists); struck: a hand actually swung - only that spends the
-// attack (a jam's lock, the action's reactions).
+// attack (the action's reactions).
 func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bool) (handled, struck bool) {
 	ch := cs.game.championTemplateFor(m)
 	if ch == nil {
 		return false, false
 	}
 	if attackTick && m.AttackCDFrames == 0 {
-		m.AttackCDFrames = m.AttackCooldownFrames()
+		m.ArmAttackCooldown(m.AttackCooldownFrames(), cs.game.turnBasedMode)
 		if !cs.tryMonsterAttackSpecial(m, monsterAttackDestination{}) {
 			cs.championMeleeStrike(m, false)
 		}
@@ -563,7 +563,7 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 	// resolves to the character's weapon cooldown (Speed + weapon + dual-wield).
 	// Turn-based swings ignore it: champions have their own fixed rule,
 	// monster.ChampionTurnBasedSwings.
-	if base := g.config.MonsterAI.AttackCooldown; base > 0 {
+	if base := g.framesForSeconds(g.config.MonsterAI.AttackCooldownSeconds); base > 0 {
 		m.AttackCooldownMultiplier = float64(cs.WeaponCooldownFrames(ch)) / float64(base)
 	}
 

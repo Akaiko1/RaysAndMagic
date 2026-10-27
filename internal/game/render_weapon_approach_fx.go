@@ -81,7 +81,7 @@ var duskneedleVein = [3]int{222, 192, 225}
 // Four pointed, curved membrane lobes share the arrow's flight axis. The base
 // fletched arrow is still drawn by the normal pass; this is its moth-wing wake.
 func (r *Renderer) drawDuskneedleWings(dst *ebiten.Image, cx, cy, size, ax, ay, nx, ny, alpha float64, id int) {
-	phase := r.weaponMaterialClock()*8 + float64(id%13)*.7
+	phase := r.game.worldSeconds()*8 + float64(id%13)*.7
 	spread := .80 + .20*math.Sin(phase)
 	for _, side := range []float64{-1, 1} {
 		for lobe := 0; lobe < 2; lobe++ {

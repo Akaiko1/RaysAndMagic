@@ -46,14 +46,11 @@ func (cs *CombatSystem) castMortarSpell(spellID spells.SpellID, spellDef spells.
 	// Flight time from the spell's authored projectile speed (validateSpellAuthoring
 	// guarantees a mortar spell has physics.speed_tiles > 0). The visual bolt
 	// flies through walls like the shell; a wall hides it only below its top.
-	speed := spellDef.MortarRangeTiles // 1 tile/frame fallback if physics is ever absent
+	speed := spellDef.MortarRangeTiles // a one-second flight if physics is ever absent
 	if physics, err := cs.game.config.GetSpellConfig(string(spellID)); err == nil && physics.SpeedTiles > 0 {
 		speed = physics.SpeedTiles
 	}
-	frames := int(spellDef.MortarRangeTiles / speed * float64(cs.game.config.GetTPS()))
-	if frames < 1 {
-		frames = 1
-	}
+	frames := cs.game.framesForSeconds(spellDef.MortarRangeTiles / speed)
 
 	cs.spawnMortarVisual(spellID, frames, dist)
 	cs.game.pendingMortars = append(cs.game.pendingMortars, pendingMortar{

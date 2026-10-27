@@ -174,8 +174,8 @@ type Arrow struct {
 type SpellHitParticle struct {
 	X, Y             float64 // World anchor (impact point) - fixed; used for projection
 	OffsetX, OffsetY float64 // Impact-plane offset, projected at the world anchor depth
-	VelX, VelY       float64 // Impact-plane units per frame
-	Gravity          float64 // Added to VelY each frame (ice shards fall, embers rise)
+	VelX, VelY       float64 // Impact-plane units per second
+	Gravity          float64 // Impact-plane units per second squared (ice shards fall, embers rise)
 	Color            [3]int  // RGB color based on element
 	LifeTime         int     // Frames remaining
 	MaxLife          int     // Initial lifetime for alpha calculation
@@ -1715,7 +1715,7 @@ func (g *MMGame) updateSkyAndGroundColorsFaded() {
 		g.updateSkyPanorama(name)
 		if prev != nil && g.skyPanorama != nil {
 			g.skyPanoramaPrev = prev
-			total := int(g.config.DayNight.PanoramaFadeSecondsOrDefault() * float64(g.config.GetTPS()))
+			total := g.framesForSeconds(g.config.DayNight.PanoramaFadeSecondsOrDefault())
 			g.skyFadeFrames, g.skyFadeTotal = total, total
 		} else {
 			g.cancelSkyFade()
@@ -1841,27 +1841,27 @@ const (
 	// intentionally long enough to read the diagonal sector while turning, so a
 	// monster can't be skipped just because the camera snaps between cardinals.
 	turnViewSeconds = 0.25
-	// Horizontal motion-blur length as a FRACTION of the per-frame view pan. The
-	// raw per-frame pan during a fast turn is huge, so a small fraction reads as a
-	// SLIGHT smear (full would be mush). Kept subtle because TB turning is a
-	// look-around aid: the diagonal sector must stay readable while moving.
-	turnBlurStrength = 0.06
+	// Horizontal motion-blur length: the view's pan over this span. The raw pan
+	// during a fast turn is huge, so a tiny span reads as a SLIGHT smear (longer
+	// would be mush). Kept subtle because TB turning is a look-around aid: the
+	// diagonal sector must stay readable while moving.
+	turnBlurSeconds = 0.0005
 	// Upper bound on the blur half-length in pixels - never smear into mush.
 	turnBlurMaxPixels = 120.0
 )
 
 // turnBlurPixels is the horizontal motion-blur half-length (pixels) for this
-// frame: ~the distance the view pans per frame during the turn, scaled down to a
-// slight smear and capped. 0 outside a turn.
+// frame: the distance the view pans over turnBlurSeconds during the turn,
+// capped. 0 outside a turn.
 // screenWidth is the ACTUAL draw-target width (the scene buffer), not the config
 // width - they can differ, and the pan-to-pixels mapping must match what's drawn.
 func (g *MMGame) turnBlurPixels(screenWidth int) float64 {
-	if g.viewTurnFramesLeft <= 0 || g.camera == nil || g.camera.FOV <= 0 || turnBlurStrength <= 0 {
+	if g.viewTurnFramesLeft <= 0 || g.camera == nil || g.camera.FOV <= 0 || turnBlurSeconds <= 0 {
 		return 0
 	}
 	stepRad := (math.Pi / 2) / float64(g.turnViewFrames()) // per-frame yaw step
 	panPx := stepRad / g.viewFOV() * float64(screenWidth)
-	if blur := panPx * turnBlurStrength; blur < turnBlurMaxPixels {
+	if blur := panPx * float64(g.tickRate()) * turnBlurSeconds; blur < turnBlurMaxPixels {
 		return blur
 	}
 	return turnBlurMaxPixels
@@ -1903,10 +1903,7 @@ func (g *MMGame) drawTurnBlur(screen, scene *ebiten.Image, shader *ebiten.Shader
 
 // turnViewFrames is how many frames a 90deg TB turn eases over at the current TPS.
 func (g *MMGame) turnViewFrames() int {
-	if n := int(turnViewSeconds * float64(g.config.GetTPS())); n > 1 {
-		return n
-	}
-	return 1
+	return g.framesForSeconds(turnViewSeconds)
 }
 
 // setPartyPosition is the single point for placing the party: it moves the
@@ -1949,9 +1946,8 @@ func (g *MMGame) beginScreenShakeSwap() func() {
 	x, y := camera.X, camera.Y
 	ox := -math.Sin(camera.Angle) * g.screenShake
 	oy := math.Cos(camera.Angle) * g.screenShake
-	if g.frameCount%2 == 0 {
-		ox, oy = -ox, -oy
-	}
+	side := jitterSign(g.worldSeconds())
+	ox, oy = ox*side, oy*side
 	camera.X, camera.Y = x+ox, y+oy
 	shakenX, shakenY := camera.X, camera.Y
 	g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
@@ -2339,26 +2335,57 @@ const (
 )
 
 // framesForSeconds converts an AUTHORED duration to simulation frames at the
-// live tick rate. THE conversion for anything timed: a raw frame count is a
-// duration only at one rate, and the shipped rate is config.DefaultTPS (120), so
-// a constant written "at 60fps" elapses in half its documented time.
+// live tick rate. THE conversion for anything timed in seconds; whole seconds
+// may multiply by the rate directly, which is exact, and the hero Speed curve,
+// kept in 1/DefaultTPS steps, converts through speedCurveFrames. A raw frame
+// count is a duration only at one rate, and the shipped rate is
+// config.DefaultTPS (120), so a constant written "at 60fps" elapses in half its
+// documented time.
 func (g *MMGame) framesForSeconds(seconds float64) int {
-	tps := config.DefaultTPS
-	if g != nil && g.config != nil {
-		tps = g.config.GetTPS()
-	}
-	return config.SecondsToFrames(seconds, tps)
+	return config.SecondsToFrames(seconds, g.tickRate())
 }
 
-// HitSparkFrames is how long the hit feedback (whole-card red flash + spark
+// worldSeconds is the world presentation clock in seconds (frameCount at the
+// live rate): THE time base for animated world phases, so they run at the same
+// speed at any tick rate. It stops with the world; the interface runs on
+// uiSeconds.
+func (g *MMGame) worldSeconds() float64 {
+	if g == nil {
+		return 0
+	}
+	return float64(g.frameCount) / float64(g.tickRate())
+}
+
+// jitterFlipsPerSecond: a screen shake or hit rattle flips its side this often,
+// a 30 Hz cycle every display can show at any tick rate.
+const jitterFlipsPerSecond = 60
+
+// jitterSign is a shake's or hit rattle's side at seconds: +1 or -1.
+func jitterSign(seconds float64) float64 {
+	if int(seconds*jitterFlipsPerSecond)%2 == 0 {
+		return -1
+	}
+	return 1
+}
+
+// tickRate is the live simulation rate; without a game or config, the loaded
+// config's (config.GetTargetTPS). Never zero.
+func (g *MMGame) tickRate() int {
+	if g != nil && g.config != nil {
+		return g.config.GetTPS()
+	}
+	return config.GetTargetTPS()
+}
+
+// HitSparkSeconds is how long the hit feedback (whole-card red flash + spark
 // burst) plays on a party card after the member takes a hit.
-const HitSparkFrames = 18 // ~0.15s at 120 TPS
+const HitSparkSeconds = 0.15
 
-// PartyFlameFrames is how long the Inferno flame overlay burns on a card.
-const PartyFlameFrames = 45 // ~0.38s at 120 TPS
+// PartyFlameSeconds is how long the Inferno flame overlay burns on a card.
+const PartyFlameSeconds = 0.375
 
-// HealEffectFrames is how long the rising green "+" overlay plays on a card.
-const HealEffectFrames = 48 // ~0.40s at 120 TPS
+// HealEffectSeconds is how long the rising green "+" overlay plays on a card.
+const HealEffectSeconds = 0.4
 
 // triggerCardFx lights one card overlay on one member for `frames` frames.
 func (g *MMGame) triggerCardFx(fx cardFx, characterIndex, frames int) {
@@ -2378,8 +2405,8 @@ func (g *MMGame) cardFxActive(fx cardFx, characterIndex int) int {
 // triggerDamageFx is the visual-only damage preview used by TriggerDamageHit
 // and the FX gallery. Production damage paths call TriggerDamageHit.
 func (g *MMGame) triggerDamageFx(characterIndex int) {
-	g.triggerCardFx(fxBlink, characterIndex, g.config.UI.DamageBlinkFrames)
-	g.triggerCardFx(fxSpark, characterIndex, HitSparkFrames)
+	g.triggerCardFx(fxBlink, characterIndex, g.framesForSeconds(g.config.UI.DamageBlinkSeconds))
+	g.triggerCardFx(fxSpark, characterIndex, g.framesForSeconds(HitSparkSeconds))
 }
 
 func (g *MMGame) TriggerDamageHit(characterIndex, damage int) {
@@ -2391,12 +2418,12 @@ func (g *MMGame) TriggerDamageHit(characterIndex, damage int) {
 
 // TriggerPartyFlame lights the Inferno flame-particle overlay on a party card.
 func (g *MMGame) TriggerPartyFlame(characterIndex int) {
-	g.triggerCardFx(fxFlame, characterIndex, PartyFlameFrames)
+	g.triggerCardFx(fxFlame, characterIndex, g.framesForSeconds(PartyFlameSeconds))
 }
 
 // TriggerPartyHeal lights the rising green "+" overlay on a healed member's card.
 func (g *MMGame) TriggerPartyHeal(characterIndex int) {
-	g.triggerCardFx(fxHeal, characterIndex, HealEffectFrames)
+	g.triggerCardFx(fxHeal, characterIndex, g.framesForSeconds(HealEffectSeconds))
 }
 
 // UpdateMonsterHitTintTimers decrements hit tint timers for monsters each frame

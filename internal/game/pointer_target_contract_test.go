@@ -50,7 +50,7 @@ func TestPointerMeleeKeepsSelectedTarget(t *testing.T) {
 					}
 					beforeHP := target.HitPoints
 					fp.hold()
-					for range rtHoldRepeatDelay + 120 {
+					for range g.framesForSeconds(rtHoldRepeatSeconds) + 120 {
 						tick()
 					}
 					if target.HitPoints >= beforeHP {

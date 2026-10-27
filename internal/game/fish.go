@@ -184,7 +184,7 @@ func (g *MMGame) updateFish() {
 	}
 	// A shared update cadence, not a spawn cooldown. Flights do not suppress
 	// later rolls, and each eligible tile rolls independently.
-	if g.frameCount == 0 || g.frameCount%int64(f.RollEveryFrames) != 0 {
+	if g.frameCount == 0 || g.frameCount%int64(g.framesForSeconds(f.RollEverySeconds)) != 0 {
 		return
 	}
 	key := world.GlobalWorldManager.CurrentMapKey
