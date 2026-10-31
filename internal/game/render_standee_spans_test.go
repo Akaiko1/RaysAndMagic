@@ -62,7 +62,8 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 	}
 	cases := []spanCase{
 		{name: "angled transparent stack", depth: 100, size: 350, yaw: 0.8},
-		{name: "mirrored fading stack", depth: 100, size: 350, yaw: 2.1, mirror: true, fade: 0.4},
+		{name: "mirrored fading stack", depth: 100, size: 350, yaw: 2.1, mirror: true, fade: 0.4, volume: true},
+		{name: "tinted fading token", depth: 100, size: 350, yaw: 0.8, fade: 0.4},
 		{name: "minified single face", depth: 600, size: 45, yaw: 1.2, single: true},
 		{name: "stepped foreground walls", depth: 100, size: 350, yaw: 0.8, walls: true},
 		{name: "backing wall and foreground wall", depth: 100, size: 350, yaw: math.Pi / 2, walls: true, mounted: true},
@@ -88,17 +89,23 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 				g.camera.FOV = 108 * math.Pi / 180
 			}
 			bottom := float64(h)/2 + tc.size/2
-			slab, ok := r.prepareStandeeSlab(sprite, key, tc.depth, 0, tc.yaw, tc.depth, tc.size, bottom, 1, 0.7, 0.4, false, tc.mirror, 0, nil, -1)
+			// The compositor carries one brightness: its rows draw untinted.
+			gg, bb := float32(0.7), float32(0.4)
+			if tc.volume {
+				gg, bb = 1, 1
+			}
+			slab, ok := r.prepareStandeeSlab(sprite, key, tc.depth, 0, tc.yaw, tc.depth, tc.size, bottom, 1, gg, bb, false, tc.mirror, 0, nil, -1)
 			if !ok {
 				t.Fatal("fixture did not project")
 			}
 			slab.fade = tc.fade
-			slab.volumeComposite = tc.volume
-			if tc.volume && !canUseStandeeVolume(slab) {
-				t.Fatal("fixture did not engage the volume compositor")
+			// Crosses opt in; a fading token takes the compositor by itself.
+			slab.volumeComposite = tc.volume && tc.fade == 0
+			if tc.volume != canUseStandeeVolume(slab) {
+				t.Fatalf("volume compositor engaged=%v, want %v", canUseStandeeVolume(slab), tc.volume)
 			}
 			if tc.single {
-				slab.firstSurface = len(slab.surfaces) - 1
+				slab.thin(1)
 			}
 			r.standeeWallOcclusion = standeeWallOcclusion{}
 			if tc.mounted {

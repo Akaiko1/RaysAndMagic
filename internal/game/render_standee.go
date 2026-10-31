@@ -29,8 +29,8 @@ const (
 	// layer count as 1080p instead of double.
 	standeeShellRefWidth  = 1920
 	standeeShellSpacingPx = 1.5
-	// Composite every full-opacity cross stack in one fragment pass. Even the
-	// minimum two shells otherwise duplicate the column mesh four times.
+	// Composite every cross stack and fading token in one fragment pass. Even
+	// the minimum two shells otherwise duplicate the column mesh four times.
 	standeeVolumeMinShells = 2
 	standeeMinDepth        = 4.0           // near clip for token columns (world units)
 	standeeStaticYaw       = math.Pi / 4.0 // fixed diagonal for scenery and NPC tokens
@@ -689,11 +689,11 @@ type standeeSlab struct {
 	surfaces     []standeeSurface
 	firstSurface int     // draw from here (zero side opacity skips hidden layers)
 	sideFade     float32 // 0 = full thickness, 1 = only the front face
-	fade         float32 // transient opacity loss; zero preserves the ordinary material
+	fade         float32 // opacity loss of the whole token; zero preserves the ordinary material
 	minX, maxX   int     // unclipped screen span
-	// volumeComposite is set only for crosses. Their full-opacity
-	// slabs use the one-pass volume compositor; other standees keep the
-	// general material path, including trilinear minification and wall mounts.
+	// volumeComposite is set only for crosses: they and fading tokens use the
+	// one-pass volume compositor; other standees keep the general material
+	// path, including trilinear minification and wall mounts.
 	volumeComposite bool
 	// Float billboard metrics: the per-column scaling multiplies them by
 	// centerDepth/t, so any int quantization here would make the whole token
@@ -783,17 +783,19 @@ func (r *Renderer) crossedStandeeArms(worldX, worldY, yawA, yawB, footprint floa
 // monsters, whose directional walk art must face the world heading regardless
 // of which side the camera is on.
 //
-// Returns false when the token can't be built this frame so the caller falls
-// back to the billboard.
+// Returns false without a sprite or projection, so a caller can fall back to the
+// billboard; a token off-screen this frame draws nothing and returns true.
 // worldLengthOverride (>0) forces the token's world footprint length instead of
 // deriving it from the billboard width. Crossed trees use it for their full-tile
-// footprint so their arms land on the tile edges.
-func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize float64, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64) bool {
+// footprint so their arms land on the tile edges. fade (0 = opaque) fades the
+// token out as one solid (canUseStandeeVolume).
+func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize float64, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, fade float32) bool {
 	if sprite == nil || centerDepth <= 0 || centerSize <= 0 {
 		return false
 	}
 	slab, ok := r.prepareStandeeSlab(sprite, coreKey, entX, entY, yaw, centerDepth, centerSize, bottomY, rr, gg, bb, mirrorBySide, mirroredIn, worldLengthOverride, r.standeeSurfaces[:0], -1)
 	if ok {
+		slab.fade = fade
 		r.drawStandeeSlabColumns(screen, slab, -1, -1)
 	}
 	r.standeeSurfaces = slab.surfaces[:0] // reclaim the backing array (cap grows to the max needed)
@@ -949,24 +951,28 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 		parallax := math.Max(math.Abs(fx0f-nx0f), math.Abs(fx1f-nx1f))
 		sideFade = standeeSideFade(parallax)
 	}
-	first := 0
-	if sideFade == 1 {
-		first = len(surfaces) - 1
+	slab := standeeSlab{
+		surfaces:    surfaces,
+		minX:        minX,
+		maxX:        maxX,
+		centerSize:  centerSize,
+		centerDepth: centerDepth,
+		bottomY:     bottomY,
+		rr:          rr,
+		gg:          gg,
+		bb:          bb,
 	}
+	slab.thin(sideFade)
+	return slab, true
+}
 
-	return standeeSlab{
-		surfaces:     surfaces,
-		firstSurface: first,
-		sideFade:     sideFade,
-		minX:         minX,
-		maxX:         maxX,
-		centerSize:   centerSize,
-		centerDepth:  centerDepth,
-		bottomY:      bottomY,
-		rr:           rr,
-		gg:           gg,
-		bb:           bb,
-	}, true
+// thin hides the side layers by amount (0 = full thickness, 1 = only the
+// front face, whose hidden layers are skipped); the thinner request wins.
+func (s *standeeSlab) thin(amount float32) {
+	s.sideFade = max(s.sideFade, amount)
+	if s.sideFade == 1 {
+		s.firstSurface = len(s.surfaces) - 1
+	}
 }
 
 // standeeSideFade removes subpixel thickness continuously, independently of
@@ -995,12 +1001,17 @@ func standeeAxisFootprints(projectedWidth, projectedHeight, textureWidth, textur
 	return textureWidth / math.Max(projectedWidth, 1e-6), textureHeight / math.Max(projectedHeight, 1e-6)
 }
 
+// canUseStandeeVolume: crosses take the one-pass compositor for speed, a fading
+// token because only the resolved solid fades without its shells showing
+// through. The compositor carries one brightness, so a tinted token stays on
+// the material path.
 func canUseStandeeVolume(slab standeeSlab) bool {
 	// Zero/one core layer intentionally keeps the material path. Fewer draw
 	// calls alone do not prove the volume shader cheaper for such small stacks;
 	// change this threshold only after a dense-scene GPU comparison.
-	return slab.volumeComposite &&
-		slab.firstSurface == 0 && slab.sideFade == 0 && slab.fade == 0 &&
+	return (slab.volumeComposite || slab.fade > 0) &&
+		slab.firstSurface == 0 && slab.sideFade == 0 &&
+		slab.rr == slab.gg && slab.gg == slab.bb &&
 		len(slab.surfaces)-2 >= standeeVolumeMinShells
 }
 
@@ -1165,9 +1176,10 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 
 	opts := &r.standeeVolumeOpts
 	if opts.Uniforms == nil {
-		opts.Uniforms = map[string]any{"Horizon": make([]float32, 1)}
+		opts.Uniforms = map[string]any{"Horizon": make([]float32, 1), "Fade": make([]float32, 1)}
 	}
 	opts.Uniforms["Horizon"].([]float32)[0] = float32(r.game.viewHorizon())
+	opts.Uniforms["Fade"].([]float32)[0] = slab.fade
 	opts.Blend = ebiten.BlendSourceOver
 	opts.Images[0] = stickerMips.levels[0]
 	opts.Images[1] = stickerMips.levels[mipLevel]
@@ -1283,6 +1295,11 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	if projectedWidth >= 2 && canUseStandeeVolume(slab) &&
 		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered) {
 		return
+	}
+	if slab.fade > 0 {
+		// Translucent layers drawn one by one would stack into an opaque body:
+		// without the compositor a fading token is its front face.
+		slab.thin(1)
 	}
 
 	shader, err := r.ensureStandeeTrilinearShader()
@@ -1681,7 +1698,7 @@ func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, k
 		r.standeeWallOcclusion.backingYaw = wyaw
 		r.standeeWallOcclusion.hasBackingWall = true
 	}
-	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength)
+	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength, 0)
 	r.standeeWallOcclusion = standeeWallOcclusion{}
 	return drew
 }

@@ -54,30 +54,8 @@ func (r *Renderer) drawMonsterCorpse(screen *ebiten.Image, s UnifiedSpriteRender
 	}
 	c := s.corpse
 	_, alpha := r.game.corpseFrameAndOpacity(c)
-	brightness := float32(r.calculateBrightnessWithTorchLight(c.x, c.y, s.distance))
-	rr, gg, bb := brightness, brightness, brightness
-	if r.game.config.Graphics.Standee.Enabled {
-		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", c.key), s.sprite, true)
-		slab, ok := r.prepareStandeeSlab(s.sprite, key, c.x, c.y, c.yaw, s.depthPerp, s.sizeF, s.bottomF,
-			rr, gg, bb, false, c.mirror, 0, r.standeeSurfaces[:0], -1)
-		if ok {
-			// Fade a single visible face: translucent wood shells would accumulate
-			// alpha and keep the body opaque until the last instant.
-			slab.firstSurface = len(slab.surfaces) - 1
-			slab.fade = 1 - alpha
-			r.drawStandeeSlabColumns(screen, slab, -1, -1)
-		}
-		r.standeeSurfaces = slab.surfaces[:0]
-		return
-	}
-	sx, sy := s.sizeF/float64(s.sprite.Bounds().Dx()), s.sizeF/float64(s.sprite.Bounds().Dy())
-	left := s.screenXF - s.sizeF/2
-	if c.mirror {
-		sx = -sx
-		left += s.sizeF
-	}
-	opts := r.scaledWorldSpriteOpts(sx, sy)
-	opts.GeoM.Translate(left, s.bottomF-s.sizeF)
-	opts.ColorScale.Scale(rr, gg, bb, alpha)
-	worldDrawImage(screen, s.sprite, opts)
+	b := float32(r.calculateBrightnessWithTorchLight(c.x, c.y, s.distance))
+	r.drawMob(screen, s, mobFrame{sprite: s.sprite, key: c.key, standee: r.game.config.Graphics.Standee.Enabled,
+		x: c.x, y: c.y, yaw: c.yaw, left: s.screenXF - s.sizeF/2, top: s.bottomF - s.sizeF,
+		mirror: c.mirror, rr: b, gg: b, bb: b, fade: 1 - alpha})
 }

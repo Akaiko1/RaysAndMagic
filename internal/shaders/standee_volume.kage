@@ -1,7 +1,9 @@
 //include standee_sampling.kageinc
 
 var Horizon float
-// The crossed-standee volume shader composites the exact shell stack in one
+// Fade fades the resolved solid once (a fading token); 0, the default, is opaque.
+var Fade float
+// The standee volume shader composites the exact shell stack in one
 // fragment invocation. It receives all per-slab data through vertices so
 // successive trees with the same texture remain batchable:
 //
@@ -63,7 +65,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		}
 	}
 	if acc.a >= 0.999 {
-		return acc
+		return acc * (1.0 - Fade)
 	}
 
 	for i := 0; i < 16; i++ {
@@ -80,7 +82,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		}
 	}
 	if acc.a >= 0.999 {
-		return acc
+		return acc * (1.0 - Fade)
 	}
 
 	if farDepth < wallDepth || dstY < wallTop {
@@ -88,7 +90,7 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 			acc = addFront(acc, tinted(stickerAt(p, mipBlend), color.r, 0.75))
 		}
 	}
-	return acc
+	return acc * (1.0 - Fade)
 }
 
 //include panini.kageinc

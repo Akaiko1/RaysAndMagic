@@ -3866,17 +3866,20 @@ func (r *Renderer) scaledWorldSpriteOpts(scaleX, scaleY float64) *ebiten.DrawIma
 // hover-highlight overlay share it. Metrics are FLOAT on purpose: the GPU
 // rasterizes the float rect, so a distant sprite glides subpixel-smoothly
 // instead of hopping whole pixels (an int draw path is how the far-object
-// jitter got in).
-func (r *Renderer) drawTintedSpriteF(screen *ebiten.Image, sprite *ebiten.Image, drawLeft, screenY, spriteSize float64, tintR, tintG, tintB, tintA float32) {
+// jitter got in). mirror flips the picture within the same rect.
+func (r *Renderer) drawTintedSpriteF(screen *ebiten.Image, sprite *ebiten.Image, drawLeft, screenY, spriteSize float64, mirror bool, tintR, tintG, tintB, tintA float32) {
 	if sprite == nil || spriteSize <= 0 {
 		return
 	}
 	scaleX := spriteSize / float64(sprite.Bounds().Dx())
 	scaleY := spriteSize / float64(sprite.Bounds().Dy())
+	if mirror {
+		scaleX = -scaleX
+		drawLeft += spriteSize
+	}
 	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(drawLeft, screenY)
 	opts.ColorScale.Scale(tintR, tintG, tintB, tintA)
-	opts.Blend = ebiten.BlendSourceOver
 	worldDrawImage(screen, sprite, opts)
 }
 
@@ -3934,7 +3937,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*r.game.worldSeconds()
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("container", spriteName), s.sprite, false)
 		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
-			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0, 0) {
 			return
 		}
 	}
@@ -3942,9 +3945,9 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 	// Billboard fallback (standee off or off-screen).
 	drawLeftF := s.screenXF - s.sizeF/2
 	drawTopF := s.bottomF - s.sizeF
-	r.drawTintedSpriteF(screen, s.sprite, drawLeftF, drawTopF, s.sizeF, b, b, b, 1.0)
+	r.drawTintedSpriteF(screen, s.sprite, drawLeftF, drawTopF, s.sizeF, false, b, b, b, 1.0)
 	if hovered {
-		r.drawTintedSpriteF(screen, s.sprite, drawLeftF, drawTopF, s.sizeF,
+		r.drawTintedSpriteF(screen, s.sprite, drawLeftF, drawTopF, s.sizeF, false,
 			hoverHighlightTint[0], hoverHighlightTint[1], hoverHighlightTint[2], hoverHighlightTint[3])
 	}
 }
@@ -4053,7 +4056,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// (short grass tuft wearing the tall variant's silhouette).
 		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tile", name), frame, false)
 		if r.drawStandeeSprite(screen, frame, key, worldX, worldY, yaw,
-			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0, 0) {
 			return
 		}
 	}
@@ -4061,7 +4064,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		return
 	}
 
-	r.drawTintedSpriteF(screen, frame, s.screenXF-s.sizeF/2, s.bottomF-s.sizeF, s.sizeF, b, b, b, 1.0)
+	r.drawTintedSpriteF(screen, frame, s.screenXF-s.sizeF/2, s.bottomF-s.sizeF, s.sizeF, false, b, b, b, 1.0)
 }
 
 // prepareMonsterPick computes the pose once, before hover selection and draw.
@@ -4170,26 +4173,37 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		bb *= standeeHoverBoost
 	}
 
-	if h.standee {
-		m := s.monster
-		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", m.Key), h.sprite, true)
-		r.drawStandeeSprite(screen, h.sprite, key, h.p0x+h.dx/2, h.p0y+h.dy/2, m.StandeeYaw,
-			s.depthPerp, s.sizeF, s.bottomF, rr, gg, bb, false, h.flipped, 0)
-	} else {
-		scaleX := s.sizeF / float64(h.sprite.Bounds().Dx())
-		scaleY := s.sizeF / float64(h.sprite.Bounds().Dy())
-		left := drawLeftF
-		if h.flipped {
-			scaleX = -scaleX
-			left += s.sizeF
-		}
-		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
-		opts.GeoM.Translate(left, screenYF)
-		opts.ColorScale.Scale(rr, gg, bb, 1)
-		opts.Blend = ebiten.BlendSourceOver
-		worldDrawImage(screen, h.sprite, opts)
-	}
+	r.drawMob(screen, s, mobFrame{sprite: h.sprite, key: s.monster.Key, standee: h.standee,
+		x: h.p0x + h.dx/2, y: h.p0y + h.dy/2, yaw: s.monster.StandeeYaw, left: drawLeftF, top: screenYF,
+		mirror: h.flipped, rr: rr, gg: gg, bb: bb})
 	r.drawMonsterStatusFX(screen, s, screenY)
+}
+
+// mobFrame is one mob picture to paint: the live actor or its corpse.
+type mobFrame struct {
+	sprite     *ebiten.Image
+	key        string // monster key: the standee core cache
+	standee    bool
+	x, y, yaw  float64 // token pose (standee)
+	left, top  float64 // sprite corner (standee off)
+	mirror     bool
+	rr, gg, bb float32
+	fade       float32 // 0 = opaque
+}
+
+// drawMob paints a mob frame at s's depth and size: the token, or the flat
+// sprite with standee off. Live mobs and corpses share it, so a corpse keeps
+// the live token's thickness.
+func (r *Renderer) drawMob(screen *ebiten.Image, s UnifiedSpriteRenderData, f mobFrame) {
+	if f.standee {
+		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", f.key), f.sprite, true)
+		r.drawStandeeSprite(screen, f.sprite, key, f.x, f.y, f.yaw, s.depthPerp, s.sizeF, s.bottomF,
+			f.rr, f.gg, f.bb, false, f.mirror, 0, f.fade)
+		return
+	}
+	// ColorScale applies to premultiplied colour: a fade scales all four.
+	alpha := 1 - f.fade
+	r.drawTintedSpriteF(screen, f.sprite, f.left, f.top, s.sizeF, f.mirror, f.rr*alpha, f.gg*alpha, f.bb*alpha, alpha)
 }
 
 // drawMonsterStatusFX overlays a monster's status indicators (stun stars,
@@ -4528,7 +4542,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 		key := makeStandeeCoreKey(npcKeyName, sprite, false)
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
-			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0, 0) {
 			return
 		}
 	}
@@ -4540,7 +4554,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	if hovered {
 		r.drawSpriteEdgeGlow(screen, sprite, left, top, s.sizeF)
 	}
-	r.drawTintedSpriteF(screen, sprite, left, top, s.sizeF, br, br, br, 1.0)
+	r.drawTintedSpriteF(screen, sprite, left, top, s.sizeF, false, br, br, br, 1.0)
 	r.drawBillboardCrystalShimmer(screen, s.npc, sprite, left, top, s.sizeF)
 }
 

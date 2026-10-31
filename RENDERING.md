@@ -170,19 +170,21 @@ this scale and stay wholly inside the disk. Out-of-world areas remain empty.
 Local stroke tessellation can change a few pixels at the old circle-closing
 seam; the rest is checked against the uncached draw with alpha-rounding tolerance.
 
-The full-opacity crossed-standee volume compositor groups adjacent screen
-columns with the same effective wall clipping. Walls conservatively behind all
-layers are irrelevant to that grouping. It interpolates reciprocal depth and
-U/depth for both outer faces, then reconstructs depth and U per fragment. This
-preserves perspective over a wide quad without skipping columns or changing
-shell counts, texture sampling, art, LOD or alpha compositing. Genuine wall-depth
-or wall-height changes still split spans. Conservative outer geometry is clipped
-by the existing per-layer coverage tests in the shader.
+The standee volume compositor (crossed trees, and fading tokens such as a
+corpse, which it fades as one solid) groups adjacent screen columns with the
+same effective wall clipping. Walls conservatively behind all layers are
+irrelevant to that grouping. It interpolates reciprocal depth and U/depth for
+both outer faces, then reconstructs depth and U per fragment. This preserves
+perspective over a wide quad without skipping columns or changing shell counts,
+texture sampling, art, LOD or alpha compositing. Genuine wall-depth or
+wall-height changes still split spans. Conservative outer geometry is clipped by
+the existing per-layer coverage tests in the shader.
 
-Fades, single-face LOD, grazing faces and invalid volume intersections retain
-the material renderer. This change does not introduce tree depth occlusion or
-alter floor blending. Both compass images and standee meshes are derived render
-state and are never serialized.
+Tinted tokens, single-face LOD, grazing faces and invalid volume intersections
+retain the material renderer; a fading token there is drawn as its front face,
+since translucent layers would stack into an opaque body. This change does not
+introduce tree depth occlusion or alter floor blending. Both compass images and
+standee meshes are derived render state and are never serialized.
 
 ## Verification cases
 
