@@ -7,7 +7,9 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
+	uitext "ugataima/assets/text"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -69,6 +71,11 @@ func TestSolsticeTelegraphCrossfire(t *testing.T) {
 					}
 					if m.Telegraph.TargetID != foe.ID || !m.Telegraph.Warning.Active() {
 						t.Fatal("crossfire warning did not lock its actor")
+					}
+					name := monsterTelegraph(m).Name
+					if announced := uitext.Text("combat.telegraph.prepare_on", m.Name, name, foe.Name); countCombatLog(g, announced) != 1 ||
+						countCombatLog(g, uitext.Text("combat.telegraph.prepare", m.Name, name)) != 0 {
+						t.Fatalf("a cast at a monster must name it, not send the party away: want %q only", announced)
 					}
 					// The caster's own on-hit rider rides its telegraph too.
 					m.Abilities.Ignite.Chance, m.Abilities.Ignite.DurationSeconds = 1, 3
@@ -256,6 +263,16 @@ func TestSolsticeTelegraphSchedulers(t *testing.T) {
 				}
 				if m.Telegraph.Warning != monsterTelegraph(m).WarningClock(g.config.GetTPS()) || len(m.Telegraph.Tiles) == 0 {
 					t.Fatalf("scheduler did not announce: %+v", m.Telegraph)
+				}
+				// Only a cast at the party tells it to leave; a shield names its ally.
+				// other: the targeted line up to its target's name, for any target.
+				other, _, _ := strings.Cut(uitext.Text("combat.telegraph.prepare_on", m.Name, a.Name, "\x00"), "\x00")
+				announced := uitext.Text("combat.telegraph.prepare", m.Name, a.Name)
+				if ally != nil {
+					announced, other = uitext.Text("combat.telegraph.prepare_on", m.Name, a.Name, ally.Name), uitext.Text("combat.telegraph.prepare", m.Name, a.Name)
+				}
+				if countCombatLog(g, announced) != 1 || countCombatLog(g, other) != 0 {
+					t.Fatalf("announcement %q not logged exactly once, or %q logged too", announced, other)
 				}
 				if partyHPSum(g) != before {
 					t.Fatal("wind-up also dealt an ordinary hit")

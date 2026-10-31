@@ -3,6 +3,7 @@
 combat.party_attack.cast: "%s unleashes %s!"
 combat.party_attack.source: "%s's %s"
 combat.telegraph.prepare: "%s prepares %s. Leave the marked tiles!"
+combat.telegraph.prepare_on: "%s prepares %s on %s."
 combat.telegraph.release: "%s releases %s!"
 combat.telegraph.shield: "%s shields %s with %s."
 combat.telegraph.root: "%s binds the party. Hold your ground or fight free!"

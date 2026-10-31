@@ -159,7 +159,7 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 		return false
 	}
 	tx, ty := g.camera.X, g.camera.Y
-	targetID := ""
+	var actor *monster.Monster3D // the monster aimed at; nil = the party
 	if a.Kind == monster.TelegraphShield {
 		var ally *monster.Monster3D
 		for _, other := range g.world.Monsters {
@@ -176,14 +176,18 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 		if ally == nil {
 			return false
 		}
-		tx, ty, targetID = ally.X, ally.Y, ally.ID
+		actor = ally
 	} else if m.AIFoe != nil {
 		if !m.AIFoe.IsAlive() || !m.CanAttackActor(m.AIFoe) {
 			return false
 		}
-		tx, ty, targetID = m.AIFoe.X, m.AIFoe.Y, m.AIFoe.ID
+		actor = m.AIFoe
 	} else if !m.TargetsParty() {
 		return false
+	}
+	targetID := ""
+	if actor != nil {
+		tx, ty, targetID = actor.X, actor.Y, actor.ID
 	}
 	if Distance(m.X, m.Y, tx, ty) > float64(a.Range)*g.config.GetTileSize() || !g.telegraphLOS(m, tx, ty) {
 		return false
@@ -201,7 +205,12 @@ func (cs *CombatSystem) runTelegraphedAction(m *monster.Monster3D, ready bool) b
 	m.ResetPathCache()
 	g.armMonsterAttackAnimation(m)
 	cs.armMonsterRTAttackCooldowns(m)
-	g.AddCombatMessage(uitext.Text("combat.telegraph.prepare", m.Name, a.Name))
+	// Only a cast at the party can reach it, so only that one says to leave.
+	if actor == nil {
+		g.AddCombatMessage(uitext.Text("combat.telegraph.prepare", m.Name, a.Name))
+	} else {
+		g.AddCombatMessage(uitext.Text("combat.telegraph.prepare_on", m.Name, a.Name, actor.Name))
+	}
 	return true
 }
 func (g *MMGame) tickMonsterTelegraphs(turn bool) {
