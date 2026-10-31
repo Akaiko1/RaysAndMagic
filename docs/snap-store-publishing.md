@@ -1,9 +1,10 @@
 # Publishing to the Snap Store
 
 Plan for shipping the game as a snap. Ubuntu App Center lists Snap Store
-packages, so this is the route to the Ubuntu store. Nothing below is built yet.
-Items marked **verify** are open questions or details to check against the
-current snapcraft documentation before implementing them.
+packages, so this is the route to the Ubuntu store. Only the Linux build
+(section 2) exists so far. Items marked **verify** are open questions or
+details to check against the current snapcraft documentation before
+implementing them.
 
 ## 1. Owner actions (one time)
 
@@ -64,13 +65,11 @@ Plan:
 
 ### Linux build
 
-- Ebitengine needs cgo on Linux (GLFW, X11, GL). The macOS and Windows release
-  builds use `CGO_ENABLED=0`; the Linux build must use `CGO_ENABLED=1`.
-- Run `go run ./tools/shadergen` before `go build`, as `build_bin.sh` does.
-  Linux uses the GLSL output.
-- Build packages are the ones CI already installs: `libgl1-mesa-dev
-  libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libxxf86vm-dev
-  libasound2-dev pkg-config`.
+Built: `./build_mac_release.sh` cross-compiles the `dist/linux_amd64` folder
+with `CGO_ENABLED=0`, like the Windows one: Ebitengine 2.10 needs no cgo on
+Linux (its GLFW port and the audio backend load X11, GL, ALSA and PulseAudio at
+run time; Linux uses the GLSL shader output). The release workflow publishes it
+as `RaysAndMagic-linux-amd64.zip`; the snap can stage that folder.
 
 ## 3. Packaging: `snap/snapcraft.yaml`
 
@@ -101,12 +100,12 @@ parts:
     plugin: nil
     source: .
     build-snaps: [go]
-    build-packages: [libgl1-mesa-dev, libxcursor-dev, libxi-dev, libxinerama-dev,
-                     libxrandr-dev, libxxf86vm-dev, libasound2-dev, pkg-config]
+    # Pure Go: the binary loads these libraries at run time, so they are
+    # staged, not linked.
     stage-packages: [<runtime GL, X11 and ALSA libraries>]
     override-build: |
       go run ./tools/shadergen
-      CGO_ENABLED=1 go build -o $CRAFT_PART_INSTALL/bin/RaysAndMagic .
+      CGO_ENABLED=0 go build -o $CRAFT_PART_INSTALL/bin/RaysAndMagic .
       # copy config.yaml + assets/ to the content dir the storage code expects
       # set the version from the tag: craftctl set version=...
 ```
@@ -116,10 +115,11 @@ Details to verify:
 - **verify GPU**: on core24 Mesa comes from the `gpu-2404` interface and the
   mesa-2404 content snap, set up through a command-chain wrapper. Follow the
   current snapcraft GPU guide instead of staging Mesa by hand.
-- **verify audio**: the Ebitengine audio backend (oto) talks to ALSA. Under
-  strict confinement, route ALSA to PulseAudio (stage the ALSA pulse plugin and
-  an `asound.conf` through a layout) so that `audio-playback` is enough. The
-  `alsa` interface is not auto-connected.
+- **verify audio**: the Ebitengine audio backend (oto) tries PulseAudio first
+  (a pure Go client on the pulse socket), then ALSA. Under strict confinement
+  `audio-playback` exposes the pulse socket, so ALSA routing should not be
+  needed; the `alsa` interface is not auto-connected. Without any audio device
+  the game exits at start (the audio context error ends the run).
 - `joystick` only if gamepad input is supported; drop it otherwise.
 - Desktop file and icon: `snap/gui/` or a staged `.desktop` file pointing at a
   512x512 icon.

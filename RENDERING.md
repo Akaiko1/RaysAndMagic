@@ -6,7 +6,7 @@ compatibility, shorelines, and Dragon Cliffs orientation.
 
 ## Engine and build
 
-The game and map editor use Ebitengine 2.10.2 and Go 1.25 or newer. Desktop
+The game and map editor use Ebitengine 2.10.2 and Go 1.27 or newer. Desktop
 builds are pure Go; Cgo is not required. The module also pins the engine's
 shadercollector as a Go tool, so collection and runtime use the same version.
 

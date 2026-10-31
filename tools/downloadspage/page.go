@@ -56,6 +56,7 @@ type platform struct {
 var platforms = []platform{
 	{Asset: "RaysAndMagic-mac-universal.zip", Title: "macOS", Detail: "Apple Silicon and Intel"},
 	{Asset: "RaysAndMagic-windows-amd64.zip", Title: "Windows", Detail: "64-bit"},
+	{Asset: "RaysAndMagic-linux-amd64.zip", Title: "Linux", Detail: "Ubuntu 22.04+, 64-bit"},
 	{Asset: "RaysAndMagic-mac-arm64.zip", Title: "macOS", Detail: "Apple Silicon", Legacy: true},
 	{Asset: "RaysAndMagic-mac-amd64.zip", Title: "macOS", Detail: "Intel", Legacy: true},
 }
@@ -90,6 +91,19 @@ type page struct {
 	History      []release // the newest published releases, newest first
 	MoreReleases bool      // History was cut at historyLimit
 	Image        string    // screenshot file name inside the site, "" for none
+}
+
+// Offers reports whether a release at the top of the page has a download for
+// the platform: only then does the page show its first-launch notes.
+func (p page) Offers(title string) bool {
+	for _, r := range p.Latest {
+		for _, d := range r.Downloads {
+			if d.Platform.Title == title {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func decodeStream[T any](r io.Reader, what string) ([]T, error) {

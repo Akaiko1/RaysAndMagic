@@ -57,3 +57,48 @@ jobs:
         # The !race sweep decodes every authored sheet. Gameplay animation
         # wiring and concurrent resource loading remain in the race shards.
         run: xvfb-run --auto-servernum go test -count=1 -timeout 15m -run '^TestMonsterAnimation(Assets|Pixels)$' ./internal/game
+
+  linux-release-smoke:
+    # The Linux release is built without cgo (Ebitengine 2.10 loads X11, GL
+    # and audio at run time), the tests above with it: build the shipped
+    # configuration and run the game.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install ebiten dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxcursor-dev libxi-dev \
+            libxinerama-dev libxrandr-dev libxxf86vm-dev libasound2-dev \
+            pkg-config xvfb
+
+      - name: Build like the release
+        run: |
+          go run ./tools/shadergen
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "${RUNNER_TEMP}/RaysAndMagic" .
+
+      - name: Run the game for 60 seconds
+        run: |
+          # The runner has no sound card, and a failed audio context ends the
+          # game: give ALSA a null device.
+          printf 'pcm.!default { type null }\nctl.!default { type hw card 0 }\n' | sudo tee /etc/asound.conf >/dev/null
+          set +e
+          timeout 60 xvfb-run --auto-servernum -s "-screen 0 1280x720x24" "${RUNNER_TEMP}/RaysAndMagic" > game.log 2>&1
+          code=$?
+          set -e
+          grep -v '^ALSA lib' game.log | tail -20
+          if [ "${code}" -ne 124 ]; then
+            echo "The game exited with ${code} before the 60 s window ended." >&2
+            exit 1
+          fi
+          if ! grep -q "Open world built" game.log; then
+            echo "The game never finished loading the world." >&2
+            exit 1
+          fi

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rays and Magic Downloads</title>
-<meta name="description" content="Desktop builds of Rays and Magic for macOS and Windows.">
+<meta name="description" content="Desktop builds of Rays and Magic, a retro first-person party RPG.">
 <style>
 :root {
   --bg: #f5f2ea; --panel: #fffdf7; --ink: #1f1c17; --muted: #6a6256;
@@ -79,7 +79,8 @@ footer { padding: 8px 16px 40px; color: var(--muted); font-size: 0.9rem; }
 <section id="first-launch">
   <h2>First launch</h2>
   <p>Each archive holds the game and the map editor (RaysAndMagicMapViewer).</p>
-  <h3>macOS 12 or newer</h3>
+  {{if .Offers "macOS"}}
+  <h3 id="first-launch-macos">macOS 13 or newer</h3>
   <p>One download runs natively on Apple Silicon and Intel Macs. Keep both apps together, in the unpacked folder or in Applications: the map editor reads the game's files.</p>
   <p>The apps are signed ad hoc and not notarized by Apple, so macOS blocks the first launch of each one:</p>
   <ol>
@@ -87,12 +88,21 @@ footer { padding: 8px 16px 40px; color: var(--muted); font-size: 0.9rem; }
     <li>Open System Settings, then Privacy &amp; Security. Scroll down and press Open Anyway next to RaysAndMagic.</li>
     <li>Confirm once more. Later launches open normally.</li>
   </ol>
-  <p>On macOS 12 to 14 you can instead Control-click the app and choose Open. Or clear the download flag in Terminal:
+  <p>On macOS 13 and 14 you can instead Control-click the app and choose Open. Or clear the download flag in Terminal:
     <code>xattr -dr com.apple.quarantine RaysAndMagic.app</code></p>
-  <h3>Windows 10 or 11, 64-bit</h3>
+  {{end}}
+  {{if .Offers "Windows"}}
+  <h3 id="first-launch-windows">Windows 10 or 11, 64-bit</h3>
   <p>The executables are not code-signed, so SmartScreen may say "Windows protected your PC". Click More info, then Run anyway.</p>
+  {{end}}
+  {{if .Offers "Linux"}}
+  <h3 id="first-launch-linux">Ubuntu 22.04 or newer, 64-bit</h3>
+  <p>Unzip the whole archive and run <code>./RaysAndMagic</code> from the unpacked folder, keeping <code>assets</code> and <code>config.yaml</code> beside it. Other 64-bit glibc distributions with an X11 or XWayland desktop should work too. If the file manager unpacked the programs without the run permission:
+    <code>chmod +x RaysAndMagic RaysAndMagicMapViewer</code></p>
+  {{end}}
   <h3>Saves</h3>
-  <p>macOS keeps saves in <code>~/Library/Application Support/RaysAndMagic</code>, so a new build finds them. On Windows they live in the <code>saves</code> folder next to RaysAndMagic.exe: copy that folder over when you unpack an update.</p>
+  {{- $win := .Offers "Windows"}}{{$linux := .Offers "Linux"}}
+  <p>{{if .Offers "macOS"}}macOS keeps saves in <code>~/Library/Application Support/RaysAndMagic</code>, so a new build finds them. {{end}}{{if or $win $linux}}On {{if $win}}Windows{{end}}{{if and $win $linux}} and {{end}}{{if $linux}}Linux{{end}} they live in the <code>saves</code> folder next to the game: copy that folder over when you unpack an update.{{end}}</p>
 </section>
 <section id="releases">
   <h2>Recent releases</h2>

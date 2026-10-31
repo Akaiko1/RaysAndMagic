@@ -6,9 +6,9 @@
 #
 # Not executable on its own.
 
-# Oldest macOS the bundles support: the Go toolchain's darwin floor (Go 1.25:
-# macOS 12). Raise it together with the toolchain.
-MACOS_MIN_VERSION="12.0"
+# Oldest macOS the bundles support: the Go toolchain's darwin floor (Go 1.27:
+# macOS 13). Raise it together with the toolchain.
+MACOS_MIN_VERSION="13.0"
 
 # assert_macos_min_version fails the build when a binary (every slice of a
 # universal one) needs a newer macOS than MACOS_MIN_VERSION. A cgo build links

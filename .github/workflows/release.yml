@@ -85,6 +85,7 @@ jobs:
           cd dist
           zip -r RaysAndMagic-mac-universal.zip mac_universal
           zip -r RaysAndMagic-windows-amd64.zip windows_amd64
+          zip -r RaysAndMagic-linux-amd64.zip linux_amd64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7

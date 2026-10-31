@@ -131,6 +131,33 @@ func TestBuildPage(t *testing.T) {
 	}
 }
 
+// Some releases ship a Linux archive and some do not: first-launch notes follow
+// the releases at the top of the page, never an older one in the history.
+func TestOffersFollowsTopReleases(t *testing.T) {
+	withLinux := append(slices.Clone(allArchives), "RaysAndMagic-linux-amd64.zip")
+	for _, tc := range []struct {
+		name      string
+		releases  []ghRelease
+		wantLinux bool
+	}{
+		{"no release has Linux", []ghRelease{testRelease("v1.0.stable", 10, allArchives...)}, false},
+		{"latest nightly has Linux, stable not", []ghRelease{testRelease("v1.0.stable", 10, allArchives...),
+			testRelease("v1.0.1.nightly", 12, withLinux...)}, true},
+		{"only an older release had Linux", []ghRelease{testRelease("v0.9.stable", 5, withLinux...),
+			testRelease("v1.0.stable", 10, allArchives...)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := buildPage(tc.releases, tagsFor(tc.releases...), testRepo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Offers("Linux") != tc.wantLinux || !p.Offers("macOS") || !p.Offers("Windows") {
+				t.Fatalf("offers Linux=%v macOS=%v Windows=%v, want Linux=%v and both others", p.Offers("Linux"), p.Offers("macOS"), p.Offers("Windows"), tc.wantLinux)
+			}
+		})
+	}
+}
+
 func TestSHA256Of(t *testing.T) {
 	hex := strings.Repeat("ab", 32)
 	for _, tc := range []struct{ in, want string }{
@@ -213,10 +240,14 @@ func TestGenerateWritesSite(t *testing.T) {
 		`src="screenshot.png"`,
 		"https://example.test/run/1",
 		"ZIP, 1.00 GB",
+		`id="first-launch-macos"`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("page is missing %q", want)
 		}
+	}
+	if strings.Contains(page, "Linux") {
+		t.Error("the page mentions Linux without a Linux download")
 	}
 	for i, r := range page {
 		if r > 127 {

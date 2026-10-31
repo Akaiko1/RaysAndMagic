@@ -25,7 +25,24 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Render with the newest release's generator, whatever triggered the run:
+      # an older tag's one rejects archives added after it (fail-fast on
+      # unknown archives), so editing an old release would stop the site.
+      - name: Pick the newest release
+        id: newest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq 'map(select(.draft | not))[0].tag_name')
+          if [ -z "${tag}" ] || [ "${tag}" = "null" ]; then
+            echo "No published release to render." >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.newest.outputs.tag }}
 
       - uses: actions/setup-go@v6
         with:

@@ -40,12 +40,15 @@ Each archive includes the game and map editor; Go is not needed to play.
 
 | Platform | First launch |
 | --- | --- |
-| macOS 12+ (Apple Silicon and Intel) | Extract the universal archive and open `RaysAndMagic.app`. Keep the game and editor apps together. |
+| macOS 13+ (Apple Silicon and Intel) | Extract the universal archive and open `RaysAndMagic.app`. Keep the game and editor apps together. |
 | Windows 10/11 (64-bit) | Extract the whole archive and run `RaysAndMagic.exe`, keeping `assets/` and `config.yaml` beside it. |
+| Ubuntu 22.04+ (64-bit) | Extract the whole archive and run `./RaysAndMagic`, keeping `assets/` and `config.yaml` beside it. Other 64-bit glibc distributions with an X11 or XWayland desktop should work too. |
 
 macOS apps are ad-hoc signed, not notarized. If macOS blocks the first launch,
 allow the app in System Settings -> Privacy & Security -> Open Anyway. Windows
-executables are unsigned; SmartScreen may require More info -> Run anyway.
+executables are unsigned; SmartScreen may require More info -> Run anyway. If a
+Linux file manager unpacked the programs without the run permission, restore it
+with `chmod +x RaysAndMagic RaysAndMagicMapViewer`.
 
 ### Saves and updates
 
@@ -54,11 +57,11 @@ Save files and `player_profile.json` normally live in these locations:
 | Launch method | Save directory |
 | --- | --- |
 | macOS `.app` | `~/Library/Application Support/RaysAndMagic/saves/` |
-| Packaged Windows executable | `saves/` beside the executable |
+| Packaged Windows or Linux executable | `saves/` beside the executable |
 | Local executable in `bin/` | `bin/saves/` |
 | `go run .` from the repository root | `saves/` in the repository root |
 
-On Windows, copy the `saves/` folder when moving to a newly extracted release.
+On Windows and Linux, copy the `saves/` folder when moving to a newly extracted release.
 macOS apps share their writable content under
 `~/Library/Application Support/RaysAndMagic/`. Updates refresh bundled YAML,
 sprites and sounds, and remove files the new version no longer ships; only maps
@@ -104,7 +107,7 @@ their current effects; hold Shift for the detailed breakdown.
 
 ## Build from source
 
-Install Go 1.25 or newer; [go.mod](go.mod) pins the toolchain and dependencies.
+Install Go 1.27 or newer; [go.mod](go.mod) pins the toolchain and dependencies.
 From the repository root:
 
 ```sh
@@ -127,7 +130,7 @@ are maintained in [CI](.github/workflows/ci.yml); use `xvfb-run --auto-servernum
 before graphics-dependent test commands on a headless machine.
 
 On macOS, `./build_mac_release.sh` recreates `dist/` with universal macOS app
-bundles and Windows binaries plus content. The [release workflow](.github/workflows/release.yml)
+bundles and Windows and Linux binaries plus content. The [release workflow](.github/workflows/release.yml)
 packages these directories into ZIP archives. Optional native shader compilers,
 caches, and diagnostics are covered in [Rendering and loading](RENDERING.md).
 
