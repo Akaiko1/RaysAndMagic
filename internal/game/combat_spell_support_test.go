@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"ugataima/internal/status"
@@ -48,6 +49,13 @@ func TestPersonalSpellDamageSchoolReachesWeaponHits(t *testing.T) {
 						_, _, sourceDamage := g.combat.CalculateWeaponDamage(c.Equipment[items.SlotMainHand], c)
 						if critical {
 							sourceDamage *= 2
+						} else {
+							// The card names the aura's share as the hit deals it.
+							share := character.CardRun{Text: fmt.Sprintf("%d Water", sourceDamage*aura.Mechanic.Power(0)/100), School: "water", Whole: true}
+							card := GetItemTooltipRows(c.Equipment[items.SlotMainHand], c, g.combat, false)
+							if !slices.ContainsFunc(card, func(row character.CardRow) bool { return slices.Contains(row.Runs, share) }) {
+								t.Fatalf("card lacks the aura share %+v:\n%s", share, card)
+							}
 						}
 						g.selectedChar = 1
 						m := mkTestMonster("Authored aura target", 10000)

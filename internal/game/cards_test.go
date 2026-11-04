@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	uitext "ugataima/assets/text"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	damagecalc "ugataima/internal/damage"
@@ -1369,6 +1370,131 @@ func TestHexerIsisCards_ElementConversion(t *testing.T) {
 	cs.ApplyDamageToMonster(light, 100, testWeapon("Idol-Breaker, the Warlord's Maul"), false)
 	if got := 1000 - light.HitPoints; got != 100 {
 		t.Errorf("isis split total damage = %d, want 100 conserved", got)
+	}
+}
+
+// A weapon or trap card names a conversion card's share as the hit deals it:
+// the same amount in the same school, its own school's buff included, and
+// what the buff adds as a line of its own; its armor rules follow the shares.
+// The real hit lands on a target immune to physical damage, so what it loses
+// is the converted share.
+func TestConversionCardShareOnTheCard(t *testing.T) {
+	for _, tc := range []struct {
+		name, card, school, word string
+		copies                   int    // two Isis convert the whole hit
+		buff                     int    // a party buff on the converted school, percent
+		physicalLeft             bool   // a normal physical share stays
+		extra                    string // one more card: melee damage scales the buff's gain too
+		aura                     bool   // Fire Aura rides the weapon hit (the target is immune to fire)
+	}{
+		{"archmage", "archmage_card", "fire", "Fire", 1, 0, true, "", false},
+		{"hexer", "masked_hexer_girl_card", "dark", "Dark", 1, 0, true, "", false},
+		{"isis", "isis_card", "light", "Light", 1, 0, true, "", false},
+		{"isis with a light buff", "isis_card", "light", "Light", 1, 50, true, "", false},
+		{"isis with a light buff and melee cards", "isis_card", "light", "Light", 1, 50, true, "masked_serpent_dancer_card", false},
+		{"two isis", "isis_card", "light", "Light", 2, 0, false, "", false},
+		{"two isis with fire aura", "isis_card", "light", "Light", 2, 0, false, "", true},
+	} {
+		for _, source := range []string{"melee", "ranged", "trap"} {
+			t.Run(tc.name+"/"+source, func(t *testing.T) {
+				// land builds the cards and lands one real hit under a buff.
+				land := func(buff int) (card, full character.CardRows, dealt int) {
+					g := advancedSupportGame(t, false)
+					g.cardSlots = [MaxCardSlots]cardSlot{}
+					for i := range tc.copies {
+						g.cardSlots[i].key = tc.card
+					}
+					if tc.extra != "" {
+						g.cardSlots[tc.copies].key = tc.extra
+					}
+					if buff > 0 {
+						g.addCombatBuff(TimedCombatBuff{ID: "test", Clock: framesClock(600), OutDamageType: tc.school, OutPercent: buff})
+					}
+					c := g.party.Members[1]
+					g.selectedChar = 1
+					m := mkTestMonster("Conversion target", 10000)
+					m.ID, m.X = "conversion-target", float64(g.config.GetTileSize())
+					m.Resistances = map[monster.DamageType]int{monster.DamagePhysical: 100}
+					if tc.aura {
+						c.SpellState.Effects = []character.PersonalSpellEffect{{SpellID: "fire_aura", Charges: 1}}
+						m.Resistances[monster.DamageFire] = 100
+					}
+					g.world.Monsters = []*monster.Monster3D{m}
+					if source == "trap" {
+						const key = "cleave_trap"
+						def := config.GlobalTrapConfig.Traps[key]
+						if def == nil || normalizeDamageTypeStr(def.Element) != monster.DamagePhysical.String() || def.DamageBase <= 0 {
+							t.Fatalf("fixture: %s must be a physical damage trap", key)
+						}
+						card, full = buildTrapTooltipUnifiedRows(key, def, c, g.combat, false), buildTrapTooltipUnifiedRows(key, def, c, g.combat, true)
+						g.combat.applyTrapDamage(m, trapDamage(def, c), def.Element, def.Name)
+						return card, full, 10000 - m.HitPoints
+					}
+					weapon := "iron_sword"
+					if source == "ranged" {
+						weapon = "hunting_bow"
+					}
+					c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(weapon)
+					wd := lookupWeaponConfig(c.Equipment[items.SlotMainHand])
+					oldCrit := wd.CritChance
+					t.Cleanup(func() { wd.CritChance = oldCrit })
+					wd.CritChance = 0
+					if chance := g.combat.CalculateWeaponCritChance(c.Equipment[items.SlotMainHand], c); chance != 0 {
+						t.Fatalf("fixture: crit chance %d%%, want 0", chance)
+					}
+					card = GetItemTooltipRows(c.Equipment[items.SlotMainHand], c, g.combat, false)
+					full = GetItemTooltipRows(c.Equipment[items.SlotMainHand], c, g.combat, true)
+					if !g.combat.EquipmentMeleeAttack() {
+						t.Fatal("weapon action rejected")
+					}
+					if source == "ranged" {
+						if len(g.arrows) != 1 {
+							t.Fatalf("got %d arrows", len(g.arrows))
+						}
+						g.combat.applyProjectileDamage(&g.arrows[0], m, "")
+					}
+					return card, full, 10000 - m.HitPoints
+				}
+				card, full, dealt := land(tc.buff)
+				// Each school meets armor as combat does.
+				for _, rule := range []struct {
+					line    string
+					present bool
+				}{
+					{uitext.Text("armor.physical_reduction", config.ArmorPhysicalMitigationCap), tc.physicalLeft},
+					{character.ArmorPierceShotsLine(), tc.physicalLeft && source == "ranged"},
+					{uitext.Text("armor.elemental_reduction", config.ArmorElementalMitigationCap, tc.word), true},
+				} {
+					if got := slices.ContainsFunc(full, func(row character.CardRow) bool { return row.Text == rule.line }); got != rule.present {
+						t.Errorf("rule %q on the card = %v, want %v:\n%s", rule.line, got, rule.present, full)
+					}
+				}
+				// The type line names the hit's own school while a share of it
+				// stays, else the school the cards moved it to; never the aura's.
+				typeRun := character.CardRun{Text: uitext.Text("damage.school", "Physical"), Whole: true}
+				if !tc.physicalLeft {
+					typeRun = character.CardRun{Text: uitext.Text("damage.school", tc.word), School: tc.school, Whole: true}
+				}
+				typeLine := slices.IndexFunc(card, func(row character.CardRow) bool { return len(row.Runs) > 0 && row.Runs[0] == typeRun })
+				if typeLine < 0 || slices.ContainsFunc(card[typeLine].Runs[1:], func(run character.CardRun) bool { return run.School != "" }) {
+					t.Errorf("card lacks the type line %+v alone:\n%s", typeRun, card)
+				}
+				if dealt <= 0 {
+					t.Fatal("fixture: no converted damage landed")
+				}
+				share := character.CardRun{Text: fmt.Sprintf("%d %s", dealt, tc.word), School: tc.school, Whole: true}
+				if !slices.ContainsFunc(card, func(row character.CardRow) bool { return slices.Contains(row.Runs, share) }) {
+					t.Fatalf("card lacks the %s share %+v the hit dealt:\n%s", tc.school, share, card)
+				}
+				if tc.buff > 0 {
+					_, _, unbuffed := land(0)
+					line := uitext.Text("damage.school_buff", tc.word, dealt-unbuffed)
+					if dealt <= unbuffed || !slices.ContainsFunc(full, func(row character.CardRow) bool { return row.Text == line }) {
+						t.Fatalf("card lacks the buff line %q (hit %d, without the buff %d):\n%s", line, dealt, unbuffed, full)
+					}
+				}
+			})
+		}
 	}
 }
 

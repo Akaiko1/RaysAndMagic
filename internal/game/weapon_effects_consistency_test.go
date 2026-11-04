@@ -39,8 +39,8 @@ func TestWeaponTooltipSurfacesEveryAuthoredEffect(t *testing.T) {
 		for _, vs := range slices.Sorted(maps.Keys(def.BonusVs)) {
 			add("bonus_vs", true, fmt.Sprintf("Bonus vs %s: x%.1f", config.TitleWords(vs), def.BonusVs[vs]))
 		}
-		add("damage_type", def.DamageType != "" && def.DamageType != "physical", character.DamageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
-		add("aoe", def.AoeRadiusTiles > 0, character.DamageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
+		add("damage_type", def.DamageType != "" && def.DamageType != "physical", character.DamageTypeAoE(def.DamageType, def.AoeRadiusTiles).String())
+		add("aoe", def.AoeRadiusTiles > 0, character.DamageTypeAoE(def.DamageType, def.AoeRadiusTiles).String())
 		want = append(want, def.CoreEffectLines()...)
 		for _, bearer := range []*character.MMCharacter{nil, ch} {
 			for _, full := range []bool{false, true} {

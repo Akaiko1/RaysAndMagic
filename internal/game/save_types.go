@@ -411,7 +411,9 @@ type MonsterSave struct {
 	LegacyBossCD        int                                    `json:"boss_cd,omitempty" ticks:"frames"`    // frames, read into BossCD
 	LegacyInfernoCD     int                                    `json:"inferno_cd,omitempty" ticks:"frames"` // frames, read into NovaRollCD
 	BossHurtPending     bool                                   `json:"boss_hurt_pending,omitempty"`
-	BossLastHP          int                                    `json:"boss_last_hp,omitempty"`
+	BossBlowRolls       int                                    `json:"boss_blow_rolls,omitempty"`
+	HurtSummonCD        *status.DualClock                      `json:"hurt_summon_cd,omitempty"`
+	AttackSummonCD      *status.DualClock                      `json:"attack_summon_cd,omitempty"`
 	SummonFirstDone     bool                                   `json:"summon_first_done,omitempty"`
 	SummonCD            *status.DualClock                      `json:"summon_cd,omitempty"`
 	PushCD              *status.DualClock                      `json:"push_cd,omitempty"`

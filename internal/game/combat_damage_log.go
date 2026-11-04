@@ -58,34 +58,29 @@ type damageLog struct {
 	Critical bool
 }
 
-// damageShare is one element's part of a logged hit; school "" is true damage.
+// damageShare is one element's part of a logged hit; school "" is true damage,
+// where a card's character.DamageShare reads "" as physical.
 type damageShare struct {
 	School string
 	Amount int
 }
 
 // dealtShares is a packet dealt to a monster by element: each school's normal
-// damage under that school, in packet order, then all its true damage as one
-// share. Empty shares drop out.
+// damage once, in packet order, as cards name them, then all its true damage
+// as one share. Empty shares drop out.
 func dealtShares(d monster.DealtDamage) []damageShare {
+	normal := make([]character.DamageShare, 0, len(d.Shares))
+	trueDamage := 0
+	for _, share := range d.Shares {
+		normal = append(normal, character.DamageShare{School: share.DamageType.String(), Amount: share.Parts.Normal})
+		trueDamage += share.Parts.True
+	}
 	var out []damageShare
-	add := func(school string, n int) {
-		if n <= 0 {
-			return
-		}
-		for i := range out {
-			if out[i].School == school {
-				out[i].Amount += n
-				return
-			}
-		}
-		out = append(out, damageShare{school, n})
+	for _, share := range character.MergeDamageShares(normal...) {
+		out = append(out, damageShare{School: share.School, Amount: share.Amount})
 	}
-	for _, share := range d.Shares {
-		add(share.DamageType.String(), share.Parts.Normal)
-	}
-	for _, share := range d.Shares {
-		add("", share.Parts.True)
+	if trueDamage > 0 {
+		out = append(out, damageShare{Amount: trueDamage})
 	}
 	return out
 }
@@ -100,10 +95,10 @@ func heroShares(final int, parts damagecalc.Parts, school string) []damageShare 
 	trueShare := final * parts.True / parts.Total()
 	var out []damageShare
 	if final-trueShare > 0 {
-		out = append(out, damageShare{school, final - trueShare})
+		out = append(out, damageShare{School: school, Amount: final - trueShare})
 	}
 	if trueShare > 0 {
-		out = append(out, damageShare{"", trueShare})
+		out = append(out, damageShare{Amount: trueShare})
 	}
 	return out
 }
@@ -115,7 +110,7 @@ func heroShares(final int, parts damagecalc.Parts, school string) []damageShare 
 func (hit damageLog) damagePhrase() logPart {
 	shares := hit.Shares
 	if len(shares) == 0 {
-		shares = []damageShare{{hit.School, hit.Amount}}
+		shares = []damageShare{{School: hit.School, Amount: hit.Amount}}
 	}
 	space := logColored(" ", logPlain)
 	var phrase logJoined
@@ -124,6 +119,8 @@ func (hit damageLog) damagePhrase() logPart {
 			phrase = append(phrase, logColored(" + ", logPlain))
 		}
 		phrase = append(phrase, logDamage(share.Amount, share.School))
+		// Not a school test: log shares also carry the "true" share, and
+		// only the physical one goes unnamed.
 		if share.School != monster.DamagePhysical.String() {
 			phrase = append(phrase, space, logDamageSchool(share.School))
 		}
@@ -133,7 +130,7 @@ func (hit damageLog) damagePhrase() logPart {
 
 // logSlot marks where a catalog line takes a styled log part: render the
 // line with it for each %s, then pass it through styledFormat.
-const logSlot = "\x00"
+const logSlot = uitext.Slot
 
 // styledFormat turns a catalog line rendered with logSlot markers into a
 // logCombat format: each marker takes one styled part, and literal percent

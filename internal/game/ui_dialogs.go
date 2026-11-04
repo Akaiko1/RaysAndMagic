@@ -611,7 +611,7 @@ func (ui *UISystem) drawLevelUpOption(screen *ebiten.Image, r layoutRect, option
 		if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
 			name = def.Name
 			if tagSchool {
-				detail = []coloredTextSegment{{text: character.MagicSchoolID(def.School).DisplayName(), color: SchoolColor(def.School)}}
+				detail = []coloredTextSegment{{text: character.MagicSchoolID(def.School).DisplayName(), color: SchoolTextColor(def.School)}}
 			}
 		}
 	case option.hasMastery:

@@ -242,18 +242,27 @@ func (gl *GameLoop) updateExploration() {
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
 
+	gl.runWorldFrame()
+
+	// Update performance metrics
+	gl.updatePerformanceMetrics()
+}
+
+// runWorldFrame is the world's step of a frame: monsters, then shots and
+// impacts, then the bosses' answers to every hero blow of the frame (adds
+// join after this frame's combat, as attack summons do), then the bodies.
+func (gl *GameLoop) runWorldFrame() {
 	gl.runMonsterFrame()
 
 	gl.updateProjectilesAndImpacts()
 	gl.game.advanceRemoteEcologyProjectiles()
 
+	gl.game.combat.answerBossHurt()
+
 	// Remove dead monsters - only if there are any to remove
 	if len(gl.game.deadMonsterIDs) > 0 {
 		gl.removeDeadMonstersByID()
 	}
-
-	// Update performance metrics
-	gl.updatePerformanceMetrics()
 }
 
 // gameplayPausedByOverlay is the single pause contract for in-game overlays:

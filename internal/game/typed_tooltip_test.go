@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image"
+	"image/color"
 	"reflect"
 	"strings"
 	"testing"
@@ -111,7 +112,10 @@ func TestTypedTooltipColorsAndWrappingIgnoreWording(t *testing.T) {
 		{Text: "Unquoted flavor", Kind: character.CardRowFlavor},
 		{Text: "DAMAGE", Kind: character.CardRowBody},
 	}
-	colors := tooltipBodyColors(rows, woodPlateColor)
+	colors := make([]color.Color, len(rows))
+	for i, row := range rows {
+		colors[i] = tooltipRowColor(row.Kind, tooltipAccent(woodPlateColor))
+	}
 	if colors[0] != colors[3] || colors[0] == colors[4] || colors[2] == colors[7] || colors[6] == colors[7] {
 		t.Fatal("tooltip colors rediscovered roles from wording")
 	}
@@ -246,5 +250,40 @@ func TestTypedTooltipFallbackRoles(t *testing.T) {
 	rows := GetSpellTooltipRows("unknown_spell", nil, nil, true)
 	if len(rows) != 1 || rows[0].Kind != character.CardRowTitle {
 		t.Fatal("unknown spellbook entry lost its title role")
+	}
+}
+
+// A card's remembered layout follows what it was measured by: laid out under
+// one font it is laid out anew under another, and a row changed in place is
+// laid out anew. Only a drawn card is tinted; a width only measured is not.
+func TestCardLayoutMemoFollowsFontAndContent(t *testing.T) {
+	rows := character.CardRows{
+		{Text: "Iron Sword", Kind: character.CardRowTitle},
+		{Text: strings.Repeat("a long line that has to wrap ", 12), Kind: character.CardRowBody},
+		{Text: "Total Damage: 19 (13 + 6 Fire)", Kind: character.CardRowResult,
+			Runs: []character.CardRun{{Text: "Total Damage: 19 ("}, {Text: "13", Whole: true}, {Text: " +", Whole: true}, {Text: " "}, {Text: "6 Fire", School: "fire", Whole: true}, {Text: ")"}}},
+	}
+	fresh := func() tooltipGeometry {
+		layout := fitCardTooltip(rows, false, 220, 600)
+		layout.tinted, layout.tintsDone = tooltipTintedFragments(rows, layout.rows), true
+		return layout
+	}
+	widths := map[int]bool{}
+	forEachUIFont(t, func(t *testing.T) {
+		if measured := layoutCardTooltip(rows, false, 220, 600); measured.tintsDone || measured.tinted != nil {
+			t.Fatal("a measured card was tinted")
+		}
+		got := drawnCardTooltip(rows, false, 220, 600)
+		if want := fresh(); !reflect.DeepEqual(got, want) {
+			t.Fatalf("remembered layout %+v, want %+v", got, want)
+		}
+		widths[uiTextWidth(rows[1].Text)] = true
+	})
+	if len(widths) < 2 {
+		t.Fatal("fixture: every font measures the text alike")
+	}
+	rows[1].Text = strings.Repeat("another line ", 30)
+	if got, want := drawnCardTooltip(rows, false, 220, 600), fresh(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("a row changed in place kept its old layout: %+v, want %+v", got, want)
 	}
 }

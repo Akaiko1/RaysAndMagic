@@ -384,7 +384,8 @@ func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY fl
 // and crit stamped at release, the hero's personal enchantments, the graze.
 func (cs *CombatSystem) arrowAttack(ar *Arrow, school string, weaponDef *config.WeaponDefinitionConfig, weaponName string) partyMonsterAttack {
 	attack := cs.newPartyWeaponAttack(ar.Damage, ar.TrueDamage, school, weaponDef, weaponName, true, ar.Crit, ar.CritChance)
-	attack.Attacker, attack.GrazesDodge, attack.Undodgeable = ar.Attacker, ar.GrazesDodge, ar.Undodgeable
+	attack.Attacker, attack.HeroBlow = ar.Attacker, ar.HeroBlow
+	attack.GrazesDodge, attack.Undodgeable = ar.GrazesDodge, ar.Undodgeable
 	attack.addPersonalSpellPayload(ar.FireAuraPercent, ar.FireAuraSchool, ar.VampiricPct)
 	return attack
 }
@@ -704,10 +705,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, monster *m
 func (cs *CombatSystem) partySpellAttack(caster *character.MMCharacter, spellID string, launch damagecalc.Parts, crit bool) partyMonsterAttack {
 	def, _ := spells.GetSpellDefinitionByID(spells.SpellID(spellID))
 	school := def.DamageType()
-	parts, _ := cs.spellPartsWithOutgoingBuff(launch, school)
+	parts, _, _ := cs.spellPartsWithOutgoingBuff(launch, school)
 	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, cs.spellResistPierce(caster, spellID), nil, def.Name, false, true, false)
 	attack.Critical = crit
-	attack.Attacker = caster
+	attack.byHero(caster)
 	return attack
 }
 

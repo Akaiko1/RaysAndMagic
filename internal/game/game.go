@@ -152,6 +152,7 @@ type Arrow struct {
 	Active                 bool
 	BowKey                 string // YAML key of the bow used to fire this arrow
 	Label                  string // chat display name override (card-proc bolts); "" = the weapon's name
+	HeroBlow               bool   // the hero's own shot, not a card-proc bolt or a weapon charge: a boss answers its blows
 	DamageType             string // Damage element type ("physical", "dark", etc.)
 	Crit                   bool   // Critical hit flag
 	SuppressAoE            bool   // volley darts past the first: whole-party AoE fires once per volley
@@ -2943,7 +2944,7 @@ func (g *MMGame) startPartyTurn(initial ...bool) {
 		g.advanceTrapLifetimes(true)
 		if w := g.GetCurrentWorld(); w != nil {
 			for _, m := range w.Monsters {
-				m.TickBlinkTurn()
+				m.TickHurtReactionTurn()
 			}
 		}
 	}

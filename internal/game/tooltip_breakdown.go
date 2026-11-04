@@ -185,7 +185,7 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 	tier, tierName := spellMasteryTier(char, def)
 	effects := ttSection{Title: "EFFECTS"}
 	if includeDamageType && def.IsProjectile && !def.DealsNoDamage {
-		effects.Add("%s", damageTypeAoELine(def.DamageType(), def.AoeRadiusTiles))
+		effects.AddText(character.DamageTypeAoE(def.DamageType(), def.AoeRadiusTiles))
 	}
 	effectTier := -1
 	if char != nil {
@@ -197,7 +197,7 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 	hero := char != nil
 	if def.SummonMonster != "" {
 		if tierName != "" {
-			effects.AddDetail("%s Mastery - %s", formatSchoolName(spellSchoolForChar(char, def)), tierName)
+			effects.AddDetail("%s", uitext.Text("mastery.tier", formatSchoolName(spellSchoolForChar(char, def)), tierName))
 		}
 		for _, stat := range []struct {
 			label  string
@@ -244,11 +244,30 @@ func spellCurrentEffects(def spells.SpellDefinition, char *character.MMCharacter
 	return effects
 }
 
-func addDamageTotal(sec *ttSection, label string, total, trueDamage int) {
-	if trueDamage > 0 {
-		sec.Add("%s: %d (%d Normal + %d True)", label, total, total-trueDamage, trueDamage)
-		sec.AddDetail("True Damage ignores armor and dodge")
-	} else {
-		sec.Add("%s: %d", label, total)
+// addShareDetails lists a split's shares on their own, then what the party's
+// per-school buffs added to the hit, for the Shift breakdown.
+func addShareDetails(sec *ttSection, shares, buffGains []character.DamageShare) {
+	for _, share := range shares {
+		sec.AddDetailText(character.DamageShareTotal(share.School, share.Amount))
 	}
+	for _, gain := range buffGains {
+		sec.AddDetailText(character.SchoolBuff(gain.School, gain.Amount))
+	}
+}
+
+// addDamageTotal states a result from its normal shares, as
+// MergeDamageShares gives them, and true damage. school is the hit's own
+// school; the total is split by school unless it is all normal damage of
+// that school. It returns the shares the
+// split names, nil for a single total.
+func addDamageTotal(sec *ttSection, label string, shares []character.DamageShare, school string, trueDamage int) []character.DamageShare {
+	if trueDamage <= 0 && (len(shares) == 0 || len(shares) == 1 && character.SameSchool(shares[0].School, school)) {
+		sec.Add("%s: %d", label, character.SumDamageShares(shares))
+		return nil
+	}
+	sec.AddText(character.DamageSplit(label, shares, school, trueDamage))
+	if trueDamage > 0 {
+		sec.AddDetail("%s", uitext.Text("damage.true_rule"))
+	}
+	return shares
 }

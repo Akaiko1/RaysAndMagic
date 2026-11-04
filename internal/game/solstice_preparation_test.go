@@ -91,7 +91,7 @@ func TestElementalDraughtSharedDamagePaths(t *testing.T) {
 			if hit := cs.applyPartyMonsterAttack(m, cs.spellProjectileAttack(mp)); hit.Normal != 154 || hit.True != 28 {
 				t.Fatalf("spell hit %+v", hit)
 			}
-			parts, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: 100, True: 20}, "fire")
+			parts, _, _ := cs.spellPartsWithOutgoingBuff(damagecalc.Parts{Normal: 100, True: 20}, "fire")
 			if parts.Normal != 154 || parts.True != 28 {
 				t.Fatal(parts)
 			}

@@ -385,13 +385,19 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	if isPurePartySummon(m) || m.IsDamageInvulnerable() {
 		return // transparent summon or invulnerable boss: no damage, FX, or aggro
 	}
-	// Traps use the shared party packet builder so physical conversion stays one
-	// hit and soak is paid once. Weapon/attack-only target modifiers do not apply;
-	// this preserves the pre-refactor trap formula. Trap control stays undodgeable.
-	packet := cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true)
-	packet = cs.elementalBuffPacket(packet)
+	// Weapon/attack-only target modifiers do not apply; this preserves the
+	// pre-refactor trap formula. Trap control stays undodgeable.
+	packet, _ := cs.trapDamagePacket(dmg, element)
 	cs.reportIndirectHit(m, cs.applyMonsterDamagePacket(m, packet, monsterDamageOptions{}), sourceName, normalizeDamageTypeStr(element))
 	cs.finishIndirectKill(m)
+}
+
+// trapDamagePacket is a trap hit before the target's defenses, the one its
+// card names: the shared party packet builder, so physical conversion stays
+// one hit and soak is paid once, then the party's per-school buffs, with what
+// they added by school.
+func (cs *CombatSystem) trapDamagePacket(dmg int, element string) (monsterDamagePacket, []character.DamageShare) {
+	return cs.elementalBuffGain(cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, true), nil)
 }
 
 // reportIndirectHit shows a trap/zone hit exactly like a weapon hit minus the

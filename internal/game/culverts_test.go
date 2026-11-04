@@ -181,7 +181,7 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 		t.Fatalf("GTB should be evasive before the valve quest is done")
 	}
 
-	// First tick (far, undamaged) just establishes the HP baseline - it must NOT blink.
+	// Far and unhurt it must NOT blink.
 	startX, startY := gtb.X, gtb.Y
 	if !cs.updateBoss(gtb, false) {
 		t.Fatalf("evasive GTB action should be fully handled by updateBoss")
@@ -190,9 +190,13 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 		t.Fatalf("undamaged evasive GTB far from the party must not blink")
 	}
 
-	// Now it takes a hit. The damage debt latches, so the next tick blinks it away
-	// even though the party is far - and even though no hit-flash timer is set.
-	gtb.HitPoints -= 100
+	// Now a hero's attack hurts it. The blow is owed, so the next tick blinks it
+	// away even though the party is far - and even though no hit-flash timer is set.
+	hp := gtb.HitPoints
+	strikeBoss(cs, gtb, true)
+	if gtb.HitPoints >= hp {
+		t.Fatal("fixture: the blow took no HP")
+	}
 	preX, preY := gtb.X, gtb.Y
 	cs.updateBoss(gtb, false)
 	if gtb.X == preX && gtb.Y == preY {

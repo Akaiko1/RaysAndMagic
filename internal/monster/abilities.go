@@ -154,10 +154,12 @@ type TeleportAbility struct {
 	Chance float64 `yaml:"chance"` // per action
 }
 
-// SummonAbility: the boss rallies adds, on a roll (chance, first_guaranteed)
-// at its action or on a timer (cooldown_seconds).
+// SummonAbility: the boss rallies adds on a roll (chance, first_guaranteed),
+// each at most once a round: at its attack, in that attack's place, and when a
+// hero's attack takes HP off it, without spending an attack; never at the
+// live cap. Or on a timer (cooldown_seconds).
 type SummonAbility struct {
-	Chance          float64  `yaml:"chance"`           // per action
+	Chance          float64  `yaml:"chance"`           // per roll
 	FirstGuaranteed bool     `yaml:"first_guaranteed"` // the first summon ignores Chance; refills use it
 	CooldownSeconds int      `yaml:"cooldown_seconds"` // a sure summon each time this timer runs out, in place of the roll
 	Monsters        []string `yaml:"monsters"`         // monster keys to pick from

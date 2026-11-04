@@ -657,16 +657,16 @@ func TestStrongMagicContractTable(t *testing.T) {
 		}{
 			{spellID: "rock_blast", needle: "Total Damage: ", expected: func(def spells.SpellDefinition) string {
 				_, _, total := cs.CalculateSpellDamage(def.ID, caster)
-				parts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts(def.ID, caster, total), def.School)
+				parts, _, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts(def.ID, caster, total), def.School)
 				return fmt.Sprintf("Total Damage: %d", parts.Total())
 			}},
 			{spellID: "firewall", needle: "Total per tick: ", expected: func(def spells.SpellDefinition) string {
 				tick := cs.CalculatePersistentDamageZoneTickDamage(def, caster)
-				parts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts(def.ID, caster, tick), def.School)
+				parts, _, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts(def.ID, caster, tick), def.School)
 				return fmt.Sprintf("Total per tick: %d", parts.Total())
 			}},
 			{spellID: "inferno", needle: "Damage: ", expected: func(def spells.SpellDefinition) string {
-				parts, _ := cs.spellPartsWithOutgoingBuff(
+				parts, _, _ := cs.spellPartsWithOutgoingBuff(
 					cs.spellDamageParts(def.ID, caster, cs.CalculatePartyNovaDamage(def, caster)), def.School,
 				)
 				return fmt.Sprintf("Damage: %d", parts.Total())
@@ -696,8 +696,8 @@ func TestStrongMagicContractTable(t *testing.T) {
 		lines := buildSpellComparisonRowsByID("rock_blast", "firebolt", caster, cs).Lines()
 		_, _, rockTotal := cs.CalculateSpellDamage("rock_blast", caster)
 		_, _, boltTotal := cs.CalculateSpellDamage("firebolt", caster)
-		rockParts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("rock_blast", caster, rockTotal), "earth")
-		boltParts, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("firebolt", caster, boltTotal), "fire")
+		rockParts, _, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("rock_blast", caster, rockTotal), "earth")
+		boltParts, _, _ := cs.spellPartsWithOutgoingBuff(cs.spellDamageParts("firebolt", caster, boltTotal), "fire")
 		rock := rockParts.Total()
 		bolt := boltParts.Total()
 		want := fmt.Sprintf("Total Damage: %d -> %d (%+d)", bolt, rock, rock-bolt)

@@ -161,6 +161,13 @@ func (g *MMGame) throwFlask(idx int, key string, announce bool) bool {
 	return true
 }
 
+// flaskDamagePacket is a flask burst before each victim's catalysis and
+// defenses, the one its card names: its own element, never converted, then
+// the party's per-school buffs, with what they added by school.
+func (cs *CombatSystem) flaskDamagePacket(dmg int, element string) (monsterDamagePacket, []character.DamageShare) {
+	return cs.elementalBuffGain(cs.newPartyMonsterDamagePacket(dmg, 0, element, 0, false), nil)
+}
+
 // detonateFlask uses the same immutable damage packet independently per victim.
 // It intentionally has no spell, weapon, crit, designation or ricochet dispatcher.
 func (cs *CombatSystem) detonateFlask(p *FlaskProjectile, x, y float64) {
@@ -178,9 +185,8 @@ func (cs *CombatSystem) detonateFlask(p *FlaskProjectile, x, y float64) {
 	}
 	attack := cs.newPartyMonsterAttack(p.Damage, 0, d.Flask.Element, 0, nil, d.Name, false, false, false)
 	attack.Projectile = true // a thrown flask is a projectile: its splash meets the physical pierce rule
-	attack.Packet = cs.newPartyMonsterDamagePacket(p.Damage, 0, d.Flask.Element, 0, false)
-	attack.Packet = cs.elementalBuffPacket(attack.Packet)
-	attack.Attacker = p.Attacker
+	attack.Packet, _ = cs.flaskDamagePacket(p.Damage, d.Flask.Element)
+	attack.byHero(p.Attacker)
 	// A flask is a consumable, not a weapon, spell or trap hit: the Dark Elf
 	// binding never replaces it (skill.dark_elf_binding), and each victim's
 	// packet takes its own catalysis.

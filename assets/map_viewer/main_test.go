@@ -182,7 +182,7 @@ func TestMobInfo_UsesMonsterCombatEffectLines(t *testing.T) {
 				for i, line := range section.lines {
 					var col color.Color = mobStatDefault
 					if line.School != "" {
-						col = game.SchoolColor(line.School)
+						col = game.SchoolTextColor(line.School)
 					}
 					if got := rows[header+1+i]; got.text != strings.TrimSpace(line.Text) || got.col != col {
 						t.Fatalf("%s row %d = %q %v, want %q %v", section.header, i, got.text, got.col, line.Text, col)

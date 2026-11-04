@@ -157,7 +157,7 @@ func logSchoolColor(school string) color.Color {
 	if school == monsterPkg.DamagePhysical.String() {
 		return logPhysical
 	}
-	return SchoolColor(school)
+	return SchoolTextColor(school)
 }
 
 // logHPPaid is HP a hero pays (Sacrifice, Strong Magic): no damage, so no

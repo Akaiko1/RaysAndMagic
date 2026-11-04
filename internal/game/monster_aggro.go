@@ -27,14 +27,19 @@ func (c monsterAggroContext) PartyScope() (bool, string) {
 	return true, g.mapKeyAtWorldTile(c.world, TileIndex(g.camera.X, ts), TileIndex(g.camera.Y, ts))
 }
 
-// Departure always cancels temporary retaliation too. It never heals the actor
-// or erases provocation memory, and does not send calm actors on a fake return.
+// Departure always cancels temporary retaliation, and a boss's unanswered
+// blow, too. It never heals the actor or erases provocation memory, and does
+// not send calm actors on a fake return.
 func endWorldPursuit(w *world.World3D) {
 	if w == nil {
 		return
 	}
 	for _, m := range w.Monsters {
-		if m == nil || m.IsPartyControlled() || m.IsAmbient() {
+		if m == nil {
+			continue
+		}
+		m.BossBlowRolls = 0 // a blow left unanswered stays with the departure
+		if m.IsPartyControlled() || m.IsAmbient() {
 			continue
 		}
 		if m.TargetsParty() || m.IsEngagingPlayer || m.AIFoe != nil && m.AIFoe.IsPartyControlled() || m.State == monster.StateFleeing {

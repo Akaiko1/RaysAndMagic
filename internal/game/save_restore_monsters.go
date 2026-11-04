@@ -208,7 +208,9 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.BossCD = restoreClock(ms.BossCD, ms.LegacyBossCD)
 				m.NovaRollCD = restoreClock(ms.NovaRollCD, ms.LegacyInfernoCD)
 				m.BossHurtPending = ms.BossHurtPending
-				m.BossLastHP = ms.BossLastHP
+				m.BossBlowRolls = ms.BossBlowRolls
+				m.HurtSummonCD.Restore(ms.HurtSummonCD)
+				m.AttackSummonCD.Restore(ms.AttackSummonCD)
 				m.SummonFirstDone = ms.SummonFirstDone
 				m.SummonCD.Restore(ms.SummonCD)
 				m.PushCD.Restore(ms.PushCD)

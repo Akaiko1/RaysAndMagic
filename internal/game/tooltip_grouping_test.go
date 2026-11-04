@@ -84,9 +84,8 @@ func assertSharedTooltipLayout(t *testing.T, ui *UISystem) {
 				}
 			}
 			w, h := ui.mainTooltipSize(cap, size[1])
-			measuredW, measuredH := cardTooltipBoxSize(ui.mainTooltipRows(), hasIcon, cap, size[1])
 			layout := layoutCardTooltip(ui.mainTooltipRows(), hasIcon, cap, size[1])
-			if w != measuredW || h != measuredH || w != layout.w || h != layout.h || w > cap || h > size[1]-2*tooltipScreenMargin {
+			if w != layout.w || h != layout.h || w > cap || h > size[1]-2*tooltipScreenMargin {
 				t.Fatalf("%v/icon%v: card %dx%d does not fit or differs from renderer", size, hasIcon, w, h)
 			}
 			reconstructed := make([]string, len(ui.tooltipLines))

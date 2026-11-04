@@ -6,7 +6,9 @@ import (
 
 	uitext "ugataima/assets/text"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
+	"ugataima/internal/status"
 )
 
 // Boss behaviour is explicitly authored with boss: true in monsters.yaml.
@@ -21,6 +23,12 @@ func (cs *CombatSystem) bossDisabled(m *monsterPkg.Monster3D) bool {
 	return m.Stun.Active() || m.Pacified || m.Bound
 }
 
+// bossMayAct reports a boss free to use its kit: not disabled, silenced or
+// frightened. Every boss special and the answer to a blow check it.
+func (cs *CombatSystem) bossMayAct(m *monsterPkg.Monster3D) bool {
+	return !cs.bossDisabled(m) && !m.IsSilenced() && !m.IsAfraid()
+}
+
 // bossEvasive reports whether the boss is in its evasive phase: it has a
 // PassiveUntilQuest gate and that quest is NOT yet completed. While evasive it
 // never attacks or chases - it only blinks away when the party closes in.
@@ -31,16 +39,14 @@ func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 	return !cs.game.questManager.ObjectiveMet(m.PassiveUntilQuest)
 }
 
-// runBossSpecials is the ONE boss rider for every combat path: RT and TB, party
-// fight and summon fight alike. Reads the special cadences (BossCD, the
+// runBossSpecials is the ONE boss rider for every combat action: RT and TB,
+// party fight and summon fight alike. Reads the special cadences (BossCD, the
 // at-range nova cooldown; Monster3D.TickAbilityClocks spends them), owns the
-// trap field and updateBoss; true = a special consumed the action. Bosses previously lost the WHOLE kit whenever a summon out-competed
-// the party for aggro.
+// trap field, the timed summon and updateBoss; true = a special consumed the
+// action. Bosses previously lost the WHOLE kit whenever a summon out-competed
+// the party for aggro. A party blow's summon roll is no action: answerBossHurt.
 func (cs *CombatSystem) runBossSpecials(m *monsterPkg.Monster3D, attackTick, turnBased bool) bool {
-	if m == nil || !m.IsBoss() {
-		return false
-	}
-	if m.IsAfraid() || m.IsSilenced() {
+	if m == nil || !m.IsBoss() || !cs.bossMayAct(m) {
 		return false
 	}
 	cs.updateChamberBossReach(m)
@@ -71,22 +77,14 @@ func (cs *CombatSystem) bossActionTick(m *monsterPkg.Monster3D) bool {
 
 // updateBoss runs the boss's special behaviour. BossCD gates the evasive blink.
 // `attackTick` marks the once-per-attack moment when an aggressive boss may
-// blink (low HP) or cast a nova; between attacks a nova may roll AT RANGE
-// once NovaRollCD has run out. Returns true when it handled the monster's action
+// summon (once a round), blink (low HP) or cast a nova; between attacks a nova
+// may roll AT RANGE once NovaRollCD has run out. Returns true when it handled the monster's action
 // this tick (caller skips the normal attack); false lets the normal
 // melee/ranged attack proceed (which can melt armor: abilities.melt_armor).
 func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, attackTick bool) bool {
-	if m == nil || !m.IsBoss() {
+	if m == nil || !m.IsBoss() || !cs.bossMayAct(m) {
 		return false
 	}
-	if m.IsSilenced() || m.IsAfraid() {
-		return false
-	}
-	// Latch any HP loss since last tick so the evasive blink can fire when hit.
-	if m.BossLastHP > 0 && m.HitPoints < m.BossLastHP {
-		m.BossHurtPending = true
-	}
-	m.BossLastHP = m.HitPoints
 
 	if cs.bossEvasive(m) {
 		// Quest unfinished -> the boss never attacks. An evasive boss
@@ -104,33 +102,23 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, attackTick bool) boo
 		}
 		return true
 	}
-	// Aggressive. Enrage is a passive HP-threshold state announced once here; its
+	// Aggressive: it owes no blink, also none left from its evasive phase.
+	m.BossHurtPending = false
+	// Enrage is a passive HP-threshold state announced once here; its
 	// mechanical effect (harder/faster hits) is applied live in
 	// GetAttackDamage/AttackCooldownFrames, so it is save-safe.
 	if m.Abilities.Enrage.AtHP > 0 && !m.Enraged && m.IsEnraged() {
 		m.Enraged = true
 		cs.game.logCombatLine(logToneBad, uitext.Text("combat.flies_into_a", logSlot, logSlot), logMonsterName(m), logKeyword("damage", "furious rage"))
 	}
-	// A rolled summon fires on the melee attack moment OR when the boss TAKES
-	// DAMAGE while able to act. The hurt-provoke is the RT anti-kite: a boss being
-	// shot from range still rallies adds instead of standing helpless, so it can't
-	// be safely kited down. (In TB attackTick is already always true, so this adds
-	// nothing there.) A timed summon (cooldown_seconds) never rolls here. CC is
-	// filtered by the caller loops; bossDisabled is belt-and-suspenders. One roll
-	// per damage event - BossHurtPending is latched from the HP delta at the top
-	// of this func and consumed here. Skip the roll entirely at the SummonMax cap
-	// (a passed roll would spawn nothing and fall through anyway).
-	hurtProvoke := m.BossHurtPending && !cs.bossDisabled(m)
-	m.BossHurtPending = false
-	if cs.bossSummonDue(m, attackTick, hurtProvoke) && cs.summonBossAdds(m) {
-		m.SummonFirstDone = true
-		return true
-	}
-
 	// The low-HP blink still fires only at the melee attack moment. A nova
 	// (party_attacks trigger nova) may also roll from its reach between attacks.
 	if !attackTick {
 		return cs.tryBossRangedNova(m)
+	}
+	// The attack moment's summon roll, once a round, takes the attack's place.
+	if cs.claimSummonRoll(m, &m.AttackSummonCD) && cs.rollBossSummon(m) {
+		return true
 	}
 	if m.Abilities.Teleport.AtHP > 0 && m.HitPoints <= m.Abilities.Teleport.AtHP && rand.Float64() < m.Abilities.Teleport.Chance {
 		if cs.blinkMonsterRandom(m) {
@@ -147,21 +135,79 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, attackTick bool) boo
 	return false // proceed to the normal attack (it may melt armor: abilities.melt_armor)
 }
 
-// bossSummonDue decides this tick's rolled summon: at the action or on a
-// hurt-provoke, below the live cap. A timed summon is tryBossTimedSummon's.
-func (cs *CombatSystem) bossSummonDue(m *monsterPkg.Monster3D, attackTick, hurtProvoke bool) bool {
+// rollsSummon reports a boss whose summon rolls (chance, first_guaranteed)
+// and is below its live cap. A timed summon is tryBossTimedSummon's.
+func (cs *CombatSystem) rollsSummon(m *monsterPkg.Monster3D) bool {
 	s := m.Abilities.Summon
-	if len(s.Monsters) == 0 || s.CooldownSeconds > 0 || !(attackTick || hurtProvoke) || cs.summonsFull(m) {
+	return len(s.Monsters) > 0 && s.CooldownSeconds <= 0 && !cs.summonsFull(m)
+}
+
+// claimSummonRoll takes the round's summon roll on clock (the attack's
+// AttackSummonCD or the blow's HurtSummonCD): none while it runs or at the
+// live cap. The clock starts with the claim, whatever the roll brings.
+func (cs *CombatSystem) claimSummonRoll(m *monsterPkg.Monster3D, clock *status.DualClock) bool {
+	if clock.Active() || !cs.rollsSummon(m) {
 		return false
 	}
-	return (s.FirstGuaranteed && !m.SummonFirstDone) || (s.Chance > 0 && rand.Float64() < s.Chance)
+	clock.Arm(config.CombatRoundSeconds, cs.game.config.GetTPS())
+	return true
+}
+
+// rollBossSummon is one summon roll: sure while the first guaranteed summon
+// is owed, else the chance. True when adds arrived.
+func (cs *CombatSystem) rollBossSummon(m *monsterPkg.Monster3D) bool {
+	s := m.Abilities.Summon
+	due := (s.FirstGuaranteed && !m.SummonFirstDone) || (s.Chance > 0 && rand.Float64() < s.Chance)
+	if !due || !cs.summonBossAdds(m) {
+		return false
+	}
+	m.SummonFirstDone = true
+	return true
+}
+
+// noteBossBlow takes, at the moment a hero's attack takes HP off an aggressive
+// boss, that round's blow roll (HurtSummonCD: from each party turn in TB, 3 s
+// in RT) for the end of the frame (BossBlowRolls, answerBossHurt). A blow the
+// boss cannot answer then (crowd control, silence, fear, the roll spent, the
+// live cap) is not kept for later. An evasive boss's blink answers any HP
+// loss instead (BossHurtPending, set where HP drops).
+func (cs *CombatSystem) noteBossBlow(m *monsterPkg.Monster3D) {
+	if m.IsBoss() && !cs.bossEvasive(m) && cs.bossAnswersBlows(m) && cs.claimSummonRoll(m, &m.HurtSummonCD) {
+		m.BossBlowRolls++
+	}
+}
+
+// bossAnswersBlows reports a boss alive and able to act on a blow.
+func (cs *CombatSystem) bossAnswersBlows(m *monsterPkg.Monster3D) bool {
+	return m.IsAlive() && cs.bossMayAct(m) && m.CurrentAIBehavior().Caps().MayAttack
+}
+
+// answerBossHurt rolls, once a frame in both modes, the summon each blow
+// claimed (noteBossBlow), so the adds join after this frame's combat. The roll
+// is a reaction: it spends no action and replaces no attack. A boss the
+// frame left dead or unable to act summons nothing.
+func (cs *CombatSystem) answerBossHurt() {
+	w := cs.game.GetCurrentWorld()
+	if w == nil {
+		return
+	}
+	for _, m := range w.Monsters {
+		if m == nil || m.BossBlowRolls == 0 {
+			continue
+		}
+		rolls := m.BossBlowRolls
+		m.BossBlowRolls = 0
+		for ; rolls > 0 && cs.bossAnswersBlows(m); rolls-- {
+			cs.rollBossSummon(m)
+		}
+	}
 }
 
 // tryBossTimedSummon calls the adds each time summon.cooldown_seconds runs
 // out, when the live cap allows; the timer restarts either way. It does not
 // wait for an attack moment, so kiting cannot stall it.
 func (cs *CombatSystem) tryBossTimedSummon(m *monsterPkg.Monster3D) bool {
-	if m.Abilities.Summon.CooldownSeconds <= 0 || m.SummonCD.Active() || cs.bossDisabled(m) || cs.bossEvasive(m) {
+	if m.Abilities.Summon.CooldownSeconds <= 0 || m.SummonCD.Active() || cs.bossEvasive(m) {
 		return false
 	}
 	m.SummonCD.Arm(m.Abilities.Summon.CooldownSeconds, cs.game.config.GetTPS())
@@ -278,9 +324,9 @@ func (cs *CombatSystem) countLiveSummons(m *monsterPkg.Monster3D) int {
 
 // tickEvasiveBossesTB runs the evasive-phase reaction every frame in turn-based
 // mode. Without it the hurt-blink waits for the monster turn, so a full party
-// round of focused hits could kill the boss before it ever dodged. BossCD is
-// spent on the monster turn like every TB clock. Aggressive-phase specials
-// still fire only on the boss's own TB turn.
+// round of focused hits could kill the boss before it ever dodged. BossCD's TB
+// round starts with the party turn (TickHurtReactionTurn). Aggressive-phase
+// specials still fire only on the boss's own TB turn.
 //
 // DELIBERATELY the one direct updateBoss caller: the rider's other work is
 // dead weight here (an evasive boss sows no traps and updateBoss returns
@@ -303,7 +349,8 @@ func (cs *CombatSystem) tickEvasiveBossesTB() {
 }
 
 // blinkMonsterRandom teleports the monster to a random walkable tile of the
-// current map (re-registering collision). Returns false if no spot was found.
+// current map other than its own (re-registering collision). Returns false if
+// no spot was found.
 func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 	w := cs.game.GetCurrentWorld()
 	if w == nil || w.Width <= 0 || w.Height <= 0 {
@@ -314,6 +361,9 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 	for try := 0; try < 40; try++ {
 		tx := rand.Intn(w.Width)
 		ty := rand.Intn(w.Height)
+		if tx == TileIndex(fromX, tile) && ty == TileIndex(fromY, tile) {
+			continue // a blink always leaves its tile
+		}
 		cx, cy := TileCenterFromTile(tx, ty, tile)
 		if cs.game.monsterHasAttackTarget(m) && cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {
 			continue

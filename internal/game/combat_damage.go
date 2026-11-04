@@ -25,6 +25,15 @@ type monsterDamagePacket struct {
 	Components []monsterDamageComponent
 }
 
+// normalShares is the packet's normal damage by component school, in order.
+func (p monsterDamagePacket) normalShares() []character.DamageShare {
+	shares := make([]character.DamageShare, 0, len(p.Components)+1)
+	for _, c := range p.Components {
+		shares = append(shares, character.DamageShare{School: c.School.String(), Amount: c.Parts.Normal})
+	}
+	return shares
+}
+
 // primarySchool is the school of the packet's first component, the one a log
 // line colors its damage by.
 func (p monsterDamagePacket) primarySchool() string {
@@ -192,6 +201,18 @@ type partyMonsterAttack struct {
 	// PrimaryHit marks the landed primary hit, the one whose weapon riders
 	// run: only it strikes the hour (Minute Hand); splash and grazes do not.
 	PrimaryHit bool
+	// HeroBlow marks a hero's own attack - a weapon hit, spell or flask
+	// (byHero), or the hero's own shot (Arrow.HeroBlow) - with its splash. A
+	// boss answers its blows (noteBossBlow); riders that strike on their own
+	// (the Toll echo, a death burst), card-proc bolts, zones and procs carry
+	// none.
+	HeroBlow bool
+}
+
+// byHero is an attack the hero c makes: its attacker, and a blow a boss
+// answers.
+func (a *partyMonsterAttack) byHero(c *character.MMCharacter) {
+	a.Attacker, a.HeroBlow = c, true
 }
 
 // Weapon crits precede flat buffs and physical conversion. Prepare both source
@@ -201,20 +222,27 @@ func (cs *CombatSystem) newPartyWeaponAttack(
 	def *config.WeaponDefinitionConfig, name string,
 	isRanged, critical bool, baseCritChance int,
 ) partyMonsterAttack {
-	buff := cs.game.combatBuffOutBonusForDamageType(school)
-	parts := weaponTrueShare(def, damagecalc.Parts{Normal: weaponDamageWithBuff(normal, buff), True: trueDamage})
-	attack := cs.newPartyMonsterAttack(parts.Normal, parts.True, school, 0, def, name, isRanged, false, !isRanged)
+	packet := cs.partyWeaponPacket(normal, trueDamage, school, def)
+	attack := cs.partyAttackOfPacket(packet, def, name, isRanged, false, !isRanged)
 	attack.Critical = critical
 	attack.BaseCritChance = baseCritChance
 	if def != nil && !critical {
 		attack.DesignationBonuses = cs.game.designationBonuses()
 		if len(attack.DesignationBonuses) > 0 {
-			critical := weaponTrueShare(def, damagecalc.Parts{Normal: weaponDamageWithBuff(weaponCriticalDamage(normal, true), buff), True: trueDamage})
-			attack.CriticalPacket = cs.newPartyMonsterDamagePacket(critical.Normal, critical.True, school, 0, true)
-			attack.CriticalPacket = cs.elementalBuffPacket(attack.CriticalPacket)
+			attack.CriticalPacket = cs.elementalBuffPacket(cs.partyWeaponPacket(weaponCriticalDamage(normal, true), trueDamage, school, def))
 		}
 	}
 	return attack
+}
+
+// partyWeaponPacket is a party weapon hit's packet before the party's
+// per-school buffs: the flat buff on its normal damage, the weapon's own true
+// share beside trueDamage, then physical conversion. The attack and its
+// preview both start here.
+func (cs *CombatSystem) partyWeaponPacket(normal, trueDamage int, school string, def *config.WeaponDefinitionConfig) monsterDamagePacket {
+	buff := cs.game.combatBuffOutBonusForDamageType(school)
+	parts := weaponTrueShare(def, damagecalc.Parts{Normal: weaponDamageWithBuff(normal, buff), True: trueDamage})
+	return cs.newPartyMonsterDamagePacket(parts.Normal, parts.True, school, 0, true)
 }
 
 func (cs *CombatSystem) newPartyMonsterAttack(
@@ -226,6 +254,17 @@ func (cs *CombatSystem) newPartyMonsterAttack(
 	isRanged, isSpell, isMelee bool,
 ) partyMonsterAttack {
 	packet := cs.newPartyMonsterDamagePacket(normal, trueDamage, school, resistPiercePct, !isSpell)
+	return cs.partyAttackOfPacket(packet, weaponDef, weaponName, isRanged, isSpell, isMelee)
+}
+
+// partyAttackOfPacket is the attack landing packet; all but a spell take the
+// party's per-school buffs.
+func (cs *CombatSystem) partyAttackOfPacket(
+	packet monsterDamagePacket,
+	weaponDef *config.WeaponDefinitionConfig,
+	weaponName string,
+	isRanged, isSpell, isMelee bool,
+) partyMonsterAttack {
 	if !isSpell {
 		packet = cs.elementalBuffPacket(packet)
 	}
@@ -389,13 +428,25 @@ func (cs *CombatSystem) applyPartyMonsterAttack(target *monsterPkg.Monster3D, at
 		roll(max(1, 100-attack.BaseCritChance)) < bonus {
 		packet, critical = attack.CriticalPacket, true
 	}
-	beforeHP := target.HitPoints
-	parts := cs.applyMonsterDamagePacket(target, packet, cs.partyMonsterDamageOptions(attack, target))
-	settleVampiricHit(attack.Attacker, attack.VampiricPct, beforeHP-target.HitPoints)
+	parts := cs.landPartyPacket(target, attack, packet)
 	if parts.Total() > 0 && (attack.IsMelee || attack.IsRanged) {
 		cs.game.playMonsterSound(soundMonsterHit, target)
 	}
 	return partyMonsterHit{DealtDamage: parts, Critical: critical, SourceNormal: packet.normalDamage()}
+}
+
+// landPartyPacket lands one packet of a party attack: mitigation, the
+// attacker's drain, and the boss's note of a hero's blow that took HP off it
+// (noteBossBlow).
+func (cs *CombatSystem) landPartyPacket(target *monsterPkg.Monster3D, attack partyMonsterAttack, packet monsterDamagePacket) monsterPkg.DealtDamage {
+	beforeHP := target.HitPoints
+	dealt := cs.applyMonsterDamagePacket(target, packet, cs.partyMonsterDamageOptions(attack, target))
+	lost := beforeHP - target.HitPoints
+	settleVampiricHit(attack.Attacker, attack.VampiricPct, lost)
+	if attack.HeroBlow && lost > 0 {
+		cs.noteBossBlow(target)
+	}
+	return dealt
 }
 
 // Drain pays only for HP actually removed, including true damage through dodge.
@@ -412,12 +463,18 @@ func settleVampiricHit(attacker *character.MMCharacter, percent, lostHP int) {
 type weaponDamagePreview struct {
 	FormulaNormal int
 	Normal        int
-	True          int
-	AuthoredTrue  int
+	Shares        []character.DamageShare // Normal by school, as the hit's packet carries it
+	OwnShares     []character.DamageShare // Shares without the aura's: the weapon's own schools
+	BuffGains     []character.DamageShare // what the party's per-school buffs add, by school
+	AuraPct       int                     // Fire Aura's added share of the hit, in AuraSchool
+	AuraSchool    string
+	True          int // all of the hit's true damage, buffs included
+	AuthoredTrue  int // the weapon's own true share, before buffs
+	MasteryTrue   int // the weapon mastery's, before buffs
 	Total         int
 	CriticalTotal int
 	CardDamagePct int
-	CardTrue      int
+	CardTrue      int // melee cards', before buffs
 	OutgoingBuff  int
 }
 
@@ -426,6 +483,7 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 	if def == nil {
 		return weaponDamagePreview{}
 	}
+	school := weaponDamageTypeStr(def)
 	night := cs != nil && cs.game != nil && cs.game.dayNightIsNight
 	normal := character.WeaponDamageAtNight(def, nil, night).Base
 	if char != nil && cs != nil && cs.game != nil {
@@ -434,45 +492,76 @@ func (cs *CombatSystem) calculateWeaponDamagePreview(item items.Item, char *char
 
 	preview := weaponDamagePreview{FormulaNormal: normal}
 	if char != nil && cs != nil && cs.game != nil {
-		preview.True, _ = cs.weaponMasteryStrike(char, def)
-		preview.OutgoingBuff = cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
+		preview.MasteryTrue, _ = cs.weaponMasteryStrike(char, def)
+		preview.OutgoingBuff = cs.game.combatBuffOutBonusForDamageType(school)
 	}
 	isRanged := def.IsRanged()
-	if char != nil && cs != nil && cs.game != nil && cs.game.isPartyMember(char) {
+	party := cs != nil && cs.game != nil && cs.game.isPartyMember(char)
+	if party {
 		if isRanged {
 			preview.CardDamagePct = cs.game.cardRangedDmgPct()
 		} else {
 			preview.CardDamagePct = cs.game.cardMeleeDmgPct()
 			preview.CardTrue = cs.game.cardMeleeTrueDmg()
-			preview.True += preview.CardTrue
 		}
 	}
-
-	party := cs != nil && cs.game != nil && cs.game.isPartyMember(char)
-	if party {
-		preview.True = cs.game.elementalDamageBuff(damagecalc.Parts{True: preview.True}, weaponDamageTypeStr(def)).True
+	auraPct, auraSchool := personalSpellDamage(char, config.MechanicFireAura)
+	if auraPct > 0 {
+		preview.AuraPct, preview.AuraSchool = auraPct, auraSchool.String()
 	}
-	// resolve returns the hit's normal damage and the weapon's true share of it.
-	resolve := func(critical bool) (int, int) {
+	sourceTrue := preview.MasteryTrue + preview.CardTrue
+	// resolve builds the hit as the attack does: for a party member the packet
+	// newPartyWeaponAttack starts from (partyWeaponPacket), its per-school
+	// buffs, then the aura through addPersonalSpellPayload. Melee cards scale
+	// each normal share after armor, as the hit does, and the buffs' gain with
+	// them.
+	type resolved struct {
+		shares, own, gains []character.DamageShare
+		trueDamage         int // all of it, buffed
+		authoredTrue       int // the weapon's own share, before buffs
+	}
+	afterArmor := func(normal int) int { return normal }
+	if !isRanged {
+		afterArmor = func(normal int) int { return cs.weaponMeleeDamageAfterArmor(normal, party) }
+	}
+	normalShares := func(packet monsterDamagePacket) []character.DamageShare {
+		shares := packet.normalShares()
+		for i := range shares {
+			shares[i].Amount = afterArmor(shares[i].Amount)
+		}
+		return shares
+	}
+	resolve := func(critical bool) resolved {
 		damage := character.WeaponStrikeDamage(def, normal)
 		if isRanged {
 			damage = cs.weaponRangedDamageAtLaunch(damage, party)
 		}
 		damage = weaponCriticalDamage(damage, critical)
-		parts := weaponTrueShare(def, damagecalc.Parts{Normal: weaponDamageWithBuff(damage, preview.OutgoingBuff)})
+		var out resolved
+		var packet monsterDamagePacket
 		if party {
-			parts = cs.game.elementalDamageBuff(parts, weaponDamageTypeStr(def))
+			raw := cs.partyWeaponPacket(damage, sourceTrue, school, def)
+			out.authoredTrue = raw.total() - raw.normalDamage() - sourceTrue
+			packet, out.gains = cs.elementalBuffGain(raw, afterArmor)
+		} else {
+			parts := weaponTrueShare(def, damagecalc.Parts{Normal: weaponDamageWithBuff(damage, preview.OutgoingBuff), True: sourceTrue})
+			out.authoredTrue = parts.True - sourceTrue
+			packet = singleMonsterDamagePacket(parts, school, 0)
 		}
-		damage = parts.Normal + personalSpellDamageBonus(parts.Normal+parts.True+preview.True, personalSpellPower(char, config.MechanicFireAura))
-		if !isRanged {
-			damage = cs.weaponMeleeDamageAfterArmor(damage, party)
-		}
-		return damage, parts.True
+		out.own = normalShares(packet)
+		withAura := partyMonsterAttack{Packet: packet}
+		withAura.addPersonalSpellPayload(auraPct, auraSchool, 0)
+		packet = withAura.Packet
+		out.shares = normalShares(packet)
+		out.trueDamage = packet.total() - packet.normalDamage()
+		return out
 	}
-	preview.Normal, preview.AuthoredTrue = resolve(false)
-	criticalNormal, criticalShare := resolve(true)
-	preview.CriticalTotal = criticalNormal + criticalShare + preview.True
-	preview.True += preview.AuthoredTrue
+	hit := resolve(false)
+	preview.Shares, preview.OwnShares, preview.BuffGains = hit.shares, hit.own, hit.gains
+	preview.True, preview.AuthoredTrue = hit.trueDamage, hit.authoredTrue
+	preview.Normal = character.SumDamageShares(preview.Shares)
+	critical := resolve(true)
+	preview.CriticalTotal = character.SumDamageShares(critical.shares) + critical.trueDamage
 	preview.Total = preview.Normal + preview.True
 	return preview
 }

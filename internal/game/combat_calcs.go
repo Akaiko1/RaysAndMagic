@@ -78,18 +78,20 @@ func (cs *CombatSystem) spellDamageParts(spellID spells.SpellID, caster *charact
 // spellPartsWithOutgoingBuff applies the party's flat outgoing-damage bonus
 // after every spell-owned packet modifier (mastery, Strong Magic, and crit).
 // The bonus always joins the Normal component and is never multiplied by those
-// modifiers. Runtime spell forms and their tooltips share this final step.
-func (cs *CombatSystem) spellPartsWithOutgoingBuff(parts damagecalc.Parts, damageType string) (damagecalc.Parts, int) {
+// modifiers. Runtime spell forms and their tooltips share this final step. It
+// returns the flat bonus and what the school's buff then added.
+func (cs *CombatSystem) spellPartsWithOutgoingBuff(parts damagecalc.Parts, damageType string) (damagecalc.Parts, int, int) {
 	if cs == nil || cs.game == nil {
-		return parts, 0
+		return parts, 0, 0
 	}
 	bonus := 0
 	if parts.Normal > 0 {
 		bonus = cs.game.combatBuffOutBonusForDamageType(damageType)
 		parts.Normal += bonus
 	}
+	flat := parts.Total()
 	parts = cs.game.elementalDamageBuff(parts, damageType)
-	return parts, bonus
+	return parts, bonus, parts.Total() - flat
 }
 
 // spellMasteryDamageParts converts only an elemental school's regular +5/tier mastery

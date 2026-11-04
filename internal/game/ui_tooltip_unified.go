@@ -133,17 +133,6 @@ func statBreakdownDetails(sec *ttSection, result stats.Breakdown, char *characte
 	}
 }
 
-// damageTypeAoELine / armorInteractionRules delegate to the shared template
-// helpers so the editor's rules text is literally the same code (and lands in
-// the full-only DETAIL tier - see character.ArmorInteractionLines).
-func damageTypeAoELine(damageType string, aoeTiles float64) string {
-	return character.DamageTypeAoELine(damageType, aoeTiles)
-}
-
-func armorInteractionRules(sec *ttSection, damageType string, isRanged, hasTrueDmg bool) {
-	character.ArmorInteractionLines(sec, damageType, isRanged, hasTrueDmg)
-}
-
 // ---------------------------------------------------------------- weapons ---
 
 func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
@@ -190,11 +179,13 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 		dmg.AddDetail("Flowing Staff: +%d (%d charges)", breakdown.FlowingStaff, char.FlowingStaffCharges())
 	}
 	preview := cs.calculateWeaponDamagePreview(item, char)
-	addDamageTotal(&dmg, "Total Damage", preview.Total, preview.True)
-	if aura, school := personalSpellDamage(char, config.MechanicFireAura); aura > 0 {
-		dmg.AddDetail("%s", uitext.Text("weapon.fire_aura_detail", aura, school.String()))
+	school := weaponDamageTypeStr(def)
+	allShares := character.MergeDamageShares(preview.Shares...)
+	shares := addDamageTotal(&dmg, "Total Damage", allShares, school, preview.True)
+	if preview.AuraPct > 0 {
+		dmg.AddDetail("%s", uitext.Text("weapon.fire_aura_detail", preview.AuraPct, preview.AuraSchool))
 	}
-	dmg.Add("%s", damageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
+	dmg.AddText(character.HitDamageTypeAoE(school, preview.OwnShares, def.AoeRadiusTiles))
 	if character.WeaponStrikeCount(def) > 1 {
 		dmg.Add("Strikes per attack: %d", character.WeaponStrikeCount(def))
 		dmg.Add("Damage shown per strike")
@@ -239,22 +230,22 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 		dmg.AddDetail("Active party buff: +%d", preview.OutgoingBuff)
 	}
 	if preview.AuthoredTrue > 0 {
-		dmg.AddDetail("Weapon: +%d True (%d%% of the hit)", preview.AuthoredTrue, def.TrueDamagePct)
+		dmg.AddDetailText(character.StyledText(uitext.Text("weapon.true_from_weapon", uitext.Slot, def.TrueDamagePct),
+			character.TrueBonus(school, preview.AuthoredTrue)))
 	}
-	masteryTrue := preview.True - preview.AuthoredTrue - preview.CardTrue
-	if masteryTrue > 0 {
+	if preview.MasteryTrue > 0 {
 		if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
 			_, tierName := masteryTier(char, skill)
-			dmg.AddDetail("%s Mastery - %s: +%d True", skill.String(), tierName, masteryTrue)
+			dmg.AddDetailText(character.StyledText(uitext.Text("mastery.line", skill.String(), tierName, uitext.Slot),
+				character.TrueBonus(school, preview.MasteryTrue)))
 		}
 	}
 	if preview.CardTrue > 0 {
-		dmg.AddDetail("Cards: +%d True", preview.CardTrue)
+		dmg.AddDetailText(character.StyledText(uitext.Text("weapon.true_from_cards", uitext.Slot),
+			character.TrueBonus(school, preview.CardTrue)))
 	}
-	if preview.True > 0 {
-		dmg.AddDetail("Normal Damage: %d", preview.Normal)
-	}
-	armorInteractionRules(&dmg, def.DamageType, def.Physics != nil, preview.True > 0)
+	addShareDetails(&dmg, shares, preview.BuffGains)
+	character.ArmorInteractionLines(&dmg, def.DamageType, allShares, def.Physics != nil, preview.True > 0)
 	if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
 		if tier, _ := masteryTier(char, skill); tier >= int(character.MasteryGrandMaster) {
 			dmg.AddDetail("%s", uitext.Text("weapon.grandmaster_dodge", character.WeaponGMDodgeGrazePct))
@@ -295,7 +286,7 @@ func buildWeaponTooltipUnifiedRows(item items.Item, char *character.MMCharacter,
 				if st, ok := character.WeaponSkillForCategory(def.Category); ok {
 					skill = st.String()
 				}
-				parts = append(parts, fmt.Sprintf("%s Mastery - Grandmaster: +%d%%", skill, gmWeapon))
+				parts = append(parts, uitext.Text("mastery.line", skill, character.MasteryGrandMaster.String(), fmt.Sprintf("+%d%%", gmWeapon)))
 			}
 			if gmArms > 0 {
 				parts = append(parts, fmt.Sprintf("Arms Master - Grandmaster: +%d%%", gmArms))
@@ -359,7 +350,7 @@ func buildArmorTooltipUnifiedRows(item items.Item, char *character.MMCharacter, 
 		}
 		if cat, catOK := armorMasterySkill(item); catOK && char != nil {
 			if tier, tierName := masteryTier(char, cat); tier > 0 {
-				defense.AddDetail("%s Mastery - %s: +%d", cat.String(), tierName, tier*character.MasteryArmorACPerLevel)
+				defense.AddDetail("%s", uitext.Text("mastery.line", cat.String(), tierName, uitext.Text("mastery.bonus", tier*character.MasteryArmorACPerLevel)))
 			}
 		}
 		defense.Add("Item Armor Class: %d", totalAC)
@@ -399,7 +390,7 @@ func armorMasterySkill(item items.Item) (character.SkillType, bool) {
 // here.
 type spellDamageTail struct {
 	label       string // the result row: "Total Damage", "Total per tick", "Damage"
-	splitTrue   bool   // the result shows its Normal + True split
+	splitTrue   bool   // the result shows its school + True split
 	enemiesOnly bool   // the party is struck too: pierce and buffs reach enemies only
 	masteryRow  bool   // the mastery bonus gets a row (an authored ladder is the whole payload)
 	bareMastery bool   // a nova's mastery adds raw points: "+N", not "+N Damage"
@@ -474,22 +465,22 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	}
 
 	// addDamageTail is what every damage section shares after its base rows:
-	// the mastery bonus, pierce, Strong Magic, the active party buff and the
-	// result, all quoted from the packet the cast fires (parts, before the
-	// buff). It returns that packet with the buff.
+	// the mastery bonus, pierce, Strong Magic, the party's buffs (flat, then
+	// the school's) and the result, all quoted from the packet the cast fires
+	// (parts, before the buffs). It returns that packet with the buffs.
 	addDamageTail := func(dmg *ttSection, k spellDamageTail, parts damagecalc.Parts, masteryBonus int) damagecalc.Parts {
 		if k.masteryRow && masteryBonus > 0 {
 			switch {
 			case k.bareMastery:
-				dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(masterySchool), tierName, masteryBonus)
+				dmg.AddDetail("%s", uitext.Text("mastery.line", formatSchoolName(masterySchool), tierName, uitext.Text("mastery.bonus", masteryBonus)))
 			case parts.True > 0:
 				// Mastery is the CASTER's school; the true damage it converts to is
 				// typed by the SPELL's own element (spellDamageParts), so the two
 				// words differ for a dual-school page.
-				dmg.AddDetail("%s Mastery - %s: +%d %s True Damage",
-					formatSchoolName(masterySchool), tierName, masteryBonus, formatSchoolName(def.DamageType()))
+				dmg.AddDetailText(character.StyledText(uitext.Text("mastery.line", formatSchoolName(masterySchool), tierName, uitext.Slot),
+					character.TrueBonusNamed(def.DamageType(), masteryBonus)))
 			default:
-				dmg.AddDetail("%s Mastery - %s: +%d Damage", formatSchoolName(masterySchool), tierName, masteryBonus)
+				dmg.AddDetail("%s", uitext.Text("mastery.line", formatSchoolName(masterySchool), tierName, uitext.Text("mastery.damage_bonus", masteryBonus)))
 			}
 		}
 		reach := ""
@@ -502,15 +493,22 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		addStrongMagicDetail(dmg)
 		// Active party buffs add a flat bonus after crit doubling; Heroism is
 		// physical-only, so spell schools get only all-damage buffs like Hour of Power.
-		total, outBonus := cs.spellPartsWithOutgoingBuff(parts, def.DamageType())
+		total, outBonus, schoolGain := cs.spellPartsWithOutgoingBuff(parts, def.DamageType())
 		if outBonus > 0 {
 			dmg.AddDetail("Active party buff: +%d%s", outBonus, reach)
+		}
+		if schoolGain > 0 {
+			line := character.SchoolBuff(def.DamageType(), schoolGain)
+			if reach != "" {
+				line = append(line, character.CardRun{Text: reach})
+			}
+			dmg.AddDetailText(line)
 		}
 		switch {
 		case !hero:
 			dmg.Add("%s: %s", k.label, tierLadder(catalogLadder(catalog, totalOf)))
 		case k.splitTrue:
-			addDamageTotal(dmg, k.label, total.Total(), total.True)
+			addDamageTotal(dmg, k.label, character.MergeDamageShares(character.DamageShare{School: def.DamageType(), Amount: total.Normal}), def.DamageType(), total.True)
 		default:
 			dmg.Add("%s: %d", k.label, total.Total())
 		}
@@ -543,7 +541,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		totalCrit = cs.totalCriticalChance(0, char)
 		if totalCrit > 0 {
 			critParts := spellCriticalParts(spellParts)
-			critParts, _ = cs.spellPartsWithOutgoingBuff(critParts, def.DamageType())
+			critParts, _, _ = cs.spellPartsWithOutgoingBuff(critParts, def.DamageType())
 			criticalDamage = critParts.Total()
 		}
 	}
@@ -574,7 +572,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 		statBreakdownDetails(&heal, healing.Breakdown, char)
 		addCatalogMastery(&heal, healingTiers, "")
 		if mastery > 0 {
-			heal.AddDetail("%s Mastery - %s: +%d", formatSchoolName(masterySchool), tierName, mastery)
+			heal.AddDetail("%s", uitext.Text("mastery.line", formatSchoolName(masterySchool), tierName, uitext.Text("mastery.bonus", mastery)))
 		}
 		if char != nil && char.HasSkill(character.SkillNaturalHealer) {
 			heal.AddDetail("Natural Healer: +%d%%", healing.HealerPercent)
@@ -634,7 +632,7 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	}
 
 	if def.IsProjectile && !def.DealsNoDamage {
-		dmg.Add("%s", damageTypeAoELine(def.DamageType(), def.AoeRadiusTiles))
+		dmg.AddText(character.DamageTypeAoE(def.DamageType(), def.AoeRadiusTiles))
 	}
 	// A live card shows the spell as this caster casts it: durations a wielded
 	// staff lengthens, and the card collection's disintegrate bonus, which
@@ -689,13 +687,6 @@ func buildSpellTooltipUnifiedRows(def spells.SpellDefinition, char *character.MM
 	return renderTooltipRows(def.Name, subtitle, []ttSection{dmg, heal, crit, effects, durationSection, zone, casting}, full)
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // ----------------------------------------------------------------- traps ----
 
 func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem, full bool) character.CardRows {
@@ -712,6 +703,7 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 	tier, tierName := masteryTier(char, character.SkillTrapper)
 
 	dmg := ttSection{Title: "DAMAGE"}
+	var trapShares []character.DamageShare // the hero's hit by school; nil on the catalog card
 	if def.DamageBase > 0 {
 		dmg.AddDetail("Base: %d", def.DamageBase)
 		if char != nil {
@@ -726,13 +718,23 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 			dmg.AddDetail("Trapper - %s: +%d", tierName, tier*character.TrapperDamagePerTier)
 		}
 		if char != nil {
-			dmg.Add("Total Damage: %d", trapDamage(def, char))
+			// Named by the trap hit's own packet, as the weapon card is.
+			total := trapDamage(def, char)
+			shares := []character.DamageShare{{School: def.Element, Amount: total}}
+			var gains []character.DamageShare
+			if cs != nil && cs.game != nil && cs.game.isPartyMember(char) {
+				var packet monsterDamagePacket
+				packet, gains = cs.trapDamagePacket(total, def.Element)
+				shares = packet.normalShares()
+			}
+			trapShares = character.MergeDamageShares(shares...)
+			addShareDetails(&dmg, addDamageTotal(&dmg, "Total Damage", trapShares, def.Element, 0), gains)
 		} else {
 			// Catalog card: what the Trapper tier alone adds.
 			dmg.AddDetail("Trapper: +%s", tierLadder(tierValues(func(t int) int { return t * character.TrapperDamagePerTier })))
 			dmg.Add("Total Damage: %s", tierLadder(tierValues(func(t int) int { return trapDamageAtTier(def, t) })))
 		}
-		dmg.Add("%s", damageTypeAoELine(def.Element, def.AoeRadiusTiles))
+		dmg.AddText(character.HitDamageTypeAoE(def.Element, trapShares, def.AoeRadiusTiles))
 	}
 
 	effect := ttSection{Title: "CONTROL"}
@@ -768,7 +770,7 @@ func buildTrapTooltipUnifiedRows(key string, def *config.TrapDefinitionConfig, c
 		effect.Add("Prevents movement but not attacks")
 	}
 	if def.DamageBase > 0 {
-		armorInteractionRules(&dmg, def.Element, false, false)
+		character.ArmorInteractionLines(&dmg, def.Element, trapShares, false, false)
 	}
 	placement.AddDetail("Triggers once, then disappears")
 	placement.AddDetail("Maximum %d armed traps per character on the map", MaxTrapsPerOwner)
@@ -885,11 +887,19 @@ func addFlaskSections(dmg, effect, use *ttSection, key string, f *config.FlaskDe
 		dmg.AddDetail("Base (%s - %s): %d", skill.String(), tierName, config.TierValue(f.Damage, tier))
 		intellect := bearer.GetEffectiveIntellect()
 		statContribDetail(dmg, "Intellect", intellect, character.BombThrowingIntellectDivisor)
-		dmg.Add("Total Damage: %d to each victim", flaskDamage(bearer, f))
+		total, gains := flaskDamage(bearer, f), []character.DamageShare(nil)
+		if cs != nil && cs.game != nil && cs.game.isPartyMember(bearer) {
+			// Named by the burst's own packet, as the trap card is.
+			var packet monsterDamagePacket
+			packet, gains = cs.flaskDamagePacket(total, f.Element)
+			total = packet.total()
+		}
+		dmg.Add("Total Damage: %d to each victim", total)
+		addShareDetails(dmg, nil, gains)
 	} else {
 		dmg.Add("Damage: %s + Intellect / %d to each victim", tierLadder(f.Damage), character.BombThrowingIntellectDivisor)
 	}
-	dmg.Add("%s", damageTypeAoELine(f.Element, float64(f.RadiusTiles)))
+	dmg.AddText(character.DamageTypeAoE(f.Element, float64(f.RadiusTiles)))
 	effect.Add("Range: %d tiles", f.RangeTiles)
 	if f.PoisonSeconds != [4]int{} {
 		effect.Add("Poison: %s seconds", perTier(f.PoisonSeconds))

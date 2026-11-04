@@ -551,8 +551,16 @@ type Monster3D struct {
 
 	Relentless      bool // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
 	BossWarded      bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshMonsterAIState)
-	BossLastHP      int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
-	BossHurtPending bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	BossHurtPending bool // a boss with an evasive phase lost HP: while evasive it owes a blink, held until a blink consumes it (survives across turns, unlike the hit flash); once aggressive it drops it
+	// BossBlowRolls: the aggressive boss's summon rolls that hero blows claimed
+	// and are not rolled yet (answerBossHurt, at the end of that frame). A TB
+	// frame can claim two rounds' rolls: the round's last blow, then a shot
+	// that lands once the next round opened.
+	// HurtSummonCD holds that roll to once a round, from the party turn in TB
+	// (TickHurtReactionTurn); AttackSummonCD holds the attack's roll to once a
+	// round, from the monster turn (TickAbilityClocks).
+	BossBlowRolls                int
+	HurtSummonCD, AttackSummonCD status.DualClock
 	// Summon (Abilities.Summon): the save-backed latch once the guaranteed
 	// first summon has happened.
 	SummonFirstDone bool   // save-backed latch once the guaranteed summon has happened
@@ -753,6 +761,9 @@ func (m *Monster3D) TakeDamagePacket(components []DamageComponent) DealtDamage {
 	if m.HitPoints < 0 {
 		m.HitPoints = 0
 	}
+	if total > 0 {
+		m.markBossHurt()
+	}
 
 	// Remember provocation; active pursuit still obeys distance and home scope.
 	m.WasAttacked = true
@@ -789,9 +800,21 @@ func (m *Monster3D) applyDoTTicks(key string, ticks int) {
 	if ticks <= 0 || m.HitPoints <= 0 || m.IsDamageInvulnerable() {
 		return
 	}
-	m.HitPoints -= config.DoTDamage(key, m.MaxHitPoints, m.IsBoss()) * ticks
+	damage := config.DoTDamage(key, m.MaxHitPoints, m.IsBoss()) * ticks
+	m.HitPoints -= damage
 	if m.HitPoints < 0 {
 		m.HitPoints = 0
+	}
+	if damage > 0 {
+		m.markBossHurt()
+	}
+}
+
+// markBossHurt records HP a boss with an evasive phase just lost, whatever
+// took it: its blink answers it (BossHurtPending).
+func (m *Monster3D) markBossHurt() {
+	if m.IsBoss() && m.PassiveUntilQuest != "" && m.EvadeRadiusTiles > 0 {
+		m.BossHurtPending = true
 	}
 }
 
@@ -1171,25 +1194,29 @@ func (m *Monster3D) ArmTrapVolleyCooldown() {
 
 // TickAbilityClocks spends one tick of the running mode on every ability
 // cooldown: RT each frame, TB once per monster turn, in or out of a fight.
-// BossCD's TB round starts with the party turn instead (TickBlinkTurn).
+// The hurt reactions' TB round starts with the party turn instead
+// (TickHurtReactionTurn).
 func (m *Monster3D) TickAbilityClocks(turn bool) {
 	if m == nil {
 		return
 	}
-	for _, c := range []*status.DualClock{&m.PounceCD, &m.PhaseShiftCD, &m.TrapVolleyCD, &m.SummonCD, &m.PushCD, &m.LaneCD, &m.NovaRollCD} {
+	for _, c := range []*status.DualClock{&m.PounceCD, &m.PhaseShiftCD, &m.TrapVolleyCD, &m.SummonCD, &m.AttackSummonCD, &m.PushCD, &m.LaneCD, &m.NovaRollCD} {
 		c.Tick(turn)
 	}
 	if !turn {
 		m.BossCD.TickFrame()
+		m.HurtSummonCD.TickFrame()
 	}
 }
 
-// TickBlinkTurn spends a TB round of the evasive blink cooldown at the start
-// of the party turn: the hurt-blink reacts during the party's round, so a
-// blink on the monster turn is ready again for the next party round.
-func (m *Monster3D) TickBlinkTurn() {
+// TickHurtReactionTurn spends a TB round of the cooldowns that answer the
+// party's round - the evasive blink and the summon roll on a hero's blow - at
+// the start of the party turn, so an answer on the monster turn is ready again
+// for the next party round.
+func (m *Monster3D) TickHurtReactionTurn() {
 	if m != nil {
 		m.BossCD.TickTurn()
+		m.HurtSummonCD.TickTurn()
 	}
 }
 

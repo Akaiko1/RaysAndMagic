@@ -476,7 +476,7 @@ func (cs *CombatSystem) damageZoneMonstersIn(spellID string, coverage, view []*P
 			raw.Normal = raw.Normal * def.ZoneEdgeDamagePercent / 100
 			raw.True = raw.True * def.ZoneEdgeDamagePercent / 100
 		}
-		parts, _ := cs.spellPartsWithOutgoingBuff(
+		parts, _, _ := cs.spellPartsWithOutgoingBuff(
 			raw,
 			damageTypeStr,
 		)

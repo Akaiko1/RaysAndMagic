@@ -736,7 +736,7 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, tit
 
 func drawCardTooltip(screen *ebiten.Image, rows character.CardRows, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
-	layout := layoutCardTooltip(rows, hasIcon, maxRight-x, uiBounds(screen).Dy())
+	layout := drawnCardTooltip(rows, hasIcon, maxRight-x, uiBounds(screen).Dy())
 	drawTooltipLayout(screen, rows, colors, titlePlate, titleText, iconName, x, max(0, y), layout, sprites)
 }
 

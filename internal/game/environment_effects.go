@@ -164,9 +164,9 @@ func (g *MMGame) damageEnvironment(e config.EnvironmentEffect, ticks int) {
 			first = e.Damage / 2
 			second = e.Damage - first
 		}
-		shares := []damageShare{{e.School, g.combat.damagePartyMemberElement(i, c, first*ticks, e.School, false)}}
+		shares := []damageShare{{School: e.School, Amount: g.combat.damagePartyMemberElement(i, c, first*ticks, e.School, false)}}
 		if second > 0 && c.HitPoints > 0 {
-			shares = append(shares, damageShare{e.SecondarySchool, g.combat.damagePartyMemberElement(i, c, second*ticks, e.SecondarySchool, false)})
+			shares = append(shares, damageShare{School: e.SecondarySchool, Amount: g.combat.damagePartyMemberElement(i, c, second*ticks, e.SecondarySchool, false)})
 		}
 		shares = slices.DeleteFunc(shares, func(s damageShare) bool { return s.Amount <= 0 })
 		if len(shares) > 0 {

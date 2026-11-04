@@ -256,7 +256,7 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		for _, line := range lines {
 			var col color.Color = mobStatDefault
 			if line.School != "" {
-				col = game.SchoolColor(line.School)
+				col = game.SchoolTextColor(line.School)
 			}
 			addc(col, "%s", line.Text)
 		}
@@ -325,7 +325,7 @@ func buildMobInfoRuntime(key string, def monster.MonsterDefinition, runtime *mon
 		}
 		sort.Strings(resKeys)
 		for _, r := range resKeys {
-			addc(game.SchoolColor(r), "  %s %d%%", titleCase(r), resistances[r])
+			addc(game.SchoolTextColor(r), "  %s %d%%", titleCase(r), resistances[r])
 		}
 	}
 

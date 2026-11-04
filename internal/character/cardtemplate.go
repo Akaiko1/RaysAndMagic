@@ -3,6 +3,7 @@ package character
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	uitext "ugataima/assets/text"
@@ -17,6 +18,7 @@ import (
 type cardLine struct {
 	text   string
 	detail bool
+	runs   CardText
 }
 
 // CardSection is one mechanic's results and their explanation. Add() records
@@ -30,12 +32,22 @@ type CardSection struct {
 
 // Add appends an always-visible line (compact + full).
 func (s *CardSection) Add(format string, args ...interface{}) {
-	s.lines = append(s.lines, cardLine{fmt.Sprintf(format, args...), false})
+	s.lines = append(s.lines, cardLine{fmt.Sprintf(format, args...), false, nil})
 }
 
 // AddDetail appends a full-view-only line (hidden in compact).
 func (s *CardSection) AddDetail(format string, args ...interface{}) {
-	s.lines = append(s.lines, cardLine{fmt.Sprintf(format, args...), true})
+	s.lines = append(s.lines, cardLine{fmt.Sprintf(format, args...), true, nil})
+}
+
+// AddText appends an always-visible line with tinted runs.
+func (s *CardSection) AddText(t CardText) {
+	s.lines = append(s.lines, cardLine{t.String(), false, t})
+}
+
+// AddDetailText appends a full-view-only line with tinted runs.
+func (s *CardSection) AddDetailText(t CardText) {
+	s.lines = append(s.lines, cardLine{t.String(), true, t})
 }
 
 func (s *CardSection) hasDetail() bool {
@@ -81,6 +93,9 @@ func RenderCardRows(sections []CardSection, full bool) CardRows {
 				for i := start; i < len(rows); i++ {
 					rows[i].Section = sec.Title
 				}
+				if line.runs != nil && len(rows) == start+1 {
+					rows[start].Runs = line.runs
+				}
 			}
 		}
 		if len(rows) == 0 {
@@ -100,17 +115,183 @@ func RenderCardLines(sections []CardSection, full bool) []string {
 	return RenderCardRows(sections, full).Lines()
 }
 
-// DamageTypeAoELine composes "Fire Damage - splash radius 2 tiles" (any element).
-func DamageTypeAoELine(damageType string, aoeTiles float64) string {
-	dt := damageType
-	if dt == "" {
-		dt = damagecalc.Physical.String()
+// DamageTypeAoE composes "Fire Damage - splash radius 2 tiles" (any element),
+// the school named in its tint.
+func DamageTypeAoE(damageType string, aoeTiles float64) CardText {
+	return damageTypesAoE([]string{damageType}, aoeTiles)
+}
+
+// HitDamageTypeAoE is the type line of a hit split into normal shares:
+// damageType's while a share of it remains, else every school the shares
+// carry ("Fire Damage + Light Damage"), as when cards convert all of it.
+func HitDamageTypeAoE(damageType string, shares []DamageShare, aoeTiles float64) CardText {
+	shares = MergeDamageShares(shares...) // only shares that carry damage name a school
+	schools := []string{damageType}
+	if len(shares) > 0 && !slices.ContainsFunc(shares, func(share DamageShare) bool { return SameSchool(share.School, damageType) }) {
+		schools = schools[:0]
+		for _, share := range shares {
+			schools = append(schools, share.School)
+		}
 	}
-	line := uitext.Text("damage.school", config.TitleWords(dt))
+	return damageTypesAoE(schools, aoeTiles)
+}
+
+func damageTypesAoE(schools []string, aoeTiles float64) CardText {
+	pieces := make([]CardRun, len(schools))
+	for i, dt := range schools {
+		if dt == "" {
+			dt = damagecalc.Physical.String()
+		}
+		pieces[i] = SchoolRun(dt, uitext.Text("damage.school", config.TitleWords(dt)))
+	}
+	line := shareList(pieces)
 	if aoeTiles > 0 {
-		line += uitext.Text("damage.splash_radius", aoeTiles)
+		line = append(line, CardRun{Text: uitext.Text("damage.splash_radius", aoeTiles)})
 	}
 	return line
+}
+
+// Damage shares as cards name them: each school's normal share once, as the
+// combat log names them, in that school's tint (physical damage is an
+// untinted "Normal"); true damage keeps the word True in the hit's school's
+// tint, where the log draws all true damage in its own color.
+
+// physicalSchool: "" is a weapon's default, physical damage.
+func physicalSchool(school string) bool {
+	return SameSchool(school, damagecalc.Physical.String())
+}
+
+// SameSchool reports whether two school names are one damage school, read as
+// a hit's packet reads them: case-blind, an empty or unknown name physical.
+func SameSchool(a, b string) bool {
+	ta, _ := damagecalc.ParseType(a)
+	tb, _ := damagecalc.ParseType(b)
+	return ta == tb
+}
+
+// SchoolRun is text in a damage school's tint; physical damage keeps the
+// row's own color.
+func SchoolRun(school, text string) CardRun {
+	if physicalSchool(school) {
+		return CardRun{Text: text}
+	}
+	return CardRun{Text: text, School: school}
+}
+
+// DamageShareName names a hit's non-true share: its school, or Normal.
+func DamageShareName(school string) string {
+	if physicalSchool(school) {
+		return uitext.Text("damage.normal_share")
+	}
+	return config.TitleWords(school)
+}
+
+// DamageShare is one school's normal damage in a hit.
+type DamageShare struct {
+	School string
+	Amount int
+}
+
+// MergeDamageShares is the shares a card names, one per school as in the
+// combat log: empty ones dropped, each school's summed, in first-seen order.
+func MergeDamageShares(shares ...DamageShare) []DamageShare {
+	var out []DamageShare
+	for _, share := range shares {
+		if share.Amount <= 0 {
+			continue
+		}
+		if physicalSchool(share.School) {
+			share.School = damagecalc.Physical.String()
+		}
+		merged := false
+		for i := range out {
+			if SameSchool(out[i].School, share.School) {
+				out[i].Amount += share.Amount
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			out = append(out, share)
+		}
+	}
+	return out
+}
+
+// SumDamageShares is the shares' damage together.
+func SumDamageShares(shares []DamageShare) int {
+	total := 0
+	for _, share := range shares {
+		total += share.Amount
+	}
+	return total
+}
+
+// shareRun is a share's number and name, which a wrapped line keeps together.
+func shareRun(school, text string) CardRun {
+	run := SchoolRun(school, text)
+	run.Whole = true
+	return run
+}
+
+// shareList joins pieces, each kept whole, with the share separator; a
+// wrapped list breaks only after a separator.
+func shareList(pieces []CardRun) CardText {
+	separator := uitext.Text("damage.share_separator")
+	glue := strings.TrimRight(separator, " ")
+	var list CardText
+	for _, piece := range pieces {
+		if len(list) > 0 {
+			list = append(list, CardRun{Text: glue, Whole: true})
+			if gap := separator[len(glue):]; gap != "" {
+				list = append(list, CardRun{Text: gap})
+			}
+		}
+		piece.Whole = true
+		list = append(list, piece)
+	}
+	return list
+}
+
+// DamageSplit is "Total Damage: 33 (13 + 11 Fire + 9 True)": each normal
+// share, then the true damage in trueSchool's tint. Beside an elemental share
+// the physical one is a bare number, as the combat log writes it; alone it is
+// "13 Normal".
+func DamageSplit(label string, shares []DamageShare, trueSchool string, trueDamage int) CardText {
+	elemental := slices.ContainsFunc(shares, func(share DamageShare) bool { return !physicalSchool(share.School) })
+	pieces := make([]CardRun, 0, len(shares)+1)
+	for _, share := range shares {
+		text := uitext.Text("damage.share", share.Amount, DamageShareName(share.School))
+		if elemental && physicalSchool(share.School) {
+			text = uitext.Text("damage.unnamed_share", share.Amount)
+		}
+		pieces = append(pieces, SchoolRun(share.School, text))
+	}
+	if trueDamage > 0 {
+		pieces = append(pieces, SchoolRun(trueSchool, uitext.Text("damage.true_share", trueDamage)))
+	}
+	total := trueDamage + SumDamageShares(shares)
+	return StyledText(uitext.Text("damage.total_split", label, total, uitext.Slot), shareList(pieces))
+}
+
+// DamageShareTotal is one normal share on its own: "Fire Damage: 14".
+func DamageShareTotal(school string, n int) CardText {
+	return CardText{SchoolRun(school, uitext.Text("damage.share_total", DamageShareName(school), n))}
+}
+
+// SchoolBuff is what the party's buffs on one school add to a hit: "Fire buff: +24".
+func SchoolBuff(school string, n int) CardText {
+	return CardText{SchoolRun(school, uitext.Text("damage.school_buff", config.TitleWords(school), n))}
+}
+
+// TrueBonus is one source's part of the true share: "+9 True".
+func TrueBonus(school string, n int) CardText {
+	return CardText{shareRun(school, uitext.Text("damage.true_bonus", n))}
+}
+
+// TrueBonusNamed is a true part that names its school: "+15 Fire True Damage".
+func TrueBonusNamed(school string, n int) CardText {
+	return CardText{shareRun(school, uitext.Text("damage.true_bonus_school", n, config.TitleWords(school)))}
 }
 
 // MeleeSwingArcLine describes a melee weapon's swing shape and reach. A swing
@@ -204,16 +385,28 @@ func CardSeconds(seconds float64) float64 {
 // non-physical damage up to a lower cap (diminishing returns), and it also meets
 // Resistance; ranged physical shots can pierce armor. Universal/educational
 // RULES -> DETAIL tier (full view only); the map editor renders full.
-func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTrueDmg bool) {
+// Each school among the hit's normal shares that carry damage gets its line,
+// damageType's when none do; the true damage line keeps damageType.
+func ArmorInteractionLines(sec *CardSection, damageType string, shares []DamageShare, isRanged, hasTrueDmg bool) {
+	shares = MergeDamageShares(shares...)
 	dt := strings.ToLower(strings.TrimSpace(damageType))
-	school, err := damagecalc.ParseType(dt)
-	if dt == "" || (err == nil && school == damagecalc.Physical) {
-		sec.AddDetail("%s", uitext.Text("armor.physical_reduction", config.ArmorPhysicalMitigationCap))
-		if isRanged {
-			sec.AddDetail("%s", ArmorPierceShotsLine())
+	schools := []string{dt}
+	if len(shares) > 0 {
+		schools = schools[:0]
+		for _, share := range shares {
+			schools = append(schools, strings.ToLower(share.School))
 		}
-	} else {
-		sec.AddDetail("%s", uitext.Text("armor.elemental_reduction", config.ArmorElementalMitigationCap, config.TitleWords(dt)))
+	}
+	for _, name := range schools {
+		school, err := damagecalc.ParseType(name)
+		if name == "" || (err == nil && school == damagecalc.Physical) {
+			sec.AddDetail("%s", uitext.Text("armor.physical_reduction", config.ArmorPhysicalMitigationCap))
+			if isRanged {
+				sec.AddDetail("%s", ArmorPierceShotsLine())
+			}
+			continue
+		}
+		sec.AddDetail("%s", uitext.Text("armor.elemental_reduction", config.ArmorElementalMitigationCap, config.TitleWords(name)))
 	}
 	if hasTrueDmg {
 		school := config.TitleWords(dt)
@@ -392,7 +585,7 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 	}
 
 	effects := CardSection{Title: "EFFECTS"}
-	dmg.Add("%s", DamageTypeAoELine(sd.DamageType(), sd.AoeRadiusTiles))
+	dmg.AddText(DamageTypeAoE(sd.DamageType(), sd.AoeRadiusTiles))
 	// Against the party a disintegrate roll eradicates the hero it hits; the
 	// monster-target immunities do not apply.
 	if sd.DisintegrateChance > 0 {

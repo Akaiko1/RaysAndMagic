@@ -37,7 +37,7 @@ func TestCombatLogPiecesColorWhoAndWhat(t *testing.T) {
 		"enemy's breath":    {logMonsterAs(foe, "Ocelot's Breath"), []coloredTextSegment{{"Ocelot's Breath", logEnemy}}},
 		"true damage":       {logTrueDamage(12), []coloredTextSegment{{"12", logTrue}}},
 		"no school is true": {logDamage(7, ""), []coloredTextSegment{{"7", logTrue}}},
-		"named school":      {logDamageSchool("air"), []coloredTextSegment{{"air", SchoolColor("air")}}},
+		"named school":      {logDamageSchool("air"), []coloredTextSegment{{"air", SchoolTextColor("air")}}},
 		"no school named":   {logDamageSchool(""), []coloredTextSegment{{"true", logTrue}}},
 		"heal":              {logHealed(35), []coloredTextSegment{{"35", keywordColors["heal"]}}},
 		"spell points":      {logRecoveredSP(9), []coloredTextSegment{{"9", keywordColors["buff"]}}},
@@ -48,11 +48,11 @@ func TestCombatLogPiecesColorWhoAndWhat(t *testing.T) {
 		"HP at half":        {logHP(50, 100), hpReadout("50", logLowHP, "/100)")},
 		"HP at a quarter":   {logHP(25, 100), hpReadout("25", logDyingHP, "/100)")},
 		"HP gone":           {logHP(0, 100), hpReadout("0", logDyingHP, "/100)")},
-		"joined pieces":     {logParts(logHeroText("Mara's "), logSchoolWord("fire", "Fireball")), []coloredTextSegment{{"Mara's ", logHero}, {"Fireball", SchoolColor("fire")}}},
+		"joined pieces":     {logParts(logHeroText("Mara's "), logSchoolWord("fire", "Fireball")), []coloredTextSegment{{"Mara's ", logHero}, {"Fireball", SchoolTextColor("fire")}}},
 		"control keyword":   {logKeyword("control", "stunned"), []coloredTextSegment{{"stunned", keywordColors["control"]}}},
 		"ability":           {logAbility("Piercing Shot"), []coloredTextSegment{{"Piercing Shot", keywordColors["auto"]}}},
 		"poison":            {logColored("poisoned", logPoison), []coloredTextSegment{{"poisoned", logPoison}}},
-		"school word":       {logSchoolWord("water", "Ice Bolt"), []coloredTextSegment{{"Ice Bolt", SchoolColor("water")}}},
+		"school word":       {logSchoolWord("water", "Ice Bolt"), []coloredTextSegment{{"Ice Bolt", SchoolTextColor("water")}}},
 		"physical is white": {logDamage(53, "physical"), []coloredTextSegment{{"53", logPhysical}}},
 		"physical word":     {logSchoolWord("physical", "Blowgun"), []coloredTextSegment{{"Blowgun", logPhysical}}},
 		"nil hero is blank": {logHeroName(nil), []coloredTextSegment{{"", logHero}}},
@@ -142,8 +142,8 @@ func TestLogSegmentsFormatLikeSprintf(t *testing.T) {
 // a line, and every character keeps the color of the piece it came from.
 func TestStyledLinesWrapLikePlainText(t *testing.T) {
 	lines := [][]coloredTextSegment{
-		{{"Gareth", logHero}, {" hits ", logPlain}, {"Ancient God of Death", logEnemy}, {" for ", logPlain}, {"1234", SchoolColor("dark")}, {" damage and kills it! ", logPlain}, {"+5559 XP", combatMessageGold}},
-		{{"Critical! ", combatMessageGold}, {"Silvelyn's Arbalest", SchoolColor("physical")}, {" hit ", logPlain}, {"Elder Dragon", logEnemy}, {" for 88 physical damage! (HP: 1/3600)", logPlain}},
+		{{"Gareth", logHero}, {" hits ", logPlain}, {"Ancient God of Death", logEnemy}, {" for ", logPlain}, {"1234", SchoolTextColor("dark")}, {" damage and kills it! ", logPlain}, {"+5559 XP", combatMessageGold}},
+		{{"Critical! ", combatMessageGold}, {"Silvelyn's Arbalest", SchoolTextColor("physical")}, {" hit ", logPlain}, {"Elder Dragon", logEnemy}, {" for 88 physical damage! (HP: 1/3600)", logPlain}},
 		{{"Supercalifragilisticexpialidociousandthensomemoretext", logEnemy}, {" falls  down   hard", logPlain}},
 		{{"short", logHero}},
 		{{"", logHero}, {"   leading spaces", logPlain}},
@@ -329,7 +329,7 @@ func TestDamageLinesNameOnlySpecialDamage(t *testing.T) {
 		{"physical", damageLog{Amount: 52, School: "physical"}, " 52"},
 		{"one element", damageLog{Amount: 12, School: "light"}, " 12 light"},
 		{"true", damageLog{Amount: 3}, " 3 true"},
-		{"several", damageLog{Shares: []damageShare{{"physical", 40}, {"fire", 16}, {"", 3}}}, " 40 + 16 fire + 3 true"},
+		{"several", damageLog{Shares: []damageShare{{School: "physical", Amount: 40}, {School: "fire", Amount: 16}, {Amount: 3}}}, " 40 + 16 fire + 3 true"},
 	}
 	for _, kind := range kinds {
 		for _, shape := range shapes {
@@ -382,12 +382,12 @@ func TestDamageReportsCaptureResolvedHits(t *testing.T) {
 		text, amount string
 		tint         color.Color
 	}{
-		{"Flame hits Dummy for 50 fire damage! (HP: 950/1000)", "50", SchoolColor("fire")},
-		{"Dummy takes 20 fire damage from Fire Trap! (HP: 930/1000)", "20", SchoolColor("fire")},
+		{"Flame hits Dummy for 50 fire damage! (HP: 950/1000)", "50", SchoolTextColor("fire")},
+		{"Dummy takes 20 fire damage from Fire Trap! (HP: 930/1000)", "20", SchoolTextColor("fire")},
 		{"Heat hits " + hero.Name + " for 30 damage! (HP: 970/1000)", "30", logPhysical},
-		{"Dummy dodges, but " + hero.Name + " lands 5 fire damage! (HP: 925/1000)", "5", SchoolColor("fire")},
+		{"Dummy dodges, but " + hero.Name + " lands 5 fire damage! (HP: 925/1000)", "5", SchoolTextColor("fire")},
 		{"Dummy dodges, but " + hero.Name + " lands 3 true damage! (HP: 922/1000)", "3", logTrue}, // true damage meets resistance
-		{"Dummy dodges, but Ghoul lands 5 fire damage! (HP: 917/1000)", "5", SchoolColor("fire")},
+		{"Dummy dodges, but Ghoul lands 5 fire damage! (HP: 917/1000)", "5", SchoolTextColor("fire")},
 	}
 	if len(hits) != len(want) {
 		t.Fatalf("%d hit reports, want %d: %+v", len(hits), len(want), hits)

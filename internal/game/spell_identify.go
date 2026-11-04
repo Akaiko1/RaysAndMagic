@@ -174,5 +174,5 @@ func (ui *UISystem) drawAllySpellTargeting(screen *ebiten.Image) {
 	box := layoutRect{16, gameplayViewportBottom(g) - 44, w - 32, 32}
 	drawFilledRect(screen, box.x, box.y, box.w, box.h, beaconInk.panel)
 	drawRectBorder(screen, box.x, box.y, box.w, box.h, 1, beaconInk.border)
-	drawCenteredTextWithShadow(screen, uitext.Text("advanced.ally_target", d.Name), box.x+8, box.y, box.w-16, box.h, SchoolColor(d.School))
+	drawCenteredTextWithShadow(screen, uitext.Text("advanced.ally_target", d.Name), box.x+8, box.y, box.w-16, box.h, SchoolTextColor(d.School))
 }

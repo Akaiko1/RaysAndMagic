@@ -44,7 +44,7 @@ func (cs *CombatSystem) scheduleToll(m *monsterPkg.Monster3D, landed partyMonste
 	echo := landed
 	echo.Packet = scaleMonsterPacket(landed.Packet, def.TollEchoPct)
 	echo.CriticalPacket, echo.DesignationBonuses = monsterDamagePacket{}, nil
-	echo.VampiricPct, echo.PrimaryHit = 0, false
+	echo.VampiricPct, echo.PrimaryHit, echo.HeroBlow = 0, false, false
 	toll := pendingToll{Target: m, Attack: echo, School: weaponDamageTypeStr(def)}
 	toll.Clock.Arm(config.CombatRoundSeconds, cs.game.config.GetTPS())
 	cs.game.pendingTolls = append(cs.game.pendingTolls, toll)

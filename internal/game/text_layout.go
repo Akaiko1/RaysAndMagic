@@ -5,8 +5,6 @@ import (
 	"unicode/utf8"
 )
 
-// truncateRunes limits text by displayed characters without splitting UTF-8.
-// suffix is included in maxRunes and is omitted when the limit is too small.
 // wrapUIText wraps text to lines no wider than maxWidth pixels in the active
 // UI font and splits a token wider than a line, so every returned line fits
 // even for URLs, content keys and CJK text.
@@ -25,38 +23,66 @@ func wrapUIText(text string, maxWidth int) []string {
 	if uiTextWidth(text) <= maxWidth {
 		return []string{text}
 	}
-	words := strings.Fields(text)
+	return wrapWords(strings.Fields(text), maxWidth)
+}
+
+// firstUIWordsLine cuts the first line off words, joined by single spaces, and
+// returns the words left for the next. A word may hold spaces of its own; it
+// is cut only when it is wider than a line, and its tail starts the rest.
+func firstUIWordsLine(words []string, maxWidth int) (string, []string) {
+	if joined := strings.Join(words, " "); uiTextWidth(joined) <= maxWidth {
+		return joined, nil
+	}
+	return cutUILine(words, maxWidth)
+}
+
+// wrapWords is the greedy cut behind wrapUIText, once the whole text is known
+// not to fit: one cutUILine per line.
+func wrapWords(words []string, maxWidth int) []string {
 	if len(words) == 0 {
 		return []string{""}
 	}
-	space := uiTextWidth(" ")
 	var lines []string
-	current, currentW := "", 0
-	for _, word := range words {
-		w := uiTextWidth(word)
-		if current != "" && currentW+space+w <= maxWidth {
-			current, currentW = current+" "+word, currentW+space+w
-			continue
+	for len(words) > 0 {
+		var line string
+		line, words = cutUILine(words, maxWidth)
+		if line != "" {
+			lines = append(lines, line)
 		}
-		if current != "" {
-			lines = append(lines, current)
-		}
-		for w > maxWidth {
-			head := uiTextPrefix(word, maxWidth)
-			if head == "" { // a glyph wider than the line still gets a line
-				_, size := utf8.DecodeRuneInString(word)
-				head = word[:size]
-			}
-			lines = append(lines, head)
-			word = word[len(head):]
-			w = uiTextWidth(word)
-		}
-		current, currentW = word, w
-	}
-	if current != "" {
-		lines = append(lines, current)
 	}
 	return lines
+}
+
+// cutUILine takes words while they fit a line, joined by single spaces; a
+// first word wider than the line gives up its widest head instead, and its
+// tail, without the spaces at the cut, leads the words left.
+func cutUILine(words []string, maxWidth int) (string, []string) {
+	space := uiTextWidth(" ")
+	line, lineW := "", 0
+	for i, word := range words {
+		w := uiTextWidth(word)
+		if line != "" {
+			if lineW+space+w > maxWidth {
+				return line, words[i:]
+			}
+			line, lineW = line+" "+word, lineW+space+w
+			continue
+		}
+		if w <= maxWidth {
+			line, lineW = word, w
+			continue
+		}
+		head := uiTextPrefix(word, maxWidth)
+		if head == "" { // a glyph wider than the line still gets a line
+			_, size := utf8.DecodeRuneInString(word)
+			head = word[:size]
+		}
+		if tail := strings.TrimLeft(word[len(head):], " "); tail != "" {
+			return head, append([]string{tail}, words[i+1:]...)
+		}
+		return head, words[i+1:]
+	}
+	return line, nil
 }
 
 func truncateWrappedLines(lines []string, maxLines, maxWidth int) []string {

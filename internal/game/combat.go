@@ -910,6 +910,7 @@ func (cs *CombatSystem) createArrowAttackAimed(damage int, slot items.EquipSlot,
 			ElementalAbilityDamage: elementalAbilityDamage(disintegrateDef, attacker),
 			ID:                     cs.game.GenerateProjectileID("arrow"),
 			Attacker:               cs.activeAttacker(),
+			HeroBlow:               !bonusBolt,
 			X:                      cs.game.camera.X - dirX*back,
 			Y:                      cs.game.camera.Y - dirY*back,
 			VelX:                   dirX * arrowSpeed,
@@ -1460,10 +1461,8 @@ func (cs *CombatSystem) applyDamageThroughDodge(monster *monsterPkg.Monster3D, a
 	if len(through.Components) == 0 {
 		return false
 	}
-	beforeHP := monster.HitPoints
-	dealt := cs.applyMonsterDamagePacket(monster, through, cs.partyMonsterDamageOptions(attack, monster))
+	dealt := cs.landPartyPacket(monster, attack, through)
 	actual := dealt.Total()
-	settleVampiricHit(attacker, attack.VampiricPct, beforeHP-monster.HitPoints)
 	if actual > 0 {
 		cs.game.playMonsterSound(soundMonsterHit, monster)
 	}
@@ -1514,7 +1513,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		isCrit,
 		critChance,
 	)
-	attack.Attacker = attacker
+	attack.byHero(attacker)
 	auraDamage, auraSchool := personalSpellDamage(attacker, config.MechanicFireAura)
 	attack.addPersonalSpellPayload(auraDamage, auraSchool, personalSpellPower(attacker, config.MechanicVampiricWeapon))
 	attack.GrazesDodge = grazesDodge

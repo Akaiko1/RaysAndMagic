@@ -20,18 +20,18 @@ func (a *partyMonsterAttack) addPersonalSpellPayload(percent int, school monster
 		return
 	}
 	// Scale each immutable weapon packet before mitigation, including its critical
-	// form. The added element is normal damage and uses its own resistance.
-	bonus := func(components []monsterDamageComponent) monsterDamageComponent {
-		total := 0
-		for _, c := range components {
-			total += c.Parts.Total()
-		}
-		return monsterDamageComponent{Parts: damagecalc.Parts{Normal: personalSpellDamageBonus(total, percent)}, School: school}
-	}
-	a.Packet.Components = append(a.Packet.Components, bonus(a.Packet.Components))
+	// form.
+	a.Packet.Components = append(a.Packet.Components, personalSpellComponent(a.Packet, percent, school))
 	if len(a.CriticalPacket.Components) > 0 {
-		a.CriticalPacket.Components = append(a.CriticalPacket.Components, bonus(a.CriticalPacket.Components))
+		a.CriticalPacket.Components = append(a.CriticalPacket.Components, personalSpellComponent(a.CriticalPacket, percent, school))
 	}
+}
+
+// personalSpellComponent is the element a personal spell adds to a weapon
+// packet: percent of the whole hit, true damage included, as normal damage
+// that meets its own resistance.
+func personalSpellComponent(packet monsterDamagePacket, percent int, school monsterPkg.DamageType) monsterDamageComponent {
+	return monsterDamageComponent{Parts: damagecalc.Parts{Normal: personalSpellDamageBonus(packet.total(), percent)}, School: school}
 }
 
 func personalSpellDamageBonus(weaponDamage, percent int) int {
