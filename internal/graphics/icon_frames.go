@@ -32,10 +32,10 @@ func (sm *SpriteManager) indexHUDIcons() {
 	}
 }
 
-func (sm *SpriteManager) prepareSpritePixels(name string, src image.Image) image.Image {
-	// Full illustrations have painted backgrounds, not a sprite chroma key.
-	// Preserve intentional magenta and purple in every loading/metadata path.
-	if strings.HasPrefix(name, "full_art_") {
+func (sm *SpriteManager) prepareSpritePixels(name, spritePath string, src image.Image) image.Image {
+	// Illustrations have painted backgrounds, not a sprite chroma key. Preserve
+	// intentional magenta and purple in every loading/metadata path.
+	if sm.isIllustrationPath(spritePath) {
 		return src
 	}
 	if base, hud := strings.CutPrefix(name, hudIconPrefix); hud {

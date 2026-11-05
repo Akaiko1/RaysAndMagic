@@ -12,11 +12,12 @@ import (
 	"reflect"
 	"runtime"
 	"sort"
-	"strings"
 	"sync"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
+
+	"ugataima/internal/config"
 )
 
 func TestPrepareResourcesDecodesOffLoopAndCommitsOnLoop(t *testing.T) {
@@ -578,16 +579,21 @@ func TestApplyColorKey(t *testing.T) {
 }
 
 // Every indexed game sprite keeps its non-magenta art bit-exact under the
-// load-time key, and no visible magenta hue survives. Full illustrations are
-// not keyed at load, so they are out of scope.
+// load-time key, and no visible magenta hue survives. Configured illustrations
+// are not keyed at load, so they are out of scope.
 func TestApplyColorKey_GameSpriteColorSafety(t *testing.T) {
 	t.Chdir("../..")
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
 	sm := NewSpriteManager()
 	sm.SetColorKey(true, 255, 0, 255, 60, true)
+	sm.SetIllustrations(cfg.Graphics.ColorKey.Illustrations)
 	sm.ensureIndex()
 	names := make([]string, 0, len(sm.spritePaths))
 	for name := range sm.spritePaths {
-		if !strings.HasPrefix(name, "full_art_") {
+		if !sm.IsIllustration(name) {
 			names = append(names, name)
 		}
 	}

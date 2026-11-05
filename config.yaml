@@ -737,21 +737,33 @@ graphics:
 
   # Load-time color key: make stray magenta (left by imperfect sprite background
   # removal) transparent when sprites load. A pixel is keyed when each RGB channel
-  # is within `tolerance` of `color`. color [0,0,0]/absent defaults to magenta.
+  # is within `tolerance` of `color` (art families below: background only).
+  # color [0,0,0]/absent defaults to magenta.
   color_key:
     enabled: true
     color: [255, 0, 255]   # magenta
     tolerance: 60          # per-channel slack for the fully-transparent core
     despill: true          # fringe (semitone) pixels: strip the magenta cast, keep the base tone opaque (don't erase)
+    # Painted illustrations (opaque canvases, no chroma background) that neither
+    # key nor despill touches: globs over the path under assets/sprites without
+    # ".png", so a look-alike name in another folder stays keyed.
+    illustrations:
+      - interface/cards/full_art_*
+      - interface/camping/camp_*
+      - interface/story/story_*
+      - characters/heroes/*_full
     # Preserve original colours, including edges, for these sprite families.
-    # Key-colour transparency still applies.
+    # The key erases only background joined to the outside.
     despill_exclusions: [alien_enforcer]
     # Despill is intentionally aggressive (strips ANY magenta hue), which greys
     # out sprites whose purple/magenta is real art. List those here (basenames;
     # naming any directional animation also covers its base and sibling sheets)
-    # to despill ONLY their edge fringe
-    # within edge_despill_radius px, preserving the interior. Curated from the
-    # despill audit - extend as new purple art is added.
+    # to clean ONLY their rim: the key erases just the background joined to the
+    # outside, despill runs within edge_despill_radius px of it, and the interior
+    # (key-close highlights included) stays as drawn. Curated from the despill
+    # audit - extend as new purple art is added. Before adding a name, check the
+    # sprite has no key-colour residue enclosed by its art (coral_reef does): the
+    # key no longer erases it there, so it would stay magenta.
     edge_despill_radius: 3
     edge_only_despill:
       - projectile_harm_flask
@@ -767,18 +779,12 @@ graphics:
       - frost_elemental
       # Sorcerer hero art (purple robes)
       - lysander
-      - lysander_full
       - lysander_archmage
-      - lysander_archmage_full
       - lysander_lich
-      - lysander_lich_full
       # Dark-elf sorcerer hero art (violet skin)
       - vaelith
-      - vaelith_full
       - vaelith_archmage
-      - vaelith_archmage_full
       - vaelith_lich
-      - vaelith_lich_full
       # Environment
       - bonsai_tree
       # Spellbook school tabs (mind/spirit are purple)
@@ -808,6 +814,40 @@ graphics:
       - icon_weapon_book_of_darkness
       - icon_weapon_battle_staff
       - icon_weapon_archmage_staff
+      # Purple robes, auras and blossoms (2026-11-05 despill audit)
+      - vengeful_ningyo
+      - ningyo
+      - masked_hexer_girl
+      - alchemy_grave_orchid
+      - sakura_tree_weeping
+      - sakura_tree_large
+      - dragon_cliffs_heather
+      - coral_reef_variant_a
+      - coral_reef_variant_b
+      - large_coral_variant_a
+      - large_coral_variant_b
+      - lich_nexus_entrance
+      - wall_sigil
+      # HUD, status and spell icons (dark / mind)
+      - hud_domain_dark
+      - hud_domain_mind
+      - status_wizard_eye
+      - icon_spell_mind_blast
+      - icon_spell_mass_fear
+      - icon_spell_berserk
+      - icon_spell_identify_monster
+      - icon_spell_dispel_magic
+      - icon_spell_feeblemind
+      - icon_spell_prismatic_light
+      # Item / weapon / achievement icons
+      - icon_item_harm_flask
+      - icon_item_brewed_gloom_ward_draught
+      - icon_item_fairy_dust
+      - icon_item_grave_orchid
+      - icon_item_spider_card
+      - icon_item_forest_spider_card
+      - icon_achievement_lich
+      - icon_weapon_agility_katar
 
 day_night:
   half_cycle_seconds: 420

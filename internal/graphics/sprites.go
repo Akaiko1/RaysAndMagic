@@ -7,8 +7,10 @@ import (
 	"image/draw"
 	_ "image/png"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,18 +52,22 @@ type SpriteManager struct {
 
 	// Load-time color key (configured via SetColorKey): pixels within keyTol of the
 	// key color become transparent; with keyDespill, tinted fringe pixels have the
-	// cast subtracted instead (kept opaque).
+	// cast subtracted instead (kept opaque). Art families (keyEdgeOnly,
+	// keyDespillExcluded) lose only background; illustrations are never keyed.
 	keyEnabled bool
 	keyR       uint8
 	keyG       uint8
 	keyB       uint8
 	keyTol     int
 	keyDespill bool
-	// Sprites whose interior magenta is real art: despill only their edge fringe
-	// (within keyEdgeRadius px of a transparent pixel), not the whole body.
+	// Sprites whose interior magenta is real art: key only background joined to
+	// the outside and despill only within keyEdgeRadius px of it, never the body.
 	keyEdgeOnly        map[string]bool
 	keyEdgeRadius      int
 	keyDespillExcluded map[string]bool
+	// illustrations are name globs of painted canvases: no chroma background,
+	// so neither key nor despill touches them.
+	illustrations []string
 	// lazyResourceObserver assigns synchronous fallback loads to the renderer's
 	// current region. It also receives the created root images with their
 	// decoded CPU pixels so same-frame derived builders (standee cores, mips)
@@ -193,13 +199,58 @@ func (sm *SpriteManager) SetDespillEdgeOnly(names []string, radius int) {
 }
 
 // SetDespillExclusions preserves all non-key colours, including the edges, of
-// each named animation family. Exclusion takes precedence over edge-only cleanup.
-// Configure before loading resources.
+// each named animation family; the key erases only their background. Exclusion
+// takes precedence over edge-only cleanup. Configure before loading resources.
 func (sm *SpriteManager) SetDespillExclusions(names []string) {
 	sm.keyDespillExcluded = make(map[string]bool, len(names))
 	for _, name := range names {
 		sm.keyDespillExcluded[spriteDespillFamily(name)] = true
 	}
+}
+
+// SetIllustrations names painted illustrations by path.Match globs over the
+// sprite's path under assets/sprites without ".png"
+// ("interface/cards/full_art_*"), so a look-alike name in another folder stays
+// keyed. Illustrations load with every authored colour. Configure before
+// loading resources.
+func (sm *SpriteManager) SetIllustrations(patterns []string) {
+	sm.illustrations = slices.Clone(patterns)
+}
+
+// IsIllustration reports whether the named sprite is a painted illustration
+// (never keyed).
+func (sm *SpriteManager) IsIllustration(name string) bool {
+	sm.ensureIndex()
+	return sm.isIllustrationPath(sm.spritePaths[name])
+}
+
+func (sm *SpriteManager) isIllustrationPath(spritePath string) bool {
+	return slices.ContainsFunc(sm.illustrations, func(pattern string) bool {
+		return spritePathMatches(pattern, spritePath)
+	})
+}
+
+// MatchesAnySprite reports whether some indexed sprite's path, in the form
+// SetIllustrations takes, matches the glob.
+func (sm *SpriteManager) MatchesAnySprite(pattern string) bool {
+	sm.ensureIndex()
+	for _, spritePath := range sm.spritePaths {
+		if spritePathMatches(pattern, spritePath) {
+			return true
+		}
+	}
+	return false
+}
+
+// spritePathMatches matches a glob against a sprite file's path after
+// assets/sprites/, without ".png".
+func spritePathMatches(pattern, spritePath string) bool {
+	_, rel, ok := strings.Cut(filepath.ToSlash(spritePath), spritecatalog.Root+"/")
+	if !ok || rel == "" {
+		return false
+	}
+	match, _ := path.Match(pattern, strings.TrimSuffix(rel, ".png"))
+	return match
 }
 
 // Directional motion suffixes belong to one source identity. Strip only the
@@ -230,13 +281,16 @@ func (sm *SpriteManager) SetColorKey(enabled bool, r, g, b, tolerance int, despi
 }
 
 // applyColorKey returns a copy of src with the key color removed: pixels within
-// keyTol of the key go transparent; with keyDespill, every remaining magenta-hue
-// pixel (R and B above G) has that excess subtracted and stays opaque. Despill
-// assumes a magenta-style key (high R,B / low G). No-op when the key is off.
+// keyTol of the key go transparent (art families: background only, below); with
+// keyDespill, every remaining magenta-hue pixel (R and B above G) has that excess
+// subtracted and stays opaque. Despill assumes a magenta-style key (high R,B /
+// low G). No-op when the key is off.
 //
-// For names in keyEdgeOnly (intentional magenta art), despill is restricted to
-// the fringe band within keyEdgeRadius px of a transparent edge, leaving the
-// interior purple/magenta untouched. keyDespillExcluded bypasses despill entirely.
+// Art families (keyEdgeOnly, keyDespillExcluded) declare their magenta real, so
+// the key erases background alone: key pixels 8-connected to the image border or
+// a transparent pixel. Edge-only families despill within keyEdgeRadius px of that
+// outside, so the interior, key-close highlights included, stays as drawn;
+// excluded families are not despilled at all.
 func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image {
 	if !sm.keyEnabled || src == nil {
 		return src
@@ -263,24 +317,66 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 	}
 
 	family := spriteDespillFamily(name)
-	despill := sm.keyDespill && !sm.keyDespillExcluded[family]
-	edgeOnly := despill && sm.keyEdgeOnly[family]
-	// Transparency mask, needed only when despill is limited to the fringe band.
+	excluded := sm.keyDespillExcluded[family]
+	art := excluded || sm.keyEdgeOnly[family]
+	despill := sm.keyDespill && !excluded
+	// Pass 1: erase the key core. An art sprite's outside (trans) is its
+	// transparency plus the key flooded in from it and from the image border.
 	var trans []bool
-	if edgeOnly {
+	if art {
 		trans = make([]bool, w*h)
-	}
-
-	// Pass 1: erase the key core (and record transparency for edge-only despill).
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			p := dst.NRGBAAt(b.Min.X+x, b.Min.Y+y)
-			keyed := p.A != 0 && isKey(p)
-			if edgeOnly {
-				trans[y*w+x] = p.A == 0 || keyed
+		for y := 0; y < h; y++ {
+			row := dst.Pix[y*dst.Stride:]
+			for x := 0; x < w; x++ {
+				trans[y*w+x] = row[x*4+3] == 0
 			}
-			if keyed {
-				dst.SetNRGBA(b.Min.X+x, b.Min.Y+y, color.NRGBA{})
+		}
+		var queue []int
+		// erase clears a key pixel joined to the outside and queues it.
+		erase := func(x, y int) {
+			if trans[y*w+x] || !isKey(dst.NRGBAAt(b.Min.X+x, b.Min.Y+y)) {
+				return
+			}
+			trans[y*w+x] = true
+			dst.SetNRGBA(b.Min.X+x, b.Min.Y+y, color.NRGBA{})
+			queue = append(queue, y*w+x)
+		}
+		joined := func(x, y int) bool {
+			if x == 0 || y == 0 || x == w-1 || y == h-1 {
+				return true
+			}
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if trans[(y+dy)*w+x+dx] {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				if !trans[y*w+x] && joined(x, y) {
+					erase(x, y)
+				}
+			}
+		}
+		for len(queue) > 0 {
+			i := queue[len(queue)-1]
+			queue = queue[:len(queue)-1]
+			x, y := i%w, i/w
+			for ny := max(y-1, 0); ny <= min(y+1, h-1); ny++ {
+				for nx := max(x-1, 0); nx <= min(x+1, w-1); nx++ {
+					erase(nx, ny)
+				}
+			}
+		}
+	} else {
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				if p := dst.NRGBAAt(b.Min.X+x, b.Min.Y+y); p.A != 0 && isKey(p) {
+					dst.SetNRGBA(b.Min.X+x, b.Min.Y+y, color.NRGBA{})
+				}
 			}
 		}
 	}
@@ -307,8 +403,8 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 		return false
 	}
 
-	// Pass 2: despill kept pixels. Edge-only sprites despill the fringe band only,
-	// so their intentional interior magenta survives.
+	// Pass 2: despill kept pixels. Art (here edge-only) sprites despill the fringe
+	// band only, so their intentional interior magenta survives.
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			px, py := b.Min.X+x, b.Min.Y+y
@@ -320,7 +416,7 @@ func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image
 			if excess <= despillHueFloor {
 				continue
 			}
-			if edgeOnly && !nearEdge(x, y) {
+			if art && !nearEdge(x, y) {
 				continue
 			}
 			p.R = uint8(int(p.R) - excess)
@@ -512,7 +608,7 @@ func (sm *SpriteManager) decodePreparedResourceAtPath(request SpriteResourceRequ
 	if request.AnimationType != "" {
 		indexedName += "_" + request.AnimationType
 	}
-	prepared.Image = sm.prepareSpritePixels(indexedName, img)
+	prepared.Image = sm.prepareSpritePixels(indexedName, spritePath, img)
 	prepared.Found = prepared.Image != nil
 	if prepared.Found {
 		prepared.CPU = rgbaFromImage(prepared.Image)
@@ -979,7 +1075,7 @@ func (sm *SpriteManager) loadSpriteVisibleFrameBounds(name string) spriteVisible
 	if err != nil {
 		return spriteVisibleFrameBounds{}
 	}
-	return spriteVisibleFrameBoundsFromImage(sm.prepareSpritePixels(name, img))
+	return spriteVisibleFrameBoundsFromImage(sm.prepareSpritePixels(name, spritePath, img))
 }
 
 func spriteVisibleFrameBoundsFromImage(img image.Image) spriteVisibleFrameBounds {
@@ -1030,7 +1126,7 @@ func (sm *SpriteManager) loadSpriteAlphaMask(name string) *spriteAlphaMask {
 	if err != nil {
 		return nil
 	}
-	img = sm.prepareSpritePixels(name, img)
+	img = sm.prepareSpritePixels(name, spritePath, img)
 	return spriteAlphaMaskFromImage(img)
 }
 

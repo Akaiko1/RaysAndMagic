@@ -1244,15 +1244,21 @@ type ColorKeyConfig struct {
 	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
 	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
 	// DespillExclusions disables despill for entire sprite animation families,
-	// including edges. Key-colour transparency is independent and still applies.
+	// including edges; the key erases only background joined to the outside.
 	DespillExclusions []string `yaml:"despill_exclusions,omitempty"`
 	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
 	// "<name>_<animType>") whose interior magenta is intentional art. Naming a
 	// directional sheet or its base covers the entire animation family. For these,
-	// despill runs ONLY within EdgeDespillRadius px of a transparent edge - the
-	// key-bleed halo is cleaned while the body's purple/magenta is preserved.
+	// the key erases only background joined to the outside (the image border or
+	// a transparent pixel) and despill runs ONLY within EdgeDespillRadius px of
+	// it - the key-bleed halo is cleaned while the body's purple/magenta,
+	// key-close highlights included, is preserved.
 	EdgeOnlyDespill   []string `yaml:"edge_only_despill,omitempty"`
 	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 -> default
+	// Illustrations are path.Match globs over a sprite's path under
+	// assets/sprites without ".png" ("interface/cards/full_art_*"): painted
+	// canvases with no chroma background that neither key nor despill touches.
+	Illustrations []string `yaml:"illustrations,omitempty"`
 }
 
 // ImpassableAuraConfig tunes the aurora curtains along authored impassable

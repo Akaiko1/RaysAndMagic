@@ -21,13 +21,23 @@ import (
 
 // Case table: edge-only/excluded x base/sheet x static/every directional action x
 // synchronous/background decoding. Similar prefixes and non-animation names
-// remain independent. Save/load is N/A: this is a load-time asset policy.
+// remain independent. An art family (edge-only or excluded) keeps key-close art
+// inside the body (a glowing gem) with its surroundings, while key joined to the
+// image border, or diagonally to a hole, is background for every sprite.
+// Save/load is N/A: this is a load-time asset policy.
 func TestDespillFamilyResourceLoading(t *testing.T) {
 	purple := color.NRGBA{120, 40, 160, 255}
 	gray := color.NRGBA{40, 40, 80, 255}
+	gem := color.NRGBA{200, 50, 245, 255} // within the key tolerance
 	src := image.NewNRGBA(image.Rect(0, 0, 64, 16))
 	draw.Draw(src, src.Bounds(), image.NewUniform(purple), image.Point{}, draw.Src)
 	src.SetNRGBA(0, 0, color.NRGBA{255, 0, 255, 255})
+	src.SetNRGBA(40, 8, gem)
+	for x := 54; x < 64; x++ { // a key run from the border deep into the art
+		src.SetNRGBA(x, 4, color.NRGBA{255, 0, 255, 255})
+	}
+	src.SetNRGBA(20, 8, color.NRGBA{}) // a hole; key residue touches it diagonally
+	src.SetNRGBA(21, 9, color.NRGBA{250, 50, 230, 255})
 	path := filepath.Join(t.TempDir(), "sheet.png")
 	f, err := os.Create(path)
 	if err != nil {
@@ -83,6 +93,22 @@ func TestDespillFamilyResourceLoading(t *testing.T) {
 						if got := color.NRGBAModel.Convert(prepared.Image.At(8, 8)); got != want {
 							t.Fatalf("interior: got %v want %v", got, want)
 						}
+						if got := color.NRGBAModel.Convert(prepared.Image.At(41, 8)); got != want {
+							t.Fatalf("beside the gem: got %v want %v", got, want)
+						}
+						gemAlpha := uint32(0)
+						if request.Name == "lich" {
+							gemAlpha = 0xffff
+						}
+						if _, _, _, alpha := prepared.Image.At(40, 8).RGBA(); alpha != gemAlpha {
+							t.Fatalf("key-close art inside the body: alpha %#x want %#x", alpha, gemAlpha)
+						}
+						if _, _, _, alpha := prepared.Image.At(54, 4).RGBA(); alpha != 0 {
+							t.Fatal("key joined to the border survived")
+						}
+						if _, _, _, alpha := prepared.Image.At(21, 9).RGBA(); alpha != 0 {
+							t.Fatal("key joined diagonally to a hole survived")
+						}
 						fringe := gray
 						if excluded && request.Name == "lich" {
 							fringe = purple
@@ -102,8 +128,9 @@ func TestDespillFamilyResourceLoading(t *testing.T) {
 
 // The authored case table comes from YAML and the real sprite index, rather
 // than repeating the loader's animation classifier. Every listed asset is
-// checked, including every authored motion of a listed monster. Interior color
-// is compared to key-only processing; async loading must match immediate load.
+// checked, including every authored motion of a listed monster. A listed sprite
+// loses exactly its outside and keeps its interior as authored (an excluded one
+// every kept pixel); async loading must match immediate load.
 func TestDespillConfiguredAssetCatalog(t *testing.T) {
 	t.Chdir("../..")
 	cfg, err := config.LoadConfig("config.yaml")
@@ -131,10 +158,9 @@ func TestDespillConfiguredAssetCatalog(t *testing.T) {
 	sm.ensureIndex()
 	ck := cfg.Graphics.ColorKey
 	sm.SetColorKey(ck.Enabled, ck.Color[0], ck.Color[1], ck.Color[2], ck.Tolerance, ck.Despill)
+	sm.SetIllustrations(ck.Illustrations)
 	sm.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
 	sm.SetDespillExclusions(ck.DespillExclusions)
-	keyOnly := NewSpriteManager()
-	keyOnly.SetColorKey(ck.Enabled, ck.Color[0], ck.Color[1], ck.Color[2], ck.Tolerance, false)
 	requests := map[string]SpriteResourceRequest{}
 	families := map[string]int{}
 	entries := slices.Concat(ck.EdgeOnlyDespill, ck.DespillExclusions)
@@ -174,33 +200,39 @@ func TestDespillConfiguredAssetCatalog(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			src := loadPNGForColorKeyTest(t, sm.spritePaths[name])
-			before := keyOnly.prepareSpritePixels(name, src)
 			prepared := sm.decodePreparedResource(request)
 			if !prepared.Found {
 				t.Fatal("authored resource did not load")
 			}
-			// Same family rule as runtime: an exclusion named by any sheet covers
-			// the base sprite and its sibling sheets.
-			if sm.keyDespillExcluded[spriteDespillFamily(request.Name)] {
-				for y := before.Bounds().Min.Y; y < before.Bounds().Max.Y; y++ {
-					for x := before.Bounds().Min.X; x < before.Bounds().Max.X; x++ {
-						if prepared.CPU.RGBAAt(x, y) != color.RGBAModel.Convert(before.At(x, y)) {
-							t.Fatalf("excluded sprite colour changed at (%d,%d)", x, y)
-						}
+			// A listed sprite's outside is its transparency plus the key joined to it
+			// or to the image border; the loader erases exactly that. An excluded
+			// sprite (same family rule as runtime) keeps every other pixel; an
+			// edge-only one every pixel beyond the despill band.
+			excluded := sm.keyDespillExcluded[spriteDespillFamily(request.Name)]
+			b := src.Bounds()
+			w, h, stride := b.Dx(), b.Dy(), b.Dx()+1
+			near := func(v uint8, channel int) bool { return max(int(v)-channel, channel-int(v)) <= ck.Tolerance }
+			outside := colorKeyOutside(src, func(p color.NRGBA) bool {
+				return near(p.R, ck.Color[0]) && near(p.G, ck.Color[1]) && near(p.B, ck.Color[2])
+			})
+			for y := 0; y < h; y++ {
+				for x := 0; x < w; x++ {
+					got := prepared.CPU.RGBAAt(x, y)
+					if erased := got.A == 0; erased != outside[y*w+x] {
+						t.Fatalf("(%d,%d): erased %v, outside %v", x, y, erased, outside[y*w+x])
+					}
+					if excluded && !outside[y*w+x] && got != color.RGBAModel.Convert(src.At(x+b.Min.X, y+b.Min.Y)) {
+						t.Fatalf("excluded sprite colour changed at (%d,%d)", x, y)
 					}
 				}
 			}
 			// Summed-area mask lets us reject any pixel whose fringe neighborhood
-			// touches transparency or the color-key core in constant time.
-			b := src.Bounds()
-			w, h, stride := b.Dx(), b.Dy(), b.Dx()+1
+			// touches the outside in constant time.
 			invalid := make([]int, stride*(h+1))
 			for y := 0; y < h; y++ {
 				for x := 0; x < w; x++ {
-					p := src.NRGBAAt(x+b.Min.X, y+b.Min.Y)
 					v := 0
-					near := func(v uint8, channel int) bool { return max(int(v)-channel, channel-int(v)) <= ck.Tolerance }
-					if p.A == 0 || (near(p.R, ck.Color[0]) && near(p.G, ck.Color[1]) && near(p.B, ck.Color[2])) {
+					if outside[y*w+x] {
 						v = 1
 					}
 					invalid[(y+1)*stride+x+1] = v + invalid[y*stride+x+1] + invalid[(y+1)*stride+x] - invalid[y*stride+x]
@@ -222,7 +254,7 @@ func TestDespillConfiguredAssetCatalog(t *testing.T) {
 					if int(min(p.R, p.B))-int(p.G) > despillHueFloor {
 						purple++
 					}
-					if prepared.CPU.RGBAAt(x, y) != color.RGBAModel.Convert(before.At(x, y)) {
+					if !excluded && prepared.CPU.RGBAAt(x, y) != color.RGBAModel.Convert(src.At(x+b.Min.X, y+b.Min.Y)) {
 						t.Fatalf("interior color changed at (%d,%d)", x, y)
 					}
 				}
@@ -245,4 +277,37 @@ func TestDespillConfiguredAssetCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// colorKeyOutside marks src's transparent pixels and the key pixels joined to
+// them or to the image border, 8-connected.
+func colorKeyOutside(src *image.NRGBA, key func(color.NRGBA) bool) []bool {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	outside := make([]bool, w*h)
+	var stack [][2]int
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			p := src.NRGBAAt(x+b.Min.X, y+b.Min.Y)
+			if p.A == 0 || (key(p) && (x == 0 || y == 0 || x == w-1 || y == h-1)) {
+				outside[y*w+x] = true
+				stack = append(stack, [2]int{x, y})
+			}
+		}
+	}
+	for len(stack) > 0 {
+		c := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, d := range [8][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
+			x, y := c[0]+d[0], c[1]+d[1]
+			if x < 0 || y < 0 || x >= w || y >= h || outside[y*w+x] {
+				continue
+			}
+			if p := src.NRGBAAt(x+b.Min.X, y+b.Min.Y); p.A != 0 && key(p) {
+				outside[y*w+x] = true
+				stack = append(stack, [2]int{x, y})
+			}
+		}
+	}
+	return outside
 }
