@@ -32,16 +32,21 @@ func (sm *SpriteManager) indexHUDIcons() {
 	}
 }
 
-func (sm *SpriteManager) prepareSpritePixels(name, spritePath string, src image.Image) image.Image {
-	// Illustrations have painted backgrounds, not a sprite chroma key. Preserve
-	// intentional magenta and purple in every loading/metadata path.
-	if sm.isIllustrationPath(spritePath) {
-		return src
+// HUDIconBase reports whether name is the frameless HUD alias of a framed
+// content icon, and that icon's name; the alias loads and keys as that icon. A
+// file that merely starts with "hud_" is its own sprite.
+func (sm *SpriteManager) HUDIconBase(name string) (string, bool) {
+	base, hud := strings.CutPrefix(name, hudIconPrefix)
+	if !hud {
+		return "", false
 	}
-	if base, hud := strings.CutPrefix(name, hudIconPrefix); hud {
-		if _, ok := sm.iconFrames[base]; ok {
-			return sm.applyColorKey(base, src)
-		}
+	_, ok := sm.iconFrames[base]
+	return base, ok
+}
+
+func (sm *SpriteManager) prepareSpritePixels(name string, src image.Image) image.Image {
+	if base, ok := sm.HUDIconBase(name); ok {
+		return sm.applyColorKey(base, src)
 	}
 	return sm.composeContentIcon(name, sm.applyColorKey(name, src))
 }

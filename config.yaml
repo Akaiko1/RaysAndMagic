@@ -735,119 +735,268 @@ graphics:
     fold_density: 7.75 # broad animated folds per tile edge (2..8)
     alpha: 0.5             # base glow strength (0..1)
 
-  # Load-time color key: make stray magenta (left by imperfect sprite background
-  # removal) transparent when sprites load. A pixel is keyed when each RGB channel
-  # is within `tolerance` of `color` (art families below: background only).
-  # color [0,0,0]/absent defaults to magenta.
+  # Load-time color key: stray magenta left by imperfect sprite background
+  # removal becomes transparent when sprites load (modes and lists below).
   color_key:
-    enabled: true
-    color: [255, 0, 255]   # magenta
-    tolerance: 60          # per-channel slack for the fully-transparent core
-    despill: true          # fringe (semitone) pixels: strip the magenta cast, keep the base tone opaque (don't erase)
-    # Painted illustrations (opaque canvases, no chroma background) that neither
-    # key nor despill touches: globs over the path under assets/sprites without
-    # ".png", so a look-alike name in another folder stays keyed.
-    illustrations:
-      - interface/cards/full_art_*
-      - interface/camping/camp_*
-      - interface/story/story_*
-      - characters/heroes/*_full
-    # Preserve original colours, including edges, for these sprite families.
-    # The key erases only background joined to the outside.
-    despill_exclusions: [alien_enforcer]
-    # Despill is intentionally aggressive (strips ANY magenta hue), which greys
-    # out sprites whose purple/magenta is real art. List those here (basenames;
-    # naming any directional animation also covers its base and sibling sheets)
-    # to clean ONLY their rim: the key erases just the background joined to the
-    # outside, despill runs within edge_despill_radius px of it, and the interior
-    # (key-close highlights included) stays as drawn. Curated from the despill
-    # audit - extend as new purple art is added. Before adding a name, check the
-    # sprite has no key-colour residue enclosed by its art (coral_reef does): the
-    # key no longer erases it there, so it would stay magenta.
-    edge_despill_radius: 3
+    # Load-time chroma key for every indexed sprite (sky/ and floor/ are not
+    # indexed). Each animation family gets one mode; a list entry is a sprite
+    # basename, and naming a base or any <name>_<motion>_<l|r> sheet covers the
+    # whole family. A name with no sprite, a frameless icon alias hud_<icon> (it
+    # keys as its framed icon: list the icon) or a family on both lists aborts
+    # the boot. Recommendations and the audit procedure:
+    # docs/content-authoring.md#sprite-colour-key.
+    #
+    # default (on no list): key pixels joined to the image border or to a
+    #   transparent pixel (8-connected) become transparent; every other pixel,
+    #   key-close art inside the body included, stays exactly as drawn. For
+    #   clean art, painted illustrations and art whose purple or pink is real.
+    # edge_only_despill: default, then the magenta cast is subtracted within
+    #   edge_despill_radius px of that background or of the image border. For a
+    #   pink or purple halo left on the rim by background removal; the body
+    #   stays as drawn.
+    # full_despill: every key pixel anywhere becomes transparent and the
+    #   magenta cast is subtracted from every pixel. Only for key residue inside
+    #   the body; it greys real purple, turns pink salmon and darkens crimson.
+    #
+    # The lists come from a review of every sprite (2026-11-06): rim despill
+    # where a magenta rim shows on art that is not purple or pink; full despill
+    # where magenta residue sits inside such art (specks in gaps and holes,
+    # creases in dark fur, background trapped between tentacles).
+    enabled: true           # false: every sprite loads exactly as its PNG
+    color: [255, 0, 255]    # key RGB (magenta); [0, 0, 0] or absent means magenta
+    tolerance: 60           # per-channel slack: a pixel this close to the key is a key pixel
+    despill: true           # subtract the cast in listed families; false: no colour change (full still keys)
+    edge_despill_radius: 3  # px band from the background that edge_only_despill cleans
     edge_only_despill:
-      - projectile_harm_flask
-      # Purple/magenta creatures
-      - octopus
-      - jellyfish
-      - alien
-      - archmage
-      - lich
-      - lich_king
-      - forest_spider
-      # Ice crystal highlights read as violet
-      - frost_elemental
-      # Sorcerer hero art (purple robes)
-      - lysander
-      - lysander_archmage
-      - lysander_lich
-      # Dark-elf sorcerer hero art (violet skin)
-      - vaelith
-      - vaelith_archmage
-      - vaelith_lich
-      # Environment
-      - bonsai_tree
-      # Spellbook school tabs (mind/spirit are purple)
-      - spellbook_tab_mind
-      - spellbook_tab_spirit
-      # Spell icons (dark / spirit / mind / arcane)
-      - icon_spell_darkness
-      - icon_spell_charm
-      - icon_spell_psychic_shock
-      - icon_spell_spirit_lash
-      - icon_spell_disintegrate
-      - icon_spell_bind_undead
-      - icon_spell_wizard_eye
-      - icon_spell_raise_dead
-      - icon_spell_awaken
-      - icon_spell_darkbolt
-      - icon_spell_alien_dark_bolt
-      # Item / weapon icons (lich / archmage / wizard themed)
-      - icon_item_lich_phylactery
-      - icon_item_archmage_robe
-      - icon_item_wizard_robe
-      - icon_item_lich_king_crown
-      - icon_item_lich_card
-      - icon_item_archmage_card
-      - icon_item_jellyfish_card
-      - icon_item_soul_phylactery_gem
-      - icon_weapon_book_of_darkness
-      - icon_weapon_battle_staff
-      - icon_weapon_archmage_staff
-      # Purple robes, auras and blossoms (2026-11-05 despill audit)
-      - vengeful_ningyo
-      - ningyo
-      - masked_hexer_girl
-      - alchemy_grave_orchid
-      - sakura_tree_weeping
-      - sakura_tree_large
-      - dragon_cliffs_heather
-      - coral_reef_variant_a
-      - coral_reef_variant_b
-      - large_coral_variant_a
-      - large_coral_variant_b
-      - lich_nexus_entrance
+      # A visible magenta rim on art that is not purple or pink (2026-11-06 review)
+      # characters
+      - city_weapon_merchant
+      - clockmaker
+      - elf_ranger_captain
+      - gladiator_gatekeeper
+      - human
+      - lake_bather
+      - miko_shiori
+      - nomad_caravan_merchant
+      - nomad_combat_trainer
+      - nomad_oasis_spell_seller
+      - onmyoji_hina
+      - ronin_outcast
+      - solstice_sera
+      - solstice_tovan
+      - solstice_velna
+      - storage_clerk
+      - tengu_exile_kuroha
+      # environment
+      - alchemy_embercap
+      - arena_bones
+      - arena_gate
+      - bag
+      - bag_common
+      - bag_rare
+      - bag_uncommon
+      - barrel_blue
+      - barrel_blue_open
+      - barrel_green
+      - barrel_green_open
+      - barrel_red
+      - barrel_red_open
+      - broken_grandfather_clock
+      - campfire
+      - chest_chrono
+      - chest_gearwood
+      - chest_regal
+      - city_shop_potions
+      - clocktower_door
+      - clocktower_stairs_down
+      - clocktower_stairs_up
+      - culvert_chest
+      - culvert_valve
+      - desert_buried_saddlebags
+      - desert_buried_saddlebags_used
+      - dragon_cliffs_bone_lair
+      - dragon_cliffs_ember_lair
+      - dragon_cliffs_wind_pine
+      - eastern_ship
+      - elf_city_exterior
+      - elf_ivy_bench
+      - elf_moon_fountain
+      - elf_moon_pavilion
+      - elf_planter
+      - elf_ranger_hall
+      - fern_patch
+      - grass
+      - grass0
+      - grass1
+      - highlands_heather
+      - highlands_mist_collector_used
+      - highlands_pine
+      - highlands_rock_outcrop
+      - large_coral
+      - lich_nexus_chest
+      - lich_nexus_exit
+      - mushroom_ring
+      - nomad_city_exterior
+      - old_platan
+      - pilgrim_moonbell
+      - pyramid_entrance
+      - pyramid_facade
+      - sakura_azalea_shrub
+      - sakura_bamboo_fence
+      - sakura_clover_flowers
+      - sakura_ema_rack
+      - sakura_fallen_petals
+      - sakura_garden_bench
+      - sakura_garden_exit
+      - sakura_garden_signpost
+      - sakura_incense_brazier
+      - sakura_kitsune_statues
+      - sakura_main_shrine
+      - sakura_omikuji_box
+      - sakura_sake_barrels
+      - sakura_stone_lantern
+      - sakura_taiko_drum
+      - sakura_tea_house
+      - sakura_torii_gate
+      - sakura_tsukubai_basin
+      - shoji_screen
+      - solstice_deepvein_moss
+      - solstice_furnace_bloom
+      - solstice_rain_pearl
+      - solstice_ruins_facade
+      - solstice_sky_reed
+      - solstice_sluice_control
+      - solstice_sun_resin
+      - solstice_survey_marker
+      - solstice_whisper_silk
+      - spell_lectern_cleric
+      - steam_boiler
+      - sword_rack
+      - thieves_guild
+      - wall_anim_landscape
+      - wall_anim_portrait
+      - wall_blueprint
+      - wall_dragon
+      - wall_gear_cluster
+      - wall_landscape
+      - wall_lever
+      - wall_pendulum_clock
+      - wall_pipe_valve
+      - wall_portrait
       - wall_sigil
-      # HUD, status and spell icons (dark / mind)
-      - hud_domain_dark
-      - hud_domain_mind
-      - status_wizard_eye
-      - icon_spell_mind_blast
-      - icon_spell_mass_fear
-      - icon_spell_berserk
-      - icon_spell_identify_monster
-      - icon_spell_dispel_magic
-      - icon_spell_feeblemind
-      - icon_spell_prismatic_light
-      # Item / weapon / achievement icons
-      - icon_item_harm_flask
-      - icon_item_brewed_gloom_ward_draught
-      - icon_item_fairy_dust
-      - icon_item_grave_orchid
-      - icon_item_spider_card
-      - icon_item_forest_spider_card
-      - icon_achievement_lich
-      - icon_weapon_agility_katar
+      - wooden_planks
+      # interface
+      - buff_fx_bless
+      - buff_fx_day_of_the_gods
+      - buff_fx_heroism
+      - buff_fx_stone_skin
+      - spellbook_tab_air
+      - spellbook_tab_body
+      - spellbook_tab_dark
+      - spellbook_tab_earth
+      - spellbook_tab_fire
+      - spellbook_tab_light
+      - spellbook_tab_water
+      # mobs
+      - ancient_god_of_death
+      - bandit
+      - bear
+      - bronze_gatekeeper
+      - dark_elf_sorceress_attacking_r
+      - desert_dervish
+      - dire_wolf
+      - dragon
+      - dragon_gold
+      - dragon_green
+      - dragon_red
+      - dust_slime
+      - elder_dragon_gold
+      - elder_dragon_red
+      - elf_archer
+      - frost_elemental
+      - gale_novice
+      - giant_spider
+      - goblin
+      - grandfather_clock
+      - hobbit_archer_attacking_r
+      - isis
+      - karasu_tengu
+      - kasa_obake
+      - kitsune_onmyoji
+      - koi_leaping_r
+      - lich_king
+      - minotaur
+      - ningyo
+      - octopus
+      - puma
+      - rainbow_salmon_leaping_r
+      - rat
+      - red_ruffed_lemur
+      - revenant
+      - ring_tailed_lemur
+      - ronin_marksman
+      - sakura_jorogumo
+      - solstice_anchor_automaton
+      - solstice_aureth
+      - solstice_cinder_hound
+      - solstice_cistern_eel
+      - solstice_dusk_moth
+      - solstice_ember_elemental
+      - solstice_flow_automaton
+      - solstice_gale_elemental
+      - solstice_jade_elemental
+      - solstice_kiln_automaton
+      - solstice_neressa
+      - solstice_rain_serpent
+      - solstice_rootbound_sentinel
+      - solstice_shardback_burrower
+      - solstice_storm_kite
+      - solstice_sunscarab
+      - solstice_talura
+      - solstice_tide_elemental
+      - solstice_transfer_automaton
+      - solstice_vaelith
+      - thief_bug
+      - treant
+      - weapon_master_attacking_l
+      - wolf
+    full_despill:
+      # Key residue inside the body, where no rim mode reaches it: magenta lines
+      # between tentacles, specks in gear holes and gaps, creases in dark fur
+      # (2026-11-06 interior review; none of these has purple or pink art)
+      # mobs
+      - alarm_clock
+      - ashigaru_firelock
+      - bat
+      - deep_jungle_idol
+      - elder_dragon
+      - elder_dragon_green
+      - elf_swordsman
+      - forest_orc
+      - golden_thief_bug
+      - gorilla_titan
+      - jellyfish
+      - jungle_goblin
+      - masked_huntress
+      - masked_serpent_dancer
+      - mountain_troll
+      - mummy
+      - ocelot
+      - old_samurai
+      - orc
+      - orc_warlord
+      - pixie
+      - possessed_tome
+      - skeleton
+      - troll
+      # environment
+      - bag_legendary
+      - coral_reef
+      - deep_jungle_fern
+      - deep_jungle_log
+      - gear_pile
+      - parts_crate
+      - wall_skull
 
 day_night:
   half_cycle_seconds: 420

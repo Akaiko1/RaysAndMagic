@@ -1237,28 +1237,26 @@ type StandeeConfig struct {
 }
 
 // ColorKeyConfig makes a key color (default magenta) transparent at sprite load,
-// clearing stray magenta from imperfect background removal.
+// clearing stray magenta from imperfect background removal. Three modes per
+// animation family: default (no list) erases only background - key colour
+// joined to the image border or a transparent pixel - and never changes a
+// colour; EdgeOnlyDespill also despills the rim; FullDespill keys every
+// key-close pixel and despills everywhere. config.yaml documents the choice.
 type ColorKeyConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent -> magenta (255,0,255)
-	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
-	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
-	// DespillExclusions disables despill for entire sprite animation families,
-	// including edges; the key erases only background joined to the outside.
-	DespillExclusions []string `yaml:"despill_exclusions,omitempty"`
+	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for a key pixel (0 = exact)
+	Despill   bool   `yaml:"despill"`   // cast subtraction in both lists; false: full_despill still erases key pixels
 	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
-	// "<name>_<animType>") whose interior magenta is intentional art. Naming a
-	// directional sheet or its base covers the entire animation family. For these,
-	// the key erases only background joined to the outside (the image border or
-	// a transparent pixel) and despill runs ONLY within EdgeDespillRadius px of
-	// it - the key-bleed halo is cleaned while the body's purple/magenta,
-	// key-close highlights included, is preserved.
+	// "<name>_<animType>") whose rim keeps a magenta cast. Naming a directional
+	// sheet or its base covers the entire animation family. Despill runs ONLY
+	// within EdgeDespillRadius px of the background or the image border, so the
+	// body's purple and key-close highlights stay as drawn.
 	EdgeOnlyDespill   []string `yaml:"edge_only_despill,omitempty"`
 	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 -> default
-	// Illustrations are path.Match globs over a sprite's path under
-	// assets/sprites without ".png" ("interface/cards/full_art_*"): painted
-	// canvases with no chroma background that neither key nor despill touches.
-	Illustrations []string `yaml:"illustrations,omitempty"`
+	// FullDespill lists sprite names (same family rule) with key residue inside
+	// the body: every key-close pixel is erased and despill runs everywhere.
+	FullDespill []string `yaml:"full_despill,omitempty"`
 }
 
 // ImpassableAuraConfig tunes the aurora curtains along authored impassable

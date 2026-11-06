@@ -9,7 +9,6 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -892,50 +891,35 @@ type FirstPersonCamera struct {
 }
 
 // ApplySpriteColorKey wires the config's load-time color key into a sprite
-// manager: stray magenta (from imperfect sprite background removal) turns
-// transparent; edge-only sprites are cleaned just at their rims. Shared by the game
-// and the map editor so both render sprites identically. Excluded families
-// preserve their original colours, including rims; illustrations are never keyed.
-// Names and patterns that resolve to no sprite, and list names that are
-// illustrations, abort the boot.
+// manager: background magenta (from imperfect sprite background removal) turns
+// transparent; listed families are also despilled, at the rim or everywhere.
+// Shared by the game and the map editor so both render sprites identically.
+// The lists are validated whether or not the key is enabled: a name that
+// resolves to no sprite, a HUD icon alias (it keys as its framed icon, so the
+// entry would do nothing) or a family on both lists aborts the boot.
 func ApplySpriteColorKey(sprites *graphics.SpriteManager, cfg *config.Config) {
 	ck := cfg.Graphics.ColorKey
-	if !ck.Enabled {
-		return
-	}
-	r, g, b := ck.Color[0], ck.Color[1], ck.Color[2]
-	if r == 0 && g == 0 && b == 0 {
-		r, g, b = 255, 0, 255 // default key = magenta
-	}
-	for _, pattern := range ck.Illustrations {
-		if _, err := path.Match(pattern, ""); err != nil {
-			panic(fmt.Sprintf("graphics.color_key.illustrations: pattern %q: %v", pattern, err))
+	sprites.ConfigureColorKey(ck)
+	for _, name := range ck.FullDespill {
+		if sprites.IsEdgeOnlyDespill(name) {
+			panic(fmt.Sprintf("graphics.color_key.full_despill: sprite %q is also in edge_only_despill", name))
 		}
 	}
-	sprites.SetColorKey(true, r, g, b, ck.Tolerance, ck.Despill)
-	sprites.SetIllustrations(ck.Illustrations)
-	sprites.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
-	sprites.SetDespillExclusions(ck.DespillExclusions)
 	// Headless fixtures may have no asset tree. Real loads validate references
 	// before preparing any resources, so a typo cannot silently recolour art.
 	if _, err := os.Stat("assets/sprites"); err != nil {
 		return
 	}
-	for _, pattern := range ck.Illustrations {
-		if !sprites.MatchesAnySprite(pattern) {
-			panic(fmt.Sprintf("graphics.color_key.illustrations: pattern %q matches no sprite", pattern))
-		}
-	}
 	for _, list := range []struct {
 		key   string
 		names []string
-	}{{"despill_exclusions", ck.DespillExclusions}, {"edge_only_despill", ck.EdgeOnlyDespill}} {
+	}{{"edge_only_despill", ck.EdgeOnlyDespill}, {"full_despill", ck.FullDespill}} {
 		for _, name := range list.names {
 			if !sprites.HasSprite(name) {
 				panic(fmt.Sprintf("graphics.color_key.%s: sprite %q not found", list.key, name))
 			}
-			if sprites.IsIllustration(name) {
-				panic(fmt.Sprintf("graphics.color_key.%s: sprite %q is an illustration (never keyed)", list.key, name))
+			if base, alias := sprites.HUDIconBase(name); alias {
+				panic(fmt.Sprintf("graphics.color_key.%s: sprite %q is the HUD alias of %q; list %q", list.key, name, base, base))
 			}
 		}
 	}

@@ -512,8 +512,9 @@ func TestCachedAnimationLookupDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// applyColorKey must zero the alpha of pixels within tolerance of the key color
-// (default magenta), leave others untouched, and no-op when disabled.
+// In full mode applyColorKey must zero the alpha of pixels within tolerance of
+// the key color (default magenta), strip the magenta cast from the rest, leave
+// other colours untouched, and no-op when disabled.
 func TestApplyColorKey(t *testing.T) {
 	const ( // pixel x-positions
 		magenta        = 0 // (255,0,255) exact key -> transparent core
@@ -541,7 +542,8 @@ func TestApplyColorKey(t *testing.T) {
 	// the tolerance core, so the binary key never touches it).
 	sm := NewSpriteManager()
 	sm.SetColorKey(true, 255, 0, 255, 60, false)
-	off := sm.applyColorKey("", mk()).(*image.NRGBA)
+	sm.SetDespillFull([]string{"probe"})
+	off := sm.applyColorKey("probe", mk()).(*image.NRGBA)
 	if off.NRGBAAt(magenta, 0).A != 0 {
 		t.Errorf("exact magenta must be transparent")
 	}
@@ -552,7 +554,7 @@ func TestApplyColorKey(t *testing.T) {
 	// Despill ON: core still erased; fringe keeps its base tone but loses the
 	// magenta cast (R,B drop to the green level) and stays opaque - edge not eaten.
 	sm.SetColorKey(true, 255, 0, 255, 60, true)
-	on := sm.applyColorKey("", mk()).(*image.NRGBA)
+	on := sm.applyColorKey("probe", mk()).(*image.NRGBA)
 	if on.NRGBAAt(magenta, 0).A != 0 {
 		t.Errorf("exact magenta must be transparent")
 	}
@@ -573,27 +575,45 @@ func TestApplyColorKey(t *testing.T) {
 
 	// Disabled -> unchanged.
 	sm.SetColorKey(false, 255, 0, 255, 60, true)
-	if got := sm.applyColorKey("", mk()).At(magenta, 0); got != (color.NRGBA{255, 0, 255, 255}) {
+	if got := sm.applyColorKey("probe", mk()).At(magenta, 0); got != (color.NRGBA{255, 0, 255, 255}) {
 		t.Errorf("disabled key must not alter pixels, got %v", got)
+	}
+
+	// Config wiring: an unset colour keys magenta, never black; enabled false
+	// leaves even a listed family as drawn.
+	for _, enabled := range []bool{true, false} {
+		cm := NewSpriteManager()
+		cm.ConfigureColorKey(config.ColorKeyConfig{Enabled: enabled, Tolerance: 60, Despill: true, FullDespill: []string{"probe"}})
+		got := cm.applyColorKey("probe", mk()).(*image.NRGBA)
+		if keyed := got.NRGBAAt(magenta, 0).A == 0; keyed != enabled {
+			t.Errorf("enabled=%v: magenta keyed=%v", enabled, keyed)
+		}
+		if p := got.NRGBAAt(darkEdge, 0); enabled && p.A == 0 {
+			t.Errorf("an unset key colour keyed near-black %v", p)
+		}
 	}
 }
 
 // Every indexed game sprite keeps its non-magenta art bit-exact under the
-// load-time key, and no visible magenta hue survives. Configured illustrations
-// are not keyed at load, so they are out of scope.
+// configured load-time key. A full-despill family keeps no visible magenta hue;
+// a default one keeps every pixel the key does not erase, and a default sprite
+// without transparency (a painted canvas) loads bit-exact: a key pixel on its
+// border would flood-erase a hole into it.
 func TestApplyColorKey_GameSpriteColorSafety(t *testing.T) {
 	t.Chdir("../..")
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !cfg.Graphics.ColorKey.Enabled {
+		t.Skip("color key is off: sprites load as drawn")
+	}
 	sm := NewSpriteManager()
-	sm.SetColorKey(true, 255, 0, 255, 60, true)
-	sm.SetIllustrations(cfg.Graphics.ColorKey.Illustrations)
+	sm.ConfigureColorKey(cfg.Graphics.ColorKey)
 	sm.ensureIndex()
 	names := make([]string, 0, len(sm.spritePaths))
 	for name := range sm.spritePaths {
-		if !sm.IsIllustration(name) {
+		if _, alias := sm.HUDIconBase(name); !alias { // an alias keys as its base PNG
 			names = append(names, name)
 		}
 	}
@@ -609,14 +629,24 @@ func TestApplyColorKey_GameSpriteColorSafety(t *testing.T) {
 			return
 		}
 		filtered := sm.applyColorKey(name, src).(*image.NRGBA)
+		family := spriteDespillFamily(name)
+		full, despilled := sm.keyFull[family], sm.keyFull[family] || sm.keyEdgeOnly[family]
 		b := src.Bounds()
-		changedNonMagenta, magentaAfter := 0, 0
+		changedNonMagenta, magentaAfter, recoloured, erased := 0, 0, 0, 0
+		canvas := true
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			for x := b.Min.X; x < b.Max.X; x++ {
 				before := src.NRGBAAt(x, y)
 				after := filtered.NRGBAAt(x, y)
-				if isColorKeyCandidate(before) {
-					if isVisibleMagentaHue(after) {
+				canvas = canvas && before.A != 0
+				if !despilled && after.A != 0 && after != before {
+					recoloured++
+				}
+				if after.A == 0 && before.A != 0 {
+					erased++
+				}
+				if before.A == 0 || sm.isKeyColor(before) || isVisibleMagentaHue(before) {
+					if full && isVisibleMagentaHue(after) {
 						magentaAfter++
 					}
 					continue
@@ -626,8 +656,11 @@ func TestApplyColorKey_GameSpriteColorSafety(t *testing.T) {
 				}
 			}
 		}
-		if changedNonMagenta != 0 || magentaAfter != 0 {
-			t.Errorf("%s: changed %d non-magenta pixels, left %d visible magenta-hue pixels", name, changedNonMagenta, magentaAfter)
+		if !canvas || despilled {
+			erased = 0
+		}
+		if changedNonMagenta != 0 || magentaAfter != 0 || recoloured != 0 || erased != 0 {
+			t.Errorf("%s: changed %d non-magenta pixels, left %d visible magenta-hue pixels, recoloured %d default-mode pixels, erased %d pixels of a painted canvas", name, changedNonMagenta, magentaAfter, recoloured, erased)
 		}
 	}
 	// Decoding the whole catalog is CPU-bound: spread it over every core.
@@ -675,29 +708,11 @@ func decodePNGForColorKeyTest(path string) (*image.NRGBA, error) {
 	return dst, nil
 }
 
-func isColorKeyCandidate(p color.NRGBA) bool {
-	if p.A == 0 {
-		return true
-	}
-	if absByteDiff(p.R, 255) <= 60 && p.G <= 60 && absByteDiff(p.B, 255) <= 60 {
-		return true
-	}
-	return isVisibleMagentaHue(p)
-}
-
 func isVisibleMagentaHue(p color.NRGBA) bool {
 	if p.A == 0 {
 		return false
 	}
 	return int(minByte(p.R, p.B))-int(p.G) > despillHueFloor
-}
-
-func absByteDiff(a, b uint8) int {
-	d := int(a) - int(b)
-	if d < 0 {
-		return -d
-	}
-	return d
 }
 
 func minByte(a, b uint8) uint8 {

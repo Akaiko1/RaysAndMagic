@@ -73,6 +73,71 @@ that is part of the task. Store intermediate sources, overlays, previews, and
 logs in the system temporary directory outside the repository. Only selected
 runtime assets and deliberate documentation belong in the change.
 
+### Sprite colour key
+
+Every indexed sprite passes a load-time chroma key, `graphics.color_key` in
+[config.yaml](../config.yaml). Sky panoramas and floors are not indexed and are
+never keyed. Each animation family gets exactly one mode:
+
+| Mode | Set by | What changes |
+| --- | --- | --- |
+| Default | on no list | Key pixels joined to the image border or to a transparent pixel (8-connected) become transparent. Every other pixel, key-close art inside the body included, stays exactly as drawn. |
+| Rim despill | `edge_only_despill` | Default, then the magenta cast is subtracted from pixels within `edge_despill_radius` pixels of that background or of the image border. The body stays as drawn. |
+| Full despill | `full_despill` | Every key pixel anywhere becomes transparent, and the magenta cast is subtracted from every pixel. |
+
+| Option | Meaning |
+| --- | --- |
+| `enabled` | `false` loads every sprite exactly as its image file. |
+| `color` | Key colour as red, green, blue; `[0, 0, 0]` or absent means magenta. |
+| `tolerance` | Per-channel distance from the key within which a pixel counts as a key pixel. |
+| `despill` | Turns the cast subtraction of both lists on or off. With `false` no colour changes anywhere, and rim despill families behave as default; full despill families still lose every key pixel. |
+| `edge_despill_radius` | Width in pixels of the rim band that `edge_only_despill` cleans; 0 or less means 3. |
+| `edge_only_despill` | Sprite basenames for rim despill. |
+| `full_despill` | Sprite basenames for full despill. |
+
+A list entry names a sprite by basename. Naming a base sprite or any of its
+`<name>_<motion>_<l|r>` sheets covers the whole animation family; a sprite that
+merely shares a prefix (`alien_enforcer_captain`) is a separate family. The boot
+aborts on a name with no sprite, on a family that sits on both lists, and on a
+frameless alias `hud_<icon>` of a framed content icon: the alias loads and keys as
+that icon, so list the icon itself.
+
+How to choose:
+
+1. Import art clean: remove the background offline with the chroma-key script
+   from the asset rules. Clean art needs no list entry, and the default mode is
+   the only one that never changes a colour.
+2. Take the weakest mode that leaves no visible magenta: default, then rim,
+   then full.
+3. Decide by looking. Compare the raw sprite with the loaded one in each
+   candidate mode at 2-4x nearest-neighbour on a neutral backdrop, then check
+   it in game.
+4. Use rim despill for a pink or purple halo along the silhouette, the usual
+   leftover of background removal.
+5. Rim despill does not touch residue inside the body: a magenta speck in a
+   gap, a gear hole or a fur crease farther than `edge_despill_radius` pixels
+   from the background stays magenta, and such specks are often not close enough
+   to the key to be erased. Look for them inside the body, not only on the
+   rim. A sprite with such residue (jellyfish, the possessed tome's gears)
+   needs full despill or a cleaned source.
+6. Full despill subtracts every magenta cast: real purple turns grey or blue,
+   pink turns salmon, crimson darkens. Keep purple, pink and red art off that
+   list; clean its source instead.
+7. A painted canvas (no transparent pixel) must not have key-colour pixels on
+   its outer border: the default mode would erase them together with every key
+   pixel joined to them. The sprite catalog test fails on such a canvas.
+8. Put every variant of a character (base sprite, promotions) on the same list.
+9. The lists are configuration only: rebuild with `./build_bin.sh`.
+
+The shipped lists come from a review of every sprite (2026-11-06). Purple,
+pink and red art stays in the default mode even where its rim changes under
+despill: the rim belongs to the art. Rim despill is used where a magenta rim
+shows on other art, and full despill where magenta residue sits inside it:
+specks in gaps and holes, creases in dark fur, background trapped between
+tentacles. Small residue left on purple, pink and red art (a thin rim line, a
+single speck) needs a cleaned source, since either despill mode would also
+change the art.
+
 ## Damage and hit scope
 
 The shared party damage path is in
