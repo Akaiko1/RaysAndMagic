@@ -53,7 +53,7 @@ var controlTipGroups = []controlTipGroup{
 		{"Walk", "Loot bags on and next to your tile are picked up"},
 		{"Space", "Pick up loot or talk to the NPC in front; hold to gather every bag nearby"},
 		{"Click", "Open loot, doors and chests, talk to NPCs, use objects within 2 tiles"},
-		{"V / Shift + V", "Wayfarer: Fold Step / Return Step"},
+		{"V / Shift + V", "Pilgrim: Fold Step / Return Step"},
 		{"Camp icon", "Rest for 1 food; not with enemies near"},
 	}},
 	{"Panels", []controlTip{

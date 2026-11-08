@@ -98,6 +98,59 @@ jobs:
         with:
           files: dist/*.zip
 
+  # Stable releases also go to itch.io. Each archive is pushed to the channel
+  # named after it (windows-amd64, mac-universal, linux-amd64); the channel name
+  # tags the platform on the itch page. Needs the BUTLER_API_KEY secret.
+  itch:
+    needs: build-release
+    if: endsWith(github.ref_name, '.stable')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      ITCH_TARGET: akaiko1/raysmagic
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: RaysAndMagic-release
+          path: dist
+
+      # The archive is checked before it runs beside the API key; a new butler
+      # version brings its own SHA-256.
+      - name: Install butler
+        env:
+          BUTLER_VERSION: 15.32.0
+          BUTLER_SHA256: 2335971394ef6596f95ded0833e85ee28755e13761716ef4c91d6b11f69162f5
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/butler.zip" "https://broth.itch.zone/butler/linux-amd64/$BUTLER_VERSION/archive/default"
+          echo "$BUTLER_SHA256  $RUNNER_TEMP/butler.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/butler.zip" -d "$RUNNER_TEMP/butler"
+          chmod +x "$RUNNER_TEMP/butler/butler"
+          echo "$RUNNER_TEMP/butler" >> "$GITHUB_PATH"
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "::error::The BUTLER_API_KEY repository secret is not set"
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          version="${version%.stable}"
+          shopt -s nullglob
+          archives=(dist/RaysAndMagic-*.zip)
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "::error::No release archives in dist/"
+            exit 1
+          fi
+          butler -V
+          for archive in "${archives[@]}"; do
+            channel="${archive#dist/RaysAndMagic-}"
+            channel="${channel%.zip}"
+            butler push "$archive" "$ITCH_TARGET:$channel" --userversion "$version"
+          done
+
   downloads-page:
     needs: build-release
     permissions:

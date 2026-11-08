@@ -1,6 +1,6 @@
 # RaysAndMagic
 
-A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org/). Lead a four-member party through raycasted dungeons and open wilds, fight in real-time *or* turn-based combat, learn spells from nine schools of magic, and hunt the four dragons that menace the realm.
+A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org/). Pick four of 17 ready-made heroes, explore raycasted dungeons and an open world, fight in real time or switch to turns with Tab at any moment, and learn spells from nine schools of magic.
 
 [Download and play](#download-and-play) | [Controls](#controls) | [Build from source](#build-from-source) | [Add content](#add-content)
 
@@ -13,24 +13,25 @@ A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org
 | ![A mountain troll lunges while an elf archer looses from the crags](src/highlands_battle.png) | ![A kitsune onmyoji conjures foxfire before a torii under the night sky](src/sakura_night.png) |
 | *Open wilds - a mountain troll charges, elf archers shoot from the rocks* | *Day/night cycle - moonlit yokai guard the Sakura Garden shrine* |
 | ![A dragon rears over the bone field, its breath already glowing](src/dragon_bones.png) | ![The Arena Gatekeeper's shop with a unique axe tooltip](src/arena_shop.png) |
-| *Dragon hunt - a drake guards the bone field of the Ember Burn* | *Arena quartermaster - spend arena points on unique gear* |
+| *Dragon hunt - a Black Dragon on the bone field of the Dragon Cliffs* | *Arena quartermaster - spend arena points on unique gear* |
 | ![An Alchemist's Fire Flask tooltip on the paperdoll, herbs in her personal bag](src/alchemist_flask.png) | ![The monster-card collection tab with slotted cards](src/card_collection.png) |
-| *Rare classes - an Alchemist throws the flasks she brews herself* | *Build customization with rare monster cards* |
+| *Alchemist - she throws the flasks she brews herself* | *Build customization with rare monster cards* |
 
 ## Features
 
-- A four-member party, with classes including Knight, Paladin, Archer, Cleric,
-  Sorcerer, Druid, Thief, Arms Master, Monk, Battle Mage, and Sniper, plus the
-  rare Alchemist and Pilgrim.
+- A four-member party chosen from 17 ready-made heroes across 13 classes:
+  Knight, Paladin, Archer, Cleric, Sorcerer, Druid, Thief, Arms Master, Monk,
+  Battle Mage, Sniper, Alchemist, and Pilgrim.
 - Real-time and turn-based combat, weapon mastery, nine schools of magic,
   equipment sets, and collectible monster cards.
 - Connected outdoor regions, separate towns and dungeons, day/night encounters,
   wildlife, and tree-climbing jungle lemurs.
 - The jungle ruins of Solstice, with a temple and four elemental chambers,
   traversal challenges, interactive devices, and chamber bosses.
-- Gather ingredients, brew potions, and trade supplies with local merchants.
-- Quests, class promotions, arena duels, and persistent achievements and player
-  statistics.
+- Gather ingredients for an Alchemist to brew potions, and trade supplies with
+  local merchants.
+- Quests, Archmage and Lich promotions for Sorcerers and Druids, arena duels,
+  and persistent achievements and player statistics.
 - A map editor with live content catalogs and monster previews.
 
 ## Download and play
