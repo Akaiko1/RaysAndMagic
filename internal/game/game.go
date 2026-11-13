@@ -436,6 +436,9 @@ type MMGame struct {
 	partyMoveClock  status.DualClock // a round after the party moves (saved)
 	partyWasInFight bool
 	openerCooldown  status.DualClock // a round after a fight ends, before a new one arms an opener (saved)
+	// fightAggroAnswered: a monster already pressed the party in this fight,
+	// so the automatic turn-based switch had its one chance.
+	fightAggroAnswered bool
 	// loadNotices are load-time messages printed once the loaded game's log
 	// starts (equipment that no longer fits its slot).
 	loadNotices []string
@@ -765,8 +768,9 @@ type MMGame struct {
 
 	// Turn-based mode state
 	turnBasedMode bool // Whether game is in turn-based mode
-	// turnBasedTurnSuspended is set when Tab leaves TB. Returning to TB resumes
-	// the same party/monster turn instead of granting a fresh party round.
+	// turnBasedTurnSuspended is set when Tab leaves TB. Returning to TB in the
+	// same fight resumes the same party/monster turn instead of granting a
+	// fresh party round; out of a fight it lapses (updateFightTurnMode).
 	turnBasedTurnSuspended      bool
 	currentTurn                 int // 0 = party turn, 1 = monster turn
 	partyActionsUsed            int // Actions used this turn
@@ -3298,6 +3302,27 @@ func (g *MMGame) commitWeaponAction() {
 		}
 	}
 	g.commitHeroAction(g.selectedChar, 0)
+}
+
+// updateFightTurnMode keeps the turn mode in step with the fight, once per
+// world frame. Out of a fight a round suspended by Tab lapses, so the next
+// entry starts a fresh one. In a fight, the first time a monster presses the
+// party Settings > Gameplay > Auto turn-based enters turn-based mode, once per
+// fight: leaving the mode by hand holds until the fight is over. Like Tab, it
+// waits while a conversation owns the view.
+func (g *MMGame) updateFightTurnMode() {
+	if !g.partyInCombat() {
+		g.turnBasedTurnSuspended = false
+		g.fightAggroAnswered = false
+		return
+	}
+	if g.fightAggroAnswered || !g.worldClickAllowed() || !g.partyUnderAttack() {
+		return
+	}
+	g.fightAggroAnswered = true
+	if g.combatPreferences.AutoTurnBased && !g.turnBasedMode {
+		g.ToggleTurnBasedMode()
+	}
 }
 
 func (g *MMGame) ToggleTurnBasedMode() {

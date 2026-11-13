@@ -3,6 +3,7 @@ package game
 import (
 	"image"
 	"image/color"
+	"math"
 	"time"
 
 	uitext "ugataima/assets/text"
@@ -39,11 +40,11 @@ const (
 // slots simply show the frame sprite's ornate window. Measured from
 // quick_slots_bar.png (cx evenly spaced, cy centred, side ~ gold-window width).
 var quickSlotCellFrac = [character.QuickSlotsPerRow]struct{ cx, cy, side float64 }{
-	{0.1357, 0.499, 0.164},
-	{0.3172, 0.499, 0.164},
-	{0.4988, 0.499, 0.164},
-	{0.6803, 0.499, 0.164},
-	{0.8619, 0.499, 0.164},
+	{0.1357, 0.501, 0.164},
+	{0.3173, 0.501, 0.164},
+	{0.4990, 0.501, 0.164},
+	{0.6808, 0.501, 0.164},
+	{0.8626, 0.501, 0.164},
 }
 
 type dragSource int
@@ -64,8 +65,8 @@ func quickSlotRects(barX, barY, barW int) (barH int, slots [character.QuickSlots
 	barH = int(float64(barW) / quickSlotBarAspect)
 	side := int(quickSlotCellFrac[0].side * float64(barW))
 	for i, f := range quickSlotCellFrac {
-		cx := barX + int(f.cx*float64(barW))
-		cy := barY + int(f.cy*float64(barH))
+		cx := barX + int(math.Round(f.cx*float64(barW)))
+		cy := barY + int(math.Round(f.cy*float64(barH)))
 		slots[i] = image.Rect(cx-side/2, cy-side/2, cx+side/2, cy+side/2)
 	}
 	return

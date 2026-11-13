@@ -45,8 +45,7 @@ func TestTypedRowsReachItemAndSpellHovers(t *testing.T) {
 						owner, g.party.Inventory, hero.Inventory = hero, nil, []items.Item{item}
 					}
 					grid := layoutRect{20, 20, 300, 300}
-					x, y, w, cellH := scaleInventorySourceRect(grid.x, grid.y, grid.w, grid.h, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
-					fp.moveTo(x+w/2, y+cellH/2)
+					fp.moveTo(personalBagCell(grid, 0))
 					page := 0
 					ui.drawInventoryBagGrid(h.screen, owner, grid, layoutRect{20, 330, 300, 20}, &page)
 					want = GetItemTooltipRows(item, hero, g.combat, full)

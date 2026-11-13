@@ -370,8 +370,8 @@ func TestInventoryGridSlotsCenterOnHighResolutionRecesses(t *testing.T) {
 	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
 		t.Fatal("inventory grid asset has empty bounds")
 	}
-	scaleX := float64(bounds.Dx()) / inventoryGridLayoutSize
-	scaleY := float64(bounds.Dy()) / inventoryGridLayoutSize
+	scaleX := float64(bounds.Dx()) / inventoryGridSlotCanvas
+	scaleY := float64(bounds.Dy()) / inventoryGridSlotCanvas
 	for i, slot := range inventoryGridSlots {
 		if slot.w != slot.h {
 			t.Fatalf("grid slot %d = %dx%d, want square", i, slot.w, slot.h)
@@ -401,9 +401,42 @@ func TestInventoryGridSlotsCenterOnHighResolutionRecesses(t *testing.T) {
 		darkCenterY := ySum / darkCount / scaleY
 		slotCenterX := float64(slot.x) + float64(slot.w)/2
 		slotCenterY := float64(slot.y) + float64(slot.h)/2
-		if math.Abs(slotCenterX-darkCenterX) > 0.5 || math.Abs(slotCenterY-darkCenterY) > 0.5 {
+		if math.Abs(slotCenterX-darkCenterX) > 1 || math.Abs(slotCenterY-darkCenterY) > 1 {
 			t.Fatalf("grid slot %d center (%.2f,%.2f) misses source recess center (%.2f,%.2f)",
 				i, slotCenterX, slotCenterY, darkCenterX, darkCenterY)
+		}
+	}
+}
+
+// A bag cell and a quick-slot cell keep the centre of their painted slot at
+// every size the inventory tab draws them: the centre is rounded once, so the
+// icon sits within half a pixel of it.
+func TestBagAndQuickCellsStayCenteredAfterScaling(t *testing.T) {
+	for _, size := range withInterfaceFrames(t, [][2]int{{1024, 768}}) {
+		l := computeInventoryContentLayout(computeTabbedMenuLayout(size[0], gameplayViewportBottomWithPartyHUD(size[1])).content, 2)
+		for _, grid := range []layoutRect{l.personalGrid, l.grid} {
+			k := float64(grid.w) / inventoryGridSlotCanvas
+			for i, slot := range inventoryGridSlots {
+				cell := inventoryGridCell(grid, i)
+				wantX := float64(grid.x) + (float64(slot.x)+float64(slot.w)/2)*k
+				wantY := float64(grid.y) + (float64(slot.y)+float64(slot.h)/2)*k
+				gotX, gotY := float64(cell.x)+float64(cell.w)/2, float64(cell.y)+float64(cell.h)/2
+				if cell.w != cell.h || math.Abs(gotX-wantX) > 0.5 || math.Abs(gotY-wantY) > 0.5 {
+					t.Fatalf("%v bag cell %d = %+v, centre (%.2f,%.2f), want (%.2f,%.2f)", size, i, cell, gotX, gotY, wantX, wantY)
+				}
+			}
+		}
+		for _, bar := range []layoutRect{l.quickSlots, l.quickSlots2} {
+			barH, cells := quickSlotRects(bar.x, bar.y, bar.w)
+			for i, f := range quickSlotCellFrac {
+				wantX := float64(bar.x) + f.cx*float64(bar.w)
+				wantY := float64(bar.y) + f.cy*float64(barH)
+				gotX := float64(cells[i].Min.X+cells[i].Max.X) / 2
+				gotY := float64(cells[i].Min.Y+cells[i].Max.Y) / 2
+				if math.Abs(gotX-wantX) > 0.5 || math.Abs(gotY-wantY) > 0.5 {
+					t.Fatalf("%v quick cell %d centre (%.2f,%.2f), want (%.2f,%.2f)", size, i, gotX, gotY, wantX, wantY)
+				}
+			}
 		}
 	}
 }

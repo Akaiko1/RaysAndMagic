@@ -192,6 +192,8 @@ func (g *MMGame) setSelectedAudioVolume(delta float64) {
 			g.setWideView(delta > 0)
 		case g.audioSettingsSelection == gameplayRowPanini:
 			g.setPanini(delta > 0)
+		case g.audioSettingsSelection == gameplayRowAutoTurnBased:
+			g.setAutoTurnBased(delta > 0)
 		default:
 			g.setCombatOverlay(delta > 0)
 		}

@@ -86,6 +86,7 @@ func settingsLayoutBoxes(screenW, screenH int, ornate bool, tab settingsTabKind)
 		}
 		for _, enabled := range []bool{false, true} {
 			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("choice-%v", enabled), combatOverlayChoiceRect(px, py, panelW, enabled)))
+			boxes = append(boxes, namedLayoutBox(fmt.Sprintf("auto-turn-%v", enabled), autoTurnBasedChoiceRect(px, py, panelW, enabled)))
 		}
 	} else {
 		for row, def := range audioSettingDefinitions {

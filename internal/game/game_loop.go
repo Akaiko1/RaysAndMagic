@@ -213,6 +213,7 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.updateMonsterDeaths()
 	gl.game.updateTacticalClocks()
 	gl.game.updateFightOpeners()
+	gl.game.updateFightTurnMode()
 	gl.game.updateAutomaticConsumables()
 	if !gl.game.turnBasedMode {
 		gl.game.tickPartyClocks(false)

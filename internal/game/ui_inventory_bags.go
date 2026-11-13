@@ -21,9 +21,10 @@ func (ui *UISystem) drawInventoryBagGrid(screen *ebiten.Image, owner *character.
 	clampPage(page, totalPages)
 	bag := g.party.Bag(owner)
 	mx, my := pointerPosition()
-	for slot, source := range inventoryGridSlots {
+	for slot := range inventoryGridSlots {
 		idx := inventoryCellIndex(view, *page, len(inventoryGridSlots), slot)
-		x, y, w, h := scaleInventorySourceRect(grid.x, grid.y, grid.w, grid.h, inventoryGridLayoutSize, inventoryGridLayoutSize, source)
+		cell := inventoryGridCell(grid, slot)
+		x, y, w, h := cell.x, cell.y, cell.w, cell.h
 		hover := isMouseHoveringBox(mx, my, x, y, x+w, y+h)
 		if idx < 0 || idx >= len(bag.Items()) {
 			if !ui.inventoryContextOpen {

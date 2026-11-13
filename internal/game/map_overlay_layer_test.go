@@ -335,9 +335,8 @@ func TestModalOpenedFromInventoryIgnoresOlderQueuedClicks(t *testing.T) {
 
 	hub := computeTabbedMenuLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g))
 	inv := computeInventoryContentLayout(hub.content, 1)
-	x, y, w, h := scaleInventorySourceRect(inv.grid.x, inv.grid.y, inv.grid.w, inv.grid.w,
-		inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
-	itemClick := func(at int64) queuedClick { return queuedClick{x: x + w/2, y: y + h/2, at: at} }
+	cellX, cellY := personalBagCell(inv.grid, 0)
+	itemClick := func(at int64) queuedClick { return queuedClick{x: cellX, y: cellY, at: at} }
 	closeRect := computeMapOverlayLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g)).close
 	stale := queuedClick{x: closeRect.x + closeRect.w/2, y: closeRect.y + closeRect.h/2, at: 1060}
 
@@ -390,9 +389,8 @@ func TestMapOpenedFromInventoryCountsAsRenderedSameFrame(t *testing.T) {
 
 	hub := computeTabbedMenuLayout(cfg.GetScreenWidth(), gameplayViewportBottom(g))
 	inv := computeInventoryContentLayout(hub.content, 1)
-	x, y, w, h := scaleInventorySourceRect(inv.grid.x, inv.grid.y, inv.grid.w, inv.grid.w,
-		inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
-	itemClick := func(at int64) queuedClick { return queuedClick{x: x + w/2, y: y + h/2, at: at} }
+	cellX, cellY := personalBagCell(inv.grid, 0)
+	itemClick := func(at int64) queuedClick { return queuedClick{x: cellX, y: cellY, at: at} }
 
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
 	ui.Draw(screen) // publish the initial layout before input

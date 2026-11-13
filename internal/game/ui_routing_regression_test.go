@@ -123,9 +123,8 @@ func TestTitlePointerCannotArmCoveredInventoryDrag(t *testing.T) {
 	g.menuOpen, g.currentTab = true, TabInventory
 	menu := computeTabbedMenuLayout(1024, gameplayViewportBottom(g))
 	layout := computeInventoryContentLayout(menu.content, 1)
-	x, y, w, height := scaleInventorySourceRect(layout.grid.x, layout.grid.y, layout.grid.w, layout.grid.h, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
 	fp := installFakePointer(t)
-	fp.moveTo(x+w/2, y+height/2)
+	fp.moveTo(personalBagCell(layout.grid, 0))
 	presentInputScreen(h)
 	fp.press()
 	updateInputScreen(h)

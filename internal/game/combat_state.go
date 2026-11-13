@@ -41,7 +41,8 @@ func (g *MMGame) clearTransientCombatState() {
 	// to render, detonate, or leak into the destination autosave.
 	g.bossFireTraps = nil
 	g.bossFireTrapsOwner = ""
-	// A suspended TB turn belongs to the old world. applySave restores the
-	// suspension from its own snapshot after this cleaner returns.
+	// A suspended TB turn and an answered aggro belong to the old world.
+	// applySave restores both after this cleaner returns.
 	g.turnBasedTurnSuspended = false
+	g.fightAggroAnswered = false
 }

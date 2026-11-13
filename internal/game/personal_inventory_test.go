@@ -13,8 +13,8 @@ import (
 )
 
 func personalBagCell(r layoutRect, slot int) (int, int) {
-	x, y, w, h := scaleInventorySourceRect(r.x, r.y, r.w, r.h, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[slot])
-	return x + w/2, y + h/2
+	cell := inventoryGridCell(r, slot)
+	return cell.x + cell.w/2, cell.y + cell.h/2
 }
 
 func TestPersonalInventoryDisplayedTransfers(t *testing.T) {
@@ -398,8 +398,9 @@ func TestPersonalInventoryGeometryAllResolutions(t *testing.T) {
 				if i == 0 {
 					continue
 				}
-				for _, source := range inventoryGridSlots {
-					x, y, w, h := scaleInventorySourceRect(grid.x, grid.y, grid.w, grid.h, inventoryGridLayoutSize, inventoryGridLayoutSize, source)
+				for slot := range inventoryGridSlots {
+					cell := inventoryGridCell(grid, slot)
+					x, y, w, h := cell.x, cell.y, cell.w, cell.h
 					minSlot := 36
 					if size[1] < mh {
 						minSlot = 30

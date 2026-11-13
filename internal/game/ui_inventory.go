@@ -170,10 +170,11 @@ const (
 	inventoryPaperdollSourceH = 1024
 	inventoryPaperdollLayoutW = 300
 	inventoryPaperdollLayoutH = 450
-	// The high-resolution grid PNG is authored against this normalized logical
-	// canvas. Keeping its children in layout pixels avoids replacing working
-	// click geometry when the raster source is re-exported at a higher density.
+	// The bag grid panel is laid out on this logical canvas.
 	inventoryGridLayoutSize = 300
+	// inventoryGridSlots is measured on a canvas of this size, the pixels of
+	// the current raster; a re-export at another density keeps the table.
+	inventoryGridSlotCanvas = 1024
 )
 
 type inventorySourceRect struct {
@@ -206,22 +207,20 @@ var inventoryPaperdollSlots = []inventoryPaperdollSlot{
 	{items.SlotBoots, inventorySourceRect{282, 830, 118, 118}},
 }
 
-// Grid slots use the normalized 300x300 layout canvas above. The one-pixel
-// offsets are measured from the current 1024px raster's dark recess centres;
-// bag icons retain their separate 4px inset at draw time.
+// Bag cells are identical squares centred on the panel's dark recesses, on the
+// inventoryGridSlotCanvas. The icon keeps its inset at draw time.
 var inventoryGridSlots = []inventorySourceRect{
-	{42, 42, 45, 45}, {99, 42, 45, 45}, {155, 42, 45, 45}, {212, 42, 45, 45},
-	{42, 99, 45, 45}, {99, 99, 45, 45}, {155, 99, 45, 45}, {212, 99, 45, 45},
-	{42, 156, 45, 45}, {99, 156, 45, 45}, {155, 156, 45, 45}, {212, 156, 45, 45},
-	{42, 213, 45, 45}, {99, 213, 45, 45}, {155, 213, 45, 45}, {212, 213, 45, 45},
+	{145, 144, 152, 152}, {338, 144, 152, 152}, {531, 144, 152, 152}, {725, 144, 152, 152},
+	{145, 339, 152, 152}, {338, 339, 152, 152}, {531, 339, 152, 152}, {725, 339, 152, 152},
+	{145, 533, 152, 152}, {338, 533, 152, 152}, {531, 533, 152, 152}, {725, 533, 152, 152},
+	{145, 727, 152, 152}, {338, 727, 152, 152}, {531, 727, 152, 152}, {725, 727, 152, 152},
 }
 
-func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int, int) {
-	x := dstX + int(float64(r.x)*float64(dstW)/float64(srcW))
-	y := dstY + int(float64(r.y)*float64(dstH)/float64(srcH))
-	w := int(float64(r.w) * float64(dstW) / float64(srcW))
-	h := int(float64(r.h) * float64(dstH) / float64(srcH))
-	return x, y, w, h
+// inventoryGridCell is bag cell slot of a grid panel drawn at grid: the square
+// its icon, hover frame, clicks and drops share.
+func inventoryGridCell(grid layoutRect, slot int) layoutRect {
+	x, y, size := scaleInventorySourceSquare(grid.x, grid.y, grid.w, grid.h, inventoryGridSlotCanvas, inventoryGridSlotCanvas, inventoryGridSlots[slot])
+	return layoutRect{x, y, size, size}
 }
 
 // scaleInventorySourceSquare keeps an authored square centered after scaling.

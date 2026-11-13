@@ -40,8 +40,8 @@ func TestCombatOverlaySettings(t *testing.T) {
 			h, _ := audioGestureHarness(t, entry, 0)
 			g, fp := h.g, installFakePointer(t)
 			g.loadCombatPreferences()
-			if g.combatPreferences.TurnBasedOverlay || g.combatPreferences.PaniniDisabled {
-				t.Fatal("missing preferences must default to aurora off and Panini on")
+			if g.combatPreferences.TurnBasedOverlay || g.combatPreferences.PaniniDisabled || g.combatPreferences.AutoTurnBased {
+				t.Fatal("missing preferences must default to aurora off, Panini on and no automatic turn-based mode")
 			}
 			layout := makeAudioSettingsPanelLayout(1024, 768, entry)
 			click := func(r layoutRect) {
@@ -72,6 +72,28 @@ func TestCombatOverlaySettings(t *testing.T) {
 			h.loop.inputHandler.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
 			click(combatOverlayChoiceRect(layout.px, layout.py, layout.panelW, false))
 			check(false)
+			// The automatic switch has its own Off/On pair and keyboard row, and
+			// leaves the aurora choice alone.
+			checkAuto := func(want bool) {
+				t.Helper()
+				restored := &MMGame{}
+				restored.loadCombatPreferences()
+				if g.combatPreferences.AutoTurnBased != want || restored.combatPreferences.AutoTurnBased != want ||
+					g.combatPreferences.TurnBasedOverlay || g.audioSettingsSelection != gameplayRowAutoTurnBased {
+					t.Fatalf("automatic turn-based runtime=%+v saved=%+v row=%d, want %v on its own row", g.combatPreferences, restored.combatPreferences, g.audioSettingsSelection, want)
+				}
+			}
+			click(autoTurnBasedChoiceRect(layout.px, layout.py, layout.panelW, true))
+			checkAuto(true)
+			for _, key := range []ebiten.Key{ebiten.KeyLeft, ebiten.KeyRight} {
+				presentInputScreen(h)
+				h.loop.inputHandler.keys = keytracker.NewWithSource(func(k ebiten.Key) bool { return k == key })
+				updateInputScreen(h)
+				checkAuto(key == ebiten.KeyRight)
+			}
+			h.loop.inputHandler.keys = keytracker.NewWithSource(func(ebiten.Key) bool { return false })
+			click(autoTurnBasedChoiceRect(layout.px, layout.py, layout.panelW, false))
+			checkAuto(false)
 			click(viewChoiceRect(layout.px, layout.py, layout.panelW, true))
 			restored := &MMGame{}
 			restored.loadCombatPreferences()

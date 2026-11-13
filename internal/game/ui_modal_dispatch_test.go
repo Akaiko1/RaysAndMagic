@@ -114,8 +114,7 @@ func TestDisplayedPointerGesturesReachUpdate(t *testing.T) {
 					g.menuOpen, g.currentTab = true, TabInventory
 					menu := computeTabbedMenuLayout(1024, gameplayViewportBottom(g))
 					layout := computeInventoryContentLayout(menu.content, 1)
-					x, y, w, height := scaleInventorySourceRect(layout.grid.x, layout.grid.y, layout.grid.w, layout.grid.h, inventoryGridLayoutSize, inventoryGridLayoutSize, inventoryGridSlots[0])
-					sx, sy = x+w/2, y+height/2
+					sx, sy = personalBagCell(layout.grid, 0)
 					_, slots := quickSlotRects(layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w)
 					dx, dy = slots[0].Min.X+3, slots[0].Min.Y+3
 				case "standalone stash", "tavern stash":

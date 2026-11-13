@@ -30,6 +30,7 @@ const (
 	gameplayRowView
 	gameplayRowPanini
 	gameplayRowAurora
+	gameplayRowAutoTurnBased
 	gameplayRows
 )
 
@@ -79,8 +80,31 @@ func gameplayPageRect(px, py int, page gameplayPage) layoutRect {
 func gameplayViewBox(px, py, panelW int) layoutRect {
 	return layoutRect{px + 28, py + 132, panelW - 56, 168}
 }
+
+// The turn-based section: the aurora with its legend, then the automatic
+// switch on one line below a hairline.
+const (
+	gameplayAuroraLegendY = 62
+	gameplayAuroraRuleY   = 94
+	gameplayAutoTurnY     = 98
+)
+
 func gameplayAuroraBox(px, py, panelW int) layoutRect {
-	return layoutRect{px + 28, py + 308, panelW - 56, 126}
+	return layoutRect{px + 28, py + 308, panelW - 56, 136}
+}
+
+// autoTurnBasedTexts is the automatic switch's line: its name, then the rest
+// of the sentence in muted ink while it clears the Off/On pair.
+func autoTurnBasedTexts(px, py, panelW int) []combatSettingsText {
+	aurora := gameplayAuroraBox(px, py, panelW)
+	const name, tail = "Auto turn-based", "when a monster targets the party"
+	x, y := aurora.x+16, aurora.y+gameplayAutoTurnY+(32-uiTextCharHeight)/2
+	texts := []combatSettingsText{{name, layoutRect{x, y, 0, 0}, gameplayInk.heading}}
+	tailX := x + uiTextWidth(name+" ")
+	if tailX+uiTextWidth(tail)+16 <= autoTurnBasedChoiceRect(px, py, panelW, false).x {
+		texts = append(texts, combatSettingsText{tail, layoutRect{tailX, y, 0, 0}, gameplayInk.muted})
+	}
+	return texts
 }
 
 func combatSettingsTextLayout(px, py, panelW int) []combatSettingsText {
@@ -92,9 +116,9 @@ func combatSettingsTextLayout(px, py, panelW int) []combatSettingsText {
 	}
 	labels := [...]string{"Battlefield", "Attack reach", "Movement reach"}
 	for i, label := range labels {
-		texts = append(texts, combatSettingsText{label, layoutRect{px + 80 + i*((panelW-88)/3), aurora.y + 86, 0, 0}, gameplayInk.text})
+		texts = append(texts, combatSettingsText{label, layoutRect{px + 80 + i*((panelW-88)/3), aurora.y + gameplayAuroraLegendY + 4, 0, 0}, gameplayInk.text})
 	}
-	return texts
+	return append(texts, autoTurnBasedTexts(px, py, panelW)...)
 }
 
 func viewChoiceRect(px, py, panelW int, wide bool) layoutRect {
@@ -124,12 +148,22 @@ func viewChoiceTextLayout(r layoutRect, wide bool) []combatSettingsText {
 	return texts
 }
 
-func combatOverlayChoiceRect(px, py, panelW int, enabled bool) layoutRect {
+// gameplayToggleRect is the Off or On button of a turn-based option whose row
+// starts y below the section's top.
+func gameplayToggleRect(px, py, panelW, y int, enabled bool) layoutRect {
 	x := px + panelW - 204
 	if enabled {
 		x += 80
 	}
-	return layoutRect{x, gameplayAuroraBox(px, py, panelW).y + 8, 72, 32}
+	return layoutRect{x, gameplayAuroraBox(px, py, panelW).y + y, 72, 32}
+}
+
+func combatOverlayChoiceRect(px, py, panelW int, enabled bool) layoutRect {
+	return gameplayToggleRect(px, py, panelW, 8, enabled)
+}
+
+func autoTurnBasedChoiceRect(px, py, panelW int, enabled bool) layoutRect {
+	return gameplayToggleRect(px, py, panelW, gameplayAutoTurnY, enabled)
 }
 
 func (g *MMGame) setGameplayPage(page gameplayPage) {
@@ -150,7 +184,8 @@ func (ui *UISystem) drawCombatSettings(screen *ebiten.Image, px, py, panelW int)
 	// selected option's bronze frame and filled radio mark.
 	for row, box := range []layoutRect{gameplayViewBox(px, py, panelW), gameplayAuroraBox(px, py, panelW)} {
 		edge := gameplayInk.edge
-		if g.audioSettingsSelection == []int{gameplayRowView, gameplayRowAurora}[row] || row == 0 && g.audioSettingsSelection == gameplayRowPanini {
+		if g.audioSettingsSelection == []int{gameplayRowView, gameplayRowAurora}[row] ||
+			row == 0 && g.audioSettingsSelection == gameplayRowPanini || row == 1 && g.audioSettingsSelection == gameplayRowAutoTurnBased {
 			edge = gameplayInk.focus
 		}
 		drawRectBorder(screen, box.x, box.y, box.w, box.h, 1, edge)
@@ -188,21 +223,38 @@ func (ui *UISystem) drawCombatSettings(screen *ebiten.Image, px, py, panelW int)
 			g.setWideView(wide)
 		})
 	}
-	for _, enabled := range []bool{false, true} {
-		label := "Off"
-		if enabled {
-			label = "On"
+	aurora := gameplayAuroraBox(px, py, panelW)
+	// The hairline above the automatic switch takes the focus ink with its row.
+	rule := gameplayInk.edge
+	if g.audioSettingsSelection == gameplayRowAutoTurnBased {
+		rule = gameplayInk.focus
+	}
+	drawFilledRect(screen, aurora.x+16, aurora.y+gameplayAuroraRuleY, aurora.w-32, 1, rule)
+	for _, option := range []struct {
+		row    int
+		chosen bool
+		rect   func(px, py, panelW int, enabled bool) layoutRect
+		set    func(bool)
+	}{
+		{gameplayRowAurora, g.combatPreferences.TurnBasedOverlay, combatOverlayChoiceRect, g.setCombatOverlay},
+		{gameplayRowAutoTurnBased, g.combatPreferences.AutoTurnBased, autoTurnBasedChoiceRect, g.setAutoTurnBased},
+	} {
+		for _, enabled := range []bool{false, true} {
+			label := "Off"
+			if enabled {
+				label = "On"
+			}
+			r := option.rect(px, py, panelW, enabled)
+			ui.drawSettingsChoice(screen, label, r, option.chosen == enabled)
+			ui.settingsClick(r, func() {
+				g.audioSettingsSelection = option.row
+				option.set(enabled)
+			})
 		}
-		r := combatOverlayChoiceRect(px, py, panelW, enabled)
-		ui.drawSettingsChoice(screen, label, r, g.combatPreferences.TurnBasedOverlay == enabled)
-		ui.settingsClick(r, func() {
-			g.audioSettingsSelection = gameplayRowAurora
-			g.setCombatOverlay(enabled)
-		})
 	}
 	// The legend uses floor-grid and perimeter glyphs, matching what each color
 	// means in play instead of suggesting that every threatened tile is filled.
-	legendY := gameplayAuroraBox(px, py, panelW).y + 82
+	legendY := aurora.y + gameplayAuroraLegendY
 	for i, rgb := range [][3]int{combatAuraBlue, combatAuraRed, combatAuraGreen} {
 		x, y := px+44+i*((panelW-88)/3), legendY
 		ink := color.RGBA{uint8(rgb[0]), uint8(rgb[1]), uint8(rgb[2]), 255}

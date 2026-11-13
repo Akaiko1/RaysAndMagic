@@ -90,6 +90,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, source *GameSave) error {
 	// A fight resumed from a save is not a fresh fight: no new opener. The
 	// flag reads the restored monsters.
 	g.partyWasInFight = g.partyInCombat()
+	// Nor is its aggro news: the saved mode stands.
+	g.fightAggroAnswered = g.partyUnderAttack()
 
 	// Restore played time by adjusting session start
 	if save.PlayedTimeNs > 0 {
