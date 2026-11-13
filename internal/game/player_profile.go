@@ -167,7 +167,7 @@ func (g *MMGame) updatePlayerProfile(now time.Time) {
 			}
 		}
 		g.evaluateAchievements()
-		loading := g.gameLoop != nil && g.gameLoop.loadingBarrier()
+		loading := g.loadingStall()
 		if !loading {
 			g.recordProfileExploration(g.camera.X, g.camera.Y)
 		}
@@ -387,7 +387,7 @@ func (g *MMGame) beginProfileMonsterHit(m *monster.Monster3D, name string) func(
 // Paused achievements use the interface clock; the world clock owns all other
 // news. Loading freezes this channel while its own indicator is visible.
 func (g *MMGame) tickPausedAchievementBanner() {
-	if g.gameLoop != nil && g.gameLoop.loadingBarrier() {
+	if g.loadingStall() {
 		return
 	}
 	if b := g.currentScreenBanner(); b != nil && b.kind == bannerAchievement {

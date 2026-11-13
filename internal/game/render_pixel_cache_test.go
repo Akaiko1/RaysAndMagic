@@ -57,7 +57,7 @@ func TestDemandUploadsUseSharedBoundedBatch(t *testing.T) {
 			}
 			original := append([]*ebiten.Image(nil), l.uploads...)
 			dst := &recordingMapRenderUploadDestination{}
-			l.submitDemandUploads(dst)
+			l.submitDemandUploads(dst, mapRenderPlayUploads)
 			if len(dst.images) != tc.want || len(l.uploads) != len(original)-tc.want {
 				t.Fatalf("submitted %d remaining %d", len(dst.images), len(l.uploads))
 			}
@@ -67,7 +67,7 @@ func TestDemandUploadsUseSharedBoundedBatch(t *testing.T) {
 				}
 			}
 			for len(l.uploads) > 0 {
-				l.submitDemandUploads(dst)
+				l.submitDemandUploads(dst, mapRenderPlayUploads)
 			}
 			if len(dst.images) != len(original) {
 				t.Fatal("queue did not drain exactly once")

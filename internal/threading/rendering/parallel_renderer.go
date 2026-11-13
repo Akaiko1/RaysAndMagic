@@ -64,26 +64,23 @@ func (pr *ParallelRenderer) RenderRaycastInto(numRays int, raycastFunc func(int,
 		batchSize = 32 // Cap batch size
 	}
 
-	var wg sync.WaitGroup
-
 	for i := 0; i < numRays; i += batchSize {
 		start := i
 		end := mathutil.IntMin(i+batchSize, numRays)
-
-		wg.Add(1)
 		job := func() {
-			defer wg.Done()
 			for rayIndex := start; rayIndex < end; rayIndex++ {
 				raycastFunc(rayIndex, &results[rayIndex])
 			}
 		}
-		// Refused (pool stopped, post-shutdown render): run inline so this
-		// local wg.Wait can never hang on a silently dropped job.
+		// Refused (pool stopped, post-shutdown render): run inline, so no
+		// batch is ever dropped.
 		if !pr.workerPool.Submit(job) {
 			job()
 		}
 	}
-	wg.Wait()
+	// The pool is this renderer's own and mu admits one caller: Wait covers
+	// exactly this frame's batches and raises a failed batch's panic here.
+	pr.workerPool.Wait()
 
 	return results
 }

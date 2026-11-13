@@ -210,6 +210,8 @@ func (g *MMGame) setSelectedAudioVolume(delta float64) {
 		switch g.audioSettingsSelection {
 		case displayRowProps:
 			g.setProps3D(delta > 0)
+		case displayRowFitTrees, displayRowFitMonuments:
+			g.setFitToTile(g.audioSettingsSelection == displayRowFitMonuments, delta > 0)
 		case displayRowFont:
 			g.stepUIFont(dir)
 		case displayRowSize:

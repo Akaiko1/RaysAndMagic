@@ -1,6 +1,7 @@
 package threading
 
 import (
+	"ugataima/internal/config"
 	"ugataima/internal/threading/entities"
 	"ugataima/internal/threading/monitoring"
 	"ugataima/internal/threading/rendering"
@@ -14,12 +15,16 @@ type ThreadingComponents struct {
 	PerformanceMonitor *monitoring.PerformanceMonitor
 }
 
-// NewThreadingComponents creates and initializes all threading components
-// This eliminates the repetitive initialization code
-func NewThreadingComponents(config interface{}) *ThreadingComponents {
+// NewThreadingComponents creates and initializes all threading components.
+// Without a config every monster batch goes to the worker pool.
+func NewThreadingComponents(cfg *config.Config) *ThreadingComponents {
+	minParallel := 0
+	if cfg != nil {
+		minParallel = cfg.Engine.ParallelMonsterMinimum
+	}
 	return &ThreadingComponents{
 		ParallelRenderer:   rendering.NewParallelRenderer(),
-		EntityUpdater:      entities.NewEntityUpdater(),
+		EntityUpdater:      entities.NewEntityUpdater(minParallel),
 		WallSliceCache:     rendering.NewWallSliceCache(),
 		PerformanceMonitor: monitoring.NewPerformanceMonitor(),
 	}

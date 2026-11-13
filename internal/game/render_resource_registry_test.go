@@ -200,3 +200,32 @@ func TestRenderRegistryPendingCommitRetainsLazyWinner(t *testing.T) {
 		t.Fatal("cancelled pending commit kept source alive")
 	}
 }
+
+// An evicted region frees its allocations over the following Updates, not in
+// the frame of the eviction; a world switch takes them all at once.
+func TestReleasedAllocationsAreDisposedInBoundedSteps(t *testing.T) {
+	r := &Renderer{}
+	r.refreshRenderResourceRegistry()
+	id := renderResourceID{kind: renderResourceSky, name: "evicted"}
+	var images []*ebiten.Image
+	for i := 0; i < 5; i++ {
+		images = append(images, ebiten.NewImage(1, 1))
+	}
+	r.mapRenderRegistry.put(id, images, nil, nil)
+	r.mapRenderRegistry.releaseResources(map[renderResourceID]struct{}{id: {}})
+	if len(r.mapRenderReleases) != len(images) {
+		t.Fatalf("eviction queued %d allocations, want %d", len(r.mapRenderReleases), len(images))
+	}
+	r.drainRenderReleases(2)
+	if len(r.mapRenderReleases) != 3 {
+		t.Fatalf("a bounded step left %d allocations, want 3", len(r.mapRenderReleases))
+	}
+	r.drainRenderReleases(0)
+	if len(r.mapRenderReleases) != 3 {
+		t.Fatal("an empty budget disposed allocations")
+	}
+	r.resetMapRenderResourceResidency()
+	if len(r.mapRenderReleases) != 0 {
+		t.Fatalf("a world switch left %d allocations queued", len(r.mapRenderReleases))
+	}
+}

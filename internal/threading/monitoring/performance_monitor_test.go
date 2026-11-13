@@ -279,32 +279,31 @@ func (m *MockMonster) IsUpdated() bool {
 // Update() runs on every monster, not the two-phase collision apply.
 func (m *MockMonster) ApplyCollisionUpdate() {}
 
+// A batch updates exactly its living monsters on either side of the pool
+// threshold: on the workers (minimum 0) and in the caller's loop (minimum
+// above the batch).
 func TestEntityUpdaterWithDeadMonsters(t *testing.T) {
-	updater := entities.NewEntityUpdater()
-
-	// Create test monsters, some dead
-	monsters := make([]entities.MonsterUpdateInterface, 6)
-	for i := range monsters {
-		monsters[i] = &MockMonster{
-			id:    i,
-			x:     float64(i),
-			y:     float64(i * 2),
-			alive: i%2 == 0, // Every other monster is alive
+	for _, minParallel := range []int{0, 100} {
+		updater := entities.NewEntityUpdater(minParallel)
+		monsters := make([]entities.MonsterUpdateInterface, 6)
+		for i := range monsters {
+			monsters[i] = &MockMonster{
+				id:    i,
+				x:     float64(i),
+				y:     float64(i * 2),
+				alive: i%2 == 0, // Every other monster is alive
+			}
 		}
-	}
 
-	// Update monsters in parallel
-	updater.UpdateMonstersParallel(monsters)
+		updater.UpdateMonstersParallel(monsters)
 
-	// Verify only alive monsters were updated
-	for i, monster := range monsters {
-		mockMonster := monster.(*MockMonster)
-		shouldBeUpdated := mockMonster.IsAlive()
-		wasUpdated := mockMonster.IsUpdated()
-
-		if shouldBeUpdated != wasUpdated {
-			t.Errorf("Monster %d: expected updated=%v, got updated=%v", i, shouldBeUpdated, wasUpdated)
+		for i, monster := range monsters {
+			mockMonster := monster.(*MockMonster)
+			if mockMonster.IsAlive() != mockMonster.IsUpdated() {
+				t.Errorf("minimum %d, monster %d: alive=%v updated=%v", minParallel, i, mockMonster.IsAlive(), mockMonster.IsUpdated())
+			}
 		}
+		updater.Stop()
 	}
 }
 

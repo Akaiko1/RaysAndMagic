@@ -19,8 +19,13 @@ type RenderingHelper struct {
 	game                    *MMGame
 	textureCache            map[string]*ebiten.Image // Cache for procedural textures
 	visibleHeightScaleCache map[visibleHeightScaleKey]float64
+	visibleReachCache       map[string]visibleReach
 	skyOpts                 ebiten.DrawTrianglesShaderOptions
 }
+
+// visibleReach is how far a sprite family's visible art extends sideways from
+// the frame centre, as a share of the frame's width and of its height.
+type visibleReach struct{ perWidth, perHeight float64 }
 
 type visibleHeightScaleKey struct {
 	spriteName      string
@@ -44,6 +49,7 @@ func NewRenderingHelper(game *MMGame) *RenderingHelper {
 		game:                    game,
 		textureCache:            make(map[string]*ebiten.Image),
 		visibleHeightScaleCache: make(map[visibleHeightScaleKey]float64),
+		visibleReachCache:       make(map[string]visibleReach),
 	}
 }
 
@@ -363,8 +369,22 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetricsF(entityX, entityY, dist
 
 // NPCSpriteMetricsF is the float twin of NPCSpriteMetrics (same routing).
 func (rh *RenderingHelper) NPCSpriteMetricsF(npc *character.NPC, ex, ey, distance float64) (screenXf, bottomF, sizeF float64, visible bool) {
+	if !rh.npcCanProject(ex, ey, distance) {
+		return 0, 0, 0, false
+	}
 	sizeTiles, minSize := rh.npcBillboardParams(npc)
 	return rh.billboardMetricsF(ex, ey, distance, sizeTiles, minSize)
+}
+
+// npcCanProject is what the projection rejects whatever the size: a point past
+// the view distance or behind the camera. Such an NPC is never measured -
+// sizing it reads its art, a request for a region that may not be resident.
+func (rh *RenderingHelper) npcCanProject(ex, ey, distance float64) bool {
+	if distance > rh.game.camera.ViewDist {
+		return false
+	}
+	_, _, ok := rh.projectToScreenXF(ex, ey)
+	return ok
 }
 
 // npcBillboardParams resolves the (height-in-tiles, min-pixel-floor) pair an
@@ -415,7 +435,13 @@ func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
 			if npc.Visited && npc.VisitedSprite != "" && spriteName == strings.TrimSuffix(npc.VisitedSprite, ".png") {
 				spriteName = strings.TrimSuffix(npc.Sprite, ".png")
 			}
-			return value * rh.visibleHeightFrameScale(spriteName, aspectFromWidth)
+			size := value * rh.visibleHeightFrameScale(spriteName, aspectFromWidth)
+			// Monuments and scenery turn or spin on their tile. Wall tokens,
+			// doors and grid-span facades are placed against their footprint.
+			if (category == catLandmark || category == catScenery) && rh.game.fitToTile(true) {
+				size *= rh.fitScale(spriteName, size, false, turningTileReach)
+			}
+			return size
 		}
 	}
 	return 1.0
@@ -447,10 +473,7 @@ func (rh *RenderingHelper) visibleHeightFrameScale(spriteName string, aspectFrom
 		}
 		return 1 / scale, true
 	}
-	names := rh.game.sprites.GetSpriteVariants(spriteName)
-	if len(names) == 0 {
-		names = []string{spriteName}
-	}
+	names := rh.spriteFamily(spriteName)
 	fractionSum := 0.0
 	resolved := 0
 	for _, name := range names {
@@ -471,12 +494,24 @@ func (rh *RenderingHelper) visibleHeightFrameScale(spriteName string, aspectFrom
 	return value
 }
 
+// spriteFamily is every variant a sprite name stands for, or the name alone
+// when the catalog lists none: one measurement covers what a tile can roll.
+func (rh *RenderingHelper) spriteFamily(spriteName string) []string {
+	if names := rh.game.sprites.GetSpriteVariants(spriteName); len(names) > 0 {
+		return names
+	}
+	return []string{spriteName}
+}
+
 // NPCSpriteMetrics projects an NPC billboard through the correct path
 // (environment/landmark props vs person NPCs; grid-span facades project the
 // WHOLE span so hover/click rects cover every footprint tile). Single source
 // for both the renderer and click hit-testing so drawing and hit-tests never
 // diverge; the routing lives in npcBillboardParams, shared with the float twin.
 func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance float64) (screenX, screenY, spriteSize int, visible bool) {
+	if !rh.npcCanProject(ex, ey, distance) {
+		return 0, 0, 0, false
+	}
 	sizeTiles, minSize := rh.npcBillboardParams(npc)
 	return rh.billboardMetrics(ex, ey, distance, sizeTiles, minSize)
 }
@@ -529,8 +564,93 @@ func (rh *RenderingHelper) envHeightMultiplierForMode(tileType world.TileType3D,
 				aspectFromWidth,
 			)
 		}
+		heightMultiplier *= rh.tileFitScale(tileType, heightMultiplier)
 	}
 	return heightMultiplier * sizeScale
+}
+
+// With the Display choices on, an object's visible art stays inside the tile it
+// stands on. A cross on the tile's diagonals may reach its corners; anything
+// that turns or spins must clear the inscribed circle. Both in tiles from the
+// tile centre.
+const (
+	crossedTileReach = math.Sqrt2 / 2
+	turningTileReach = 0.5
+)
+
+// tileFitScale is the uniform scale (width and height alike, never above 1)
+// that brings a tile object inside its tile, or 1 when its Display choice is
+// off. size is the authored span before the fit: the frame width of a tree or
+// a monument, the frame height of any other object.
+func (rh *RenderingHelper) tileFitScale(tileType world.TileType3D, size float64) float64 {
+	if rh == nil || world.GlobalTileManager == nil || isFireflySwarmTile(tileType) {
+		return 1
+	}
+	renderType := world.GlobalTileManager.GetRenderType(tileType)
+	monument := renderType == config.TileRenderLandmarkStandee
+	switch renderType {
+	case config.TileRenderCrossedStandee, config.TileRenderCrossedProp, config.TileRenderStandee, config.TileRenderLandmarkStandee:
+	default:
+		return 1
+	}
+	if !rh.game.fitToTile(monument) {
+		return 1
+	}
+	sprite := world.GlobalTileManager.GetSprite(tileType)
+	switch renderType {
+	case config.TileRenderCrossedStandee: // the class is the frame width
+		return rh.fitScale(sprite, size, false, crossedTileReach)
+	case config.TileRenderCrossedProp: // width follows the frame aspect
+		return rh.fitScale(sprite, size, true, crossedTileReach)
+	default: // a flat token and a spinning monument span size across the frame width
+		return rh.fitScale(sprite, size, false, turningTileReach)
+	}
+}
+
+// fitScale shrinks size until the sprite family's visible art reaches no
+// further than limit tiles from its centre. byHeight says size is the frame
+// height of art whose width follows the frame aspect.
+func (rh *RenderingHelper) fitScale(spriteName string, size float64, byHeight bool, limit float64) float64 {
+	if size <= 0 || rh.game == nil || rh.game.sprites == nil {
+		return 1
+	}
+	reach, ok := rh.visibleReach(spriteName)
+	if !ok {
+		return 1
+	}
+	extent := size * reach.perWidth
+	if byHeight {
+		extent = size * reach.perHeight
+	}
+	if extent <= limit {
+		return 1
+	}
+	return limit / extent
+}
+
+// visibleReach measures every variant of a sprite family and keeps the widest,
+// so one tile type has one size whatever variant a tile rolled.
+func (rh *RenderingHelper) visibleReach(spriteName string) (visibleReach, bool) {
+	if spriteName == "" {
+		return visibleReach{}, false
+	}
+	if reach, ok := rh.visibleReachCache[spriteName]; ok {
+		return reach, true
+	}
+	var reach visibleReach
+	for _, name := range rh.spriteFamily(spriteName) {
+		bounds, frameWidth, frameHeight, known := rh.game.sprites.SpriteVisibleFrameBounds(name)
+		// Unknown can mean a deferred load: never freeze a partial family.
+		if !known || frameWidth <= 0 || frameHeight <= 0 {
+			return visibleReach{}, false
+		}
+		centre := float64(frameWidth) / 2
+		half := math.Max(centre-float64(bounds.Min.X), float64(bounds.Max.X)-centre)
+		reach.perWidth = math.Max(reach.perWidth, half/float64(frameWidth))
+		reach.perHeight = math.Max(reach.perHeight, half/float64(frameHeight))
+	}
+	rh.visibleReachCache[spriteName] = reach
+	return reach, true
 }
 
 // projectSpriteMetrics is the shared projection core for floor-anchored

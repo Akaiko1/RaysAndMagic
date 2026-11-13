@@ -12,6 +12,10 @@ type displayPreferences struct {
 	InterfaceSize string `json:"interface_size"`
 	Font          string `json:"font,omitempty"`
 	Props3D       *bool  `json:"props_3d,omitempty"`
+	// Scale world objects into their own tile: trees and small props, and
+	// monuments with the other placed objects.
+	FitTrees     bool `json:"fit_trees_to_tile,omitempty"`
+	FitMonuments bool `json:"fit_monuments_to_tile,omitempty"`
 }
 
 // loadDisplayPreferences restores interface and prop presentation choices. A
@@ -20,11 +24,13 @@ func (g *MMGame) loadDisplayPreferences() {
 	g.config.PlayerInterfaceSize = g.config.Display.DefaultInterfaceSize
 	g.config.PlayerFont = g.config.Display.DefaultFont
 	g.config.PlayerProps3D = nil
+	g.config.PlayerFitTreesToTile, g.config.PlayerFitMonumentsToTile = false, false
 	prefs, ok := loadSettingsJSON[displayPreferences](displayPreferencesPath(), "display")
 	if !ok {
 		return
 	}
 	g.config.PlayerProps3D = prefs.Props3D
+	g.config.PlayerFitTreesToTile, g.config.PlayerFitMonumentsToTile = prefs.FitTrees, prefs.FitMonuments
 	if _, ok := g.config.Display.InterfaceSize(prefs.InterfaceSize); ok {
 		g.config.PlayerInterfaceSize = prefs.InterfaceSize
 	} else {
@@ -43,7 +49,32 @@ func (g *MMGame) saveDisplayPreferences() {
 	}
 	g.saveSettingsJSON(displayPreferencesPath(), "display", displayPreferences{
 		InterfaceSize: g.interfaceSizeKey(), Font: g.uiFontKey(), Props3D: g.config.PlayerProps3D,
+		FitTrees: g.config.PlayerFitTreesToTile, FitMonuments: g.config.PlayerFitMonumentsToTile,
 	}, &g.displaySettingsDirty)
+}
+
+// fitToTile reports a Display choice: trees and small props (monuments
+// false), or monuments and the other placed objects.
+func (g *MMGame) fitToTile(monuments bool) bool {
+	if g == nil || g.config == nil {
+		return false
+	}
+	if monuments {
+		return g.config.PlayerFitMonumentsToTile
+	}
+	return g.config.PlayerFitTreesToTile
+}
+
+func (g *MMGame) setFitToTile(monuments, enabled bool) {
+	choice := &g.config.PlayerFitTreesToTile
+	if monuments {
+		choice = &g.config.PlayerFitMonumentsToTile
+	}
+	if *choice != enabled {
+		*choice = enabled
+		g.displaySettingsDirty = true
+	}
+	g.saveDisplayPreferences()
 }
 
 func (g *MMGame) props3DEnabled() bool {

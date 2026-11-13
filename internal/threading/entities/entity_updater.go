@@ -4,37 +4,39 @@ import (
 	"ugataima/internal/threading/core"
 )
 
-// EntityUpdater manages parallel updates for game entities.
+// EntityUpdater runs the per-tick monster update, on its worker pool when the
+// batch is large enough to pay for waking it.
 //
-// Concurrency model: callers run UpdateMonstersParallel / UpdateProjectilesParallel
-// from the main game tick. Wait() blocks the caller until every chunk finishes,
-// so the main goroutine cannot mutate shared world state (camera, world tiles,
-// projectile slices) while workers are running. This "stop-the-world" tick lets
-// each entity's Update() safely read shared state without locks. The invariant
-// holds only as long as no other goroutine writes during this window - keep it
-// that way.
+// Concurrency model: callers run UpdateMonstersParallel from the main game
+// tick. Wait() blocks the caller until every chunk finishes, so the main
+// goroutine cannot mutate shared world state (camera, world tiles) while
+// workers are running. This "stop-the-world" tick lets each entity's Update()
+// safely read shared state without locks. The invariant holds only as long as
+// no other goroutine writes during this window - keep it that way.
 //
 // Two-phase apply: Update() must never WRITE shared cross-entity state (the
 // live collision system, screen shake, particle effects) - only read an
 // immutable, frozen view of it (see collision.CollisionSnapshot) and mutate the
 // entity's OWN fields. A shared write it wants to make instead gets computed
-// during Update() and applied by ApplyCollisionUpdate() (monsters) /
-// ApplyCollisionEffects() (projectiles) - both run in a plain serial loop AFTER
-// Wait() returns, on the calling goroutine, once every worker has finished.
-// This keeps Update() itself (the AI/movement work) fully parallel while the
-// handful of shared writes it triggers stay race-free without any locking.
+// during Update() and applied by ApplyCollisionUpdate() in a plain serial loop
+// AFTER Wait() returns, on the calling goroutine, once every worker has
+// finished. This keeps Update() itself (the AI/movement work) fully parallel
+// while the handful of shared writes it triggers stay race-free without any
+// locking. A small batch runs the same two phases on the calling goroutine.
 type EntityUpdater struct {
 	workerPool *core.WorkerPool
+	// minParallel is the smallest batch sent to the pool; below it the wake-up
+	// of the workers costs more than the update itself.
+	minParallel int
 }
 
-// NewEntityUpdater creates a new entity updater.
-func NewEntityUpdater() *EntityUpdater {
-	return &EntityUpdater{
-		workerPool: core.CreateDefaultWorkerPool(),
-	}
+// NewEntityUpdater creates an entity updater that uses its pool for batches
+// of at least minParallel entities.
+func NewEntityUpdater(minParallel int) *EntityUpdater {
+	return &EntityUpdater{workerPool: core.CreateDefaultWorkerPool(), minParallel: minParallel}
 }
 
-// NewEntityUpdaterWithWorkers runs the same barrier with an explicit pool size.
+// NewEntityUpdaterWithWorkers sends every batch to a pool of an explicit size.
 // Test-only: game tests pin the pool size, and the pool field is unexported.
 func NewEntityUpdaterWithWorkers(workers int) *EntityUpdater {
 	pool := core.NewWorkerPool(workers)
@@ -56,8 +58,8 @@ type MonsterUpdateInterface interface {
 
 // ProjectileUpdateInterface defines the interface for projectiles. OnCollision
 // only records that an impact happened (touches the projectile's own fields
-// only); ApplyCollisionEffects spawns the resulting hit effects/screen shake -
-// see the type doc's two-phase apply note.
+// only); ApplyCollisionEffects spawns the resulting hit effects/screen shake
+// once every projectile of the tick has moved - see UpdateProjectiles.
 type ProjectileUpdateInterface interface {
 	IsActive() bool
 	GetPosition() (float64, float64)
@@ -85,12 +87,17 @@ func chunkSizeFor(total, numWorkers int) int {
 	return chunk
 }
 
-// runChunked submits per-chunk jobs covering [0, total) and waits for them all.
-// fn receives the half-open range [start, end) for its chunk. If the pool is
-// stopped (post-shutdown call), refused chunks run inline - degraded to
-// serial, never dropped or hung.
+// runChunked covers [0, total) with fn and returns when all of it has run: in
+// per-chunk pool jobs, or as one call on this goroutine for a batch under
+// minParallel. fn receives the half-open range [start, end) for its chunk. If
+// the pool is stopped (post-shutdown call), refused chunks run inline -
+// degraded to serial, never dropped or hung.
 func (eu *EntityUpdater) runChunked(total int, fn func(start, end int)) {
 	if total == 0 {
+		return
+	}
+	if total < eu.minParallel {
+		fn(0, total)
 		return
 	}
 	chunk := chunkSizeFor(total, eu.workerPool.GetNumWorkers())
@@ -107,9 +114,9 @@ func (eu *EntityUpdater) runChunked(total int, fn func(start, end int)) {
 	eu.workerPool.Wait()
 }
 
-// UpdateMonstersParallel updates all monsters in parallel using the reusable
-// worker pool, then applies each one's collision-system write serially. See
-// type doc for the stop-the-world invariant and the two-phase apply rationale.
+// UpdateMonstersParallel updates all monsters, on the worker pool for a large
+// batch, then applies each one's collision-system write serially. See type
+// doc for the stop-the-world invariant and the two-phase apply rationale.
 func (eu *EntityUpdater) UpdateMonstersParallel(monsters []MonsterUpdateInterface) {
 	eu.runChunked(len(monsters), func(start, end int) {
 		for j := start; j < end; j++ {
@@ -129,30 +136,25 @@ func (eu *EntityUpdater) UpdateMonstersParallel(monsters []MonsterUpdateInterfac
 	}
 }
 
-// UpdateProjectilesParallel updates all projectiles in parallel, then applies
-// any impact's hit effects/screen shake serially. canMoveTo must be safe for
-// concurrent reads. See type doc for the stop-the-world invariant and the
-// two-phase apply rationale.
-func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdateInterface, canMoveTo func(x, y float64) bool) {
-	eu.runChunked(len(projectiles), func(start, end int) {
-		for j := start; j < end; j++ {
-			p := projectiles[j]
-			if !p.IsActive() {
-				continue
-			}
-			x, y := p.GetPosition()
-			vx, vy := p.GetVelocity()
-			newX, newY := x+vx, y+vy
-			if p.IgnoresWalls() || canMoveTo(newX, newY) {
-				p.SetPosition(newX, newY)
-			} else {
-				p.OnCollision(x, y)
-			}
-			p.SetLifetime(p.GetLifetime() - 1)
+// UpdateProjectiles moves every projectile one tick, then applies the hit
+// effects/screen shake of the impacts the moves recorded. A plain loop: one
+// projectile's move is a few additions and a tile lookup, far cheaper than
+// handing it to a worker.
+func UpdateProjectiles(projectiles []ProjectileUpdateInterface, canMoveTo func(x, y float64) bool) {
+	for _, p := range projectiles {
+		if !p.IsActive() {
+			continue
 		}
-	})
-	// Phase 2: spawn hit effects/screen shake for any impact recorded above.
-	// Serial and safe - every worker has already returned.
+		x, y := p.GetPosition()
+		vx, vy := p.GetVelocity()
+		newX, newY := x+vx, y+vy
+		if p.IgnoresWalls() || canMoveTo(newX, newY) {
+			p.SetPosition(newX, newY)
+		} else {
+			p.OnCollision(x, y)
+		}
+		p.SetLifetime(p.GetLifetime() - 1)
+	}
 	for _, p := range projectiles {
 		p.ApplyCollisionEffects()
 	}

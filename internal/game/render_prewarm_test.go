@@ -36,7 +36,7 @@ func TestMapRenderPrewarmPipelinesReadyConsumer(t *testing.T) {
 				pendingSourceNames: map[string]int{"ready": 1, "slow": 1}, sourcesChanged: true,
 				preparedSprites: prepared, skiesDone: true,
 				cpuImages:   make(map[*ebiten.Image]*image.RGBA),
-				queueBudget: graphics.NewPreparationBudget(32 << 20),
+				queueBudget: graphics.NewPreparationBudget(mapRenderPlayQueueBytes),
 			}
 			task.prewarmer = newMapRenderPrewarmer(r, task)
 			r.mapRenderResourcePrewarmActive = task
@@ -528,7 +528,7 @@ func TestMapRenderStandeeWorkerCompletionAndCancellation(t *testing.T) {
 			cpu := image.NewRGBA(image.Rect(0, 0, 4, 4))
 			results := prepareMapRenderStandees(ctx, []mapRenderStandeeJob{{
 				key: standeeCoreKey{name: "mob:test"}, cpu: cpu,
-			}}, 0.5)
+			}}, 0.5, nil, nil)
 			prepared, ok := <-results
 			if ok != tt.wantResult {
 				t.Fatalf("worker result present = %v, want %v", ok, tt.wantResult)
@@ -724,7 +724,7 @@ func TestMapRenderTaskQueueRemovalClearsBackingEntries(t *testing.T) {
 			{
 				name: "image count limit retains queue tail",
 				makeQueue: func() []mapRenderUpload {
-					queue := make([]mapRenderUpload, mapRenderUploadFrameImages+1)
+					queue := make([]mapRenderUpload, mapRenderPlayUploads.images+1)
 					for i := range queue {
 						queue[i] = mapRenderUpload{
 							image: ebiten.NewImage(1, 1), task: &mapRenderPrewarmTask{mapKey: "batch"},
@@ -733,7 +733,7 @@ func TestMapRenderTaskQueueRemovalClearsBackingEntries(t *testing.T) {
 					queue[len(queue)-1].task.mapKey = "tail"
 					return queue
 				},
-				submit: true, wantDraws: mapRenderUploadFrameImages,
+				submit: true, wantDraws: mapRenderPlayUploads.images,
 				wantUploads: 1, wantFirstMapKey: "tail",
 			},
 			{

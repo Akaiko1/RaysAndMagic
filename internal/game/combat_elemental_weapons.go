@@ -72,7 +72,7 @@ type backwashCharge struct {
 	OriginX, OriginY float64
 }
 
-// Retarget serially before projectile workers run. Losing range, sight or the
+// Retarget before the shots of this tick move. Losing range, sight or the
 // target ends the charge; it cannot fly through a newly closed door.
 func (cs *CombatSystem) prepareBackwashCharge(shot *Arrow) {
 	if shot.Backwash == nil || !shot.Active {

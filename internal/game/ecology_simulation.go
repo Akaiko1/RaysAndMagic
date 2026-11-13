@@ -134,7 +134,7 @@ func remoteEcologyActor(m *monster.Monster3D) bool {
 // Publish all actor motion before serial post arbitration and attack delivery,
 // just like the foreground scheduler. The one snapshot is shared by the batch.
 func (g *MMGame) moveRemoteEcologyRealtime() {
-	snapshot := g.collisionSystem.Snapshot()
+	snapshot := g.collisionSystem.FrameSnapshot()
 	wrappers := make([]*MonsterWrapper, 0, 12)
 	for _, m := range g.world.Monsters {
 		if !remoteEcologyActor(m) {

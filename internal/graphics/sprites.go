@@ -24,6 +24,7 @@ type SpriteManager struct {
 	iconFrames      map[string]iconFrameEntry
 	deferResource   func(SpriteResourceRequest) bool
 	failedResources map[SpriteResourceRequest]bool
+	decodeGate      *WorkerGate
 
 	imageResources       map[*ebiten.Image]SpriteResourceRequest
 	sprites              map[string]*ebiten.Image
@@ -482,16 +483,20 @@ func animationKey(name, animType string) animationCacheKey {
 	return animationCacheKey{name: name, animType: animType}
 }
 
-// PrepareResources decodes sources with a small CPU pool when a shared byte
-// budget is supplied. The one-result buffer and byte reservations bound queued
-// pixels while the game loop commits earlier work. Results retain request order.
+// PrepareResources decodes sources on background workers when a shared byte
+// budget is supplied: as many at once as the manager's decode gate admits, two
+// without a gate. Results retain request order; see PrepareOrdered.
 func (sm *SpriteManager) PrepareResources(ctx context.Context, requests []SpriteResourceRequest, budgets ...*PreparationBudget) <-chan PreparedSpriteResource {
 	return sm.prepareResources(ctx, requests, false, budgets...)
 }
 
+// SetDecodeGate bounds the decoders of every budgeted PrepareResources call.
+// Demand loads keep their own pair of decoders.
+func (sm *SpriteManager) SetDecodeGate(gate *WorkerGate) { sm.decodeGate = gate }
+
 func (sm *SpriteManager) prepareResources(ctx context.Context, requests []SpriteResourceRequest, interactive bool, budgets ...*PreparationBudget) <-chan PreparedSpriteResource {
-	results := make(chan PreparedSpriteResource, 1)
 	if sm == nil {
+		results := make(chan PreparedSpriteResource)
 		close(results)
 		return results
 	}
@@ -514,74 +519,24 @@ func (sm *SpriteManager) prepareResources(ctx context.Context, requests []Sprite
 		}
 		jobs = append(jobs, decodeJob{request: request, path: path})
 	}
-	// Decode in parallel, but reserve and publish in request order. Otherwise a
-	// cheap distant sprite can overtake the nearest source, or consume the byte
-	// reservation needed by an earlier result that the owner is waiting for.
-	workers := 1
-	if preparationBudget(budgets) != nil {
-		workers = min(2, max(1, runtime.GOMAXPROCS(0)-1))
+	budget := preparationBudget(budgets)
+	gate := sm.decodeGate
+	switch {
+	case budget == nil:
+		gate = nil
+	case gate == nil || interactive:
+		workers := min(2, max(1, runtime.GOMAXPROCS(0)-1))
+		gate = NewWorkerGate(workers, workers)
 	}
-	type queuedDecode struct {
-		job   decodeJob
-		lease *PreparationLease
-		reply chan PreparedSpriteResource
-	}
-	work := make(chan queuedDecode)
-	ordered := make(chan chan PreparedSpriteResource, workers)
-	for range min(workers, len(jobs)) {
-		go func() {
-			for next := range work {
-				if ctx.Err() != nil {
-					next.lease.Release()
-					continue
-				}
-				prepared := sm.decodePreparedWithMask(next.job.request, next.job.path, interactive)
-				prepared.QueueLease = next.lease
-				next.lease.ReleaseOnCancel(ctx)
-				// Each reply has one slot. A later decoder never blocks while
-				// the owner waits for an earlier request, even on cancellation.
-				next.reply <- prepared
-			}
-		}()
-	}
-	go func() {
-		defer close(work)
-		defer close(ordered)
-		for _, job := range jobs {
-			lease, ok := ReservePNGPreparation(ctx, job.path, preparationBudget(budgets))
-			if !ok {
-				return
-			}
-			reply := make(chan PreparedSpriteResource, 1)
-			select {
-			case work <- queuedDecode{job: job, lease: lease, reply: reply}:
-			case <-ctx.Done():
-				lease.Release()
-				return
-			}
-			select {
-			case ordered <- reply:
-			case <-ctx.Done():
-				return // The decoder owns the lease after dispatch.
-			}
-		}
-	}()
-	go func() {
-		defer close(results)
-		for reply := range ordered {
-			select {
-			case prepared := <-reply:
-				select {
-				case results <- prepared:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return results
+	return PrepareOrdered(ctx, jobs, gate,
+		func(ctx context.Context, job decodeJob) (*PreparationLease, bool) {
+			return ReservePNGPreparation(ctx, job.path, budget)
+		},
+		func(job decodeJob, lease *PreparationLease) PreparedSpriteResource {
+			prepared := sm.decodePreparedWithMask(job.request, job.path, interactive)
+			prepared.QueueLease = lease
+			return prepared
+		})
 }
 
 func (sm *SpriteManager) decodePreparedResource(request SpriteResourceRequest) PreparedSpriteResource {

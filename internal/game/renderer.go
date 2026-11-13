@@ -144,6 +144,13 @@ type Renderer struct {
 	standeeTrilinearOpts   ebiten.DrawTrianglesShaderOptions
 	standeeVolumeShader    *ebiten.Shader
 	standeeVolumeOpts      ebiten.DrawTrianglesShaderOptions
+	standeeSheetShader     *ebiten.Shader
+	standeeSheetOpts       ebiten.DrawTrianglesShaderOptions
+	standeeSheets          map[standeeCoreKey]*standeeSheet
+	// Released allocations waiting for their bounded per-Update disposal.
+	mapRenderReleases []*ebiten.Image
+	// Worker-side loading limits, switched by applyLoadingPace.
+	decodeGate, standeeGate *graphics.WorkerGate
 	// Reusable vertex/index buffers for batched standee surface draws.
 	standeeVerts []ebiten.Vertex
 	standeeIdx   []uint16
@@ -2140,7 +2147,7 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	sprite := r.game.sprites.GetSprite(spriteName)
 	widthTiles := flatTreeFallbackWidthTiles
 	if world.GlobalTileManager != nil {
-		widthTiles = world.GlobalTileManager.GetSizeTiles(tileType)
+		widthTiles = r.game.renderHelper.envHeightMultiplier(tileType, 1)
 	}
 	spriteWidth, spriteHeight := r.flatTreeFallbackSize(distance, widthTiles, sprite)
 
@@ -3585,7 +3592,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 						screenY = int(bf) - spriteSize
 					}
 				}
-				sprite := r.game.sprites.GetSprite(r.game.activityNPCSprite(npc))
+				// Fetched for the first drawn segment only: a building out of
+				// view must not request art of a region that is not resident.
+				var sprite *ebiten.Image
 				ts := float64(r.game.config.GetTileSize())
 				dirX, dirY := math.Cos(byaw), math.Sin(byaw)
 				for i, c := range r.game.buildingFootprintTiles(npc) {
@@ -3597,6 +3606,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 					d2 := (ddx+dirX*ts/2)*camDirX + (ddy+dirY*ts/2)*camDirY
 					if d1 < 1.0 && d2 < 1.0 {
 						continue // whole slice behind the camera plane
+					}
+					if sprite == nil {
+						sprite = r.game.sprites.GetSprite(r.game.activityNPCSprite(npc))
 					}
 					sprites = append(sprites, UnifiedSpriteRenderData{
 						spriteType:      SpriteTypeNPC,

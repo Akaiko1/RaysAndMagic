@@ -3,6 +3,7 @@ package game
 import (
 	"image/color"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -73,6 +74,7 @@ func (gl *GameLoop) closeResourceLoading() {
 	l := gl.loading
 	l.stream.Close()
 	if gl.renderer != nil {
+		gl.renderer.applyLoadingPace(false)
 		gl.renderer.cancelFloorPreparation()
 		gl.renderer.cancelMapRenderPrewarmOutside(nil)
 		clear(gl.renderer.lazySpriteCPUPixels)
@@ -150,15 +152,21 @@ func (r *Renderer) requiredLoadingRegions() []string {
 	if r.game.openWorldActive() {
 		tileSize := float64(r.game.config.GetTileSize())
 		gl := r.game.gameLoop
+		// The view polygon circumscribes its arc, so it reaches a little past
+		// the nearby radius: a paused frame still needs every visible region,
+		// or the pause would lift and return on each tick at that distance.
+		keys = append(keys, visibleOpenWorldMapKeys(world.GlobalWorldManager, r.game.camera,
+			tileSize, mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles*tileSize, r.game.viewFOV())...)
 		if gl != nil && gl.loading != nil && gl.loading.awaitingFrame {
-			// Once paused, finish the same surrounding batch that residency
-			// already prefetches. Releasing on the current frustum alone lets
-			// small party steps expose each unfinished neighbour in turn.
-			keys = append(keys, nearbyOpenWorldMapKeys(world.GlobalWorldManager, r.game.camera,
-				tileSize, mapRenderLoadMarginInTiles*tileSize)...)
-		} else {
-			keys = append(keys, visibleOpenWorldMapKeys(world.GlobalWorldManager, r.game.camera,
-				tileSize, mapRenderLoadFOVMargin, mapRenderLoadMarginInTiles*tileSize, r.game.viewFOV())...)
+			// Once paused, finish the whole surrounding batch as well.
+			// Releasing on the current frustum alone lets small party steps
+			// expose each unfinished neighbour in turn.
+			for _, key := range nearbyOpenWorldMapKeys(world.GlobalWorldManager, r.game.camera,
+				tileSize, mapRenderLoadMarginInTiles*tileSize) {
+				if !slices.Contains(keys, key) {
+					keys = append(keys, key)
+				}
+			}
 		}
 	}
 	return keys
@@ -280,19 +288,20 @@ func (gl *GameLoop) advanceResourceLoading() {
 	if gl.renderer == nil {
 		return
 	}
+	gl.renderer.drainRenderReleases(gl.renderer.releasesPerUpdate())
 	if gl.loading == nil {
 		gl.renderer.prewarmPendingMapRenderResources()
 		return
 	}
 	gl.ensureResourceLoading()
 	l := gl.loading
-	// Background work gets one pass: WritePixels may defer its GPU cost until
-	// Draw, so a cheap CPU call must not buy more upload chunks during play.
-	// A loading pause can drain ready work under the shared deadline.
-	steps, duration := loadingPreparationBudget(l.awaitingFrame)
-	deadline := time.Now().Add(duration)
+	// Play gets a few bounded passes: WritePixels may defer its GPU cost until
+	// Draw, so cheap CPU calls must not buy unlimited upload chunks. A held
+	// frame works to its deadline and waits there for its workers.
+	pace := gl.renderer.applyLoadingPace(l.awaitingFrame)
+	deadline := time.Now().Add(pace.duration)
 	regionDone := false
-	for step := 0; step < steps; step++ {
+	for step := 0; pace.steps == 0 || step < pace.steps; step++ {
 		progress := gl.renderer.advanceFloorPreparation(mapRenderSpriteCommitChunkBytes)
 		request, images, advanced := l.stream.Advance(mapRenderSpriteCommitChunkBytes)
 		progress = progress || advanced
@@ -311,7 +320,10 @@ func (gl *GameLoop) advanceResourceLoading() {
 			// this Update. Floor and demand queues can still finish their work.
 			regionDone = gl.renderer.mapRenderResourcePrewarmActive == nil
 		}
-		if !progress || time.Now().After(deadline) {
+		if time.Now().After(deadline) {
+			break
+		}
+		if !progress && !(pace.waitForWorkers && gl.renderer.awaitMapRenderWorker(deadline)) {
 			break
 		}
 	}
@@ -363,7 +375,7 @@ func (gl *GameLoop) drawResourceLoadingFrame(screen *ebiten.Image) {
 	}
 	// Small demand images share the prewarmer's byte/count policy instead
 	// of making every icon wait for its own presentation frame.
-	l.submitDemandUploads(screen)
+	l.submitDemandUploads(screen, gl.renderer.uploadLimit())
 
 	now := time.Now()
 	alpha := l.bannerAlpha(now)
@@ -504,25 +516,14 @@ func (r *Renderer) prioritizeLoadingRegions(required []string) {
 	r.mapRenderResourcePrewarmMapKeys = next
 }
 
-// loadingPreparationBudget changes scheduling only. Neither mode changes
-// resident regions, pixel chunk size, or the resource-readiness barrier.
-func loadingPreparationBudget(paused bool) (int, time.Duration) {
-	if paused {
-		return 32, 4 * time.Millisecond
-	}
-	// Bound upload bursts as well as CPU time: cheap WritePixels calls can
-	// otherwise fill the next Draw with several megabytes of deferred work.
-	return 1, mapRenderDerivedFrameBudget
-}
-
-func (l *gameLoadingState) submitDemandUploads(dst mapRenderUploadDestination) {
+func (l *gameLoadingState) submitDemandUploads(dst mapRenderUploadDestination, limit mapRenderUploadLimit) {
 	var submitted int
 	var bytes int64
 	for submitted < len(l.uploads) {
 		img := l.uploads[submitted]
 		b := img.Bounds()
 		n := int64(b.Dx()) * int64(b.Dy()) * 4
-		if mapRenderUploadFrameFull(submitted, bytes, n) {
+		if limit.full(submitted, bytes, n) {
 			break
 		}
 		submitRenderUpload(dst, img, submitted)

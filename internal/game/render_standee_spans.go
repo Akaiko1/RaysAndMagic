@@ -84,7 +84,10 @@ func (run standeeClipRun) emit(end int, emit func(int, int, standeeClipSample, s
 // Reciprocal depth, U/depth and projected vertical edges are affine in screen X;
 // the fragment shader reconstructs the same pixel-centre sample from them.
 // Near-plane crossings and clips narrower than three columns use the fallback.
-func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices []uint32, slab standeeSlab, sf standeeSurface, minX, maxX int, material ebiten.Vertex, sourceOrigin image.Point) ([]ebiten.Vertex, []uint32, bool) {
+//
+// sheet selects the standee_sheet.kage layout: material already addresses the
+// level block, and the strip carries its projected height and U times height.
+func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices []uint32, slab standeeSlab, sf standeeSurface, minX, maxX int, material ebiten.Vertex, sourceOrigin image.Point, sheet bool) ([]ebiten.Vertex, []uint32, bool) {
 	if maxX-minX < 2 {
 		return vertices, indices, false
 	}
@@ -114,7 +117,9 @@ func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices [
 	// Integers encode the layer/filter flags, the fraction keeps the mip blend.
 	// Keep the blend inside each flag interval, away from floor boundaries even
 	// when interpolating constant attributes introduces a few ULPs of error.
-	material.Custom2 = -(1 + 4*material.Custom1 + 2*material.Custom2 + 0.25 + 0.5*material.Custom0)
+	if !sheet {
+		material.Custom2 = -(1 + 4*material.Custom1 + 2*material.Custom2 + 0.25 + 0.5*material.Custom0)
+	}
 	column := func(x int) standeeClipSample {
 		offset := float64(x-minX) + 0.5
 		inv, uq := inv0+invStep*offset, uq0+uqStep*offset
@@ -146,10 +151,15 @@ func (r *Renderer) appendStandeeSurfaceSpans(vertices []ebiten.Vertex, indices [
 		v := material
 		v.DstX = float32(x)
 		v.DstY = top
-		v.SrcX = float32(sourceOrigin.X) + top
-		v.SrcY = float32(sourceOrigin.Y) + height
-		v.Custom0 = float32(inv)
-		v.Custom1 = float32(uq0 + uqStep*offset)
+		if sheet {
+			v.Custom0 = height
+			v.Custom1 = float32(projection.heightScale * (uq0 + uqStep*offset))
+		} else {
+			v.SrcX = float32(sourceOrigin.X) + top
+			v.SrcY = float32(sourceOrigin.Y) + height
+			v.Custom0 = float32(inv)
+			v.Custom1 = float32(uq0 + uqStep*offset)
+		}
 		lo := v
 		lo.DstY = bottom
 		if clip.state == standeeClipWall {

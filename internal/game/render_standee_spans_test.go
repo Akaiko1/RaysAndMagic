@@ -239,7 +239,7 @@ func TestStandeeSpansPreserveColumnRendering(t *testing.T) {
 				material := ebiten.Vertex{ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: tc.blend, Custom1: tc.layer, Custom2: tc.filtered}
 				slab := standeeSlab{centerDepth: 100, centerSize: 300, bottomY: 400}
 				surface := standeeSurface{p0x: 100, p0y: -100, dy: 200}
-				vertices, indices, ok := r.appendStandeeSurfaceSpans(nil, nil, slab, surface, 200, 440, material, image.Point{})
+				vertices, indices, ok := r.appendStandeeSurfaceSpans(nil, nil, slab, surface, 200, 440, material, image.Point{}, false)
 				if !ok || len(vertices) == 0 {
 					t.Fatal("flag fixture did not project")
 				}

@@ -279,6 +279,7 @@ func (r *Renderer) registerStandeeResource(key standeeCoreKey) renderResourceID 
 	r.mapRenderRegistry.put(id, images, dependencies, func() {
 		delete(r.standeeCoreCache, key)
 		delete(r.standeeRenderSourceCache, key)
+		delete(r.standeeSheets, key)
 		for _, layer := range []standeeMipLayer{standeeMipSticker, standeeMipCore} {
 			delete(r.standeeMipCache, standeeMipKey{frame: key, layer: layer})
 		}
@@ -361,6 +362,7 @@ func (r *Renderer) registerResourceManifest(resources *mapRenderRegionResources,
 func (r *Renderer) refreshRenderResourceRegistry() {
 	if r.mapRenderRegistry == nil {
 		r.mapRenderRegistry = newRenderResourceRegistry()
+		r.mapRenderRegistry.release = r.queueRenderRelease
 	}
 	for _, record := range r.mapRenderRegistry.records {
 		clear(record.owners)
@@ -419,4 +421,25 @@ func (r *Renderer) cacheProcessedSprite(key processedSpriteKey, img *ebiten.Imag
 	}
 	r.processedSpriteCache[key] = img
 	r.indexProcessedSource(key, img)
+}
+
+// queueRenderRelease defers a released allocation. An evicted region frees
+// hundreds of textures; disposing them in one frame stalled presentation for
+// 50-120 ms, so drainRenderReleases spreads them over the following Updates.
+func (r *Renderer) queueRenderRelease(img *ebiten.Image) {
+	r.mapRenderReleases = append(r.mapRenderReleases, img)
+}
+
+// drainRenderReleases deallocates up to limit queued images; a negative limit
+// takes them all (a world switch, behind its loading barrier).
+func (r *Renderer) drainRenderReleases(limit int) {
+	n := len(r.mapRenderReleases)
+	if limit >= 0 {
+		n = min(n, limit)
+	}
+	for i := 0; i < n; i++ {
+		r.mapRenderReleases[i].Deallocate()
+		r.mapRenderReleases[i] = nil
+	}
+	r.mapRenderReleases = r.mapRenderReleases[n:]
 }

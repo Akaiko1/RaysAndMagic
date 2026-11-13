@@ -183,8 +183,6 @@ func TestBackwashChainThroughProjectileCollisions(t *testing.T) {
 					n.HitPoints = 0
 					before[n.ID] = 0
 				}
-				updater := entities.NewEntityUpdaterWithWorkers(2)
-				t.Cleanup(updater.Stop)
 				// Run actual movement, homing and collision phases, including the
 				// append-safe snapshots used when a hit spawns the next charge.
 				for tick := 0; ; tick++ {
@@ -201,7 +199,7 @@ func TestBackwashChainThroughProjectileCollisions(t *testing.T) {
 						t.Fatal("chain did not terminate")
 					}
 					cs.CheckProjectileMonsterCollisions()
-					updater.UpdateProjectilesParallel(g.ConvertProjectilesToWrappers(), func(float64, float64) bool { return true })
+					entities.UpdateProjectiles(g.ConvertProjectilesToWrappers(), func(float64, float64) bool { return true })
 				}
 				legs := len(g.arrows) - 1
 				for _, target := range g.world.Monsters {

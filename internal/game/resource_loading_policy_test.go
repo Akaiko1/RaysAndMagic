@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 	"time"
+	"ugataima/internal/graphics"
 
 	"ugataima/internal/character"
 )
@@ -75,7 +76,9 @@ func TestDeferredHitTestDoesNotCacheUnknownScale(t *testing.T) {
 					}
 					g.sprites.SpriteVisibleFrameBounds(variants[0])
 				}
-				g.world.NPCs = []*character.NPC{{Name: "Cold scenery", Sprite: name, RenderCategory: "scenery", SizeClass: "full_tile", X: 10000, Y: 10000}}
+				// In view: a hit test measures only what the renderer can draw.
+				g.camera.Angle, g.camera.ViewDist = 0, g.config.GetViewDistance()
+				g.world.NPCs = []*character.NPC{{Name: "Cold scenery", Sprite: name, RenderCategory: "scenery", SizeClass: "full_tile", X: g.camera.X + g.camera.ViewDist/2, Y: g.camera.Y}}
 				g.sprites.SetDeferredResourceHandler(gl.deferGameplayResource)
 				g.findNPCAtScreen(0, 0)
 				g.sprites.SetDeferredResourceHandler(nil)
@@ -97,5 +100,43 @@ func TestDeferredHitTestDoesNotCacheUnknownScale(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A hit test measures art only for what the projection lets the renderer
+// draw: an NPC beyond the view distance, even dead ahead, or behind the party,
+// even close by, must not start a load for a region that is not resident.
+func TestHitTestRequestsArtOnlyInsideTheViewDistance(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		distance float64 // along the view axis, in view distances
+		want     bool
+	}{
+		{"near", 0.25, true},
+		{"just inside", 0.98, true},
+		{"just outside", 1.02, false},
+		{"far", 3, false},
+		{"behind the party", -0.25, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gl := loadingFixture(t)
+			t.Chdir("../..")
+			g := gl.game
+			ApplySpriteColorKey(g.sprites, g.config)
+			g.renderHelper = NewRenderingHelper(g)
+			g.camera.Angle, g.camera.ViewDist = 0, g.config.GetViewDistance()
+			g.world.NPCs = []*character.NPC{{Name: "Cold scenery", Sprite: "campfire", RenderCategory: "scenery", SizeClass: "full_tile",
+				X: g.camera.X + g.camera.ViewDist*tc.distance, Y: g.camera.Y}}
+			var requested []string
+			g.sprites.SetDeferredResourceHandler(func(request graphics.SpriteResourceRequest) bool {
+				requested = append(requested, request.Name)
+				return true
+			})
+			defer g.sprites.SetDeferredResourceHandler(nil)
+			g.findNPCAtScreen(g.config.GetScreenWidth()/2, g.config.GetScreenHeight()/2)
+			if got := len(requested) > 0; got != tc.want {
+				t.Fatalf("art requested: %v (%v), want %v", got, requested, tc.want)
+			}
+		})
 	}
 }

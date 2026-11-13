@@ -440,8 +440,25 @@ func (r *Renderer) commitPreparedStandeePixels(key standeeCoreKey, src *ebiten.I
 		r.standeeCoreCache = make(map[standeeCoreKey]*ebiten.Image)
 	}
 	r.standeeCoreCache[key] = img
-	r.cachePreparedStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipSticker}, sticker, prepared.stickerMips)
-	r.cachePreparedStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipCore}, img, prepared.coreMips)
+	stickerKey, coreKey := standeeMipKey{frame: key, layer: standeeMipSticker}, standeeMipKey{frame: key, layer: standeeMipCore}
+	var sheet *standeeSheet
+	if r.standeeMipCache[stickerKey] == nil && r.standeeMipCache[coreKey] == nil {
+		sheet = newStandeeSheet(prepared.stickerMips, prepared.coreMips)
+	}
+	if sheet == nil {
+		r.cachePreparedStandeeMipChain(stickerKey, sticker, prepared.stickerMips, nil)
+		r.cachePreparedStandeeMipChain(coreKey, img, prepared.coreMips, nil)
+	} else {
+		// The sticker chain owns the sheet; the core levels are views too.
+		if chain := r.cachePreparedStandeeMipChain(stickerKey, sticker, prepared.stickerMips, sheet.sticker); chain != nil {
+			chain.owned = append(chain.owned, sheet.image)
+		}
+		r.cachePreparedStandeeMipChain(coreKey, img, prepared.coreMips, sheet.core)
+		if r.standeeSheets == nil {
+			r.standeeSheets = make(map[standeeCoreKey]*standeeSheet)
+		}
+		r.standeeSheets[key] = sheet
+	}
 	r.trackResidentStandeeKey(key, src)
 	return sticker, img
 }
@@ -513,10 +530,13 @@ func standeeUsesMinificationSampling(projectedWidth, projectedHeight, textureWid
 // the automatic texture atlas. Level 0 is normalized to (0,0,w,h) only when
 // the source is a sheet SubImage.
 func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevel *image.RGBA) *mipChain {
-	return r.cachePreparedStandeeMipChain(key, src, prepareStandeeMipPixels(cpuLevel))
+	return r.cachePreparedStandeeMipChain(key, src, prepareStandeeMipPixels(cpuLevel), nil)
 }
 
-func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevels []*image.RGBA) *mipChain {
+// views, when set, are the token sheet's views for the reduced levels: the
+// chain fills them instead of allocating an image per level, and the caller
+// owns the sheet.
+func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevels []*image.RGBA, views []*ebiten.Image) *mipChain {
 	if chain := r.standeeMipCache[key]; chain != nil {
 		return chain
 	}
@@ -535,7 +555,14 @@ func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.I
 		chain.owned = append(chain.owned, base)
 	}
 	chain.levels = append(chain.levels, base)
-	for _, cpuLevel := range cpuLevels[1:] {
+	for k, cpuLevel := range cpuLevels[1:] {
+		if views != nil {
+			bounds := cpuLevel.Bounds()
+			start := cpuLevel.PixOffset(bounds.Min.X, bounds.Min.Y)
+			views[k+1].WritePixels(cpuLevel.Pix[start : start+4*bounds.Dx()*bounds.Dy()])
+			chain.levels = append(chain.levels, views[k+1])
+			continue
+		}
 		level := newStandeeTextureFromPixels(cpuLevel)
 		chain.levels = append(chain.levels, level)
 		chain.owned = append(chain.owned, level)
@@ -1307,11 +1334,34 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		return
 	}
 	opts := &r.standeeTrilinearOpts
+	// Reduced levels draw from the token's sheet: its shader reads no image
+	// region, so successive tokens merge into one GPU command.
+	var sheet *standeeSheet
+	if filtered && mipLevel >= 1 && coreMipLevel == mipLevel && projection.heightScale > 0 && !math.IsInf(projection.heightScale, 0) {
+		blended := mipLevel
+		if mipBlend > 0 {
+			blended = nextMipLevel
+		}
+		if s := r.standeeSheets[sticker.mipKey.frame]; s.holds(stickerMips, coreMips, mipLevel, blended) {
+			if _, err := r.ensureStandeeSheetShader(); err == nil {
+				sheet = s
+			}
+		}
+	}
+	if sheet != nil {
+		shader, opts = r.standeeSheetShader, &r.standeeSheetOpts
+		if opts.Uniforms == nil {
+			opts.Uniforms = map[string]any{"Horizon": make([]float32, 1)}
+		}
+		opts.Uniforms["Horizon"].([]float32)[0] = float32(projection.horizon)
+		opts.Images[0] = sheet.image
+	} else {
+		opts.Images[0] = stickerMips.levels[0]
+		opts.Images[1] = stickerMips.levels[mipLevel]
+		opts.Images[2] = stickerMips.levels[nextMipLevel]
+		opts.Images[3] = coreMips.levels[coreMipLevel]
+	}
 	opts.Blend = ebiten.BlendSourceOver
-	opts.Images[0] = stickerMips.levels[0]
-	opts.Images[1] = stickerMips.levels[mipLevel]
-	opts.Images[2] = stickerMips.levels[nextMipLevel]
-	opts.Images[3] = coreMips.levels[coreMipLevel]
 
 	verts := r.standeeVerts[:0]
 	idx := r.standeeMaterialIdx[:0]
@@ -1343,21 +1393,21 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		}
 		material := ebiten.Vertex{ColorR: cr, ColorG: cg, ColorB: cb, ColorA: opacity,
 			Custom0: mipBlend, Custom1: layerMode, Custom2: filteredFlag, Custom3: majorFootprint}
+		if sheet != nil {
+			// standee_sheet.kage layout: the block origin carries the surface
+			// and the blend in its fractions, away from the integer boundaries.
+			block := sheet.blocks[mipLevel]
+			material.SrcX = float32(block.X) + 0.25 + layerMode/8
+			material.SrcY = float32(block.Y) + 0.125 + 0.75*mipBlend
+			material.Custom2 = float32(projection.bottomScale / projection.heightScale)
+		}
 		var spanned bool
-		verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, minX, maxX, material, stickerMips.levels[0].Bounds().Min)
+		verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, minX, maxX, material, stickerMips.levels[0].Bounds().Min, sheet != nil)
 		if spanned {
 			continue
 		}
 		textureX := func(u float64) float32 {
-			if u < 0 {
-				u = 0
-			} else if u > 1 {
-				u = 1
-			}
-			if sf.mirrored {
-				u = 1 - u
-			}
-			return float32(math.Min(u*texW, texW-1)) + 0.5
+			return float32(math.Min(standeeSourceU(u, sf.mirrored)*texW, texW-1)) + 0.5
 		}
 		for x := minX; x <= maxX; x++ {
 			rcx, rcy := rayAt(float64(x) + 0.5)
@@ -1396,6 +1446,19 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 				}
 			}
 			x0, x1 := float32(x), float32(x+1)
+			if sheet != nil {
+				// One column of the span layout: constant height and U.
+				column := material
+				column.Custom0 = height
+				column.Custom1 = float32(projection.heightScale * standeeSourceU(u, sf.mirrored) / t)
+				base := uint32(len(verts))
+				for _, corner := range [4][2]float32{{x0, top}, {x1, top}, {x0, drawBottom}, {x1, drawBottom}} {
+					column.DstX, column.DstY = corner[0], corner[1]
+					verts = append(verts, column)
+				}
+				idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
+				continue
+			}
 			srcX := textureX(u)
 			base := uint32(len(verts))
 			verts = append(verts,
@@ -1414,6 +1477,16 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	}
 	r.standeeVerts = verts[:0]
 	r.standeeMaterialIdx = idx[:0]
+}
+
+// standeeSourceU is the art U of a surface hit: clamped to the face, flipped
+// on a mirrored surface.
+func standeeSourceU(u float64, mirrored bool) float64 {
+	u = max(0, min(1, u))
+	if mirrored {
+		return 1 - u
+	}
+	return u
 }
 
 // tileIsNaturalCross reports whether a crossed tile is the natural cross

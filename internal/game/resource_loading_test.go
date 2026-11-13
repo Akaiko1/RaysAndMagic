@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+	"ugataima/internal/playerprofile"
 	"ugataima/internal/threading"
 	"ugataima/internal/world"
 
@@ -63,8 +65,7 @@ func TestLoadingPreparationDrainsReadySources(t *testing.T) {
 			close(prepared)
 			started := time.Now()
 			gl.advanceResourceLoading()
-			_, budget := loadingPreparationBudget(paused)
-			exhausted := time.Since(started) >= budget
+			exhausted := time.Since(started) >= r.loadingPace(paused).duration
 			if !paused {
 				// Background preparation spreads work over successive Updates.
 				for range 3 {
@@ -84,11 +85,19 @@ func TestLoadingPreparationDrainsReadySources(t *testing.T) {
 	}
 }
 
+// A background Update writes the configured number of chunks and no more: the
+// GPU pays for them in the next Draw.
 func TestLoadingBackgroundBoundsPixelWrites(t *testing.T) {
-	for _, kind := range []string{"floor", "region"} {
+	for _, kind := range []string{"floor", "region", "floor, one step", "region, one step"} {
 		t.Run(kind, func(t *testing.T) {
 			gl := loadingFixture(t)
 			r := gl.renderer
+			steps := gl.game.config.Graphics.Streaming.BackgroundStepsPerTick
+			if strings.HasSuffix(kind, "one step") {
+				steps = 1
+				gl.game.config.Graphics.Streaming.BackgroundStepsPerTick = steps
+				kind = strings.TrimSuffix(kind, ", one step")
+			}
 			cpu := image.NewRGBA(image.Rect(0, 0, 512, 1024))
 			img := ebiten.NewImage(512, 1024)
 			_, cancel := context.WithCancel(context.Background())
@@ -105,8 +114,10 @@ func TestLoadingBackgroundBoundsPixelWrites(t *testing.T) {
 				uploaded = func() int { return commit.row * cpu.Stride }
 			}
 			gl.advanceResourceLoading()
-			if bytes := uploaded(); bytes != 256<<10 {
-				t.Fatalf("background Update wrote %d bytes; want one 256 KiB chunk", bytes)
+			// The step count is the ceiling; the 1.5 ms deadline may end the
+			// Update sooner on a busy machine, never before one chunk.
+			if bytes := uploaded(); bytes < mapRenderSpriteCommitChunkBytes || bytes > steps*mapRenderSpriteCommitChunkBytes || bytes%mapRenderSpriteCommitChunkBytes != 0 {
+				t.Fatalf("background Update wrote %d bytes; want 1 to %d chunks of 256 KiB", bytes, steps)
 			}
 		})
 	}
@@ -466,11 +477,25 @@ func TestLoadingPreflightsDynamicCombatAnimation(t *testing.T) {
 	mon := monster.NewMonster3DFromConfig(64, 64, "goblin", gl.game.config)
 	gl.game.world.Monsters = []*monster.Monster3D{mon}
 	gl.game.mainMenuOpen = true
+	// The profile observes the game at the end of every Update, after the
+	// tick's deferred lookups are over.
+	profile, err := playerprofile.Open(filepath.Join(t.TempDir(), "profile.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gl.game.playerProfile = profile
+	defer profile.Close()
 	if err := gl.Update(); err != nil {
 		t.Fatal(err)
 	}
 	if !gl.loading.awaitingFrame || !gl.loading.stream.Pending() {
 		t.Fatal("cold actor animation reached gameplay without the loading gate")
+	}
+	for _, animation := range []string{"attacking_r", "attacking_l"} {
+		req := graphics.SpriteResourceRequest{Name: mon.GetSpriteType(), AnimationType: animation}
+		if len(gl.game.sprites.ResourceImages(req)) != 0 {
+			t.Fatalf("%s was decoded inside the Update instead of by the loading worker", animation)
+		}
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for gl.loading.stream.Pending() && time.Now().Before(deadline) {
@@ -607,4 +632,149 @@ func TestLoadingRetainsReusedSourcePixelsAcrossRenderMisses(t *testing.T) {
 		}
 	}
 	r.resetMapRenderResourceResidency()
+}
+
+// Play keeps its quotas; the loading screen takes the configured limits and
+// never falls below play's, even with an empty loading_screen block.
+func TestLoadingPaceByMode(t *testing.T) {
+	gl := loadingFixture(t)
+	r := gl.renderer
+	streaming := &gl.game.config.Graphics.Streaming
+	play := r.loadingPace(false)
+	want := loadingPace{
+		steps: streaming.BackgroundStepsPerTick, duration: mapRenderDerivedFrameBudget,
+		decoders: mapRenderPlayDecoders, standeeWorkers: mapRenderPlayStandeeWorkers,
+		queueBytes: mapRenderPlayQueueBytes, uploads: mapRenderPlayUploads,
+	}
+	if play != want {
+		t.Fatalf("play pace %+v, want %+v", play, want)
+	}
+	screen := streaming.LoadingScreen
+	held := r.loadingPace(true)
+	if held.steps != 0 || !held.waitForWorkers || held.duration != mapRenderHeldUpdateBudget {
+		t.Fatalf("held frame does not work to its deadline and wait for workers: %+v", held)
+	}
+	if held.decoders != screen.WorkerCount() || held.standeeWorkers != screen.WorkerCount() ||
+		held.queueBytes != int64(screen.QueueMegabytes)<<20 ||
+		held.uploads != (mapRenderUploadLimit{int64(screen.UploadMegabytesPerFrame) << 20, screen.UploadImagesPerFrame}) {
+		t.Fatalf("held pace %+v ignores loading_screen %+v", held, screen)
+	}
+	streaming.LoadingScreen = config.LoadingScreenConfig{Workers: 1}
+	if floor := r.loadingPace(true); floor.decoders != play.decoders || floor.standeeWorkers != play.standeeWorkers ||
+		floor.queueBytes != play.queueBytes || floor.uploads != play.uploads {
+		t.Fatalf("a loading screen below the play quotas: %+v", floor)
+	}
+}
+
+// Switching the mode moves the worker gates, the active region's queue and the
+// frame's upload quota together, in both directions.
+func TestLoadingPaceSwitchesLiveLimits(t *testing.T) {
+	gl := loadingFixture(t)
+	r := gl.renderer
+	task := &mapRenderPrewarmTask{mapKey: currentMapKey(), queueBudget: graphics.NewPreparationBudget(mapRenderPlayQueueBytes)}
+	r.mapRenderResourcePrewarmActive = task
+	t.Cleanup(r.resetMapRenderResourceResidency)
+	// One byte held, then a reservation larger than the play queue.
+	secondFits := func() bool {
+		first, _ := task.queueBudget.Acquire(context.Background(), 1)
+		defer first.Release()
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		second, ok := task.queueBudget.Acquire(ctx, mapRenderPlayQueueBytes)
+		second.Release()
+		return ok
+	}
+	for _, held := range []bool{false, true, false} {
+		gl.loading.awaitingFrame = held
+		pace := r.applyLoadingPace(held)
+		if r.decodeGate.Limit() != pace.decoders || r.standeeGate.Limit() != pace.standeeWorkers {
+			t.Fatalf("held=%v: gates admit %d and %d, pace wants %d and %d", held, r.decodeGate.Limit(), r.standeeGate.Limit(), pace.decoders, pace.standeeWorkers)
+		}
+		if r.uploadLimit() != pace.uploads {
+			t.Fatalf("held=%v: frame uploads %+v, pace wants %+v", held, r.uploadLimit(), pace.uploads)
+		}
+		if got, want := secondFits(), pace.queueBytes > mapRenderPlayQueueBytes; got != want {
+			t.Fatalf("held=%v: the region queue admits past the play bound = %v, want %v", held, got, want)
+		}
+	}
+}
+
+// A held frame waits for the active region's workers: a delivery or a closed
+// queue lets the region advance, a queue with nothing live returns at once.
+func TestAwaitMapRenderWorker(t *testing.T) {
+	far := func() time.Time { return time.Now().Add(10 * time.Second) }
+	for _, tc := range []struct {
+		name    string
+		prepare func(task *mapRenderPrewarmTask)
+		until   func() time.Time
+		want    bool
+		check   func(task *mapRenderPrewarmTask) bool
+	}{
+		{
+			name: "sprite delivered later",
+			prepare: func(task *mapRenderPrewarmTask) {
+				sprites := make(chan graphics.PreparedSpriteResource)
+				task.preparedSprites, task.skiesDone = sprites, true
+				cpu := image.NewRGBA(image.Rect(0, 0, 8, 8))
+				go func() {
+					sprites <- graphics.PreparedSpriteResource{Request: graphics.SpriteResourceRequest{Name: "late"}, CPU: cpu, Image: cpu, Found: true}
+				}()
+			},
+			until: far, want: true,
+			check: func(task *mapRenderPrewarmTask) bool { return task.spriteCommit != nil },
+		},
+		{
+			name: "sprite queue closes",
+			prepare: func(task *mapRenderPrewarmTask) {
+				sprites := make(chan graphics.PreparedSpriteResource)
+				task.preparedSprites, task.skiesDone = sprites, true
+				go close(sprites)
+			},
+			until: far, want: true,
+			check: func(task *mapRenderPrewarmTask) bool { return task.spritesDone && task.sourcesChanged },
+		},
+		{
+			name: "standee delivered later",
+			prepare: func(task *mapRenderPrewarmTask) {
+				standees := make(chan mapRenderPreparedStandee)
+				task.preparedStandees, task.spritesDone, task.skiesDone = standees, true, true
+				go func() { standees <- mapRenderPreparedStandee{key: standeeCoreKey{name: "mob:late"}} }()
+			},
+			until: far, want: true,
+			check: func(task *mapRenderPrewarmTask) bool { return task.standeeCommit != nil },
+		},
+		{
+			name:    "no live queue",
+			prepare: func(task *mapRenderPrewarmTask) { task.spritesDone, task.skiesDone = true, true },
+			until:   far, want: false,
+		},
+		{
+			name: "deadline passes",
+			prepare: func(task *mapRenderPrewarmTask) {
+				task.preparedSprites, task.skiesDone = make(chan graphics.PreparedSpriteResource), true
+			},
+			until: func() time.Time { return time.Now().Add(time.Millisecond) }, want: false,
+			check: func(task *mapRenderPrewarmTask) bool { return task.spriteCommit == nil && !task.spritesDone },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gl := loadingFixture(t)
+			r := gl.renderer
+			task := &mapRenderPrewarmTask{mapKey: currentMapKey(), cpuImages: make(map[*ebiten.Image]*image.RGBA)}
+			task.prewarmer = newMapRenderPrewarmer(r, task)
+			r.mapRenderResourcePrewarmActive = task
+			t.Cleanup(r.resetMapRenderResourceResidency)
+			tc.prepare(task)
+			started := time.Now()
+			if got := r.awaitMapRenderWorker(tc.until()); got != tc.want {
+				t.Fatalf("await = %v, want %v", got, tc.want)
+			}
+			if time.Since(started) > 5*time.Second {
+				t.Fatal("await sat out its deadline")
+			}
+			if tc.check != nil && !tc.check(task) {
+				t.Fatal("the worker result did not reach the region")
+			}
+		})
+	}
 }

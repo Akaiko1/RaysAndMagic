@@ -27,7 +27,7 @@ func BenchmarkMonsterScheduler(b *testing.B) {
 					g.world.Monsters = append(g.world.Monsters, m)
 				}
 				g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-				updater := entities.NewEntityUpdater()
+				updater := entities.NewEntityUpdater(0)
 				b.Cleanup(updater.Stop)
 				gl := &GameLoop{game: g}
 				b.ReportAllocs()

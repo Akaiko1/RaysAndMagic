@@ -168,6 +168,29 @@ func TestDisplaySettingsControls(t *testing.T) {
 			if !g.props3DEnabled() {
 				t.Fatal("Right did not enable and save 3D props")
 			}
+			// Fit to tile: two independent choices, both off until chosen.
+			if g.fitToTile(false) || g.fitToTile(true) {
+				t.Fatal("fit to tile must start off")
+			}
+			for _, monuments := range []bool{false, true} {
+				click(displayFitToggleRect(layout.px, layout.py, layout.panelW, monuments))
+				g.loadDisplayPreferences()
+				if !g.fitToTile(monuments) || g.fitToTile(!monuments) || g.displaySettingsDirty || !g.props3DEnabled() {
+					t.Fatalf("fit toggle monuments=%v: trees=%v monuments=%v dirty=%v", monuments, g.fitToTile(false), g.fitToTile(true), g.displaySettingsDirty)
+				}
+				key(ebiten.KeyLeft) // the clicked toggle holds the keyboard
+				g.loadDisplayPreferences()
+				if g.fitToTile(false) || g.fitToTile(true) {
+					t.Fatalf("Left did not clear and save the monuments=%v choice", monuments)
+				}
+			}
+			key(ebiten.KeyRight)
+			key(ebiten.KeyUp) // from the monuments toggle to the trees toggle
+			key(ebiten.KeyRight)
+			g.loadDisplayPreferences()
+			if !g.fitToTile(false) || !g.fitToTile(true) {
+				t.Fatal("the two fit choices did not save together")
+			}
 			// The neighbour tabs keep their own rows and controls.
 			click(settingsTabRect(layout.px, layout.py, layout.panelW, settingsTabSound))
 			master := audioSettingDefinitions[0].channel
@@ -269,6 +292,9 @@ func TestDisplayPreferencesFile(t *testing.T) {
 			g.loadDisplayPreferences()
 			if !g.props3DEnabled() {
 				t.Fatal("missing legacy field must keep the authored 3D props default")
+			}
+			if g.fitToTile(false) || g.fitToTile(true) {
+				t.Fatal("a file without the fit choices must leave both off")
 			}
 		})
 	}
@@ -450,6 +476,39 @@ func TestDisplaySettingsFontList(t *testing.T) {
 			chosen(fonts[len(fonts)-1].Key)
 			if g.interfaceSizeKey() != size {
 				t.Fatalf("font controls changed the interface size to %q", g.interfaceSizeKey())
+			}
+		})
+	}
+}
+
+// The fit-to-tile row holds its text and both toggles in every frame and font:
+// the caption clears the toggles, the toggles stay on the row's track and the
+// row stays above the Back button.
+func TestDisplayFitRowLayout(t *testing.T) {
+	for _, frame := range withInterfaceFrames(t, [][2]int{{1024, 768}}) {
+		forEachUIFont(t, func(t *testing.T) {
+			for _, entry := range []bool{false, true} {
+				layout := makeAudioSettingsPanelLayout(frame[0], frame[1], entry)
+				px, py, panelW := layout.px, layout.py, layout.panelW
+				box := displaySelectionRect(px, py, panelW, layout.contentInset, displayRowFitTrees)
+				track := displaySliderRect(px, py, panelW, displayRowFitTrees)
+				trees := displayFitToggleRect(px, py, panelW, false)
+				monuments := displayFitToggleRect(px, py, panelW, true)
+				captionRight := box.x1 + 50 + max(uiTextWidth("Fit to tile"), uiTextWidth("Large objects scale down"))
+				if captionRight+8 > trees.x {
+					t.Fatalf("%dx%d: caption ends at %d, toggles begin at %d", frame[0], frame[1], captionRight, trees.x)
+				}
+				if trees.right()+displayFitGap != monuments.x || monuments.right() != track.x2 || trees.w != monuments.w {
+					t.Fatalf("%dx%d: toggles %v %v do not sit together at the track end %d", frame[0], frame[1], trees, monuments, track.x2)
+				}
+				for i, r := range []layoutRect{trees, monuments} {
+					if r.x+46+uiTextWidth(displayFitLabels[i])+8 > r.right() || r.y < box.y1 || r.bottom() > box.y2 {
+						t.Fatalf("%dx%d: toggle %q %v does not hold its label inside the row %v", frame[0], frame[1], displayFitLabels[i], r, box)
+					}
+				}
+				if back := audioBackRect(px, py, layout.panelH, layout.contentInset); box.y2 >= back.y1 {
+					t.Fatalf("%dx%d: the row ends at %d, the Back button begins at %d", frame[0], frame[1], box.y2, back.y1)
+				}
 			}
 		})
 	}

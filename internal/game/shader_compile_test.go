@@ -54,6 +54,7 @@ func TestShaderConstantsMatchGo(t *testing.T) {
 		"cast_overlay.kage":      {"Style": {"castStyleDarkness"}, "style": {"castStyleDarkness"}, "Pass": {"castPassBack"}},
 		"floor.kage":             {"b": {"floorBlendHard"}, "a": {"floorFrozenWater", "floorBlendBoundary", "floorBlendShore"}},
 		"standee_trilinear.kage": {"surface": {"standeeLayerNearSticker"}},
+		"standee_sheet.kage":     {"surface": {"standeeLayerNearSticker"}},
 		"cast_object.kage":       {"mat": {"castMatPlain"}},
 		"zone_plume.kage":        {"look": {"firePlumeTongues"}},
 	}

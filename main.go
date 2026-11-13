@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/boot"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
+	"ugataima/internal/gpupref"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/shadercache"
@@ -34,6 +35,13 @@ func main() {
 	// Shared content configs (also loaded by the map editor).
 	cfg, _ := boot.LoadGameData()
 	minWindowW, minWindowH := game.MinimumWindowSize()
+	if cfg.Display.PreferDiscreteGPUOnWindows {
+		if stored, err := gpupref.PreferHighPerformance(); err != nil {
+			log.Printf("Warning: could not store the GPU preference: %v", err)
+		} else if stored {
+			log.Printf("Stored the high-performance GPU preference; Windows applies it from the next launch")
+		}
+	}
 
 	// Game-only configs.
 	config.MustLoadLevelUpConfig("assets/level_up.yaml")

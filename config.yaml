@@ -35,6 +35,11 @@ display:
   # Keep Metal presentation paced. An unsynced loop can count Draw calls while
   # skipping displayed frames under GPU load (especially long tree corridors).
   disable_vsync_on_mac: false
+  # Windows laptops with two GPUs start a new program on the integrated one.
+  # true stores "High performance" for the game in Settings > Display >
+  # Graphics on launch when the player has no entry there; an existing entry
+  # is never changed. Windows applies it from the next launch.
+  prefer_discrete_gpu_on_windows: true
 
 # Engine settings
 # tps is the simulation tick rate (config.DefaultTPS mirrors it). Every
@@ -42,6 +47,10 @@ display:
 # the rate they were written at, so changing it keeps all timing.
 engine:
   tps: 120
+  # Monsters of a map update on the worker pool from this count on; fewer
+  # update in a plain loop, because waking the workers costs more than it
+  # saves (the two ran level at 64 on an 8-core laptop). 1 = always the pool.
+  parallel_monster_minimum: 64
 
 # Per-hero interval shared by automatic techniques and spells (one round = 3 seconds).
 autocast_interval_rounds: 2
@@ -657,6 +666,33 @@ graphics:
   # Distance effects
   brightness_min: 0.3
 
+  # Open-world region loading. A region the party can see (view distance + 4
+  # tiles) must be loaded; one still missing pauses the game with "Loading
+  # area...". prefetch_lead_tiles starts its background load that many tiles
+  # earlier: more lead = fewer pauses, more regions in memory.
+  # background_steps_per_tick is how many preparation steps (each at most
+  # 256 KiB of pixels, 1.5 ms in total) run per simulation tick during play:
+  # more = regions ready sooner, too many shows as hitches while walking.
+  # release_images_per_tick is how many textures of a region the party left
+  # are disposed per simulation tick: all of them in one frame (hundreds)
+  # stalled presentation for 50 to 120 ms.
+  streaming:
+    prefetch_lead_tiles: 24
+    background_steps_per_tick: 4
+    release_images_per_tick: 16
+    # While the loading screen holds the game nothing has to stay smooth, so
+    # regions load at these limits instead of the play quotas (in brackets).
+    # workers: sprite decoders, and as many again building tree and monument
+    #   sheets [2 and 1]; 0 = logical CPUs minus 2, from 2 to 8.
+    # queue_megabytes: decoded pixels waiting for the game loop [32].
+    # upload_megabytes_per_frame, upload_images_per_frame: texture data handed
+    #   to the GPU in one frame [8 and 32].
+    loading_screen:
+      workers: 0
+      queue_megabytes: 256
+      upload_megabytes_per_frame: 64
+      upload_images_per_frame: 512
+
   # Board-game standees: monsters, NPCs and scenery render as thick wooden
   # tokens standing in the world (monsters turn with their travel direction)
   # instead of camera-facing billboards.
@@ -719,6 +755,9 @@ graphics:
     large_prop: 1.60
     structure: 2.00
     tree: 2.00      # standard crossed-tree width; height follows texture aspect
+    # Settings > Display > Fit to tile (off by default) scales an object whose
+    # visible art reaches past its own tile down as a whole: art filling the
+    # frame at `tree` then renders 1.41 tiles wide, the tile's diagonal.
 
   # Ground container sprite heights in tile units (dropped loot / reward chests).
   # Fixed - not scaled by the dropping monster. Chests read bigger than bags.

@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/status"
+	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -511,14 +512,15 @@ func (gl *GameLoop) Layout(outsideWidth, outsideHeight int) (screenWidth, screen
 	return uiPixels(ui.w, scale), uiPixels(ui.h, scale)
 }
 
-// updateMonstersParallel updates all monsters using parallel processing
+// updateMonstersParallel updates all monsters, on the worker pool when the
+// map holds enough of them.
 func (gl *GameLoop) updateMonstersParallel() {
 	monsters := gl.game.ConvertMonstersToWrappers()
 	gl.game.threading.EntityUpdater.UpdateMonstersParallel(monsters)
 }
 
-// updateProjectilesParallel updates all projectiles using parallel processing
-func (gl *GameLoop) updateProjectilesParallel() {
+// updateProjectiles resolves hits, then moves every shot one tick.
+func (gl *GameLoop) updateProjectiles() {
 	gl.game.projectileMutex.Lock()
 	defer gl.game.projectileMutex.Unlock()
 	for i := range gl.game.arrows {
@@ -530,12 +532,11 @@ func (gl *GameLoop) updateProjectilesParallel() {
 	gl.game.combat.CheckProjectileMonsterCollisions()
 	gl.game.combat.landShots()
 
-	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()
 	if len(allProjectiles) > 0 {
-		// Freeze doors and terrain once; workers never lock or read live blockers.
+		// Doors and terrain as they stand before any shot of this tick moves.
 		airspace := gl.game.collisionSystem.SightSnapshot()
-		gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, airspace.CanAttackFrom)
+		entities.UpdateProjectiles(allProjectiles, airspace.CanAttackFrom)
 	}
 
 	gl.game.combat.turnSpentBlades()
@@ -1032,7 +1033,7 @@ func (gl *GameLoop) countRemainingEncounterMonsters(monsters []*monster.Monster3
 func (gl *GameLoop) updateProjectilesAndImpacts() {
 	// Update projectiles - skip if no active projectiles to save CPU
 	if gl.hasActiveProjectiles() {
-		gl.updateProjectilesParallel()
+		gl.updateProjectiles()
 	}
 
 	// Update slash effects - skip if none active

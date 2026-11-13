@@ -65,14 +65,22 @@ func (g *MMGame) identifyCursorActive() bool {
 	return g.identifySelecting && topModalLayerFor(g, false) == modalLayerTownPortal && g.appScreen == AppScreenInGame
 }
 
+// cursorHidden mirrors the window's cursor mode. This function is its only
+// writer, so the tick compares against the mirror instead of asking the
+// window, which answers on the OS main thread.
+var cursorHidden bool
+
 func (g *MMGame) syncIdentifyCursor() {
+	hidden := g.identifyCursorActive() || g.allySpellCursorActive()
+	if hidden == cursorHidden {
+		return
+	}
+	cursorHidden = hidden
 	mode := ebiten.CursorModeVisible
-	if g.identifyCursorActive() || g.allySpellCursorActive() {
+	if hidden {
 		mode = ebiten.CursorModeHidden
 	}
-	if ebiten.CursorMode() != mode {
-		ebiten.SetCursorMode(mode)
-	}
+	ebiten.SetCursorMode(mode)
 }
 
 func (ui *UISystem) drawIdentifyTargeting(screen *ebiten.Image) {

@@ -31,18 +31,29 @@ type CollisionSnapshot struct {
 	tileSize          float64
 	entities          map[string]EntitySnapshot
 	sightBlockerTiles map[sightTileKey]int
-	// Spatial index over the SOLID entities: tileSize-sided cells -> indices
-	// into solids. Entity passability queries (A* expands thousands of nodes
-	// per tick) test only the buckets the probe box overlaps instead of
+	// Spatial index over the SOLID entities: tileSize-sided cells -> a chain of
+	// indices into solids. Entity passability queries (A* expands thousands of
+	// nodes per tick) test only the buckets the probe box overlaps instead of
 	// scanning every entity. An entity is inserted into every bucket its box
 	// overlaps, so two intersecting boxes always share a bucket - results are
 	// identical to the linear scan. Nil when tileSize is 0 (hand-built test
 	// snapshots): queries fall back to the linear path.
 	solids  []snapEntity
-	buckets map[bucketKey][]int32
+	buckets map[bucketKey]int32
+	links   []bucketLink
 	// attackPostTiles indexes logical, deliberately non-solid party attack posts.
 	// A transit mob may cross one, but its AI must not settle there to attack.
-	attackPostTiles map[bucketKey][]string
+	attackPostTiles map[bucketKey]int32
+	postLinks       []postLink
+}
+
+// A bucket is a chain through one flat slice, so a reused snapshot refills its
+// index without allocating. Chains start at index+1: zero ends them.
+type bucketLink struct{ solid, next int32 }
+
+type postLink struct {
+	id   string
+	next int32
 }
 
 // snapEntity is one solid entity in the snapshot's spatial index.
@@ -63,12 +74,34 @@ func bucketCoord(v, size float64) int32 {
 // UpdateEntity is running. A fresh copy per call is what makes concurrent reads
 // free of locks afterward.
 func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
-	snap := cs.SightSnapshot()
-	snap.entities = make(map[string]EntitySnapshot, len(cs.entities))
-	if snap.tileSize > 0 {
-		snap.solids = make([]snapEntity, 0, len(cs.entities))
-		snap.buckets = make(map[bucketKey][]int32, len(cs.entities)*2)
+	return cs.snapshotInto(&CollisionSnapshot{})
+}
+
+// FrameSnapshot is Snapshot into storage the system keeps: the view is valid
+// until the next FrameSnapshot call. For the per-tick schedulers, which take
+// it and finish reading it on the game goroutine's own barrier.
+func (cs *CollisionSystem) FrameSnapshot() *CollisionSnapshot {
+	if cs.frameSnapshot == nil {
+		cs.frameSnapshot = &CollisionSnapshot{}
 	}
+	return cs.snapshotInto(cs.frameSnapshot)
+}
+
+func (cs *CollisionSystem) snapshotInto(snap *CollisionSnapshot) *CollisionSnapshot {
+	cs.sightSnapshotInto(snap)
+	if snap.entities == nil {
+		snap.entities = make(map[string]EntitySnapshot, len(cs.entities))
+	}
+	clear(snap.entities)
+	clear(snap.attackPostTiles)
+	snap.solids, snap.links, snap.postLinks = snap.solids[:0], snap.links[:0], snap.postLinks[:0]
+	indexed := snap.tileSize > 0
+	if !indexed {
+		snap.buckets = nil
+	} else if snap.buckets == nil {
+		snap.buckets = make(map[bucketKey]int32, len(cs.entities)*2)
+	}
+	clear(snap.buckets)
 	for id, e := range cs.entities {
 		snap.entities[id] = EntitySnapshot{
 			movementBounds: e.movementBounds,
@@ -76,23 +109,20 @@ func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
 			CollisionType:  e.CollisionType,
 			Solid:          e.Solid,
 		}
-		if snap.buckets == nil || !e.Solid {
-			// Non-solid attack-post entities still need their own lookup index.
-			if e.CollisionType == CollisionTypeMonsterEngaged && snap.tileSize > 0 {
-				key := bucketKey{bucketCoord(e.BoundingBox.X, snap.tileSize), bucketCoord(e.BoundingBox.Y, snap.tileSize)}
-				if snap.attackPostTiles == nil {
-					snap.attackPostTiles = make(map[bucketKey][]string)
-				}
-				snap.attackPostTiles[key] = append(snap.attackPostTiles[key], id)
-			}
+		if !indexed {
 			continue
 		}
+		// Non-solid attack-post entities still need their own lookup index.
 		if e.CollisionType == CollisionTypeMonsterEngaged {
-			key := bucketKey{bucketCoord(e.BoundingBox.X, snap.tileSize), bucketCoord(e.BoundingBox.Y, snap.tileSize)}
 			if snap.attackPostTiles == nil {
-				snap.attackPostTiles = make(map[bucketKey][]string)
+				snap.attackPostTiles = make(map[bucketKey]int32)
 			}
-			snap.attackPostTiles[key] = append(snap.attackPostTiles[key], id)
+			key := bucketKey{bucketCoord(e.BoundingBox.X, snap.tileSize), bucketCoord(e.BoundingBox.Y, snap.tileSize)}
+			snap.postLinks = append(snap.postLinks, postLink{id: id, next: snap.attackPostTiles[key]})
+			snap.attackPostTiles[key] = int32(len(snap.postLinks))
+		}
+		if !e.Solid {
+			continue
 		}
 		idx := int32(len(snap.solids))
 		snap.solids = append(snap.solids, snapEntity{id: id, box: *e.BoundingBox, collisionType: e.CollisionType})
@@ -102,20 +132,28 @@ func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
 		for by := by0; by <= by1; by++ {
 			for bx := bx0; bx <= bx1; bx++ {
 				k := bucketKey{bx, by}
-				snap.buckets[k] = append(snap.buckets[k], idx)
+				snap.links = append(snap.links, bucketLink{solid: idx, next: snap.buckets[k]})
+				snap.buckets[k] = int32(len(snap.links))
 			}
 		}
 	}
 	return snap
 }
 
-// SightSnapshot freezes only terrain and dynamic sight blockers. Projectile
-// workers need no entity copies or movement index, and query it without locks.
+// SightSnapshot freezes only what attacks and projectiles read: terrain and
+// the dynamic sight blockers.
 func (cs *CollisionSystem) SightSnapshot() *CollisionSnapshot {
-	snap := &CollisionSnapshot{tileChecker: cs.tileChecker, tileSize: cs.tileSize}
+	return cs.sightSnapshotInto(&CollisionSnapshot{})
+}
+
+func (cs *CollisionSystem) sightSnapshotInto(snap *CollisionSnapshot) *CollisionSnapshot {
+	snap.tileChecker, snap.tileSize = cs.tileChecker, cs.tileSize
 	cs.sightMu.RLock()
 	defer cs.sightMu.RUnlock()
-	snap.sightBlockerTiles = make(map[sightTileKey]int, len(cs.sightBlockerTiles))
+	if snap.sightBlockerTiles == nil {
+		snap.sightBlockerTiles = make(map[sightTileKey]int, len(cs.sightBlockerTiles))
+	}
+	clear(snap.sightBlockerTiles)
 	for tile, count := range cs.sightBlockerTiles {
 		snap.sightBlockerTiles[tile] = count
 	}
@@ -182,8 +220,8 @@ func (cs *CollisionSnapshot) IsMonsterAttackPostReserved(entityID string, x, y f
 	if cs == nil || cs.tileSize <= 0 {
 		return false
 	}
-	for _, id := range cs.attackPostTiles[bucketKey{bucketCoord(x, cs.tileSize), bucketCoord(y, cs.tileSize)}] {
-		if id != entityID {
+	for n := cs.attackPostTiles[bucketKey{bucketCoord(x, cs.tileSize), bucketCoord(y, cs.tileSize)}]; n != 0; n = cs.postLinks[n-1].next {
+		if cs.postLinks[n-1].id != entityID {
 			return true
 		}
 	}
@@ -216,8 +254,8 @@ func (cs *CollisionSnapshot) canMoveToEntityPosition(movingID string, movingType
 	bx1, by1 := bucketCoord(maxX, cs.tileSize), bucketCoord(maxY, cs.tileSize)
 	for by := by0; by <= by1; by++ {
 		for bx := bx0; bx <= bx1; bx++ {
-			for _, idx := range cs.buckets[bucketKey{bx, by}] {
-				other := &cs.solids[idx]
+			for n := cs.buckets[bucketKey{bx, by}]; n != 0; n = cs.links[n-1].next {
+				other := &cs.solids[cs.links[n-1].solid]
 				if other.id == movingID {
 					continue
 				}

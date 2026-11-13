@@ -82,27 +82,18 @@ type TileChecker interface {
 
 // CollisionSystem manages all collision detection in the game.
 //
-// CONCURRENCY CONTRACT (deliberately lock-free): the parallel PROJECTILE
-// updater calls UpdateEntity directly on the live system from worker
-// goroutines. That is safe only while (1) updates are stop-the-world - no other
-// game mutation runs concurrently, (2) each worker touches a DISJOINT set of
-// entities (chunked partitioning) AND never reads another worker's entities -
-// projectile movement queries frozen terrain and door airspace through
-// SightSnapshot, never live entities - and (3) the entities map itself is never
-// mutated (Register/Unregister) inside a parallel phase. Breaking any of these
-// entity-registry invariants requires adding a lock around the registry first.
-// The smaller dynamic sight overlay has its own RWMutex: CastRay may read it
-// while a sight-blocking entity moves, without putting ordinary projectile
-// UpdateEntity calls behind a global collision lock.
+// CONCURRENCY CONTRACT (deliberately lock-free): the game goroutine is the only
+// writer of the entity registry and of every bounding box, and it writes only
+// between worker phases. The dynamic sight overlay alone has an RWMutex, so
+// CastRay may read it while a sight-blocking entity moves.
 //
-// The parallel MONSTER updater does NOT qualify for the above: a monster's
-// movement/AI decision reads OTHER entities' bounding boxes and collision types
-// (CanMoveToWithTileOverrides -> canMoveToEntityPosition scans the whole map), which
-// violates (2) - those other entities are concurrently being written by their
-// OWN workers. It instead uses Snapshot(): each worker reads an immutable,
-// frozen CollisionSnapshot (taken once, single-threaded, before the parallel
-// phase) and the live system is only touched afterward, serially, once all
-// workers have finished. See CollisionSnapshot's doc and
+// The parallel MONSTER updater never touches the live system from a worker: a
+// monster's movement/AI decision reads OTHER entities' bounding boxes and
+// collision types (CanMoveToWithTileOverrides -> canMoveToEntityPosition scans
+// the whole map), so each worker reads an immutable, frozen CollisionSnapshot
+// (taken once, single-threaded, before the parallel phase) and the live system
+// is only written afterward, serially, once all workers have finished. See
+// CollisionSnapshot's doc and
 // game.MonsterWrapper/entities.EntityUpdater.UpdateMonstersParallel.
 type CollisionSystem struct {
 	tileChecker TileChecker
@@ -117,6 +108,8 @@ type CollisionSystem struct {
 	// Maintained by RegisterEntity/UnregisterEntity/SetEntityCollisionType.
 	engagedPosts map[string]*Entity
 	tileSize     float64
+	// frameSnapshot is the storage FrameSnapshot refills every tick.
+	frameSnapshot *CollisionSnapshot
 }
 
 // NewCollisionSystem creates a new collision system
@@ -190,8 +183,8 @@ func (cs *CollisionSystem) UpdateEntity(id string, x, y float64) {
 			cs.sightMu.Unlock()
 			return
 		}
-		// Parallel projectile updates take this path: they touch only their own
-		// bounding box and never the shared sight index.
+		// Projectiles take this path: they move only their own bounding box and
+		// never the shared sight index.
 		entity.BoundingBox.MoveTo(x, y)
 	}
 }

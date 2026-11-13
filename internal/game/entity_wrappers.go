@@ -123,8 +123,9 @@ func (g *MMGame) ConvertMonstersToWrappers() []entities.MonsterUpdateInterface {
 	// ONE frozen view for the whole tick, taken here (single-threaded, before
 	// dispatch) - every monster's worker reads this same snapshot instead of the
 	// live system, so no synchronization is needed between them. See
-	// collision.CollisionSnapshot's doc.
-	snapshot := g.collisionSystem.Snapshot()
+	// collision.CollisionSnapshot's doc. The storage is the system's: the
+	// wrappers of one tick are finished before the next view replaces it.
+	snapshot := g.collisionSystem.FrameSnapshot()
 	for _, m := range g.world.Monsters {
 		g.reusableMonsterWrappers = append(g.reusableMonsterWrappers,
 			CreateMonsterWrapper(m, g.collisionSystem, snapshot, g))

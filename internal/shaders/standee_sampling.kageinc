@@ -24,16 +24,18 @@ func sampleLinear1(p vec2) vec4 {
 	// adjusts the backing-atlas origin; it does not scale differently-sized
 	// source images. Work in level-local pixels, then pass those coordinates
 	// relative to image 0 so the built-in origin adjustment remains correct.
+	// Fetch at texel centres: a fractional position rounds on the atlas apart
+	// from the level-local weight, which near a texel boundary moved the
+	// sample one texel over.
 	q := clamp((p-origin0)*scale, vec2(0.5), size-vec2(0.5))
-	q0 := q - 0.5
-	q1 := q + 0.5
-	p0 := q0 + origin0
-	p1 := q1 + origin0
+	base := floor(q - 0.5)
+	rate := q - 0.5 - base
+	p0 := base + 0.5 + origin0
+	p1 := p0 + 1.0
 	c0 := imageSrc1UnsafeAt(p0)
 	c1 := imageSrc1UnsafeAt(vec2(p1.x, p0.y))
 	c2 := imageSrc1UnsafeAt(vec2(p0.x, p1.y))
 	c3 := imageSrc1UnsafeAt(p1)
-	rate := fract(q1)
 	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
 }
 
@@ -43,15 +45,14 @@ func sampleLinear2(p vec2) vec4 {
 	size := imageSrc2Size()
 	scale := size / size0
 	q := clamp((p-origin0)*scale, vec2(0.5), size-vec2(0.5))
-	q0 := q - 0.5
-	q1 := q + 0.5
-	p0 := q0 + origin0
-	p1 := q1 + origin0
+	base := floor(q - 0.5)
+	rate := q - 0.5 - base
+	p0 := base + 0.5 + origin0
+	p1 := p0 + 1.0
 	c0 := imageSrc2UnsafeAt(p0)
 	c1 := imageSrc2UnsafeAt(vec2(p1.x, p0.y))
 	c2 := imageSrc2UnsafeAt(vec2(p0.x, p1.y))
 	c3 := imageSrc2UnsafeAt(p1)
-	rate := fract(q1)
 	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
 }
 
@@ -65,15 +66,14 @@ func sampleLinear3(p vec2) vec4 {
 	// source images. Work in level-local pixels, then pass those coordinates
 	// relative to image 0 so the built-in origin adjustment remains correct.
 	q := clamp((p-origin0)*scale, vec2(0.5), size-vec2(0.5))
-	q0 := q - 0.5
-	q1 := q + 0.5
-	p0 := q0 + origin0
-	p1 := q1 + origin0
+	base := floor(q - 0.5)
+	rate := q - 0.5 - base
+	p0 := base + 0.5 + origin0
+	p1 := p0 + 1.0
 	c0 := imageSrc3UnsafeAt(p0)
 	c1 := imageSrc3UnsafeAt(vec2(p1.x, p0.y))
 	c2 := imageSrc3UnsafeAt(vec2(p0.x, p1.y))
 	c3 := imageSrc3UnsafeAt(p1)
-	rate := fract(q1)
 	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
 }
 

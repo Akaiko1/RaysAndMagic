@@ -1403,6 +1403,12 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 		if dist >= bestDist {
 			continue
 		}
+		// Nothing is drawn past the view distance (a building reaches its span
+		// further), so nothing there can be hit; measuring it would request
+		// art of a region that is not resident.
+		if dist > g.camera.ViewDist+float64(n.GridSpanTiles)*g.config.GetTileSize() {
+			continue
+		}
 		if !g.npcScreenHitTest(n, ex, ey, clickX, clickY) {
 			continue
 		}
@@ -3666,8 +3672,8 @@ func (mpw *MagicProjectileWrapper) OnCollision(hitX, hitY float64) {
 
 // ApplyCollisionEffects spawns the hit effect for any impact OnCollision
 // recorded this tick. Phase 2 of the two-phase projectile tick (see
-// entities.EntityUpdater.UpdateProjectilesParallel): called serially, once
-// every projectile's move/OnCollision has returned - never from a worker.
+// entities.UpdateProjectiles): called once every projectile's
+// move/OnCollision has returned.
 func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
 	if !mpw.pendingImpact {
 		return

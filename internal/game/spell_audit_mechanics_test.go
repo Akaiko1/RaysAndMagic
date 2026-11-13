@@ -59,10 +59,8 @@ func TestSpellBlastBurstsWhereverTheShotEnds(t *testing.T) {
 				case "hit", "dodge", "sealed":
 					g.combat.CheckProjectileMonsterCollisions()
 				default:
-					updater := entities.NewEntityUpdaterWithWorkers(1)
-					defer updater.Stop()
 					open := end == "range"
-					updater.UpdateProjectilesParallel(g.ConvertProjectilesToWrappers(), func(float64, float64) bool { return open })
+					entities.UpdateProjectiles(g.ConvertProjectilesToWrappers(), func(float64, float64) bool { return open })
 				}
 				blast := def.AoeRadiusTiles > 0
 				if got := near.HitPoints < 1000; got != blast {

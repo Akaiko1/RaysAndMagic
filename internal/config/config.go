@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -338,6 +339,10 @@ type Config struct {
 	PlayerFont string `yaml:"-" json:"-"`
 	// PlayerProps3D overrides the authored default when a preference is saved.
 	PlayerProps3D *bool `yaml:"-" json:"-"`
+	// PlayerFitTreesToTile and PlayerFitMonumentsToTile are the saved Display
+	// choices that scale world objects into their own tile. Both start off.
+	PlayerFitTreesToTile     bool `yaml:"-" json:"-"`
+	PlayerFitMonumentsToTile bool `yaml:"-" json:"-"`
 }
 
 type CampingConfig struct {
@@ -558,6 +563,9 @@ type DisplayConfig struct {
 	Resizable         bool   `yaml:"resizable"`
 	Fullscreen        bool   `yaml:"fullscreen"`
 	DisableVsyncOnMac bool   `yaml:"disable_vsync_on_mac"`
+	// PreferDiscreteGPUOnWindows stores the high-performance GPU preference
+	// for the executable when the player has none (internal/gpupref).
+	PreferDiscreteGPUOnWindows bool `yaml:"prefer_discrete_gpu_on_windows"`
 
 	// InterfaceSizes are the Settings > Display presets, smallest first.
 	InterfaceSizes       []InterfaceSize `yaml:"interface_sizes"`
@@ -570,6 +578,9 @@ type DisplayConfig struct {
 
 type EngineConfig struct {
 	TPS int `yaml:"tps"`
+	// ParallelMonsterMinimum is the smallest monster count updated on the
+	// worker pool; a smaller map updates its monsters in a plain loop.
+	ParallelMonsterMinimum int `yaml:"parallel_monster_minimum"`
 }
 
 type WorldConfig struct {
@@ -1118,6 +1129,38 @@ type MonsterAIConfig struct {
 	FleeAfterAttacksChance float64 `yaml:"flee_after_attacks_chance"`
 }
 
+// StreamingConfig schedules the background loading of open-world regions.
+// A region is required once it can come into view; it starts loading
+// PrefetchLeadTiles earlier, so a walking party meets it already resident.
+type StreamingConfig struct {
+	PrefetchLeadTiles      float64 `yaml:"prefetch_lead_tiles"`
+	BackgroundStepsPerTick int     `yaml:"background_steps_per_tick"`
+	// ReleaseImagesPerTick is how many textures of an evicted region are
+	// disposed in one simulation tick.
+	ReleaseImagesPerTick int                 `yaml:"release_images_per_tick"`
+	LoadingScreen        LoadingScreenConfig `yaml:"loading_screen"`
+}
+
+// LoadingScreenConfig is how fast regions load while the loading screen holds
+// the game: nothing has to stay smooth then, so these replace the play quotas.
+type LoadingScreenConfig struct {
+	// Workers decode sprites, and as many again build tree and monument
+	// sheets. 0 sizes them to the machine; see WorkerCount.
+	Workers                 int `yaml:"workers"`
+	QueueMegabytes          int `yaml:"queue_megabytes"`
+	UploadMegabytesPerFrame int `yaml:"upload_megabytes_per_frame"`
+	UploadImagesPerFrame    int `yaml:"upload_images_per_frame"`
+}
+
+// WorkerCount resolves workers: 0 leaves two logical CPUs to the game loop
+// and the renderer and takes the rest, from 2 to 8.
+func (c LoadingScreenConfig) WorkerCount() int {
+	if c.Workers > 0 {
+		return c.Workers
+	}
+	return min(max(runtime.NumCPU()-2, 2), 8)
+}
+
 type GraphicsConfig struct {
 	RangedHeld         RangedHeldConfig        `yaml:"ranged_held"`
 	Props3D            bool                    `yaml:"props_3d"`
@@ -1147,6 +1190,8 @@ type GraphicsConfig struct {
 	// tokens standing in the world (board-game standees) instead of
 	// camera-facing billboards. Monsters turn with their travel direction.
 	Standee StandeeConfig `yaml:"standee"`
+	// Streaming schedules open-world region loading around the party.
+	Streaming StreamingConfig `yaml:"streaming"`
 
 	// TreesAsBillboards renders tree tiles as two crossed full-tile billboards
 	// (a "+" from above, double-sided) instead of the per-column full-sprite
@@ -2128,6 +2173,32 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if !(held.CooldownFraction > 0 && held.CooldownFraction <= 1) {
 		return nil, fmt.Errorf("graphics.ranged_held.cooldown_fraction must be in (0, 1]")
+	}
+	if n := config.Engine.ParallelMonsterMinimum; n < 1 || n > 100000 {
+		return nil, fmt.Errorf("engine.parallel_monster_minimum must be in [1, 100000], got %d", n)
+	}
+	if lead := config.Graphics.Streaming.PrefetchLeadTiles; !(lead >= 0 && lead <= 200) {
+		return nil, fmt.Errorf("graphics.streaming.prefetch_lead_tiles must be in [0, 200], got %g", lead)
+	}
+	if steps := config.Graphics.Streaming.BackgroundStepsPerTick; steps < 1 || steps > 32 {
+		return nil, fmt.Errorf("graphics.streaming.background_steps_per_tick must be in [1, 32], got %d", steps)
+	}
+	if n := config.Graphics.Streaming.ReleaseImagesPerTick; n < 1 || n > 4096 {
+		return nil, fmt.Errorf("graphics.streaming.release_images_per_tick must be in [1, 4096], got %d", n)
+	}
+	screen := config.Graphics.Streaming.LoadingScreen
+	for _, limit := range []struct {
+		key           string
+		got, min, max int
+	}{
+		{"workers", screen.Workers, 0, 64},
+		{"queue_megabytes", screen.QueueMegabytes, 32, 4096},
+		{"upload_megabytes_per_frame", screen.UploadMegabytesPerFrame, 8, 1024},
+		{"upload_images_per_frame", screen.UploadImagesPerFrame, 32, 8192},
+	} {
+		if limit.got < limit.min || limit.got > limit.max {
+			return nil, fmt.Errorf("graphics.streaming.loading_screen.%s must be in [%d, %d], got %d", limit.key, limit.min, limit.max, limit.got)
+		}
 	}
 	v := config.Graphics.View
 	if !(v.WidePaniniDistance >= 0 && v.WidePaniniDistance <= 1) {
