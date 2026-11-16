@@ -366,6 +366,7 @@ type MonsterSave struct {
 	LootGuardSide        int    `json:"loot_guard_side,omitempty"`
 	LootGuardPatrolAlt   bool   `json:"loot_guard_patrol_alt,omitempty"`
 	LootGuardAlerted     bool   `json:"loot_guard_alerted,omitempty"`
+	LootGuardRelieved    bool   `json:"loot_guard_relieved,omitempty"`
 	RallyDone            bool   `json:"rally_done,omitempty"`
 	Relentless           bool   `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
 	PackKey              string `json:"pack_key,omitempty"`   // ambient day/night pack tag

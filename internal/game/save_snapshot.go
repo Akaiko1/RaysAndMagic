@@ -195,6 +195,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				LootGuardSide:           mon.LootGuardSide,
 				LootGuardPatrolAlt:      mon.LootGuardPatrolAlt,
 				LootGuardAlerted:        mon.LootGuardAlerted,
+				LootGuardRelieved:       mon.LootGuardRelieved,
 				RallyDone:               mon.RallyDone,
 				Relentless:              mon.Relentless,
 				ChampionTier:            mon.ChampionTier,

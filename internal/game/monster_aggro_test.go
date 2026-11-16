@@ -17,9 +17,9 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 	cfg := loadTestConfig(t)
 	for _, turn := range []bool{false, true} {
 		for _, tc := range []struct {
-			name                                    string
-			radius, distance                        float64
-			hit, boss, guard, hunter, stunned, want bool
+			name                                              string
+			radius, distance                                  float64
+			hit, boss, guard, relieved, hunter, stunned, want bool
 		}{
 			{name: "sight edge", radius: 4, distance: 8, want: true},
 			{name: "sight lost", radius: 4, distance: 9},
@@ -33,6 +33,10 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 			{name: "chamber sight lost", radius: 3.2, distance: 8, boss: true},
 			{name: "guard edge", radius: 4, distance: 7, guard: true, want: true},
 			{name: "guard lost", radius: 4, distance: 8, guard: true},
+			// Relieved by the automatic turn-based entry: the leash of a
+			// seven-tile sight, not the authored one (8).
+			{name: "relieved guard edge", radius: 4, distance: 14, guard: true, relieved: true, want: true},
+			{name: "relieved guard lost", radius: 4, distance: 15, guard: true, relieved: true},
 			{name: "provoked guard", radius: 4, distance: 12, guard: true, hit: true, want: true},
 			{name: "remote map hunter", radius: 4, distance: 30, boss: true, hunter: true, want: true},
 		} {
@@ -45,6 +49,9 @@ func TestPursuitLimitsAcrossCombatModes(t *testing.T) {
 				m := spawnMonsterAtTile(g, "goblin", 3+int(tc.distance), 10, ts)
 				m.AlertRadius, m.WasAttacked = tc.radius*ts, false
 				m.Boss, m.AggroWholeMap, m.LootGuardAlerted = tc.boss, tc.hunter, tc.guard
+				if tc.relieved {
+					m.RelieveLootGuard()
+				}
 				m.SpawnX += 2 * ts
 				m.State = monster.StateAlert
 				if tc.hit {

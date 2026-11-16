@@ -140,6 +140,149 @@ func TestAutoTurnBasedOnAggro(t *testing.T) {
 		}
 	})
 
+	// corners puts the party and one monster a whole number of tiles apart on
+	// x, both by the facing edges of their tiles one row apart: the tile snap
+	// of a turn-based entry then parts them by a further diagonal. A quarter
+	// tile from the row border keeps a moving monster in its row.
+	corners := func(h *displayedModalHarness, m *monsterPkg.Monster3D, tiles float64) {
+		t.Helper()
+		ts := float64(h.g.config.GetTileSize())
+		h.g.setPartyPosition(4.99*ts, 4.75*ts)
+		m.X, m.Y = (4.97+tiles)*ts, 5.25*ts
+		h.g.world.Monsters = []*monsterPkg.Monster3D{m}
+		h.g.world.RegisterMonstersWithCollisionSystem(h.g.collisionSystem)
+		if !h.g.partyUnderAttack() {
+			t.Fatal("fixture: the monster does not press the party")
+		}
+	}
+
+	// A guard that saw the party at its sight edge: the snap puts it past that
+	// edge, where a guard on duty goes back to its post.
+	edgeGuard := func(h *displayedModalHarness) *monsterPkg.Monster3D {
+		guard := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", h.g.config)
+		guard.IsEngagingPlayer, guard.LootGuardAlerted = true, true
+		corners(h, guard, monsterPkg.LootGuardAggroRadiusTiles)
+		return guard
+	}
+
+	t.Run("the entry takes its guards off duty", func(t *testing.T) {
+		h := newDisplayedModalHarness(t, 1024, 768)
+		g := h.g
+		g.combatPreferences.AutoTurnBased = true
+		guard := edgeGuard(h)
+		frames(h, 1)
+		if !g.turnBasedMode || !guard.LootGuardRelieved {
+			t.Fatalf("guard aggro: turn-based %v, relieved %v; want both", g.turnBasedMode, guard.LootGuardRelieved)
+		}
+		frames(h, 1)
+		if !guard.IsEngagingPlayer || !g.partyUnderAttack() {
+			t.Fatalf("the snap ended the fight: engaging %v, pressed %v", guard.IsEngagingPlayer, g.partyUnderAttack())
+		}
+		// A guard that joins the fight later goes off duty too.
+		ts := float64(g.config.GetTileSize())
+		late := monsterPkg.NewMonster3DFromConfig(g.camera.X, g.camera.Y+monsterPkg.LootGuardAggroRadiusTiles*ts, "goblin", g.config)
+		late.IsEngagingPlayer, late.LootGuardAlerted = true, true
+		g.world.Monsters = append(g.world.Monsters, late)
+		frames(h, 1)
+		if !late.LootGuardRelieved {
+			t.Fatal("a guard that joined the fight later stayed on duty")
+		}
+	})
+
+	t.Run("without the option guards stay on duty", func(t *testing.T) {
+		h := newDisplayedModalHarness(t, 1024, 768)
+		g := h.g
+		guard := edgeGuard(h)
+		frames(h, 2)
+		ts := float64(g.config.GetTileSize())
+		if g.turnBasedMode || guard.LootGuardRelieved || guard.PursuitLeashPixels() != monsterPkg.LootGuardAggroRadiusTiles*ts {
+			t.Fatalf("option off: turn-based %v, relieved %v, leash %.1f tiles; want real time and the sight-edge leash",
+				g.turnBasedMode, guard.LootGuardRelieved, guard.PursuitLeashPixels()/ts)
+		}
+		// Tab is not the automatic entry: the guard keeps its duty.
+		g.ToggleTurnBasedMode()
+		frames(h, 1)
+		if guard.LootGuardRelieved {
+			t.Fatal("a manual entry relieved the guard")
+		}
+	})
+
+	t.Run("waits until the pressure holds on the aligned tiles", func(t *testing.T) {
+		// A map hunter presses only inside the pursuit cap; the snap would put
+		// it back outside, so the switch waits for it to close in.
+		h := newDisplayedModalHarness(t, 1024, 768)
+		g := h.g
+		g.combatPreferences.AutoTurnBased = true
+		hunter := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", g.config)
+		hunter.Relentless = true
+		limit := hunter.PursuitLimitTiles()
+		corners(h, hunter, limit)
+		frames(h, 2)
+		if g.turnBasedMode {
+			t.Fatal("the mode switched for a fight its own snap would end")
+		}
+		corners(h, hunter, limit-1)
+		frames(h, 2)
+		if !g.turnBasedMode || !g.partyUnderAttack() {
+			t.Fatalf("hunter inside the cap: turn-based %v, pressed %v; want both", g.turnBasedMode, g.partyUnderAttack())
+		}
+	})
+
+	t.Run("a manual leave while the switch waits holds", func(t *testing.T) {
+		// A long-shot retaliation keeps the fight beyond the pursuit cap, so
+		// the fight goes on while the switch waits for the monster to close in.
+		h := newDisplayedModalHarness(t, 1024, 768)
+		g := h.g
+		g.combatPreferences.AutoTurnBased = true
+		m := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", g.config)
+		m.IsEngagingPlayer, m.WasAttacked = true, true
+		limit := m.PursuitLimitTiles()
+		m.Retaliation = monsterPkg.RetaliationState{Frames: 1 << 20, RadiusTiles: limit + 8}
+		corners(h, m, limit)
+		frames(h, 1)
+		if g.turnBasedMode {
+			t.Fatal("fixture: the switch did not wait")
+		}
+		g.ToggleTurnBasedMode()
+		frames(h, 1)
+		g.ToggleTurnBasedMode()
+		corners(h, m, limit-1)
+		frames(h, 2)
+		if g.turnBasedMode {
+			t.Fatal("the mode came back after the player left it in the same fight")
+		}
+	})
+
+	t.Run("a save while the switch waits keeps the switch", func(t *testing.T) {
+		h := newDisplayedModalHarness(t, 1024, 768)
+		g := h.g
+		g.combatPreferences.AutoTurnBased = true
+		hunter := monsterPkg.NewMonster3DFromConfig(0, 0, "goblin", g.config)
+		hunter.Relentless = true
+		limit := hunter.PursuitLimitTiles()
+		corners(h, hunter, limit)
+		frames(h, 1)
+		data, err := json.Marshal(g.buildSave(world.GlobalWorldManager))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var loaded GameSave
+		if err := json.Unmarshal(data, &loaded); err != nil {
+			t.Fatal(err)
+		}
+		if err := g.applySave(world.GlobalWorldManager, &loaded); err != nil {
+			t.Fatal(err)
+		}
+		if g.turnBasedMode || len(g.world.Monsters) != 1 {
+			t.Fatalf("loaded: turn-based %v, monsters %d; want real time and the hunter", g.turnBasedMode, len(g.world.Monsters))
+		}
+		corners(h, g.world.Monsters[0], limit-1)
+		frames(h, 2)
+		if !g.turnBasedMode {
+			t.Fatal("the loaded fight never switched once the hunter closed in")
+		}
+	})
+
 	t.Run("waits for a conversation to close", func(t *testing.T) {
 		h := newDisplayedModalHarness(t, 1024, 768)
 		g := h.g

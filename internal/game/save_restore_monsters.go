@@ -223,6 +223,7 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 				m.LootGuardSide = ms.LootGuardSide
 				m.LootGuardPatrolAlt = ms.LootGuardPatrolAlt
 				m.LootGuardAlerted = ms.LootGuardAlerted
+				m.LootGuardRelieved = ms.LootGuardRelieved
 				m.RallyDone = ms.RallyDone
 				m.PackKey = ms.PackKey
 				m.Population = ms.Population
@@ -250,6 +251,8 @@ func (g *MMGame) restoreSavedMonsters(wm *world.WorldManager, save *GameSave) *m
 					m.RestoreRetaliation(ms.Aggro.Retaliation)
 					m.BandHitPending = ms.Aggro.BandHitPending
 				}
+				// Relief lasts one engagement; a save made mid-flee has none.
+				m.LootGuardRelieved = m.LootGuardRelieved && m.IsEngagingPlayer
 
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true

@@ -403,6 +403,7 @@ func (m *Monster3D) BeginPlayerEngagement() {
 	// guard at distances between the two thresholds.
 	if m.LootGuarding && !m.WasAttacked {
 		m.LootGuardAlerted = true
+		m.LootGuardRelieved = false
 	}
 	m.BeginCombatEngagement()
 }
@@ -435,6 +436,7 @@ func (m *Monster3D) EndPlayerEngagement() {
 	}
 	m.ResetPathfinding()
 	m.IsEngagingPlayer = false
+	m.LootGuardRelieved = false
 	m.ReturningHome = true
 	m.Retaliation = RetaliationState{}
 	m.BandHitPending = false
@@ -454,7 +456,7 @@ func (m *Monster3D) StandDownFromCombat() {
 		return
 	}
 	m.IsEngagingPlayer = false
-	m.LootGuardAlerted = false
+	m.endLootGuardEncounter()
 	switch m.State {
 	case StateAlert, StatePursuing, StateAttacking, StateFleeing:
 		m.ResetPathfinding()
@@ -487,8 +489,7 @@ func (m *Monster3D) SeesPlayerWithinAlertRadius(collisionChecker CollisionChecke
 	if m == nil {
 		return false
 	}
-	alertRadius, _ := m.playerAlertRadii()
-	return distance(m.X, m.Y, playerX, playerY) <= alertRadius &&
+	return distance(m.X, m.Y, playerX, playerY) <= m.playerAlertRadius() &&
 		m.HasLineOfSightToPlayer(collisionChecker, playerX, playerY)
 }
 
@@ -499,19 +500,38 @@ func (m *Monster3D) CanStartPlayerEngagement(collisionChecker CollisionChecker, 
 	return m.CanStartPlayerAggro() && m.SeesPlayerWithinAlertRadius(collisionChecker, playerX, playerY)
 }
 
-// playerAlertRadii uses authored sight and one bounded pursuit rule in both clocks.
-func (m *Monster3D) playerAlertRadii() (float64, float64) {
-	if (m.LootGuarding || m.LootGuardAlerted) && !m.WasAttacked {
-		return LootGuardAggroRadiusTiles * m.tileSize(), 1
+// usesLootGuardSight: the guard's seven tiles replace its authored sight until
+// it is hit.
+func (m *Monster3D) usesLootGuardSight() bool {
+	return (m.LootGuarding || m.LootGuardAlerted) && !m.WasAttacked
+}
+
+// endLootGuardEncounter: the fight this guard started on its guard sight is
+// over, relief included.
+func (m *Monster3D) endLootGuardEncounter() {
+	m.LootGuardAlerted, m.LootGuardRelieved = false, false
+}
+
+// RelieveLootGuard takes a guard that fights the party on its guard sight off
+// duty until this engagement ends: it then gives up the pursuit by the usual
+// disengage multiplier, not at the sight edge.
+func (m *Monster3D) RelieveLootGuard() {
+	if m.IsEngagingPlayer && m.usesLootGuardSight() {
+		m.LootGuardRelieved = true
 	}
-	ai := m.ai()
-	defaultRadius := cmp.Or(ai.DefaultAlertRadiusTiles, defaultMonsterAI.DefaultAlertRadiusTiles)
-	multiplier := cmp.Or(ai.DisengageDistanceMultiplier, defaultMonsterAI.DisengageDistanceMultiplier)
+}
+
+// playerAlertRadius is the sight radius in pixels, the same in both clocks:
+// authored, the fallback, or the loot-guard sight.
+func (m *Monster3D) playerAlertRadius() float64 {
+	if m.usesLootGuardSight() {
+		return LootGuardAggroRadiusTiles * m.tileSize()
+	}
 	radius := m.AlertRadius
 	if radius <= 0 {
-		radius = defaultRadius * m.tileSize()
+		radius = cmp.Or(m.ai().DefaultAlertRadiusTiles, defaultMonsterAI.DefaultAlertRadiusTiles) * m.tileSize()
 	}
-	return math.Min(radius, m.PursuitLimitTiles()*m.tileSize()), multiplier
+	return math.Min(radius, m.PursuitLimitTiles()*m.tileSize())
 }
 
 // fightReachTiles is how far the monster keeps up a fight with the party: the
@@ -532,13 +552,19 @@ func (m *Monster3D) PursuitLeashPixels() float64 {
 	if m.WasAttacked {
 		return m.PursuitLimitTiles() * m.tileSize()
 	}
-	radius, multiplier := m.playerAlertRadii()
-	return math.Min(m.PursuitLimitTiles(), math.Ceil(radius/m.tileSize()*multiplier)) * m.tileSize()
+	multiplier := cmp.Or(m.ai().DisengageDistanceMultiplier, defaultMonsterAI.DisengageDistanceMultiplier)
+	if m.usesLootGuardSight() && !m.LootGuardRelieved {
+		multiplier = 1 // a guard on duty lets go at its sight edge
+	}
+	return math.Min(m.PursuitLimitTiles(), math.Ceil(m.playerAlertRadius()/m.tileSize()*multiplier)) * m.tileSize()
 }
 
 func (m *Monster3D) CanPursueParty(playerX, playerY float64) bool {
-	return m != nil && m.partyScopeAllowsPursuit() &&
-		(m.relentlessHunter() || distance(m.X, m.Y, playerX, playerY) <= m.PursuitLeashPixels())
+	return m != nil && m.canPursuePartyAt(distance(m.X, m.Y, playerX, playerY))
+}
+
+func (m *Monster3D) canPursuePartyAt(dist float64) bool {
+	return m.partyScopeAllowsPursuit() && (m.relentlessHunter() || dist <= m.PursuitLeashPixels())
 }
 
 func (m *Monster3D) ShouldDisengageFromPlayer(playerX, playerY float64) bool {
@@ -565,7 +591,13 @@ func (m *Monster3D) LimitPlayerEngagement(playerX, playerY float64) {
 // PressesParty excludes remote map hunters from local party activities and UI:
 // pursuit of the party within the pursuit cap.
 func (m *Monster3D) PressesParty(partyX, partyY float64) bool {
-	return m.pursuesPartyWithin(partyX, partyY, m.PursuitLimitTiles())
+	return m != nil && m.PressesPartyAt(distance(m.X, m.Y, partyX, partyY))
+}
+
+// PressesPartyAt is PressesParty at a distance in pixels the caller measured:
+// between the tile centres a turn-based entry snaps both sides to.
+func (m *Monster3D) PressesPartyAt(dist float64) bool {
+	return m.pursuesPartyAt(dist, m.PursuitLimitTiles())
 }
 
 // FightsParty is PressesParty out to the monster's fight reach: a monster
@@ -573,12 +605,11 @@ func (m *Monster3D) PressesParty(partyX, partyY float64) bool {
 // retaliation lapses; a map-wide hunter beyond the cap does not until it
 // closes in.
 func (m *Monster3D) FightsParty(partyX, partyY float64) bool {
-	return m.pursuesPartyWithin(partyX, partyY, m.fightReachTiles())
+	return m != nil && m.pursuesPartyAt(distance(m.X, m.Y, partyX, partyY), m.fightReachTiles())
 }
 
-func (m *Monster3D) pursuesPartyWithin(partyX, partyY, reachTiles float64) bool {
-	return m.TargetsParty() && m.CanPursueParty(partyX, partyY) &&
-		distance(m.X, m.Y, partyX, partyY) <= reachTiles*m.tileSize()
+func (m *Monster3D) pursuesPartyAt(dist, reachTiles float64) bool {
+	return m.TargetsParty() && m.canPursuePartyAt(dist) && dist <= reachTiles*m.tileSize()
 }
 
 // ReturnHomeTarget is shared by continuous and turn movement. Only the explicit
@@ -590,7 +621,7 @@ func (m *Monster3D) ReturnHomeTarget() (int, int, bool) {
 	x, y := m.worldToTile(m.SpawnX), m.worldToTile(m.SpawnY)
 	if m.isAtTile(x, y) {
 		m.ReturningHome = false
-		m.LootGuardAlerted = false
+		m.endLootGuardEncounter()
 		m.ResetPathfinding()
 		return 0, 0, false
 	}
@@ -1762,7 +1793,7 @@ func (m *Monster3D) finishFleeIfExpired(playerX, playerY float64) bool {
 	if m.CanPursueParty(playerX, playerY) {
 		m.BeginPlayerEngagement()
 	} else {
-		m.LootGuardAlerted = false
+		m.endLootGuardEncounter()
 		m.State = StatePatrolling
 		m.Direction = m.GetDirectionToSpawn()
 	}

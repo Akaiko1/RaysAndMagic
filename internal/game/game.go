@@ -436,8 +436,9 @@ type MMGame struct {
 	partyMoveClock  status.DualClock // a round after the party moves (saved)
 	partyWasInFight bool
 	openerCooldown  status.DualClock // a round after a fight ends, before a new one arms an opener (saved)
-	// fightAggroAnswered: a monster already pressed the party in this fight,
-	// so the automatic turn-based switch had its one chance.
+	// fightAggroAnswered: the automatic turn-based switch had its one chance
+	// in this fight - a monster pressed the party, or the player left
+	// turn-based mode by hand.
 	fightAggroAnswered bool
 	// loadNotices are load-time messages printed once the loaded game's log
 	// starts (equipment that no longer fits its slot).
@@ -3311,18 +3312,43 @@ func (g *MMGame) commitWeaponAction() {
 // fight: leaving the mode by hand holds until the fight is over. Like Tab, it
 // waits while a conversation owns the view.
 func (g *MMGame) updateFightTurnMode() {
-	if !g.partyInCombat() {
+	auto := g.combatPreferences.AutoTurnBased
+	inFight, pressed := g.fightPressure(auto)
+	if !inFight {
 		g.turnBasedTurnSuspended = false
 		g.fightAggroAnswered = false
 		return
 	}
-	if g.fightAggroAnswered || !g.worldClickAllowed() || !g.partyUnderAttack() {
+	if g.fightAggroAnswered || !g.worldClickAllowed() || !pressed {
 		return
 	}
 	g.fightAggroAnswered = true
-	if g.combatPreferences.AutoTurnBased && !g.turnBasedMode {
+	if auto && !g.turnBasedMode {
 		g.ToggleTurnBasedMode()
 	}
+}
+
+// fightPressure scans the fight once: whether the party has one, and whether a
+// combatant presses the party and still does from the tile centres a
+// turn-based entry snaps both sides to - an entry must not align its own fight
+// off the battlefield. relieve takes the loot guards that press the party off
+// duty, so the automatic entry keeps the guards it throws into the fight.
+func (g *MMGame) fightPressure(relieve bool) (inFight, pressedOnTiles bool) {
+	for m := range g.combatantsMatching(nil) {
+		inFight = true
+		if !g.monsterPressesParty(m) {
+			continue
+		}
+		if relieve {
+			m.RelieveLootGuard()
+		}
+		ts := float64(g.config.GetTileSize())
+		dist := Distance(TileCenter(m.X, ts), TileCenter(m.Y, ts), TileCenter(g.camera.X, ts), TileCenter(g.camera.Y, ts))
+		if pressedOnTiles = pressedOnTiles || m.PressesPartyAt(dist); pressedOnTiles && !relieve {
+			break
+		}
+	}
+	return inFight, pressedOnTiles
 }
 
 func (g *MMGame) ToggleTurnBasedMode() {
@@ -3335,6 +3361,8 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		// TB is active; clearing them here made Tab an attack/cast reset.
 		g.turnBasedMode = false
 		g.turnBasedTurnSuspended = true
+		// Only the player leaves: that answers the automatic switch for this fight.
+		g.fightAggroAnswered = g.partyInCombat()
 		g.logCombatLine(logToneNone, uitext.Text("combat.real_time_mode_activated"))
 		return
 	}
@@ -3372,16 +3400,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 // snapToTileCenter moves the player to the center of their current tile and snaps direction to nearest cardinal
 func (g *MMGame) snapToTileCenter() {
 	tileSize := float64(g.config.GetTileSize())
-
-	// Get current tile coordinates
-	currentTileX := TileIndex(g.camera.X, tileSize)
-	currentTileY := TileIndex(g.camera.Y, tileSize)
-
-	// Calculate exact center of current tile
-	centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
-
-	// Snap to center
-	g.movePartyPosition(centerX, centerY)
+	g.movePartyPosition(TileCenter(g.camera.X, tileSize), TileCenter(g.camera.Y, tileSize))
 
 	// Snap direction to nearest cardinal direction (N, E, S, W)
 	g.snapToCardinalDirection()
@@ -3440,14 +3459,7 @@ func (g *MMGame) snapMonstersToTileCenters() {
 			continue
 		}
 
-		// Get current tile coordinates for this monster
-		currentTileX := TileIndex(monster.X, tileSize)
-		currentTileY := TileIndex(monster.Y, tileSize)
-
-		// Calculate exact center of current tile
-		centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
-
-		// Snap monster to center
+		centerX, centerY := TileCenter(monster.X, tileSize), TileCenter(monster.Y, tileSize)
 		monster.X = centerX
 		monster.Y = centerY
 

@@ -18,7 +18,9 @@ import (
 // LootGuardAggroRadiusTiles is the complete sight and disengage radius for a
 // crate/lectern guard. It is an objective-specific exception: the usual alert
 // radius, spawn tether expansion, and disengage multiplier do not apply while
-// guarding or pursuing a sight-started guard encounter.
+// guarding or pursuing a sight-started guard encounter. A relieved guard
+// (LootGuardRelieved) keeps the sight and gives up the pursuit by the usual
+// disengage multiplier of it.
 const LootGuardAggroRadiusTiles = 7.0
 
 // AIBehaviorMode is the mode-independent priority order for a monster.
@@ -428,7 +430,10 @@ type Monster3D struct {
 	LootGuarding bool
 	// LootGuardAlerted keeps the seven-tile guard radius through the active
 	// sight encounter after the game releases the calm guard reservation.
-	LootGuardAlerted     bool
+	LootGuardAlerted bool
+	// LootGuardRelieved: this guard pressed the party with Auto turn-based on
+	// and is off duty until the engagement ends.
+	LootGuardRelieved    bool
 	LootGuardTargetKey   string
 	LootGuardTargetTileX int
 	LootGuardTargetTileY int
