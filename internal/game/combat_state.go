@@ -7,6 +7,7 @@ package game
 func (g *MMGame) clearTransientCombatState() {
 	g.resetOverwatch()
 	g.monsterCorpses = nil
+	clear(g.monsterGlides)
 	for i := range g.groundContainers {
 		g.groundContainers[i].hop = lootHop{}
 	}

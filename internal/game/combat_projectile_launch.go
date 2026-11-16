@@ -167,7 +167,7 @@ func (cs *CombatSystem) partyProjectileLaunch(angle, maxRange float64, explicit 
 				continue
 			}
 			d := math.Hypot(target.X-x, target.Y-y)
-			vx, vy := cs.monsterVisualPos(target)
+			vx, vy := cs.monsterRestPos(target)
 			if d <= 0 || d > bestDistance || !cs.attackLineClear(x, y, target.X, target.Y) ||
 				!headingTowardWithin(x, y, math.Cos(angle), math.Sin(angle), vx, vy, cone) {
 				continue

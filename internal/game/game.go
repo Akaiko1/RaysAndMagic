@@ -279,6 +279,8 @@ type MMGame struct {
 	// shivered in place. Also keeps frame-stamped windows (attack posts, loot-guard
 	// patrols, TB move animations) from expiring while a menu is open.
 	frameCount int64
+	// worldTicked: frameCount already advanced in this update.
+	worldTicked bool
 	// uiFrameCount is the INTERFACE clock: it advances every frame, paused or not.
 	// Party-card feedback (flame, poison, ignite, stun stars, the badge aura) is
 	// presentation, not world state, and must keep breathing under an open hub.
@@ -400,11 +402,16 @@ type MMGame struct {
 	// blur, the standard post-process for a yaw turn (the scene pans horizontally).
 	viewAngleRender    float64
 	viewTurnFramesLeft int
-	sceneBuf           *ebiten.Image  // offscreen 3D scene (blur source, or scaled onto the screen)
-	blurShader         *ebiten.Shader // lazily compiled horizontal motion blur
-	turnBlurWarm       bool           // first draw prewarms shader/buffer before the first real turn
-	turnBlurOpts       ebiten.DrawRectShaderOptions
-	turnBlurUniform    []float32
+	// viewStep slides the rendered view to the party's new tile after a
+	// turn-based step, without the turn's blur; monsterGlides does the same
+	// for where each monster is drawn (turn_step_glide.go).
+	viewStep        stepGlide
+	monsterGlides   map[*monster.Monster3D]monsterGlide
+	sceneBuf        *ebiten.Image  // offscreen 3D scene (blur source, or scaled onto the screen)
+	blurShader      *ebiten.Shader // lazily compiled horizontal motion blur
+	turnBlurWarm    bool           // first draw prewarms shader/buffer before the first real turn
+	turnBlurOpts    ebiten.DrawRectShaderOptions
+	turnBlurUniform []float32
 
 	// Map overlay UI state
 	mapOverlayOpen bool
@@ -1932,12 +1939,18 @@ func (g *MMGame) turnViewFrames() int {
 // movement validates its destination through collision before committing.
 func (g *MMGame) setPartyPosition(x, y float64) {
 	g.resetCameraPresentation()
-	g.movePartyPosition(x, y)
+	g.placeParty(x, y)
 }
 
 // movePartyPosition keeps the last displayed pose available for input until
-// Draw publishes the ordinary step. Teleports and restores use setPartyPosition.
+// Draw publishes the ordinary step; in turn-based mode the view slides there.
+// Teleports and restores use setPartyPosition.
 func (g *MMGame) movePartyPosition(x, y float64) {
+	g.glidePartyStep(x, y)
+	g.placeParty(x, y)
+}
+
+func (g *MMGame) placeParty(x, y float64) {
 	g.camera.X, g.camera.Y = x, y
 	if g.collisionSystem != nil {
 		g.collisionSystem.UpdateEntity("player", x, y)
@@ -3360,6 +3373,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		// Keep both action economies intact. RT cooldowns already pause while
 		// TB is active; clearing them here made Tab an attack/cast reset.
 		g.turnBasedMode = false
+		g.viewStep = stepGlide{}
 		g.turnBasedTurnSuspended = true
 		// Only the player leaves: that answers the automatic switch for this fight.
 		g.fightAggroAnswered = g.partyInCombat()
@@ -3370,6 +3384,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 	// Focus is an RT-only temporary sub-party. Entering TB restores the normal
 	// full-party turn scheduler and leaving TB starts with no stale focus.
 	g.clearFocusMode()
+	g.beginMonsterGlides()
 	g.turnBasedMode = true
 	// Snap to tile center immediately
 	g.snapToTileCenter()

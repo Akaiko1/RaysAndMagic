@@ -1339,12 +1339,14 @@ func chooseFrontAttackSide(left, right *frontAttackSlotChoice) *frontAttackSlotC
 	}
 }
 
-// logicalCameraXY is the camera position WITHOUT the cosmetic Draw-time screen
-// shake (screenShakeOffset is 0 outside Draw). Render-time geometry that must NOT
-// jitter with the shake - the TB front-diagonal pull and its gates - uses this,
-// so a pulled monster near a wall doesn't blink when a hit shakes the view.
+// logicalCameraXY is the party's position in the rules: the camera WITHOUT the
+// Draw-time screen shake, interpolation or turn-based step slide. Render-time
+// geometry that must NOT move with those - the TB front-diagonal pull and its
+// gates, the battlefield overlay - uses this, so a pulled monster near a wall
+// doesn't blink when a hit shakes the view or a step slides it.
 func (cs *CombatSystem) logicalCameraXY() (float64, float64) {
-	return cs.game.camera.X - cs.game.screenShakeOffsetX, cs.game.camera.Y - cs.game.screenShakeOffsetY
+	pose := cs.game.logicalCameraPose()
+	return pose.x, pose.y
 }
 
 // pulledFrontSlot is the SINGLE source of truth for the turn-based front-diagonal
@@ -1424,6 +1426,16 @@ func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, fl
 	if mon.DeathDrawn && !mon.IsAlive() {
 		return mon.DeathDrawX, mon.DeathDrawY
 	}
+	x, y := cs.monsterRestPos(mon)
+	if cs.game == nil {
+		return x, y
+	}
+	return cs.game.glidedMonsterPos(mon, x, y)
+}
+
+// monsterRestPos is where a living monster is drawn once it stands still; a
+// turn-based step slides there (glidedMonsterPos).
+func (cs *CombatSystem) monsterRestPos(mon *monsterPkg.Monster3D) (float64, float64) {
 	x, y := mon.X, mon.Y
 	if _, px, py, pulled, ok := cs.monsterFrontSlotGeometry(mon); ok && pulled {
 		x, y = px, py
@@ -3204,7 +3216,8 @@ func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 		}
 	}
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-	m.DeathDrawX, m.DeathDrawY = cs.monsterVisualPos(m)
+	// At rest, not mid-slide: the body lies on its tile.
+	m.DeathDrawX, m.DeathDrawY = cs.monsterRestPos(m)
 	m.DeathDrawn = true
 	cs.game.recordAdventureBoss(m)
 	cs.game.rewardOwner().noteStoryKill(m)

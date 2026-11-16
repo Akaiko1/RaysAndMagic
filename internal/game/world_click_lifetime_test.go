@@ -309,6 +309,8 @@ func TestTurnBasedStepKeepsDisplayedClickPose(t *testing.T) {
 			g.camera.FOV, g.camera.ViewDist = squareProjectionFOV(800, 600), 5000
 			g.setPartyPosition(352, 352)
 			g.snapFacing(0)
+			// A slide longer than the step repeat sets the walking pace.
+			g.config.Graphics.View.TurnStepSeconds = 2 * TurnBasedInputCooldownSeconds
 			n := &character.NPC{Name: "Step target", Sprite: "missing_pick_fixture", RenderCategory: "npc", SizeClass: "full_tile", X: 480, Y: 384}
 			if kind == "NPC" {
 				g.world.NPCs = []*character.NPC{n}
@@ -354,6 +356,9 @@ func TestTurnBasedStepKeepsDisplayedClickPose(t *testing.T) {
 			if g.camera.X != 416 {
 				t.Fatal("fixture did not take an ordinary TB step")
 			}
+			if g.turnBasedMoveCooldown < int(g.stepGlideFrames()) {
+				t.Fatalf("the next step may start %d frames into a %d-frame slide", g.turnBasedMoveCooldown, g.stepGlideFrames())
+			}
 			if g.dialogActive || g.party.Gold != 0 {
 				t.Fatal("step retargeted an empty click before the new view was shown")
 			}
@@ -361,8 +366,12 @@ func TestTurnBasedStepKeepsDisplayedClickPose(t *testing.T) {
 				t.Fatal("ordinary step discarded the displayed pose")
 			}
 			fp.release()
-			if err := h.loop.Update(); err != nil {
-				t.Fatal(err)
+			// The view slides to the new tile; the new position is on screen
+			// once the slide ends.
+			for range g.stepGlideFrames() {
+				if err := h.loop.Update(); err != nil {
+					t.Fatal(err)
+				}
 			}
 			g.beginRenderCameraSwap(time.Now())()
 			h.ui.Draw(h.screen)

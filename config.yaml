@@ -628,6 +628,11 @@ graphics:
     # Classic HUD clearance fades out before a creature crosses the camera.
     lift_fade_tiles: 0.5
     lift_full_tiles: 1.0
+    # Turn-based: seconds the view and the monsters slide over one step
+    # (0 = instant jump). A held key takes its next step when the slide ends,
+    # never sooner than the 0.15 s step repeat: above 0.15 this is the walking
+    # pace, below it the view stands between steps.
+    turn_step_seconds: 0.15
   ranged_held:
     # Camera-local bodies, compared with the melee weapon catalog. Projectiles
     # retain their independently authored sizes and flight paths.

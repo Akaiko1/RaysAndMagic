@@ -456,6 +456,7 @@ func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bo
 	}
 	gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
 	if movedTile {
+		gl.game.noteMonsterStep(m)
 		gl.game.observeOverwatchMovement(m, oldX, oldY)
 	}
 	return true

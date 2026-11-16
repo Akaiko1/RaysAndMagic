@@ -213,6 +213,7 @@ func (g *MMGame) placeMonster(m *monster.Monster3D, x, y float64) {
 // it arrived.
 func (cs *CombatSystem) settleBlink(m *monster.Monster3D, oldX, oldY, faceX, faceY float64) {
 	m.ResetPathfinding()
+	cs.game.snapMonsterGlide(m)
 	m.Direction = math.Atan2(faceY-m.Y, faceX-m.X)
 	cs.game.spawnBlinkLightColumn(oldX, oldY)
 	cs.game.spawnBlinkLightColumn(m.X, m.Y)

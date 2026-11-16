@@ -37,6 +37,7 @@ func (g *MMGame) logicalCameraPose() cameraPose {
 }
 func (g *MMGame) resetCameraPresentation() {
 	g.cameraPresentation = cameraPresentation{epoch: g.cameraPresentation.epoch + 1}
+	g.viewStep = stepGlide{}
 	// A discontinuous view change cannot transfer a press or held target to
 	// the replacement scene. Ordinary movement preserves the displayed pose.
 	if gl := g.gameLoop; gl != nil {
@@ -146,6 +147,9 @@ func (g *MMGame) beginRenderCameraSwap(now time.Time) func() {
 	pose := g.renderCameraPose(now)
 	if g.turnBasedMode {
 		pose.angle = g.viewAngleRender
+		if x, y, moving := g.viewStepPos(); moving {
+			pose.x, pose.y = x, y
+		}
 	}
 	g.cameraPresentation.presented, g.cameraPresentation.presentedValid = pose, true
 	return g.swapCameraPose(pose)

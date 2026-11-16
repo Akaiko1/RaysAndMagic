@@ -70,6 +70,7 @@ func (gl *GameLoop) Update() error {
 	// widget must never acquire an old press. Holds have their own gesture state.
 	defer gl.ui.dropQueuedClicks()
 	updateStart := time.Now()
+	defer func() { gl.game.worldTicked = false }()
 	beforeCamera, cameraEpoch := gl.game.cameraPose(), gl.game.cameraPresentation.epoch
 	defer func() { gl.game.finishCameraTick(beforeCamera, cameraEpoch, updateStart) }()
 	defer func() { gl.game.updatePlayerProfile(time.Now()) }()
@@ -210,6 +211,7 @@ func (gl *GameLoop) updateExploration() {
 	// ticks here and nowhere else. Everything drawn FROM the world reads it, which
 	// is what makes a paused overlay a still picture.
 	gl.game.frameCount++
+	gl.game.worldTicked = true
 	gl.game.updateMonsterDeaths()
 	gl.game.updateTacticalClocks()
 	gl.game.updateFightOpeners()
@@ -265,6 +267,7 @@ func (gl *GameLoop) runWorldFrame() {
 	if len(gl.game.deadMonsterIDs) > 0 {
 		gl.removeDeadMonstersByID()
 	}
+	gl.game.advanceMonsterGlides()
 }
 
 // gameplayPausedByOverlay is the single pause contract for in-game overlays:

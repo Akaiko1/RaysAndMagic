@@ -370,6 +370,7 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 		}
 		if cs.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, cx, cy, m.WalkableTileOverrides, m.Flying) {
 			cs.game.relocateMonster(m, cx, cy)
+			cs.game.snapMonsterGlide(m)
 			cs.game.spawnBlinkLightColumn(fromX, fromY)
 			return true
 		}

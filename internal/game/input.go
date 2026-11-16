@@ -2371,7 +2371,8 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 
 		if moved {
-			ih.game.turnBasedMoveCooldown = ih.game.framesForSeconds(TurnBasedInputCooldownSeconds)
+			// The next step waits for this one's slide, or the view falls behind.
+			ih.game.turnBasedMoveCooldown = max(ih.game.framesForSeconds(TurnBasedInputCooldownSeconds), int(ih.game.stepGlideFrames()))
 			ih.game.endPartyTurnAfterMovement()
 			return
 		}

@@ -1217,7 +1217,12 @@ type ViewRenderConfig struct {
 	WideWeaponViewportRatio float64 `yaml:"wide_weapon_viewport_ratio"`
 	LiftFadeTiles           float64 `yaml:"lift_fade_tiles"`
 	LiftFullTiles           float64 `yaml:"lift_full_tiles"`
+	// TurnStepSeconds: how long the view and the monsters slide over one
+	// turn-based step; 0 keeps the instant jump.
+	TurnStepSeconds float64 `yaml:"turn_step_seconds"`
 }
+
+const DefaultTurnStepSeconds = 0.15
 
 // NightMoteRenderConfig controls the shared runtime budget and timing for
 // moving night motes. Per-tile night_motes data only selects the palette.
@@ -2060,6 +2065,7 @@ func LoadConfig(filename string) (*Config, error) {
 	config.Camping = DefaultCampingConfig()
 	config.Graphics.Monster.Death = DefaultMonsterDeathRenderConfig()
 	config.Graphics.Monster.WalkFrameSeconds = DefaultMonsterWalkFrameSeconds
+	config.Graphics.View.TurnStepSeconds = DefaultTurnStepSeconds
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
@@ -2201,6 +2207,9 @@ func LoadConfig(filename string) (*Config, error) {
 		}
 	}
 	v := config.Graphics.View
+	if !(v.TurnStepSeconds >= 0 && v.TurnStepSeconds <= 2) {
+		return nil, fmt.Errorf("graphics.view.turn_step_seconds must be in [0, 2], got %g", v.TurnStepSeconds)
+	}
 	if !(v.WidePaniniDistance >= 0 && v.WidePaniniDistance <= 1) {
 		return nil, fmt.Errorf("graphics.view.wide_panini_distance must be in [0, 1], got %g", v.WidePaniniDistance)
 	}
