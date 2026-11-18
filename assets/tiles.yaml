@@ -239,7 +239,7 @@ tiles:
     render_type: "floor"
     floor_color: [30, 80, 180]  # Darker blue deep water
     floor_near_color: [205, 175, 149]  # Sandy shore near deep water
-    floor_texture_group: "water"
+    floor_texture_group: "deep_water"
     letter: "Q"
 
   door:

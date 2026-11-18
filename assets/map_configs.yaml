@@ -13,9 +13,13 @@ shared_floor_texture_groups:
   water:
     - "water_0"
     - "water_1"
+  deep_water:
+    - "deep_water_0"
+    - "deep_water_1"
 
 shared_floor_transitions:
   water: water
+  deep_water: water
 
 # floor_transitions maps texture-group names to visual blending profiles.
 # After shared inheritance, unlisted groups use hard (no neighbor blending).
