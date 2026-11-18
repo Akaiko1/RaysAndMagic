@@ -29,6 +29,23 @@ func TestKageShadersCompile(t *testing.T) {
 	}
 }
 
+// No shader writes an array or vector element at a computed index. FXC (the
+// DirectX compiler) cannot address such a local, so it must unroll every
+// enclosing loop and fails once the body is large (X3511). Only the Windows
+// release precompile and Windows players meet that compiler.
+func TestShadersWriteNoElementAtAComputedIndex(t *testing.T) {
+	write := regexp.MustCompile(`\b[A-Za-z_]\w*\s*\[\s*([^\]]+?)\s*\]\s*[-+*/]?=[^=]`)
+	literal := regexp.MustCompile(`^\d+$`)
+	for _, name := range shaders.Names() {
+		code := regexp.MustCompile(`//[^\n]*`).ReplaceAllString(shaders.Source(name), "")
+		for _, m := range write.FindAllStringSubmatch(code, -1) {
+			if !literal.MatchString(m[1]) {
+				t.Errorf("%s writes %q at a computed index", name, strings.TrimSpace(m[0]))
+			}
+		}
+	}
+}
+
 // A shader branch on a Go-side id compares against a named const, never a
 // bare number. Each branch variable lists the Go const blocks whose ids it
 // reads (by one member's name): the shader declares every member of those

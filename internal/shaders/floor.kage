@@ -405,27 +405,29 @@ func floorRoundBank(q,base,fraction vec2,cells [4]vec4,ownLand bool,waterBand,mi
 	fl := smoothstep(vec2(0.5-landBand),vec2(0.5+landBand),fraction+noise*floorBandWobble)
 	fw := smoothstep(vec2(0.5-waterBand),vec2(0.5+waterBand),fraction)
 	p := fraction-vec2(0.5)
-	var isLand [4]bool
+	// Land is read from cells[i] each time: a local array written at a loop
+	// index makes FXC unroll the caller's loops (TestShadersWriteNoElementAtAComputedIndex).
 	count := 0
 	for i:=0;i<4;i++ {
-		isLand[i] = cells[i].b==floorBlendNatural
-		if isLand[i] { count++ }
+		if cells[i].b==floorBlendNatural { count++ }
 	}
+	land0 := cells[0].b==floorBlendNatural
 	// inside is the distance into land.
 	inside := 0.0
-	if count==2 && isLand[0]==isLand[1] {
+	if count==2 && land0==(cells[1].b==floorBlendNatural) {
 		inside = p.y
-		if isLand[0] { inside = -p.y }
-	} else if count==2 && isLand[0]==isLand[2] {
+		if land0 { inside = -p.y }
+	} else if count==2 && land0==(cells[2].b==floorBlendNatural) {
 		inside = p.x
-		if isLand[0] { inside = -p.x }
+		if land0 { inside = -p.x }
 	} else {
 		// One cell against three, or two land cells meeting at the corner only.
 		inside = -1.0
 		for i:=0;i<4;i++ {
+			isLand := cells[i].b==floorBlendNatural
 			if count==3 {
-				if !isLand[i] { inside = -floorCornerInside(p,i) }
-			} else if isLand[i] {
+				if !isLand { inside = -floorCornerInside(p,i) }
+			} else if isLand {
 				inside = max(inside,floorCornerInside(p,i))
 			}
 		}
@@ -435,19 +437,20 @@ func floorRoundBank(q,base,fraction vec2,cells [4]vec4,ownLand bool,waterBand,mi
 	var landRGB, waterRGB vec3
 	landTotal, waterTotal, waterSurf := 0.0, 0.0, 0.0
 	for i:=0;i<4;i++ {
+		isLand := cells[i].b==floorBlendNatural
 		offset := vec2(float(i%2),float(i/2))
 		tile := base+offset
-		if (isLand[i] && dry<=0) || (!isLand[i] && dry>=1) { continue }
+		if (isLand && dry<=0) || (!isLand && dry>=1) { continue }
 		f := fw
-		if isLand[i] { f = fl }
+		if isLand { f = fl }
 		weight := mix(1.0-f.x,f.x,offset.x)*mix(1.0-f.y,f.y,offset.y)
 		if weight<=0 { continue }
 		// Water always tiles on; land does where the arc carries it past its
 		// own tiles.
 		local := clamp(q-tile,vec2(0),vec2(1))
-		if !isLand[i] || !ownLand { local = fract(q-tile) }
+		if !isLand || !ownLand { local = fract(q-tile) }
 		cell := floorCellSample(q,tile,local,cells[i],mip,texelsPerPixel,waterDistance,noise.x)
-		if isLand[i] { landRGB += cell*weight; landTotal += weight } else { waterRGB += cell*weight; waterTotal += weight; waterSurf += weight*floorSurfShare(cells[i]) }
+		if isLand { landRGB += cell*weight; landTotal += weight } else { waterRGB += cell*weight; waterTotal += weight; waterSurf += weight*floorSurfShare(cells[i]) }
 	}
 	if landTotal<=0 { return vec4(waterRGB/max(waterTotal,0.0001),waterSurf/max(waterTotal,0.0001)) }
 	if waterTotal<=0 { return vec4(landRGB/landTotal,0.0) }
