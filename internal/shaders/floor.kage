@@ -463,6 +463,14 @@ func floorRoundBank(q,base,fraction vec2,c0,c1,c2,c3 vec4,ownLand bool,waterBand
 	return vec4(mix(waterRGB/waterTotal,landRGB/landTotal,dry),(1.0-dry)*waterSurf/waterTotal)
 }
 
+// floorTapPoint is tap number tap of taps along the pixel's vertical
+// footprint, in tiles.
+func floorTapPoint(tap,taps,p,tapStep float, ray vec2) vec2 {
+	offset := (tap+0.5)/taps-0.5
+	tapDist := RowDistFactor/(p+offset*tapStep)
+	return (CamPos+tapDist*ray)/TileSize
+}
+
 func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
 	dstPos := vec4(paniniSourcePoint(rawDstPos.xy-imageDstOrigin())+imageDstOrigin(),rawDstPos.zw)
 	// Per-pixel sampling. (A legacy 2x2 block quantization matched the old CPU
@@ -506,12 +514,12 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
 	if floorMaterialAt(floor(q)).a>=floorBlendBoundary { // boundary or shore bit
 		noise = vec2(floorNoise(q*1.5),floorNoise(q*1.5+vec2(17,41)))*2.0-1.0
 	}
+	// The taps are written out, not looped: FXC (DirectX) unrolls a loop
+	// around a body this large on its own and fails (X3511).
 	var rgb vec3
-	for tap:=0;tap<tapCount;tap++ {
-		offset := (float(tap)+0.5)/float(tapCount)-0.5
-		tapDist := RowDistFactor/(p+offset*tapStep)
-		rgb += floorSurface((CamPos+tapDist*ray)/TileSize,mip,texelsPerPixel,maskFootprint,noise)
-	}
+	rgb += floorSurface(floorTapPoint(0,float(tapCount),p,tapStep,ray),mip,texelsPerPixel,maskFootprint,noise)
+	rgb += floorSurface(floorTapPoint(1,float(tapCount),p,tapStep,ray),mip,texelsPerPixel,maskFootprint,noise)
+	rgb += floorSurface(floorTapPoint(2,float(tapCount),p,tapStep,ray),mip,texelsPerPixel,maskFootprint,noise)
 	rgb /= float(tapCount)
 
 	dx := floorX - CamPos.x
