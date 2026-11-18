@@ -352,7 +352,7 @@ func floorGround(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint,waterDis
 		for i:=0;i<4;i++ {
 			if cells[i].b==floorBlendHard || mod(floor(cells[i].a/floorBlendBoundary),2.0)<0.5 { round = false }
 		}
-		if round { return floorRoundBank(q,base,fraction,cells,own.b==floorBlendNatural,waterBand,mip,texelsPerPixel,maskFootprint,waterDistance,noise*detail) }
+		if round { return floorRoundBank(q,base,fraction,cells[0],cells[1],cells[2],cells[3],own.b==floorBlendNatural,waterBand,mip,texelsPerPixel,maskFootprint,waterDistance,noise*detail) }
 	}
 	if other { width = floorBandNarrow } else if water && land { width, wobble = floorBandShore, 0.0 }
 	// Filter the mask as well as the textures at distance. Near-field noise
@@ -400,13 +400,19 @@ func floorCornerInside(p vec2, i int) float {
 // convex or concave alike. Land blends with land and water with water under
 // the mask. Textures tile on past their own tiles instead of stretching their
 // edge pixels.
-func floorRoundBank(q,base,fraction vec2,cells [4]vec4,ownLand bool,waterBand,mip,texelsPerPixel,maskFootprint,waterDistance float,noise vec2) vec4 {
+func floorRoundBank(q,base,fraction vec2,c0,c1,c2,c3 vec4,ownLand bool,waterBand,mip,texelsPerPixel,maskFootprint,waterDistance float,noise vec2) vec4 {
+	// The cells arrive one by one and live in a local array, written only at
+	// constant indices: FXC cannot address an array parameter or an element
+	// written at a loop index (TestShadersKeepArraysAddressable).
+	var cells [4]vec4
+	cells[0]=c0
+	cells[1]=c1
+	cells[2]=c2
+	cells[3]=c3
 	landBand := min(0.48,floorBandNatural+maskFootprint*0.5)
 	fl := smoothstep(vec2(0.5-landBand),vec2(0.5+landBand),fraction+noise*floorBandWobble)
 	fw := smoothstep(vec2(0.5-waterBand),vec2(0.5+waterBand),fraction)
 	p := fraction-vec2(0.5)
-	// Land is read from cells[i] each time: a local array written at a loop
-	// index makes FXC unroll the caller's loops (TestShadersWriteNoElementAtAComputedIndex).
 	count := 0
 	for i:=0;i<4;i++ {
 		if cells[i].b==floorBlendNatural { count++ }

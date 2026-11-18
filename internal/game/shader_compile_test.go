@@ -29,18 +29,26 @@ func TestKageShadersCompile(t *testing.T) {
 	}
 }
 
-// No shader writes an array or vector element at a computed index. FXC (the
-// DirectX compiler) cannot address such a local, so it must unroll every
-// enclosing loop and fails once the body is large (X3511). Only the Windows
+// Arrays stay where FXC (the DirectX compiler) can address them: no
+// function takes an array parameter, and no array or vector element is
+// written at a computed index. Otherwise FXC must unroll every loop around
+// the access and fails once the body is large (X3511); only the Windows
 // release precompile and Windows players meet that compiler.
-func TestShadersWriteNoElementAtAComputedIndex(t *testing.T) {
+func TestShadersKeepArraysAddressable(t *testing.T) {
 	write := regexp.MustCompile(`\b[A-Za-z_]\w*\s*\[\s*([^\]]+?)\s*\]\s*[-+*/]?=[^=]`)
 	literal := regexp.MustCompile(`^\d+$`)
+	param := regexp.MustCompile(`func\s+(\w+)\s*\(([^)]*)\)`)
+	arrayType := regexp.MustCompile(`\[\s*\w+\s*\]\s*\w`)
 	for _, name := range shaders.Names() {
 		code := regexp.MustCompile(`//[^\n]*`).ReplaceAllString(shaders.Source(name), "")
 		for _, m := range write.FindAllStringSubmatch(code, -1) {
 			if !literal.MatchString(m[1]) {
 				t.Errorf("%s writes %q at a computed index", name, strings.TrimSpace(m[0]))
+			}
+		}
+		for _, m := range param.FindAllStringSubmatch(code, -1) {
+			if arrayType.MatchString(m[2]) {
+				t.Errorf("%s: func %s takes an array parameter", name, m[1])
 			}
 		}
 	}
