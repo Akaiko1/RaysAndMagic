@@ -121,7 +121,10 @@ Floor textures are biome-driven. Named groups live in `biomes:` in
 
 Choose a `floor_transitions` profile for each group. See
 [Floor texture transitions](docs/floor-transitions.md) for `hard`, `natural`,
-`water`, `void`, directional cliff rules, inheritance, and YAML examples.
+`water`, `void`, `chasm`, directional cliff rules, inheritance, and YAML
+examples. A `type: water` tile joins the map's water bodies: every map that
+places it lists its bodies under `water_bodies` in `map_configs.yaml` (see
+[Surf](docs/floor-transitions.md#surf)).
 
 `floor_color` supplies the base tint under a resolved texture (80% texture,
 20% base before other rendering effects), or the full base when no texture

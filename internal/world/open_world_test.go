@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -221,6 +222,35 @@ func TestOpenWorldStitchGeometry(t *testing.T) {
 	if wm.OpenWorld.StartX != forest.StartX || wm.OpenWorld.StartY != forest.StartY {
 		t.Errorf("unified start = (%d,%d), want forest region start (%d,%d)",
 			wm.OpenWorld.StartX, wm.OpenWorld.StartY, forest.StartX, forest.StartY)
+	}
+
+	// Authored water bodies keep their kind through the stitch (rotated
+	// placements included) and on the split maps of the same boot.
+	for key, mc := range wm.MapConfigs {
+		for _, body := range mc.WaterBodies {
+			w, x, y := wm.LoadedMaps[key], body.At[0], body.At[1]
+			if wm.IsOpenWorldRegion(key) {
+				w = wm.OpenWorld
+				x, y = wm.ProjectTile(key, x, y)
+			}
+			if got := w.WaterBodyKind(x, y); got != body.Kind {
+				t.Errorf("%s water body at %v: kind %q, want %q", key, body.At, got, body.Kind)
+			}
+		}
+	}
+
+	// An unlisted body fails the boot on a split map as on a stitched one.
+	// Runs last: it leaves the manager half loaded.
+	for _, key := range []string{"culverts", "forest"} {
+		shipped := wm.MapConfigs[key]
+		trimmed := *shipped
+		trimmed.WaterBodies = shipped.WaterBodies[1:]
+		wm.MapConfigs[key] = &trimmed
+		err := wm.LoadAllMaps()
+		wm.MapConfigs[key] = shipped
+		if err == nil || !strings.Contains(err.Error(), "maps."+key+".water_bodies: unlisted water bodies") {
+			t.Errorf("%s without its first water body: LoadAllMaps error = %v", key, err)
+		}
 	}
 }
 

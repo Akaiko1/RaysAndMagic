@@ -11,8 +11,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Index-map B packs profile (bits 0-2), frozen water (5), boundary (6), and shoreline
-// proximity (7); alpha stays opaque. Textures keep world-aligned UVs.
+// Index-map B packs profile (bits 0-2), water group edge (3), surf (4), frozen
+// water (5), boundary (6), and shoreline proximity (7); alpha stays opaque.
+// Textures keep world-aligned UVs.
 // Byte contract shared with the Kage floor shader, which names every value
 // below (TestShaderConstantsMatchGo). Zero is deliberately hard:
 // old/untextured maps and unclassified groups retain their authored geometry.
@@ -31,13 +32,33 @@ const (
 const floorProfileModulus byte = 8
 
 const floorShoreReach = 2.0
+
+// A crest travels one spacing every floorSurfPeriodSeconds. The shader's surf
+// clock counts crests and wraps at floorSurfWaveCycle; floor.kage hashes the
+// crest number modulo the same cycle, so the wrap is seamless.
+const (
+	floorSurfPeriodSeconds = 3.2
+	floorSurfWaveCycle     = 64
+)
+
 const floorBlendBoundary byte = 64
 const floorFrozenWater byte = 32
+
+// floorWaterGroupEdge marks a water cell with a tile corner where two water
+// groups meet (shallow and deep, a stream and a lake): the shader blends them
+// in one gradient from tile centre to tile centre there. Variants of one group
+// keep the narrow band. The shore map's B marks those corners.
+const floorWaterGroupEdge byte = 8
+
+// floorSurfWater marks lake or sea water within floorShoreReach of a bank:
+// the shader draws breaking waves there.
+const floorSurfWater byte = 16
 const floorBlendShore byte = 128
 
 type floorMaterial struct {
 	atlas, shore int // atlas index + 1; zero means no texture
 	profile      byte
+	surf         bool // water of a lake or sea (water_bodies): waves break on its bank
 	group        string
 	color        color.RGBA
 }
@@ -121,6 +142,7 @@ func (r *Renderer) prepareFloorMaps(w, h int) (colors, indices, shore *image.RGB
 			}
 			m := r.resolvedFloorMaterial(x, y, tile)
 			m.color = c
+			m.surf = m.profile == floorBlendWater && r.game.world.WaterBodyKind(x, y).Surf()
 			materials[cell] = m
 			indices.Pix[cell*4], indices.Pix[cell*4+1], indices.Pix[cell*4+2], indices.Pix[cell*4+3] = byte(m.atlas), byte(m.shore), m.profile, 255
 		}
@@ -130,19 +152,35 @@ func (r *Renderer) prepareFloorMaps(w, h int) (colors, indices, shore *image.RGB
 	shore = image.NewRGBA(image.Rect(0, 0, w+1, h+1))
 	for y := 0; y <= h; y++ {
 		for x := 0; x <= w; x++ {
-			nearest := floorShoreReach * floorShoreReach
-			for ny := max(0, y-2); ny < min(h, y+2); ny++ {
-				for nx := max(0, x-2); nx < min(w, x+2); nx++ {
-					if materials[ny*w+nx].profile != floorBlendWater {
-						continue
-					}
+			// R: distance to water. G: distance to the bank: any cell that is
+			// not water, off the map included (a wall is drawn there).
+			water, bank := floorShoreReach*floorShoreReach, floorShoreReach*floorShoreReach
+			for ny := y - 2; ny < y+2; ny++ {
+				for nx := x - 2; nx < x+2; nx++ {
 					dx := float64(max(nx-x, 0, x-nx-1))
 					dy := float64(max(ny-y, 0, y-ny-1))
-					nearest = min(nearest, dx*dx+dy*dy)
+					if nx >= 0 && ny >= 0 && nx < w && ny < h && materials[ny*w+nx].profile == floorBlendWater {
+						water = min(water, dx*dx+dy*dy)
+					} else {
+						bank = min(bank, dx*dx+dy*dy)
+					}
 				}
 			}
 			i := y*shore.Stride + x*4
-			shore.Pix[i] = byte(math.Round(math.Sqrt(nearest) * 255 / floorShoreReach))
+			shore.Pix[i] = byte(math.Round(math.Sqrt(water) * 255 / floorShoreReach))
+			shore.Pix[i+1] = byte(math.Round(math.Sqrt(bank) * 255 / floorShoreReach))
+			// B: two water groups meet at this corner.
+			group := ""
+			for ny := max(0, y-1); ny < min(h, y+1); ny++ {
+				for nx := max(0, x-1); nx < min(w, x+1); nx++ {
+					if m := materials[ny*w+nx]; m.profile == floorBlendWater {
+						if group != "" && m.group != group {
+							shore.Pix[i+2] = 255
+						}
+						group = m.group
+					}
+				}
+			}
 			shore.Pix[i+3] = 255
 		}
 	}
@@ -167,6 +205,12 @@ func (r *Renderer) prepareFloorMaps(w, h int) (colors, indices, shore *image.RGB
 			}
 			if boundary {
 				indices.Pix[i+2] |= floorBlendBoundary
+			}
+			if m.surf && (shore.RGBAAt(x, y).G < 255 || shore.RGBAAt(x+1, y).G < 255 || shore.RGBAAt(x, y+1).G < 255 || shore.RGBAAt(x+1, y+1).G < 255) {
+				indices.Pix[i+2] |= floorSurfWater
+			}
+			if m.profile == floorBlendWater && (shore.RGBAAt(x, y).B != 0 || shore.RGBAAt(x+1, y).B != 0 || shore.RGBAAt(x, y+1).B != 0 || shore.RGBAAt(x+1, y+1).B != 0) {
+				indices.Pix[i+2] |= floorWaterGroupEdge
 			}
 			if near && (m.profile == floorBlendNatural || (m.profile == floorBlendWater && boundary)) {
 				indices.Pix[i+2] |= floorBlendShore

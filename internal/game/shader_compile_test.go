@@ -52,7 +52,7 @@ func TestShaderConstantsMatchGo(t *testing.T) {
 		"actor_spell.kage":       {"style": {"actorSpellMindWeb"}},
 		"collection_slot.kage":   {"Mode": {"collectionModeNiche"}},
 		"cast_overlay.kage":      {"Style": {"castStyleDarkness"}, "style": {"castStyleDarkness"}, "Pass": {"castPassBack"}},
-		"floor.kage":             {"b": {"floorBlendHard"}, "a": {"floorFrozenWater", "floorBlendBoundary", "floorBlendShore"}},
+		"floor.kage":             {"b": {"floorBlendHard"}, "a": {"floorWaterGroupEdge", "floorSurfWater", "floorFrozenWater", "floorBlendBoundary", "floorBlendShore"}},
 		"standee_trilinear.kage": {"surface": {"standeeLayerNearSticker"}},
 		"standee_sheet.kage":     {"surface": {"standeeLayerNearSticker"}},
 		"cast_object.kage":       {"mat": {"castMatPlain"}},

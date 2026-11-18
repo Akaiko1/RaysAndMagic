@@ -197,6 +197,9 @@ func (wm *WorldManager) LoadAllMaps() error {
 		fmt.Printf("Loading map: %s (%s)\n", mapConfig.Name, mapConfig.File)
 
 		world, err := wm.loadSingleMap(mapKey, mapConfig)
+		if isWaterBodiesError(err) {
+			return err // an authoring mistake, as in the stitched world
+		}
 		if err != nil {
 			fmt.Printf("Warning: Failed to load map %s: %v\n", mapKey, err)
 			wm.FailedMaps = append(wm.FailedMaps, mapKey)
@@ -269,8 +272,12 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 	world.StartY = mapData.StartY
 	world.Tiles = mapData.Tiles
 	world.entityFloors = mapData.entityFloors
+	// On the parsed tiles (ground stamps included), as the stitcher does.
+	if err := world.ResolveWaterBodies(mapKey, mapConfig.WaterBodies); err != nil {
+		return nil, err
+	}
 
-	// Per-biome off-map backdrop wall (defaults to "seaview" set in NewWorld3D).
+	// Per-biome off-map backdrop wall (defaults to "oob_cliff" set in NewWorld3D).
 	if biome, ok := wm.Biomes[mapConfig.Biome]; ok && biome.OutOfBoundsTile != "" {
 		world.OutOfBoundsKey = biome.OutOfBoundsTile
 	}

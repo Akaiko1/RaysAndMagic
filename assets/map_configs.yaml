@@ -23,7 +23,8 @@ shared_floor_transitions:
 
 # floor_transitions maps texture-group names to visual blending profiles.
 # After shared inheritance, unlisted groups use hard (no neighbor blending).
-# Profiles: hard, natural, water, void, cliff_east, cliff_west.
+# Profiles: hard, natural, water, void, cliff_east, cliff_west, chasm. Surf on
+# lakes and seas comes from each map's water_bodies, not from a profile.
 # Cliff names describe the authored drop side; they do not rotate the artwork.
 # Rules, compatibility, shoreline behavior: docs/floor-transitions.md
 biomes:
@@ -498,6 +499,14 @@ biomes:
       jungle_ford:
         - "deep_jungle_floor_1"
 
+# water_bodies (per map): every 8-connected body of water tiles (type: water
+# in tiles.yaml: water, deep water, streams, fords, koi) in the .map file gets
+# exactly one entry, named by any of its cells (map-local [x, y]):
+#   - {at: [x, y], kind: lake}
+# kind: river, lake, sea, pool (a puddle or small pond), stream. Waves break
+# on the bank of a lake or sea only. A body may mix tiles; its kind covers
+# every cell. An unlisted body, an entry off water or two entries on one body
+# fail the boot; the message lists each unlisted body by its first cell.
 maps:
   solstice_fire:
     name: "Thermal Chamber"
@@ -609,6 +618,11 @@ maps:
     sky_color: [70, 120, 110]
     default_floor_color: [60, 80, 45]
     ambient_light: 1
+    water_bodies:
+      - {at: [1, 4], kind: river}     # the west edge, the jungle river's arm
+      - {at: [15, 10], kind: pool}    # the hedged pond with the islet chest
+      - {at: [15, 18], kind: pool}
+      - {at: [8, 20], kind: pool}     # the south pond
 
   solstice_vestibule:
     name: "Solstice Ruins - Vestibule"
@@ -637,6 +651,13 @@ maps:
       radius_tiles: 3.0
       start_density: 2
       full_density: 8
+    water_bodies:
+      - {at: [42, 1], kind: sea}      # the north-east shore
+      - {at: [20, 21], kind: lake}    # the lake with the islet
+      - {at: [1, 11], kind: stream}   # the north brook, cut by trees
+      - {at: [9, 11], kind: stream}
+      - {at: [37, 11], kind: stream}
+      - {at: [1, 36], kind: stream}   # the south brook
 
   desert:
     name: "Scorching Desert"
@@ -645,6 +666,12 @@ maps:
     sky_color: [255, 218, 185]        # Sandy beige sky
     sky_texture: "desert_panorama"
     default_floor_color: [238, 203, 173]  # Desert sand
+    water_bodies:
+      - {at: [22, 23], kind: lake}    # the central oasis
+      - {at: [10, 8], kind: pool}     # the north-west palm oasis
+      - {at: [35, 41], kind: pool}    # the south-east palm oasis
+      - {at: [46, 8], kind: pool}
+      - {at: [46, 13], kind: pool}
     # Two independent bandit camps, one per oasis. Each monster is bound to
     # the encounter whose chest tile is nearest, so clearing the 5 bandits
     # around an oasis drops that oasis's chest at its water's edge.
@@ -681,6 +708,8 @@ maps:
     sky_color: [72, 61, 139]          # Dark slate blue underwater
     sky_texture: "water_panorama"
     default_floor_color: [25, 25, 112]  # Midnight blue ocean floor
+    water_bodies:
+      - {at: [31, 41], kind: pool}
 
   church:
     name: "Abandoned Church"
@@ -824,6 +853,12 @@ maps:
     default_floor_color: [58, 54, 48]
     ambient_light: 0.3   # pitch-dark sewers: bring a torch (or a fireball)
     wall_torches: true   # flickering torches at inner wall corners light the maze
+    water_bodies:
+      - {at: [24, 13], kind: river}   # the channel cross
+      - {at: [24, 1], kind: river}    # the four channel arms
+      - {at: [1, 24], kind: river}
+      - {at: [39, 24], kind: river}
+      - {at: [24, 39], kind: river}
 
   japanese_castle:
     name: "Eastern Isle Castle"
@@ -834,6 +869,8 @@ maps:
     sky_texture: "japanese_castle_panorama"
     default_floor_color: [70, 64, 56]
     wall_torches: true   # paper lanterns flicker at inner wall corners; day/night clock sets brightness
+    water_bodies:
+      - {at: [0, 45], kind: sea}      # the dock where the ship moors
 
   # The garden behind the eastern castle: higher-tier (L18-24) open region on
   # the same island. Entered from the castle's south edge; see open_world.yaml
@@ -848,6 +885,8 @@ maps:
     # corridor to the castle, which wears the granite paving (see the biome's
     # "default" floor group above). Authored cells all carry their own color.
     default_floor_color: [84, 88, 76]
+    water_bodies:
+      - {at: [7, 5], kind: pool}      # the koi pond: the party wades it, calm
 
   city:
     name: "Seabright"
@@ -892,6 +931,22 @@ maps:
     sky_color: [150, 165, 180]          # Overcast highland sky
     sky_texture: "highlands_panorama"
     default_floor_color: [86, 110, 74]  # Muted highland grass
+    water_bodies:
+      - {at: [36, 20], kind: lake}    # the tarn
+      - {at: [12, 4], kind: stream}   # the west brook and its pool
+      - {at: [17, 22], kind: stream}  # the stepping brook into the tarn
+      - {at: [19, 22], kind: stream}
+      - {at: [21, 23], kind: stream}
+      - {at: [23, 23], kind: stream}
+      - {at: [25, 24], kind: stream}
+      - {at: [27, 24], kind: stream}
+      - {at: [29, 25], kind: stream}
+      - {at: [31, 25], kind: stream}
+      - {at: [36, 32], kind: stream}  # the south brook
+      - {at: [31, 37], kind: stream}
+      - {at: [29, 38], kind: stream}
+      - {at: [27, 39], kind: stream}
+      - {at: [10, 41], kind: pool}
 
   dragon_cliffs:
     name: "Dragon Cliffs"
@@ -900,6 +955,9 @@ maps:
     sky_color: [86, 66, 72]             # Ashen, dragon-smoke sky
     sky_texture: "dragon_cliffs_panorama"
     default_floor_color: [92, 112, 64]  # Cliff grass
+    water_bodies:
+      - {at: [35, 22], kind: lake}
+      - {at: [5, 1], kind: stream}
 
   deep_jungle:
     name: "Deep Jungle"
@@ -908,6 +966,12 @@ maps:
     sky_color: [54, 84, 64]             # Humid green canopy haze
     sky_texture: "deep_jungle_panorama"
     default_floor_color: [34, 78, 40]   # Dark jungle green
+    water_bodies:
+      - {at: [39, 1], kind: river}    # the Great River with its fords
+      - {at: [5, 24], kind: lake}     # the west-bank lake with the islet
+      - {at: [2, 21], kind: pool}
+      - {at: [14, 23], kind: pool}
+      - {at: [14, 39], kind: pool}
     # Slay the warlord (only possible once his idols are broken) -> the lost
     # city's treasury opens in the plaza. Zone gear + gold only; his uniques
     # drop from the boss itself (loots.yaml), so none can leak here.

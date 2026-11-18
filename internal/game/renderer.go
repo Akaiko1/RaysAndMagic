@@ -2068,6 +2068,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 			"LightCount":    make([]float32, 1),
 			"Lights":        r.floorLightsBuf[:],
 			"HeatCount":     make([]float32, 1),
+			"SurfClock":     make([]float32, 1),
 			"Heat":          r.floorHeatBuf[:],
 		}
 	}
@@ -2102,6 +2103,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	setFloat("MaxMip", float32(r.floorTexMaxMip))
 	setFloat("LightCount", float32(lightCount))
 	setFloat("HeatCount", float32(heatCount))
+	setFloat("SurfClock", float32(math.Mod(r.game.worldSeconds()/floorSurfPeriodSeconds, floorSurfWaveCycle)))
 
 	x0 := float32(0)
 	x1 := float32(screenWidth)

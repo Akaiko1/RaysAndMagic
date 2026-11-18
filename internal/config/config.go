@@ -1646,6 +1646,10 @@ type MapConfig struct {
 	// and where the challenged champion spawns when a start_arena_duel dialogue
 	// choice fires. Required on any map whose NPCs offer that action.
 	Duel *MapDuelConfig `yaml:"duel,omitempty"`
+	// WaterBodies classifies every 8-connected body of water tiles (type:
+	// water) in the .map file, one entry per body; the boot fails on an
+	// unlisted body. Lakes and seas get surf on their banks.
+	WaterBodies []MapWaterBody `yaml:"water_bodies,omitempty"`
 }
 
 // MapDuelConfig is the duel staging geometry, in tile coordinates.

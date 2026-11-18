@@ -652,8 +652,12 @@ func (wm *WorldManager) buildOpenWorld() error {
 		if !ok {
 			return fmt.Errorf("open world: biome %q has no '.' floor tile", mc.Biome)
 		}
+		water, err := resolveWaterBodies(key, mc.WaterBodies, data.Tiles, data.Width, data.Height)
+		if err != nil {
+			return fmt.Errorf("open world: %w", err)
+		}
 		off := owc.Placements[key]
-		p := owPlacedMap{key: key, mc: mc, data: data, off: off, defTile: defTile}
+		p := owPlacedMap{key: key, mc: mc, data: data, off: off, defTile: defTile, water: water}
 		removed, err := applyOpenWorldRemovals(&p.data.NPCSpawns, &p.data.SpecialTileSpawns, p.data, owc.Removals[key], key, defTile)
 		if err != nil {
 			return err
@@ -692,6 +696,7 @@ func (wm *WorldManager) buildOpenWorld() error {
 	merged.StartX, merged.StartY = -1, -1
 	merged.Tiles = make([][]TileType3D, totalH)
 	merged.entityFloors = make(map[[2]int]entityFloor)
+	merged.waterBodies = make([]uint8, totalW*totalH)
 	regionGrid := make([][]int16, totalH)
 	for y := 0; y < totalH; y++ {
 		merged.Tiles[y] = make([]TileType3D, totalW)
@@ -711,6 +716,9 @@ func (wm *WorldManager) buildOpenWorld() error {
 			for x := 0; x < p.data.Width; x++ {
 				px, py := owXformTile(p.off.Orient, p.data.Width, p.data.Height, x, y)
 				merged.Tiles[p.off.Y+py][p.off.X+px] = p.data.Tiles[y][x]
+				if p.water != nil {
+					merged.waterBodies[(p.off.Y+py)*totalW+p.off.X+px] = p.water[y*p.data.Width+x]
+				}
 			}
 		}
 		for cell, floor := range p.data.entityFloors {
@@ -920,6 +928,7 @@ type owPlacedMap struct {
 	off      config.OpenWorldPlacement
 	defTile  TileType3D
 	stitched map[[2]int]struct{} // local cells the removals rewrote
+	water    []uint8             // resolveWaterBodies, map-local
 }
 
 // owEdgeIsVertical reports whether an edge runs along the map's east/west

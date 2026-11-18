@@ -71,6 +71,7 @@ type World3D struct {
 	Tiles              [][]TileType3D
 	floors             FloorResolution
 	entityFloors       map[[2]int]entityFloor
+	waterBodies        []uint8 // per cell, index+1 into config.WaterBodyKinds (resolveWaterBodies)
 	Monsters           []*monster.Monster3D
 	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
 	spawnHomeMap       string              // HomeMap of the authored spawns (respawns reuse it)
