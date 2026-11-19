@@ -263,7 +263,7 @@ npcs:
     biomes: ["solstice_fire"]
     name: "Receiving Threshold"
     type: "encounter"
-    sprite: "solstice_exit_arch"
+    sprite: "solstice_fire_exit_arch"
     render_category: "wall_mounted"
     transparent: true
     size_class: "full_tile"
@@ -310,7 +310,7 @@ npcs:
     biomes: ["solstice_water"]
     name: "Receiving Threshold"
     type: "encounter"
-    sprite: "solstice_exit_arch"
+    sprite: "solstice_water_exit_arch"
     render_category: "wall_mounted"
     transparent: true
     size_class: "full_tile"
@@ -383,7 +383,7 @@ npcs:
     biomes: ["solstice_earth"]
     name: "Receiving Threshold"
     type: "encounter"
-    sprite: "solstice_exit_arch"
+    sprite: "solstice_earth_exit_arch"
     render_category: "wall_mounted"
     transparent: true
     size_class: "full_tile"
@@ -430,7 +430,7 @@ npcs:
     biomes: ["solstice_air"]
     name: "Receiving Threshold"
     type: "encounter"
-    sprite: "solstice_exit_arch"
+    sprite: "solstice_air_exit_arch"
     render_category: "wall_mounted"
     transparent: true
     size_class: "full_tile"
@@ -908,7 +908,7 @@ npcs:
     biomes: ["solstice_vestibule"]
     name: "Survey Camp"
     type: "encounter"
-    sprite: "solstice_exit_arch"
+    sprite: "solstice_earth_exit_arch"
     render_category: "wall_mounted"
     transparent: true
     size_class: "full_tile"
@@ -1528,7 +1528,7 @@ npcs:
     name: "Pyramid Entrance"
     type: "encounter"
     description: "The stairway back out of the pyramid"
-    sprite: "pyramid_stairs_up"
+    sprite: "pyramid_exit_stairs"
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
@@ -1572,7 +1572,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_class: medium_prop
+    size_class: full_tile
     dialogue:
       greeting: "The stairs descend into a colder, darker level of the pyramid."
       choice_prompt: "What do you want to do?"
@@ -1592,7 +1592,7 @@ npcs:
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
-    size_class: medium_prop
+    size_class: full_tile
     dialogue:
       greeting: "A painted stairway falls away into a chamber marked by four dragon seals."
       choice_prompt: "What do you want to do?"
@@ -1675,7 +1675,7 @@ npcs:
     name: "Culvert Outflow"
     type: "encounter"
     description: "A great barred storm-drain venting into the harbor"
-    sprite: "culvert_outlet"
+    sprite: "culvert_outlet_city"
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
@@ -2287,7 +2287,7 @@ npcs:
     name: "City Gate"
     type: "encounter"
     description: "The main gate back to the forest road"
-    sprite: "city_gate"
+    sprite: "city_gate_inset"
     render_category: wall_mounted
     prompt_verb: enter
     transparent: true
@@ -3372,7 +3372,7 @@ npcs:
     name: "Spiral Stair Up"
     type: "encounter"
     description: "A narrow stair toward the belfry"
-    sprite: "clocktower_stairs_up"
+    sprite: "clocktower_gearworks_stairs_up"
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
@@ -3392,7 +3392,7 @@ npcs:
     name: "Stairwell Down"
     type: "encounter"
     description: "The stair back down to the gearworks"
-    sprite: "clocktower_stairs_down"
+    sprite: "clocktower_belfry_stairs_down"
     render_category: wall_mounted
     prompt_verb: climb
     transparent: true
