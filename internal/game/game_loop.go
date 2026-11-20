@@ -44,6 +44,7 @@ type GameLoop struct {
 	bandUsedSingles     map[*monster.Monster3D]bool
 	attackPostBuf       []*monster.Monster3D
 	tileFanBuf          []*monster.Monster3D
+	lootGuards          lootGuardScratch
 }
 
 type monsterFramePosition struct {

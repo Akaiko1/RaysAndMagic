@@ -62,6 +62,17 @@ const floorSurfBend = 0.6 // how far noise bends a crest line, in spacings
 const floorSurfLine = 0.07 // width of a crest line, in spacings
 const floorSurfFoam = 0.75 // strength of a crest at the bank
 
+// A pixel takes this many taps along its vertical footprint.
+const floorTaps = 3.0
+// Where the taps with their seam bands span no more than this many texels on
+// either texture axis, one tap stands for all three: it averages their
+// sharpened weights over its own four texels. An outer tap that crosses into
+// the next texel lies where the sharpened seam gives that texel no weight, so
+// the result matches three taps; only the far tap's slightly longer
+// perspective step can touch a seam band, by a fraction of a percent of the
+// spread. One texel is that bound, not a tuning value.
+const floorSingleTapSpan = 1.0
+
 var CamPos vec2
 var DirCos float
 var DirSin float
@@ -90,8 +101,10 @@ var Heat [8]vec4 // fire cells: x, y, radius, strength
 // cells scaled by 0.5^k; texel lookups clamp inside the authored cell.
 // Neighboring materials are blended explicitly. The sharpen factor squeezes
 // magnification interpolation into a ~1px band at texel seams; it only
-// applies at level 0 - minified levels use plain bilinear.
-func sampleFloorMip(atlasIndex, lx, ly, level, texelsPerPixel float) vec4 {
+// applies at level 0 - minified levels use plain bilinear. taps holds the
+// outer two taps' offsets from this one in tiles when it stands for all
+// three, zero otherwise.
+func sampleFloorMip(atlasIndex, lx, ly, level, texelsPerPixel float, taps vec4) vec4 {
 	scale := pow(0.5, level)
 	cw := TexTileSize.x * scale
 	ch := TexTileSize.y * scale
@@ -118,19 +131,29 @@ func sampleFloorMip(atlasIndex, lx, ly, level, texelsPerPixel float) vec4 {
 	c10 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, yOff+y0+0.5))
 	c01 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, yOff+y1+0.5))
 	c11 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, yOff+y1+0.5))
+	if taps != vec4(0) {
+		// The outer taps' weights over these four texels (floorSingleTapSpan).
+		cell := vec2(cw, ch)
+		wa := clamp((vec2(fx-bx, fy-by)+taps.xy*cell-0.5)*sharp+0.5, vec2(0), vec2(1))
+		wb := clamp((vec2(fx-bx, fy-by)+taps.zw*cell-0.5)*sharp+0.5, vec2(0), vec2(1))
+		mx := (wa.x + fracX + wb.x) / floorTaps
+		my := (wa.y + fracY + wb.y) / floorTaps
+		both := (wa.x*wa.y + fracX*fracY + wb.x*wb.y) / floorTaps
+		return c00*(1.0-mx-my+both) + c10*(mx-both) + c01*(my-both) + c11*both
+	}
 	return mix(mix(c00, c10, fracX), mix(c01, c11, fracX), fracY)
 }
 
 // sampleFloorTrilinear blends the two mip levels bracketing mip.
-func sampleFloorTrilinear(atlasIndex, lx, ly, mip, texelsPerPixel float) vec4 {
-	k0 := floor(mip)
+func sampleFloorTrilinear(atlasIndex, lx, ly float, lod vec2, taps vec4) vec4 {
+	k0 := floor(lod.x)
 	k1 := min(k0+1.0, MaxMip)
-	lo := sampleFloorMip(atlasIndex, lx, ly, k0, texelsPerPixel)
-	blend := fract(mip)
+	lo := sampleFloorMip(atlasIndex, lx, ly, k0, lod.y, taps)
+	blend := fract(lod.x)
 	if blend == 0.0 || k0 == k1 {
 		return lo
 	}
-	return mix(lo, sampleFloorMip(atlasIndex, lx, ly, k1, texelsPerPixel), blend)
+	return mix(lo, sampleFloorMip(atlasIndex, lx, ly, k1, lod.y, taps), blend)
 }
 
 // Stable value noise in tile coordinates. It never uses time or screen pixels.
@@ -198,16 +221,17 @@ func floorSurfShare(c vec4) float {
 	return 0.0
 }
 
-// floorSurf draws breaking waves over lake or sea water near a bank: crests running
-// in, each a crisp line with flecks of foam trailing behind it. Nothing
-// outlines the bank itself. Everything is cut on the texture's own pixel grid
-// and anchored in world space; only the phase moves.
-func floorSurf(rgb vec3, q vec2, maskFootprint float) vec3 {
+// floorSurfCrest is how much foam breaking waves lay at q over lake or sea
+// water near a bank: crests running in, each a crisp line with flecks of foam
+// trailing behind it. Nothing outlines the bank itself. Everything is cut on
+// the texture's own pixel grid and anchored in world space; only the phase
+// moves.
+func floorSurfCrest(q vec2, footprint float) float {
 	cell := floor(q*TexTileSize)
 	texel := (cell+vec2(0.5))/TexTileSize
 	bank := floorShoreDistance(texel).y
-	if bank>=floorSurfReach { return rgb }
-	detail := 1.0-smoothstep(0.05,0.20,maskFootprint)
+	if bank>=floorSurfReach { return 0.0 }
+	detail := 1.0-smoothstep(0.05,0.20,footprint)
 	bend := floorNoise(texel*0.7)
 	phase := bank/floorSurfSpacing+SurfClock+bend*floorSurfBend
 	wave := mod(floor(phase),floorSurfWaveCycle)
@@ -218,26 +242,48 @@ func floorSurf(rgb vec3, q vec2, maskFootprint float) vec3 {
 	// Each wave is broken into runs of its own, so the gaps travel with it.
 	run := step(0.42,floorNoise(texel*1.3+vec2(wave*13.1,wave*7.7)))
 	near := 1.0-smoothstep(0.2,floorSurfReach,bank)
-	crest := max(line,fleck*0.7)*run*mix(0.25,floorSurfFoam,near)*detail
-	return mix(rgb,vec3(0.90,0.95,0.96),crest)
+	return max(line,fleck*0.7)*run*mix(0.25,floorSurfFoam,near)*detail
 }
 
-func floorCellColor(q,tile vec2, material vec4, mip,texelsPerPixel,waterDistance,noise float) vec3 {
+// floorSurfOver lays foam over ground, whose alpha is its share of surf water.
+func floorSurfOver(ground vec4, crest float) vec3 {
+	return mix(ground.rgb,mix(ground.rgb,vec3(0.90,0.95,0.96),crest),ground.a)
+}
+
+// floorFrost is the light ice adds at q: world-fixed frost and branching
+// seams. No screen-space sliding or extra layer above actors; the normal floor
+// depth and lighting still apply.
+func floorFrost(q vec2, texelsPerPixel float) float {
+	p := q*3.1
+	bend := floorNoise(p*.73)*1.8
+	branch := abs(sin(p.y*1.8-p.x*.43+bend*.8))
+	branch += smoothstep(.30,.64,floorNoise(p*.39))*.45
+	seam := min(abs(sin(p.x+p.y*.71+bend)),branch)
+	width := max(.035,texelsPerPixel/max(TexTileSize.x,1.0)*3.1)
+	crack := 1.0-smoothstep(0.0,width,seam)
+	frost := .5+.5*sin(p.x*1.7+p.y*2.3)
+	return crack*.8+frost*.2
+}
+
+// lod is a pixel's mip level and horizontal texels per pixel; taps as in
+// sampleFloorMip.
+func floorCellColor(q,tile vec2, material vec4, lod vec2, taps vec4, waterDistance,noise float) vec3 {
 	// Clamp neighbors to their OWN border. Wrapping here would pull a cliff's
 	// dark drop edge onto the opposite, landward side of the authored artwork.
-	return floorCellSample(q,tile,clamp(q-tile,vec2(0),vec2(1)),material,mip,texelsPerPixel,waterDistance,noise)
+	return floorCellSample(q,tile,clamp(q-tile,vec2(0),vec2(1)),material,lod,taps,waterDistance,noise)
 }
 
 // floorCellSample is a cell's material at q, read at local within its texture.
-func floorCellSample(q,tile,local vec2, material vec4, mip,texelsPerPixel,waterDistance,noise float) vec3 {
+func floorCellSample(q,tile,local vec2, material vec4, lod vec2, taps vec4, waterDistance,noise float) vec3 {
+	texelsPerPixel := lod.y
 	base := imageSrc0UnsafeAt(imageSrc0Origin()+tile+vec2(0.5)).rgb
 	if material.r>0 && material.r<=TexCount {
-		base = sampleFloorTrilinear(material.r-1,local.x,local.y,mip,texelsPerPixel).rgb*0.8+base*0.2
+		base = sampleFloorTrilinear(material.r-1,local.x,local.y,lod,taps).rgb*0.8+base*0.2
 	}
 	if material.g>0 && material.g<=TexCount && waterDistance<1.6 {
 		weight := 1.0-smoothstep(0.54,0.86,waterDistance+noise*0.10)
 		if weight>0 {
-			shore := sampleFloorTrilinear(material.g-1,local.x,local.y,mip,texelsPerPixel).rgb
+			shore := sampleFloorTrilinear(material.g-1,local.x,local.y,lod,taps).rgb
 			base = mix(base,shore,weight*0.95)
 		}
 	}
@@ -245,18 +291,12 @@ func floorCellSample(q,tile,local vec2, material vec4, mip,texelsPerPixel,waterD
 		base *= 1.0-0.18*(1.0-smoothstep(0.0,0.25,waterDistance))
 	}
 	if mod(floor(material.a/floorFrozenWater),2.0)>0.0 {
-		// World-fixed frost and branching seams: no screen-space sliding or
-		// extra layer above actors. The normal floor depth/lighting still applies.
-		p := q*3.1
-		bend := floorNoise(p*.73)*1.8
-		branch := abs(sin(p.y*1.8-p.x*.43+bend*.8))
-		branch += smoothstep(.30,.64,floorNoise(p*.39))*.45
-		seam := min(abs(sin(p.x+p.y*.71+bend)),branch)
-		width := max(.035,texelsPerPixel/max(TexTileSize.x,1.0)*3.1)
-		crack := 1.0-smoothstep(0.0,width,seam)
-		frost := .5+.5*sin(p.x*1.7+p.y*2.3)
+		// The cracks are thinner than a tap's reach, so a tap standing for all
+		// three still reads them at each.
+		glint := floorFrost(q,texelsPerPixel)
+		if taps != vec4(0) { glint = (floorFrost(q+taps.xy,texelsPerPixel)+glint+floorFrost(q+taps.zw,texelsPerPixel))/floorTaps }
 		base = mix(base,vec3(.34,.65,.78),.78)
-		base += vec3(.19,.24,.25)*(crack*.8+frost*.2)
+		base += vec3(.19,.24,.25)*glint
 	}
 	return base
 }
@@ -264,60 +304,73 @@ func floorCellSample(q,tile,local vec2, material vec4, mip,texelsPerPixel,waterD
 // Chasm lips belong only to exposed banks. Adjacent chasm cells remain one
 // continuous opening, with no painted frame across the middle of a long gap.
 // Everything stays in world coordinates; walking and spell rules are unchanged.
-func floorChasmSurface(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint float) vec3 {
+func floorChasmSurface(q,owner vec2,own vec4,lod vec2,taps vec4,mask vec2) vec3 {
 	local := q-owner
 	edge := 1.0
 	bank := owner
+	// The footprint across the nearest lip: mask.x for a lip on x, mask.y on y.
+	across := mask.x
 	for i:=0;i<4;i++ {
 		delta := vec2(-1,0)
 		distance := local.x
+		footprint := mask.x
 		if i==1 { delta=vec2(1,0); distance=1.0-local.x }
-		if i==2 { delta=vec2(0,-1); distance=local.y }
-		if i==3 { delta=vec2(0,1); distance=1.0-local.y }
+		if i==2 { delta=vec2(0,-1); distance=local.y; footprint=mask.y }
+		if i==3 { delta=vec2(0,1); distance=1.0-local.y; footprint=mask.y }
 		neighbor := owner+delta
 		if neighbor.x<0 || neighbor.y<0 || neighbor.x>=WorldSize.x || neighbor.y>=WorldSize.y { continue }
-		if floorMaterialAt(neighbor).b!=floorBlendChasm && distance<edge { edge=distance; bank=neighbor }
+		if floorMaterialAt(neighbor).b!=floorBlendChasm && distance<edge { edge=distance; bank=neighbor; across=footprint }
 	}
-	depth := floorCellColor(q,owner,own,mip,texelsPerPixel,2.0,0)
+	depth := floorCellColor(q,owner,own,lod,taps,2.0,0)
 	if edge==1.0 { return depth }
 	// Small fixed chips break the lip, fading out at minification. They never
 	// extend a walkable-looking ledge into the middle of the jump corridor.
-	detail := 1.0-smoothstep(0.04,0.18,maskFootprint)
+	detail := 1.0-smoothstep(0.04,0.18,min(mask.x,mask.y))
 	d := max(0.0,edge+(floorNoise(q*18.0)-0.5)*0.025*detail)
-	bankColor := floorCellColor(q,bank,floorMaterialAt(bank),mip,texelsPerPixel,2.0,0)
-	filterWidth := max(0.002,min(0.035,maskFootprint*0.5))
+	bankColor := floorCellColor(q,bank,floorMaterialAt(bank),lod,taps,2.0,0)
+	filterWidth := max(0.002,min(0.035,across*0.5))
 	face := bankColor*mix(0.16,0.5,1.0-smoothstep(0.04,0.17,d))
 	interior := mix(face,depth,smoothstep(0.17-filterWidth,0.17+filterWidth,d))
 	lip := 1.0-smoothstep(0.035-filterWidth,0.035+filterWidth,d)
 	return mix(interior,bankColor*0.9,lip)
 }
 
-func floorSurface(q vec2,mip,texelsPerPixel,maskFootprint float,noise vec2) vec3 {
+func floorSurface(q,lod vec2,taps vec4,mask,noise vec2) vec4 {
 	owner := floor(q)
-	if owner.x<0 || owner.y<0 || owner.x>=WorldSize.x || owner.y>=WorldSize.y { return vec3(30.0/255.0) }
+	if owner.x<0 || owner.y<0 || owner.x>=WorldSize.x || owner.y>=WorldSize.y { return vec4(vec3(30.0/255.0),0.0) }
 	own := floorMaterialAt(owner)
-	if own.b==floorBlendChasm { return floorChasmSurface(q,owner,own,mip,texelsPerPixel,maskFootprint) }
-	if own.b==floorBlendHard { return floorCellColor(q,owner,own,mip,texelsPerPixel,2.0,0) }
+	if own.b==floorBlendChasm { return vec4(floorChasmSurface(q,owner,own,lod,taps,mask),0.0) }
+	if own.b==floorBlendHard { return vec4(floorCellColor(q,owner,own,lod,taps,2.0,0),0.0) }
+	// Land without the shore bit has no water within two tiles.
+	if own.b==floorBlendNatural && own.a<floorBlendShore { return floorGround(q,owner,own,lod,taps,mask,2.0,noise,true) }
 	shore := vec2(2.0)
 	if own.a>=floorBlendShore { shore = floorShoreDistance(q) }
-	ground := floorGround(q,owner,own,mip,texelsPerPixel,maskFootprint,shore.x,noise)
-	surf := ground.a
-	if surf>0 { return mix(ground.rgb,floorSurf(ground.rgb,q,maskFootprint),surf) }
-	return ground.rgb
+	return floorGround(q,owner,own,lod,taps,mask,shore.x,noise,false)
+}
+
+// floorInterior reports a point far enough from its tile's edges that no
+// neighbour reaches it under the widest land band.
+func floorInterior(q,mask vec2) bool {
+	edgeDistance := min(fract(q),vec2(1)-fract(q))
+	reach := min(vec2(0.5),vec2(0.31)+mask*0.5)
+	return edgeDistance.x>reach.x && edgeDistance.y>reach.y
 }
 
 // floorGround is the ground at q: its own material, or the blend of the four
 // cells around the nearest tile corner on a boundary tile. Alpha is the share
 // of surf water shown there (floorSurfShare), whichever tile owns the pixel.
-func floorGround(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint,waterDistance float,noise vec2) vec4 {
-	wet := floorSurfShare(own)
-	if mod(floor(own.a/floorBlendBoundary),2.0)<0.5 { return vec4(floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x),wet) }
-	edgeDistance := min(fract(q),vec2(1)-fract(q))
+// dry is a literal at each call: true for land without the shore bit, whose
+// four cells hold no water, so the compiler drops the bank, gradient and surf
+// paths from that call.
+func floorGround(q,owner vec2,own vec4,lod vec2,taps vec4,mask vec2,waterDistance float,noise vec2,dry bool) vec4 {
+	wet := 0.0
+	if !dry { wet = floorSurfShare(own) }
+	if mod(floor(own.a/floorBlendBoundary),2.0)<0.5 { return vec4(floorCellColor(q,owner,own,lod,taps,waterDistance,noise.x),wet) }
 	// The gradient between two water groups reaches the tile centre, so a tile
 	// with such a corner always takes the four-cell path.
-	groupEdge := own.b==floorBlendWater && mod(floor(own.a/floorWaterGroupEdge),2.0)>0.5
-	if !groupEdge && min(edgeDistance.x,edgeDistance.y)>min(0.5,0.31+maskFootprint*0.5) {
-		return vec4(floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x),wet)
+	groupEdge := !dry && own.b==floorBlendWater && mod(floor(own.a/floorWaterGroupEdge),2.0)>0.5
+	if !groupEdge && floorInterior(q,mask) {
+		return vec4(floorCellColor(q,owner,own,lod,taps,waterDistance,noise.x),wet)
 	}
 	base := floor(q-vec2(0.5))
 	fraction := q-vec2(0.5)-base
@@ -328,12 +381,12 @@ func floorGround(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint,waterDis
 	cells[3]=floorMaterialAt(base+vec2(1,1))
 	// A waterline is a crisp straight edge; two water groups meet in a smooth
 	// gradient; every other pairing keeps its band.
-	width := floorBandNatural
+	band := floorBandNatural
 	wobble := floorBandWobble
 	water, land, other := false, false, false
 	frozen, open := false, false
 	for i:=0;i<4;i++ {
-		if cells[i].b==floorBlendWater {
+		if !dry && cells[i].b==floorBlendWater {
 			water = true
 			if mod(floor(cells[i].a/floorFrozenWater),2.0)>0.5 { frozen = true } else { open = true }
 		} else if cells[i].b==floorBlendNatural { land = true } else if cells[i].b!=floorBlendHard { other = true }
@@ -343,8 +396,8 @@ func floorGround(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint,waterDis
 	// of one water and ice against open water keep a crisp narrow band.
 	waterBand := floorBandNarrow
 	if water && !(frozen && open) && floorWaterGroupsMeet(base+vec2(1)) { waterBand = floorBandDepth }
-	waterBand = min(0.48,waterBand+maskFootprint*0.5)
-	detail := 1.0-smoothstep(0.06,0.24,maskFootprint)
+	waterWidth := min(vec2(0.48),vec2(waterBand)+mask*0.5)
+	detail := 1.0-smoothstep(0.06,0.24,min(mask.x,mask.y))
 	if water && land && !other {
 		// A bank of plain land and water turns its corners on a curve. A hard
 		// or unblended cell in the four keeps the square path below.
@@ -352,14 +405,14 @@ func floorGround(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint,waterDis
 		for i:=0;i<4;i++ {
 			if cells[i].b==floorBlendHard || mod(floor(cells[i].a/floorBlendBoundary),2.0)<0.5 { round = false }
 		}
-		if round { return floorRoundBank(q,base,fraction,cells[0],cells[1],cells[2],cells[3],own.b==floorBlendNatural,waterBand,mip,texelsPerPixel,maskFootprint,waterDistance,noise*detail) }
+		if round { return floorRoundBank(q,base,fraction,cells[0],cells[1],cells[2],cells[3],own.b==floorBlendNatural,waterWidth,lod,taps,mask,waterDistance,noise*detail) }
 	}
-	if other { width = floorBandNarrow } else if water && land { width, wobble = floorBandShore, 0.0 }
+	if other { band = floorBandNarrow } else if water && land { band, wobble = floorBandShore, 0.0 }
 	// Filter the mask as well as the textures at distance. Near-field noise
 	// perturbs only the narrow transition; interiors keep their original art.
-	width = min(0.48,width+maskFootprint*0.5)
-	if depth { width, wobble = waterBand, 0.0 }
-	f := smoothstep(vec2(0.5-width),vec2(0.5+width),fraction+noise*wobble*detail)
+	width := min(vec2(0.48),vec2(band)+mask*0.5)
+	if depth { width, wobble = waterWidth, 0.0 }
+	f := smoothstep(vec2(0.5)-width,vec2(0.5)+width,fraction+noise*wobble*detail)
 	var rgb vec3
 	total, surf := 0.0, 0.0
 	for i:=0;i<4;i++ {
@@ -372,17 +425,15 @@ func floorGround(q,owner vec2,own vec4,mip,texelsPerPixel,maskFootprint,waterDis
 			// band must not half-blend into a tile using the single-material path.
 			if mod(floor(cells[i].a/floorBlendBoundary),2.0)<0.5 || !floorCanBlend(own,cells[i],tile-owner) { continue }
 		}
-		if depth {
-			// Water textures tile on across the gradient: no edge pixel is stretched.
-			rgb += floorCellSample(q,tile,fract(q-tile),cells[i],mip,texelsPerPixel,waterDistance,noise.x*detail)*weight
-		} else {
-			rgb += floorCellColor(q,tile,cells[i],mip,texelsPerPixel,waterDistance,noise.x*detail)*weight
-		}
+		// Water textures tile on across the gradient: no edge pixel is stretched.
+		local := clamp(q-tile,vec2(0),vec2(1))
+		if depth { local = fract(q-tile) }
+		rgb += floorCellSample(q,tile,local,cells[i],lod,taps,waterDistance,noise.x*detail)*weight
 		total += weight
-		surf += weight*floorSurfShare(cells[i])
+		if !dry { surf += weight*floorSurfShare(cells[i]) }
 	}
 	if total>0 { return vec4(rgb/total,surf/total) }
-	return vec4(floorCellColor(q,owner,own,mip,texelsPerPixel,waterDistance,noise.x*detail),wet)
+	return vec4(floorCellColor(q,owner,own,lod,taps,waterDistance,noise.x*detail),wet)
 }
 
 // floorCornerInside is the distance into cell i's quadrant with its corner at
@@ -400,7 +451,7 @@ func floorCornerInside(p vec2, i int) float {
 // convex or concave alike. Land blends with land and water with water under
 // the mask. Textures tile on past their own tiles instead of stretching their
 // edge pixels.
-func floorRoundBank(q,base,fraction vec2,c0,c1,c2,c3 vec4,ownLand bool,waterBand,mip,texelsPerPixel,maskFootprint,waterDistance float,noise vec2) vec4 {
+func floorRoundBank(q,base,fraction vec2,c0,c1,c2,c3 vec4,ownLand bool,waterWidth,lod vec2,taps vec4,mask vec2,waterDistance float,noise vec2) vec4 {
 	// The cells arrive one by one and live in a local array, written only at
 	// constant indices: FXC cannot address an array parameter or an element
 	// written at a loop index (TestShadersKeepArraysAddressable).
@@ -409,23 +460,25 @@ func floorRoundBank(q,base,fraction vec2,c0,c1,c2,c3 vec4,ownLand bool,waterBand
 	cells[1]=c1
 	cells[2]=c2
 	cells[3]=c3
-	landBand := min(0.48,floorBandNatural+maskFootprint*0.5)
-	fl := smoothstep(vec2(0.5-landBand),vec2(0.5+landBand),fraction+noise*floorBandWobble)
-	fw := smoothstep(vec2(0.5-waterBand),vec2(0.5+waterBand),fraction)
+	landWidth := min(vec2(0.48),vec2(floorBandNatural)+mask*0.5)
+	fl := smoothstep(vec2(0.5)-landWidth,vec2(0.5)+landWidth,fraction+noise*floorBandWobble)
+	fw := smoothstep(vec2(0.5)-waterWidth,vec2(0.5)+waterWidth,fraction)
 	p := fraction-vec2(0.5)
 	count := 0
 	for i:=0;i<4;i++ {
 		if cells[i].b==floorBlendNatural { count++ }
 	}
 	land0 := cells[0].b==floorBlendNatural
-	// inside is the distance into land.
+	// inside is the distance into land; across is the direction over the bank.
 	inside := 0.0
+	across := vec2(0,1)
 	if count==2 && land0==(cells[1].b==floorBlendNatural) {
 		inside = p.y
 		if land0 { inside = -p.y }
 	} else if count==2 && land0==(cells[2].b==floorBlendNatural) {
 		inside = p.x
 		if land0 { inside = -p.x }
+		across = vec2(1,0)
 	} else {
 		// One cell against three, or two land cells meeting at the corner only.
 		inside = -1.0
@@ -437,8 +490,11 @@ func floorRoundBank(q,base,fraction vec2,c0,c1,c2,c3 vec4,ownLand bool,waterBand
 				inside = max(inside,floorCornerInside(p,i))
 			}
 		}
+		// The bank is an arc about a point floorBankRound from the corner on
+		// both axes, in whichever quadrant it turns.
+		across = normalize(max(vec2(floorBankRound)-abs(p),vec2(0.0001)))
 	}
-	band := min(0.2,floorBandShore+maskFootprint*0.5)
+	band := min(0.2,floorBandShore+length(across*mask)*0.5)
 	dry := smoothstep(-band,band,inside)
 	var landRGB, waterRGB vec3
 	landTotal, waterTotal, waterSurf := 0.0, 0.0, 0.0
@@ -455,7 +511,7 @@ func floorRoundBank(q,base,fraction vec2,c0,c1,c2,c3 vec4,ownLand bool,waterBand
 		// own tiles.
 		local := clamp(q-tile,vec2(0),vec2(1))
 		if !isLand || !ownLand { local = fract(q-tile) }
-		cell := floorCellSample(q,tile,local,cells[i],mip,texelsPerPixel,waterDistance,noise.x)
+		cell := floorCellSample(q,tile,local,cells[i],lod,taps,waterDistance,noise.x)
 		if isLand { landRGB += cell*weight; landTotal += weight } else { waterRGB += cell*weight; waterTotal += weight; waterSurf += weight*floorSurfShare(cells[i]) }
 	}
 	if landTotal<=0 { return vec4(waterRGB/max(waterTotal,0.0001),waterSurf/max(waterTotal,0.0001)) }
@@ -463,12 +519,26 @@ func floorRoundBank(q,base,fraction vec2,c0,c1,c2,c3 vec4,ownLand bool,waterBand
 	return vec4(mix(waterRGB/waterTotal,landRGB/landTotal,dry),(1.0-dry)*waterSurf/waterTotal)
 }
 
-// floorTapPoint is tap number tap of taps along the pixel's vertical
+// floorTapPoint is tap number tap of count along the pixel's vertical
 // footprint, in tiles.
-func floorTapPoint(tap,taps,p,tapStep float, ray vec2) vec2 {
-	offset := (tap+0.5)/taps-0.5
+func floorTapPoint(tap,count,p,tapStep float, ray vec2) vec2 {
+	offset := (tap+0.5)/count-0.5
 	tapDist := RowDistFactor/(p+offset*tapStep)
 	return (CamPos+tapDist*ray)/TileSize
+}
+
+// floorTap is the floor at q with surf laid over it. Surf is cut on the texel
+// grid, so a tap standing for all three still reads its crests at qa and qb.
+func floorTap(q,qa,qb,lod vec2,taps vec4,mask,noise vec2) vec3 {
+	ground := floorSurface(q,lod,taps,mask,noise)
+	surf := ground.a
+	if surf>0 {
+		footprint := min(mask.x,mask.y)
+		crest := floorSurfCrest(q,footprint)
+		if taps != vec4(0) { crest = (floorSurfCrest(qa,footprint)+crest+floorSurfCrest(qb,footprint))/floorTaps }
+		return floorSurfOver(ground,crest)
+	}
+	return ground.rgb
 }
 
 func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
@@ -489,9 +559,8 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
 	floorX := CamPos.x + rowDist*DirCos + rowDist*PlaneCos*s
 	floorY := CamPos.y + rowDist*DirSin + rowDist*PlaneSin*s
 
-	// Keep the existing anisotropic three-tap footprint; each tap resolves its
-	// own materials so a distant screen pixel integrates across tile boundaries.
-	const tapCount = 3
+	// Three taps along the pixel's vertical footprint; each resolves its own
+	// materials, so a distant screen pixel integrates across tile boundaries.
 	ray := vec2(DirCos,DirSin)+vec2(PlaneCos,PlaneSin)*s
 	texelScale := TexTileSize/TileSize
 	horizontal := vec2(PlaneCos,PlaneSin)*(rowDist*2.0/ScreenSize.x)*texelScale
@@ -506,9 +575,10 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
   tapStep = dfdy(samplePx.y)
  }
 	texelsPerPixel := max(length(horizontal),0.0001)
-	foot := max(texelsPerPixel,length(vertical)/float(tapCount))
+	foot := max(texelsPerPixel,length(vertical)/floorTaps)
 	mip := clamp(log2(max(foot,1.0)),0.0,MaxMip)
-	maskFootprint := foot/max(TexTileSize.x,1.0)
+	lod := vec2(mip,texelsPerPixel)
+	mask := vec2(foot)
 	q := vec2(floorX,floorY)/TileSize
 	var noise vec2
 	if floorMaterialAt(floor(q)).a>=floorBlendBoundary { // boundary or shore bit
@@ -516,11 +586,24 @@ func Fragment(rawDstPos vec4, srcPos vec2, color vec4) vec4 {
 	}
 	// The taps are written out, not looped: FXC (DirectX) unrolls a loop
 	// around a body this large on its own and fails (X3511).
-	var rgb vec3
-	rgb += floorSurface(floorTapPoint(0,float(tapCount),p,tapStep,ray),mip,texelsPerPixel,maskFootprint,noise)
-	rgb += floorSurface(floorTapPoint(1,float(tapCount),p,tapStep,ray),mip,texelsPerPixel,maskFootprint,noise)
-	rgb += floorSurface(floorTapPoint(2,float(tapCount),p,tapStep,ray),mip,texelsPerPixel,maskFootprint,noise)
-	rgb /= float(tapCount)
+	q0 := floorTapPoint(0,floorTaps,p,tapStep,ray)
+	q1 := floorTapPoint(1,floorTaps,p,tapStep,ray)
+	q2 := floorTapPoint(2,floorTaps,p,tapStep,ray)
+	// Magnified texels inside one tile: the centre tap stands for all three.
+	// Texel seams take the three taps' weights; material edges widen by what
+	// the outer two would have added along each axis. A pixel across a tile
+	// edge keeps its taps: only they smooth an edge that does not blend.
+	spread := abs(q2-q0)*TexTileSize
+	var taps vec4
+	if foot<=1.0 && texelsPerPixel+max(spread.x,spread.y)<=floorSingleTapSpan && floor(q0)==floor(q2) {
+		taps = vec4(q0-q1,q2-q1)
+		mask += spread
+	}
+	mask /= max(TexTileSize.x,1.0)
+	rgb := floorTap(q1,q0,q2,lod,taps,mask,noise)
+	if taps == vec4(0) {
+		rgb = (floorTap(q0,q0,q0,lod,taps,mask,noise)+rgb+floorTap(q2,q2,q2,lod,taps,mask,noise))/floorTaps
+	}
 
 	dx := floorX - CamPos.x
 	dy := floorY - CamPos.y

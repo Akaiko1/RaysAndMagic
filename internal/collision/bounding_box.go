@@ -69,7 +69,10 @@ const (
 	CollisionTypeItem
 )
 
-// Entity represents any game object that can have collisions
+// Entity represents any game object that can have collisions. Once
+// registered, it changes only through the system's methods (UpdateEntity,
+// SetEntitySolid, SetEntityCollisionType, SetMovementBounds): PassabilityView
+// refills only when one of them reports a change.
 type Entity struct {
 	movementBounds MovementBounds
 	BoundingBox    *BoundingBox

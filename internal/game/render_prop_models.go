@@ -20,6 +20,39 @@ type propModel struct {
 	flame       []worldModelTriangle
 	parts       []propPart
 	height      float64 // closed/resting authored silhouette, never animated bounds
+	// reach bounds every pose horizontally: how far from the model's origin
+	// any point can get, in model units.
+	reach float64
+}
+
+// propCrateFall is how far a falling crate slides off its stack while a prop
+// opens, in model units.
+const propCrateFall = .82
+
+// propModelReach measures a model's horizontal reach. Fixed geometry reaches
+// as far as its points. A moving part turns about its pivot and slides at most
+// its own size or propCrateFall (eachPosedFace), so it stays within its
+// pivot's distance plus its radius about the pivot plus that slide.
+func propModelReach(m *propModel) float64 {
+	reach := 0.0
+	for _, faces := range [][]worldModelTriangle{m.base, m.flame} {
+		for _, f := range faces {
+			for _, p := range f.points {
+				reach = max(reach, math.Hypot(p.x, p.y))
+			}
+		}
+	}
+	for _, part := range m.parts {
+		radius := 0.0
+		for _, f := range part.faces {
+			for _, p := range f.points {
+				dx, dy, dz := p.x-part.pivot.x, p.y-part.pivot.y, p.z-part.pivot.z
+				radius = max(radius, math.Sqrt(dx*dx+dy*dy+dz*dz))
+			}
+		}
+		reach = max(reach, math.Hypot(part.pivot.x, part.pivot.y)+radius+max(part.size, propCrateFall))
+	}
+	return reach
 }
 
 var propModelCache sync.Map // immutable geometry keyed by the complete authored specification
@@ -29,6 +62,7 @@ func cachedPropModel(spec character.NPCPropModel) *propModel {
 		return m.(*propModel)
 	}
 	m := buildPropModel(spec)
+	m.reach = propModelReach(m)
 	actual, _ := propModelCache.LoadOrStore(spec, m)
 	return actual.(*propModel)
 }

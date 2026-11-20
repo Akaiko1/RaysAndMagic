@@ -1,6 +1,7 @@
 package game
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 
@@ -208,7 +209,7 @@ func (gl *GameLoop) updateMonsterBands() {
 }
 
 func sortMonstersByID(monsters []*monster.Monster3D) {
-	sort.Slice(monsters, func(a, b int) bool { return monsters[a].ID < monsters[b].ID })
+	slices.SortFunc(monsters, func(a, b *monster.Monster3D) int { return cmp.Compare(a.ID, b.ID) })
 }
 
 // leaveBand clears a monster's runtime band membership (it becomes solo/unbanded).

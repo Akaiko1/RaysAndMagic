@@ -327,6 +327,8 @@ type standeePreparedPixels struct {
 	core        *image.RGBA
 	stickerMips []*image.RGBA
 	coreMips    []*image.RGBA
+	// rows bounds what each level of either chain can colour.
+	rows []standeeLevelRows
 }
 
 func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource, silhouetteEdge bool) standeePreparedPixels {
@@ -372,12 +374,14 @@ func prepareStandeePixels(cpu *image.RGBA, tint float64, boundSource, silhouette
 			out.Pix[o+3] = a
 		}
 	}
-	return standeePreparedPixels{
+	prepared := standeePreparedPixels{
 		sticker:     sticker,
 		core:        out,
 		stickerMips: prepareStandeeMipPixels(sticker),
 		coreMips:    prepareStandeeMipPixels(out),
 	}
+	prepared.rows = standeeArtRows(prepared.stickerMips)
+	return prepared
 }
 
 func prepareStandeeMipPixels(base *image.RGBA) []*image.RGBA {
@@ -446,14 +450,14 @@ func (r *Renderer) commitPreparedStandeePixels(key standeeCoreKey, src *ebiten.I
 		sheet = newStandeeSheet(prepared.stickerMips, prepared.coreMips)
 	}
 	if sheet == nil {
-		r.cachePreparedStandeeMipChain(stickerKey, sticker, prepared.stickerMips, nil)
-		r.cachePreparedStandeeMipChain(coreKey, img, prepared.coreMips, nil)
+		r.cachePreparedStandeeMipChain(stickerKey, sticker, prepared.stickerMips, nil, prepared.rows)
+		r.cachePreparedStandeeMipChain(coreKey, img, prepared.coreMips, nil, prepared.rows)
 	} else {
 		// The sticker chain owns the sheet; the core levels are views too.
-		if chain := r.cachePreparedStandeeMipChain(stickerKey, sticker, prepared.stickerMips, sheet.sticker); chain != nil {
+		if chain := r.cachePreparedStandeeMipChain(stickerKey, sticker, prepared.stickerMips, sheet.sticker, prepared.rows); chain != nil {
 			chain.owned = append(chain.owned, sheet.image)
 		}
-		r.cachePreparedStandeeMipChain(coreKey, img, prepared.coreMips, sheet.core)
+		r.cachePreparedStandeeMipChain(coreKey, img, prepared.coreMips, sheet.core, prepared.rows)
 		if r.standeeSheets == nil {
 			r.standeeSheets = make(map[standeeCoreKey]*standeeSheet)
 		}
@@ -530,13 +534,14 @@ func standeeUsesMinificationSampling(projectedWidth, projectedHeight, textureWid
 // the automatic texture atlas. Level 0 is normalized to (0,0,w,h) only when
 // the source is a sheet SubImage.
 func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevel *image.RGBA) *mipChain {
-	return r.cachePreparedStandeeMipChain(key, src, prepareStandeeMipPixels(cpuLevel), nil)
+	levels := prepareStandeeMipPixels(cpuLevel)
+	return r.cachePreparedStandeeMipChain(key, src, levels, nil, standeeArtRows(levels))
 }
 
 // views, when set, are the token sheet's views for the reduced levels: the
 // chain fills them instead of allocating an image per level, and the caller
-// owns the sheet.
-func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevels []*image.RGBA, views []*ebiten.Image) *mipChain {
+// owns the sheet. rows are the levels' measured bounds.
+func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.Image, cpuLevels []*image.RGBA, views []*ebiten.Image, rows []standeeLevelRows) *mipChain {
 	if chain := r.standeeMipCache[key]; chain != nil {
 		return chain
 	}
@@ -544,7 +549,7 @@ func (r *Renderer) cachePreparedStandeeMipChain(key standeeMipKey, src *ebiten.I
 		return nil
 	}
 
-	chain := &mipChain{levels: make([]*ebiten.Image, 0, len(cpuLevels))}
+	chain := &mipChain{levels: make([]*ebiten.Image, 0, len(cpuLevels)), rows: rows}
 	base := src
 	if standeeMipBaseNeedsCopy(src, cpuLevels[0]) {
 		// The shader's full-size coordinate reference is normalized. Most sprite
@@ -1042,7 +1047,31 @@ func canUseStandeeVolume(slab standeeSlab) bool {
 		len(slab.surfaces)-2 >= standeeVolumeMinShells
 }
 
-func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab, minX, maxX int, stickerMips, coreMips *mipChain, mipLevel, nextMipLevel, coreMipLevel int, mipBlend float32, filtered bool) bool {
+// standeeVolumeEdge is one screen column of a volume strip: the far and near
+// faces' reciprocal depth and source U over depth, and the wall clip. All are
+// affine in screen X.
+type standeeVolumeEdge struct {
+	farInv, nearInv, farUQ, nearUQ, clipInv, clipTop float64
+}
+
+// toward is the edge a fraction t of the way to o; t may run past either end.
+func (e standeeVolumeEdge) toward(o standeeVolumeEdge, t float64) standeeVolumeEdge {
+	return standeeVolumeEdge{
+		e.farInv + (o.farInv-e.farInv)*t, e.nearInv + (o.nearInv-e.nearInv)*t,
+		e.farUQ + (o.farUQ-e.farUQ)*t, e.nearUQ + (o.nearUQ-e.nearUQ)*t,
+		e.clipInv + (o.clipInv-e.clipInv)*t, e.clipTop + (o.clipTop-e.clipTop)*t,
+	}
+}
+
+// sourceU is the faces' source U at this column.
+func (e standeeVolumeEdge) sourceU() (far, near float64) {
+	if e.farInv <= 0 || e.nearInv <= 0 {
+		return 0, 1
+	}
+	return e.farUQ / e.farInv, e.nearUQ / e.nearInv
+}
+
+func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab, minX, maxX int, stickerMips, coreMips *mipChain, mipLevel, nextMipLevel, coreMipLevel int, mipBlend float32, filtered bool, trim standeeTrim) bool {
 	shader, err := r.ensureStandeeVolumeShader()
 	if err != nil {
 		return false
@@ -1080,10 +1109,6 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 		return standeeColumnIntersection(cam.X, cam.Y, rayX, rayY, surface.p0x, surface.p0y, surface.dx, surface.dy)
 	}
 	projection := slab.projection(r.game.viewHorizon())
-	geometryAt := func(depth float64) (top, bottom float32) {
-		top, bottom, _ = projection.atInverseDepth(1 / depth)
-		return
-	}
 
 	vertices := r.standeeVerts[:0]
 	indices := r.standeeMaterialIdx[:0]
@@ -1150,32 +1175,66 @@ func (r *Renderer) drawStandeeSlabVolume(screen *ebiten.Image, slab standeeSlab,
 
 		// Each projected edge is linear. The endpoint union conservatively
 		// encloses both faces; sourcePosition rejects any uncovered pixels.
-		fTop0, fBottom0 := geometryAt(f0Depth)
-		nTop0, nBottom0 := geometryAt(n0Depth)
-		fTop1, fBottom1 := geometryAt(f1Depth)
-		nTop1, nBottom1 := geometryAt(n1Depth)
-		top0, bottom0 := min(fTop0, nTop0), max(fBottom0, nBottom0)
-		top1, bottom1 := min(fTop1, nTop1), max(fBottom1, nBottom1)
-		x0, x1 := float32(x), float32(end)
-		base := uint32(len(vertices))
-
-		left := ebiten.Vertex{
-			DstX: x0, SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
-			Custom0: float32(1 / f0Depth), Custom1: float32(1 / n0Depth),
-			Custom2: float32(mirrorU(f0U) / f0Depth), Custom3: float32(mirrorU(n0U) / n0Depth),
-			ColorR: slab.rr, ColorG: float32(leftClip.inverseDepth), ColorB: float32(leftClip.top), ColorA: packedShells,
+		// Reciprocal depth, U over depth and the wall inputs are affine in
+		// screen X, so a piece's inner edges interpolate the run's.
+		left := standeeVolumeEdge{1 / f0Depth, 1 / n0Depth, mirrorU(f0U) / f0Depth, mirrorU(n0U) / n0Depth, leftClip.inverseDepth, leftClip.top}
+		right := standeeVolumeEdge{1 / f1Depth, 1 / n1Depth, mirrorU(f1U) / f1Depth, mirrorU(n1U) / n1Depth, rightClip.inverseDepth, rightClip.top}
+		width := float64(end - x)
+		vertex := func(px int, e standeeVolumeEdge) ebiten.Vertex {
+			return ebiten.Vertex{
+				DstX: float32(px), SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
+				Custom0: float32(e.farInv), Custom1: float32(e.nearInv),
+				Custom2: float32(e.farUQ), Custom3: float32(e.nearUQ),
+				ColorR: slab.rr, ColorG: float32(e.clipInv), ColorB: float32(e.clipTop), ColorA: packedShells,
+			}
 		}
-		right := ebiten.Vertex{
-			DstX: x1, SrcX: float32(sourceOrigin.X) + heightScale, SrcY: float32(sourceOrigin.Y) + bottomScale,
-			Custom0: float32(1 / f1Depth), Custom1: float32(1 / n1Depth),
-			Custom2: float32(mirrorU(f1U) / f1Depth), Custom3: float32(mirrorU(n1U) / n1Depth),
-			ColorR: slab.rr, ColorG: float32(rightClip.inverseDepth), ColorB: float32(rightClip.top), ColorA: packedShells,
+		pieces := trim.pieces(end - x)
+		trimmed := pieces > 0
+		pieces = max(pieces, 1)
+		for piece := 0; piece < pieces; piece++ {
+			xa, xb := x+(end-x)*piece/pieces, x+(end-x)*(piece+1)/pieces
+			ea, eb := left, right
+			if piece > 0 {
+				ea = left.toward(right, float64(xa-x)/width)
+			}
+			if piece < pieces-1 {
+				eb = left.toward(right, float64(xb-x)/width)
+			}
+			fTopA, fBottomA, fHeightA := projection.atInverseDepth(ea.farInv)
+			nTopA, nBottomA, nHeightA := projection.atInverseDepth(ea.nearInv)
+			fTopB, fBottomB, fHeightB := projection.atInverseDepth(eb.farInv)
+			nTopB, nBottomB, nHeightB := projection.atInverseDepth(eb.nearInv)
+			topA, bottomA := min(fTopA, nTopA), max(fBottomA, nBottomA)
+			topB, bottomB := min(fTopB, nTopB), max(fBottomB, nBottomB)
+			if trimmed {
+				// Every layer's U lies between the faces', a margin out.
+				before := left.toward(right, (float64(xa-x)-standeeTrimMargin)/width)
+				after := left.toward(right, (float64(xb-x)+standeeTrimMargin)/width)
+				u0, u1 := before.sourceU()
+				u2, u3 := after.sourceU()
+				vTop, vBottom, ok := trim.span(min(u0, u1, u2, u3), max(u0, u1, u2, u3), float64(min(fHeightA, nHeightA, fHeightB, nHeightB)))
+				if !ok {
+					continue
+				}
+				// Rows of the art move with depth; the faces bound the layers.
+				// Art that reaches the frame's edge keeps that edge to the
+				// bit: a recomputed one could move a pixel centre lying on it
+				// to the other side.
+				if top := float32(vTop); top > 0 {
+					topA, topB = min(fTopA+top*fHeightA, nTopA+top*nHeightA), min(fTopB+top*fHeightB, nTopB+top*nHeightB)
+				}
+				if bottom := float32(vBottom); bottom < 1 {
+					bottomA, bottomB = max(fTopA+bottom*fHeightA, nTopA+bottom*nHeightA), max(fTopB+bottom*fHeightB, nTopB+bottom*nHeightB)
+				}
+			}
+			base := uint32(len(vertices))
+			va, vb := vertex(xa, ea), vertex(xb, eb)
+			va.DstY, vb.DstY = topA, topB
+			vertices = append(vertices, va, vb)
+			va.DstY, vb.DstY = bottomA, bottomB
+			vertices = append(vertices, va, vb)
+			indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		}
-		left.DstY, right.DstY = top0, top1
-		vertices = append(vertices, left, right)
-		left.DstY, right.DstY = bottom0, bottom1
-		vertices = append(vertices, left, right)
-		indices = append(indices, base, base+1, base+2, base+1, base+3, base+2)
 		f0Depth, f0U, n0Depth, n0U = f1Depth, f1U, n1Depth, n1U
 		return true
 	}
@@ -1319,8 +1378,9 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	}
 	// Very thin faces retain per-surface material coverage. That path chooses
 	// spans or individual columns independently from this projected-width gate.
+	trim := newStandeeTrim(stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, filtered)
 	if projectedWidth >= 2 && canUseStandeeVolume(slab) &&
-		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered) {
+		r.drawStandeeSlabVolume(screen, slab, minX, maxX, stickerMips, coreMips, mipLevel, nextMipLevel, coreMipLevel, mipBlend, filtered, trim) {
 		return
 	}
 	if slab.fade > 0 {
@@ -1363,6 +1423,9 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 	}
 	opts.Blend = ebiten.BlendSourceOver
 
+	if filtered {
+		trim = trim.reaching(majorFootprint, stickerBounds.Size(), stickerMips.levels[mipLevel].Bounds().Size())
+	}
 	verts := r.standeeVerts[:0]
 	idx := r.standeeMaterialIdx[:0]
 	rayAt := func(screenX float64) (float64, float64) {
@@ -1402,7 +1465,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			material.Custom2 = float32(projection.bottomScale / projection.heightScale)
 		}
 		var spanned bool
-		verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, minX, maxX, material, stickerMips.levels[0].Bounds().Min, sheet != nil)
+		verts, idx, spanned = r.appendStandeeSurfaceSpans(verts, idx, slab, sf, minX, maxX, material, stickerMips.levels[0].Bounds().Min, sheet != nil, trim)
 		if spanned {
 			continue
 		}

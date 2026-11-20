@@ -35,6 +35,9 @@ type mipChain struct {
 	// owned lists only images generated for this chain. Level 0 often aliases
 	// immutable SpriteManager art and must survive region-cache eviction.
 	owned []*ebiten.Image
+	// rows bounds what each level of a standee chain can colour
+	// (render_standee_rows.go); nil for any other chain.
+	rows []standeeLevelRows
 }
 
 // mipLevelBlend selects the nearest mip level with a short trilinear crossover.
@@ -125,17 +128,9 @@ func downsampleMip(src *image.RGBA, size image.Point) *image.RGBA {
 		return dst
 	}
 	for y := 0; y < size.Y; y++ {
-		sy0 := y * srcH / size.Y
-		sy1 := (y + 1) * srcH / size.Y
-		if sy1 <= sy0 {
-			sy1 = sy0 + 1
-		}
+		sy0, sy1 := mipFootprint(y, srcH, size.Y)
 		for x := 0; x < size.X; x++ {
-			sx0 := x * srcW / size.X
-			sx1 := (x + 1) * srcW / size.X
-			if sx1 <= sx0 {
-				sx1 = sx0 + 1
-			}
+			sx0, sx1 := mipFootprint(x, srcW, size.X)
 			var sums [4]int
 			for sy := sy0; sy < sy1; sy++ {
 				off := src.PixOffset(srcBounds.Min.X+sx0, srcBounds.Min.Y+sy)
@@ -155,4 +150,25 @@ func downsampleMip(src *image.RGBA, size image.Point) *image.RGBA {
 		}
 	}
 	return dst
+}
+
+// mipFootprint is the run [lo, hi) of source texels that downsampleMip
+// averages into reduced texel i, along an axis src texels long reduced to dst.
+// The exact 2x path averages the same pairs.
+func mipFootprint(i, src, dst int) (lo, hi int) {
+	lo, hi = i*src/dst, (i+1)*src/dst
+	if hi <= lo {
+		hi = lo + 1
+	}
+	return lo, hi
+}
+
+// mipFootprintOwner is the reduced texel whose footprint holds source texel s;
+// footprints tile the axis whenever dst <= src, as in every mip step.
+func mipFootprintOwner(s, src, dst int) int {
+	i := s * dst / src
+	for i+1 < dst && (i+1)*src/dst <= s {
+		i++
+	}
+	return i
 }

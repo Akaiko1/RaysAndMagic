@@ -1,7 +1,8 @@
 package game
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"ugataima/internal/character"
 	"ugataima/internal/monster"
@@ -38,6 +39,20 @@ type lootGuardTarget struct {
 	npc *character.NPC
 }
 
+// lootGuardScratch is the storage the two guard passes of a tick refill
+// instead of allocating: what they return from it is valid until the same
+// helper runs again. A refill drops what it no longer lists and a pass empties
+// its own lists when it ends, so the storage holds nothing older than the last
+// pass.
+type lootGuardScratch struct {
+	byID         map[lootGuardTargetID]lootGuardTarget
+	targets      []lootGuardTarget
+	groups       map[lootGuardTargetID][]*monster.Monster3D
+	reservations map[lootGuardPostID]lootGuardTargetID
+	candidates   []*monster.Monster3D
+	combined     []*monster.Monster3D
+}
+
 func isLootGuardTarget(npc *character.NPC) bool {
 	return npc != nil && !npc.Visited &&
 		(npc.Type == character.NPCTypeLootCrate || npc.Type == character.NPCTypeSpellLectern)
@@ -48,27 +63,28 @@ func (gl *GameLoop) activeLootGuardTargets() (map[lootGuardTargetID]lootGuardTar
 		return nil, nil
 	}
 	tile := float64(gl.game.config.GetTileSize())
-	byID := make(map[lootGuardTargetID]lootGuardTarget)
-	var targets []lootGuardTarget
+	scratch := &gl.lootGuards
+	if scratch.byID == nil {
+		scratch.byID = make(map[lootGuardTargetID]lootGuardTarget)
+	}
+	clear(scratch.byID)
+	targets := scratch.targets[:0]
 	for _, npc := range gl.game.world.NPCs {
 		if !isLootGuardTarget(npc) {
 			continue
 		}
 		id := lootGuardTargetID{key: npc.Key, tileX: TileIndex(npc.X, tile), tileY: TileIndex(npc.Y, tile)}
 		target := lootGuardTarget{id: id, npc: npc}
-		byID[id] = target
+		scratch.byID[id] = target
 		targets = append(targets, target)
 	}
-	sort.Slice(targets, func(i, j int) bool {
-		if targets[i].id.tileY != targets[j].id.tileY {
-			return targets[i].id.tileY < targets[j].id.tileY
-		}
-		if targets[i].id.tileX != targets[j].id.tileX {
-			return targets[i].id.tileX < targets[j].id.tileX
-		}
-		return targets[i].id.key < targets[j].id.key
+	// Stable, so two props sharing a tile and key keep their world order.
+	slices.SortStableFunc(targets, func(a, b lootGuardTarget) int {
+		return cmp.Or(cmp.Compare(a.id.tileY, b.id.tileY), cmp.Compare(a.id.tileX, b.id.tileX), cmp.Compare(a.id.key, b.id.key))
 	})
-	return byID, targets
+	clear(targets[len(targets):cap(targets)])
+	scratch.targets = targets
+	return scratch.byID, targets
 }
 
 func lootGuardTargetOf(m *monster.Monster3D) lootGuardTargetID {
@@ -115,9 +131,21 @@ func clearLootGuard(m *monster.Monster3D) {
 }
 
 func (gl *GameLoop) lootGuardGroups(targets map[lootGuardTargetID]lootGuardTarget) map[lootGuardTargetID][]*monster.Monster3D {
-	groups := make(map[lootGuardTargetID][]*monster.Monster3D)
 	if gl == nil || gl.game == nil || gl.game.world == nil {
-		return groups
+		return map[lootGuardTargetID][]*monster.Monster3D{}
+	}
+	if gl.lootGuards.groups == nil {
+		gl.lootGuards.groups = make(map[lootGuardTargetID][]*monster.Monster3D)
+	}
+	groups := gl.lootGuards.groups
+	// A listed prop keeps its storage for the refill; an unlisted one is dropped.
+	for id, members := range groups {
+		if _, ok := targets[id]; !ok {
+			delete(groups, id)
+			continue
+		}
+		clear(members[:cap(members)])
+		groups[id] = members[:0]
 	}
 	for _, m := range gl.game.world.Monsters {
 		if m == nil || !m.LootGuarding {
@@ -274,7 +302,7 @@ func (gl *GameLoop) lootGuardTileFits(members []*monster.Monster3D, tileX, tileY
 	tile := float64(gl.game.config.GetTileSize())
 	x, y := TileCenterFromTile(tileX, tileY, tile)
 	for _, m := range members {
-		if m == nil || !gl.game.collisionSystem.CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying) {
+		if m == nil || !gl.game.collisionSystem.PassabilityView().CanMoveToWithTileOverrides(m.ID, x, y, m.WalkableTileOverrides, m.Flying) {
 			return false
 		}
 	}
@@ -290,7 +318,7 @@ func (gl *GameLoop) lootGuardPostReachable(members []*monster.Monster3D, tileX, 
 		return true
 	}
 	for _, m := range members {
-		if m == nil || !m.HasPathToTile(gl.game.collisionSystem, tileX, tileY) {
+		if m == nil || !m.HasPathToTile(gl.game.collisionSystem.PassabilityView(), tileX, tileY) {
 			return false
 		}
 	}
@@ -429,8 +457,12 @@ func advanceLootGuardPatrolRoute(m *monster.Monster3D) {
 	m.LootGuardPathBlocked = false
 }
 
-func lootGuardTargetReservations(targets map[lootGuardTargetID]lootGuardTarget) map[lootGuardPostID]lootGuardTargetID {
-	reservations := make(map[lootGuardPostID]lootGuardTargetID, len(targets))
+func (gl *GameLoop) lootGuardTargetReservations(targets map[lootGuardTargetID]lootGuardTarget) map[lootGuardPostID]lootGuardTargetID {
+	if gl.lootGuards.reservations == nil {
+		gl.lootGuards.reservations = make(map[lootGuardPostID]lootGuardTargetID, len(targets))
+	}
+	reservations := gl.lootGuards.reservations
+	clear(reservations)
 	for id := range targets {
 		reservations[lootGuardPostID{tileX: id.tileX, tileY: id.tileY}] = id
 	}
@@ -600,7 +632,7 @@ func (gl *GameLoop) prepareLootPropGuards() {
 		}
 	}
 
-	candidates := make([]*monster.Monster3D, 0, len(gl.game.world.Monsters))
+	candidates := gl.lootGuards.candidates[:0]
 	for _, m := range gl.game.world.Monsters {
 		if gl.canStartLootGuard(m) {
 			candidates = append(candidates, m)
@@ -621,10 +653,11 @@ func (gl *GameLoop) prepareLootPropGuards() {
 				continue
 			}
 			d := Distance(m.X, m.Y, target.npc.X, target.npc.Y)
-			if d > bestDist || (gl.game.collisionSystem != nil && !gl.game.collisionSystem.CheckLineOfSight(m.X, m.Y, target.npc.X, target.npc.Y)) {
+			if d > bestDist || (gl.game.collisionSystem != nil && !gl.game.collisionSystem.PassabilityView().CheckLineOfSight(m.X, m.Y, target.npc.X, target.npc.Y)) {
 				continue
 			}
-			combined := append(append([]*monster.Monster3D(nil), members...), m)
+			combined := append(append(gl.lootGuards.combined[:0], members...), m)
+			gl.lootGuards.combined = combined
 			leader := stableLootGuardLeader(combined)
 			preferred := lootGuardSideSeed(m.ID, target.id)
 			if leader != nil {
@@ -642,7 +675,11 @@ func (gl *GameLoop) prepareLootPropGuards() {
 		gl.assignLootGuard(m, *chosen)
 		groups[chosen.id] = append(groups[chosen.id], m)
 	}
-	postReservations := lootGuardTargetReservations(targetByID)
+	clear(candidates[:cap(candidates)])
+	gl.lootGuards.candidates = candidates[:0]
+	clear(gl.lootGuards.combined[:cap(gl.lootGuards.combined)])
+	gl.lootGuards.combined = gl.lootGuards.combined[:0]
+	postReservations := gl.lootGuardTargetReservations(targetByID)
 	for _, target := range targets {
 		if members := groups[target.id]; len(members) > 0 {
 			gl.syncLootGuardBand(target, members, true, postReservations)
@@ -662,7 +699,7 @@ func (gl *GameLoop) reconcileLootPropGuardBands() {
 	if len(targets) == 0 {
 		return
 	}
-	postReservations := lootGuardTargetReservations(targetByID)
+	postReservations := gl.lootGuardTargetReservations(targetByID)
 	for _, target := range targets {
 		members := groups[target.id]
 		if len(members) == 0 {

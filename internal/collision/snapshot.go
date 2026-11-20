@@ -87,6 +87,23 @@ func (cs *CollisionSystem) FrameSnapshot() *CollisionSnapshot {
 	return cs.snapshotInto(cs.frameSnapshot)
 }
 
+// PassabilityView is a view for serial code that asks many passability, sight
+// or attack-post questions between changes: it answers them as the live system
+// does, through the spatial index instead of a scan of every entity. It is
+// refilled only after a change that can alter such an answer, so it is NOT a
+// record of where non-blocking bodies stand: a monster that blocks nobody may
+// have moved since. Fetch it per question, never keep it across a mutation,
+// and use it on the game goroutine only.
+func (cs *CollisionSystem) PassabilityView() *CollisionSnapshot {
+	if cs.passabilityView == nil {
+		cs.passabilityView = &CollisionSnapshot{}
+	} else if cs.passabilityAt == cs.passability {
+		return cs.passabilityView
+	}
+	cs.passabilityAt = cs.passability
+	return cs.snapshotInto(cs.passabilityView)
+}
+
 func (cs *CollisionSystem) snapshotInto(snap *CollisionSnapshot) *CollisionSnapshot {
 	cs.sightSnapshotInto(snap)
 	if snap.entities == nil {

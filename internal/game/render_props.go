@@ -140,7 +140,7 @@ func (pose propPose) eachPosedFace(visit func(worldModelTriangle)) {
 			t := math.Min(1, pose.progress/.82)
 			fall := smooth((t - .25) / .75)
 			angle = fall * .78
-			dy = -.82 * smooth(t/.65)
+			dy = -propCrateFall * smooth(t/.65)
 			// Slide across the short local Y axis, then tumble around X.
 			// Both lower lids move during the same opening interval.
 			floorCenter := part.size*(.5*math.Abs(math.Cos(angle))+.43*math.Abs(math.Sin(angle))) + .018
@@ -192,6 +192,16 @@ func (pose propPose) eachPosedFace(visit func(worldModelTriangle)) {
 	}
 }
 
+// propOutsideView reports a prop none of whose points can project onto the
+// screen. x and z are its origin in camera space (cameraSpaceXY: the screen's
+// edges lie at x = -z and x = z), reach its horizontal radius in world units.
+// A point projects to x/z, with z never under the near plane's 1.
+func propOutsideView(x, z, reach, halfFovTan float64) bool {
+	far := max(z+reach, 1)
+	side := reach / halfFovTan
+	return x-side > far || x+side < -far
+}
+
 func (r *Renderer) collectPropModels() {
 	g := r.game
 	if g.world == nil {
@@ -215,6 +225,11 @@ func (r *Renderer) collectPropModels() {
 		pose := g.propPose(npc)
 		// A whole-object extent test retains triangles crossing the near plane.
 		if oz < -pose.scale*ts*1.5 {
+			continue
+		}
+		// Wholly left or right of the view: every face would be dropped after
+		// it was posed, lit and projected (projectTriangle).
+		if propOutsideView(ox, oz, pose.model.reach*pose.scale*ts, g.cameraBasis().halfFovTan) {
 			continue
 		}
 		brightness := r.calculateBrightnessWithTorchLight(npc.X, npc.Y, dist)

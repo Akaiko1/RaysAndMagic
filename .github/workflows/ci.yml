@@ -58,6 +58,31 @@ jobs:
         # wiring and concurrent resource loading remain in the race shards.
         run: xvfb-run --auto-servernum go test -count=1 -timeout 15m -run '^TestMonsterAnimation(Assets|Pixels)$' ./internal/game
 
+  windows-shaders:
+    # fxc, the DirectX shader compiler, rejects shaders every other backend
+    # accepts (a loop it cannot unroll, an array it cannot address). Only the
+    # release build and Windows players meet it, so a shader that fails there
+    # used to surface at the next tag. Compile them all on every push.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Compile DirectX shaders
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdkBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
+          $fxc = & ./.github/scripts/find-fxc.ps1 -SdkBin $sdkBin
+          $env:PATH = "$($fxc.Directory.FullName);$env:PATH"
+          go run ./tools/shadergen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   linux-release-smoke:
     # The Linux release is built without cgo (Ebitengine 2.10 loads X11, GL
     # and audio at run time), the tests above with it: build the shipped

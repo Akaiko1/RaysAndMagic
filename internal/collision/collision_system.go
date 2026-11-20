@@ -110,6 +110,11 @@ type CollisionSystem struct {
 	tileSize     float64
 	// frameSnapshot is the storage FrameSnapshot refills every tick.
 	frameSnapshot *CollisionSnapshot
+	// passability counts every change that can alter a passability, sight or
+	// attack-post answer; PassabilityView refills its view when it has moved.
+	passability     uint64
+	passabilityView *CollisionSnapshot
+	passabilityAt   uint64
 }
 
 // NewCollisionSystem creates a new collision system
@@ -130,6 +135,7 @@ func (cs *CollisionSystem) RegisterEntity(entity *Entity) {
 	}
 	previous := cs.entities[entity.ID]
 	cs.entities[entity.ID] = entity
+	cs.passability++
 	if entity.CollisionType == CollisionTypeMonsterEngaged {
 		cs.engagedPosts[entity.ID] = entity
 	} else {
@@ -148,6 +154,7 @@ func (cs *CollisionSystem) UnregisterEntity(id string) {
 	entity := cs.entities[id]
 	delete(cs.entities, id)
 	delete(cs.engagedPosts, id)
+	cs.passability++
 	if entity != nil && entity.blocksSight {
 		cs.sightMu.Lock()
 		cs.indexEntitySightTiles(entity, -1)
@@ -165,6 +172,7 @@ func (cs *CollisionSystem) SetEntityCollisionType(id string, t CollisionType) {
 		return
 	}
 	entity.CollisionType = t
+	cs.passability++
 	if t == CollisionTypeMonsterEngaged {
 		cs.engagedPosts[id] = entity
 	} else {
@@ -172,9 +180,23 @@ func (cs *CollisionSystem) SetEntityCollisionType(id string, t CollisionType) {
 	}
 }
 
+// SetEntitySolid changes whether a registered entity blocks movement. A direct
+// field write would leave PassabilityView answering for the old state.
+func (cs *CollisionSystem) SetEntitySolid(id string, solid bool) {
+	if entity := cs.entities[id]; entity != nil && entity.Solid != solid {
+		entity.Solid = solid
+		cs.passability++
+	}
+}
+
 // UpdateEntity updates an entity's position in the collision system
 func (cs *CollisionSystem) UpdateEntity(id string, x, y float64) {
 	if entity, exists := cs.entities[id]; exists {
+		// Where a body stands matters to others only while it blocks movement
+		// or sight, or marks an attack post.
+		if entity.Solid || entity.blocksSight || entity.CollisionType == CollisionTypeMonsterEngaged {
+			cs.passability++
+		}
 		if entity.blocksSight {
 			cs.sightMu.Lock()
 			cs.indexEntitySightTiles(entity, -1)
@@ -192,6 +214,7 @@ func (cs *CollisionSystem) UpdateEntity(id string, x, y float64) {
 // UpdateTileChecker updates the tile checker (used when switching maps)
 func (cs *CollisionSystem) UpdateTileChecker(tileChecker TileChecker) {
 	cs.tileChecker = tileChecker
+	cs.passability++
 }
 
 // CanMoveTo checks if an entity can move to the specified position
@@ -612,5 +635,6 @@ func (cs *CollisionSystem) GetEntityByID(id string) *Entity {
 func (cs *CollisionSystem) SetMovementBounds(id string, bounds MovementBounds) {
 	if e := cs.entities[id]; e != nil {
 		e.movementBounds = bounds
+		cs.passability++
 	}
 }

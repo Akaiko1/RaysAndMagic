@@ -14,6 +14,10 @@ import (
 var activeWorldRaster *paniniRasterizer
 var zeroWorldPanini [4]float32
 
+// A uniform map holds its values as interfaces. Boxing the same slice on
+// every world draw allocated twice per call; these are boxed once.
+var zeroWorldPaniniUniform any = zeroWorldPanini[:]
+
 type paniniRasterizer struct {
 	target        *ebiten.Image
 	projection    paniniProjection
@@ -24,7 +28,10 @@ type paniniRasterizer struct {
 	indices       []uint32
 	uniform       [4]float32
 	centerUniform [1]float32
-	emptyUniforms map[string]any
+	// uniformValue and centerValue are uniform and centerUniform as the
+	// uniform map stores them; they alias the arrays above.
+	uniformValue, centerValue any
+	emptyUniforms             map[string]any
 }
 
 func (gl *GameLoop) renderProjectedWorld(dst *ebiten.Image) {
@@ -237,7 +244,7 @@ func worldShaderOptions(p *paniniRasterizer, op *ebiten.DrawTrianglesShaderOptio
 	}
 	if p == nil {
 		if o.Uniforms != nil {
-			o.Uniforms["WorldPanini"] = zeroWorldPanini[:]
+			o.Uniforms["WorldPanini"] = zeroWorldPaniniUniform
 		}
 		return o
 	}
@@ -252,8 +259,11 @@ func worldShaderOptions(p *paniniRasterizer, op *ebiten.DrawTrianglesShaderOptio
 			o.Uniforms = p.emptyUniforms
 		}
 	}
-	o.Uniforms["WorldPanini"] = p.uniform[:]
-	o.Uniforms["WorldCenter"] = p.centerUniform[:]
+	if p.uniformValue == nil {
+		p.uniformValue, p.centerValue = p.uniform[:], p.centerUniform[:]
+	}
+	o.Uniforms["WorldPanini"] = p.uniformValue
+	o.Uniforms["WorldCenter"] = p.centerValue
 	return o
 }
 func worldDrawTrianglesShader(dst *ebiten.Image, v []ebiten.Vertex, i []uint16, shader *ebiten.Shader, op *ebiten.DrawTrianglesShaderOptions) {

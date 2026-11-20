@@ -142,7 +142,9 @@ type mapRenderStandeeCommit struct {
 	stickerLevels []*ebiten.Image
 	coreLevels    []*ebiten.Image
 	// sheet holds the reduced levels of both chains when they pack into one.
-	sheet  *standeeSheet
+	sheet *standeeSheet
+	// rows bounds what each level of either chain can colour.
+	rows   []standeeLevelRows
 	writes []mapRenderImageWrite
 	owned  []*ebiten.Image
 	done   bool
@@ -150,7 +152,7 @@ type mapRenderStandeeCommit struct {
 
 func newMapRenderStandeeCommit(prepared mapRenderPreparedStandee) *mapRenderStandeeCommit {
 	defer prepared.lease.Release()
-	c := &mapRenderStandeeCommit{key: prepared.key, source: prepared.source}
+	c := &mapRenderStandeeCommit{key: prepared.key, source: prepared.source, rows: prepared.prepared.rows}
 	if prepared.source == nil || prepared.prepared.sticker == nil || prepared.prepared.core == nil {
 		c.done = true
 		return c
@@ -271,10 +273,10 @@ func (c *mapRenderStandeeCommit) advance(r *Renderer, maxBytes int) (*ebiten.Ima
 		stickerOwned = append(stickerOwned, c.sticker)
 	}
 	r.standeeMipCache[standeeMipKey{frame: c.key, layer: standeeMipSticker}] = &mipChain{
-		levels: c.stickerLevels, owned: stickerOwned,
+		levels: c.stickerLevels, owned: stickerOwned, rows: c.rows,
 	}
 	r.standeeMipCache[standeeMipKey{frame: c.key, layer: standeeMipCore}] = &mipChain{
-		levels: c.coreLevels, owned: coreOwned,
+		levels: c.coreLevels, owned: coreOwned, rows: c.rows,
 	}
 	c.owned = nil
 	c.done = true

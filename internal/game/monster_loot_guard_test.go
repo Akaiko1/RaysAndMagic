@@ -378,7 +378,7 @@ func TestNearbyLootTargetsReserveDifferentPatrolPosts(t *testing.T) {
 
 	groups = loop.lootGuardGroups(targetByID)
 	posts := make(map[lootGuardPostID]string)
-	targetTiles := lootGuardTargetReservations(targetByID)
+	targetTiles := loop.lootGuardTargetReservations(targetByID)
 	for _, target := range targets {
 		leader := stableLootGuardLeader(groups[target.id])
 		if leader == nil {

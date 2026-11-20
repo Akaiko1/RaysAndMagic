@@ -3653,7 +3653,7 @@ func applyMonsterCollisionTypeTo(system *collision.CollisionSystem, monsterID st
 		// engaged-post index that reservation queries scan.
 		system.SetEntityCollisionType(monsterID, desired)
 	}
-	entity.Solid = false
+	system.SetEntitySolid(monsterID, false)
 }
 
 // refreshMonsterCollisionState computes AND immediately applies m's desired

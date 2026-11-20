@@ -284,6 +284,10 @@ type Renderer struct {
 	monsterPick    monsterPickFrame
 	hoveredMonster *monster.Monster3D
 	unifiedSprites []UnifiedSpriteRenderData
+	// The painter sort's keys, and the list it reorders into: the collected
+	// list and this one swap roles every frame.
+	spritePaintKeys []spritePaintKey
+	sortedSprites   []UnifiedSpriteRenderData
 	// Scenery props drawn this frame, for paintMonstersOverSceneryProps.
 	sceneryPropFronts []sceneryPropFront
 	zoneVisuals       []zoneVisual
@@ -527,7 +531,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 func (r *Renderer) reserveUnifiedSpriteCapacity() {
 	currentWorld := r.game.GetCurrentWorld()
 	if currentWorld == nil {
-		r.unifiedSprites = nil
+		r.unifiedSprites, r.sortedSprites, r.spritePaintKeys = nil, nil, nil
 		return
 	}
 	// A crossed tree normally contributes one entry. Near another standee it
@@ -3349,6 +3353,58 @@ func compareUnifiedSprites(a, b UnifiedSpriteRenderData) int {
 	return cmp.Compare(a.treeArmIndex, b.treeArmIndex)
 }
 
+// spritePaintKey is what compareUnifiedSprites reads of a sprite, with its
+// place in the collected list.
+type spritePaintKey struct {
+	paint, depth               float64
+	tileY, tileX, screenX, arm int
+	index                      int
+}
+
+// compareSpritePaintKeys orders keys as compareUnifiedSprites orders their
+// sprites; the place in the list settles what that leaves equal, as a stable
+// sort would.
+func compareSpritePaintKeys(a, b spritePaintKey) int {
+	if c := cmp.Compare(b.paint, a.paint); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(b.depth, a.depth); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.tileY, b.tileY); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.tileX, b.tileX); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.screenX, b.screenX); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.arm, b.arm); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.index, b.index)
+}
+
+// sortSpritesForPainting returns the sprites back to front, in the order a
+// stable sort by compareUnifiedSprites gives. It sorts small keys and moves
+// each sprite record once: a record is several hundred bytes, and the sort
+// used to copy two per comparison.
+func (r *Renderer) sortSpritesForPainting(sprites []UnifiedSpriteRenderData) []UnifiedSpriteRenderData {
+	keys := r.spritePaintKeys[:0]
+	for i := range sprites {
+		s := &sprites[i]
+		keys = append(keys, spritePaintKey{s.paintDepth(), s.depthPerp, s.tileY, s.tileX, s.screenX, s.treeArmIndex, i})
+	}
+	slices.SortFunc(keys, compareSpritePaintKeys)
+	sorted := r.sortedSprites[:0]
+	for _, key := range keys {
+		sorted = append(sorted, sprites[key.index])
+	}
+	r.spritePaintKeys, r.sortedSprites = keys, sprites[:0]
+	return sorted
+}
+
 // drawAllSpritesSorted collects scenery, actors, fields and tile markers
 // and renders them together by depth for proper transparency and occlusion.
 func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
@@ -3732,15 +3788,14 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	sprites = r.splitCrossedTreesForPainterOrder(sprites, crossedTreeStart, crossedTreeEnd)
 	sprites = r.collectTileCurtains(sprites)
 
-	// Sort all sprites by depth (back to front). slices.SortStableFunc: no
-	// reflect swaps and no closure alloc, unlike sort.Slice - this runs every
-	// frame. Depth ties are REAL and common: a row of trees seen head-on at
-	// range collapses to identical depthPerp (the per-tile difference
-	// underflows float64), and an unstable order there reshuffles every
-	// frame - overlapping crossed standees flicker and a distant treeline
-	// visibly shudders as silhouettes alternate. Tie-break by stable identity,
-	// with the stable sort covering identity-less entries (monsters, NPCs).
-	slices.SortStableFunc(sprites, compareUnifiedSprites)
+	// Sort all sprites by depth (back to front). Depth ties are REAL and
+	// common: a row of trees seen head-on at range collapses to identical
+	// depthPerp (the per-tile difference underflows float64), and an unstable
+	// order there reshuffles every frame - overlapping crossed standees
+	// flicker and a distant treeline visibly shudders as silhouettes
+	// alternate. Tie-break by stable identity, with the collected order
+	// covering identity-less entries (monsters, NPCs).
+	sprites = r.sortSpritesForPainting(sprites)
 
 	// Update buffer for next frame
 	r.unifiedSprites = sprites
