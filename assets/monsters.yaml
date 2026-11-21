@@ -753,7 +753,7 @@ monsters:
     alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.4
-    sprite: "forest_spider"
+    sprite: "spider"
     letter: "s"
     size_class: medium
     resistances: {}
