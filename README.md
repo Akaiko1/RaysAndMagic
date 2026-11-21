@@ -4,15 +4,15 @@ A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org
 
 [Download and play](#download-and-play) | [Controls](#controls) | [Build from source](#build-from-source) | [Add content](#add-content)
 
-![Winged Isis guardians strike and hurl lightning in the pyramid's pillared hall](src/pyramid_isis.png)
+![Winged Isis guardians advance down the pyramid's pillared hall](src/pyramid_isis.png)
 
 ## Screenshots
 
 | | |
 | --- | --- |
-| ![A mountain troll lunges while an elf archer looses from the crags](src/highlands_battle.png) | ![A kitsune onmyoji conjures foxfire before a torii under the night sky](src/sakura_night.png) |
-| *Open wilds - a mountain troll charges, elf archers shoot from the rocks* | *Day/night cycle - moonlit yokai guard the Sakura Garden shrine* |
-| ![A dragon rears over the bone field, its breath already glowing](src/dragon_bones.png) | ![The Arena Gatekeeper's shop with a unique axe tooltip](src/arena_shop.png) |
+| ![A mountain troll swings while an elf archer shoots from the crags](src/highlands_battle.png) | ![A kitsune onmyoji casts foxfire before a torii at night, a karasu tengu and a kasa obake at her sides](src/sakura_night.png) |
+| *Open wilds - a mountain troll charges, an elf archer shoots from the rocks* | *Day/night cycle - moonlit yokai guard the Sakura Garden shrine* |
+| ![A Black Dragon breathes fire over the bone field](src/dragon_bones.png) | ![The Arena Duel Master's shop with a unique axe tooltip](src/arena_shop.png) |
 | *Dragon hunt - a Black Dragon on the bone field of the Dragon Cliffs* | *Arena quartermaster - spend arena points on unique gear* |
 | ![An Alchemist's Fire Flask tooltip on the paperdoll, herbs in her personal bag](src/alchemist_flask.png) | ![The monster-card collection tab with slotted cards](src/card_collection.png) |
 | *Alchemist - she throws the flasks she brews herself* | *Build customization with rare monster cards* |
