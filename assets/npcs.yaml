@@ -970,7 +970,7 @@ npcs:
     biomes: ["forest"]
     name: "Apprentice Mira"
     type: "quest_giver"
-    description: "An apprentice with two water charms, a stack of bridge planks, and plans to study at the shrine"
+    description: "An apprentice hugging her spellbook, with two water charms and plans to study at the shrine"
     sprite: "beginner_spell_merchant"
     render_category: npc
     size_class: person
@@ -1054,7 +1054,7 @@ npcs:
     biomes: ["desert"]
     name: "Cartomancer Odette"
     type: "card_collector"
-    description: "A scholar with a monocle and belt pouches full of monster cards"
+    description: "A scholar in a long coat, a monster card in hand and belt pouches full of them"
     sprite: "card_collector"
     render_category: npc
     size_class: person
